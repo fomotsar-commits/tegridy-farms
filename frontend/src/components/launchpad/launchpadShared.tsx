@@ -5,6 +5,7 @@ import { ART } from '../../lib/artConfig';
 import { PHASE_LABELS, LABEL } from './launchpadConstants';
 
 /** Return the block explorer address URL for the current chain */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useExplorerAddressUrl(address: string) {
   const chains = useChains();
   const { chain } = useAccount();

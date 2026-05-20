@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { HTMLAttributes, ReactNode } from 'react';
 import { SeasonalEventBanner } from './SeasonalEvent';
 
 // Mock framer-motion if used indirectly
@@ -8,9 +9,9 @@ vi.mock('framer-motion', async () => {
   return {
     ...actual,
     motion: {
-      div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+      div: ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
     },
-    AnimatePresence: ({ children }: any) => <>{children}</>,
+    AnimatePresence: ({ children }: { children: ReactNode }) => <>{children}</>,
   };
 });
 

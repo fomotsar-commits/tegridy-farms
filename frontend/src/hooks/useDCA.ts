@@ -107,17 +107,17 @@ function claimTabLock(scheduleId: string): boolean {
 function refreshTabLock(scheduleId: string) {
   try {
     localStorage.setItem(`tegridy_dca_lock_${scheduleId}`, String(Date.now()));
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function releaseTabLock(scheduleId: string) {
-  try { localStorage.removeItem(`tegridy_dca_lock_${scheduleId}`); } catch {}
+  try { localStorage.removeItem(`tegridy_dca_lock_${scheduleId}`); } catch { /* ignore */ }
 }
 
 // R042 MED-6: broadcast lock claim/release across tabs.
 type LockMsg = { type: 'lock_claim' | 'lock_release'; scheduleId: string; tabId: string; ts: number };
 function broadcastLockMsg(msg: LockMsg) {
-  try { DCA_LOCK_CHANNEL?.postMessage(msg); } catch {}
+  try { DCA_LOCK_CHANNEL?.postMessage(msg); } catch { /* ignore */ }
 }
 
 const INTERVAL_MS: Record<string, number> = {
@@ -195,7 +195,7 @@ function saveSchedules(address: string, schedules: DCASchedule[]) {
     const payload: StoragePayload = { version: STORAGE_VERSION, schedules };
     localStorage.setItem(getStorageKey(address), JSON.stringify(payload));
     DCA_CHANNEL?.postMessage({ type: 'dca_updated', address });
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function buildPath(fromToken: DCASchedule['fromToken'], toToken: DCASchedule['toToken']): `0x${string}`[] {
@@ -209,7 +209,7 @@ function buildPath(fromToken: DCASchedule['fromToken'], toToken: DCASchedule['to
 
 function sendNotification(title: string, body: string) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  try { new Notification(title, { body, icon: '/favicon.ico' }); } catch {}
+  try { new Notification(title, { body, icon: '/favicon.ico' }); } catch { /* ignore */ }
 }
 
 function requestNotificationPermission() {

@@ -42,7 +42,7 @@ function loadAlerts(): PriceAlert[] {
 function saveAlerts(alerts: PriceAlert[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ alerts }));
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function sendNotification(title: string, body: string) {

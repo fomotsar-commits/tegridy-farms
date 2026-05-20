@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import type { HTMLAttributes, ReactNode } from 'react';
 import { OnboardingModal } from './OnboardingModal';
 
 // Mock framer-motion to avoid animation issues in tests.
@@ -10,13 +11,13 @@ import { OnboardingModal } from './OnboardingModal';
 // passthrough without hitting the real framer animation engine.
 vi.mock('framer-motion', () => {
   const passthrough = {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    div: ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
   };
   return {
     motion: passthrough,
     m: passthrough,
-    AnimatePresence: ({ children }: any) => <>{children}</>,
-    LazyMotion: ({ children }: any) => <>{children}</>,
+    AnimatePresence: ({ children }: { children: ReactNode }) => <>{children}</>,
+    LazyMotion: ({ children }: { children: ReactNode }) => <>{children}</>,
     domAnimation: {},
   };
 });

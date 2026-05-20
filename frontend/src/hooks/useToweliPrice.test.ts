@@ -63,7 +63,7 @@ describe('useToweliPrice', () => {
     // Clear any price baseline that other tests might have left behind.
     try {
       localStorage.clear();
-    } catch {}
+    } catch { /* ignore */ }
   });
 
   afterEach(() => {

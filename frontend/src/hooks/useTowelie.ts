@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, useRef, type ReactNode, createElement } from 'react';
+import { createContext, useCallback, useContext, useState, type ReactNode, createElement } from 'react';
 
 /**
  * Hook API so any component can push a message through Towelie.
@@ -37,32 +37,35 @@ const TowelieContext = createContext<TowelieContextValue | null>(null);
 const MAX_QUEUE = 5;
 
 export function TowelieProvider({ children }: { children: ReactNode }) {
-  const [queue, setQueue] = useState<TowelieMessage[]>([]);
-  const nextId = useRef(1);
+  // queue + monotonic next-id are bundled in one state cell so the setQueue
+  // updater is self-contained — no ref read during render (React Compiler
+  // flags `nextId.current++` inside the updater otherwise).
+  const [{ queue }, setQueueState] = useState<{ queue: TowelieMessage[]; nextId: number }>({ queue: [], nextId: 1 });
 
   const say = useCallback((text: string, opts: { priority?: ToweliePriority; key?: string } = {}) => {
     const priority: ToweliePriority = opts.priority ?? 'info';
-    setQueue((prev) => {
+    setQueueState((prevState) => {
+      const prev = prevState.queue;
       // Dedup against existing queue items with same key.
-      if (opts.key && prev.some((m) => m.key === opts.key)) return prev;
+      if (opts.key && prev.some((m) => m.key === opts.key)) return prevState;
       // Drop flavor messages if queue full; trim oldest non-urgent for info; urgent always wins.
       const next = [...prev];
       if (next.length >= MAX_QUEUE) {
-        if (priority === 'flavor') return prev;
+        if (priority === 'flavor') return prevState;
         const dropIdx = next.findIndex((m) => m.priority !== 'urgent');
         if (dropIdx !== -1) next.splice(dropIdx, 1);
-        else if (priority !== 'urgent') return prev;
+        else if (priority !== 'urgent') return prevState;
       }
-      const msg: TowelieMessage = { id: nextId.current++, text, priority, key: opts.key };
+      const msg: TowelieMessage = { id: prevState.nextId, text, priority, key: opts.key };
       // Urgent jumps to the front; everything else appends.
       if (priority === 'urgent') next.unshift(msg);
       else next.push(msg);
-      return next;
+      return { queue: next, nextId: prevState.nextId + 1 };
     });
   }, []);
 
   const consume = useCallback((id: number) => {
-    setQueue((prev) => prev.filter((m) => m.id !== id));
+    setQueueState((prev) => ({ ...prev, queue: prev.queue.filter((m) => m.id !== id) }));
   }, []);
 
   return createElement(

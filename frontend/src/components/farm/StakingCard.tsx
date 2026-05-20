@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
@@ -64,6 +65,13 @@ export function StakingCard({
 }: StakingCardProps) {
   const { amount: stakeAmount, setAmount: setStakeAmount, lock: selectedLock, setLock: setSelectedLock, extendLockDuration, setExtendLockDuration } = input;
   const { boostDisplay, amtNum, effectiveStake, stakeNeedsApproval, totalBoostBps } = computed;
+  // Tick once per minute so the boost-expiry countdown stays fresh without
+  // calling Date.now() during render (which React Compiler treats as impure).
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 60_000);
+    return () => clearInterval(id);
+  }, []);
   return (
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -111,7 +119,7 @@ export function StakingCard({
                     neutral. Updates on every render which is fine since
                     the parent refetches position every 30s. */}
                 {pos.hasPosition && pos.isLocked && !pos.autoMaxLock && (() => {
-                  const secondsLeft = Math.max(0, pos.lockEnd - Math.floor(Date.now() / 1000));
+                  const secondsLeft = Math.max(0, pos.lockEnd - nowSec);
                   const daysLeft = Math.floor(secondsLeft / 86400);
                   const hoursLeft = Math.floor((secondsLeft % 86400) / 3600);
                   const soon = daysLeft <= 5;

@@ -27,6 +27,10 @@ export function usePoolTVL() {
         { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps' as const, chainId: CHAIN_ID },
         { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' as const, chainId: CHAIN_ID },
       ] : []),
+    // useReadContracts expects a discriminated-tuple type for `contracts`, which
+    // conditional spread breaks. The runtime shape is correct; we widen with an
+    // explicit unknown[] cast so TS doesn't try to narrow each tuple slot.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ] as any,
     query: { enabled: onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });

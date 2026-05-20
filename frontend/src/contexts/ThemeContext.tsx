@@ -16,7 +16,7 @@ function getInitialTheme(): Theme {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'dark' || stored === 'light') return stored;
-  } catch {}
+  } catch { /* ignore */ }
   // Default to dark regardless of OS preference — the brand art/colors are
   // tuned for the dark palette, and light mode is only available if the user
   // explicitly toggles to it.
@@ -35,7 +35,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
     try {
       localStorage.setItem(STORAGE_KEY, theme);
-    } catch {}
+    } catch { /* ignore */ }
   }, [theme]);
 
   // Intentional: no auto-follow of OS preference. Default is always dark;
@@ -54,6 +54,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error('useTheme must be used within a ThemeProvider');

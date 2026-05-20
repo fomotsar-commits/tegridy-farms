@@ -34,6 +34,7 @@ export function PriceProvider({ children }: { children: ReactNode }) {
  * Consume the shared TOWELI price from the nearest PriceProvider.
  * Throws if used outside PriceProvider — wrap your component tree.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTOWELIPrice(): PriceData {
   const ctx = useContext(PriceContext);
   if (!ctx) {

@@ -85,7 +85,7 @@ export function SeasonalEventBanner() {
 
   const dismiss = useCallback(() => {
     if (!event) return;
-    try { localStorage.setItem(dismissKey(event.id, address), '1'); } catch {}
+    try { localStorage.setItem(dismissKey(event.id, address), '1'); } catch { /* ignore */ }
     setDismissed(true);
   }, [event, address]);
 

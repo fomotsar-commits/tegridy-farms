@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useAccount, useChainId, useChains, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
@@ -83,14 +83,16 @@ function PauseControls({
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // R007 Pattern B — compare-during-render against the last tx hash we've
-  // toasted for. Fires the toast exactly once per `txHash` going confirmed,
-  // no matter how many re-renders see `isSuccess: true`.
+  // R007 Pattern B — fire the toast exactly once per `txHash` going confirmed,
+  // no matter how many re-renders see `isSuccess: true`. Reads the dedup ref
+  // inside the effect (not render) so React Compiler stays happy.
   const lastSuccessHash = useRef<typeof txHash | null>(null);
-  if (isSuccess && txHash && lastSuccessHash.current !== txHash) {
-    lastSuccessHash.current = txHash;
-    toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
-  }
+  useEffect(() => {
+    if (isSuccess && txHash && lastSuccessHash.current !== txHash) {
+      lastSuccessHash.current = txHash;
+      toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
+    }
+  }, [isSuccess, txHash, isPaused]);
 
   // R069: force a fresh owner() read before firing the write so a mid-session
   // ownership transfer can't slip through the UI. The contract reverts on
@@ -216,55 +218,47 @@ export default function AdminPage() {
     return typeof v === 'string' ? v : undefined;
   };
 
-  const feeRouterItems = useMemo(() => {
-    const feeBps = safe(0);
-    const totalSwaps = safe(1);
-    const totalETHFees = safeBigInt(2);
-    const pendingFee = safe(3);
-    const pendingTreasury = safeString(4);
+  // React Compiler memoizes these derived arrays automatically; the manual
+  // useMemo wrappers couldn't preserve memoization because `safe` / `safeBigInt`
+  // / `safeString` are recreated every render (compiler-inferred deps include
+  // those helpers, while the manual deps only listed `contractReads`).
+  const feeBps = safe(0);
+  const totalSwaps = safe(1);
+  const totalETHFees = safeBigInt(2);
+  const pendingFee = safe(3);
+  const pendingTreasury = safeString(4);
+  const feeRouterItems = [
+    { label: 'Current Fee', value: feeBps != null ? `${Number(feeBps)} bps (${(Number(feeBps) / 100).toFixed(2)}%)` : '...' },
+    { label: 'Pending Fee', value: pendingFee != null ? `${Number(pendingFee)} bps` : 'None' },
+    { label: 'Pending Treasury', value: pendingTreasury ? shortenAddress(pendingTreasury) : 'None' },
+    { label: 'Total Swaps', value: totalSwaps != null ? formatNumber(Number(totalSwaps), 0) : '...' },
+    { label: 'Total ETH Fees', value: totalETHFees != null ? `${Number(formatEther(totalETHFees)).toFixed(4)} ETH` : '...' },
+  ];
 
-    return [
-      { label: 'Current Fee', value: feeBps != null ? `${Number(feeBps)} bps (${(Number(feeBps) / 100).toFixed(2)}%)` : '...' },
-      { label: 'Pending Fee', value: pendingFee != null ? `${Number(pendingFee)} bps` : 'None' },
-      { label: 'Pending Treasury', value: pendingTreasury ? shortenAddress(pendingTreasury) : 'None' },
-      { label: 'Total Swaps', value: totalSwaps != null ? formatNumber(Number(totalSwaps), 0) : '...' },
-      { label: 'Total ETH Fees', value: totalETHFees != null ? `${Number(formatEther(totalETHFees)).toFixed(4)} ETH` : '...' },
-    ];
-  }, [contractReads]);
+  const monthlyFee = safeBigInt(5);
+  const totalSubs = safe(6);
+  const totalRev = safeBigInt(7);
+  const premiumItems = [
+    { label: 'Monthly Fee', value: monthlyFee != null ? `${formatTokenAmount(Number(formatEther(monthlyFee)))} TOWELI` : '...' },
+    { label: 'Total Subscribers', value: totalSubs != null ? formatNumber(Number(totalSubs), 0) : '...' },
+    { label: 'Total Revenue', value: totalRev != null ? `${formatTokenAmount(Number(formatEther(totalRev)))} TOWELI` : '...' },
+  ];
 
-  const premiumItems = useMemo(() => {
-    const monthlyFee = safeBigInt(5);
-    const totalSubs = safe(6);
-    const totalRev = safeBigInt(7);
+  const stakingRewardRate = safeBigInt(8);
+  const totalStaked = safeBigInt(9);
+  const paused = safe(10);
+  const stakingItems = [
+    { label: 'Reward Rate', value: stakingRewardRate != null ? `${Number(formatEther(stakingRewardRate)).toFixed(6)}/sec` : '...' },
+    { label: 'Total Staked', value: totalStaked != null ? `${formatTokenAmount(Number(formatEther(totalStaked)))} TOWELI` : '...' },
+    { label: 'Status', value: paused != null ? (paused ? 'PAUSED' : 'Active') : '...' },
+  ];
 
-    return [
-      { label: 'Monthly Fee', value: monthlyFee != null ? `${formatTokenAmount(Number(formatEther(monthlyFee)))} TOWELI` : '...' },
-      { label: 'Total Subscribers', value: totalSubs != null ? formatNumber(Number(totalSubs), 0) : '...' },
-      { label: 'Total Revenue', value: totalRev != null ? `${formatTokenAmount(Number(formatEther(totalRev)))} TOWELI` : '...' },
-    ];
-  }, [contractReads]);
-
-  const stakingItems = useMemo(() => {
-    const rewardRate = safeBigInt(8);
-    const totalStaked = safeBigInt(9);
-    const paused = safe(10);
-
-    return [
-      { label: 'Reward Rate', value: rewardRate != null ? `${Number(formatEther(rewardRate)).toFixed(6)}/sec` : '...' },
-      { label: 'Total Staked', value: totalStaked != null ? `${formatTokenAmount(Number(formatEther(totalStaked)))} TOWELI` : '...' },
-      { label: 'Status', value: paused != null ? (paused ? 'PAUSED' : 'Active') : '...' },
-    ];
-  }, [contractReads]);
-
-  const lpFarmItems = useMemo(() => {
-    const rewardRate = safeBigInt(11);
-    const totalSupply = safeBigInt(12);
-
-    return [
-      { label: 'Reward Rate', value: rewardRate != null ? `${Number(formatEther(rewardRate)).toFixed(6)}/sec` : '...' },
-      { label: 'Total Staked LP', value: totalSupply != null ? `${formatTokenAmount(Number(formatEther(totalSupply)))}` : '...' },
-    ];
-  }, [contractReads]);
+  const lpRewardRate = safeBigInt(11);
+  const totalSupply = safeBigInt(12);
+  const lpFarmItems = [
+    { label: 'Reward Rate', value: lpRewardRate != null ? `${Number(formatEther(lpRewardRate)).toFixed(6)}/sec` : '...' },
+    { label: 'Total Staked LP', value: totalSupply != null ? `${formatTokenAmount(Number(formatEther(totalSupply)))}` : '...' },
+  ];
 
   // Not connected
   if (!isConnected) {
