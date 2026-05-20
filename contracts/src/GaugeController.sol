@@ -828,28 +828,37 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     }
 
     /// @notice Returns a gauge's share of total emissions in basis points for the current epoch
-    /// @return Relative weight in BPS (0-10000). Returns 0 if no votes cast.
+    /// @return Relative weight in BPS (0-10000). Returns 0 if no votes cast OR quorum not met.
     /// @dev    AUDIT FIX V3-GOV-03 + V3-GOV-06 — Curve-style natural distribution.
     ///         No per-gauge cap: the H14 single-actor capture scenario is closed
     ///         UPSTREAM by the C2 commit `committedPower` cap and the
     ///         `min(historical, current)` clamp at every vote site.
-    /// @dev    AUDIT FIX FRESH-2026: F-69-2 — view does NOT incorporate the
-    ///         `quorumMet()` gate. Downstream consumers MUST check `quorumMet(epoch)`
-    ///         before using `getGaugeEmission` / `getRelativeWeight*`. See `quorumMet`.
+    /// @dev    AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — emission view
+    ///         now FAIL-CLOSED through `_getRelativeWeightAt`'s baked-in
+    ///         `quorumMet(epoch)` gate. Pre-fix, downstream emission
+    ///         distributors had to remember to call `quorumMet` separately; a
+    ///         single forgotten check let any 1-wei voter capture 100% of an
+    ///         emission budget when they were the only voter. Raw vote weights
+    ///         remain accessible via `getGaugeWeight` and `gaugeWeightByEpoch`
+    ///         for UI / historical display.
     function getRelativeWeight(address gauge) external view returns (uint256) {
         return _getRelativeWeightAt(gauge, currentEpoch());
     }
 
     /// @notice Returns a gauge's share of the emission budget for the current epoch
-    /// @dev    AUDIT FIX FRESH-2026: F-69-2 — does NOT incorporate the `quorumMet()`
-    ///         gate. Off-chain emission distributors MUST check `quorumMet(epoch)`
-    ///         before honoring this number; without quorum, distributing emissions
-    ///         lets a single voter direct 100% of the budget. See `quorumMet`.
+    /// @dev    AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — see
+    ///         `getRelativeWeight`. Returns 0 when `quorumMet(epoch) == false`,
+    ///         so a captured/forgetful downstream distributor cannot route
+    ///         emissions on a sub-quorum vote.
     function getGaugeEmission(address gauge) external view returns (uint256) {
         return (emissionBudget * _getRelativeWeightAt(gauge, currentEpoch())) / BPS;
     }
 
-    /// @notice Returns a gauge's relative weight for a specific past epoch
+    /// @notice Returns a gauge's relative weight for a specific past epoch.
+    /// @dev    AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — returns 0 for
+    ///         past epochs where quorum was not met (matches the actual
+    ///         emission-routing semantics: 0 emission flows where 0 quorum is
+    ///         met).
     function getRelativeWeightAt(address gauge, uint256 epoch) external view returns (uint256) {
         return _getRelativeWeightAt(gauge, epoch);
     }
@@ -897,6 +906,19 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // The natural distribution is fair because vote weight is
         // proportional to stake, and the upstream guards prevent
         // single-actor manipulation.
+        // AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — fail closed when the
+        //         distinct-voter quorum is not met. Pre-fix, this view returned
+        //         natural-distribution weights regardless of voter count, so a
+        //         single 1-wei voter showed up as 100% allocator for any gauge
+        //         they voted on. Off-chain emission distributors were expected
+        //         to call `quorumMet(epoch)` separately — easy to miss, would
+        //         have routed an entire epoch's emissionBudget to one voter.
+        //         The gate is now load-bearing in the canonical accessor. Raw
+        //         vote weights remain available via `gaugeWeightByEpoch` /
+        //         `getGaugeWeight` for UIs that legitimately want pre-quorum
+        //         vote breakdowns.
+        if (!quorumMet(epoch)) return 0;
+
         uint256 total = totalWeightByEpoch[epoch];
         if (total == 0) return 0;
 
@@ -1044,9 +1066,23 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice AUDIT FIX: V2-GOV-07 — alternative removal path that disables the
     ///         gauge IMMEDIATELY (no future votes accepted) but defers the
     ///         gaugeList prune to a manual second step.
+    /// @dev    AUDIT FIX FRESH-2026: GC-REMOVE-NEXT-EPOCH-STRAND [HIGH] —
+    ///         mirror `executeRemoveGauge`'s `GaugeHasActiveVotes` check so a
+    ///         mid-epoch disable cannot strand voter weight in
+    ///         `gaugeWeightByEpoch[currentEpoch()][gauge]` while the gauge can
+    ///         no longer redeem emissions (isGauge flips false below). Stranded
+    ///         votes would have diluted every other gauge's relative weight in
+    ///         the same epoch (denominator inflated by un-redeemable weight),
+    ///         silently transferring emissions away from honest voters who
+    ///         picked active gauges. Owner must wait until the proposal's
+    ///         current-epoch votes clear (or the proposal expires) before
+    ///         executing — same constraint as `executeRemoveGauge`. The fast
+    ///         path is still useful: it skips the gaugeList swap-and-pop loop,
+    ///         which is the gas-heavy difference between the two execute paths.
     function executeRemoveGaugeNextEpoch() external onlyOwner {
         _execute(GAUGE_REMOVE);
         address gauge = pendingGaugeRemove;
+        if (gaugeWeightByEpoch[currentEpoch()][gauge] > 0) revert GaugeHasActiveVotes();
         isGauge[gauge] = false;
         address removedPair = gaugeToPair[gauge];
         if (removedPair != address(0)) {

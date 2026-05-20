@@ -590,13 +590,17 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // up to TegridyStaking.MAX_POSITIONS_PER_HOLDER = 50.
         try referralSplitter.recordFee{value: _feeAmount, gas: 700_000}(_user) {
             return true;
-        } catch Error(string memory) {
-            emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
-            return false;
-        } catch Panic(uint256) {
-            emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
-            return false;
-        } catch (bytes memory) {
+        } catch {
+            // AUDIT FIX FRESH-2026: SFR-CATCH-COLLAPSE-BOMB [MEDIUM] —
+            //         single `catch {}` replaces the prior 3-arm
+            //         `Error(string) / Panic(uint256) / (bytes memory)`
+            //         structure. All three branches did identical work
+            //         (emit + return false), so the dispatch arms added
+            //         no observability. The `(bytes memory)` arm in
+            //         particular could trigger a full returndatacopy on
+            //         a malicious referralSplitter implementation returning
+            //         16MB returndata, OOG-griefing every swap. `catch {}`
+            //         skips compiler-injected returndatacopy entirely.
             emit ReferralFeeRedirectedToTreasury(_user, _feeAmount);
             return false;
         }
@@ -638,12 +642,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
                     uint256 discount = (baseFee * premiumDiscountBps) / BPS;
                     baseFee = baseFee > discount ? baseFee - discount : 0;
                 }
-            } catch Error(string memory) {
-                // Fail-open: user pays base fee without the discount. No revert.
-            } catch Panic(uint256) {
-                // Fail-open on assertion / overflow / OOG.
-            } catch (bytes memory) {
-                // Fail-open on low-level revert.
+            } catch {
+                // AUDIT FIX FRESH-2026: SFR-CATCH-COLLAPSE-BOMB [MEDIUM] —
+                //         single `catch {}` replaces prior 3-arm structure
+                //         that did identical no-op work. Same returndata-bomb
+                //         defense as `_recordReferralFee`. Function stays view
+                //         so even fail-open is silent — off-chain monitoring
+                //         uses `isPremiumAccessHealthy` as the liveness probe.
             }
         }
 

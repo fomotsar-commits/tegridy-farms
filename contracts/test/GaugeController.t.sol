@@ -29,6 +29,11 @@ contract GaugeControllerTest is Test {
     address public treasury = makeAddr("treasury");
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
+    /// @dev AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — third staker added
+    ///      so any test exercising `getRelativeWeight` / `getGaugeEmission`
+    ///      reaches `MIN_VOTING_NFTS_PER_EPOCH = 3` and exits the
+    ///      `quorumMet == false` fail-closed branch.
+    address public carol = makeAddr("carol");
 
     address public gauge1 = makeAddr("gauge1");
     address public gauge2 = makeAddr("gauge2");
@@ -45,6 +50,7 @@ contract GaugeControllerTest is Test {
         staking.notifyRewardAmount(10_000_000 ether);
         toweli.transfer(alice, 500_000 ether);
         toweli.transfer(bob, 500_000 ether);
+        toweli.transfer(carol, 500_000 ether);
 
         vm.startPrank(alice);
         toweli.approve(address(staking), type(uint256).max);
@@ -52,6 +58,12 @@ contract GaugeControllerTest is Test {
         vm.stopPrank();
 
         vm.startPrank(bob);
+        toweli.approve(address(staking), type(uint256).max);
+        staking.stake(500_000 ether, 365 days);
+        vm.stopPrank();
+
+        // AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — third staker
+        vm.startPrank(carol);
         toweli.approve(address(staking), type(uint256).max);
         staking.stake(500_000 ether, 365 days);
         vm.stopPrank();
@@ -185,10 +197,16 @@ contract GaugeControllerTest is Test {
 
     function test_getRelativeWeight() public {
         // BATCH-J4 C4: split across 2 gauges per voter to satisfy 5000 BPS cap.
-        // Alice → 50% gauge1 + 50% gauge3; Bob → 50% gauge2 + 50% gauge3.
-        // Aggregate: gauge1 = alice/2, gauge2 = bob/2, gauge3 = (alice+bob)/2.
+        // AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN — needs 3 voters for
+        // `quorumMet` to be true (MIN_VOTING_NFTS_PER_EPOCH = 3). Alice + Bob +
+        // Carol each split 50/50 across the same two-gauge pattern:
+        //   Alice → 50% gauge1 + 50% gauge3
+        //   Bob   → 50% gauge2 + 50% gauge3
+        //   Carol → 50% gauge1 + 50% gauge2 (kept symmetric so totals balance)
+        // Aggregate share-of-total computed below.
         uint256 aliceId = staking.userTokenId(alice);
         uint256 bobId = staking.userTokenId(bob);
+        uint256 carolId = staking.userTokenId(carol);
         address[] memory g = new address[](2);
         uint256[] memory w = new uint256[](2);
         w[0] = 5000; w[1] = 5000;
@@ -198,12 +216,17 @@ contract GaugeControllerTest is Test {
         g[0] = gauge2; g[1] = gauge3;
         vm.prank(bob);
         gauge.vote(bobId, g, w);
-        // Alice and Bob have equal stake. Each splits 50/50 across 2 gauges.
-        // gauge1 has 25% (alice's half), gauge2 has 25% (bob's half),
-        // gauge3 has 50% (alice's half + bob's half).
-        assertApproxEqAbs(gauge.getRelativeWeight(gauge1), 2500, 10);
-        assertApproxEqAbs(gauge.getRelativeWeight(gauge2), 2500, 10);
-        assertApproxEqAbs(gauge.getRelativeWeight(gauge3), 5000, 10);
+        g[0] = gauge1; g[1] = gauge2;
+        vm.prank(carol);
+        gauge.vote(carolId, g, w);
+        // Equal stake, equal split. Per-gauge raw weights:
+        //   gauge1 = alice/2 + carol/2 = 1.0 unit
+        //   gauge2 = bob/2   + carol/2 = 1.0 unit
+        //   gauge3 = alice/2 + bob/2   = 1.0 unit
+        // Total = 3.0 units. Relative = 1/3 each ≈ 3333 BPS.
+        assertApproxEqAbs(gauge.getRelativeWeight(gauge1), 3333, 10);
+        assertApproxEqAbs(gauge.getRelativeWeight(gauge2), 3333, 10);
+        assertApproxEqAbs(gauge.getRelativeWeight(gauge3), 3333, 10);
     }
 
     // ── Gauge Removal ──────────────────────────────────────────────

@@ -1373,8 +1373,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 totalDrained = 0;
         try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _prePaid) {
             totalDrained += _prePaid;
-        } catch (bytes memory reason) {
-            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        } catch {
+            // AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+            //         `catch {}` (no binding) skips the compiler-injected
+            //         full returndatacopy; the bounded helper captures only
+            //         the first MAX_REVERT_REASON_BYTES (512) bytes for the
+            //         event payload. See `_captureBoundedReason` NatSpec.
+            emit EscrowRewardsClaimDeferred(_loanId, _captureBoundedReason());
         }
 
         bool moved = _safeOutboundTransferStaking(address(staking), address(this), borrower, tokenId);
@@ -1385,8 +1390,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _postPaid) {
             totalDrained += _postPaid;
-        } catch (bytes memory reason) {
-            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        } catch {
+            // AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+            //         `catch {}` (no binding) skips the compiler-injected
+            //         full returndatacopy; the bounded helper captures only
+            //         the first MAX_REVERT_REASON_BYTES (512) bytes for the
+            //         event payload. See `_captureBoundedReason` NatSpec.
+            emit EscrowRewardsClaimDeferred(_loanId, _captureBoundedReason());
         }
 
         // Split: priorShare (≤ snapshot) belongs to a prior holder; myShare
@@ -1530,8 +1540,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 totalDrained = 0;
         try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _prePaid) {
             totalDrained += _prePaid;
-        } catch (bytes memory reason) {
-            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        } catch {
+            // AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+            //         `catch {}` (no binding) skips the compiler-injected
+            //         full returndatacopy; the bounded helper captures only
+            //         the first MAX_REVERT_REASON_BYTES (512) bytes for the
+            //         event payload. See `_captureBoundedReason` NatSpec.
+            emit EscrowRewardsClaimDeferred(_loanId, _captureBoundedReason());
         }
 
         bool moved = _safeOutboundTransferStaking(address(staking), address(this), lender, tokenId);
@@ -1542,8 +1557,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _postPaid) {
             totalDrained += _postPaid;
-        } catch (bytes memory reason) {
-            emit EscrowRewardsClaimDeferred(_loanId, reason);
+        } catch {
+            // AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+            //         `catch {}` (no binding) skips the compiler-injected
+            //         full returndatacopy; the bounded helper captures only
+            //         the first MAX_REVERT_REASON_BYTES (512) bytes for the
+            //         event payload. See `_captureBoundedReason` NatSpec.
+            emit EscrowRewardsClaimDeferred(_loanId, _captureBoundedReason());
         }
 
         uint256 priorShare = totalDrained > snapshot ? snapshot : totalDrained;
@@ -1576,6 +1596,39 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         leaving the NFT escrowed forever. Returns `true` only when the
     ///         post-call ownership confirms the transfer landed at `to`.
     ///         Mirrors NFTLending._safeOutboundTransfer L755-L782.
+    /// @dev AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+    ///      bounded capture of the last failed call's returndata, capped at
+    ///      `MAX_REVERT_REASON_BYTES` (512). Pre-fix, every
+    ///      `catch (bytes memory reason)` arm in the settlement paths
+    ///      (`repayLoan` / `claimDefaultedCollateral` / `pullEscrowRewards`)
+    ///      triggered an unbounded `returndatacopy` before the catch arm
+    ///      executed. A malicious per-offer `collateralContract` returning
+    ///      16MB returndata OOG-bricked every wrapped settlement, locking
+    ///      the borrower's NFT and the lender's principal in an
+    ///      unrecoverable defaulted state. We now switch the catch arms to
+    ///      `catch {}` (no binding, no compiler-injected returndatacopy)
+    ///      and call this helper to capture a bounded reason slice for the
+    ///      event. Mirrors `SafeERC721Call`'s bounded-returndata pattern.
+    function _captureBoundedReason() private pure returns (bytes memory r) {
+        uint256 size;
+        assembly {
+            size := returndatasize()
+        }
+        if (size > MAX_REVERT_REASON_BYTES) size = MAX_REVERT_REASON_BYTES;
+        r = new bytes(size);
+        assembly {
+            returndatacopy(add(r, 0x20), 0, size)
+        }
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+    ///         512-byte cap on the captured revert reason. Tight enough that
+    ///         a malicious collateral contract cannot OOG via returndatacopy,
+    ///         generous enough to preserve any legitimate revert message
+    ///         (typed errors are 4 bytes; Solidity Error(string) reasons are
+    ///         rarely > 128 bytes; Panic(uint256) is 36 bytes).
+    uint256 internal constant MAX_REVERT_REASON_BYTES = 512;
+
     function _safeOutboundTransferStaking(
         address stakingAddr,
         address from,
@@ -2175,8 +2228,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
                 // Excess `received - toRecipient` stays in lending TOWELI
                 // balance and is consumed by the legacy pro-rata path on
                 // sibling loans' subsequent `pullEscrowRewards` calls.
-            } catch (bytes memory reason) {
-                emit EscrowRewardsClaimDeferred(_loanId, reason);
+            } catch {
+                // AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+                //         missed sibling site (ultrareview bug_001). The 4
+                //         settlement arms in repayLoan + claimDefaultedCollateral
+                //         were converted in the initial Batch 5 pass via
+                //         `replace_all` but this arm has a different
+                //         surrounding context (different success body) so the
+                //         block-level replace skipped it. The `_captureBoundedReason`
+                //         NatSpec at line 1611 was already claiming
+                //         pullEscrowRewards coverage; this brings the implementation
+                //         in line. Same threat model: per-offer `collateralContract`
+                //         can return 16MB returndata to OOG-grief the catch arm.
+                emit EscrowRewardsClaimDeferred(_loanId, _captureBoundedReason());
             }
         }
 

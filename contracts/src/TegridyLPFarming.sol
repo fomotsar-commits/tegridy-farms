@@ -76,10 +76,20 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     /// @dev AUDIT FIX FRESH-2026: F-93-2 — minimum interval between notifyRewardAmount
     ///      invocations. Closes the same-block / same-mempool sandwich window where an
     ///      attacker watches the owner's pending notify tx and front-runs a `stake()`
-    ///      to capture the new period's rate. 1 hour is the residual operational
-    ///      compromise; for full immunity, route notifyRewardAmount through a private
-    ///      mempool relay (Flashbots Protect / MEV-blocker).
-    uint256 public constant NOTIFY_COOLDOWN = 1 hours;
+    ///      to capture the new period's rate. For full immunity, route notifyRewardAmount
+    ///      through a private mempool relay (Flashbots Protect / MEV-blocker).
+    /// @dev AUDIT FIX FRESH-2026: LPFARM-NOTIFY-COOLDOWN [HIGH] — bumped 1h → 24h.
+    ///      The 1h cooldown left the sandwich economically viable for a determined
+    ///      whale: stake → wait 1h → top-up lands → unstake captures the rate-bump
+    ///      share for ~1h of opportunity cost. At 24h the whale must commit LP for
+    ///      a full day before each notify, multiplying the opportunity cost ~24×.
+    ///      Most realistic reward distributions cadence weekly+; 24h is operationally
+    ///      generous while pricing out the mempool-watching sandwich strategy.
+    ///      Battle-tested precedent: Curve/Convex gauge emissions update weekly via
+    ///      a queued RewardsDistribution contract — owners that need stronger
+    ///      protection can deploy an external scheduler and rotate ownership of
+    ///      notifyRewardAmount to it via the existing owner-rotation flow.
+    uint256 public constant NOTIFY_COOLDOWN = 24 hours;
     /// @dev Audit C-01 defence-in-depth: cap boost at 4.5x (MAX_BOOST 40000 + JBAC bonus
     /// ceiling). Even if the interface is ever re-mis-aligned against TegridyStaking's
     /// Position struct in a future upgrade, this cap prevents unbounded reward capture.

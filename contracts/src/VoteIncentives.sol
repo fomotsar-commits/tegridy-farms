@@ -434,6 +434,11 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         their own; `committedPower` is decremented so the voter regains the
     ///         power they cannot reveal.
     event CommitForfeitedOnDisabledPair(address indexed user, uint256 indexed epoch, uint256 commitIndex, address indexed pair, uint256 power, uint256 bond);
+    /// @notice AUDIT FIX FRESH-2026: VI-COMMIT-BOND-INVALID-PAIR [HIGH] —
+    ///         emitted when a commit pointing at a never-reveable pair is
+    ///         unwound via `forfeitCommitOnInvalidPair` (sibling of the
+    ///         disabled-pair escape). Bond refunded to the original committer.
+    event CommitForfeitedOnInvalidPair(address indexed user, uint256 indexed epoch, uint256 commitIndex, address indexed pair, uint256 power, uint256 bond);
     event CommitRevealEnabled(bool enabled);
     event RestakingContractSet(address indexed restaking); // pass-8 GOV-ECON-01
 
@@ -503,6 +508,13 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         a pair that is currently NOT disabled. Refusing here forces voters to
     ///         honour live commits via the normal reveal path.
     error PairNotDisabled();
+
+    /// @notice AUDIT FIX FRESH-2026: VI-COMMIT-BOND-INVALID-PAIR [HIGH] —
+    ///         `forfeitCommitOnInvalidPair` refused because the pair would in
+    ///         fact be reveable through the normal path. Voters with valid
+    ///         commits must use `revealVote`; the invalid-pair escape is
+    ///         strictly for commits whose pair was never reachable.
+    error PairStillReveable();
 
     // AUDIT FIX (pass-8): EIP170-03 — view-helpers (`feeChangeTime`,
     // `treasuryChangeTime`, `whitelistChangeTime`, `minBribeChangeTime`,
@@ -1741,6 +1753,109 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
             }
             // Refund (not forfeit) — voter is being kicked off through no fault of
             // their own, so they get the bond back.
+            toweli.safeTransfer(user, bond);
+            emit BondRefunded(user, epoch, commitIndex, bond);
+        }
+    }
+
+    /// @dev AUDIT FIX FRESH-2026: VI-COMMIT-BOND-INVALID-PAIR [HIGH] — boolean
+    ///      mirror of `_validatePair`. Returns true iff a reveal targeting
+    ///      `pair` would pass every gate inside `_validatePair`. Used by
+    ///      `forfeitCommitOnInvalidPair` to refuse the escape path when the
+    ///      voter still has the live `revealVote` path available. Kept as a
+    ///      separate function from `_validatePair` to preserve the existing
+    ///      revert-on-fail semantics every other caller relies on.
+    function _isPairReveable(address pair) internal view returns (bool) {
+        if (pair == address(0) || pair.code.length == 0) return false;
+        try ITegridyPair(pair).token0() returns (address t0) {
+            try ITegridyPair(pair).token1() returns (address t1) {
+                if (factory.getPair(t0, t1) != pair) return false;
+            } catch {
+                return false;
+            }
+        } catch {
+            return false;
+        }
+        if (factory.disabledPairs(pair)) return false;
+        return true;
+    }
+
+    /// @notice Refund a commit-bond when the committed pair was never reveable
+    ///         (typo, frontend bug, address that was never a factory-registered
+    ///         pair, malformed contract that fails token0/token1). Mirrors
+    ///         `forfeitCommitOnDisabledPair` for the "never lived" case rather
+    ///         than the "was-live-then-disabled" case.
+    /// @dev    AUDIT FIX FRESH-2026: VI-COMMIT-BOND-INVALID-PAIR [HIGH] —
+    ///         pre-fix, a committer who hashed a non-existent or malformed
+    ///         pair could NOT reveal (`_validatePair` reverts InvalidPair) AND
+    ///         could NOT forfeit (`forfeitCommitOnDisabledPair` reverts
+    ///         `PairNotDisabled` because `factory.disabledPairs(pair) == false`
+    ///         for never-registered addresses). The bond was locked until
+    ///         `revealDeadline`, then `sweepForfeitedBond` swept it to treasury
+    ///         — an asymmetric loss the voter had no way to recover. This path
+    ///         refunds the bond to the original committer once they prove
+    ///         (pair, power, salt) match the committed hash. Caller restriction
+    ///         mirrors the disabled-pair escape (G-01): owner OR original
+    ///         committer. Bond goes to original committer either way, so owner
+    ///         operates this purely as a recovery aid for users who lost access
+    ///         to their commit-side wallet (e.g., SCW signer loss).
+    /// @param user        Voter who placed the commit (also recipient of the bond refund).
+    /// @param epoch       Commit-reveal epoch index.
+    /// @param commitIndex Index returned by commitVote.
+    /// @param pair        Pair the commit was for (validated against the hash).
+    /// @param power       Voting power declared at commit (validated against the hash).
+    /// @param salt        Salt used at commit time (validated against the hash).
+    function forfeitCommitOnInvalidPair(
+        address user,
+        uint256 epoch,
+        uint256 commitIndex,
+        address pair,
+        uint256 power,
+        bytes32 salt
+    ) external nonReentrant whenNotPaused {
+        if (msg.sender != user && msg.sender != owner()) revert Unauthorized();
+
+        if (epoch >= epochs.length) revert InvalidEpoch();
+        EpochInfo memory ep = epochs[epoch];
+        if (!ep.usesCommitReveal) revert NotCommitRevealEpoch();
+
+        CommitInfo[] storage commits = voterCommits[user][epoch];
+        if (commitIndex >= commits.length) revert CommitNotFound();
+        CommitInfo storage c = commits[commitIndex];
+        if (c.revealed) revert AlreadyRevealed();
+
+        if (power == 0) revert ZeroAmount();
+        // Note: we DO accept `pair == address(0)` here — that is exactly one of
+        // the never-reveable shapes the escape path exists for. The hash binds
+        // the value so it's still authenticated.
+        bytes32 expected = computeCommitHash(user, epoch, pair, power, salt);
+        if (expected != c.commitHash) revert CommitHashMismatch();
+
+        // Refuse the escape path when the pair WOULD pass `_validatePair`. Live
+        // commits must travel the normal reveal path. If the pair is disabled
+        // (factory-registered but flagged off) use `forfeitCommitOnDisabledPair`
+        // instead — the two paths are intentionally disjoint to preserve clear
+        // event semantics for off-chain consumers.
+        if (_isPairReveable(pair)) revert PairStillReveable();
+        if (factory.disabledPairs(pair)) revert PairStillReveable();
+
+        // CEI: state first, transfer last.
+        c.revealed = true;
+        uint96 bond = c.bond;
+        c.bond = 0;
+
+        if (committedPower[user][epoch] >= power) {
+            committedPower[user][epoch] -= power;
+        } else {
+            committedPower[user][epoch] = 0;
+        }
+
+        emit CommitForfeitedOnInvalidPair(user, epoch, commitIndex, pair, power, bond);
+
+        if (bond > 0) {
+            if (totalCommitBonds >= bond) {
+                totalCommitBonds -= bond;
+            }
             toweli.safeTransfer(user, bond);
             emit BondRefunded(user, epoch, commitIndex, bond);
         }

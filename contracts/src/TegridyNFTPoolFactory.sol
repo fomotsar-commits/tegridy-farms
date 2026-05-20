@@ -576,6 +576,13 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///           future upgrade) cannot re-enter through `claimProtocolFees`
     ///           to double-claim.
     function claimPoolFeesBatch(address[] calldata pools) external nonReentrant {
+        // AUDIT FIX FRESH-2026: NFTPOOLFACTORY-BATCH-SIZE-CAP [MEDIUM] —
+        //         bound the batch to MAX_BATCH_CLAIM_POOLS so a caller passing
+        //         a 10k-entry array cannot exhaust the block gas limit. Each
+        //         entry is an external call + isPool check; 50 is enough for
+        //         realistic per-tx claim aggregation while keeping per-call
+        //         worst-case gas under ~5M.
+        if (pools.length > MAX_BATCH_CLAIM_POOLS) revert BatchTooLarge();
         for (uint256 i = 0; i < pools.length; i++) {
             address pool = pools[i];
             if (!isPool[pool]) revert NotAPool(pool);
@@ -585,9 +592,40 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
             try TegridyNFTPool(payable(pool)).claimProtocolFees() {
                 uint256 received = address(this).balance - before;
                 emit PoolFeesClaimed(pool, received);
-            } catch (bytes memory reason) {
-                emit PoolFeesClaimFailed(pool, reason);
+            } catch {
+                // AUDIT FIX FRESH-2026: NFTPOOLFACTORY-RETURNDATA-BOMB-CATCH [MEDIUM] —
+                //         `catch {}` (no binding) skips the compiler-injected full
+                //         returndatacopy. A malicious pool implementation (in a
+                //         future upgrade) returning 16MB returndata would have
+                //         OOG'd the rest of the batch via the old `catch (bytes
+                //         memory reason)`. We capture a bounded reason slice
+                //         (max 512 bytes) for the event payload.
+                emit PoolFeesClaimFailed(pool, _captureBoundedReason());
             }
+        }
+    }
+
+    /// @notice AUDIT FIX FRESH-2026: NFTPOOLFACTORY-BATCH-SIZE-CAP [MEDIUM] —
+    ///         per-tx hard ceiling on `claimPoolFeesBatch` to prevent
+    ///         caller-supplied O(n) blowups against the block gas limit.
+    uint256 internal constant MAX_BATCH_CLAIM_POOLS = 50;
+    /// @notice AUDIT FIX FRESH-2026: NFTPOOLFACTORY-RETURNDATA-BOMB-CATCH [MEDIUM].
+    uint256 internal constant MAX_REVERT_REASON_BYTES = 512;
+    error BatchTooLarge();
+
+    /// @dev AUDIT FIX FRESH-2026: NFTPOOLFACTORY-RETURNDATA-BOMB-CATCH [MEDIUM] —
+    ///      bounded capture of the last failed call's returndata. See
+    ///      `claimPoolFeesBatch` catch arm. Mirrors `TegridyLending`'s
+    ///      `_captureBoundedReason` helper one level up.
+    function _captureBoundedReason() private pure returns (bytes memory r) {
+        uint256 size;
+        assembly {
+            size := returndatasize()
+        }
+        if (size > MAX_REVERT_REASON_BYTES) size = MAX_REVERT_REASON_BYTES;
+        r = new bytes(size);
+        assembly {
+            returndatacopy(add(r, 0x20), 0, size)
         }
     }
 

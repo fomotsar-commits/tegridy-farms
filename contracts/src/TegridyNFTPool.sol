@@ -298,7 +298,21 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         if (inputAmount > maxTotalCost) revert MaxCostExceeded();
         if (msg.value < inputAmount) revert InsufficientETH();
 
+        // AUDIT FIX FRESH-2026: NFTPOOL-SPOT-CAP-POSTSWAP [MEDIUM] — enforce
+        //         the `MAX_SPOT_PRICE` ceiling on the post-swap value, not
+        //         just at construction / `proposeSpotPrice`. A long enough
+        //         run of buys with no intervening sells could otherwise push
+        //         `spotPrice` past the cap silently, then permanently brick
+        //         `proposeSpotPrice` for the operator (line 468 rejects any
+        //         `newPrice > MAX_SPOT_PRICE`, including legitimate
+        //         downward repricings that are still above the cap). With
+        //         the cap enforced here, the curve clamps to "no more buys
+        //         once cap is hit" — sellers must clear inventory to bring
+        //         `spotPrice` back under the ceiling, restoring the price-
+        //         management primitive. Sudoswap V2 enforces the same
+        //         per-swap ceiling on LinearCurve.
         spotPrice += delta * numItems;
+        if (spotPrice > MAX_SPOT_PRICE) revert SpotPriceTooHigh();
 
         for (uint256 i = 0; i < numItems; i++) {
             uint256 tokenId = tokenIds[i];

@@ -603,11 +603,19 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             pendingPayouts[winner] += reward;
             // AUDIT FIX (BATCH-L1 M18): record credit timestamp so non-claiming
             // winners' ETH can be swept to feeReceiver after PAYOUT_EXPIRY (1 year),
-            // mirroring the existing M-09 refund-expiry pattern. Only updates on
-            // first credit (preserves earliest-credit anchor on subsequent appends).
-            // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-            // slither-disable-next-line incorrect-equality
-            if (pendingPayoutTime[winner] == 0) pendingPayoutTime[winner] = block.timestamp;
+            // mirroring the existing M-09 refund-expiry pattern.
+            // AUDIT FIX FRESH-2026: BB-PAYOUT-TS-RESET [HIGH] — unconditional
+            //         overwrite (matches refundTimestamp pattern at lines 695,
+            //         734, 755, 787). Pre-fix the timestamp was only set on
+            //         FIRST credit so a winner with multiple staggered payouts
+            //         had ALL credits (including yesterday's) swept the moment
+            //         the oldest one crossed the 365d boundary. The latest-anchor
+            //         semantic restarts the sweep window on every new credit,
+            //         matching the user's reasonable mental model and the
+            //         refund-side convention. A winner can't grief themselves
+            //         by self-crediting because completeBounty only credits via
+            //         majority-vote completion path (not winner-controlled).
+            pendingPayoutTime[winner] = block.timestamp;
             emit PayoutCredited(_bountyId, winner, reward);
         }
     }

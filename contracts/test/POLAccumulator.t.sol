@@ -25,8 +25,30 @@ contract MockToweli is ERC20 {
 }
 
 /// @dev Minimal ERC20 standing in for the Uniswap V2 LP pair.
+/// @dev AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] —
+///      `_assertSpotNearTWAP` now reads pair reserves + token0 via staticcall
+///      before every accumulate. Mock surfaces both so the deviation gate can
+///      compute spot. Defaults are symmetric (r0 = r1 = 1e18) matching the
+///      MockTWAP default consult return (1e18), so the gate passes by default
+///      and tests opt-in to manipulation scenarios when needed.
 contract MockLPPair is ERC20 {
-    constructor() ERC20("LP", "LP") { _mint(msg.sender, 1_000_000 ether); }
+    address public token0;
+    uint112 public r0 = 1 ether;
+    uint112 public r1 = 1 ether;
+    uint32 public ts;
+    constructor() ERC20("LP", "LP") {
+        _mint(msg.sender, 1_000_000 ether);
+        ts = uint32(block.timestamp);
+    }
+    function setToken0(address _t0) external { token0 = _t0; }
+    function setReserves(uint112 _r0, uint112 _r1) external {
+        r0 = _r0;
+        r1 = _r1;
+        ts = uint32(block.timestamp);
+    }
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (r0, r1, ts);
+    }
 }
 
 contract MockFactory {
@@ -78,7 +100,13 @@ contract MockRouter {
 ///      timestamp + the consult() return value.
 contract MockTWAP {
     uint32 public latestTs;
-    uint256 public consultReturn = 1; // default: tiny floor so accumulate() can run
+    /// @dev AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] —
+    ///      default raised from `1` to `1e18` so the new `_assertSpotNearTWAP`
+    ///      gate matches MockLPPair's symmetric reserves (1e18 each) by
+    ///      default. `_twapMinOut(weth, halfETH)` is still satisfied because
+    ///      `consultReturn * (BPS - TWAP_SAFETY_BPS) / BPS ≈ 0.995e18` is far
+    ///      below the swap-rate output the MockRouter mints (500e18 / ETH).
+    uint256 public consultReturn = 1 ether;
 
     function setLatestTimestamp(uint32 _ts) external { latestTs = _ts; }
     function setConsultReturn(uint256 _v) external { consultReturn = _v; }
@@ -133,6 +161,13 @@ contract POLAccumulatorTest is Test {
         router = new MockRouter(makeAddr("WETH"), address(factory), address(toweli));
         // R015 constructor guard: factory.getPair(toweli, weth) MUST equal _lpToken.
         factory.setPair(address(lp));
+        // AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] —
+        //         wire token0 so `_assertSpotNearTWAP` resolves toweli's side
+        //         of the spot ratio correctly. Symmetric reserve defaults
+        //         match the default MockTWAP consult (both 1e18), so the
+        //         deviation gate is a no-op for happy-path tests; specialized
+        //         scenarios opt in via lp.setReserves / twap.setConsultReturn.
+        lp.setToken0(address(toweli));
         twap = new MockTWAP();
         twap.setLatestTimestamp(uint32(block.timestamp));
 

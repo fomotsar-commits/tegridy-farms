@@ -291,6 +291,22 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // `vault.strandedJbacOwner(tokenId)`, `vault.strandedJbacTokenId(tokenId)`,
     // or `vault.getStrandedJbac(tokenId)` instead.
 
+    /// @notice AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH] —
+    ///         second-layer stranded record that fires when the OUTER
+    ///         `vault.returnJbac(...)` call from `_clearPosition` itself reverts
+    ///         (mis-wired vault at one-shot `setJbacVault` time, ABI mismatch,
+    ///         transient vault gas blow-up). Without this, every JBAC-deposited
+    ///         position is perma-frozen on exit because `_clearPosition` is
+    ///         called from `withdraw` / `earlyWithdraw` / `emergencyExitPosition`
+    ///         / `executeEmergencyExit` / `emergencyWithdrawPosition` — all of
+    ///         which would propagate the revert. The vault's own internal try/
+    ///         catch (TegridyStakingJbacVault.sol:92-99) handles JBAC-side
+    ///         failures; this record handles VAULT-side failures. JBAC stays
+    ///         physically at the vault; the user retries via
+    ///         `retryReturnJbacFromVault` when the vault path heals.
+    mapping(uint256 => address) public strandedJbacAtVaultOwner;
+    mapping(uint256 => uint256) public strandedJbacAtVaultId;
+
     // AUDIT FIX (pass-8): test/off-chain ABI compatibility shim. Internal
     // mapping uses `_` prefix to free the public name; this view surfaces
     // the same `name(tokenId) → value` shape as the original public-mapping
@@ -387,6 +403,17 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // AUDIT FIX (pass-8 batch-14): JbacReturned / JbacStranded events moved to
     // TegridyStakingJbacVault — the vault is the emitter post-split.
     event JbacVaultSet(address indexed vault);
+    /// @notice AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH] —
+    ///         emitted when the outer `vault.returnJbac` call from
+    ///         `_clearPosition` reverts. TOWELI principal withdraw still
+    ///         succeeds; the JBAC return is deferred to `retryReturnJbacFromVault`.
+    event JbacReturnDeferred(uint256 indexed stakingTokenId, address indexed to, uint256 jbacTokenId);
+    /// @notice AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH] —
+    ///         emitted on a successful retry of a previously-deferred JBAC return.
+    ///         Note: a "successful retry" means the vault call did not revert; the
+    ///         JBAC itself may now be stranded INSIDE the vault (claimable via
+    ///         `vault.claimStrandedJbac`) if the inner JBAC transfer failed.
+    event JbacReturnRetried(uint256 indexed stakingTokenId, address indexed to, uint256 jbacTokenId);
     /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
     event ExtendFeeCollected(uint256 indexed tokenId, address indexed payer, uint256 amount);
     /// @notice AUDIT M-AUDIT-2026-1: emitted on every extend-fee charge with the split
@@ -452,6 +479,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         flips false on revoke and bricks per-tokenId pull.
     error PendingLendingResidue();
     error CapTooHigh(); // AUDIT FIX FRESH-2026: F-35-3 — applyMaxUnsettledRewards sanity ceiling
+    /// @notice AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH].
+    error NoStrandedJbacAtVault();
+    /// @notice AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH].
+    error NotStrandedOwner();
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -487,6 +518,35 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (codeLen == 0 || codeLen == 23) revert NotAContract();
         jbacVault = _vault;
         emit JbacVaultSet(_vault);
+    }
+
+    /// @notice Retry a JBAC return that was deferred because the outer
+    ///         `vault.returnJbac` call from `_clearPosition` reverted (e.g.,
+    ///         mis-wired vault, transient vault gas blow-up, post-deploy ABI
+    ///         regression). Only the recorded entitled owner can retry.
+    /// @dev    AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH] —
+    ///         mirrors `TegridyStakingJbacVault.claimStrandedJbac` one level up.
+    ///         Storage delete happens BEFORE the external vault call so a
+    ///         reentrant retry from inside a malicious vault re-enters with no
+    ///         stranded record and immediately reverts via the
+    ///         `NoStrandedJbacAtVault` guard (defense-in-depth on top of
+    ///         `nonReentrant`). If the vault call still reverts, the entire
+    ///         tx rolls back including the deletes, preserving the stranded
+    ///         record for a future retry. Intentionally NOT pause-gated —
+    ///         a user recovering their stranded JBAC during a global pause
+    ///         should not be additionally blocked (mirrors vault path).
+    /// @param stakingTokenId The staking NFT ID whose JBAC return was deferred.
+    function retryReturnJbacFromVault(uint256 stakingTokenId) external nonReentrant {
+        address to = strandedJbacAtVaultOwner[stakingTokenId];
+        uint256 jId = strandedJbacAtVaultId[stakingTokenId];
+        if (to == address(0)) revert NoStrandedJbacAtVault();
+        if (msg.sender != to) revert NotStrandedOwner();
+        delete strandedJbacAtVaultOwner[stakingTokenId];
+        delete strandedJbacAtVaultId[stakingTokenId];
+        // No try/catch: if vault still reverts, the whole tx (including the
+        // deletes above) rolls back, so the stranded record is preserved.
+        ITegridyStakingJbacVault(jbacVault).returnJbac(stakingTokenId, jId, to);
+        emit JbacReturnRetried(stakingTokenId, to, jId);
     }
 
     // V2: Simplified — dead penalty variables removed
@@ -547,7 +607,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX M-5: the restaking contract exposes per-restaker voting power via
         // its own aggregation; a raw sum here would double-count. Force 0 for the
         // restaking contract so governance consumers route through the restaking path.
-        if (user == restakingContract) return 0;
+        // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
+        //         lending contracts are escrow addresses that legitimately hold
+        //         many borrower NFTs. Borrowers vote via their own checkpoints
+        //         (positions remain credited to the borrower's checkpoint via
+        //         _settleRewardsOnTransfer), not via the lending contract. Force
+        //         0 here to prevent O(n_loans) iteration once the per-holder cap
+        //         is lifted for these addresses, AND to prevent double-counting
+        //         any future governance consumer that mistakenly reads from the
+        //         escrow address.
+        if (user == restakingContract || isLendingContract[user]) return 0;
 
         EnumerableSet.UintSet storage set = _positionsByOwner[user];
         uint256 len = set.length();
@@ -618,7 +687,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         single-pointer `userTokenId` undercount for multi-NFT contract holders.
     /// @return weightedBps amount-weighted boostBps in [MIN_BOOST_BPS, MAX_BOOST_BPS+JBAC_BONUS_BPS]
     function aggregateActiveBoostBps(address user) external view returns (uint256 weightedBps) {
-        if (user == restakingContract) return 0;
+        // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
+        //         same rationale as votingPowerOf above. Prevent O(n_loans)
+        //         iteration on lending-contract addresses now that the per-holder
+        //         cap is lifted for escrow addresses.
+        if (user == restakingContract || isLendingContract[user]) return 0;
         EnumerableSet.UintSet storage set = _positionsByOwner[user];
         uint256 len = set.length();
         uint256 nowTs = block.timestamp;
@@ -1469,7 +1542,20 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         }
         if (to != address(0)) {
             // Enforce the per-holder cap BEFORE the EOA AlreadyHasPosition guard.
-            if (_positionsByOwner[to].length() >= MAX_POSITIONS_PER_HOLDER) revert TooManyPositions();
+            // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
+            //         the `MAX_POSITIONS_PER_HOLDER` cap exists to bound the O(n)
+            //         iteration in `votingPowerOf` / `aggregateActiveBoostBps`.
+            //         The restaking contract and whitelisted lending contracts
+            //         already short-circuit those views to 0 (see lines 550, 621
+            //         below — extended to lending contracts in the same fix), so
+            //         the cap protects nothing for them while structurally
+            //         capping the restaking module + lending market at 50 users
+            //         (pool TVL ceiling = 50 × MIN_STAKE). Mirrors the existing
+            //         `escrowHop` carve-outs at lines 1494/1501.
+            bool isEscrowTo = (to == restakingContract) || isLendingContract[to];
+            if (!isEscrowTo && _positionsByOwner[to].length() >= MAX_POSITIONS_PER_HOLDER) {
+                revert TooManyPositions();
+            }
             // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
             // slither-disable-next-line unused-return
             _positionsByOwner[to].add(id);
@@ -2296,8 +2382,27 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // CCR-01 (batch-9 / batch-14): JBAC return AFTER all state mutations and
         // the burn. Vault's `returnJbac` short-circuits on jbacId == 0; the
         // `onlyStaking` modifier on the vault gates this entry path.
+        // AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH] — wrap
+        //         the vault call in try/catch so a mis-wired vault (operator
+        //         error at one-shot `setJbacVault`), an ABI-incompatible vault
+        //         (future regression), or transient gas blow-up cannot brick
+        //         every JBAC-deposited position's exit. The vault's own internal
+        //         try/catch (TegridyStakingJbacVault.sol:92-99) handles JBAC-side
+        //         failures; this outer wrap is strictly for VAULT-side failures.
+        //         Reentrancy is not a concern: the catch arm only writes storage
+        //         (no external call) and the encompassing call paths
+        //         (withdraw/earlyWithdraw/emergencyExitPosition/
+        //         executeEmergencyExit/emergencyWithdrawPosition) are
+        //         `nonReentrant` so OZ's global lock blocks cross-function
+        //         reentry from any malicious vault.
         if (jbacIdToReturn != 0) {
-            ITegridyStakingJbacVault(jbacVault).returnJbac(tokenId, jbacIdToReturn, msg.sender);
+            try ITegridyStakingJbacVault(jbacVault).returnJbac(tokenId, jbacIdToReturn, msg.sender) {
+                // success path: vault accepted the call (JBAC delivered or stranded inside vault)
+            } catch {
+                strandedJbacAtVaultOwner[tokenId] = msg.sender;
+                strandedJbacAtVaultId[tokenId] = jbacIdToReturn;
+                emit JbacReturnDeferred(tokenId, msg.sender, jbacIdToReturn);
+            }
         }
     }
 

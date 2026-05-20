@@ -396,6 +396,14 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         uint256 halfETH = ethBalance / 2;
 
+        // AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] —
+        //         fail-closed when spot has been pushed > HARVEST_TWAP_DEVIATION_BPS
+        //         off TWAP at the moment of accumulate. Pre-fix only `_twapMinOut`'s
+        //         TWAP-anchored MIN gated the swap leg, and a captured owner could
+        //         bank the full TWAP_SAFETY_BPS budget on every sandwich. Mirrors
+        //         the inline deviation gate already in `_twapHarvestMinOut`.
+        _assertSpotNearTWAP();
+
         // R015: Derive TWAP-based swap floor BEFORE the swap. `twap.consult` returns the
         // time-weighted TOWELI output for `halfETH` of WETH over TWAP_PERIOD. This is the
         // single source of truth for swap-leg slippage protection — caller-supplied
@@ -799,6 +807,66 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         `getResumeTimestamp` returns 0 on the no-feed mainnet path,
     ///         which makes the comparison a no-op (`resumeAt == 0` short-
     ///         circuits) and preserves mainnet semantics.
+    /// @dev AUDIT FIX FRESH-2026: POL-ACCUMULATE-SPOT-TWAP-DEVIATION [HIGH] —
+    ///      assert spot reserves are within `HARVEST_TWAP_DEVIATION_BPS` of the
+    ///      TWAP price. Mirrors the inline check in `_twapHarvestMinOut`
+    ///      (lines 906-920) so accumulate is no longer the soft underbelly that
+    ///      lets a captured-key owner sandwich-extract ~0.5% per call. Pre-fix,
+    ///      the only on-chain gate was `_twapMinOut`'s TWAP-anchored MIN; a
+    ///      manipulated spot that still cleared the MIN (output >= TWAP_min)
+    ///      let the attacker bank the full TWAP_SAFETY_BPS budget every call.
+    ///      With ACCUMULATE_COOLDOWN = 1h and maxAccumulateAmount = 10 ETH,
+    ///      that compounded to ~876 ETH/yr in the worst case. The deviation
+    ///      gate forces spot to track TWAP within 50 bps before each
+    ///      accumulate, eliminating the sandwich-setup window. Same staleness
+    ///      + post-resume + bypass-cooldown rails as `_twapMinOut`.
+    ///      Pattern of record: Compound v2 / Aave v2 / RAI oracle sanity check.
+    function _assertSpotNearTWAP() internal view {
+        // Same staleness gate as `_twapMinOut` so the deviation check is meaningful.
+        ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
+        if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
+        uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
+            revert OracleObservationPredatesResume();
+        }
+        uint256 lastBypass = twap.lastBypassUsed(lpToken);
+        if (lastBypass > block.timestamp) revert OracleStale();
+        if (lastBypass != 0 && block.timestamp - lastBypass < TWAP_PERIOD * 2) {
+            revert OracleStale();
+        }
+
+        // Snapshot reserves + token0 via staticcall (same pattern as
+        // `_twapHarvestMinOut` so we don't add new pair-interface imports).
+        (bool okR, bytes memory dataR) =
+            lpToken.staticcall(abi.encodeWithSignature("getReserves()"));
+        require(okR && dataR.length >= 96, "POOL_READ");
+        (uint112 r0, uint112 r1, ) = abi.decode(dataR, (uint112, uint112, uint32));
+        (bool okT0, bytes memory dataT0) =
+            lpToken.staticcall(abi.encodeWithSignature("token0()"));
+        require(okT0 && dataT0.length == 32, "POOL_READ");
+        address t0 = abi.decode(dataT0, (address));
+
+        uint256 toweliReserve;
+        uint256 ethReserve;
+        if (t0 == address(toweli)) {
+            (toweliReserve, ethReserve) = (uint256(r0), uint256(r1));
+        } else {
+            (toweliReserve, ethReserve) = (uint256(r1), uint256(r0));
+        }
+        if (toweliReserve == 0 || ethReserve == 0) revert OracleStale();
+
+        uint256 twapEthPer1eToweli = twap.consult(lpToken, address(toweli), toweliUnit, TWAP_PERIOD);
+        if (twapEthPer1eToweli == 0) revert OracleStale();
+
+        uint256 spotEthPer1eToweli = (ethReserve * toweliUnit) / toweliReserve;
+        uint256 priceDelta = spotEthPer1eToweli > twapEthPer1eToweli
+            ? spotEthPer1eToweli - twapEthPer1eToweli
+            : twapEthPer1eToweli - spotEthPer1eToweli;
+        if ((priceDelta * BPS) / twapEthPer1eToweli > HARVEST_TWAP_DEVIATION_BPS) {
+            revert ReservesDeviateFromTWAP();
+        }
+    }
+
     function _twapMinOut(address tokenIn, uint256 amountIn) internal view returns (uint256) {
         ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();

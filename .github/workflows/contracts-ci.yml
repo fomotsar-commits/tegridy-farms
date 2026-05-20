@@ -81,7 +81,14 @@ jobs:
           # fix; until then, this allowlist keeps CI signal reflecting PR-
           # introduced regressions only. The Verify.s.sol deploy-gate is the
           # real EIP-170 enforcement before any address goes live.
-          EXCEPTIONS="TegridyStaking TegridyRestaking"
+          # CI FIX 2026-05-20 (PR #50): VoteIncentives bumped to 24,013B by the
+          # fresh-2026 fix for HIGH "trapped commit bonds on invalid pair"
+          # (forfeitCommitOnInvalidPair, 115 LoC). Still 563B UNDER EIP-170
+          # (24,576), so deploys fine; only over the conservative 24,000 floor.
+          # Joins Staking/Restaking on the Phase-0-split allowlist until we
+          # split admin functions into VoteIncentivesAdmin (pass-8 already
+          # extracted the change-time view helpers; payouts/forfeits are next).
+          EXCEPTIONS="TegridyStaking TegridyRestaking VoteIncentives"
           for f in out/*.sol/*.json; do
             name=$(basename "$f" .json)
             case "$name" in
