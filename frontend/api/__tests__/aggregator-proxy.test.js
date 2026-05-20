@@ -51,12 +51,18 @@ function mockUpstreamOk(payload = { ok: true }) {
   }));
 }
 
-// ─── Provider matrix: name → file path → expected good path/method ──────
-// Each row: [identifier, modulePath, validQuery (object), validMethod, validBody]
+// ─── Provider matrix: name → expected good path/method ──────────────────
+// All seven providers now share the consolidated dispatcher at
+// `../agg/[...slug].js` (was one-file-per-provider before the Hobby 12-
+// function-limit consolidation). Each row exercises the dispatcher's
+// provider lookup + the shared `runProxy` security pipeline end-to-end,
+// so any drift between the dispatcher table and the runner is still
+// caught per-provider.
+const DISPATCHER_MOD = "../agg/[...slug].js";
+
 const MATRIX = [
   {
     id: "odos",
-    mod: "../odos/[...path].js",
     okPath: ["sor", "quote", "v2"],
     badPath: ["sor", "swap"],
     okMethod: "POST",
@@ -66,7 +72,6 @@ const MATRIX = [
   },
   {
     id: "cow",
-    mod: "../cow/[...path].js",
     okPath: ["mainnet", "api", "v1", "quote"],
     badPath: ["polygon", "api", "v1", "quote"],
     okMethod: "POST",
@@ -76,7 +81,6 @@ const MATRIX = [
   },
   {
     id: "lifi",
-    mod: "../lifi/[...path].js",
     okPath: ["v1", "quote"],
     badPath: ["v1", "connections"],
     okMethod: "GET",
@@ -86,7 +90,6 @@ const MATRIX = [
   },
   {
     id: "kyber",
-    mod: "../kyber/[...path].js",
     okPath: ["ethereum", "api", "v1", "routes"],
     badPath: ["polygon", "api", "v1", "routes"],
     okMethod: "GET",
@@ -96,7 +99,6 @@ const MATRIX = [
   },
   {
     id: "openocean",
-    mod: "../openocean/[...path].js",
     okPath: ["v4", "eth", "quote"],
     badPath: ["v4", "bsc", "quote"],
     okMethod: "GET",
@@ -106,7 +108,6 @@ const MATRIX = [
   },
   {
     id: "paraswap",
-    mod: "../paraswap/[...path].js",
     okPath: ["prices"],
     badPath: ["transactions", "1"],
     okMethod: "GET",
@@ -116,7 +117,6 @@ const MATRIX = [
   },
   {
     id: "swapapi",
-    mod: "../swapapi/[...path].js",
     okPath: ["v1", "swap", "1"],
     badPath: ["v1", "swap", "999"],
     okMethod: "GET",
@@ -126,7 +126,13 @@ const MATRIX = [
   },
 ];
 
-describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, okMethod, badMethod, okQuery, okBody }) => {
+// Dispatcher receives the provider as the first segment of `slug`, with the
+// rest of the original path following. e.g. `slug=['odos','sor','quote','v2']`.
+function slugFor(id, path) {
+  return [id, ...path];
+}
+
+describe.each(MATRIX)("aggregator proxy — $id", ({ id, okPath, badPath, okMethod, badMethod, okQuery, okBody }) => {
   let handler;
   let fetchMock;
 
@@ -135,7 +141,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
     process.env.NODE_ENV = "test"; // origin gate is permissive in non-prod
     fetchMock = mockUpstreamOk({ source: id });
     globalThis.fetch = fetchMock;
-    handler = (await import(mod)).default;
+    handler = (await import(DISPATCHER_MOD)).default;
   });
 
   afterEach(() => {
@@ -146,7 +152,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
   it("(d) happy path: forwards to upstream and returns 200 with body", async () => {
     const req = makeReq({
       method: okMethod,
-      query: { ...okQuery, path: okPath },
+      query: { ...okQuery, slug: slugFor(id, okPath) },
       body: okBody,
     });
     const { res, statusSpy, sendSpy } = makeRes();
@@ -166,7 +172,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
   it("(a) rejects wrong HTTP method with 405", async () => {
     const req = makeReq({
       method: badMethod,
-      query: { ...okQuery, path: okPath },
+      query: { ...okQuery, slug: slugFor(id, okPath) },
     });
     const { res, statusSpy, jsonSpy } = makeRes();
     await handler(req, res);
@@ -178,7 +184,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
   it("(b) rejects non-allowlisted path with 404", async () => {
     const req = makeReq({
       method: okMethod,
-      query: { ...okQuery, path: badPath },
+      query: { ...okQuery, slug: slugFor(id, badPath) },
       body: okBody,
     });
     const { res, statusSpy, jsonSpy } = makeRes();
@@ -191,7 +197,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
   it("(b) rejects URL-encoded path components (decode-then-check)", async () => {
     const req = makeReq({
       method: okMethod,
-      query: { ...okQuery, path: ["%2e%2e", ...okPath] },
+      query: { ...okQuery, slug: slugFor(id, ["%2e%2e", ...okPath]) },
       body: okBody,
     });
     const { res, statusSpy } = makeRes();
@@ -203,10 +209,10 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
   it("(c) rejects bad origin in production mode with 403", async () => {
     vi.resetModules();
     process.env.NODE_ENV = "production";
-    handler = (await import(mod)).default;
+    handler = (await import(DISPATCHER_MOD)).default;
     const req = makeReq({
       method: okMethod,
-      query: { ...okQuery, path: okPath },
+      query: { ...okQuery, slug: slugFor(id, okPath) },
       body: okBody,
       headers: { origin: "https://attacker.example" },
     });
@@ -222,10 +228,10 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
     process.env.NODE_ENV = "production";
     fetchMock = mockUpstreamOk({ source: id });
     globalThis.fetch = fetchMock;
-    handler = (await import(mod)).default;
+    handler = (await import(DISPATCHER_MOD)).default;
     const req = makeReq({
       method: okMethod,
-      query: { ...okQuery, path: okPath },
+      query: { ...okQuery, slug: slugFor(id, okPath) },
       body: okBody,
       headers: { origin: "https://tegridyfarms.xyz" },
     });
@@ -235,7 +241,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
   });
 
   it("returns OPTIONS preflight as 200", async () => {
-    const req = makeReq({ method: "OPTIONS", query: { path: okPath } });
+    const req = makeReq({ method: "OPTIONS", query: { slug: slugFor(id, okPath) } });
     const { res, statusSpy } = makeRes();
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(200);
@@ -250,7 +256,7 @@ describe("aggregator proxy — body cap (32 KB)", () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
     globalThis.fetch = mockUpstreamOk();
-    handler = (await import("../odos/[...path].js")).default;
+    handler = (await import(DISPATCHER_MOD)).default;
   });
 
   it("rejects POST body over 32 KB with 413", async () => {
@@ -258,7 +264,7 @@ describe("aggregator proxy — body cap (32 KB)", () => {
     const bigPadding = "x".repeat(40_000);
     const req = makeReq({
       method: "POST",
-      query: { path: ["sor", "quote", "v2"] },
+      query: { slug: ["odos", "sor", "quote", "v2"] },
       body: { padding: bigPadding },
     });
     const { res, statusSpy, jsonSpy } = makeRes();
@@ -277,14 +283,14 @@ describe("aggregator proxy — query allowlist", () => {
     process.env.NODE_ENV = "test";
     fetchMock = mockUpstreamOk();
     globalThis.fetch = fetchMock;
-    handler = (await import("../paraswap/[...path].js")).default;
+    handler = (await import(DISPATCHER_MOD)).default;
   });
 
   it("forwards only allowlisted query params upstream (no key smuggling)", async () => {
     const req = makeReq({
       method: "GET",
       query: {
-        path: ["prices"],
+        slug: ["paraswap", "prices"],
         srcToken: "0xeee",
         destToken: "0xeee",
         amount: "1",
@@ -313,7 +319,7 @@ describe("aggregator proxy — upstream over-cap defends against gzip-bomb", () 
   beforeEach(async () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
-    handler = (await import("../paraswap/[...path].js")).default;
+    handler = (await import(DISPATCHER_MOD)).default;
   });
 
   it("returns 502 when upstream Content-Length exceeds the body cap", async () => {
@@ -325,7 +331,7 @@ describe("aggregator proxy — upstream over-cap defends against gzip-bomb", () 
     }));
     const req = makeReq({
       method: "GET",
-      query: { path: ["prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
+      query: { slug: ["paraswap", "prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
     });
     const { res, statusSpy, jsonSpy } = makeRes();
     await handler(req, res);
@@ -340,7 +346,7 @@ describe("aggregator proxy — upstream error collapse", () => {
   beforeEach(async () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
-    handler = (await import("../paraswap/[...path].js")).default;
+    handler = (await import(DISPATCHER_MOD)).default;
   });
 
   it("collapses upstream non-2xx into opaque 502 (no leakage of upstream body)", async () => {
@@ -353,11 +359,40 @@ describe("aggregator proxy — upstream error collapse", () => {
     }));
     const req = makeReq({
       method: "GET",
-      query: { path: ["prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
+      query: { slug: ["paraswap", "prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
     });
     const { res, statusSpy, jsonSpy } = makeRes();
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(502);
     expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream service error" });
+  });
+});
+
+// Dispatcher-specific: unknown provider must fail-closed with 404 and never
+// leak the lookup table back to the caller.
+describe("aggregator proxy — dispatcher rejects unknown provider", () => {
+  let handler;
+  let fetchMock;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    fetchMock = mockUpstreamOk();
+    globalThis.fetch = fetchMock;
+    handler = (await import(DISPATCHER_MOD)).default;
+  });
+
+  it.each([
+    ["unknown provider", ["sushi", "v1", "quote"]],
+    ["empty slug", []],
+    ["dot-dot in provider segment", ["..", "v1", "quote"]],
+    ["empty provider segment", ["", "v1", "quote"]],
+  ])("returns 404 for %s without reaching upstream", async (_label, slug) => {
+    const req = makeReq({ method: "GET", query: { slug } });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(404);
+    expect(jsonSpy).toHaveBeenCalledWith(expect.objectContaining({ error: "Not found" }));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
