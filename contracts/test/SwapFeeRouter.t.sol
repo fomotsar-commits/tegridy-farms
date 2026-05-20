@@ -273,20 +273,138 @@ contract SwapFeeRouterTest is Test {
         // Send some ETH to the router
         vm.deal(address(router), 5 ether);
 
-        // AUDIT FIX 2026-05-16 M2: sweepETH now forces destination to
-        // revenueDistributor (was: treasury). This closes the captured-owner
-        // siphon where donated ETH was redirected to treasury, bypassing the
-        // staker/POL/treasury split. The test now asserts revenueDistributor.
+        // AUDIT FIX 2026-05-16 M2: destination forced to revenueDistributor.
+        // AUDIT FIX (Wave-2 2026-05-16): sweepETH is now 48h-timelocked —
+        // propose → wait 48h → execute. Asserts the post-execute balance
+        // delta lands at revenueDistributor (M2 invariant preserved).
         uint256 sinkBefore = address(revenueDistributor).balance;
-        router.sweepETH();
+        router.proposeSweepETH(5 ether);
+        vm.warp(block.timestamp + 48 hours);
+        router.executeSweepETH();
         assertEq(address(revenueDistributor).balance - sinkBefore, 5 ether);
     }
 
     function test_revert_sweepETH_nonOwner() public {
         vm.deal(address(router), 5 ether);
+        // Non-owner can't even start a sweep proposal.
         vm.prank(nonOwner);
         vm.expectRevert();
-        router.sweepETH();
+        router.proposeSweepETH(5 ether);
+    }
+
+    /// @notice Wave-2 regression: executing before the 48h delay elapses must
+    ///         revert SweepETHUnavailable. The whole point of the timelock is
+    ///         that a captured owner can't push donated ETH instantly.
+    function test_sweepETH_timelock_rejectsEarlyExecute() public {
+        vm.deal(address(router), 5 ether);
+        router.proposeSweepETH(5 ether);
+        // 48h - 1s — one second short of ready.
+        vm.warp(block.timestamp + 48 hours - 1);
+        vm.expectRevert(SwapFeeRouter.SweepETHUnavailable.selector);
+        router.executeSweepETH();
+        // Pending state is preserved; execute is callable after another 1s.
+        vm.warp(block.timestamp + 1);
+        router.executeSweepETH();
+        assertEq(router.sweepETHReadyAt(), 0, "execute clears the pending readyAt");
+        assertEq(router.pendingSweepETHAmount(), 0, "execute clears the pending amount");
+    }
+
+    /// @notice Wave-2 regression: cancel clears the pending proposal so a
+    ///         fresh proposeSweepETH can start a new 48h window.
+    function test_sweepETH_cancel_allowsReproposal() public {
+        vm.deal(address(router), 5 ether);
+        router.proposeSweepETH(5 ether);
+        uint256 firstReadyAt = router.sweepETHReadyAt();
+        router.cancelSweepETH();
+        assertEq(router.sweepETHReadyAt(), 0);
+        assertEq(router.pendingSweepETHAmount(), 0);
+        // Move time forward so the second proposal's readyAt is strictly later
+        // — proves cancel didn't leave the old timelock window open.
+        vm.warp(block.timestamp + 1 hours);
+        router.proposeSweepETH(3 ether);
+        assertGt(router.sweepETHReadyAt(), firstReadyAt);
+        assertEq(router.pendingSweepETHAmount(), 3 ether);
+    }
+
+    /// @notice Wave-2 regression: a proposal that sits past the 7-day validity
+    ///         window must be uncallable. Without the expiry check, a stale
+    ///         proposal could be executed years later.
+    function test_sweepETH_timelock_rejectsAfterValidityExpiry() public {
+        vm.deal(address(router), 5 ether);
+        router.proposeSweepETH(5 ether);
+        // Warp past `readyAt + 7 days` — proposal must be expired.
+        vm.warp(block.timestamp + 48 hours + 7 days + 1);
+        vm.expectRevert(SwapFeeRouter.SweepETHUnavailable.selector);
+        router.executeSweepETH();
+        // State remains pending (operator must explicitly cancel to re-propose).
+        assertGt(router.sweepETHReadyAt(), 0, "post-expiry: readyAt preserved (loud cancel required)");
+        assertEq(router.pendingSweepETHAmount(), 5 ether, "post-expiry: amount preserved");
+    }
+
+    /// @notice Wave-2 regression: amount locked at propose is capped down to
+    ///         the live sweepable balance at execute. Propose 10 ETH; if only
+    ///         3 ETH is sweepable at execute time, the tx must send 3 ETH —
+    ///         not revert and not over-send.
+    function test_sweepETH_executeCapsAtLiveSweepable() public {
+        // Propose 10 ETH (overly generous).
+        vm.deal(address(router), 10 ether);
+        router.proposeSweepETH(10 ether);
+        vm.warp(block.timestamp + 48 hours);
+        // Right before execute, drain the router balance down to 3 ETH so
+        // the live sweepable is 3 ETH (no accumulated fees → reserved = 0).
+        vm.deal(address(router), 3 ether);
+
+        uint256 sinkBefore = address(revenueDistributor).balance;
+        router.executeSweepETH();
+        // Only 3 ETH landed at the revenueDistributor, not the proposed 10.
+        assertEq(address(revenueDistributor).balance - sinkBefore, 3 ether,
+            "execute caps at the live sweepable balance, not the proposed amount");
+        // Pending state cleared even though the capped amount differs from the proposed.
+        assertEq(router.sweepETHReadyAt(), 0);
+        assertEq(router.pendingSweepETHAmount(), 0);
+    }
+
+    /// @notice Wave-2 regression: `executeSweepETH` carries `whenNotPaused`
+    ///         (defense-in-depth — a guardian who pauses during incident
+    ///         response freezes the executor while propose-side stays open).
+    function test_sweepETH_executeRejectsWhilePaused() public {
+        vm.deal(address(router), 5 ether);
+        router.proposeSweepETH(5 ether);
+        vm.warp(block.timestamp + 48 hours);
+        router.pause();
+        // OZ Pausable reverts EnforcedPause / Pausable: paused — match either.
+        vm.expectRevert();
+        router.executeSweepETH();
+    }
+
+    /// @notice Wave-2 regression: a second proposal must NOT silently overwrite
+    ///         the in-flight one. The propose-side check `if (sweepETHReadyAt
+    ///         != 0) revert` forces an explicit cancel before re-proposing.
+    function test_sweepETH_rejectsConcurrentPropose() public {
+        vm.deal(address(router), 5 ether);
+        router.proposeSweepETH(5 ether);
+        // Second propose while pending must revert — proves no overwrite path.
+        vm.expectRevert(SwapFeeRouter.SweepETHUnavailable.selector);
+        router.proposeSweepETH(3 ether);
+        // Original proposal is unchanged.
+        assertEq(router.pendingSweepETHAmount(), 5 ether);
+    }
+
+    /// @notice Wave-2 regression: `executeSweepETH` and `cancelSweepETH` must
+    ///         both reject non-owner callers. The pre-fix test only pinned
+    ///         non-owner on `proposeSweepETH`.
+    function test_sweepETH_executeAndCancel_onlyOwner() public {
+        vm.deal(address(router), 5 ether);
+        router.proposeSweepETH(5 ether);
+        vm.warp(block.timestamp + 48 hours);
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        router.executeSweepETH();
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        router.cancelSweepETH();
     }
 
     function test_sweepTokens_works_forOwner() public {
@@ -305,8 +423,14 @@ contract SwapFeeRouterTest is Test {
     }
 
     function test_revert_sweepETH_zeroBalance() public {
+        // Wave-2 fix: behaviour preserved — when there's nothing sweepable at
+        // execute time, the execute call reverts ZeroAmount. (The propose
+        // side also rejects amount=0 with ZeroAmount, but that's a separate
+        // validation; this test pins the original execute-time invariant.)
+        router.proposeSweepETH(1 ether);
+        vm.warp(block.timestamp + 48 hours);
         vm.expectRevert(SwapFeeRouter.ZeroAmount.selector);
-        router.sweepETH();
+        router.executeSweepETH();
     }
 
     function test_revert_sweepTokens_zeroBalance() public {

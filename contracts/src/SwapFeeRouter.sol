@@ -1443,34 +1443,102 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     // All fee outflow now routes through distributeFeesToStakers(), which applies the
     // timelocked staker/POL/treasury split atomically.
 
-    /// @notice Sweep any stuck ETH (non-fee dust) into the staker distribution pipeline.
-    /// @dev    AUDIT FIX 2026-05-16 M2: destination FORCED to `revenueDistributor` (no
-    ///         caller parameter, no owner-chosen recipient). Mirrors TegridyFeeHook's
-    ///         V3-AMM-H1 fix — captured-owner cannot redirect donated/stuck ETH to
-    ///         treasury directly, bypassing the timelocked staker/POL/treasury split.
-    ///         Donated ETH now flows to stakers via revenueDistributor's own pipeline,
-    ///         which is already a 48h-timelock-protected surface. Treasury rotation
-    ///         (`treasury` slot) is also 48h-timelocked but the asymmetry — treasury
-    ///         was instantly redirectable here while the OTHER half (accumulatedETHFees)
-    ///         was timelocked-split — is exactly the captured-owner blast vector this
-    ///         closes. Honest ops: donated ETH ALWAYS belonged to stakers.
+    // ─── Admin: ETH Sweep (timelocked) ───────────────────────────────
+    //
+    // AUDIT FIX (Wave-2 2026-05-16): the prior `sweepETH()` was instant under
+    // owner. Threat map ~6% Tier B: "donated ETH is an instant drain under
+    // owner compromise" — even though the recipient is hardcoded to
+    // revenueDistributor (the 2026-05-16 M2 fix), a captured owner could
+    // push donated balance through `revenueDistributor`'s own recovery
+    // pipeline (which itself only has per-epoch caps, no aggregate lifetime
+    // cap — see RevenueDistributor ~12% Tier C). Adding a 48h timelock
+    // gives multisig / governance time to rotate ownership or pause the
+    // downstream sink before the donated portion lands.
+    //
+    // Inline pattern matches `proposeAdminReplacement` / `executeAdminReplacement`
+    // (this file, lines ~1100) and POLAccumulator's `proposeSweepETH` /
+    // `executeSweepETH` (AUDIT FIX H-14, the canonical prior art for this
+    // exact attack class). 7-day validity window mirrors DEEP-R-M01 here.
+    uint256 public constant SWEEP_ETH_TIMELOCK = 48 hours;
+    uint256 public constant SWEEP_ETH_VALIDITY = 7 days;
+
+    /// @notice Amount of ETH proposed to sweep, locked at proposal time.
+    ///         Zero when no proposal is pending.
+    uint256 public pendingSweepETHAmount;
+    /// @notice block.timestamp after which `executeSweepETH` is callable.
+    ///         Zero when no proposal is pending.
+    uint256 public sweepETHReadyAt;
+
+    event SweepETHProposed(uint256 amount, uint256 readyAt);
+    event SweepETHExecuted(uint256 amount);
+    event SweepETHCancelled();
+
+    error SweepETHUnavailable();
+
+    /// @notice Propose sweeping donated/stuck ETH to the (hardcoded)
+    ///         revenueDistributor pipeline. The amount is snapshotted at
+    ///         proposal time; execute will further cap at the live sweepable
+    ///         balance at execute time so a depleting balance can't be
+    ///         force-credited.
+    /// @dev    Amount-locked-at-propose mirrors POLAccumulator.proposeSweepETH;
+    ///         48h delay matches POLAccumulator's SWEEP_ETH_DELAY for symmetry
+    ///         across the two donation-sweep paths.
+    function proposeSweepETH(uint256 _amount) external onlyOwner {
+        if (_amount == 0) revert ZeroAmount();
+        if (sweepETHReadyAt != 0) revert SweepETHUnavailable(); // existing proposal pending
+        pendingSweepETHAmount = _amount;
+        sweepETHReadyAt = block.timestamp + SWEEP_ETH_TIMELOCK;
+        emit SweepETHProposed(_amount, sweepETHReadyAt);
+    }
+
+    /// @notice Execute the pending ETH sweep after the 48h delay (and within
+    ///         the 7-day validity window). Forces destination to
+    ///         `revenueDistributor` (the 2026-05-16 M2 fix is preserved).
     /// @dev    SECURITY FIX H6: WETHFallbackLib (30k stipend + WETH fallback).
     /// @dev    AUDIT C4: reserve totalPendingDistribution for in-flight callerCredit.
-    function sweepETH() external onlyOwner nonReentrant {
+    function executeSweepETH() external onlyOwner nonReentrant whenNotPaused {
+        uint256 readyAt = sweepETHReadyAt;
+        if (readyAt == 0) revert SweepETHUnavailable(); // no pending proposal
+        if (block.timestamp < readyAt) revert SweepETHUnavailable(); // delay not elapsed
+        if (block.timestamp > readyAt + SWEEP_ETH_VALIDITY) revert SweepETHUnavailable(); // expired
+
+        uint256 amount = pendingSweepETHAmount;
         uint256 balance = address(this).balance;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (balance == 0) revert ZeroAmount();
         uint256 reserved = accumulatedETHFees + totalPendingDistribution;
         uint256 sweepable = balance > reserved ? balance - reserved : 0;
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        if (amount > sweepable) amount = sweepable; // cap at live sweepable
         // slither-disable-next-line incorrect-equality
-        if (sweepable == 0) revert ZeroAmount();
+        if (amount == 0) revert ZeroAmount();
+
+        // Clear pending state BEFORE external call (CEI + replay protection).
+        pendingSweepETHAmount = 0;
+        sweepETHReadyAt = 0;
+
         // AUDIT FIX 2026-05-16 M2: forced to revenueDistributor. Captured-owner
         // bypass closed. revenueDistributor must be wired (constructor invariant)
         // for SwapFeeRouter to function at all, so no zero-recipient risk.
-        WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, sweepable);
-        emit FeesWithdrawn(revenueDistributor, sweepable);
+        WETHFallbackLib.safeTransferETHOrWrap(WETH, revenueDistributor, amount);
+        emit SweepETHExecuted(amount);
+        emit FeesWithdrawn(revenueDistributor, amount);
+    }
+
+    /// @notice Cancel a pending ETH sweep proposal.
+    function cancelSweepETH() external onlyOwner {
+        if (sweepETHReadyAt == 0) revert SweepETHUnavailable();
+        pendingSweepETHAmount = 0;
+        sweepETHReadyAt = 0;
+        emit SweepETHCancelled();
+    }
+
+    /// @dev DEPRECATED: instant sweep is gone. Use proposeSweepETH() +
+    ///      executeSweepETH(). Stub kept (matches POLAccumulator pattern) so
+    ///      off-chain monitors hitting the old selector get a clear error
+    ///      rather than an unhandled-selector revert.
+    function sweepETH() external pure {
+        revert("Use proposeSweepETH()");
     }
 
     /// @notice Withdraw accumulated token fees to treasury (pull-pattern, escape hatch only).
