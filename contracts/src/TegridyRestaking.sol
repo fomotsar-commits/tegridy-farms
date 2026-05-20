@@ -315,6 +315,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         remains live; off-chain monitoring uses this event to surface
     ///         "your residual is parked while the NFT is in lending" UX.
     event ResidualPullDeferredCrossHolder(uint256 indexed tokenId, address indexed currentOwner);
+    /// @notice AUDIT FIX FRESH-2026: RESTAKE-RESIDUAL-WAIVE-SECONDARY-MARKET [HIGH] —
+    ///         emitted when the residual claimant voluntarily forfeits an
+    ///         unclaimed residue to unblock secondary-market resale of the
+    ///         underlying NFT. The on-chain residue stays at staking
+    ///         (claimable by the next legit holder via the normal restake
+    ///         path); only the per-tokenId claimant gate is cleared.
+    event ResidualClaimWaived(uint256 indexed tokenId, address indexed waivedBy);
 
     // ─── Errors ─────────────────────────────────────────────────────
     error NotRestaked();
@@ -1559,6 +1566,33 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (staking.unsettledRewardsByTokenId(tokenId) == 0) {
             delete _residualClaimant[tokenId];
         }
+    }
+
+    /// @notice Voluntary forfeit of an unclaimed residual claim by the current
+    ///         claimant. Closes the secondary-market grief documented in
+    ///         FRESH-2026 finding RESTAKE-RESIDUAL-WAIVE-SECONDARY-MARKET:
+    ///         pre-fix, a prior restaker who held a non-zero residual claim
+    ///         on `tokenId` could only release it by either (a) calling
+    ///         `claimResidualForTokenId` when the staking pool was replenished,
+    ///         OR (b) waiting 7 days for the owner-timelocked
+    ///         `proposeClearResidualClaimant` / `executeClearResidualClaimant`
+    ///         flow. Neither helped a prior restaker who had sold the NFT and
+    ///         wanted to enable the buyer to restake immediately: the new owner
+    ///         was locked out for at least 7 days through no fault of their own,
+    ///         and the prior restaker had no way to forfeit the claim
+    ///         instantly even though it was *their* right to forfeit.
+    /// @dev    AUDIT FIX FRESH-2026: RESTAKE-RESIDUAL-WAIVE-SECONDARY-MARKET [HIGH]
+    ///         — Compound governance pattern (proposer can cancel their own
+    ///         proposal pre-execution). No timelock because the caller is
+    ///         giving up a right that belongs only to them; no third party
+    ///         is harmed. Any unclaimed residue on the staking side stays
+    ///         attributable per `unsettledRewardsByTokenId[tokenId]` and is
+    ///         claimable by the next legitimate restaker.
+    /// @param tokenId The tsTOWELI NFT token ID whose residual claim to waive.
+    function waiveResidualClaim(uint256 tokenId) external nonReentrant {
+        if (_residualClaimant[tokenId] != msg.sender) revert NotResidualClaimant();
+        delete _residualClaimant[tokenId];
+        emit ResidualClaimWaived(tokenId, msg.sender);
     }
 
     // ─── AUDIT FIX FRESH-2026: F-04-3 — abandoned residual claimant escape ──
