@@ -1881,8 +1881,26 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         uint256 tokenId = info.tokenId;
         // AUDIT H-1: release this user's principal reservation.
-        totalActivePrincipal -= info.positionAmount;
-        totalRestaked -= info.boostedAmount;
+        // AUDIT FIX FRESH-2026: RESTAKE-EMERGENCY-WITHDRAW-UNDERFLOW [MEDIUM] —
+        //         use the same `<=` guarded subtraction the other exit paths
+        //         already use (lines 856/858, 971/973, 1058/1060, 1266/1268,
+        //         1787/1789, 2134-2138, 2511-2513). Pre-fix, this single
+        //         emergency-exit path subtracted unconditionally — if global
+        //         accounting ever drifted (a prior exit path's stranded
+        //         remainder, future invariant break, etc.), the emergency
+        //         exit would underflow-revert and brick the user's escape
+        //         hatch. The clamp-to-zero pattern preserves the emergency
+        //         primitive's "always succeed if you have a position" semantic.
+        if (info.positionAmount <= totalActivePrincipal) {
+            totalActivePrincipal -= info.positionAmount;
+        } else {
+            totalActivePrincipal = 0;
+        }
+        if (info.boostedAmount <= totalRestaked) {
+            totalRestaked -= info.boostedAmount;
+        } else {
+            totalRestaked = 0;
+        }
         delete tokenIdToRestaker[tokenId];
         delete restakers[msg.sender];
         _writeBoostCheckpoint(msg.sender, 0); // AUDIT H-8
@@ -2124,7 +2142,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
 
         // Clean up restaking state
-        totalRestaked -= info.boostedAmount;
+        // AUDIT FIX FRESH-2026: RESTAKE-EMERGENCY-WITHDRAW-UNDERFLOW [MEDIUM] —
+        //         apply the same `<=` guard to `totalRestaked` that DEEP-DR-02
+        //         applied to `totalActivePrincipal` below. Both globals should
+        //         use the clamp-to-zero pattern so a single drifted invariant
+        //         cannot brick the emergency-force-return primitive.
+        if (info.boostedAmount <= totalRestaked) {
+            totalRestaked -= info.boostedAmount;
+        } else {
+            totalRestaked = 0;
+        }
         // AUDIT FIX: DEEP-DR-02 — release this user's principal reservation. Pre-fix,
         // `emergencyForceReturn` was the ONLY NFT-exit path that omitted this update,
         // leaving `totalActivePrincipal` permanently inflated by the force-returned
