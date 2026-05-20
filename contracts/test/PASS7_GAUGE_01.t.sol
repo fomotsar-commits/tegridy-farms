@@ -130,6 +130,16 @@ contract Pass7_Gauge_DuplicateOnReAdd is Test {
     function test_pass7_gauge_duplicateOnReAdd() public {
         uint256 lenBefore = gauge.gaugeCount();
 
+        // AUDIT FIX FRESH-2026: GC-REMOVE-NEXT-EPOCH-STRAND [HIGH] —
+        //         `executeRemoveGaugeNextEpoch` now reverts `GaugeHasActiveVotes`
+        //         when the gauge still has current-epoch vote weight. setUp casts
+        //         alice's vote in the current epoch, so we warp past the epoch
+        //         boundary BEFORE proposeRemoveGauge so the vote weight is
+        //         keyed to a prior epoch and `gaugeWeightByEpoch[currentEpoch()]`
+        //         reads 0 at execute time. Test purpose (PASS7-GAUGE-H1 re-add
+        //         guard) is unchanged.
+        vm.warp(block.timestamp + 7 days);
+
         // Step 1+2: propose-remove + execute next-epoch.
         gauge.proposeRemoveGauge(gaugeAddr);
         skip(25 hours);
@@ -175,6 +185,12 @@ contract Pass7_Gauge_DuplicateOnReAdd is Test {
 
     /// @notice POST-FIX REGRESSION (minimal): single-cycle re-add must revert.
     function test_pass7_gauge_singleBrick() public {
+        // AUDIT FIX FRESH-2026: GC-REMOVE-NEXT-EPOCH-STRAND [HIGH] —
+        //         warp past epoch boundary before propose so the current-
+        //         epoch vote weight is in a prior epoch bucket. See
+        //         test_pass7_gauge_duplicateOnReAdd for full rationale.
+        vm.warp(block.timestamp + 7 days);
+
         gauge.proposeRemoveGauge(gaugeAddr);
         skip(25 hours);
         gauge.executeRemoveGaugeNextEpoch();

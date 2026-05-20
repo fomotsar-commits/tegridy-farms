@@ -170,13 +170,27 @@ contract PASS5_INV_D_GaugeWeights is Test {
         assertEq(sum, reported, "gauge weight sum != totalWeightByEpoch");
     }
 
-    /// @notice INVARIANT D2: sum of relative weights == BPS (when total > 0).
-    ///         Curve-style natural distribution should be exact up to integer rounding
-    ///         (≤ num_gauges - 1 wei loss per epoch).
+    /// @notice INVARIANT D2: sum of relative weights == BPS (when total > 0 AND
+    ///         quorum is met). Curve-style natural distribution should be exact
+    ///         up to integer rounding (≤ num_gauges - 1 wei loss per epoch).
+    /// @dev    AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — guard now also
+    ///         skips when `quorumMet(epoch) == false`. Pre-PR-50, this
+    ///         invariant only checked sum-to-BPS when `total > 0`; PR #50
+    ///         baked a `quorumMet` gate into `_getRelativeWeightAt` so the
+    ///         accessors return 0 for ALL gauges in any epoch with fewer
+    ///         than MIN_VOTING_NFTS_PER_EPOCH (3) distinct voters. The
+    ///         handler casts single-actor votes, so the 1-voter state
+    ///         (which the runner asserts after every handler call) has
+    ///         `total > 0` but `quorumMet == false`, producing `sum == 0`
+    ///         and tripping the `assertGe(0, 9997)` boundary. Mirroring
+    ///         the accessor's gate here preserves the invariant's intent
+    ///         ("sum to BPS WHEN emissions actually distribute") without
+    ///         asserting on the no-distribution sub-quorum window.
     function invariant_relativeWeightsSumToBPS() public view {
         uint256 epoch = gauge.currentEpoch();
         uint256 total = gauge.totalWeightByEpoch(epoch);
         if (total == 0) return; // no votes yet — trivially OK
+        if (!gauge.quorumMet(epoch)) return; // sub-quorum — accessors fail closed by design
 
         uint256 sum;
         for (uint256 i = 0; i < gaugesArr.length; i++) {

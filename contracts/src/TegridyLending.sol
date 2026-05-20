@@ -2228,8 +2228,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
                 // Excess `received - toRecipient` stays in lending TOWELI
                 // balance and is consumed by the legacy pro-rata path on
                 // sibling loans' subsequent `pullEscrowRewards` calls.
-            } catch (bytes memory reason) {
-                emit EscrowRewardsClaimDeferred(_loanId, reason);
+            } catch {
+                // AUDIT FIX FRESH-2026: LEND-RETURNDATA-BOMB-CATCH [MEDIUM] —
+                //         missed sibling site (ultrareview bug_001). The 4
+                //         settlement arms in repayLoan + claimDefaultedCollateral
+                //         were converted in the initial Batch 5 pass via
+                //         `replace_all` but this arm has a different
+                //         surrounding context (different success body) so the
+                //         block-level replace skipped it. The `_captureBoundedReason`
+                //         NatSpec at line 1611 was already claiming
+                //         pullEscrowRewards coverage; this brings the implementation
+                //         in line. Same threat model: per-offer `collateralContract`
+                //         can return 16MB returndata to OOG-grief the catch arm.
+                emit EscrowRewardsClaimDeferred(_loanId, _captureBoundedReason());
             }
         }
 

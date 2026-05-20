@@ -173,6 +173,9 @@ contract DeepGov03_14_GaugeControllerTest is Test {
     address public treasury = makeAddr("treasury");
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
+    /// @dev AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — third staker so
+    ///      `getRelativeWeight*` clears the MIN_VOTING_NFTS_PER_EPOCH=3 gate.
+    address public carol = makeAddr("carol");
     address public g1 = makeAddr("g1");
     address public g2 = makeAddr("g2");
     address public g3 = makeAddr("g3");
@@ -187,6 +190,12 @@ contract DeepGov03_14_GaugeControllerTest is Test {
         staking.notifyRewardAmount(10_000_000 ether);
         toweli.transfer(alice, 800_000 ether);
         toweli.transfer(bob, 200_000 ether);
+        // AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — third staker so
+        //         `getRelativeWeight*` views exit the fail-closed `quorumMet`
+        //         branch (MIN_VOTING_NFTS_PER_EPOCH = 3). Without this the
+        //         post-PR-50 views return 0 and `test_GaugeRelativeWeight_renormalizes`
+        //         reverts on its first `assertGt(0, 0)`.
+        toweli.transfer(carol, 100_000 ether);
 
         vm.startPrank(alice);
         toweli.approve(address(staking), type(uint256).max);
@@ -196,6 +205,12 @@ contract DeepGov03_14_GaugeControllerTest is Test {
         vm.startPrank(bob);
         toweli.approve(address(staking), type(uint256).max);
         staking.stake(200_000 ether, 365 days);
+        vm.stopPrank();
+
+        // AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — carol stake.
+        vm.startPrank(carol);
+        toweli.approve(address(staking), type(uint256).max);
+        staking.stake(100_000 ether, 365 days);
         vm.stopPrank();
 
         _addGauge(g1);
@@ -243,6 +258,30 @@ contract DeepGov03_14_GaugeControllerTest is Test {
         g_b[1] = g1; w_b[1] = 5000;
         vm.prank(bob);
         gauge.vote(bobTokenId, g_b, w_b);
+
+        // AUDIT FIX FRESH-2026: GC-QUORUM-BAKE-IN [HIGH] — carol votes to clear
+        //         the 3-voter quorum so `getRelativeWeight` returns non-zero
+        //         (per the new fail-closed gate in `_getRelativeWeightAt`).
+        //         Carol splits 50/50 g2/g3 so the test's "g1 has the largest
+        //         combined share" invariant is preserved: g1 still gets
+        //         (alice's half + bob's half) = 2 units worth; g2 gets
+        //         (alice's half + carol's half) = 2 units; g3 gets
+        //         (bob's half + carol's half) = 2 units. Wait — that ties.
+        //         Reweight: carol votes 70% g2 / 30% g3 (still bounded by
+        //         5000 BPS per-gauge cap? No, per-gauge cap is 5000 so split
+        //         must include each gauge <= 50%). Use 50/50 g2/g3 — that
+        //         ties g1/g2/g3 at carol's contribution. But alice's
+        //         contribution to g1 (50%) PLUS bob's contribution to g1
+        //         (50%) STILL exceeds either g2 or g3 alone. With three
+        //         voters of similar stake split symmetrically, g1 stays
+        //         ahead because both alice AND bob contribute to it.
+        uint256 carolTokenId = staking.userTokenId(carol);
+        address[] memory g_c = new address[](2);
+        uint256[] memory w_c = new uint256[](2);
+        g_c[0] = g2; w_c[0] = 5000;
+        g_c[1] = g3; w_c[1] = 5000;
+        vm.prank(carol);
+        gauge.vote(carolTokenId, g_c, w_c);
 
         uint256 g1w = gauge.getRelativeWeight(g1);
         uint256 g2w = gauge.getRelativeWeight(g2);
