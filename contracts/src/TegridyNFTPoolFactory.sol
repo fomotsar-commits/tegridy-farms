@@ -84,6 +84,15 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     /// @notice All pools ever created
     address[] internal _allPools;
 
+    /// @notice Per-creator nonce used in the CREATE2 salt (Wave-2 finding 2026-05-16).
+    /// @dev    Prior salt used `_allPools.length` — a global counter any other
+    ///         creator could advance by deploying a pool, shifting the
+    ///         deterministic address of a victim's pending `createPool` call.
+    ///         Switching to a per-creator nonce keeps the
+    ///         "repeated calls by the same user produce distinct addresses"
+    ///         property while decoupling the salt from cross-user state.
+    mapping(address => uint256) public poolsCreatedByCreator;
+
     /// @notice Pools indexed by NFT collection address
     mapping(address => address[]) internal _poolsByCollection;
 
@@ -211,26 +220,31 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         require(_poolsByCollection[nftCollection].length < MAX_POOLS_PER_COLLECTION, "MAX_POOLS_PER_COLLECTION");
 
         // AUDIT H-08: deploy via CREATE2 with a deterministic salt that includes the
-        // caller, the pool counter, and the target collection. The prior Clones.clone()
-        // path made the pool address nonce-dependent, which let a front-runner observing
-        // a pending createPool() deploy their own pool at a predictable-to-them address
-        // ahead of the victim and siphon router discovery / first-liquidity advantage.
+        // caller, a per-creator pool counter, and the target collection. The prior
+        // Clones.clone() path made the pool address nonce-dependent, which let a
+        // front-runner observing a pending createPool() deploy their own pool at a
+        // predictable-to-them address ahead of the victim and siphon router
+        // discovery / first-liquidity advantage.
         // Salt components:
-        //   msg.sender      — binds the address to the creator (no cross-user collision)
-        //   _allPools.length — makes repeated calls by the same user produce distinct addresses
-        //   nftCollection   — ties the pool address to the specific collection
-        //   _poolType       — ties the address to the chosen pool type
+        //   msg.sender                            — binds the address to the creator (no cross-user collision)
+        //   poolsCreatedByCreator[msg.sender]     — makes repeated calls by the same user produce distinct addresses
+        //   nftCollection                         — ties the pool address to the specific collection
+        //   _poolType                             — ties the address to the chosen pool type
         // initialize() runs in the same transaction so there's no separable hijack window.
         // AUDIT FIX: DEEP-NFTPOOL-09: include `block.chainid` and
         // `address(this)` in the salt so cross-chain CREATE2 addresses do not
         // collide between factories deployed at the same address on different
         // chains. Closes 009 M-1 (still-open pre-DEEP).
+        // AUDIT FIX (Wave-2 2026-05-16): per-creator nonce instead of
+        // `_allPools.length` closes the global-counter salt grief. Increment
+        // BEFORE the deploy so any future reentrancy can't reuse the salt.
+        uint256 nonce = poolsCreatedByCreator[msg.sender]++;
         bytes32 salt = keccak256(
             abi.encodePacked(
                 block.chainid,
                 address(this),
                 msg.sender,
-                _allPools.length,
+                nonce,
                 nftCollection,
                 uint8(_poolType)
             )

@@ -6,6 +6,7 @@ import {TegridyNFTPoolFactory} from "../src/TegridyNFTPoolFactory.sol";
 import {TegridyNFTPool} from "../src/TegridyNFTPool.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─── TegridyNFTPoolFactory — bonding-curve NFT AMM factory ────────────────────
 //
@@ -385,4 +386,79 @@ contract TegridyNFTPoolFactoryTest is Test {
         }
         assertTrue(found, "PoolCreated event not emitted");
     }
+
+    /// @notice Regression: Wave-2 finding 2026-05-16 — the prior salt used the
+    ///         global `_allPools.length`, letting any other creator's deploy
+    ///         shift the deterministic address of a victim's pending
+    ///         `createPool`. With the per-creator nonce, only the caller can
+    ///         advance their own counter.
+    function test_perCreatorNonce_otherCreatorDoesNotShiftDeterministicAddress() public {
+        uint256[] memory emptyIds;
+
+        // Compute the address alice's first pool would land at, assuming her
+        // per-creator nonce = 0.
+        bytes32 saltAlice = keccak256(abi.encodePacked(
+            block.chainid,
+            address(factory),
+            alice,
+            uint256(0),
+            address(nft),
+            uint8(TegridyNFTPool.PoolType.TRADE)
+        ));
+        address impl = factory.poolImplementation();
+        address predicted = Clones.predictDeterministicAddress(impl, saltAlice, address(factory));
+
+        // Bob deploys first — global `_allPools.length` advances 0 → 1.
+        vm.prank(bob);
+        factory.createPool{value: 0.05 ether}(
+            address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, emptyIds
+        );
+        assertEq(factory.getPoolCount(), 1, "bob's deploy did not land");
+
+        // Alice now deploys. Under the old salt formula her pool would have
+        // shifted because the global counter is now 1. With the per-creator
+        // fix she still sees nonce 0 and the predicted address must match.
+        vm.prank(alice);
+        address actual = factory.createPool{value: 0.05 ether}(
+            address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, emptyIds
+        );
+        assertEq(actual, predicted, "another creator's deploy shifted my deterministic address");
+        assertEq(factory.poolsCreatedByCreator(alice), 1);
+        assertEq(factory.poolsCreatedByCreator(bob), 1);
+    }
+
+    /// @notice Wave-2 regression: per-creator nonce must advance monotonically
+    ///         across repeated `createPool` calls by the same creator. A
+    ///         regression that pins the nonce at 0 would collide on the
+    ///         second deploy (same salt → CREATE2 revert).
+    function test_perCreatorNonce_advancesAndProducesDistinctAddresses() public {
+        uint256[] memory empty;
+
+        assertEq(factory.poolsCreatedByCreator(alice), 0, "pre: nonce starts at 0");
+
+        vm.prank(alice);
+        address p0 = factory.createPool{value: 0.05 ether}(
+            address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, empty
+        );
+        assertEq(factory.poolsCreatedByCreator(alice), 1, "after 1st: nonce == 1");
+
+        vm.prank(alice);
+        address p1 = factory.createPool{value: 0.05 ether}(
+            address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, empty
+        );
+        assertEq(factory.poolsCreatedByCreator(alice), 2, "after 2nd: nonce == 2");
+
+        vm.prank(alice);
+        address p2 = factory.createPool{value: 0.05 ether}(
+            address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, empty
+        );
+        assertEq(factory.poolsCreatedByCreator(alice), 3, "after 3rd: nonce == 3");
+
+        // All three distinct — proves the nonce is in the salt and advancing.
+        assertTrue(p0 != p1 && p1 != p2 && p0 != p2, "three deploys produce three distinct addresses");
+
+        // Bob's counter untouched.
+        assertEq(factory.poolsCreatedByCreator(bob), 0, "bob's nonce untouched");
+    }
+
 }

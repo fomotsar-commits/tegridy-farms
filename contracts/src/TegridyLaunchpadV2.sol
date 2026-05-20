@@ -136,6 +136,18 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
     mapping(uint256 => CollectionInfo) public collections;
     address[] public allCollections;
 
+    /// @notice Per-creator nonce used in the CREATE2 salt (Wave-2 finding 2026-05-16).
+    /// @dev    Prior salt used `allCollections.length` — a global counter any
+    ///         other creator could advance by deploying a collection, shifting
+    ///         the deterministic address of a victim's pending `createCollection`
+    ///         call. Switching to a per-creator nonce keeps the
+    ///         "repeated calls by the same user produce distinct addresses"
+    ///         property while decoupling the salt from cross-user state, so
+    ///         only the creator themselves can advance their own counter.
+    ///         Grief was bounded (no theft, just address unpredictability) but
+    ///         trivially closed by this single mapping.
+    mapping(address => uint256) public collectionsCreatedByCreator;
+
     /// @notice All fields a creator needs to fully configure a drop at deploy time.
     ///         Optional fields: placeholderURI / contractURI (empty strings OK),
     ///         merkleRoot (bytes32(0) skips allowlist), any dutch* field of 0 skips
@@ -220,8 +232,13 @@ contract TegridyLaunchpadV2 is OwnableNoRenounce, Pausable, TimelockAdmin {
         // and same-name/symbol collisions across multiple launchpad deploys
         // are structurally impossible. NFTPoolFactory got this fix as
         // DEEP-NFTPOOL-09; Launchpad was the asymmetric outlier.
+        // AUDIT FIX (Wave-2 2026-05-16): use per-creator nonce instead of
+        // `allCollections.length` so other creators can't grief the
+        // deterministic address of a pending createCollection. Increment
+        // BEFORE the deploy so any future reentrancy can't reuse the salt.
+        uint256 nonce = collectionsCreatedByCreator[msg.sender]++;
         bytes32 salt = keccak256(
-            abi.encode(block.chainid, address(this), msg.sender, allCollections.length, cfg.name, cfg.symbol)
+            abi.encode(block.chainid, address(this), msg.sender, nonce, cfg.name, cfg.symbol)
         );
 
         collection = Clones.cloneDeterministic(dropTemplate, salt);
