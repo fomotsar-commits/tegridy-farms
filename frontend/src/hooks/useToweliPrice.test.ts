@@ -8,9 +8,15 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
-// storage.safeSetItem is called inside useEffect for the baseline/cache write;
-// stub to no-op so tests don't pollute real localStorage semantics.
-vi.mock('../lib/storage', () => ({ safeSetItem: vi.fn() }));
+// AUDIT (Wave-2 2026-05-20): mock the full surface the hook actually imports.
+// `safeGetItem` + `safeJsonParse` were added to the hook's versioned-cache read
+// after this mock was first written; without them the test fails at module
+// load with "No safeGetItem export defined on storage mock".
+vi.mock('../lib/storage', () => ({
+  safeSetItem: vi.fn(),
+  safeGetItem: vi.fn().mockReturnValue(null),
+  safeJsonParse: <T,>(_str: unknown, fallback: T) => fallback,
+}));
 
 import { useToweliPrice } from './useToweliPrice';
 import { TOWELI_ADDRESS, ETH_USD_FEED } from '../lib/constants';

@@ -53,6 +53,13 @@ vi.mock('wagmi', async () => {
       isSuccess: wagmiState.writeStatus.isSuccess,
       isError: wagmiState.writeStatus.isTxError,
     }),
+    // AUDIT (Wave-2 2026-05-20): added when useSwap began consuming
+    // `usePublicClient` for direct `viemClient.readContract` calls — the
+    // mock previously omitted it, blowing up at hook construction.
+    usePublicClient: () => ({
+      readContract: vitest.fn().mockResolvedValue(0n),
+      multicall: vitest.fn().mockResolvedValue([]),
+    }),
   };
 });
 
@@ -127,8 +134,12 @@ const allowanceState = {
   refetchMock: vi.fn(),
 };
 
+// AUDIT (Wave-2 2026-05-20): mock the full surface useSwap actually imports.
+// `QUOTE_MAX_AGE_MS` was added as a named export on useSwapQuote after this
+// mock was first written; without it the test fails at module load.
 vi.mock('./useSwapQuote', () => ({
   useSwapQuote: () => quoteState.current,
+  QUOTE_MAX_AGE_MS: 30_000,
 }));
 
 vi.mock('./useSwapAllowance', () => ({
