@@ -10,6 +10,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### Security — Wave-2 Tier B/C hardening (2026-05-16 → 2026-05-21)
+
+Threat-priority-map-driven pass targeting the Tier B/C residuals that
+survived the Monster Audit closure. **All on-chain Wave-2 PRs merged.**
+
+**Merged on `main`:**
+- [`cee32ce`](../../commit/cee32ce) — fresh-2026 audit batches 1–4
+  (1 CRIT + 7 HIGH): returndata-bomb defenses (`SFR-CATCH-COLLAPSE-BOMB`,
+  `_captureBoundedReason`), `MAX_BATCH_CLAIM_POOLS` cap, JBAC vault
+  recovery, ETH counter integrity.
+- #47 — V2 ALLOWLIST UX: `allowedAmount` UI input + hook signature
+  wiring (FE-HIGH-01); pre-fix every ALLOWLIST mint reverted at the
+  merkle check.
+- #48 — Lint cleanup 91 errors → 0 (react-hooks v7 +
+  `no-explicit-any` + `only-export-components`).
+- #49 — Shared vitest `renderWithProviders` wrapper (theme + router);
+  unblocked the `useTheme must be used within a ThemeProvider`
+  cascading failure.
+- #51 — Per-creator CREATE2 salt nonce on `TegridyLaunchpadV2` +
+  `TegridyNFTPoolFactory`. Closes the global-counter address-grief
+  where another creator's deploy shifted a victim's pending
+  deterministic address. +3 regression tests + RELAUNCH_RUNBOOK §7
+  operator note.
+- #52 — Wagmi fallback + E2E fixes (post-supersede cleanup of #40).
+- #53 — `SwapFeeRouter.sweepETH` converted to 48h propose/execute/
+  cancel timelock. Mirrors `POLAccumulator.proposeSweepETH` (H-14).
+  +7 regression tests + indexer `SweepETHExecuted` subscription.
+- #54 — `TegridyLending` cross-loan reward-attribution invariants
+  pinned (`loanRewardsSnapshot` / `escrowRewardsOwed` /
+  `totalEscrowRewardsOwed`). +2 invariant tests covering snapshot
+  exactness, full-lifecycle survival, per-loan delta booking, sum
+  invariant, and pull decrement.
+- #55 — `VoteIncentivesAdmin` value-binding + executeAfter-binding
+  on all 4 timelocked executors. **Breaking API:** callers must pass
+  `(pendingX(), xChangeTime())`. +8 regression tests + 3 stale
+  operator-instruction string updates.
+- #56 — 3 stale `vi.mock` partial-export blocks fixed; +26 vitest
+  cases enumerated that previously failed at module load.
+- #57 — M16/M4/M7-revised defensive scan follow-ons (cross-session
+  cherry-pick of #28).
+- #58 — FRESH-2026 H2 + M3 — cherry-pick of outstanding fixes
+  from #32 (cross-session).
+
+**Still in flight:**
+- #61 — `claude/eslint-repromote`: re-promotes the 15
+  React Compiler v7 + `no-explicit-any` + `only-export-components`
+  rules from `warn` back to `error` now that #48 closed the
+  underlying violations.
+- #62 — `claude/readme-wave2-update`: this docs ledger.
+
+A 4-agent parallel review pass (security/exploit, code-quality+pattern-
+fit, test-coverage, operator-impact) validated the open PRs with no
+security blockers and surfaced several test-coverage gaps that were
+closed in follow-up amends per PR before merge.
+
+Per-PR ledger:
+[`FIX_STATUS.md` § Wave-2](FIX_STATUS.md#-wave-2-tier-bc-hardening-2026-05-16--2026-05-21).
+
 ### Security — Monster Audit + adversarial sweep (2026-05-09 → 2026-05-10)
 
 7-cluster fresh-eyes adversarial audit on the post-scan6 codebase plus a

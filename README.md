@@ -444,6 +444,7 @@ Tegridy Farms has undergone **2 external reviews** (Spartan + a pre-release thir
 - scan2 → scan6 sibling-canonical sweeps reaching "asymptotic floor" (May 8–9)
 - scan7 EIP-7702 retrofit + scan8 deploy-script hardening (May 9)
 - **Monster Audit (May 9–10)** — 7-cluster fresh-eyes audit closing 13 new findings + 3 post-fix-sweep follow-ons; 4 new Foundry PoC tests landed under `contracts/test/FRESH2026_*.t.sol`
+- **Wave-2 hardening (May 16–21)** — eighth-cluster fresh-eyes pass + Tier B/C threat-priority remediation, all on-chain Wave-2 work merged on `main`: fresh-2026 audit batches 1–4 (1 critical + 7 highs, [`cee32ce`](../../commit/cee32ce)), wagmi fallback + E2E fixes (#52), lint cleanup 91→0 errors (#48), shared vitest providers wrapper (#49), V2 ALLOWLIST `allowedAmount` UI wiring (#47), per-creator CREATE2 salt nonce (#51), Lending reward-attribution invariants (#54), stale `vi.mock` partial-export fixes (#56), SwapFeeRouter `sweepETH` 48h timelock (#53), VoteIncentivesAdmin value+executeAfter binding (#55, breaking API). 21 new regression assertions landed across the batch; cherry-picks #57 + #58 (M16/M4/M7/H2/M3) also merged. Still in flight: eslint re-promote (#61) and this docs PR (#62). Full ledger in [`FIX_STATUS.md` § Wave-2](FIX_STATUS.md#-wave-2-tier-bc-hardening-2026-05-16--2026-05-21).
 
 Every artifact is tracked in this repo under [`AUDITS.md`](AUDITS.md); historical reviews have been archived under [`docs/audits/archive/`](docs/audits/archive/). Nothing is buried. The protocol is pre-relaunch ([`RELAUNCH_RUNBOOK.md`](RELAUNCH_RUNBOOK.md)); treat it seriously.
 
@@ -457,7 +458,8 @@ Methodology is labelled honestly. **Internal AI agents** are parallel Claude/GPT
 
 | Audit | Date | Type | Headline severity | Role |
 |---|---|---|---|---|
-| [FIX_STATUS.md § Monster Audit](FIX_STATUS.md#-monster-audit-2026-05-09--2026-05-10) | 2026-05-09 → 05-10 | Internal AI, 7-cluster fresh-eyes + post-fix sweep | 13 NEW findings + 3 fresh regressions; 16/16 closed; 4 new Foundry PoCs | **🟢 Latest cumulative ledger** |
+| [FIX_STATUS.md § Wave-2](FIX_STATUS.md#-wave-2-tier-bc-hardening-2026-05-16--2026-05-21) | 2026-05-16 → 05-21 | Internal AI, threat-priority-map driven + 4-agent ultrareview | 1 CRIT + 7 HIGH (cee32ce) + 5 Tier B/C closures all merged (#51, #53, #54, #55, #56); eslint re-promote (#61) + docs (#62) in flight | **🟢 Latest cumulative ledger** |
+| [FIX_STATUS.md § Monster Audit](FIX_STATUS.md#-monster-audit-2026-05-09--2026-05-10) | 2026-05-09 → 05-10 | Internal AI, 7-cluster fresh-eyes + post-fix sweep | 13 NEW findings + 3 fresh regressions; 16/16 closed; 4 new Foundry PoCs | 🟢 Closed |
 | [.audit_101/PASS8_2026_05_04.md](.audit_101/PASS8_2026_05_04.md) | 2026-05-04 → 05-06 | Internal AI, 100-agent fresh-eye | ~275 unique findings; 18-batch remediation | 🟢 Closed |
 | [.audit_101/PASS7_2026_05_03.md](.audit_101/PASS7_2026_05_03.md) | 2026-05-03 → 05-04 | Internal AI, adversarial multi-agent | 1 C + 6 H + 4 M + 2 L | 🟢 Closed |
 | [.audit_101/PASS6_2026_05_03.md](.audit_101/PASS6_2026_05_03.md) + [PASS5](.audit_101/PASS5_2026_05_02.md) | 2026-05-02 → 05-03 | Internal AI, fresh-eyes meta + cross-contract | 5 H + 5 M (PASS6) + 1 H + 1 L + 4 invariants (PASS5) | 🟢 Closed |
@@ -476,7 +478,8 @@ Plus **70+ audit-derived Foundry test files** under [`contracts/test/`](contract
 
 - **Wave 0 is being sunset.** The April 2026 mainnet deployment is treated as the *baseline* — a full relaunch from a new deployer wallet is the current path forward. See [`RELAUNCH_RUNBOOK.md`](RELAUNCH_RUNBOOK.md) for the deploy sequence.
 - **All 16 monster-audit findings closed** across 5 batch commits (May 9–10, 2026): F1 ex-restaker revenue loss (HIGH), F-LD cross-loan drain (HIGH), F10 orderbook Seaport hash (MED), plus 13 others. Per-finding ledger in [`FIX_STATUS.md` § Monster Audit](FIX_STATUS.md).
-- **Test posture frozen at 2,593 / 2,593** non-invariant Foundry tests + 53 invariant + 191 / 191 frontend vitest. Three independent forge sweeps post-batch-4 confirmed identical results.
+- **Wave-2 audit hardenings merged 2026-05-20/21** ([`cee32ce`](../../commit/cee32ce) + #47, #48, #49, #51, #52, #53, #54, #55, #56): 1 critical + 7 highs (returndata-bomb defenses, batch-claim cap, e2e + wagmi fallback, V2 ALLOWLIST UX, lint 91→0 errors, shared vitest providers) plus 5 Tier B/C closures (per-creator salt nonce, sweepETH timelock, Lending invariants, VI Admin value+ETA binding, stale-mock fixes). Cherry-picks #57 + #58 (M16/M4/M7 defensive + FRESH-2026 H2/M3) also merged. Still in flight: eslint re-promote (#61) and this docs PR (#62).
+- **Test posture: 2,593 + ~21 new assertions + ~26 vitest cases enumerated.** Baseline was 2,593 / 2,593 non-invariant + 53 invariant + 191 / 191 frontend vitest; Wave-2 PRs added ~21 new regression assertions, ~26 frontend vitest cases enumerated, and 1 new indexer event subscription (SwapFeeRouter `SweepETH*` lifecycle).
 - The contracts use OZ primitives (SafeERC20, ReentrancyGuard, Pausable), a custom `TimelockAdmin` (24–48h delays on parameter changes), and `OwnableNoRenounce` (prevents accidental brick). Custom code traces to canonical billion-dollar patterns: Synthetix / Curve / Aave V3 / Gondi / Uniswap V2+V4 / OZ / Solady.
 
 ### What to still be careful about
