@@ -35,6 +35,23 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     error ZeroAddress();
     error FeeTooHigh();
     error FeeCannotBeZero();
+    /// @notice AUDIT FIX (Wave-2 2026-05-20): caller's expected pending value did
+    ///         not match the currently-stored value. Closes the
+    ///         cancel-and-re-propose race where a captured-key attacker swaps the
+    ///         queued value between propose and the multisig's signed execute.
+    ///         Mirrors TegridyLaunchpadV2's FeeMismatch / RecipientMismatch
+    ///         pattern (V2-LP-01) and TegridyDropV2.executeMerkleRoot(bytes32).
+    error FeeMismatch();
+    error TreasuryMismatch();
+    error WhitelistMismatch();
+    error MinBribeMismatch();
+    /// @notice AUDIT FIX (Wave-2 2026-05-20, mirrors V2-LP-01):
+    ///         `expectedExecuteAfter` did not match the currently-stored
+    ///         `_executeAfter[KEY]`. Closes the cancel → re-propose with same
+    ///         value but different ETA race where the original signer could
+    ///         have unwittingly executed the second proposal because the
+    ///         value-binding alone matched.
+    error ExecuteAfterMismatch();
 
     // ─── Timelock keys (mirror what VoteIncentives previously held) ────
     bytes32 public constant FEE_CHANGE = keccak256("BRIBE_FEE_CHANGE");
@@ -86,7 +103,14 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
         _propose(FEE_CHANGE, FEE_CHANGE_DELAY);
         emit FeeChangeProposed(voteIncentives.bribeFeeBps(), newFee, _executeAfter[FEE_CHANGE]);
     }
-    function executeFeeChange() external onlyOwner {
+    /// @notice Execute a previously-proposed fee change.
+    /// @dev    AUDIT FIX (Wave-2 2026-05-20): caller MUST bind both the
+    ///         pending value AND the pending executeAfter at sign time.
+    ///         Closes the cancel-and-re-propose race (see FeeMismatch /
+    ///         ExecuteAfterMismatch natspec).
+    function executeFeeChange(uint256 expectedFee, uint256 expectedExecuteAfter) external onlyOwner {
+        if (pendingFeeBps != expectedFee) revert FeeMismatch();
+        if (_executeAfter[FEE_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
         _execute(FEE_CHANGE);
         uint256 v = pendingFeeBps;
         pendingFeeBps = 0;
@@ -109,7 +133,9 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
         _propose(TREASURY_CHANGE, TREASURY_CHANGE_DELAY);
         emit TreasuryChangeProposed(_newTreasury, _executeAfter[TREASURY_CHANGE]);
     }
-    function executeTreasuryChange() external onlyOwner {
+    function executeTreasuryChange(address expectedTreasury, uint256 expectedExecuteAfter) external onlyOwner {
+        if (pendingTreasury != expectedTreasury) revert TreasuryMismatch();
+        if (_executeAfter[TREASURY_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
         _execute(TREASURY_CHANGE);
         address v = pendingTreasury;
         pendingTreasury = address(0);
@@ -133,7 +159,15 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
         _propose(WHITELIST_CHANGE, WHITELIST_CHANGE_DELAY);
         emit WhitelistChangeProposed(token, add, _executeAfter[WHITELIST_CHANGE]);
     }
-    function executeWhitelistChange() external onlyOwner {
+    function executeWhitelistChange(
+        address expectedToken,
+        bool expectedAdd,
+        uint256 expectedExecuteAfter
+    ) external onlyOwner {
+        if (pendingWhitelistToken != expectedToken || pendingWhitelistAction != expectedAdd) {
+            revert WhitelistMismatch();
+        }
+        if (_executeAfter[WHITELIST_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
         _execute(WHITELIST_CHANGE);
         address token = pendingWhitelistToken;
         bool add = pendingWhitelistAction;
@@ -160,7 +194,15 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
         _propose(MIN_BRIBE_CHANGE, MIN_BRIBE_CHANGE_DELAY);
         emit MinBribeAmountChangeProposed(token, amount, _executeAfter[MIN_BRIBE_CHANGE]);
     }
-    function executeMinBribeAmount() external onlyOwner {
+    function executeMinBribeAmount(
+        address expectedToken,
+        uint256 expectedAmount,
+        uint256 expectedExecuteAfter
+    ) external onlyOwner {
+        if (pendingMinBribeToken != expectedToken || pendingMinBribeAmount != expectedAmount) {
+            revert MinBribeMismatch();
+        }
+        if (_executeAfter[MIN_BRIBE_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
         _execute(MIN_BRIBE_CHANGE);
         address token = pendingMinBribeToken;
         uint256 amount = pendingMinBribeAmount;
