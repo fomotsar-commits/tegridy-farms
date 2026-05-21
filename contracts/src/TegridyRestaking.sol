@@ -2673,4 +2673,40 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (msg.sender != address(this)) revert OnlyStakingNFT(); // reuse error for size
         bonusRewardToken.safeTransfer(to, amount);
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations. The BONUS_RATE_CHANGE
+    ///         flush mirrors `cancelBonusRateProposal`'s update of
+    ///         `lastBonusRateActionAt` so the propose-side anti-churn cooldown
+    ///         observes this cancel as a recent action — preserves the DR2-05 fix.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[BONUS_RATE_CHANGE] != 0) {
+            uint256 cancelledRate = pendingBonusRate;
+            _cancel(BONUS_RATE_CHANGE);
+            pendingBonusRate = 0;
+            lastBonusRateActionAt = block.timestamp;
+            emit BonusRateCancelled(cancelledRate);
+        }
+        if (_executeAfter[ATTRIBUTION_CHANGE] != 0) {
+            PendingAttribution memory p = pendingAttribution;
+            _cancel(ATTRIBUTION_CHANGE);
+            delete pendingAttribution;
+            emit AttributionCancelled(p.restaker, p.amount);
+        }
+        if (_executeAfter[RESCUE_NFT_CHANGE] != 0) {
+            uint256 tid = pendingRescueNFT.tokenId;
+            _cancel(RESCUE_NFT_CHANGE);
+            delete pendingRescueNFT;
+            emit RescueNFTCancelled(tid);
+        }
+    }
 }

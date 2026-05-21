@@ -1184,4 +1184,45 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function restakingChangeReadyAt() external view returns (uint256) {
         return _proposalReadyAt(RESTAKING_CHANGE);
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations. GAUGE_ADD / GAUGE_REMOVE
+    ///         / EMISSION_BUDGET_CHANGE have no typed cancellation events on this
+    ///         contract — the base `ProposalCancelled(key)` event from `_cancel`
+    ///         is sufficient. RESTAKING_CHANGE has a typed event.
+    /// @dev    NOTE on GAUGE_REMOVE: `pendingGaugeRemove` outlives the timelock
+    ///         proposal when `executeRemoveGaugeNextEpoch` defers to
+    ///         `executeRemoveGaugeFinalize`. The `_executeAfter[GAUGE_REMOVE]`
+    ///         guard correctly skips that case — only an UNEXECUTED proposal
+    ///         (with non-zero `_executeAfter`) clears `pendingGaugeRemove`.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[GAUGE_ADD] != 0) {
+            _cancel(GAUGE_ADD);
+            pendingGaugeAdd = address(0);
+            pendingPairForAdd = address(0);
+        }
+        if (_executeAfter[GAUGE_REMOVE] != 0) {
+            _cancel(GAUGE_REMOVE);
+            pendingGaugeRemove = address(0);
+        }
+        if (_executeAfter[EMISSION_BUDGET_CHANGE] != 0) {
+            _cancel(EMISSION_BUDGET_CHANGE);
+            pendingEmissionBudget = 0;
+        }
+        if (_executeAfter[RESTAKING_CHANGE] != 0) {
+            address pending = pendingRestakingContract;
+            _cancel(RESTAKING_CHANGE);
+            pendingRestakingContract = address(0);
+            emit RestakingContractProposalCancelled(pending);
+        }
+    }
 }

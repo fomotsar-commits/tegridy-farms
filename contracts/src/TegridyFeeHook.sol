@@ -973,4 +973,49 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     mapping(address => bool) public allowedConversionRouter;
     address public pendingConversionRouterAdd;
     address public pendingConversionRouterRemove;
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations.
+    /// @dev    SCOPE NOTE: SYNC_CHANGE uses per-currency dynamic keys
+    ///         (`keccak256(abi.encodePacked(SYNC_CHANGE, currency))`) and a
+    ///         per-currency `pendingSyncCredit[currency]` mirror. These CANNOT
+    ///         be iterated here because the set of currencies with pending sync
+    ///         proposals is not canonical-storage iterable. Honest operators
+    ///         must use `cancelSyncCredit(currency)` to clear each before
+    ///         transferring ownership if they want to flush those proposals.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingFee;
+            _cancel(FEE_CHANGE);
+            pendingFee = 0;
+            emit FeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[DISTRIBUTOR_CHANGE] != 0) {
+            address cancelled = pendingDistributor;
+            _cancel(DISTRIBUTOR_CHANGE);
+            pendingDistributor = address(0);
+            emit DistributorChangeCancelled(cancelled);
+        }
+        if (_executeAfter[CONVERSION_ROUTER_ADD] != 0) {
+            address cancelled = pendingConversionRouterAdd;
+            _cancel(CONVERSION_ROUTER_ADD);
+            pendingConversionRouterAdd = address(0);
+            emit ConversionRouterAddCancelled(cancelled);
+        }
+        if (_executeAfter[CONVERSION_ROUTER_REMOVE] != 0) {
+            address cancelled = pendingConversionRouterRemove;
+            _cancel(CONVERSION_ROUTER_REMOVE);
+            pendingConversionRouterRemove = address(0);
+            emit ConversionRouterRemoveCancelled(cancelled);
+        }
+    }
 }

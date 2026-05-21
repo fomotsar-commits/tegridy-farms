@@ -493,4 +493,82 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
         if (block.timestamp > readyAt + _proposalValidity()) return false;
         return pendingAcceptedCollateral == _collateral && !pendingAcceptedCollateralAdd;
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations. Keys without typed
+    ///         cancellation events rely on the base `ProposalCancelled(key)`
+    ///         event fired inside `_cancel`.
+    /// @dev    AUDIT FIX (F-33-4) NOTE: cancelling an ADD proposal during
+    ///         normal flow calls `lending.resetCollateralRemovalRetryCount` on
+    ///         the lending side. We intentionally DO NOT replicate that here:
+    ///         a forced ownership-handoff cancel is a security event, not a
+    ///         legitimate operator revoke, so the retry-count budget should
+    ///         remain intact across the rotation. The cancel-rate-limit logic
+    ///         (LD3-M3) is also skipped — the outgoing owner is being evicted,
+    ///         not throttled.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[PROTOCOL_FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingProtocolFeeBps;
+            _cancel(PROTOCOL_FEE_CHANGE);
+            pendingProtocolFeeBps = 0;
+            emit ProtocolFeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[MAX_PRINCIPAL_CHANGE] != 0) {
+            _cancel(MAX_PRINCIPAL_CHANGE);
+            pendingMaxPrincipal = 0;
+        }
+        if (_executeAfter[MAX_APR_CHANGE] != 0) {
+            _cancel(MAX_APR_CHANGE);
+            pendingMaxAprBps = 0;
+        }
+        if (_executeAfter[MIN_DURATION_CHANGE] != 0) {
+            _cancel(MIN_DURATION_CHANGE);
+            pendingMinDuration = 0;
+        }
+        if (_executeAfter[MAX_DURATION_CHANGE] != 0) {
+            _cancel(MAX_DURATION_CHANGE);
+            pendingMaxDuration = 0;
+        }
+        if (_executeAfter[ORIGINATION_FEE_CHANGE] != 0) {
+            _cancel(ORIGINATION_FEE_CHANGE);
+            pendingOriginationFeeBps = 0;
+        }
+        if (_executeAfter[MIN_APR_CHANGE] != 0) {
+            _cancel(MIN_APR_CHANGE);
+            pendingMinAprBps = 0;
+        }
+        if (_executeAfter[MIN_PRINCIPAL_CHANGE] != 0) {
+            _cancel(MIN_PRINCIPAL_CHANGE);
+            pendingMinPrincipal = 0;
+        }
+        if (_executeAfter[ACCEPTED_COLLATERAL_CHANGE] != 0) {
+            address cancelled = pendingAcceptedCollateral;
+            bool wasAdd = pendingAcceptedCollateralAdd;
+            _cancel(ACCEPTED_COLLATERAL_CHANGE);
+            pendingAcceptedCollateral = address(0);
+            pendingAcceptedCollateralAdd = false;
+            emit AcceptedCollateralCancelled(cancelled, wasAdd);
+        }
+        if (_executeAfter[SWEEP_DONATED_TOWELI] != 0) {
+            _cancel(SWEEP_DONATED_TOWELI);
+            pendingSweepAmount = 0;
+            pendingSweepTo = address(0);
+            emit SweepDonatedToweliCancelled();
+        }
+    }
 }

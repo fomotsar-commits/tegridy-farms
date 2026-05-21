@@ -694,4 +694,28 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     function getRewardForDuration() external view returns (uint256) {
         return rewardRate * rewardsDuration;
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations. No typed cancellation
+    ///         events on this contract — the base `ProposalCancelled(key)` event
+    ///         fired inside `_cancel` is sufficient.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[REWARDS_DURATION_CHANGE] != 0) {
+            _cancel(REWARDS_DURATION_CHANGE);
+            pendingRewardsDuration = 0;
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+        }
+    }
 }

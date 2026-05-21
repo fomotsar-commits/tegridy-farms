@@ -423,4 +423,77 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     function polAccumulatorChangeTime() external view returns (uint256) {
         return _executeAfter[POL_ACCUMULATOR_CHANGE];
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations. PAIR_FEE_CHANGE emits
+    ///         both canonical (`InputTokenFeeChangeCancelled`) and legacy
+    ///         (`PairFeeChangeCancelled`) events for ABI-compat with R-014 M-1.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingFeeBps;
+            _cancel(FEE_CHANGE);
+            pendingFeeBps = 0;
+            emit FeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[REFERRAL_CHANGE] != 0) {
+            address cancelled = pendingReferralSplitter;
+            _cancel(REFERRAL_CHANGE);
+            pendingReferralSplitter = address(0);
+            emit ReferralSplitterChangeCancelled(cancelled);
+        }
+        if (_executeAfter[PAIR_FEE_CHANGE] != 0) {
+            address cancelled = pendingPairFeeAddress;
+            _cancel(PAIR_FEE_CHANGE);
+            pendingPairFeeAddress = address(0);
+            pendingPairFeeBps = 0;
+            pendingPairFeeRemoval = false;
+            emit InputTokenFeeChangeCancelled(cancelled);
+            emit PairFeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[PREMIUM_DISCOUNT_CHANGE] != 0) {
+            uint256 cancelled = pendingPremiumDiscountBps;
+            _cancel(PREMIUM_DISCOUNT_CHANGE);
+            pendingPremiumDiscountBps = 0;
+            emit PremiumDiscountChangeCancelled(cancelled);
+        }
+        if (_executeAfter[PREMIUM_ACCESS_CHANGE] != 0) {
+            address cancelled = pendingPremiumAccess;
+            _cancel(PREMIUM_ACCESS_CHANGE);
+            pendingPremiumAccess = address(0);
+            emit PremiumAccessChangeCancelled(cancelled);
+        }
+        if (_executeAfter[REV_DIST_CHANGE] != 0) {
+            address cancelled = pendingRevenueDistributor;
+            _cancel(REV_DIST_CHANGE);
+            pendingRevenueDistributor = address(0);
+            emit RevenueDistributorChangeCancelled(cancelled);
+        }
+        if (_executeAfter[FEE_SPLIT_CHANGE] != 0) {
+            _cancel(FEE_SPLIT_CHANGE);
+            pendingStakerShareBps = 0;
+            pendingPolShareBps = 0;
+            emit FeeSplitChangeCancelled();
+        }
+        if (_executeAfter[POL_ACCUMULATOR_CHANGE] != 0) {
+            address cancelled = pendingPolAccumulator;
+            _cancel(POL_ACCUMULATOR_CHANGE);
+            pendingPolAccumulator = address(0);
+            emit PolAccumulatorChangeCancelled(cancelled);
+        }
+    }
 }

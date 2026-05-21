@@ -205,4 +205,49 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     function commitRevealEnableTime() external view returns (uint256) {
         return _executeAfter[COMMIT_REVEAL_ENABLE];
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingFeeBps;
+            _cancel(FEE_CHANGE);
+            pendingFeeBps = 0;
+            emit FeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[WHITELIST_CHANGE] != 0) {
+            address cancelled = pendingWhitelistToken;
+            _cancel(WHITELIST_CHANGE);
+            pendingWhitelistToken = address(0);
+            pendingWhitelistAction = false;
+            emit WhitelistChangeCancelled(cancelled);
+        }
+        if (_executeAfter[MIN_BRIBE_CHANGE] != 0) {
+            address token = pendingMinBribeToken;
+            uint256 amount = pendingMinBribeAmount;
+            _cancel(MIN_BRIBE_CHANGE);
+            pendingMinBribeToken = address(0);
+            pendingMinBribeAmount = 0;
+            emit MinBribeAmountChangeCancelled(token, amount);
+        }
+        if (_executeAfter[COMMIT_REVEAL_ENABLE] != 0) {
+            _cancel(COMMIT_REVEAL_ENABLE);
+            emit EnableCommitRevealCancelled();
+        }
+    }
 }

@@ -359,4 +359,53 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     function extendFeeRecycleChangeReadyAt() external view returns (uint256) {
         return _executeAfter[EXTEND_FEE_RECYCLE_CHANGE];
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations. No typed cancellation
+    ///         events exist on this contract — the base `ProposalCancelled(key)`
+    ///         event fires inside `_cancel` and is sufficient.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[REWARD_RATE_CHANGE] != 0) {
+            _cancel(REWARD_RATE_CHANGE);
+            pendingRewardRate = 0;
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+        }
+        if (_executeAfter[RESTAKING_CHANGE] != 0) {
+            _cancel(RESTAKING_CHANGE);
+            pendingRestakingContract = address(0);
+        }
+        if (_executeAfter[UNSETTLED_CAP_CHANGE] != 0) {
+            _cancel(UNSETTLED_CAP_CHANGE);
+            pendingMaxUnsettledRewards = 0;
+        }
+        if (_executeAfter[LENDING_CONTRACT_CHANGE] != 0) {
+            _cancel(LENDING_CONTRACT_CHANGE);
+            pendingLendingContract = address(0);
+            pendingLendingContractApproval = false;
+        }
+        if (_executeAfter[EXTEND_FEE_CHANGE] != 0) {
+            _cancel(EXTEND_FEE_CHANGE);
+            pendingExtendFeeBps = 0;
+        }
+        if (_executeAfter[PENALTY_RECYCLE_CHANGE] != 0) {
+            _cancel(PENALTY_RECYCLE_CHANGE);
+            pendingPenaltyRecycleBps = 0;
+        }
+        if (_executeAfter[EXTEND_FEE_RECYCLE_CHANGE] != 0) {
+            _cancel(EXTEND_FEE_RECYCLE_CHANGE);
+            pendingExtendFeeRecycleBps = 0;
+        }
+    }
 }

@@ -808,4 +808,47 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ) {
         return (totalReferred[_referrer], totalEarned[_referrer], pendingETH[_referrer]);
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations.
+    /// @dev    SCOPE NOTE: the per-address CALLER_GRANT proposals use a dynamic
+    ///         key (`keccak256(abi.encode("CALLER_GRANT", caller))`) and a
+    ///         per-address `pendingCallerGrant[caller]` mirror — these CANNOT
+    ///         be iterated here because the set of pending callers is not
+    ///         canonical-storage iterable. Honest operators must use
+    ///         `cancelCallerGrant(caller)` to clear each pending grant before
+    ///         transferring ownership if they want to flush those proposals.
+    ///         The 24h CALLER_GRANT_DELAY plus owner-only execute gate already
+    ///         contains the residual risk surface — the new owner sees these
+    ///         pending grants via `pendingCallerGrantTime(caller)` and can
+    ///         cancel via the existing path before the timer elapses.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[REFERRAL_FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingReferralFee;
+            _cancel(REFERRAL_FEE_CHANGE);
+            pendingReferralFee = 0;
+            emit ReferralFeeCancelled(cancelled);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[BAN_REFERRER] != 0) {
+            address cancelled = pendingBanReferrer;
+            _cancel(BAN_REFERRER);
+            pendingBanReferrer = address(0);
+            emit BanReferrerCancelled(cancelled);
+        }
+    }
 }

@@ -863,4 +863,30 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function submissionCount(uint256 _bountyId) external view returns (uint256) {
         return submissions[_bountyId].length;
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations. MIN_REWARD_CHANGE has
+    ///         no typed cancellation event on this contract — base
+    ///         `ProposalCancelled(key)` from `_cancel` is sufficient.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[MIN_REWARD_CHANGE] != 0) {
+            _cancel(MIN_REWARD_CHANGE);
+            pendingMinBountyReward = 0;
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+    }
 }

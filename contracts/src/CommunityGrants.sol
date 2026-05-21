@@ -1254,4 +1254,34 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             }
         }
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending TIMELOCK_KEY proposals seeded by the outgoing owner are
+    ///         CANCELLED automatically on handoff. Mirrors the canonical
+    ///         TegridyNFTPoolFactory pattern (M19 fix, commit 0a08bff). Without
+    ///         this override, a captured outgoing owner could `propose...`
+    ///         immediately before `transferOwnership`, and the timer would silently
+    ///         keep running under the new owner. A new-owner deploy/keeper script
+    ///         reading `pending...()` could then execute the hostile change.
+    /// @dev    Calls `super.acceptOwnership()` first so the pendingOwner→owner
+    ///         promotion happens before the cancellations.
+    /// @dev    SCOPE NOTE: the per-proposalId CANCEL_APPROVED_KEY proposals use a
+    ///         dynamic key (`keccak256(abi.encode(CANCEL_APPROVED_KEY, proposalId))`)
+    ///         — these CANNOT be iterated here because the set of pending
+    ///         proposalIds is not canonical-storage iterable. Honest operators
+    ///         must use `cancelCancelApproved(proposalId)` to clear each pending
+    ///         cancel before transferring ownership if they want to flush those
+    ///         proposals. The 24h CANCEL_APPROVED_TIMELOCK plus the permissionless
+    ///         executor still wraps the residual risk surface — the new owner
+    ///         can inspect via `cancelApprovedReadyAt(proposalId)` and cancel
+    ///         each one individually before the timer elapses.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_RECEIVER_CHANGE] != 0) {
+            address cancelled = pendingFeeReceiver;
+            _cancel(FEE_RECEIVER_CHANGE);
+            pendingFeeReceiver = address(0);
+            emit FeeReceiverChangeCancelled(cancelled);
+        }
+    }
 }
