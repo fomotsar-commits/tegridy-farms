@@ -556,25 +556,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         if (_duration > MAX_DURATION) revert DurationTooLong();
         if (_collateralContract == address(0)) revert ZeroAddress();
         if (!whitelistedCollections[_collateralContract]) revert CollectionNotWhitelisted();
-        // AUDIT FIX 2026-05-16 M7: auto-expiry short-circuit. Mirrors
-        // TegridyLendingAdmin.acceptedCollateralRemovalPending (M-27/F-33-3 fix).
-        // Pre-fix, an uncancelled WHITELIST_REMOVE proposal whose 24h delay + 7d
-        // validity window had elapsed continued to block createOffer/acceptOffer
-        // because only `_executeAfter[WHITELIST_REMOVE] != 0` was checked. The
-        // proposal CANNOT be executed past expiry (TimelockAdmin reverts
-        // ProposalExpired), so treating it as already-cancelled is safe and
-        // bounds the captured-owner DoS to the documented validity window
-        // (24h delay + 7d validity = 8 days) instead of forever-until-cancel.
-        {
-            uint256 _ra = _executeAfter[WHITELIST_REMOVE];
-            if (
-                pendingWhitelistRemove == _collateralContract
-                && _ra != 0
-                && block.timestamp <= _ra + _proposalValidity()
-            ) {
-                revert CollectionPendingRemoval();
-            }
-        }
+        // AUDIT FIX 2026-05-21 M7-REVISED: single-source-of-truth gate. See
+        // `_collectionPendingRemoval` NatSpec for the M7 / M7-revised history.
+        if (_collectionPendingRemoval(_collateralContract)) revert CollectionPendingRemoval();
         // AUDIT FIX FRESH-2026: F-95-K-2 — global + per-lender offer caps.
         if (offers.length >= MAX_TOTAL_OFFERS) revert TooManyOffers();
         if (openOffersOfLender[msg.sender] >= MAX_OFFERS_PER_LENDER) {
@@ -699,19 +683,19 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         }
 
         if (!whitelistedCollections[collateralContract]) revert CollectionNotWhitelisted();
-        // AUDIT FIX L-3: also reject acceptance during the 24h whitelist-removal
-        // timelock. Pre-fix, `createOffer` already rejected new offers in this
-        // window but `acceptOffer` accepted EXISTING offers — so an attacker
-        // could rug-prepare a collection, watch admin propose removal, and
-        // accept a pre-existing legitimate-looking offer using a freshly-rugged
-        // token to drain the lender's principal. Mirrors the createOffer guard
-        // at line 311-316.
-        if (
-            pendingWhitelistRemove == collateralContract
-            && _executeAfter[WHITELIST_REMOVE] != 0
-        ) {
-            revert CollectionPendingRemoval();
-        }
+        // AUDIT FIX L-3 (M7 original): reject acceptance during the 24h whitelist-
+        // removal timelock so an attacker can't rug-prepare a collection, watch
+        // admin propose removal, and accept a pre-existing offer with a freshly-
+        // rugged token to drain the lender's principal.
+        // AUDIT FIX 2026-05-21 M7-REVISED: replaced the inline raw-flag check with
+        // the consolidated `_collectionPendingRemoval` helper. Pre-fix, this site
+        // used the legacy `_executeAfter[WHITELIST_REMOVE] != 0` form (no auto-
+        // expiry short-circuit), while the sister `createOffer` got the expiry
+        // upgrade in PR #28 M7 batch-1 — letting a captured/forgetful owner
+        // brick acceptOffer indefinitely by letting the timelock window expire
+        // without cancel. Both call sites now consult one helper, eliminating
+        // the drift surface. Discovered by the Family-3 defensive scan of PR #28.
+        if (_collectionPendingRemoval(collateralContract)) revert CollectionPendingRemoval();
 
         // AUDIT FIX FRESH-2026 (post-fix scan4 DOS-01): use SafeERC721Call's
         //         bounded ownerOf (returndata-cap via inline assembly) to defeat
@@ -1388,6 +1372,33 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         pendingWhitelistRemove = address(0);
 
         emit CollectionRemovalCancelled(cancelled);
+    }
+
+    /// @notice Returns true iff `_collection` has a STILL-LIVE pending
+    ///         WHITELIST_REMOVE proposal (i.e., proposed AND not past its
+    ///         24h delay + 7d validity window).
+    /// @dev    AUDIT FIX 2026-05-21 M7-REVISED: consolidated gate. Pre-fix
+    ///         (M7 batch-1, commit 0a08bff), `createOffer` got the auto-
+    ///         expiry short-circuit but `acceptOffer` was left with the
+    ///         legacy `_executeAfter[WHITELIST_REMOVE] != 0` raw check.
+    ///         The commit message claimed both paths were patched but the
+    ///         diff only modified createOffer — so a captured/forgetful
+    ///         owner could propose WHITELIST_REMOVE, let the 8-day window
+    ///         elapse without execute or cancel, and brick acceptOffer on
+    ///         that collection permanently (lender principal locked until
+    ///         owner calls cancelRemoveCollection). Centralizing the gate
+    ///         here means both call sites consult one source of truth;
+    ///         future changes can't drift again. Discovered by the Family-3
+    ///         defensive scan of PR #28 (same pass that caught M10, M16,
+    ///         and M4 follow-ons).
+    function _collectionPendingRemoval(address _collection) internal view returns (bool) {
+        if (pendingWhitelistRemove != _collection) return false;
+        uint256 _ra = _executeAfter[WHITELIST_REMOVE];
+        if (_ra == 0) return false;
+        // Past validity window → TimelockAdmin._execute would revert
+        // ProposalExpired, so treat as already-cancelled.
+        if (block.timestamp > _ra + _proposalValidity()) return false;
+        return true;
     }
 
     // ─── Admin: Protocol Fee Timelock ────────────────────────────────
