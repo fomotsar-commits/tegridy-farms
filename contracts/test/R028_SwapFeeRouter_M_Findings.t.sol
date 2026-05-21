@@ -510,3 +510,155 @@ contract R028_SFR_M04 is Test {
 contract BadAdmin {
     // No functions — every call reverts.
 }
+
+/// @dev WETH9-shaped mock supporting deposit/withdraw — required for the
+///      M4-revised regression tests because the production `convertTokenFeesToETH`
+///      now calls `IWETH(WETH).withdraw(amount)` on the WETH branch.
+contract MockWETH_R028 is ERC20 {
+    constructor() ERC20("Wrapped Ether", "WETH") {}
+    function deposit() external payable {
+        _mint(msg.sender, msg.value);
+    }
+    function withdraw(uint256 amount) external {
+        _burn(msg.sender, amount);
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok, "WETH_WITHDRAW_FAIL");
+    }
+    receive() external payable {
+        _mint(msg.sender, msg.value);
+    }
+}
+
+/// @title R028 M4-REVISED — `accumulatedTokenFees[WETH]` unwrap path
+/// @notice Pre-fix, WETH-input swaps populated `accumulatedTokenFees[WETH]` at
+///         line 837 in `swapExactTokensForTokens`. The 2026-05-16 M4 `getPair`
+///         gate in `withdrawTokenFees` passed for WETH because UniV2 rejects
+///         same-token pairs (`getPair(WETH, WETH) == address(0)`), so the only
+///         exit was 100%-to-treasury, bypassing the 50/30/20 staker/POL/treasury
+///         split. M4-REVISED adds an unwrap branch in `convertTokenFeesToETH`
+///         that folds WETH balance into `accumulatedETHFees` (via `IWETH.withdraw`)
+///         AND adds an explicit `token == WETH` reject in `withdrawTokenFees`.
+///         Discovered by the defensive scan of PR #28.
+contract R028_SFR_M04_REVISED is Test {
+    SwapFeeRouter public sfr;
+    SwapFeeRouterAdmin public sfrAdmin;
+    MockUniFactory_R028 public factory;
+    MockUniRouter_R028 public uniRouter;
+    MockWETH_R028 public weth; // real-WETH-shaped (deposit/withdraw)
+
+    address public treasury = makeAddr("treasury");
+    address public keeper   = makeAddr("keeper");
+
+    uint256 constant FEE_BPS = 30;
+
+    function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=0 on chainid != 1.
+        vm.chainId(1);
+        weth = new MockWETH_R028();
+        factory = new MockUniFactory_R028();
+        uniRouter = new MockUniRouter_R028(address(weth), address(factory));
+        vm.deal(address(uniRouter), 10_000 ether);
+
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
+    }
+
+    /// @dev Park `amount` WETH on the router and bump `accumulatedTokenFees[WETH]`
+    ///      to match. Mirrors `_seedFees` from R028_SFR_M01 — slot 9 is the storage
+    ///      index of `accumulatedTokenFees`.
+    function _seedWETHFees(uint256 amount) internal {
+        // Mint actual WETH to the router (so the unwrap has something to burn).
+        vm.deal(address(this), amount);
+        weth.deposit{value: amount}();
+        weth.transfer(address(sfr), amount);
+        // Bump the accumulated counter to mirror what the swap-time accumulation
+        // would have written.
+        bytes32 slot = keccak256(abi.encode(address(weth), uint256(9)));
+        vm.store(address(sfr), slot, bytes32(amount));
+        assertEq(sfr.accumulatedTokenFees(address(weth)), amount, "WETH fee seed failed");
+    }
+
+    function _emptyPath() internal pure returns (address[] memory path) {
+        // convertTokenFeesToETH WETH branch returns BEFORE touching `path`, so
+        // a zero-length array is fine. Foundry's calldata cast still wants an
+        // initialized array of the right type.
+        path = new address[](0);
+    }
+
+    /// @notice Core M4-revised contract: WETH unwrap moves balance into
+    ///         accumulatedETHFees (so it flows through the standard split)
+    ///         instead of staying in accumulatedTokenFees[WETH] (where the only
+    ///         exit was 100%-to-treasury via withdrawTokenFees).
+    function test_M4_revised_WETHFeesUnwrapToETHFees() public {
+        uint256 seed = 5 ether; // above MIN_TOKEN_FEE_FOR_CONVERSION (1e18)
+        _seedWETHFees(seed);
+
+        uint256 ethFeesBefore = sfr.accumulatedETHFees();
+        uint256 ethBalanceBefore = address(sfr).balance;
+
+        // Permissionless — keeper can call.
+        vm.prank(keeper);
+        sfr.convertTokenFeesToETH(address(weth), _emptyPath(), 0, block.timestamp + 30 minutes);
+
+        // accumulatedTokenFees[WETH] zeroed; accumulatedETHFees += seed.
+        assertEq(sfr.accumulatedTokenFees(address(weth)), 0, "WETH accumulator must zero");
+        assertEq(
+            sfr.accumulatedETHFees(),
+            ethFeesBefore + seed,
+            "accumulatedETHFees must grow by the unwrapped WETH amount"
+        );
+        // ETH actually landed on the router (via receive() during WETH.withdraw).
+        assertEq(
+            address(sfr).balance,
+            ethBalanceBefore + seed,
+            "router balance must grow by the unwrapped ETH"
+        );
+    }
+
+    /// @notice withdrawTokenFees(WETH) must revert. Pre-fix this was the gap
+    ///         that drained 100% to treasury.
+    function test_M4_revised_withdrawTokenFees_rejectsWETH() public {
+        _seedWETHFees(5 ether);
+        vm.expectRevert(SwapFeeRouter.UseConvertTokenFeesToETH.selector);
+        sfr.withdrawTokenFees(address(weth));
+    }
+
+    /// @notice Dust-grief floor still enforced on the WETH branch: balance below
+    ///         MIN_TOKEN_FEE_FOR_CONVERSION (1e18) reverts so an attacker can't
+    ///         spam unwrap calls on wei-scale dust.
+    function test_M4_revised_WETHUnwrap_belowFloorReverts() public {
+        _seedWETHFees(0.5 ether); // below MIN_TOKEN_FEE_FOR_CONVERSION
+        vm.expectRevert(SwapFeeRouter.TokenFeesBelowMinimum.selector);
+        vm.prank(keeper);
+        sfr.convertTokenFeesToETH(address(weth), _emptyPath(), 0, block.timestamp + 30 minutes);
+    }
+
+    /// @notice After the WETH unwrap, `distributeFeesToStakers` (the timelocked
+    ///         50/30/20 split) sees the WETH proceeds as part of accumulatedETHFees.
+    ///         Pre-fix the same WETH stayed in accumulatedTokenFees[WETH] and the
+    ///         next withdrawTokenFees(WETH) sent 100% to treasury.
+    function test_M4_revised_postUnwrap_flowsThroughETHSplitNotTreasury100Pct() public {
+        uint256 seed = 5 ether;
+        _seedWETHFees(seed);
+
+        uint256 treasuryBefore = treasury.balance;
+        uint256 ethFeesBefore = sfr.accumulatedETHFees();
+
+        // Unwrap.
+        vm.prank(keeper);
+        sfr.convertTokenFeesToETH(address(weth), _emptyPath(), 0, block.timestamp + 30 minutes);
+
+        // Treasury hasn't received anything directly — proceeds are in the
+        // ETH-fees pool, awaiting the timelocked distribute call.
+        assertEq(treasury.balance, treasuryBefore, "treasury MUST NOT receive direct ETH on unwrap");
+        assertEq(
+            sfr.accumulatedETHFees(),
+            ethFeesBefore + seed,
+            "ETH-fees pool absorbs the unwrapped WETH"
+        );
+        // Treasury split path is exercised in dedicated distributeFeesToStakers
+        // tests (Audit_SFR_H01, SwapFeeRouter.t.sol). The M4-revised property
+        // we prove here is the routing-into-the-pool, not the split math.
+    }
+}

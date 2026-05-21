@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
-import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
+import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
 interface IUniswapV2Router02 {
@@ -1488,6 +1488,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         with a Uniswap V2 pair against WETH.
     function withdrawTokenFees(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-20 M4-REVISED: explicit WETH reject. The 2026-05-16 M4
+        // patch (next line) gates on `getPair(token, WETH)` but UniV2 factory
+        // rejects same-token pairs (`getPair(WETH, WETH) == address(0)`), so WETH
+        // slipped through to the 100%-to-treasury path, bypassing the 50/30/20
+        // split. WETH-input swaps populate `accumulatedTokenFees[WETH]` at line 837
+        // and the only valid exit is now `convertTokenFeesToETH(WETH)` which
+        // unwraps into `accumulatedETHFees`. Discovered by the defensive scan of
+        // PR #28 (same pass that caught M10 over-credit).
+        if (token == WETH) revert UseConvertTokenFeesToETH();
         // AUDIT FIX 2026-05-16 M4: refuse if token has a Uniswap V2 pair against WETH.
         // Operator must use convertTokenFeesToETH for swappable tokens.
         if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
@@ -1569,7 +1578,32 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     )
         external nonReentrant whenNotPaused
     {
-        if (token == address(0) || token == WETH) revert ZeroAddress();
+        if (token == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-20 M4-REVISED: WETH unwrap path. `accumulatedTokenFees[WETH]`
+        // populates from WETH-input swaps (input-side fee accumulation at line 837 in
+        // `swapExactTokensForTokens` and variants). The pre-fix path was: the M4
+        // `getPair` gate in `withdrawTokenFees` passed for WETH (UniV2 rejects same-token
+        // pairs so `getPair(WETH, WETH) == address(0)`), so the only exit was
+        // 100%-to-treasury via `withdrawTokenFees(WETH)`, bypassing the 50/30/20
+        // staker/POL/treasury split. This branch unwraps the WETH balance directly
+        // into `accumulatedETHFees` so it flows through the standard
+        // `distributeFeesToStakers` split. No swap (1:1 unwrap), no TWAP (no price
+        // discovery needed), no cooldown (no MEV/sandwich vector on a fixed 1:1).
+        // The `MIN_TOKEN_FEE_FOR_CONVERSION` floor is preserved for consistency with
+        // the swap-path branch below (dust-grief defense). Discovered by the
+        // defensive scan of PR #28 (same pass that caught M10 over-credit).
+        if (token == WETH) {
+            uint256 wethAmount = accumulatedTokenFees[WETH];
+            if (wethAmount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
+            // CEI: zero accounting BEFORE the external withdraw call (which triggers
+            // our `receive()` via the WETH contract's `address(this).call`). The
+            // outer `nonReentrant` blocks re-entry, but CEI is belt-and-suspenders.
+            accumulatedTokenFees[WETH] = 0;
+            IWETH(WETH).withdraw(wethAmount);
+            accumulatedETHFees += wethAmount;
+            emit TokenFeesConverted(WETH, wethAmount, wethAmount);
+            return;
+        }
         // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
         // but only AFTER our fee accumulation state writes have already happened for
         // the transaction. Add the explicit lower-bound check so the whole call reverts
