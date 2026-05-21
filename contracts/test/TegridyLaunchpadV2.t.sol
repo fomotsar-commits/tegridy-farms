@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "../src/TegridyLaunchpadV2.sol";
 import "../src/TegridyDropV2.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract TegridyLaunchpadV2Test is Test {
     TegridyLaunchpadV2 public launchpad;
@@ -221,4 +222,75 @@ contract TegridyLaunchpadV2Test is Test {
             assertEq(launchpad.getCollectionCount(), 0);
         }
     }
+
+    /// @notice Regression: Wave-2 finding 2026-05-16 — the prior salt used the
+    ///         global `allCollections.length`, letting any other creator's
+    ///         deploy shift the deterministic address of a victim's pending
+    ///         `createCollection`. With the per-creator nonce fix, the
+    ///         deterministic address must be a pure function of the creator's
+    ///         own state — unaffected by anyone else deploying in between.
+    function test_perCreatorNonce_otherCreatorDoesNotShiftDeterministicAddress() public {
+        // Capture creator's predicted address assuming creator's nonce = 0.
+        TegridyLaunchpadV2.CollectionConfig memory cfg = _defaultConfig();
+        cfg.initialPhase = TegridyDropV2.MintPhase.PUBLIC;
+        bytes32 saltCreator = keccak256(
+            abi.encode(block.chainid, address(launchpad), creator, uint256(0), cfg.name, cfg.symbol)
+        );
+        address dropTemplate = launchpad.dropTemplate();
+        address predicted = Clones.predictDeterministicAddress(dropTemplate, saltCreator, address(launchpad));
+
+        // Attacker deploys a collection BEFORE the victim. This advances
+        // `allCollections.length` from 0 → 1. With the old salt this would
+        // shift the creator's deterministic address; with the fix it must NOT.
+        TegridyLaunchpadV2.CollectionConfig memory acfg = _defaultConfig();
+        acfg.name = "AttackerDrop";
+        acfg.symbol = "ADROP";
+        acfg.initialPhase = TegridyDropV2.MintPhase.PUBLIC;
+        vm.prank(alice);
+        launchpad.createCollection(acfg);
+        assertEq(launchpad.getCollectionCount(), 1, "attacker's deploy did not land");
+
+        // Creator now deploys with their original cfg. Predicted should match.
+        vm.prank(creator);
+        (, address actual) = launchpad.createCollection(cfg);
+        assertEq(actual, predicted, "another creator's deploy shifted my deterministic address");
+        assertEq(launchpad.collectionsCreatedByCreator(creator), 1);
+        assertEq(launchpad.collectionsCreatedByCreator(alice), 1);
+    }
+
+    /// @notice Wave-2 regression: per-creator nonce must advance monotonically
+    ///         (0 → 1 → 2 → 3) across repeated deploys by the same creator,
+    ///         and each deploy must produce a distinct address. A regression
+    ///         that pins every call to nonce 0 (e.g. forgets to `++` the
+    ///         storage slot) would land all subsequent deploys at the same
+    ///         predicted address — CREATE2 would revert "create2 failed" on
+    ///         the second deploy.
+    function test_perCreatorNonce_advancesAndProducesDistinctAddresses() public {
+        TegridyLaunchpadV2.CollectionConfig memory cfg = _defaultConfig();
+        cfg.initialPhase = TegridyDropV2.MintPhase.PUBLIC;
+
+        assertEq(launchpad.collectionsCreatedByCreator(creator), 0, "pre: nonce starts at 0");
+
+        vm.prank(creator);
+        (, address addr0) = launchpad.createCollection(cfg);
+        assertEq(launchpad.collectionsCreatedByCreator(creator), 1, "after 1st: nonce == 1");
+
+        vm.prank(creator);
+        (, address addr1) = launchpad.createCollection(cfg);
+        assertEq(launchpad.collectionsCreatedByCreator(creator), 2, "after 2nd: nonce == 2");
+
+        vm.prank(creator);
+        (, address addr2) = launchpad.createCollection(cfg);
+        assertEq(launchpad.collectionsCreatedByCreator(creator), 3, "after 3rd: nonce == 3");
+
+        // All three must be distinct — proves the nonce is in the salt and
+        // advancing. A "stuck at 0" regression would revert at addr1.
+        assertTrue(addr0 != addr1, "addr0 vs addr1 distinct");
+        assertTrue(addr1 != addr2, "addr1 vs addr2 distinct");
+        assertTrue(addr0 != addr2, "addr0 vs addr2 distinct");
+
+        // Other creators' counters are unaffected.
+        assertEq(launchpad.collectionsCreatedByCreator(alice), 0, "alice's nonce untouched");
+    }
+
 }
