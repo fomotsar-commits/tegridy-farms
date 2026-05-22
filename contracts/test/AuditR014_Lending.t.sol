@@ -724,6 +724,77 @@ contract AuditR014LendingTest is Test {
         );
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // M19 FOLLOW-UP: TegridyNFTLending acceptOwnership clears all 7 keys
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice Regression test for the M19-NFTLENDING acceptOwnership override.
+    ///         An old owner queues hostile proposals for every timelock key;
+    ///         calling acceptOwnership as the new owner must atomically cancel
+    ///         all 7 proposals so the new owner inherits a clean slate.
+    function test_M19_NFTLending_acceptOwnership_clears_all_7_keys() public {
+        address newOwner = makeAddr("m19_newOwner");
+
+        // --- Queue hostile proposals for all 7 keys ---
+        // 1. PROTOCOL_FEE_CHANGE
+        nftLending.proposeProtocolFeeChange(100);
+        // 2. TREASURY_CHANGE
+        nftLending.proposeTreasuryChange(makeAddr("hostileTreasury"));
+        // 3. WHITELIST_ADD (propose a second collection)
+        address col2 = address(new R014MockJBAC());
+        nftLending.proposeWhitelistCollection(col2);
+        // 4. ORIGINATION_FEE_CHANGE
+        nftLending.proposeOriginationFee(50);
+        // 5. MIN_APR_CHANGE
+        nftLending.proposeMinApr(200);
+        // 6. SWEEP_UNSOLICITED_NFT — no active loan check is all that's
+        //    needed; use a fresh collection not referenced in any loan.
+        R014MockJBAC unsolicited = new R014MockJBAC();
+        nftLending.proposeSweepUnsolicitedNFT(address(unsolicited), 999, makeAddr("hostileRecipient"));
+
+        // Confirm all 6 typed keys are pending (WHITELIST_REMOVE is not queued here
+        // because proposeRemoveCollection requires the collection to be whitelisted
+        // first and adding a separate collection is sufficient for coverage).
+        assertTrue(nftLending.hasPendingProposal(nftLending.PROTOCOL_FEE_CHANGE()));
+        assertTrue(nftLending.hasPendingProposal(nftLending.TREASURY_CHANGE()));
+        assertTrue(nftLending.hasPendingProposal(nftLending.WHITELIST_ADD()));
+        assertTrue(nftLending.hasPendingProposal(nftLending.ORIGINATION_FEE_CHANGE()));
+        assertTrue(nftLending.hasPendingProposal(nftLending.MIN_APR_CHANGE()));
+        assertTrue(nftLending.hasPendingProposal(nftLending.SWEEP_UNSOLICITED_NFT()));
+
+        // Also queue WHITELIST_REMOVE using the already-whitelisted `collection`.
+        nftLending.proposeRemoveCollection(address(collection));
+        assertTrue(nftLending.hasPendingProposal(nftLending.WHITELIST_REMOVE()));
+
+        // --- Ownership handoff ---
+        nftLending.transferOwnership(newOwner);
+        vm.prank(newOwner);
+        nftLending.acceptOwnership();
+
+        // --- All 7 keys must be cleared ---
+        assertFalse(nftLending.hasPendingProposal(nftLending.PROTOCOL_FEE_CHANGE()),  "PROTOCOL_FEE_CHANGE not cleared");
+        assertFalse(nftLending.hasPendingProposal(nftLending.TREASURY_CHANGE()),       "TREASURY_CHANGE not cleared");
+        assertFalse(nftLending.hasPendingProposal(nftLending.WHITELIST_ADD()),          "WHITELIST_ADD not cleared");
+        assertFalse(nftLending.hasPendingProposal(nftLending.WHITELIST_REMOVE()),       "WHITELIST_REMOVE not cleared");
+        assertFalse(nftLending.hasPendingProposal(nftLending.ORIGINATION_FEE_CHANGE()), "ORIGINATION_FEE_CHANGE not cleared");
+        assertFalse(nftLending.hasPendingProposal(nftLending.MIN_APR_CHANGE()),         "MIN_APR_CHANGE not cleared");
+        assertFalse(nftLending.hasPendingProposal(nftLending.SWEEP_UNSOLICITED_NFT()),  "SWEEP_UNSOLICITED_NFT not cleared");
+
+        // --- Pending mirror vars zeroed ---
+        assertEq(nftLending.pendingProtocolFeeBps(),   0,          "pendingProtocolFeeBps not zeroed");
+        assertEq(nftLending.pendingTreasury(),         address(0), "pendingTreasury not zeroed");
+        assertEq(nftLending.pendingWhitelistAdd(),     address(0), "pendingWhitelistAdd not zeroed");
+        assertEq(nftLending.pendingWhitelistRemove(),  address(0), "pendingWhitelistRemove not zeroed");
+        assertEq(nftLending.pendingOriginationFeeBps(), 0,         "pendingOriginationFeeBps not zeroed");
+        assertEq(nftLending.pendingMinAprBps(),        0,          "pendingMinAprBps not zeroed");
+        assertEq(nftLending.pendingSweepCollection(),  address(0), "pendingSweepCollection not zeroed");
+        assertEq(nftLending.pendingSweepTokenId(),     0,          "pendingSweepTokenId not zeroed");
+        assertEq(nftLending.pendingSweepRecipient(),   address(0), "pendingSweepRecipient not zeroed");
+
+        // --- New owner confirmed ---
+        assertEq(nftLending.owner(), newOwner);
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────
 
     function _createDefaultOffer() internal returns (uint256) {

@@ -88,7 +88,11 @@ jobs:
           # Joins Staking/Restaking on the Phase-0-split allowlist until we
           # split admin functions into VoteIncentivesAdmin (pass-8 already
           # extracted the change-time view helpers; payouts/forfeits are next).
-          EXCEPTIONS="TegridyStaking TegridyRestaking VoteIncentives"
+          # CI FIX 2026-05-21 (PR #59 follow-up): TegridyNFTLending 24,059B
+          # after the M19-cluster acceptOwnership override (7 keys). Still 517B
+          # under EIP-170 (24,576) — deploys fine; only over the 24,000 floor.
+          # Phase-0 split or library extraction is the long-term fix.
+          EXCEPTIONS="TegridyStaking TegridyRestaking VoteIncentives TegridyNFTLending"
           for f in out/*.sol/*.json; do
             name=$(basename "$f" .json)
             case "$name" in

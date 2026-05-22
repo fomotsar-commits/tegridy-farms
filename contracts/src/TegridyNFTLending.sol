@@ -1764,4 +1764,48 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         delete strandedNFTRecipient[key];
         emit StrandedNFTClaimed(_collection, _tokenId, recipient);
     }
+
+    /// @notice AUDIT FIX M19-NFTLENDING — cancel all 7 pending timelock
+    ///         proposals when the new owner calls `acceptOwnership`. Prevents
+    ///         a captured outgoing owner from queuing a hostile proposal right
+    ///         before `transferOwnership` and having it execute silently
+    ///         under the incoming owner's authority after the timelock elapses.
+    ///         Mirrors the M19-CLUSTER pattern ported to the other 13 contracts.
+    /// @dev    `_cancel(key)` in TimelockAdmin already fires
+    ///         `ProposalCancelled(key)` — no extra typed emit added here
+    ///         (minimal-surface rule). SWEEP has 3 mirror slots (collection,
+    ///         tokenId, recipient); all three are zeroed atomically.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[PROTOCOL_FEE_CHANGE] != 0) {
+            _cancel(PROTOCOL_FEE_CHANGE);
+            pendingProtocolFeeBps = 0;
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+        }
+        if (_executeAfter[WHITELIST_ADD] != 0) {
+            _cancel(WHITELIST_ADD);
+            pendingWhitelistAdd = address(0);
+        }
+        if (_executeAfter[WHITELIST_REMOVE] != 0) {
+            _cancel(WHITELIST_REMOVE);
+            pendingWhitelistRemove = address(0);
+        }
+        if (_executeAfter[ORIGINATION_FEE_CHANGE] != 0) {
+            _cancel(ORIGINATION_FEE_CHANGE);
+            pendingOriginationFeeBps = 0;
+        }
+        if (_executeAfter[MIN_APR_CHANGE] != 0) {
+            _cancel(MIN_APR_CHANGE);
+            pendingMinAprBps = 0;
+        }
+        if (_executeAfter[SWEEP_UNSOLICITED_NFT] != 0) {
+            _cancel(SWEEP_UNSOLICITED_NFT);
+            pendingSweepCollection = address(0);
+            pendingSweepTokenId = 0;
+            pendingSweepRecipient = address(0);
+        }
+    }
 }
