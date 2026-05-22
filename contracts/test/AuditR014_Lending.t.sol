@@ -724,6 +724,80 @@ contract AuditR014LendingTest is Test {
         );
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // M7-REVISED (2026-05-21): acceptOffer divergence — defensive-scan
+    //   follow-on to the original M7 batch-1 fix (commit 0a08bff). The
+    //   audit named TWO call sites (createOffer AND acceptOffer); the
+    //   commit only patched createOffer. The acceptOffer gate at
+    //   TegridyNFTLending.sol:709-714 still used the legacy raw form,
+    //   so a captured/forgetful owner could propose WHITELIST_REMOVE,
+    //   let the 24h+7d window expire without execute or cancel, and
+    //   permanently brick acceptOffer on that collection — lender
+    //   principal locked, only owner-initiated `cancelRemoveCollection`
+    //   could unblock. M7-revised consolidates both gates into a single
+    //   `_collectionPendingRemoval` helper consulted by both sites.
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_M7_revised_NFTLending_blocksAcceptOffer_duringPendingRemoval() public {
+        // Lender posts an offer while the collection is healthy.
+        uint256 tokenId = collection.mint(alice);
+        vm.prank(alice);
+        collection.approve(address(nftLending), tokenId);
+        vm.deal(bob, 5 ether);
+        vm.prank(bob);
+        uint256 offerId = nftLending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(collection), tokenId,
+            uint64(block.timestamp + 30 days)
+        );
+
+        // Owner proposes removal of the collection.
+        nftLending.proposeRemoveCollection(address(collection));
+
+        // Borrower's acceptOffer MUST revert (sister to the createOffer block
+        // that was already covered above).
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.CollectionPendingRemoval.selector);
+        nftLending.acceptOffer(offerId);
+
+        // Owner cancels — acceptOffer works again.
+        nftLending.cancelRemoveCollection();
+        vm.prank(alice);
+        nftLending.acceptOffer(offerId);
+    }
+
+    function test_M7_revised_NFTLending_acceptOffer_allowedAfterRemovalExpiry() public {
+        // Same setup: lender offers, owner proposes removal, but never executes
+        // or cancels. After 24h delay + 7d validity, the proposal is unenforceable
+        // (TimelockAdmin._execute would revert ProposalExpired) and the M7-revised
+        // helper treats it as already-cancelled.
+        uint256 tokenId = collection.mint(alice);
+        vm.prank(alice);
+        collection.approve(address(nftLending), tokenId);
+        vm.deal(bob, 5 ether);
+        vm.prank(bob);
+        uint256 offerId = nftLending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(collection), tokenId,
+            uint64(block.timestamp + 60 days) // offer expires after the test window
+        );
+
+        uint256 proposeTs = block.timestamp;
+        nftLending.proposeRemoveCollection(address(collection));
+        // readyAt = proposeTs + WHITELIST_TIMELOCK (24h); proposal-valid until
+        // readyAt + PROPOSAL_VALIDITY (7d).
+
+        // Mid-window (right after propose): still blocked.
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.CollectionPendingRemoval.selector);
+        nftLending.acceptOffer(offerId);
+
+        // Warp past readyAt + PROPOSAL_VALIDITY — proposal is now expired-
+        // uncancelled. The auto-expiry helper short-circuits to false so
+        // acceptOffer proceeds.
+        vm.warp(proposeTs + nftLending.WHITELIST_TIMELOCK() + nftLending.PROPOSAL_VALIDITY() + 1);
+        vm.prank(alice);
+        nftLending.acceptOffer(offerId);
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────
 
     function _createDefaultOffer() internal returns (uint256) {

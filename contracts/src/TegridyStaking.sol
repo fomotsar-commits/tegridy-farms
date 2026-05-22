@@ -1613,7 +1613,22 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             }
             userTokenId[to] = id;
             _writeCheckpoint(to);
-            _touch(to); // AUDIT R014 M-9 preserved
+            // AUDIT FIX 2026-05-20 M16-REVISED: paused-conditional skip mirrors the
+            // request/cancelEmergencyExit patch from M16 batch 5 (2026-05-16). Pre-fix
+            // attack path: direct self-transfer is blocked by the M-5
+            // `AlreadyHasPosition` guard above, but the BOUNCE pattern slips it —
+            // attacker with a >24h-old NFT does `transferFrom(self, sock_puppet)`,
+            // waits the 1h `TRANSFER_RATE_LIMIT`, then `transferFrom(sock_puppet,
+            // self)`. The return leg lands here and refreshes `lastActivityAt[self]`,
+            // defeating the 90-day `USER_INACTIVITY_GATE` on `claimUnsettledFor`.
+            // SoladyERC721 `transferFrom` has no pause hook; the time gates above
+            // (TRANSFER_COOLDOWN / TRANSFER_RATE_LIMIT) don't check `paused()`.
+            // Skipping `_touch(to)` while paused closes the bounce. The batch-5
+            // patch closed request/cancelEmergencyExit but missed this transfer-hook
+            // path. Discovered by the defensive scan of PR #28 (same pass that
+            // caught M10 over-credit). Regression test in Audit195_StakingGov.t.sol:
+            // test_M16_revised_bounceTransferDuringPause_doesNotRefreshTouch.
+            if (!paused()) _touch(to); // AUDIT M-AUDIT-2026-3 (paused-conditional 2026-05-20)
         }
     }
 
@@ -1791,7 +1806,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             // credited unsettledRewards[from] from a non-claim path (NFT transfer).
             // The R014 M-9 invariant requires every reward-touching path that
             // materially affects unsettled rewards for `user` to `_touch(user)`.
-            _touch(from);
+            // AUDIT FIX 2026-05-20 M16-REVISED: paired with the `_afterTokenTransfer`
+            // paused-skip (see that comment in `_afterTokenTransfer`). Pre-fix, the
+            // bounce attack relied on this DEEP-DS-04 touch firing on the outgoing
+            // leg (FROM-side) to refresh `lastActivityAt[attacker]` once accrued
+            // rewards landed in `unsettledRewards[attacker]`. Skipping during pause
+            // closes that half of the bounce; the `_afterTokenTransfer` skip closes
+            // the return-leg TO-side touch. Regression test in
+            // Audit195_StakingGov.t.sol: test_M16_revised_bounceTransferDuringPause_doesNotRefreshTouch.
+            if (!paused()) _touch(from);
         }
         // AUDIT FIX: Set rewardDebt AFTER the reward pool check to ensure correct accounting
         p.rewardDebt = accumulated;

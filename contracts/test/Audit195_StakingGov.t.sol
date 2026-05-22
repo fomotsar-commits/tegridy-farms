@@ -749,6 +749,110 @@ contract Audit195StakingGov is Test {
         assertEq(staking.userTokenId(bob), 0);
     }
 
+    /// @notice M16-REVISED regression (2026-05-20). Confirms `_afterTokenTransfer`
+    ///         skips `_touch(to)` while paused, mirroring the original M16 batch-5
+    ///         patch on `request`/`cancelEmergencyExit`. Direct self-transfer is
+    ///         already blocked by the M-5 `AlreadyHasPosition` guard, but the
+    ///         bounce pattern slips it: a staker with a >24h-old NFT transfers it
+    ///         to a sock-puppet (or accomplice), waits the 1h `TRANSFER_RATE_LIMIT`,
+    ///         then has the sock-puppet transfer it back. The return leg fires
+    ///         `_touch(originalOwner)` (TO-side) and keeps `lastActivityAt` fresh
+    ///         permanently, defeating the 90-day `USER_INACTIVITY_GATE` on
+    ///         `claimUnsettledFor`. Solady's `transferFrom` has no pause hook;
+    ///         `TRANSFER_COOLDOWN` / `TRANSFER_RATE_LIMIT` are time-only.
+    ///         Discovered by the defensive scan of PR #28 (same pass that caught
+    ///         M10 over-credit).
+    function test_M16_revised_bounceTransferDuringPause_doesNotRefreshTouch() public {
+        // Stake at T0; stake stamps lastActivityAt[bob].
+        vm.prank(bob);
+        staking.stake(STAKE_AMT, LOCK_1Y);
+        uint256 tokenId = staking.userTokenId(bob);
+        uint256 stakeActivityBob = staking.lastActivityAt(bob);
+        assertGt(stakeActivityBob, 0, "stake must stamp lastActivityAt[bob]");
+        assertEq(staking.lastActivityAt(carol), 0, "carol starts untouched");
+
+        // Warp past TRANSFER_COOLDOWN (24h) so transferFrom is allowed.
+        vm.warp(block.timestamp + 25 hours);
+
+        // Owner pauses the contract.
+        staking.pause();
+        uint256 prePauseBob = staking.lastActivityAt(bob);
+        uint256 prePauseCarol = staking.lastActivityAt(carol);
+
+        // Leg 1: bob -> carol. Pre-fix _afterTokenTransfer would fire
+        // _touch(carol) (TO-side). With M16-revised the paused-skip blocks it.
+        vm.prank(bob);
+        staking.transferFrom(bob, carol, tokenId);
+        assertEq(staking.userTokenId(bob), 0, "bob's userTokenId reset by outgoing");
+        assertEq(staking.userTokenId(carol), tokenId, "carol now owns the NFT");
+        assertEq(
+            staking.lastActivityAt(carol),
+            prePauseCarol,
+            "TO-side _touch(carol) MUST NOT fire while paused"
+        );
+        assertEq(
+            staking.lastActivityAt(bob),
+            prePauseBob,
+            "bob unaffected by outgoing transfer (no FROM-side touch ever)"
+        );
+
+        // Wait past TRANSFER_RATE_LIMIT (1h) so the return leg is allowed.
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        // Leg 2 (attack leg): carol -> bob. Pre-fix this would refresh
+        // lastActivityAt[bob] via the TO-side _touch and defeat the inactivity
+        // gate; M16-revised wraps _touch(to) in `if (!paused())`.
+        vm.prank(carol);
+        staking.transferFrom(carol, bob, tokenId);
+        assertEq(staking.userTokenId(bob), tokenId, "bob owns the NFT again after bounce");
+        assertEq(
+            staking.lastActivityAt(bob),
+            prePauseBob,
+            "bounce return MUST NOT advance lastActivityAt[bob] during pause"
+        );
+
+    }
+
+    /// @notice M16-REVISED sanity (normal-mode semantics preserved). The
+    ///         paused-conditional skip in `_afterTokenTransfer` and
+    ///         `_settleRewardsOnTransfer` MUST still refresh `lastActivityAt[to]`
+    ///         on incoming transfers when the contract is NOT paused, so the
+    ///         R014 M-9 invariant ("every reward-touching path that materially
+    ///         affects unsettled rewards for `user` must `_touch(user)`") holds
+    ///         under normal operation.
+    function test_M16_revised_unpausedBounce_DOESRefreshTouch() public {
+        // Fresh test (no shared state with the paused variant): bob stakes,
+        // then bounces tokenId through carol and back — no pause involved.
+        vm.prank(bob);
+        staking.stake(STAKE_AMT, LOCK_1Y);
+        uint256 tokenId = staking.userTokenId(bob);
+
+        // Warp past TRANSFER_COOLDOWN (24h).
+        vm.warp(block.timestamp + 25 hours);
+
+        // Leg 1: bob -> carol. TO-side _touch(carol) fires (no pause).
+        vm.prank(bob);
+        staking.transferFrom(bob, carol, tokenId);
+        assertEq(
+            staking.lastActivityAt(carol),
+            block.timestamp,
+            "TO-side _touch(carol) DOES fire under normal operation"
+        );
+
+        // Warp past TRANSFER_RATE_LIMIT.
+        vm.warp(block.timestamp + 1 hours + 1);
+        uint256 tBeforeReturn = block.timestamp;
+
+        // Leg 2: carol -> bob. TO-side _touch(bob) fires (no pause).
+        vm.prank(carol);
+        staking.transferFrom(carol, bob, tokenId);
+        assertEq(
+            staking.lastActivityAt(bob),
+            tBeforeReturn,
+            "TO-side _touch(bob) DOES fire under normal operation (R014 M-9 invariant)"
+        );
+    }
+
     function test_executeEmergencyExit_penaltyIfLockActive() public {
         vm.prank(bob);
         staking.stake(STAKE_AMT, LOCK_1Y);
