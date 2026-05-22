@@ -2451,4 +2451,26 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         (bool postOk, address postOwner) = SafeERC721Call.safeOwnerOfBounded(_collection, _tokenId);
         if (!postOk || postOwner != _to) revert NotHeldByContract();
     }
+
+    /// @notice AUDIT FIX 2026-05-22 M19-PORT-INLINE: override `acceptOwnership` so any
+    ///         pending INLINE timelock proposals queued by the outgoing owner are CANCELLED
+    ///         on handoff. Mirrors the canonical TimelockAdmin override pattern from
+    ///         `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438), adapted
+    ///         to this contract's inline `pendingLendingAdmin` / `lendingAdminReplacementReadyAt`
+    ///         state (which predates TimelockAdmin and isn't keyed via `_executeAfter`).
+    /// @dev    The inherited `lendingAdmin` rotation is the only inline-timelocked surface on
+    ///         TegridyLending — every other parameter delegates to TegridyLendingAdmin (whose
+    ///         own acceptOwnership flush already lives on its own owner key). Without this
+    ///         override, an outgoing/compromised owner could call `proposeLendingAdminReplacement`
+    ///         immediately before `transferOwnership`; the 48h timer would silently keep running
+    ///         and the new owner inherits an executable admin swap.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (lendingAdminReplacementReadyAt != 0) {
+            address proposed = pendingLendingAdmin;
+            pendingLendingAdmin = address(0);
+            lendingAdminReplacementReadyAt = 0;
+            emit LendingAdminReplacementCancelled(proposed);
+        }
+    }
 }
