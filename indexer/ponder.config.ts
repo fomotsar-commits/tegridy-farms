@@ -530,6 +530,27 @@ const SwapFeeRouterAbi = [
     name: "Unpaused",
     inputs: [{ name: "account", type: "address", indexed: false }],
   },
+  // Wave-2 (2026-05-20): sweepETH is now 48h-timelocked.
+  // Mirror the sister POLAccumulator SweepETH* observability surface so
+  // off-chain monitors see the full propose/execute/cancel lifecycle.
+  {
+    type: "event",
+    name: "SweepETHProposed",
+    inputs: [
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "readyAt", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "SweepETHExecuted",
+    inputs: [{ name: "amount", type: "uint256", indexed: false }],
+  },
+  {
+    type: "event",
+    name: "SweepETHCancelled",
+    inputs: [],
+  },
 ] as const;
 
 const CommunityGrantsAbi = [

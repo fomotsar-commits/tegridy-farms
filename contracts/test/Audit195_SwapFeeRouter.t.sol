@@ -452,11 +452,13 @@ contract Audit195SwapFeeRouter is Test {
         // Send extra ETH directly (dust)
         vm.deal(address(sfr), accFees + 1 ether);
 
-        // AUDIT FIX 2026-05-16 M2: sweepETH destination forced to revenueDistributor
-        // (was: treasury). Donated ETH now flows to stakers via revenueDistributor's
-        // own pipeline instead of giving captured-owner an instant-redirect path.
+        // AUDIT FIX (Wave-2 2026-05-16): sweepETH is now 48h-timelocked.
+        // Propose for the full balance; execute will cap at the live
+        // sweepable portion (1 ether) since accumulatedETHFees is reserved.
         uint256 sinkBefore = address(revenueDistributor).balance;
-        sfr.sweepETH();
+        sfr.proposeSweepETH(accFees + 1 ether);
+        vm.warp(block.timestamp + 48 hours);
+        sfr.executeSweepETH();
         assertEq(address(revenueDistributor).balance - sinkBefore, 1 ether, "only sweep non-fee ETH");
         // Accumulated fees untouched
         assertEq(sfr.accumulatedETHFees(), accFees, "accumulated fees preserved");
@@ -468,9 +470,13 @@ contract Audit195SwapFeeRouter is Test {
         vm.prank(alice);
         sfr.swapExactETHForTokens{value: 10 ether}(0, path, alice, block.timestamp + 1, 100);
 
-        // Balance == accumulatedETHFees, nothing to sweep
+        // Balance == accumulatedETHFees, nothing to sweep.
+        // Wave-2 fix: invariant preserved at execute time after the 48h
+        // timelock — `executeSweepETH` reverts ZeroAmount when sweepable=0.
+        sfr.proposeSweepETH(1 ether);
+        vm.warp(block.timestamp + 48 hours);
         vm.expectRevert(SwapFeeRouter.ZeroAmount.selector);
-        sfr.sweepETH();
+        sfr.executeSweepETH();
     }
 
     function test_sweepTokens_onlySweepsBeyondAccumulated() public {
@@ -654,9 +660,12 @@ contract Audit195SwapFeeRouter is Test {
 
     function test_onlyOwner_sweepETH() public {
         vm.deal(address(sfr), 1 ether);
+        // Wave-2 fix: pin onlyOwner on the propose side (the old `sweepETH()`
+        // stub reverts unconditionally so its non-owner revert is for the
+        // wrong reason; the real authorization gate now lives on propose/execute/cancel).
         vm.prank(attacker);
         vm.expectRevert();
-        sfr.sweepETH();
+        sfr.proposeSweepETH(1 ether);
     }
 
     function test_onlyOwner_sweepTokens() public {
