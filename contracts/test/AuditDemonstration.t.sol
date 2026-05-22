@@ -141,7 +141,7 @@ contract AuditDemonstrationTest is Test {
         // Whitelist brbA via timelocked path
         bribesAdmin.proposeWhitelistChange(address(brbA), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        bribesAdmin.executeWhitelistChange();
+        bribesAdmin.executeWhitelistChange(bribesAdmin.pendingWhitelistToken(), bribesAdmin.pendingWhitelistAction(), bribesAdmin.whitelistChangeTime());
 
         // Fund depositor
         brbA.transfer(depositor, 1_000_000 ether);
@@ -260,13 +260,17 @@ contract AuditDemonstrationTest is Test {
         // Owner proposes a custom 1e3 min (e.g. for a 6-decimal token)
         bribesAdmin.proposeMinBribeAmount(brb, 1e3);
 
-        // Cannot execute instantly
+        // Cannot execute instantly. Cache pending state BEFORE expectRevert
+        // so the view-call dispatchers aren't matched by it.
+        address tok = bribesAdmin.pendingMinBribeToken();
+        uint256 amt = bribesAdmin.pendingMinBribeAmount();
+        uint256 t = bribesAdmin.minBribeChangeTime();
         vm.expectRevert();
-        bribesAdmin.executeMinBribeAmount();
+        bribesAdmin.executeMinBribeAmount(tok, amt, t);
 
         // After 24h: success
         vm.warp(block.timestamp + 24 hours + 1);
-        bribesAdmin.executeMinBribeAmount();
+        bribesAdmin.executeMinBribeAmount(tok, amt, t);
         assertEq(bribes.minBribeAmounts(brb), 1e3);
 
         // Now 1e3 deposits pass (below the 1e15 default but above the 1e3 override)

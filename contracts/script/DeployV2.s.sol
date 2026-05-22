@@ -217,7 +217,8 @@ contract DeployV2Script is Script {
         console.log("");
         console.log("=== POST-DEPLOYMENT STEPS ===");
         console.log("1. Multisig: acceptOwnership() on all 9 contracts");
-        console.log("2. After 24h: VoteIncentivesAdmin.executeWhitelistChange() (TOWELI)");
+        console.log("2. After 24h: VoteIncentivesAdmin.executeWhitelistChange(pendingWhitelistToken(), pendingWhitelistAction(), whitelistChangeTime()) (TOWELI)");
+        console.log("   (Wave-2: capture pending state right before sign; the executor binds against the value+ETA at call time.)");
         console.log("3. After 48h: TegridyStaking.executeRestakingContract()");
         console.log("4. After 48h: RevenueDistributor.executeRestakingChange()");
         console.log("5. SwapFeeRouterAdmin: proposeRevenueDistributor(RevenueDistributor) -> 48h -> execute");

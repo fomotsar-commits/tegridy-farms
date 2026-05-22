@@ -154,7 +154,7 @@ contract PASS8_GOV_INT_01 is Test {
         // Whitelist the bribe token via the admin's timelocked path.
         viAdmin.proposeWhitelistChange(address(bribeToken), true);
         skip(25 hours);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
 
         // Voting power for alice so the contract has a non-zero denominator.
         ve.setVotingPower(alice, 1000 ether);

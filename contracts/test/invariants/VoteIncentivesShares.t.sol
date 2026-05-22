@@ -256,7 +256,7 @@ contract VoteIncentivesSharesTest is Test {
         // warping past the 24h delay.
         viAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 25 hours);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
 
         // Seed three voters with voting power above MIN_DISTRIBUTE_STAKE so
         // advanceEpoch() succeeds.

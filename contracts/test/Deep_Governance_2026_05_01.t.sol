@@ -117,7 +117,7 @@ contract DeepGov01_VoteIncentivesTest is Test {
 
         viAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
 
         // BATCH-F H14: commitRevealEnabled = true at deploy. Force-disable so the
         // legacy `vote()` path under test stays exerciseable.

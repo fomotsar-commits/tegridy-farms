@@ -77,7 +77,8 @@ contract DeployVoteIncentivesScript is Script {
         console.log("VoteIncentives:", address(vi));
         console.log("");
         console.log("=== NEXT STEPS ===");
-        console.log("1. Wait 24h, then call executeWhitelistChange() to whitelist TOWELI");
+        console.log("1. Wait 24h, then call executeWhitelistChange(pendingWhitelistToken(), pendingWhitelistAction(), whitelistChangeTime()) to whitelist TOWELI");
+        console.log("   (Wave-2: executor binds the pending value+ETA captured at sign time.)");
         console.log("2. Propose + execute WETH whitelist");
         console.log("3. Update frontend VOTE_INCENTIVES_ADDRESS in constants.ts");
         console.log("4. If multisig set: call acceptOwnership() from multisig");

@@ -250,7 +250,7 @@ contract AuditR016_AMMGovTest is Test {
         viAdmin.proposeWhitelistChange(address(bribeToken), true);
         // Warp generously past the 24h timelock to avoid any boundary issues.
         vm.warp(block.timestamp + 2 days);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
 
         // Fund + approve a depositor.
         bribeToken.transfer(alice, 100_000 ether);

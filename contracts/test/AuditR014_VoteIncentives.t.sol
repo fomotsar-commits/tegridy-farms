@@ -124,7 +124,7 @@ contract AuditR014_VoteIncentivesTest is Test {
         // Whitelist bribeToken via the timelock flow.
         bribesAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        bribesAdmin.executeWhitelistChange();
+        bribesAdmin.executeWhitelistChange(bribesAdmin.pendingWhitelistToken(), bribesAdmin.pendingWhitelistAction(), bribesAdmin.whitelistChangeTime());
 
         // Fund depositor.
         bribeToken.transfer(depositor, 1_000_000 ether);

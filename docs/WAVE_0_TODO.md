@@ -82,8 +82,13 @@ allowance + reward-funding calls the deploy scripts print as "NEXT STEPS".
       per gauge that needs to vote-eligible.
 - [ ] **`VoteIncentives` whitelist** (post-redeploy) —
       `proposeWhitelistChange(TOWELI, true)` → wait 24h →
-      `executeWhitelistChange()`. Then repeat for WETH (only one pending
-      proposal at a time).
+      `executeWhitelistChange(pendingWhitelistToken(), pendingWhitelistAction(), whitelistChangeTime())`.
+      Wave-2 (2026-05-20): the executor now binds against the pending
+      `(token, add, executeAfter)` triple — capture all three on
+      `VoteIncentivesAdmin` immediately before sign and pass them as args
+      so a captured-key cancel-and-re-propose race can't slip a different
+      value through the multisig's signed execute. Then repeat for WETH
+      (only one pending proposal at a time).
 - [ ] **`SwapFeeRouter` premium wiring** — `proposePremiumAccessChange(PremiumAccess)`
       + `proposePremiumDiscountChange(5000)` after VoteIncentives lands.
 

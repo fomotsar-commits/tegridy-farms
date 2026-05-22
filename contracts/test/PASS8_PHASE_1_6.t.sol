@@ -104,7 +104,7 @@ contract PASS8_PHASE_1_6 is Test {
 
         viAdmin.proposeWhitelistChange(address(bribeToken), true);
         skip(25 hours);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
 
         // BATCH-F H14: commitRevealEnabled = true at deploy. Force-disable so
         // legacy `vote()` path under test stays exerciseable.
@@ -183,7 +183,7 @@ contract PASS8_PHASE_1_6 is Test {
         token2.mint(briber, 1_000_000 ether);
         viAdmin.proposeWhitelistChange(address(token2), true);
         skip(25 hours);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
         vm.prank(briber);
         token2.approve(address(vi), type(uint256).max);
 

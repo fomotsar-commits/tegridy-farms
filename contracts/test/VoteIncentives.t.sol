@@ -161,7 +161,7 @@ contract VoteIncentivesTest is Test {
         // Whitelist the bribe token via timelock
         viAdmin.proposeWhitelistChange(address(bribeToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
 
         // AUDIT NEW-G8: MIN_EPOCH_INTERVAL raised from 1h to 7 days. The default
         // `lastEpochTime == 0` plus a 24h-warped timestamp would land tests inside
@@ -473,7 +473,7 @@ contract VoteIncentivesTest is Test {
     function test_executeFeeChange() public {
         viAdmin.proposeFeeChange(200);
         vm.warp(block.timestamp + 24 hours + 1);
-        viAdmin.executeFeeChange();
+        viAdmin.executeFeeChange(viAdmin.pendingFeeBps(), viAdmin.feeChangeTime());
         assertEq(vi.bribeFeeBps(), 200);
     }
 
@@ -490,8 +490,13 @@ contract VoteIncentivesTest is Test {
 
     function test_feeChange_reverts_not_ready() public {
         viAdmin.proposeFeeChange(200);
+        // Cache pending state BEFORE vm.expectRevert — the view-call
+        // dispatchers (`pendingFeeBps()`, `feeChangeTime()`) would otherwise
+        // be matched by expectRevert ahead of the actual executeFeeChange call.
+        uint256 fee = viAdmin.pendingFeeBps();
+        uint256 time = viAdmin.feeChangeTime();
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, viAdmin.FEE_CHANGE()));
-        viAdmin.executeFeeChange();
+        viAdmin.executeFeeChange(fee, time);
     }
 
     // ─── Timelocked Treasury Change ──────────────────────────────────
@@ -500,7 +505,7 @@ contract VoteIncentivesTest is Test {
         address newTreasury = address(0xDE1);
         viAdmin.proposeTreasuryChange(newTreasury);
         vm.warp(block.timestamp + 48 hours + 1);
-        viAdmin.executeTreasuryChange();
+        viAdmin.executeTreasuryChange(viAdmin.pendingTreasury(), viAdmin.treasuryChangeTime());
         assertEq(vi.treasury(), newTreasury);
     }
 
@@ -515,7 +520,7 @@ contract VoteIncentivesTest is Test {
         assertTrue(vi.whitelistedTokens(address(bribeToken)));
         viAdmin.proposeWhitelistChange(address(bribeToken), false);
         vm.warp(block.timestamp + 24 hours + 1);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
         assertFalse(vi.whitelistedTokens(address(bribeToken)));
     }
 
@@ -523,7 +528,7 @@ contract VoteIncentivesTest is Test {
         MockBribeToken newToken = new MockBribeToken();
         viAdmin.proposeWhitelistChange(address(newToken), true);
         vm.warp(block.timestamp + 24 hours + 1);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
         assertTrue(vi.whitelistedTokens(address(newToken)));
     }
 
@@ -537,7 +542,7 @@ contract VoteIncentivesTest is Test {
             viAdmin.proposeWhitelistChange(address(t), true);
             ts += 24 hours + 1;
             vm.warp(ts);
-            viAdmin.executeWhitelistChange();
+            viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
             t.approve(address(vi), 100e18);
             vi.depositBribe(pair, address(t), 100e18);
         }
@@ -547,7 +552,7 @@ contract VoteIncentivesTest is Test {
         viAdmin.proposeWhitelistChange(address(excess), true);
         ts += 24 hours + 1;
         vm.warp(ts);
-        viAdmin.executeWhitelistChange();
+        viAdmin.executeWhitelistChange(viAdmin.pendingWhitelistToken(), viAdmin.pendingWhitelistAction(), viAdmin.whitelistChangeTime());
         excess.approve(address(vi), 100e18);
         vm.expectRevert(VoteIncentives.TooManyBribeTokens.selector);
         vi.depositBribe(pair, address(excess), 100e18);
@@ -1035,6 +1040,167 @@ contract VoteIncentivesTest is Test {
 
         assertEq(swept, 5e18, "sweep only takes dust, not committed bond");
         assertEq(bribeToken.balanceOf(address(vi)), 10e18, "bond still held");
+    }
+
+    // ─── Wave-2 value-binding regression tests ───────────────────────
+    //
+    // The four executors on VoteIncentivesAdmin (executeFeeChange /
+    // executeTreasuryChange / executeWhitelistChange / executeMinBribeAmount)
+    // now require the caller to bind BOTH the pending value and the
+    // pending executeAfter. These two tests prove the bindings actually
+    // catch the cancel-and-re-propose race a captured-key attacker would
+    // use to swap the queued value or ETA between propose and the
+    // multisig's signed execute.
+
+    /// @notice Wave-2 regression: executing with a stale expected value
+    ///         (after attacker cancels + re-proposes a different value)
+    ///         must revert FeeMismatch.
+    function test_feeChange_valueBinding_rejectsStaleExpectedValue() public {
+        // Honest proposal queued at value X = 200.
+        viAdmin.proposeFeeChange(200);
+        // Multisig captures the expected value at sign time.
+        uint256 expectedFee = viAdmin.pendingFeeBps();
+        uint256 expectedTime = viAdmin.feeChangeTime();
+
+        // Attacker cancels + re-proposes a DIFFERENT (in-bounds) value
+        // before the multisig's signed execute lands. The value must be
+        // within MAX_FEE_BPS for the propose to even succeed — the binding
+        // attack doesn't require an out-of-range value to be effective.
+        viAdmin.cancelFeeChange();
+        viAdmin.proposeFeeChange(400);
+
+        // Multisig's pre-signed execute hits. The new pending value (999)
+        // does NOT match what they signed for (200) — must revert.
+        vm.warp(block.timestamp + 24 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.FeeMismatch.selector);
+        viAdmin.executeFeeChange(expectedFee, expectedTime);
+    }
+
+    /// @notice Wave-2 regression: same-value cancel + re-propose race —
+    ///         attacker keeps the value identical but the new executeAfter
+    ///         differs. The executeAfter-binding catches this case.
+    function test_feeChange_executeAfterBinding_rejectsStaleExpectedTime() public {
+        viAdmin.proposeFeeChange(200);
+        uint256 expectedFee = viAdmin.pendingFeeBps();
+        uint256 expectedTime = viAdmin.feeChangeTime();
+
+        // Attacker cancels + re-proposes the SAME value — only the
+        // executeAfter timestamp shifts (new readyAt = now + delay).
+        viAdmin.cancelFeeChange();
+        skip(1 hours); // delta so the new readyAt is strictly different
+        viAdmin.proposeFeeChange(200);
+
+        // Multisig's execute lands well after both delays elapsed so the
+        // _execute() readiness check would pass. Only the executeAfter
+        // binding catches the substitution.
+        vm.warp(block.timestamp + 24 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.ExecuteAfterMismatch.selector);
+        viAdmin.executeFeeChange(expectedFee, expectedTime);
+    }
+
+    // ─── Treasury executor — same value+ETA binding coverage ──────────
+
+    function test_treasuryChange_valueBinding_rejectsStaleExpectedValue() public {
+        address victim = address(0xC0FFEE);
+        address attackerSink = address(0xBAD1);
+
+        viAdmin.proposeTreasuryChange(victim);
+        address expectedTreasury = viAdmin.pendingTreasury();
+        uint256 expectedTime = viAdmin.treasuryChangeTime();
+
+        viAdmin.cancelTreasuryChange();
+        viAdmin.proposeTreasuryChange(attackerSink);
+
+        vm.warp(block.timestamp + 48 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.TreasuryMismatch.selector);
+        viAdmin.executeTreasuryChange(expectedTreasury, expectedTime);
+    }
+
+    function test_treasuryChange_executeAfterBinding_rejectsStaleExpectedTime() public {
+        address victim = address(0xC0FFEE);
+
+        viAdmin.proposeTreasuryChange(victim);
+        address expectedTreasury = viAdmin.pendingTreasury();
+        uint256 expectedTime = viAdmin.treasuryChangeTime();
+
+        viAdmin.cancelTreasuryChange();
+        skip(1 hours);
+        viAdmin.proposeTreasuryChange(victim);
+
+        vm.warp(block.timestamp + 48 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.ExecuteAfterMismatch.selector);
+        viAdmin.executeTreasuryChange(expectedTreasury, expectedTime);
+    }
+
+    // ─── Whitelist executor — same coverage with (token, add) tuple ───
+
+    function test_whitelistChange_valueBinding_rejectsStaleExpectedValue() public {
+        address tokenA = address(0xA1);
+        address tokenB = address(0xB1);
+
+        viAdmin.proposeWhitelistChange(tokenA, true);
+        address expectedToken = viAdmin.pendingWhitelistToken();
+        bool expectedAdd = viAdmin.pendingWhitelistAction();
+        uint256 expectedTime = viAdmin.whitelistChangeTime();
+
+        viAdmin.cancelWhitelistChange();
+        viAdmin.proposeWhitelistChange(tokenB, true);
+
+        skip(24 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.WhitelistMismatch.selector);
+        viAdmin.executeWhitelistChange(expectedToken, expectedAdd, expectedTime);
+    }
+
+    function test_whitelistChange_executeAfterBinding_rejectsStaleExpectedTime() public {
+        address token = address(0xA1);
+
+        viAdmin.proposeWhitelistChange(token, true);
+        address expectedToken = viAdmin.pendingWhitelistToken();
+        bool expectedAdd = viAdmin.pendingWhitelistAction();
+        uint256 expectedTime = viAdmin.whitelistChangeTime();
+
+        viAdmin.cancelWhitelistChange();
+        skip(1 hours);
+        viAdmin.proposeWhitelistChange(token, true);
+
+        skip(24 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.ExecuteAfterMismatch.selector);
+        viAdmin.executeWhitelistChange(expectedToken, expectedAdd, expectedTime);
+    }
+
+    // ─── MinBribeAmount executor — same coverage with (token, amount) ─
+
+    function test_minBribeAmount_valueBinding_rejectsStaleExpectedValue() public {
+        address token = address(0xA1);
+
+        viAdmin.proposeMinBribeAmount(token, 1000);
+        address expectedToken = viAdmin.pendingMinBribeToken();
+        uint256 expectedAmount = viAdmin.pendingMinBribeAmount();
+        uint256 expectedTime = viAdmin.minBribeChangeTime();
+
+        viAdmin.cancelMinBribeAmount();
+        viAdmin.proposeMinBribeAmount(token, 9_999_999); // attacker's value
+
+        skip(24 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.MinBribeMismatch.selector);
+        viAdmin.executeMinBribeAmount(expectedToken, expectedAmount, expectedTime);
+    }
+
+    function test_minBribeAmount_executeAfterBinding_rejectsStaleExpectedTime() public {
+        address token = address(0xA1);
+
+        viAdmin.proposeMinBribeAmount(token, 1000);
+        address expectedToken = viAdmin.pendingMinBribeToken();
+        uint256 expectedAmount = viAdmin.pendingMinBribeAmount();
+        uint256 expectedTime = viAdmin.minBribeChangeTime();
+
+        viAdmin.cancelMinBribeAmount();
+        skip(1 hours);
+        viAdmin.proposeMinBribeAmount(token, 1000);
+
+        skip(24 hours + 1);
+        vm.expectRevert(VoteIncentivesAdmin.ExecuteAfterMismatch.selector);
+        viAdmin.executeMinBribeAmount(expectedToken, expectedAmount, expectedTime);
     }
 
     receive() external payable {}
