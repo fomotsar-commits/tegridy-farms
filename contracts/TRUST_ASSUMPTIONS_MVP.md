@@ -186,6 +186,36 @@ freeze.
 
 ---
 
+## Reward-pool funding (operational, not code)
+
+The TegridyStaking reward pool emits at a constant `rewardRate` per second.
+The contract does NOT bound emissions to the funded pool — `rewardPerTokenStored`
+grows as `rewardRate * elapsed`, regardless of `rewardToken.balanceOf(staking)`.
+This is the Synthetix StakingRewards pattern: rewards are "promised at constant
+rate," and the operator MUST top up the pool faster than emissions deplete it.
+
+If the operator falls behind, the contract still pays out rewards via
+`getReward`, drawing from balance. Once balance drops to `totalStaked`, the
+principal is still recoverable (INV-PRINCIPAL-RECOVERABLE, fuzzed at 256
+runs × 500 calls in test/invariants/MVPLaunch_StakingInvariants.t.sol). But
+late claimers face a race: the user who claims first gets paid, and the late
+claimer gets DoSed by `_settleUnsettled` cap routes diverting to an
+`unsettledRewards` bucket that may exceed available balance.
+
+**Operational requirement at launch (Phase 6):**
+- Pre-fund TOWELI reward pool with enough to cover 90+ days of emissions at
+  the chosen rewardRate. At launch rate of ~0.82 TOWELI/s = ~2.13M
+  TOWELI/month — minimum 6.4M TOWELI funded.
+- Cron/keeper job to top up the pool monthly. Alert if `balance(staking) -
+  totalStaked < 30 days * rewardRate`.
+
+This is documented here because invariant fuzzing surfaced it loud — a
+pool-exhaustion bug would otherwise present as "users randomly DoSed on
+claim" in production, which is the hardest class of bug to diagnose under
+load.
+
+---
+
 ## Cross-cutting trust assumptions
 
 These hold across the entire MVP set; if any one breaks, the threat map
