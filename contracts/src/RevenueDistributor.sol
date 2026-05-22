@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 
 /// @dev Interface for TegridyStaking (voting escrow) — Curve-style checkpoint queries.
@@ -67,7 +68,7 @@ interface ITegridyRestaking {
 ///         - Permissionless claim (users claim when they want)
 ///         - Unclaimed ETH persists — no expiry
 ///         - Failed ETH transfers credited to pendingWithdrawals (pull pattern)
-contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin, PauseGuardian {
 
     // ─── TimelockAdmin Keys ──────────────────────────────────────────
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
@@ -697,6 +698,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function unpause() external onlyOwner {
         _unpause();
     }
+
+    /// @notice mvp-launch Phase 0.4 — pause-only emergency guardian role.
+    ///         See base/PauseGuardian.sol.
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    function guardianPause() external onlyPauseGuardian { _pause(); }
 
     // ─── Claiming ─────────────────────────────────────────────────────
 

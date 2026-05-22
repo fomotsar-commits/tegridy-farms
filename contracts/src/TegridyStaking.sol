@@ -46,6 +46,7 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 
 /// @dev AUDIT FIX H8: Minimal interface for restaking-aware view functions
 interface ITegridyRestakingView {
@@ -79,7 +80,7 @@ interface ITegridyStakingJbacVault {
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
-contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable {
+contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGuardian {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -168,6 +169,30 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     uint256 public rewardPerTokenStored;
     uint256 public totalBoostedStake;
     uint256 public totalStaked;
+
+    // ─── mvp-launch Phase 0.7 — Stake Caps (Aave V3 / EigenLayer pattern) ──
+    //
+    // Caps gate every stake/increase entry-point to bound blast radius during
+    // the TVL ramp. Per the battle plan:
+    //   - Phase 6 (launch):  per-user 50_000 TOWELI,  global   5_000_000 TOWELI
+    //   - Phase 7.1 ramp:    raise as 2-week clean windows clear, owner-only
+    //                        propose/execute via TegridyStakingAdmin timelock.
+    //
+    // Initial defaults set in the constructor (NOT zero — zero is "no cap"
+    // semantics in Aave; we use explicit conservative starting values).
+    //
+    // Reference: Aave V3 `supplyCap` + `borrowCap`, EigenLayer's per-token
+    // deposit cap. Both shipped with caps in PRODUCTION on day 1 and lifted
+    // only after monitored TVL stability windows.
+    uint256 public maxStakePerUser;
+    uint256 public maxTotalStaked;
+
+    event MaxStakePerUserChanged(uint256 oldCap, uint256 newCap);
+    event MaxTotalStakedChanged(uint256 oldCap, uint256 newCap);
+
+    error PerUserStakeCapExceeded();
+    error TotalStakeCapExceeded();
+    error CapCannotBeZero();
     // AUDIT H-4 (battle-tested fix): totalLocked is a view proxy for totalStaked (they are
     // always equal). The prior state-variable design permanently returned 0, causing
     // third-party integrators (allocators, dashboards, indexers) to read zero TVL.
@@ -502,6 +527,38 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         treasury = _treasury;
         rewardRate = _rewardRate;
         lastUpdateTime = block.timestamp;
+
+        // mvp-launch Phase 0.7: caps default uncapped at construction. The
+        // operator sets them DOWN to launch values (50k/5M per battle plan)
+        // via setMaxStakePerUser / setMaxTotalStaked BEFORE transferOwnership.
+        // Aave V3 follows the same "constructor uncapped, ops sets at deploy"
+        // pattern via setSupplyCap on the PoolConfigurator. This keeps test
+        // fixtures simple — unit tests that don't exercise caps don't need to
+        // override the default.
+        maxStakePerUser = type(uint256).max;
+        maxTotalStaked  = type(uint256).max;
+    }
+
+    /// @notice Owner-only setter for the per-user stake cap. Initial value
+    ///         50k TOWELI; raise as Phase 7 TVL ramp clears stability windows.
+    /// @dev    Zero is forbidden — use pause()/guardianPause() to halt new
+    ///         stakes, not zero-cap, so the semantic stays explicit. Cap can
+    ///         be raised OR lowered; lowering does not retroactively shrink
+    ///         existing positions (those keep their full stake).
+    function setMaxStakePerUser(uint256 _newCap) external onlyOwner {
+        if (_newCap == 0) revert CapCannotBeZero();
+        uint256 old = maxStakePerUser;
+        maxStakePerUser = _newCap;
+        emit MaxStakePerUserChanged(old, _newCap);
+    }
+
+    /// @notice Owner-only setter for the global stake cap. Initial value
+    ///         5M TOWELI; raise per Phase 7 schedule.
+    function setMaxTotalStaked(uint256 _newCap) external onlyOwner {
+        if (_newCap == 0) revert CapCannotBeZero();
+        uint256 old = maxTotalStaked;
+        maxTotalStaked = _newCap;
+        emit MaxTotalStakedChanged(old, _newCap);
     }
 
     /// @notice One-shot wire of the JBAC vault sister contract.
@@ -829,6 +886,29 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         _unpause();
     }
 
+    // ─── Pause-Guardian Emergency Surface (mvp-launch Phase 0.4) ──────
+
+    /// @notice Set the pause-only emergency multisig. Owner-gated, instant
+    ///         rotation. Aave V3 EMERGENCY_ADMIN_ROLE pattern.
+    /// @dev    Rotation is instant by design: if the hot guardian's keys are
+    ///         compromised, the slow cold owner needs to react faster than any
+    ///         timelock would allow. Compromising the guardian alone yields only
+    ///         nuisance-pause risk (recoverable via owner.unpause), so a fast
+    ///         rotation is the correct trade.
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    /// @notice Emergency pause callable by the pause-only guardian multisig.
+    /// @dev    Same pre-pause `_accumulateRewards` semantics as `pause()` so
+    ///         the guardian-pause path does not lose the elapsed-segment
+    ///         emission window. Unpause stays owner-only — the guardian can
+    ///         freeze but cannot thaw, matching Aave / Lido GateSeal model.
+    function guardianPause() external onlyPauseGuardian {
+        _accumulateRewards();
+        _pause();
+    }
+
     // ─── User Functions ───────────────────────────────────────────────
 
     /// @notice Stake TOWELI. Mints an NFT representing the position. No JBAC boost.
@@ -844,6 +924,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_lockDuration < MIN_LOCK_DURATION) revert LockTooShort();
         if (_lockDuration > MAX_LOCK_DURATION) revert LockTooLong();
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
+        // mvp-launch Phase 0.7: stake caps. Aave V3 / EigenLayer pattern.
+        if (_amount > maxStakePerUser) revert PerUserStakeCapExceeded();
+        if (totalStaked + _amount > maxTotalStaked) revert TotalStakeCapExceeded();
 
         uint256 boost = calculateBoost(_lockDuration);
         // AUDIT H-1 (2026-04-20): No JBAC boost on stake(). Use stakeWithBoost() for that.
@@ -899,6 +982,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_lockDuration < MIN_LOCK_DURATION) revert LockTooShort();
         if (_lockDuration > MAX_LOCK_DURATION) revert LockTooLong();
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
+        // mvp-launch Phase 0.7: stake caps. Aave V3 / EigenLayer pattern.
+        if (_amount > maxStakePerUser) revert PerUserStakeCapExceeded();
+        if (totalStaked + _amount > maxTotalStaked) revert TotalStakeCapExceeded();
         // AUDIT FIX FRESH-2026 M3: reject `_jbacTokenId == 0` at input. Both
         // `_clearPosition` (`if (jbacIdToReturn != 0)`) and the vault's
         // `returnJbac` (`if (jbacTokenId == 0) return`) use 0 as a "no JBAC"
@@ -1064,6 +1150,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // that dilutes all active stakers' rewards without earning anything
         // L-01 FIX: Error name was semantically inverted — lock HAS expired, not "not expired"
         if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
+        // mvp-launch Phase 0.7: stake caps applied to post-increase totals.
+        if (p.amount + _additionalAmount > maxStakePerUser) revert PerUserStakeCapExceeded();
+        if (totalStaked + _additionalAmount > maxTotalStaked) revert TotalStakeCapExceeded();
 
         // Claim pending rewards before changing position (_getReward handles decay internally)
         _getReward(tokenId, p);

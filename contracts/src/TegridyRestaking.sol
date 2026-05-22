@@ -12,6 +12,7 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 
 interface ITegridyStaking {
     function getReward(uint256 tokenId) external returns (uint256 claimed);
@@ -85,7 +86,7 @@ interface ITegridyStaking {
 ///         Think of it like:
 ///         - Base staking = earning interest on a savings account
 ///         - Restaking = lending your savings certificate for extra yield
-contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver, TimelockAdmin {
+contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver, TimelockAdmin, PauseGuardian {
     using SafeERC20 for IERC20;
 
     // ─── Constants ──────────────────────────────────────────────────
@@ -2053,6 +2054,15 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice AUDIT FIX: Pause restaking to halt new deposits during emergencies
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice mvp-launch Phase 0.4 — pause-only emergency guardian role.
+    ///         See base/PauseGuardian.sol. setPauseGuardian rotates instantly
+    ///         (owner-gated); guardianPause freezes (no unpause authority).
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    function guardianPause() external onlyPauseGuardian { _pause(); }
 
     // ─── Rescue ──────────────────────────────────────────────────────
 

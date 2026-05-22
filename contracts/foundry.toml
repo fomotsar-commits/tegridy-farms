@@ -4,16 +4,22 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.26"
 optimizer = true
-optimizer_runs = 1 # AUDIT FIX (pass-8 batch-14): minimized to fit TegridyStaking under EIP-170 24,576-byte limit. Was 10; lower runs prioritize deploy-size over runtime-gas, which is exactly what we need to land Phase 0.2.
-# AUDIT #91: via_ir required for SwapFeeRouter (stack too deep without it)
+# mvp-launch: after the 15-contract MVP cut, runs restored to 200 — the canonical
+# OpenZeppelin / Solady / Solmate value. Pre-cut the value was pinned to 1 to
+# squeeze TegridyStaking under the EIP-170 24,576-byte limit. With Lending /
+# NFTLending / Gauges / Vote / Drop / Launchpad moved to the next-wave branch,
+# the remaining 15 MVP contracts have enough headroom that runs=200 is safe AND
+# removes the runtime-gas tax users were paying on every call.
+# If a future change pushes any MVP contract back over 24KB, the right answer
+# is to split that contract, NOT to drop runs again.
+optimizer_runs = 200
+# via_ir kept on: SwapFeeRouter still has paths deep enough to need IR scheduling.
 via_ir = true
 # NOTE: cancun is required by OpenZeppelin v5.6.1 (uses mcopy opcode).
 # For L2 deployment (Arbitrum, Optimism), compile with cancun but verify L2 opcode support.
-# PUSH0 (shanghai+) is now supported on major L2s as of 2025.
 evm_version = "cancun"
-# WARNING: EIP-170 mainnet limit is 24576 bytes. This override MASKS deployment failures.
-# If TegridyStaking exceeds 24KB, it will compile but FAIL to deploy on mainnet.
-# TODO: Split TegridyStaking or reduce size to fit within 24576 bytes.
+# EIP-170 mainnet bytecode limit. Surfaced explicitly so deploy-size regressions
+# fail at compile-time rather than at mainnet broadcast.
 code_size_limit = 24576
 
 remappings = [

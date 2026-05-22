@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 
@@ -69,7 +70,7 @@ interface ITegridyTWAP {
 ///         Result: The protocol owns its own liquidity. Deeper pools,
 ///         less slippage, more volume, more fees. Self-reinforcing flywheel.
 /// AUDIT FIX M-14: Added Pausable so accumulations can be halted during emergencies.
-contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin, PauseGuardian {
     using SafeERC20 for IERC20;
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
@@ -504,6 +505,14 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice AUDIT FIX M-14: Pause accumulations during emergencies
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice mvp-launch Phase 0.4 — pause-only emergency guardian role.
+    ///         See base/PauseGuardian.sol.
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    function guardianPause() external onlyPauseGuardian { _pause(); }
 
     // ─── Admin ─────────────────────────────────────────────────────────
 

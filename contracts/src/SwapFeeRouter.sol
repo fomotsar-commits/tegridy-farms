@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 
@@ -93,7 +94,7 @@ interface IPremiumAccess {
 ///  - Fee wrapper pattern: 1inch/Paraswap aggregator fee model
 ///  - Timelocked admin (propose/execute/cancel) lives on SwapFeeRouterAdmin sister
 ///    contract using the MakerDAO DSPause pattern.
-contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
+contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGuardian {
     using SafeERC20 for IERC20;
 
     // ─── Admin sister contract ───────────────────────────────────────
@@ -1434,6 +1435,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice mvp-launch Phase 0.4 — pause-only emergency guardian role.
+    ///         See base/PauseGuardian.sol.
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    function guardianPause() external onlyPauseGuardian { _pause(); }
 
     // ─── Admin: Fee Withdrawal ───────────────────────────────────────
 
