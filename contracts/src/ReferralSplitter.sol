@@ -808,4 +808,36 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ) {
         return (totalReferred[_referrer], totalEarned[_referrer], pendingETH[_referrer]);
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue hostile
+    ///         proposals immediately before `transferOwnership`; the timelock would silently
+    ///         keep running and the new owner inherits an executable booby-trap.
+    /// @dev    Per-caller `CALLER_GRANT` proposals are keyed via `keccak256(abi.encode("CALLER_GRANT", caller))`
+    ///         and not enumerable on-chain; they remain the new owner's responsibility to
+    ///         triage one-by-one (still bounded by the 24h delay, giving the new owner ample
+    ///         time). Static-keyed proposals (the three below) are flushed here.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[REFERRAL_FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingReferralFee;
+            _cancel(REFERRAL_FEE_CHANGE);
+            pendingReferralFee = 0;
+            emit ReferralFeeCancelled(cancelled);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[BAN_REFERRER] != 0) {
+            address cancelled = pendingBanReferrer;
+            _cancel(BAN_REFERRER);
+            pendingBanReferrer = address(0);
+            emit BanReferrerCancelled(cancelled);
+        }
+    }
 }

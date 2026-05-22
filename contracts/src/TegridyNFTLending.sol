@@ -1764,4 +1764,35 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         delete strandedNFTRecipient[key];
         emit StrandedNFTClaimed(_collection, _tokenId, recipient);
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue hostile
+    ///         proposals immediately before `transferOwnership`; the timelock would silently
+    ///         keep running and the new owner inherits an executable booby-trap.
+    /// @dev    DELIBERATE compact form: per-key `_forceCancel(KEY)` via a loop over a
+    ///         memory array. This contract sits at the EIP-170 floor (24,000B budget)
+    ///         and an inline 7-key block (LaunchpadV2-style) overshoots. The security
+    ///         boundary is `_executeAfter[KEY] = 0` (handled by `_forceCancel`), which
+    ///         blocks every `execute*` path. The base `ProposalCancelled(KEY)` event from
+    ///         `_forceCancel` is the canonical off-chain signal (F-75-15). Stale `pending*`
+    ///         slots are HARMLESS because every `execute*` calls `_execute(KEY)` first
+    ///         (reverts `NoPendingProposal` on cleared slot) AND re-proposing overwrites
+    ///         the slot.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        bytes32[7] memory keys = [
+            PROTOCOL_FEE_CHANGE,
+            TREASURY_CHANGE,
+            WHITELIST_ADD,
+            WHITELIST_REMOVE,
+            ORIGINATION_FEE_CHANGE,
+            MIN_APR_CHANGE,
+            SWEEP_UNSOLICITED_NFT
+        ];
+        for (uint256 i; i < keys.length; ++i) {
+            _forceCancel(keys[i]);
+        }
+    }
 }

@@ -973,4 +973,44 @@ contract TegridyFeeHook is IHooks, OwnableNoRenounce, Pausable, ReentrancyGuard,
     mapping(address => bool) public allowedConversionRouter;
     address public pendingConversionRouterAdd;
     address public pendingConversionRouterRemove;
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue hostile
+    ///         proposals immediately before `transferOwnership`; the timelock would silently
+    ///         keep running and the new owner inherits an executable booby-trap.
+    /// @dev    Per-currency `SYNC_CHANGE` proposals are keyed via
+    ///         `keccak256(abi.encodePacked(SYNC_CHANGE, currency))` and not enumerable on-chain;
+    ///         they remain the new owner's responsibility to triage one-by-one (or wait for
+    ///         the proposal validity window to elapse — `expireSyncAccruedFees` is
+    ///         permissionless for cleanup). The four static-keyed proposals below are
+    ///         flushed here.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingFee;
+            _cancel(FEE_CHANGE);
+            pendingFee = 0;
+            emit FeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[DISTRIBUTOR_CHANGE] != 0) {
+            address cancelled = pendingDistributor;
+            _cancel(DISTRIBUTOR_CHANGE);
+            pendingDistributor = address(0);
+            emit DistributorChangeCancelled(cancelled);
+        }
+        if (_executeAfter[CONVERSION_ROUTER_ADD] != 0) {
+            address cancelled = pendingConversionRouterAdd;
+            _cancel(CONVERSION_ROUTER_ADD);
+            pendingConversionRouterAdd = address(0);
+            emit ConversionRouterAddCancelled(cancelled);
+        }
+        if (_executeAfter[CONVERSION_ROUTER_REMOVE] != 0) {
+            address cancelled = pendingConversionRouterRemove;
+            _cancel(CONVERSION_ROUTER_REMOVE);
+            pendingConversionRouterRemove = address(0);
+            emit ConversionRouterRemoveCancelled(cancelled);
+        }
+    }
 }
