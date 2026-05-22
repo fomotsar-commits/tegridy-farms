@@ -405,12 +405,21 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // (royalty receiver cannot brick the sale; mirror Sudoswap V2 / OS).
         uint256 royalty = _settleRoyalty(outputAmount, tokenIds[0]);
 
+        // AUDIT FIX V4-NFTPOOL-01 (FRESH-2026 H2): clear `_swapCaller` BEFORE
+        // the ETH payout. `_sendETH` reaches the seller's `receive()` (or a
+        // malicious collection's `safeTransferFrom` hook earlier in the
+        // batch), which can call back into `nftCollection.safeTransferFrom(
+        // seller, address(this), bogusTokenId)` and stuff arbitrary tokenIds
+        // into `_heldIds` via `onERC721Received` because the
+        // `authorizedSwapInflow = _swapInFlight && from == _swapCaller`
+        // gate is still open. Clearing `_swapCaller` first closes the
+        // window. Same exploit shape that V3-NFTPOOL-01 already fixed in
+        // the BUY direction; the SELL direction was missed.
+        _swapCaller = address(0);
         _sendETH(msg.sender, outputAmount - royalty);
 
         lastSwapBlock = block.timestamp;
         _swapInFlight = false;
-        // AUDIT FIX: V2-NFTPOOL-01
-        _swapCaller = address(0);
 
         emit SwapNFTsForETH(msg.sender, tokenIds, outputAmount);
     }
