@@ -252,6 +252,12 @@ contract M19Port_SwapFeeRouterAdmin_Test is Test {
 contract MockSFRRouterM19 {
     function MAX_FEE_BPS() external pure returns (uint256) { return 1000; }
     function feeBps() external pure returns (uint256) { return 30; }
+    // Required by proposeFeeSplit.
+    function MIN_STAKER_SHARE_BPS() external pure returns (uint256) { return 3000; }
+    function MAX_POL_SHARE_BPS() external pure returns (uint256) { return 5000; }
+    function BPS() external pure returns (uint256) { return 10_000; }
+    // Required by proposePremiumDiscountChange.
+    function MAX_PREMIUM_DISCOUNT_BPS() external pure returns (uint256) { return 5000; }
 }
 
 contract M19Port_TegridyLPFarming_Test is Test {
@@ -436,10 +442,23 @@ contract MockLendingTargetM19 {
     function treasury() external pure returns (address) { return address(0xBEEF); }
     function MAX_ORIGINATION_FEE_BPS() external pure returns (uint256) { return 500; }
     function originationFeeBps() external pure returns (uint256) { return 50; }
-    function MAX_PRINCIPAL() external pure returns (uint256) { return 1_000_000 ether; }
-    function MIN_PRINCIPAL() external pure returns (uint256) { return 1 ether; }
-    function MIN_DURATION() external pure returns (uint256) { return 1 days; }
-    function MAX_DURATION() external pure returns (uint256) { return 365 days; }
+    // Multi-key test mock surface: every ceiling/floor proposes read at validation time.
+    function MAX_PRINCIPAL_CEILING() external pure returns (uint256) { return 1_000_000 ether; }
+    function MAX_APR_BPS_CEILING() external pure returns (uint256) { return 50_000; }
+    function MIN_DURATION_FLOOR() external pure returns (uint256) { return 1 days; }
+    function MIN_DURATION_CEILING() external pure returns (uint256) { return 30 days; }
+    function MAX_DURATION_CEILING() external pure returns (uint256) { return 365 days; }
+    function MAX_MIN_APR_BPS() external pure returns (uint256) { return 1000; }
+    function MAX_MIN_PRINCIPAL() external pure returns (uint256) { return 1 ether; }
+    function maxAprBps() external pure returns (uint256) { return 50_000; }
+    function maxDuration() external pure returns (uint256) { return 365 days; }
+    function minDuration() external pure returns (uint256) { return 1 days; }
+    // Required by the inverted-bound guards (every propose checks the OTHER side
+    // of the {min,max} pair to avoid bricking createLoanOffer).
+    function minAprBps() external pure returns (uint256) { return 0; }
+    function maxPrincipal() external pure returns (uint256) { return 1000 ether; }
+    function minPrincipal() external pure returns (uint256) { return 0.001 ether; }
+    function COLLATERAL_REMOVAL_MAX_CANCELLATIONS() external pure returns (uint256) { return 3; }
 }
 
 contract M19Port_CommunityGrants_Test is Test {
@@ -589,4 +608,303 @@ contract MockVITargetM19 {
     function bribeFeeBps() external pure returns (uint256) { return 300; }
     function commitRevealEnabled() external pure returns (bool) { return false; }
     function treasury() external pure returns (address) { return address(0xBEEF); }
+}
+
+// ─── MULTI-KEY REGRESSION (REVIEW F-4) ──────────────────────────────────────
+//
+// AUDIT FIX 2026-05-22 M19-PORT-REVIEW F-4: the per-contract tests above flush
+// only ONE key per acceptOwnership. The PRODUCTION exploit scenario is "outgoing
+// owner queues MULTIPLE booby-traps before transferOwnership"; without these
+// tests a regression that deleted any single `if (_executeAfter[KEY] != 0)`
+// block from a multi-key override would silently pass CI.
+//
+// One test per multi-key contract: queue ALL the static-keyed proposals the
+// outgoing owner could pre-arm, then assert acceptOwnership clears EVERY slot.
+
+contract M19PortMultiKey_POLAccumulator_Test is Test {
+    POLAccumulator pol;
+    MockTokenM19 toweli;
+    MockWETHM19 weth;
+    address creator = makeAddr("creator");
+    address newOwner = makeAddr("newOwner");
+
+    function setUp() public {
+        toweli = new MockTokenM19();
+        weth = new MockWETHM19();
+        MockPOLFactoryM19 factory = new MockPOLFactoryM19();
+        MockPOLLPTokenM19 lp = new MockPOLLPTokenM19();
+        lp.setToken0(address(toweli));
+        factory.setPair(address(lp));
+        MockPOLRouterM19 router = new MockPOLRouterM19(address(weth), address(factory));
+        MockPOLTWAPM19 twap = new MockPOLTWAPM19();
+        vm.prank(creator);
+        pol = new POLAccumulator(
+            address(toweli), address(router), address(lp), makeAddr("treasury"), address(twap), address(0)
+        );
+    }
+
+    function test_M19PORT_multiKey_acceptOwnership_flushesAllPOLKeys() public {
+        // Pre-arm every owner-controlled static-keyed proposal.
+        vm.startPrank(creator);
+        pol.proposeMaxSlippage(500);                // SLIPPAGE_CHANGE
+        pol.proposeMaxAccumulateAmount(1 ether);    // ACCUMULATE_CAP_CHANGE
+        pol.proposeBackstopChange(9500);            // BACKSTOP_CHANGE (>= MIN_BACKSTOP_BPS 9000)
+        pol.proposeSweepETH(1 ether);               // SWEEP_ETH_CHANGE
+        pol.proposeSweepTokens(makeAddr("dust"));   // SWEEP_TOKENS
+        pol.proposeTreasuryChange(makeAddr("hostile")); // TREASURY_CHANGE
+        // POL_HARVEST requires LP balance; skip propose if cap-protected setup
+        // would require additional plumbing — covered separately in single-key test.
+        pol.transferOwnership(newOwner);
+        vm.stopPrank();
+
+        vm.prank(newOwner);
+        pol.acceptOwnership();
+
+        // Every flushed slot zeroed in the same transaction.
+        assertFalse(pol.hasPendingProposal(pol.SLIPPAGE_CHANGE()));
+        assertEq(pol.pendingMaxSlippage(), 0);
+        assertFalse(pol.hasPendingProposal(pol.ACCUMULATE_CAP_CHANGE()));
+        assertEq(pol.pendingMaxAccumulateAmount(), 0);
+        assertFalse(pol.hasPendingProposal(pol.BACKSTOP_CHANGE()));
+        assertEq(pol.pendingBackstopBps(), 0);
+        assertFalse(pol.hasPendingProposal(pol.SWEEP_ETH_CHANGE()));
+        assertEq(pol.sweepETHProposedAmount(), 0);
+        assertFalse(pol.hasPendingProposal(pol.SWEEP_TOKENS()));
+        assertEq(pol.pendingSweepToken(), address(0));
+        assertFalse(pol.hasPendingProposal(pol.TREASURY_CHANGE()));
+        assertEq(pol.pendingTreasury(), address(0));
+    }
+}
+
+contract M19PortMultiKey_SwapFeeRouterAdmin_Test is Test {
+    SwapFeeRouterAdmin admin;
+    address creator = makeAddr("creator");
+    address newOwner = makeAddr("newOwner");
+
+    function setUp() public {
+        MockSFRRouterM19 router = new MockSFRRouterM19();
+        vm.prank(creator);
+        admin = new SwapFeeRouterAdmin(address(router));
+    }
+
+    function test_M19PORT_multiKey_acceptOwnership_flushesAllSFRAdminKeys() public {
+        vm.startPrank(creator);
+        admin.proposeFeeChange(50);                                          // FEE_CHANGE
+        admin.proposeTreasuryChange(makeAddr("hostileTreasury"));             // TREASURY_CHANGE
+        admin.proposeReferralSplitterChange(makeAddr("hostileSplitter"));     // REFERRAL_CHANGE
+        admin.proposeInputTokenFeeChange(makeAddr("hostileToken"), 100, false); // PAIR_FEE_CHANGE
+        admin.proposePremiumDiscountChange(2000);                            // PREMIUM_DISCOUNT_CHANGE
+        admin.proposePremiumAccessChange(makeAddr("hostileAccess"));          // PREMIUM_ACCESS_CHANGE
+        admin.proposeRevenueDistributor(makeAddr("hostileRevDist"));          // REV_DIST_CHANGE
+        admin.proposeFeeSplit(5000, 3000);                                   // FEE_SPLIT_CHANGE
+        admin.proposePolAccumulator(makeAddr("hostilePol"));                  // POL_ACCUMULATOR_CHANGE
+        admin.transferOwnership(newOwner);
+        vm.stopPrank();
+
+        vm.prank(newOwner);
+        admin.acceptOwnership();
+
+        // All 9 static-keyed proposals flushed.
+        assertFalse(admin.hasPendingProposal(admin.FEE_CHANGE()));
+        assertEq(admin.pendingFeeBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.TREASURY_CHANGE()));
+        assertEq(admin.pendingTreasury(), address(0));
+        assertFalse(admin.hasPendingProposal(admin.REFERRAL_CHANGE()));
+        assertEq(admin.pendingReferralSplitter(), address(0));
+        assertFalse(admin.hasPendingProposal(admin.PAIR_FEE_CHANGE()));
+        assertEq(admin.pendingPairFeeAddress(), address(0));
+        assertEq(admin.pendingPairFeeBps(), 0);
+        assertEq(admin.pendingPairFeeRemoval(), false);
+        assertFalse(admin.hasPendingProposal(admin.PREMIUM_DISCOUNT_CHANGE()));
+        assertEq(admin.pendingPremiumDiscountBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.PREMIUM_ACCESS_CHANGE()));
+        assertEq(admin.pendingPremiumAccess(), address(0));
+        assertFalse(admin.hasPendingProposal(admin.REV_DIST_CHANGE()));
+        assertEq(admin.pendingRevenueDistributor(), address(0));
+        assertFalse(admin.hasPendingProposal(admin.FEE_SPLIT_CHANGE()));
+        assertEq(admin.pendingStakerShareBps(), 0);
+        assertEq(admin.pendingPolShareBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.POL_ACCUMULATOR_CHANGE()));
+        assertEq(admin.pendingPolAccumulator(), address(0));
+    }
+}
+
+contract M19PortMultiKey_TegridyLendingAdmin_Test is Test {
+    TegridyLendingAdmin admin;
+    address creator = makeAddr("creator");
+    address newOwner = makeAddr("newOwner");
+
+    function setUp() public {
+        MockLendingTargetM19 lendingTarget = new MockLendingTargetM19();
+        vm.prank(creator);
+        admin = new TegridyLendingAdmin(address(lendingTarget));
+    }
+
+    function test_M19PORT_multiKey_acceptOwnership_flushesAllLendingAdminKeys() public {
+        vm.startPrank(creator);
+        admin.proposeProtocolFeeChange(800);                          // PROTOCOL_FEE_CHANGE
+        admin.proposeTreasuryChange(makeAddr("hostileTreasury"));      // TREASURY_CHANGE
+        admin.proposeMaxPrincipal(2000 ether);                         // MAX_PRINCIPAL_CHANGE
+        admin.proposeMaxAprBps(40000);                                 // MAX_APR_CHANGE
+        admin.proposeMinDuration(2 days);                              // MIN_DURATION_CHANGE
+        admin.proposeMaxDuration(180 days);                            // MAX_DURATION_CHANGE
+        admin.proposeOriginationFee(150);                              // ORIGINATION_FEE_CHANGE
+        admin.proposeMinApr(500);                                      // MIN_APR_CHANGE
+        admin.proposeMinPrincipal(0.5 ether);                          // MIN_PRINCIPAL_CHANGE
+        admin.transferOwnership(newOwner);
+        vm.stopPrank();
+
+        vm.prank(newOwner);
+        admin.acceptOwnership();
+
+        // 9 of 11 static-keyed proposals flushed (ACCEPTED_COLLATERAL_CHANGE
+        // and SWEEP_DONATED_TOWELI require additional setup; covered by the
+        // single-key test above).
+        assertFalse(admin.hasPendingProposal(admin.PROTOCOL_FEE_CHANGE()));
+        assertEq(admin.pendingProtocolFeeBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.TREASURY_CHANGE()));
+        assertEq(admin.pendingTreasury(), address(0));
+        assertFalse(admin.hasPendingProposal(admin.MAX_PRINCIPAL_CHANGE()));
+        assertEq(admin.pendingMaxPrincipal(), 0);
+        assertFalse(admin.hasPendingProposal(admin.MAX_APR_CHANGE()));
+        assertEq(admin.pendingMaxAprBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.MIN_DURATION_CHANGE()));
+        assertEq(admin.pendingMinDuration(), 0);
+        assertFalse(admin.hasPendingProposal(admin.MAX_DURATION_CHANGE()));
+        assertEq(admin.pendingMaxDuration(), 0);
+        assertFalse(admin.hasPendingProposal(admin.ORIGINATION_FEE_CHANGE()));
+        assertEq(admin.pendingOriginationFeeBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.MIN_APR_CHANGE()));
+        assertEq(admin.pendingMinAprBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.MIN_PRINCIPAL_CHANGE()));
+        assertEq(admin.pendingMinPrincipal(), 0);
+    }
+}
+
+contract M19PortMultiKey_TegridyStakingAdmin_Test is Test {
+    TegridyStakingAdmin admin;
+    address creator = makeAddr("creator");
+    address newOwner = makeAddr("newOwner");
+
+    function setUp() public {
+        MockStakingTargetM19 stakingTarget = new MockStakingTargetM19();
+        vm.prank(creator);
+        admin = new TegridyStakingAdmin(address(stakingTarget));
+    }
+
+    function test_M19PORT_multiKey_acceptOwnership_flushesAllStakingAdminKeys() public {
+        vm.startPrank(creator);
+        admin.proposeRewardRate(1e17);                                       // REWARD_RATE_CHANGE
+        admin.proposeTreasuryChange(makeAddr("hostileTreasury"));             // TREASURY_CHANGE
+        // RESTAKING_CHANGE / LENDING_CONTRACT_CHANGE require non-zero contract addrs
+        // (validation on apply via mocks not wired); covered in single-key test.
+        admin.proposeMaxUnsettledRewards(20_000e18);                          // UNSETTLED_CAP_CHANGE
+        admin.proposeExtendFee(100);                                          // EXTEND_FEE_CHANGE (max=200)
+        admin.proposePenaltyRecycle(5000);                                    // PENALTY_RECYCLE_CHANGE
+        admin.proposeExtendFeeRecycle(5000);                                  // EXTEND_FEE_RECYCLE_CHANGE
+        admin.transferOwnership(newOwner);
+        vm.stopPrank();
+
+        vm.prank(newOwner);
+        admin.acceptOwnership();
+
+        // 6 of 8 static-keyed proposals flushed.
+        assertFalse(admin.hasPendingProposal(admin.REWARD_RATE_CHANGE()));
+        assertEq(admin.pendingRewardRate(), 0);
+        assertFalse(admin.hasPendingProposal(admin.TREASURY_CHANGE()));
+        assertEq(admin.pendingTreasury(), address(0));
+        assertFalse(admin.hasPendingProposal(admin.UNSETTLED_CAP_CHANGE()));
+        assertEq(admin.pendingMaxUnsettledRewards(), 0);
+        assertFalse(admin.hasPendingProposal(admin.EXTEND_FEE_CHANGE()));
+        assertEq(admin.pendingExtendFeeBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.PENALTY_RECYCLE_CHANGE()));
+        assertEq(admin.pendingPenaltyRecycleBps(), 0);
+        assertFalse(admin.hasPendingProposal(admin.EXTEND_FEE_RECYCLE_CHANGE()));
+        assertEq(admin.pendingExtendFeeRecycleBps(), 0);
+    }
+}
+
+// ─── F-1 REGRESSION (REVIEW): legacy PairFeeChangeCancelled emit ───────────
+//
+// AUDIT FIX 2026-05-22 M19-PORT-REVIEW F-1: confirm SwapFeeRouterAdmin's
+// PAIR_FEE_CHANGE flush emits BOTH the typed `InputTokenFeeChangeCancelled`
+// AND the deprecated legacy `PairFeeChangeCancelled` alias, mirroring the live
+// `cancelInputTokenFeeChange` (lines 269-270). Off-chain monitors subscribed
+// only to the legacy event were missing handoff-flush cancels pre-fix.
+
+contract M19PortReviewF1_SwapFeeRouterAdmin_Test is Test {
+    SwapFeeRouterAdmin admin;
+    address creator = makeAddr("creator");
+    address newOwner = makeAddr("newOwner");
+    address hostileToken = makeAddr("hostileToken");
+
+    event PairFeeChangeCancelled(address indexed pair);
+    event InputTokenFeeChangeCancelled(address indexed inputToken);
+
+    function setUp() public {
+        MockSFRRouterM19 router = new MockSFRRouterM19();
+        vm.prank(creator);
+        admin = new SwapFeeRouterAdmin(address(router));
+    }
+
+    function test_M19PORT_F1_acceptOwnership_emitsBothLegacyAndTypedPairFeeEvent() public {
+        vm.prank(creator);
+        admin.proposeInputTokenFeeChange(hostileToken, 100, false);
+
+        vm.prank(creator);
+        admin.transferOwnership(newOwner);
+
+        // Both events must fire in this order during acceptOwnership.
+        vm.expectEmit(true, false, false, false, address(admin));
+        emit InputTokenFeeChangeCancelled(hostileToken);
+        vm.expectEmit(true, false, false, false, address(admin));
+        emit PairFeeChangeCancelled(hostileToken);
+        vm.prank(newOwner);
+        admin.acceptOwnership();
+    }
+}
+
+// ─── F-2 REGRESSION (REVIEW): TegridyRestaking bonus-rate cooldown reset ───
+//
+// AUDIT FIX 2026-05-22 M19-PORT-REVIEW F-2: confirm that flushing a pending
+// BONUS_RATE_CHANGE on acceptOwnership ALSO clears `lastBonusRateActionAt`
+// so the new owner's first `proposeBonusRate` is not gated by the outgoing
+// owner's leftover cooldown timestamp.
+
+contract M19PortReviewF2_TegridyRestaking_Test is Test {
+    TegridyRestaking restaking;
+    MockTokenM19 reward;
+    MockTokenM19 bonus;
+    address creator = makeAddr("creator");
+    address newOwner = makeAddr("newOwner");
+
+    function setUp() public {
+        reward = new MockTokenM19();
+        bonus = new MockTokenM19();
+        address stakingNFT = makeAddr("stakingNFT");
+        vm.etch(stakingNFT, hex"60006000fd");
+        vm.prank(creator);
+        restaking = new TegridyRestaking(stakingNFT, address(reward), address(bonus), 0);
+    }
+
+    function test_M19PORT_F2_acceptOwnership_resetsBonusRateCooldown() public {
+        vm.prank(creator);
+        restaking.proposeBonusRate(1 ether);
+        // Cooldown timestamp is now set to current block.timestamp.
+        assertEq(restaking.lastBonusRateActionAt(), block.timestamp);
+
+        vm.prank(creator);
+        restaking.transferOwnership(newOwner);
+        vm.prank(newOwner);
+        restaking.acceptOwnership();
+
+        // After flush, cooldown timestamp must be reset.
+        assertEq(restaking.lastBonusRateActionAt(), 0, "F-2: cooldown timestamp not reset on accept");
+
+        // New owner can re-propose immediately — NO inherited cooldown.
+        // (Pre-fix this would have required 24h wait.)
+        vm.prank(newOwner);
+        restaking.proposeBonusRate(2 ether);
+        assertTrue(restaking.hasPendingProposal(restaking.BONUS_RATE_CHANGE()));
+    }
 }

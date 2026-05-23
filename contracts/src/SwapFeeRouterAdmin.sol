@@ -461,6 +461,12 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
             pendingPairFeeBps = 0;
             pendingPairFeeRemoval = false;
             emit InputTokenFeeChangeCancelled(cancelled);
+            // AUDIT FIX 2026-05-22 M19-PORT-REVIEW F-1: mirror the live
+            //   `cancelInputTokenFeeChange` (line 269-270) which emits BOTH the
+            //   typed `InputTokenFeeChangeCancelled` AND the deprecated legacy
+            //   `PairFeeChangeCancelled` alias. Pre-fix, off-chain monitors
+            //   subscribed only to the legacy event missed handoff-flush cancels.
+            emit PairFeeChangeCancelled(cancelled);
         }
         if (_executeAfter[PREMIUM_DISCOUNT_CHANGE] != 0) {
             uint256 cancelled = pendingPremiumDiscountBps;

@@ -2694,6 +2694,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             _cancel(BONUS_RATE_CHANGE);
             pendingBonusRate = 0;
             emit BonusRateCancelled(cancelledRate);
+            // AUDIT FIX 2026-05-22 M19-PORT-REVIEW F-2: reset
+            //   `lastBonusRateActionAt` so the propose-side BONUS_RATE_ACTION_COOLDOWN
+            //   gate (lines 1684-1687) does NOT carry the outgoing owner's last-action
+            //   timestamp into the new owner's first propose call. Pre-fix, the override
+            //   left the timestamp set, gating the new owner with up to 24h of inherited
+            //   cooldown even after the booby-trap proposal was cleared.
+            lastBonusRateActionAt = 0;
         }
         if (_executeAfter[ATTRIBUTION_CHANGE] != 0) {
             PendingAttribution memory p = pendingAttribution;
