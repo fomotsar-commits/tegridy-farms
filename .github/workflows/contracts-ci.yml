@@ -149,7 +149,7 @@ jobs:
       matrix:
         include:
           - slice: audit-early
-            pattern: 'test/(Audit195_|Audit_|AuditDemonstration|AuditFixes_).*\.t\.sol$'
+            pattern: 'test/(Audit195_|Audit_|AuditDemonstration|AuditFixes_|M19Port).*\.t\.sol$'
           - slice: audit-deep
             pattern: 'test/Audit(Microscope_|R014_|R016_).*\.t\.sol$'
           - slice: tegridy
