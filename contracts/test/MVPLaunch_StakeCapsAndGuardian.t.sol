@@ -248,6 +248,75 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
         assertFalse(Pausable(staking).paused());
     }
 
+    // ─── Cap utilization views (monitoring helpers) ───────────────────
+
+    function test_stakeCapUtilizationBps_unset() public view {
+        // Constructor default = uncapped (type(uint256).max). Helper
+        // reports 0 to avoid divide-by-very-large.
+        assertEq(staking.stakeCapUtilizationBps(), 0);
+    }
+
+    function test_stakeCapUtilizationBps_setAndStake() public {
+        staking.setMaxStakePerUser(LAUNCH_PER_USER);
+        staking.setMaxTotalStaked(LAUNCH_GLOBAL);
+
+        // No stakes yet — 0%.
+        assertEq(staking.stakeCapUtilizationBps(), 0);
+
+        // Half the cap consumed: should report 5000 bps (50%).
+        uint256 half = LAUNCH_GLOBAL / 2;
+        // Stagger across two whales since per-user cap is < global.
+        // Use boundary: stake LAUNCH_PER_USER per whale × N whales = half.
+        address whaleA = makeAddr("whaleA");
+        address whaleB = makeAddr("whaleB");
+        token.transfer(whaleA, half);
+        token.transfer(whaleB, half);
+        vm.prank(whaleA); token.approve(address(staking), type(uint256).max);
+        vm.prank(whaleB); token.approve(address(staking), type(uint256).max);
+
+        // Each whale stakes at the per-user cap until global hits half.
+        uint256 perStake = LAUNCH_PER_USER;
+        uint256 staked = 0;
+        uint256 whaleIdx = 0;
+        address[2] memory whales = [whaleA, whaleB];
+
+        while (staked + perStake <= half && whaleIdx < whales.length) {
+            // Each whale can only stake once (single-position-per-user).
+            vm.prank(whales[whaleIdx]);
+            staking.stake(perStake, 365 days);
+            staked += perStake;
+            whaleIdx++;
+        }
+
+        // At least one stake landed: utilization should be > 0.
+        assertGt(staking.stakeCapUtilizationBps(), 0);
+        // And it should match the formula exactly.
+        assertEq(staking.stakeCapUtilizationBps(), (staked * 10000) / LAUNCH_GLOBAL);
+    }
+
+    function test_stakeCapHeadroom_match() public {
+        staking.setMaxStakePerUser(LAUNCH_PER_USER);
+        staking.setMaxTotalStaked(LAUNCH_GLOBAL);
+
+        assertEq(staking.stakeCapHeadroom(), LAUNCH_GLOBAL);
+
+        vm.prank(whale);
+        staking.stake(LAUNCH_PER_USER, 365 days);
+
+        assertEq(staking.stakeCapHeadroom(), LAUNCH_GLOBAL - LAUNCH_PER_USER);
+    }
+
+    function test_stakeCapHeadroom_zeroAtCap() public {
+        staking.setMaxStakePerUser(LAUNCH_PER_USER);
+        staking.setMaxTotalStaked(LAUNCH_PER_USER); // global == per-user cap
+
+        vm.prank(whale);
+        staking.stake(LAUNCH_PER_USER, 365 days);
+
+        assertEq(staking.stakeCapHeadroom(), 0);
+        assertEq(staking.stakeCapUtilizationBps(), 10000);
+    }
+
     function test_guardianRotation_instant() public {
         address newGuardian = makeAddr("newGuardian");
         staking.setPauseGuardian(pauseGuardian);

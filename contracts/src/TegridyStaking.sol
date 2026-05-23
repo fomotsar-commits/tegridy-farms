@@ -561,6 +561,30 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit MaxTotalStakedChanged(old, _newCap);
     }
 
+    /// @notice Current global-stake-cap utilization in basis points.
+    /// @dev    mvp-launch Phase 0.7 monitoring helper. Forta + Defender
+    ///         alert at 8000 bps (80%) to trigger Phase 7 cap-raise review.
+    ///         Returns 10000 (100%) if the cap is fully consumed; 0 if no
+    ///         stakes yet; saturates at 10000 (cannot exceed because
+    ///         stake() reverts above cap).
+    function stakeCapUtilizationBps() external view returns (uint256) {
+        uint256 cap = maxTotalStaked;
+        if (cap == 0 || cap == type(uint256).max) return 0;
+        uint256 staked = totalStaked;
+        if (staked >= cap) return 10000;
+        return (staked * 10000) / cap;
+    }
+
+    /// @notice Remaining headroom under the global stake cap, in TOWELI wei.
+    /// @dev    Front-end consumes this to gate the "stake max" affordance.
+    ///         Returns 0 if cap is reached or unset-as-max sentinel.
+    function stakeCapHeadroom() external view returns (uint256) {
+        uint256 cap = maxTotalStaked;
+        if (cap == type(uint256).max) return type(uint256).max;
+        uint256 staked = totalStaked;
+        return staked >= cap ? 0 : cap - staked;
+    }
+
     /// @notice One-shot wire of the JBAC vault sister contract.
     /// @dev    AUDIT FIX (pass-8 batch-14). Mirrors the `setStakingAdmin` /
     ///         `setRestakingContract` one-shot pattern: rejects zero address,
