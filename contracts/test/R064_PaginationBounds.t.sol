@@ -263,16 +263,16 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
     ///         the new `nonReentrant` modifier blocks the re-entry.
     ///
     ///         The hostile contract is registered as a "pool" via direct slot
-    ///         write (storage slot 9 = `isPool` mapping) so we can reach the
-    ///         reentrancy guard without faking the full createPool flow.
+    ///         write (`isPool` mapping — current slot resolved at write time below)
+    ///         so we can reach the reentrancy guard without faking the full createPool flow.
     function test_NFT_CL_M3_claimPoolFees_reentrancyBlocked() public {
         // Deploy a hostile contract whose claimProtocolFees re-enters claimPoolFees.
         ReentrantHostilePool hostile = new ReentrantHostilePool(address(factory));
 
-        // FRESH-2026 TEST REALIGN: storage layout shifted (ownershipTransferExpiresAt
-        // added), `isPool` mapping moved from slot 9 to slot 11.
+        // FRESH-2026 TEST REALIGN: storage layout shifted again — `_poolsByCollection`
+        // was added at slot 11, pushing `isPool` mapping to slot 12.
         // Verified via `forge inspect TegridyNFTPoolFactory storage-layout`.
-        bytes32 isPoolSlot = keccak256(abi.encode(address(hostile), uint256(11)));
+        bytes32 isPoolSlot = keccak256(abi.encode(address(hostile), uint256(12)));
         vm.store(address(factory), isPoolSlot, bytes32(uint256(1)));
         assertTrue(factory.isPool(address(hostile)), "hostile registered as pool via storage poke");
 
