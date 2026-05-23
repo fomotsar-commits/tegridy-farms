@@ -148,18 +148,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # NOTE: `forge test --match-path` takes a GLOB, not a regex. Earlier
+          # patterns here used regex syntax (alternation `|`, anchors `$`, escaped
+          # dots `\.`) which forge interpreted as literal characters — every slice
+          # silently matched zero files and exited 0 ("No tests found in project!"),
+          # so all 6 jobs went green while running nothing. Converted to glob brace
+          # expansion + literal `.` per `forge test --help` (2026-05-23).
           - slice: audit-early
-            pattern: 'test/(Audit195_|Audit_|AuditDemonstration|AuditFixes_|M19Port).*\.t\.sol$'
+            pattern: 'test/{Audit195_,Audit_,AuditDemonstration,AuditFixes_,M19Port}*.t.sol'
           - slice: audit-deep
-            pattern: 'test/Audit(Microscope_|R014_|R016_).*\.t\.sol$'
+            pattern: 'test/Audit{Microscope_,R014_,R016_}*.t.sol'
           - slice: tegridy
-            pattern: 'test/Tegridy.*\.t\.sol$'
+            pattern: 'test/Tegridy*.t.sol'
           - slice: deep-fresh-final
-            pattern: 'test/(Deep_|FRESH2026_|FinalAudit_|FuzzInvariant).*\.t\.sol$'
+            pattern: 'test/{Deep_,FRESH2026_,FinalAudit_,FuzzInvariant}*.t.sol'
           - slice: pass-r-series
-            pattern: 'test/(PASS|Pass|R[0-9]).*\.t\.sol$'
+            pattern: 'test/{PASS,Pass,R[0-9]}*.t.sol'
           - slice: misc
-            pattern: 'test/(CommunityGrants|Gauge|L2|Meme|POLAccumulator|PremiumAccess|RedTeam|Referral|RevenueDistributor|SwapFeeRouter|Toweli|VoteIncentives).*\.t\.sol$'
+            pattern: 'test/{CommunityGrants,Gauge,L2,Meme,POLAccumulator,PremiumAccess,RedTeam,Referral,RevenueDistributor,SwapFeeRouter,Toweli,VoteIncentives}*.t.sol'
     steps:
       - name: Checkout
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
