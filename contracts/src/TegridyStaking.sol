@@ -330,48 +330,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // auto-getter at minimal bytecode cost (~30B).
     function emergencyExitRequests(uint256 tokenId) external view returns (uint256) { return _emergencyExitRequests[tokenId]; }
 
-    // ─── AUDIT C5: extend-lock / autoMaxLock-enable fee ──────────────────
-    /// @notice Fee in BPS charged on extendLock and on toggleAutoMaxLock when enabling.
-    ///         Default 0 — governance must propose/execute a non-zero value via 48h
-    ///         timelock (on TegridyStakingAdmin) to activate. Capped at
-    ///         EXTEND_FEE_BPS_CEILING (200 = 2%). Pulled from the caller via TOWELI
-    ///         safeTransferFrom (caller must approve); routed to treasury so the
-    ///         protocol captures value when boost is increased.
-    uint256 public extendFeeBps;
-    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal` —
-    ///      one external reader (TegridyStakingAdmin's bound check) hardcodes
-    ///      `200` directly.
-    uint256 internal constant EXTEND_FEE_BPS_CEILING = 200;
-
-    // ─── AUDIT C6: penalty recycle to active stakers ─────────────────────
-    /// @notice BPS of early-withdrawal penalty that is recycled into the staker reward
-    ///         pool (rewardPerTokenStored is credited immediately). Remainder goes to
-    ///         treasury (current behaviour). Default 0 — backward-compatible. Capped at
-    ///         BPS (10000 = 100%). Governance can shift via 48h timelock on
-    ///         TegridyStakingAdmin.
-    uint256 public penaltyRecycleBps;
-
-    // ─── AUDIT M-AUDIT-2026-1: extend-fee recycle to active stakers ─────
-    /// @notice AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): BPS of the `extendLock` /
-    ///         `toggleAutoMaxLock` fee that is recycled into the staker reward pool
-    ///         (rewardPerTokenStored is credited immediately). Remainder goes to
-    ///         treasury — that's the original AUDIT C5 behaviour preserved when this
-    ///         value is 0 (default).
-    ///
-    ///         Pre-fix, EVERY extend-lock / max-lock-enable fee landed at treasury
-    ///         while the boost it bought DILUTED every existing staker's share of
-    ///         the same epoch's rewards. The dilution accrued to the extender;
-    ///         the fee that was supposed to compensate for it accrued to treasury.
-    ///         Stakers got nothing for absorbing the dilution.
-    ///
-    ///         By splitting the extend fee between treasury and the existing-staker
-    ///         reward pool, the diluted parties capture some of the fee in proportion
-    ///         to their pre-extend share. Governance picks the split via 48h timelock
-    ///         on TegridyStakingAdmin (`proposeExtendFeeRecycle` →
-    ///         `executeExtendFeeRecycle`). Capped at `BPS` (100% recycle).
-    ///
-    ///         Storage layout: APPENDED — does not reshuffle existing slots.
-    uint256 public extendFeeRecycleBps;
+    // ─── REMOVED for EIP-170 size (deferred to a later version) ──────────
+    // The extend-lock fee (AUDIT C5: `extendFeeBps` + `EXTEND_FEE_BPS_CEILING`),
+    // the penalty-recycle split (AUDIT C6: `penaltyRecycleBps`), and the extend-fee
+    // recycle split (AUDIT M-AUDIT-2026-1: `extendFeeRecycleBps`) were all removed
+    // to bring this contract under the 24,576-byte limit. Every one of those bps
+    // defaulted to 0, so at the launch config they were dormant: extendLock /
+    // toggleAutoMaxLock charged no fee, and the entire early-withdrawal penalty
+    // already went to treasury. Removal is therefore behaviour-identical to the
+    // launch config. The matching propose/execute/cancel flows were removed from
+    // TegridyStakingAdmin.sol in the same change.
 
 
     // ─── Events ───────────────────────────────────────────────────────
@@ -431,14 +399,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         JBAC itself may now be stranded INSIDE the vault (claimable via
     ///         `vault.claimStrandedJbac`) if the inner JBAC transfer failed.
     event JbacReturnRetried(uint256 indexed stakingTokenId, address indexed to, uint256 jbacTokenId);
-    /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
-    event ExtendFeeCollected(uint256 indexed tokenId, address indexed payer, uint256 amount);
-    /// @notice AUDIT M-AUDIT-2026-1: emitted on every extend-fee charge with the split
-    ///         between treasury and the recycled-to-stakers slice. `recycled == 0` when
-    ///         `extendFeeRecycleBps == 0`, preserving the AUDIT C5 NatSpec story.
-    event ExtendFeeSplit(uint256 indexed tokenId, address indexed payer, uint256 toTreasury, uint256 recycledToStakers);
-    /// @notice AUDIT C6: emitted on early-withdrawal penalty distribution.
-    event PenaltySplit(uint256 indexed tokenId, uint256 toTreasury, uint256 recycledToStakers);
+    // NOTE: ExtendFeeCollected / ExtendFeeSplit (AUDIT C5 / M-AUDIT-2026-1) and
+    // PenaltySplit (AUDIT C6) were removed with the extend-fee + penalty-recycle
+    // machinery (EIP-170 size). The full-penalty-to-treasury path emits the
+    // existing `PenaltySentToTreasury` event instead.
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -472,9 +436,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error CapTooLow();
     error TooManyPositions(); // AUDIT FIX M-5: per-holder position cap (MAX_POSITIONS_PER_HOLDER)
     error JbacDeposited(); // AUDIT H-1: revalidateBoost not allowed on deposit-based positions
-    error ExtendFeeTooHigh(); // AUDIT C5
-    error PenaltyRecycleTooHigh(); // AUDIT C6
-    error ExtendFeeRecycleTooHigh(); // AUDIT M-AUDIT-2026-1
+    // NOTE: ExtendFeeTooHigh / PenaltyRecycleTooHigh / ExtendFeeRecycleTooHigh
+    // removed with the extend-fee + penalty-recycle machinery (EIP-170 size).
     // AUDIT FIX (pass-8 batch-14): OnlyJbacNFT moved to TegridyStakingJbacVault
     // (the vault is now the JBAC-receive surface).
     /// @dev AUDIT FIX (pass-8 batch-14): JBAC vault one-shot wiring guard.
@@ -1004,8 +967,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
-    /// @dev    AUDIT C5: enabling autoMaxLock charges the extendFeeBps fee (default 0)
-    ///         since it permanently maximises boost. Disabling is free.
+    /// @dev    NOTE: the extend-lock fee (AUDIT C5) that previously applied on enable
+    ///         was removed for EIP-170 size. Its bps defaulted to 0 (no fee at
+    ///         launch); deferred to a later version. Enabling still maximises boost.
     /// @dev    AUDIT NOTE FRESH-2026: F-02-K-06 [INFO] — enabling autoMaxLock
     ///         unconditionally rewrites `p.lockDuration = MAX_LOCK_DURATION`.
     ///         Future `revalidateBoost` JBAC-loss DOWNGRADE will compute boost
@@ -1021,8 +985,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX DS3-02: completes the LockExpired guard family (DS-06 on
         // extendLock, DS2-07 on revalidateBoost) — toggleAutoMaxLock's enable
         // path was the missed third sibling. The enable branch below extends
-        // `lockEnd` to MAX and pays an extend fee, which on an already-expired
-        // position is the equivalent of reviving a dead lock for free boost.
+        // `lockEnd` to MAX, which on an already-expired position is the
+        // equivalent of reviving a dead lock for free boost.
         // Reject the enable path on expired positions; users must `withdraw`
         // and re-stake fresh to restore boost.
         if (!wasOn && p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
@@ -1030,15 +994,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
         // If enabling, extend lock to max immediately
         if (p.autoMaxLock) {
-            // AUDIT C5: charge fee on enable (boost is being increased to max). No fee on
-            // disable (boost is being relinquished). Pulls TOWELI from caller; user must
-            // approve. Default extendFeeBps == 0 means no transfer attempted.
-            // AUDIT FIX 2026-05-17 M10-REVISED: pass `p` so the helper can pre-advance
-            // the caller's rewardDebt, cancelling their share of the recycled fee
-            // before the immediately-following `_getReward` claim runs. The original
-            // 2026-05-16 fix used a denominator-exclusion bump that over-credited
-            // the global accumulator — see `_chargeExtendFee` NatSpec.
-            _chargeExtendFee(tokenId, p.amount, p);
+            // NOTE: the extend-lock fee (AUDIT C5) was removed for EIP-170 size.
+            // Its bps defaulted to 0 (no fee charged at launch), so removal is
+            // behaviour-identical to the launch config; deferred to a later version.
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
@@ -1057,9 +1015,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Extend the lock duration of an existing position
-    /// @dev    AUDIT C5: charges extendFeeBps fee (default 0). Caller must approve TOWELI
-    ///         before calling. The fee covers the protocol's exposure to dilution that
-    ///         this extension creates for other stakers.
+    /// @dev    NOTE: the extend-lock fee (AUDIT C5) was removed for EIP-170 size.
+    ///         Its bps defaulted to 0 (no fee at launch); deferred to a later version.
     /// @param tokenId The NFT token ID of the staking position
     /// @param _newLockDuration New lock duration in seconds (must be longer than current)
     function extendLock(uint256 tokenId, uint256 _newLockDuration) external nonReentrant whenNotPaused updateReward {
@@ -1079,13 +1036,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // "use it or lose it" model. User must withdraw → re-stake to re-enter.
         if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
-        // AUDIT C5: charge extend fee before any state changes. No-op when extendFeeBps == 0.
-        // AUDIT FIX 2026-05-17 M10-REVISED: DEEP-DS-09 closed via debt-advance
-        // pattern. `_chargeExtendFee` bumps `rewardPerTokenStored` normally then
-        // pre-advances `p.rewardDebt` so the immediately-following `_getReward`
-        // cancels out the caller's own share of the bump — no over-credit (the
-        // 2026-05-16 fix using denominator-exclusion bumped > `recycled` total).
-        _chargeExtendFee(tokenId, p.amount, p);
+        // NOTE: the extend-lock fee (AUDIT C5) was removed for EIP-170 size. Its
+        // bps defaulted to 0 (no fee at launch), so removal is behaviour-identical
+        // to the launch config; deferred to a later version.
 
         // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
         _getReward(tokenId, p);
@@ -1142,13 +1095,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         }
         // AUDIT FIX FRESH-2026: F-02-K-04 [LOW] — clamp boost on combined principal
         // to whatever the REMAINING lock time would justify. Previously the
-        // original `boostBps` was retro-applied to the new principal, fee-free,
-        // letting a whale dribble in additional stake at MAX boost in the final
-        // days of a long lock — bypassing `extendFeeBps` for top-ups. We use the
-        // SMALLER of cached `boostBps` and the boost derivable from current
-        // remaining lock time. Existing-principal earned its rate honestly so
-        // we never raise above cached; new principal earns only what the
-        // remaining lock supports.
+        // original `boostBps` was retro-applied to the new principal, letting a
+        // whale dribble in additional stake at MAX boost in the final days of a
+        // long lock. We use the SMALLER of cached `boostBps` and the boost
+        // derivable from current remaining lock time. Existing-principal earned
+        // its rate honestly so we never raise above cached; new principal earns
+        // only what the remaining lock supports.
         uint256 cachedBoost = uint256(p.boostBps);
         uint256 remaining = p.lockEnd > block.timestamp ? p.lockEnd - block.timestamp : 0;
         uint256 remainingBoost = calculateBoost(remaining);
@@ -1211,15 +1163,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         uint256 userReceives = amount - penalty;
         totalPenaltiesCollected += penalty;
 
-        // AUDIT C6: split penalty between treasury and active stakers per penaltyRecycleBps.
-        // Default 0 = full amount to treasury (status quo). Owner can shift via timelock.
-        (uint256 toTreasury, uint256 recycled) = _splitPenalty(penalty);
-        if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
-        if (recycled > 0) _creditRewardPool(recycled);
+        // Entire penalty goes to treasury (AUDIT FIX L-23). The penalty-recycle
+        // split was removed for EIP-170 size (its bps defaulted to 0, so this is
+        // behaviour-identical to the launch config); deferred to a later version.
+        rewardToken.safeTransfer(treasury, penalty);
         rewardToken.safeTransfer(msg.sender, userReceives);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
-        emit PenaltySplit(tokenId, toTreasury, recycled);
-        emit PenaltySentToTreasury(tokenId, toTreasury); // legacy event for compatibility
+        emit PenaltySentToTreasury(tokenId, penalty);
         emit EarlyWithdrawn(msg.sender, tokenId, userReceives, penalty);
     }
 
@@ -2150,11 +2100,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             penalty = (amount * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS;
             userReceives = amount - penalty;
             totalPenaltiesCollected += penalty;
-            // AUDIT C6: same penalty split as earlyWithdraw.
-            (uint256 toTreasury, uint256 recycled) = _splitPenalty(penalty);
-            if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
-            if (recycled > 0) _creditRewardPool(recycled);
-            emit PenaltySplit(tokenId, toTreasury, recycled);
+            // Entire penalty goes to treasury — same path as earlyWithdraw. The
+            // penalty-recycle split was removed for EIP-170 size (bps defaulted
+            // to 0, so this is behaviour-identical); deferred to a later version.
+            rewardToken.safeTransfer(treasury, penalty);
+            emit PenaltySentToTreasury(tokenId, penalty);
         } else {
             userReceives = amount;
         }
@@ -2534,163 +2484,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // tokenURI: uses base ERC721 (returns "" when no baseURI set).
     // Full SVG metadata available via TegridyTokenURIReader contract.
 
-    // ─── AUDIT C5: Extend-fee helper + timelocked setter ─────────────────
-
-    /// @dev Pull extendFeeBps × positionAmount of TOWELI from the caller, then split the
-    ///      fee between treasury and the staker reward pool per `extendFeeRecycleBps`.
-    ///      Caller must approve this contract for the fee amount. No-op when
-    ///      extendFeeBps == 0 (default), preserving backward-compatible behaviour.
-    /// @dev AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): pre-fix the entire fee landed at
-    ///      treasury while the boost it bought DILUTED every existing staker's share.
-    ///      Now we split the fee per `extendFeeRecycleBps`: the recycled slice is
-    ///      pulled into THIS contract (not treasury), then immediately credited via
-    ///      `_creditRewardPool` so it bumps `rewardPerTokenStored` for the existing
-    ///      stakers — exactly the `AUDIT C6` penalty-recycle pattern. When
-    ///      `extendFeeRecycleBps == 0` (default), the entire fee still goes to
-    ///      treasury and behaviour is identical to the C5 baseline.
-    /// @dev AUDIT FIX 2026-05-16 M10 (REVISED 2026-05-17): debt-advance pattern
-    ///      (closes DEEP-DS-09 DEFERRED). Pre-fix used `_creditRewardPoolExcluding`
-    ///      which bumped `rewardPerTokenStored` by `recycled * ACC / (totalB -
-    ///      contributorBoost)` — but `rewardPerTokenStored` is GLOBAL, so every
-    ///      staker's pending grew, including the caller's. The over-credit equalled
-    ///      `totalB * recycled / (totalB - contributorBoost) > recycled`, paying
-    ///      out MORE than was deposited and silently draining the pool when both
-    ///      `extendFeeBps > 0` AND `extendFeeRecycleBps > 0` (both default 0, so
-    ///      latent in mainnet config until the operator enabled either).
-    ///
-    ///      New approach mirrors Yearn/Convex debt-advance ("checkpoint-only" cancel):
-    ///      (1) Bump `rewardPerTokenStored` normally via `_creditRewardPool(recycled)`
-    ///          → divides by full `totalBoostedStake`, so total pending growth =
-    ///          exactly `recycled` (no over-credit, conservation preserved).
-    ///      (2) Pre-advance the caller's `p.rewardDebt` by their proportional share
-    ///          `boostedAmount * recycled / totalBoostedStake`. The subsequent
-    ///          `_getReward` call (which always follows in `extendLock` /
-    ///          `toggleAutoMaxLock`) computes `diff = accumulated - rewardDebt` and
-    ///          the bump cancels exactly, paying the caller only their PRE-fee
-    ///          pending. Others get their full proportional share of `recycled`.
-    ///      (3) `_applyNewBoost` (called after `_getReward`) recomputes
-    ///          `p.rewardDebt` from scratch using the new boost, so the advance is
-    ///          naturally consumed and won't leak forward.
-    ///
-    ///      Slight conservatism: the caller's "would-have-been" share of the bump
-    ///      stays in the pool inventory (counted in `totalRewardsFunded` but not
-    ///      claimable by anyone via this single tx). It is absorbed naturally by
-    ///      the next `notifyRewardAmount` cycle (delta-measure pattern picks up
-    ///      contract balance) or by subsequent recycles bumping the global
-    ///      accumulator. This is conservative-safe: under-credit is acceptable,
-    ///      over-credit (the original bug) was the bank-run vector.
-    /// @param tokenId       Position token ID, for event emission.
-    /// @param positionAmount Position's principal in TOWELI, for fee computation.
-    /// @param p             Caller's position storage ref; used to read the pre-fee
-    ///                      `boostedAmount` and pre-advance `rewardDebt` so the
-    ///                      caller cannot claim any portion of their own fee in
-    ///                      the immediately-following `_getReward`.
-    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount, Position storage p) internal {
-        uint256 bps = extendFeeBps;
-        if (bps == 0) return;
-        uint256 fee = (positionAmount * bps) / BPS;
-        if (fee == 0) return;
-        (uint256 toTreasury, uint256 recycled) = _splitExtendFee(fee);
-        if (toTreasury > 0) {
-            rewardToken.safeTransferFrom(msg.sender, treasury, toTreasury);
-        }
-        if (recycled > 0) {
-            // Pull the recycled slice into THIS contract so it sits in the reward pool.
-            rewardToken.safeTransferFrom(msg.sender, address(this), recycled);
-            // AUDIT FIX 2026-05-17 M10-REVISED: debt-advance pattern (see NatSpec).
-            // Snapshot caller's boost + system total BEFORE the bump so the
-            // advance uses the same denominator the bump will use.
-            uint256 totalB = totalBoostedStake;
-            uint256 callerBoost = p.boostedAmount;
-            _creditRewardPool(recycled); // bumps rewardPerTokenStored by recycled*ACC/totalB
-            if (totalB > 0 && callerBoost > 0) {
-                // Cancel the caller's share of the bump. The product
-                // (callerBoost * recycled) is bounded by (totalB * recycled) which
-                // is bounded by the same uint256 product checked inside
-                // _creditRewardPool — no separate overflow risk.
-                p.rewardDebt += _safeInt256((callerBoost * recycled) / totalB);
-            }
-        }
-        emit ExtendFeeCollected(tokenId, msg.sender, fee);
-        emit ExtendFeeSplit(tokenId, msg.sender, toTreasury, recycled);
-    }
-
-    /// @dev AUDIT M-AUDIT-2026-1: split an extend fee into (toTreasury, recycled) per
-    ///      `extendFeeRecycleBps`. If `totalBoostedStake == 0` there is no one to
-    ///      recycle to, so the recycled slice is rebated to treasury for safekeeping.
-    ///      Mirrors `_splitPenalty` (AUDIT C6) including the M-24 round-UP semantics
-    ///      so sub-wei dust on small extend fees favors stakers (the recycle pool)
-    ///      rather than treasury.
-    function _splitExtendFee(uint256 fee) internal view returns (uint256 toTreasury, uint256 recycled) {
-        if (fee == 0) return (0, 0);
-        uint256 numerator = fee * extendFeeRecycleBps;
-        recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
-        if (recycled > fee) recycled = fee; // defensive (should never fire)
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (recycled > 0 && totalBoostedStake == 0) {
-            // Nothing to credit — fall back to treasury so funds aren't stranded.
-            recycled = 0;
-        }
-        toTreasury = fee - recycled;
-    }
-
-    /// @notice Apply a new extendFeeBps. Caller must be the wired admin contract.
-    function applyExtendFee(uint256 _bps) external onlyAdmin {
-        if (_bps > EXTEND_FEE_BPS_CEILING) revert ExtendFeeTooHigh();
-        extendFeeBps = _bps;
-    }
-
-    /// @notice AUDIT M-AUDIT-2026-1: apply a new extendFeeRecycleBps. Caller must be the
-    ///         wired admin contract. Capped at `BPS` (100% recycle).
-    function applyExtendFeeRecycle(uint256 _bps) external onlyAdmin {
-        if (_bps > BPS) revert ExtendFeeRecycleTooHigh();
-        extendFeeRecycleBps = _bps;
-    }
-
-    // ─── AUDIT C6: Penalty-recycle helpers + timelocked setter ───────────
-
-    /// @dev Split a penalty into (toTreasury, recycled) per penaltyRecycleBps. If
-    ///      totalBoostedStake == 0 there is no one to recycle to, so the recycled
-    ///      portion is rebated to treasury for safekeeping.
-    ///
-    ///      AUDIT M-24: round-UP `recycled` so sub-wei dust on small penalties favors
-    ///      stakers (the recycle pool) rather than treasury. The legacy rounding bias
-    ///      (floor) cumulatively drained the recycle pool of 1-wei increments per
-    ///      small early-exit. Ceiling division here is bounded by `recycled <= penalty`
-    ///      because penaltyRecycleBps is gated to <= BPS at propose time.
-    function _splitPenalty(uint256 penalty) internal view returns (uint256 toTreasury, uint256 recycled) {
-        if (penalty == 0) return (0, 0);
-        // Ceiling: (a*b + d - 1) / d when a*b > 0; safe because penaltyRecycleBps <= BPS
-        uint256 numerator = penalty * penaltyRecycleBps;
-        recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
-        if (recycled > penalty) recycled = penalty; // defensive (should never fire)
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (recycled > 0 && totalBoostedStake == 0) {
-            // Nothing to credit — fall back to treasury so funds aren't stranded.
-            recycled = 0;
-        }
-        toTreasury = penalty - recycled;
-    }
-
-    /// @dev Credit `amount` of TOWELI directly into rewardPerTokenStored, distributing
-    ///      it pro-rata to all current stakers immediately. The TOWELI must already be
-    ///      in this contract's balance (i.e., not transferred elsewhere) — the recycled
-    ///      portion of a penalty is simply not transferred out, naturally satisfying this.
-    function _creditRewardPool(uint256 amount) internal {
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (amount == 0 || totalBoostedStake == 0) return;
-        rewardPerTokenStored += (amount * ACC_PRECISION) / totalBoostedStake;
-        totalRewardsFunded += amount;
-    }
-
-    /// @notice Apply a new penaltyRecycleBps. Caller must be the wired admin contract.
-    function applyPenaltyRecycle(uint256 _bps) external onlyAdmin {
-        if (_bps > BPS) revert PenaltyRecycleTooHigh();
-        penaltyRecycleBps = _bps;
-    }
+    // ─── REMOVED for EIP-170 size (deferred to a later version) ──────────
+    // The extend-fee helpers (_chargeExtendFee / _splitExtendFee), the
+    // penalty-recycle helpers (_splitPenalty / _creditRewardPool), and their
+    // apply* setters (applyExtendFee / applyExtendFeeRecycle / applyPenaltyRecycle)
+    // were removed to bring this contract under the 24,576-byte limit. All of the
+    // governing bps (extendFeeBps / extendFeeRecycleBps / penaltyRecycleBps)
+    // defaulted to 0, so at the launch config the extend-lock fee was never
+    // charged and the entire early-withdrawal penalty already went to treasury —
+    // making the removal behaviour-identical to the launch config. The matching
+    // propose/execute/cancel timelock flows were removed from TegridyStakingAdmin.sol.
 
     /// @notice Apply a new maxUnsettledRewards cap. Caller must be the wired admin contract.
     /// @dev    AUDIT FIX FRESH-2026: F-35-3 [INFO] — added a 10B TOWELI sanity ceiling

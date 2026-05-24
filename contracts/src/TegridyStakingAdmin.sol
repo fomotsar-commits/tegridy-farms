@@ -12,11 +12,8 @@ interface ITegridyStakingApply {
     function applyRestakingContract(address _restaking) external;
     function applyMaxUnsettledRewards(uint256 _cap) external;
     function applyLendingContract(address _lending, bool _approved) external;
-    function applyExtendFee(uint256 _bps) external;
-    function applyPenaltyRecycle(uint256 _bps) external;
-    /// @dev AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): apply hook for the extend-fee
-    ///      recycle BPS. Caller must be the wired admin contract.
-    function applyExtendFeeRecycle(uint256 _bps) external;
+    // NOTE: applyExtendFee / applyPenaltyRecycle / applyExtendFeeRecycle removed
+    // with the extend-fee + penalty-recycle machinery (EIP-170 size on staking side).
     function MAX_REWARD_RATE() external view returns (uint256);
     // AUDIT FIX (pass-8 batch-14): BPS() and EXTEND_FEE_BPS_CEILING() removed
     // — both lowered to `internal` on staking to free auto-getter bytecode
@@ -25,9 +22,8 @@ interface ITegridyStakingApply {
     function treasury() external view returns (address);
     function restakingContract() external view returns (address);
     function maxUnsettledRewards() external view returns (uint256);
-    function extendFeeBps() external view returns (uint256);
-    function penaltyRecycleBps() external view returns (uint256);
-    function extendFeeRecycleBps() external view returns (uint256);
+    // NOTE: extendFeeBps / penaltyRecycleBps / extendFeeRecycleBps getters removed
+    // with the extend-fee + penalty-recycle machinery (EIP-170 size on staking side).
 }
 
 /// @title TegridyStakingAdmin — Sister contract holding timelocked admin flow
@@ -40,9 +36,8 @@ interface ITegridyStakingApply {
 /// @dev    AUDIT ADMIN-3 NAMING NOTE (2026-04-28): the legacy view helpers that
 ///         expose pending-execute timestamps use TWO naming conventions —
 ///         `*ChangeTime` for the older two (`rewardRateChangeTime`,
-///         `treasuryChangeTime`) and `*ChangeReadyAt` for the newer five
-///         (restaking, lendingContract, extendFee, penaltyRecycle,
-///         extendFeeRecycle). The newer convention (`*ChangeReadyAt`) is the
+///         `treasuryChangeTime`) and `*ChangeReadyAt` for the newer ones
+///         (restaking, lendingContract). The newer convention (`*ChangeReadyAt`) is the
 ///         intended forward style — it reads as "ready at this timestamp"
 ///         rather than the more ambiguous "change time". The older two are
 ///         retained for ABI compatibility with already-deployed test fixtures
@@ -56,11 +51,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     error CapTooLow();
     /// @notice AUDIT FIX FRESH-2026: F-35-3 — sanity ceiling on maxUnsettledRewards.
     error CapTooHigh();
-    error ExtendFeeTooHigh();
-    error PenaltyRecycleTooHigh();
-    /// @notice AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): the proposed extend-fee
-    ///         recycle bps exceeds `BPS` (10000 = 100% recycle).
-    error ExtendFeeRecycleTooHigh();
+    // NOTE: ExtendFeeTooHigh / PenaltyRecycleTooHigh / ExtendFeeRecycleTooHigh
+    // removed with the extend-fee + penalty-recycle flows (EIP-170 size on staking).
     /// @notice AUDIT FIX FRESH-2026: F-43-C / F-60-2 — proposed restaking address
     ///         is an EOA or EIP-7702 delegated EOA (code.length == 0 or 23).
     error NotAContract();
@@ -71,10 +63,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     bytes32 public constant UNSETTLED_CAP_CHANGE = keccak256("UNSETTLED_CAP_CHANGE");
     bytes32 public constant LENDING_CONTRACT_CHANGE = keccak256("LENDING_CONTRACT_CHANGE");
-    bytes32 public constant EXTEND_FEE_CHANGE = keccak256("EXTEND_FEE_CHANGE");
-    bytes32 public constant PENALTY_RECYCLE_CHANGE = keccak256("PENALTY_RECYCLE_CHANGE");
-    /// @notice AUDIT M-AUDIT-2026-1: timelock key for the extend-fee recycle BPS.
-    bytes32 public constant EXTEND_FEE_RECYCLE_CHANGE = keccak256("EXTEND_FEE_RECYCLE_CHANGE");
+    // NOTE: EXTEND_FEE_CHANGE / PENALTY_RECYCLE_CHANGE / EXTEND_FEE_RECYCLE_CHANGE
+    // keys removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
     // ─── Delays (mirror what TegridyStaking previously enforced) ──────
     uint256 public constant REWARD_RATE_TIMELOCK = 48 hours;
@@ -82,11 +72,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public constant RESTAKING_CHANGE_TIMELOCK = 48 hours;
     uint256 public constant UNSETTLED_CAP_TIMELOCK = 48 hours;
     uint256 public constant LENDING_CONTRACT_CHANGE_TIMELOCK = 48 hours;
-    uint256 public constant EXTEND_FEE_TIMELOCK = 48 hours;
-    uint256 public constant PENALTY_RECYCLE_TIMELOCK = 48 hours;
-    /// @notice AUDIT M-AUDIT-2026-1: 48h timelock matching the surrounding parameter
-    ///         ceremony for any change to the extend-fee recycle split.
-    uint256 public constant EXTEND_FEE_RECYCLE_TIMELOCK = 48 hours;
+    // NOTE: EXTEND_FEE_TIMELOCK / PENALTY_RECYCLE_TIMELOCK / EXTEND_FEE_RECYCLE_TIMELOCK
+    // removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
     // ─── Pending storage ──────────────────────────────────────────────
     uint256 public pendingRewardRate;
@@ -95,10 +82,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public pendingMaxUnsettledRewards;
     address public pendingLendingContract;
     bool public pendingLendingContractApproval;
-    uint256 public pendingExtendFeeBps;
-    uint256 public pendingPenaltyRecycleBps;
-    /// @notice AUDIT M-AUDIT-2026-1: pending value for the extend-fee recycle BPS.
-    uint256 public pendingExtendFeeRecycleBps;
+    // NOTE: pendingExtendFeeBps / pendingPenaltyRecycleBps / pendingExtendFeeRecycleBps
+    // removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
     // ─── Wired staking ────────────────────────────────────────────────
     ITegridyStakingApply public immutable staking;
@@ -113,17 +98,12 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     event LendingContractChangeProposed(address indexed lending, bool approved, uint256 executeAfter);
     event LendingContractUpdated(address indexed lending, bool approved);
     event MaxUnsettledRewardsUpdated(uint256 oldCap, uint256 newCap);
-    event ExtendFeeProposed(uint256 newBps, uint256 executeAfter);
-    event ExtendFeeUpdated(uint256 oldBps, uint256 newBps);
-    event PenaltyRecycleProposed(uint256 newBps, uint256 executeAfter);
-    event PenaltyRecycleUpdated(uint256 oldBps, uint256 newBps);
-    /// @notice AUDIT M-AUDIT-2026-1: emitted when a new extend-fee recycle BPS is
-    ///         proposed (timelock starts) and when it executes (timelock cleared).
-    event ExtendFeeRecycleProposed(uint256 newBps, uint256 executeAfter);
+    // NOTE: ExtendFeeProposed/Updated, PenaltyRecycleProposed/Updated, and
+    // ExtendFeeRecycleProposed/Updated events removed with the extend-fee +
+    // penalty-recycle flows (EIP-170 size on staking side).
     /// @notice AUDIT ADMIN-1 (2026-04-28): event-parity fix — `proposeMaxUnsettledRewards`
     ///         was the only `propose*` function not emitting a typed proposal event.
     event MaxUnsettledRewardsProposed(uint256 newCap, uint256 executeAfter);
-    event ExtendFeeRecycleUpdated(uint256 oldBps, uint256 newBps);
 
     constructor(address _staking) OwnableNoRenounce(msg.sender) {
         if (_staking == address(0)) revert ZeroAddress();
@@ -270,95 +250,11 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
         return _executeAfter[LENDING_CONTRACT_CHANGE];
     }
 
-    // ─── Extend fee ───────────────────────────────────────────────────
-    function proposeExtendFee(uint256 _newBps) external onlyOwner {
-        // AUDIT FIX (pass-8 batch-14): TegridyStaking.EXTEND_FEE_BPS_CEILING() lowered
-        // to `internal` to free auto-getter bytecode under EIP-170. Hardcoded here.
-        if (_newBps > 200) revert ExtendFeeTooHigh();
-        pendingExtendFeeBps = _newBps;
-        _propose(EXTEND_FEE_CHANGE, EXTEND_FEE_TIMELOCK);
-        emit ExtendFeeProposed(_newBps, _executeAfter[EXTEND_FEE_CHANGE]);
-    }
-
-    function executeExtendFeeChange() external onlyOwner {
-        _execute(EXTEND_FEE_CHANGE);
-        uint256 oldBps = staking.extendFeeBps();
-        uint256 newBps = pendingExtendFeeBps;
-        pendingExtendFeeBps = 0;
-        staking.applyExtendFee(newBps);
-        emit ExtendFeeUpdated(oldBps, newBps);
-    }
-
-    function cancelExtendFeeChange() external onlyOwner {
-        _cancel(EXTEND_FEE_CHANGE);
-        pendingExtendFeeBps = 0;
-    }
-
-    function extendFeeChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[EXTEND_FEE_CHANGE];
-    }
-
-    // ─── Penalty recycle ──────────────────────────────────────────────
-    function proposePenaltyRecycle(uint256 _newBps) external onlyOwner {
-        if (_newBps > 10_000) revert PenaltyRecycleTooHigh();
-        pendingPenaltyRecycleBps = _newBps;
-        _propose(PENALTY_RECYCLE_CHANGE, PENALTY_RECYCLE_TIMELOCK);
-        emit PenaltyRecycleProposed(_newBps, _executeAfter[PENALTY_RECYCLE_CHANGE]);
-    }
-
-    function executePenaltyRecycleChange() external onlyOwner {
-        _execute(PENALTY_RECYCLE_CHANGE);
-        uint256 oldBps = staking.penaltyRecycleBps();
-        uint256 newBps = pendingPenaltyRecycleBps;
-        pendingPenaltyRecycleBps = 0;
-        staking.applyPenaltyRecycle(newBps);
-        emit PenaltyRecycleUpdated(oldBps, newBps);
-    }
-
-    function cancelPenaltyRecycleChange() external onlyOwner {
-        _cancel(PENALTY_RECYCLE_CHANGE);
-        pendingPenaltyRecycleBps = 0;
-    }
-
-    function penaltyRecycleChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[PENALTY_RECYCLE_CHANGE];
-    }
-
-    // ─── AUDIT M-AUDIT-2026-1: Extend-fee recycle (treasury vs stakers split) ─
-    /// @notice Propose a new extend-fee recycle BPS. 48h timelock applies before
-    ///         `executeExtendFeeRecycle()` may write the change to the staking contract.
-    /// @dev    AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): mirrors the propose/execute/cancel
-    ///         flow used by `proposePenaltyRecycle`. The recycled slice is credited via
-    ///         `_creditRewardPool` on the staking contract, bumping `rewardPerTokenStored`
-    ///         for the existing stakers immediately at fee-charge time. See the
-    ///         `extendFeeRecycleBps` NatSpec on TegridyStaking for the rationale.
-    function proposeExtendFeeRecycle(uint256 _newBps) external onlyOwner {
-        // AUDIT FIX (pass-8 batch-14): TegridyStaking.BPS() lowered to `internal`
-        // to free ~30B of auto-getter bytecode under EIP-170. BPS is a universal
-        // Ethereum-DeFi constant (10_000); hardcoded here.
-        if (_newBps > 10_000) revert ExtendFeeRecycleTooHigh();
-        pendingExtendFeeRecycleBps = _newBps;
-        _propose(EXTEND_FEE_RECYCLE_CHANGE, EXTEND_FEE_RECYCLE_TIMELOCK);
-        emit ExtendFeeRecycleProposed(_newBps, _executeAfter[EXTEND_FEE_RECYCLE_CHANGE]);
-    }
-
-    function executeExtendFeeRecycle() external onlyOwner {
-        _execute(EXTEND_FEE_RECYCLE_CHANGE);
-        uint256 oldBps = staking.extendFeeRecycleBps();
-        uint256 newBps = pendingExtendFeeRecycleBps;
-        pendingExtendFeeRecycleBps = 0;
-        staking.applyExtendFeeRecycle(newBps);
-        emit ExtendFeeRecycleUpdated(oldBps, newBps);
-    }
-
-    function cancelExtendFeeRecycle() external onlyOwner {
-        _cancel(EXTEND_FEE_RECYCLE_CHANGE);
-        pendingExtendFeeRecycleBps = 0;
-    }
-
-    function extendFeeRecycleChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[EXTEND_FEE_RECYCLE_CHANGE];
-    }
+    // ─── REMOVED for EIP-170 size (deferred to a later version) ──────────
+    // The extend-fee, penalty-recycle, and extend-fee-recycle propose/execute/
+    // cancel/readyAt flows were removed alongside the matching machinery on
+    // TegridyStaking (all governing bps defaulted to 0, so they were dormant at
+    // launch and removal is behaviour-identical to the launch config).
 
     /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
     ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
@@ -393,17 +289,7 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
             pendingLendingContract = address(0);
             pendingLendingContractApproval = false;
         }
-        if (_executeAfter[EXTEND_FEE_CHANGE] != 0) {
-            _cancel(EXTEND_FEE_CHANGE);
-            pendingExtendFeeBps = 0;
-        }
-        if (_executeAfter[PENALTY_RECYCLE_CHANGE] != 0) {
-            _cancel(PENALTY_RECYCLE_CHANGE);
-            pendingPenaltyRecycleBps = 0;
-        }
-        if (_executeAfter[EXTEND_FEE_RECYCLE_CHANGE] != 0) {
-            _cancel(EXTEND_FEE_RECYCLE_CHANGE);
-            pendingExtendFeeRecycleBps = 0;
-        }
+        // NOTE: EXTEND_FEE_CHANGE / PENALTY_RECYCLE_CHANGE / EXTEND_FEE_RECYCLE_CHANGE
+        // cancel-on-handoff blocks removed with those flows (EIP-170 size).
     }
 }
