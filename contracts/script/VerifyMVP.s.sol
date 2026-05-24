@@ -8,7 +8,7 @@ import {TegridyStakingAdmin} from "../src/TegridyStakingAdmin.sol";
 import {TegridyFactory} from "../src/TegridyFactory.sol";
 import {TegridyRouter} from "../src/TegridyRouter.sol";
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
-import {TegridyRestaking} from "../src/TegridyRestaking.sol";
+// TegridyRestaking import removed — deferred to Phase 7 (C1); not in the MVP verify set.
 import {RevenueDistributor} from "../src/RevenueDistributor.sol";
 import {ReferralSplitter} from "../src/ReferralSplitter.sol";
 import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
@@ -45,7 +45,7 @@ contract VerifyMVPScript is Script {
         address router             = vm.envAddress("ROUTER");
         address pair               = vm.envAddress("PAIR");
         address twap               = vm.envAddress("TWAP");
-        address restaking          = vm.envAddress("RESTAKING");
+        // RESTAKING deferred to Phase 7 (C1) — not part of the MVP deploy/verify set.
         address revDist            = vm.envAddress("REVENUE_DISTRIBUTOR");
         address referralSplitter   = vm.envAddress("REFERRAL_SPLITTER");
         address swapFeeRouter      = vm.envAddress("SWAP_FEE_ROUTER");
@@ -63,7 +63,6 @@ contract VerifyMVPScript is Script {
         // asserts the FINAL state — multisig has accepted.
         require(Ownable(staking).owner()             == multisig, "INV-2a: staking owner != multisig");
         require(Ownable(stakingAdmin).owner()        == multisig, "INV-2b: stakingAdmin owner != multisig");
-        require(Ownable(restaking).owner()           == multisig, "INV-2c: restaking owner != multisig");
         require(TegridyTWAP(payable(twap)).owner()   == multisig, "INV-2d: twap owner != multisig");
         require(Ownable(revDist).owner()             == multisig, "INV-2e: revDist owner != multisig");
         require(Ownable(swapFeeRouter).owner()       == multisig, "INV-2f: swapFeeRouter owner != multisig");
@@ -80,11 +79,10 @@ contract VerifyMVPScript is Script {
 
         // ─── INV-4: PauseGuardian wired on every Pausable MVP contract ──
         require(TegridyStaking(staking).pauseGuardian()                            == pauseGuardian, "INV-4a: staking.pauseGuardian unset");
-        require(TegridyRestaking(restaking).pauseGuardian()                        == pauseGuardian, "INV-4b: restaking.pauseGuardian unset");
         require(RevenueDistributor(payable(revDist)).pauseGuardian()               == pauseGuardian, "INV-4c: revDist.pauseGuardian unset");
         require(SwapFeeRouter(payable(swapFeeRouter)).pauseGuardian()              == pauseGuardian, "INV-4d: swapFeeRouter.pauseGuardian unset");
         require(POLAccumulator(payable(polAccumulator)).pauseGuardian()            == pauseGuardian, "INV-4e: polAccumulator.pauseGuardian unset");
-        console.log("INV-4: pauseGuardian wired on 5 contracts ........ OK");
+        console.log("INV-4: pauseGuardian wired on 4 contracts ........ OK");
 
         // ─── INV-5: Stake caps set ────────────────────────────────────
         // Caps must be > 0 (zero is forbidden by the setter — defense in
@@ -96,10 +94,9 @@ contract VerifyMVPScript is Script {
         console.log("       maxStakePerUser:", TegridyStaking(staking).maxStakePerUser());
         console.log("       maxTotalStaked :", TegridyStaking(staking).maxTotalStaked());
 
-        // ─── INV-6: Restaking paused at launch ────────────────────────
-        // Phase 6: restaking deployed paused; opens at Phase 7.0.
-        require(Pausable(restaking).paused(), "INV-6: restaking should be paused at launch");
-        console.log("INV-6: restaking paused (opens Phase 7.0) ........ OK");
+        // ─── INV-6: Restaking deferred to Phase 7 (C1) ────────────────
+        // TegridyRestaking is not part of the MVP deploy set; its paused-at-launch
+        // invariant moves to the Phase-7 verify script.
 
         // ─── INV-7: JBAC vault bound to staking ───────────────────────
         require(TegridyStakingJbacVault(jbacVault).staking() == staking, "INV-7: jbacVault not bound to staking");

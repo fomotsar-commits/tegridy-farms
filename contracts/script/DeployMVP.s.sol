@@ -9,7 +9,7 @@ import {TegridyStakingAdmin} from "../src/TegridyStakingAdmin.sol";
 import {TegridyFactory} from "../src/TegridyFactory.sol";
 import {TegridyRouter} from "../src/TegridyRouter.sol";
 import {TegridyTWAP} from "../src/TegridyTWAP.sol";
-import {TegridyRestaking} from "../src/TegridyRestaking.sol";
+// TegridyRestaking import removed — deferred to Phase 7 (audit 2026-05-24 / C1); not deployed at MVP.
 import {RevenueDistributor} from "../src/RevenueDistributor.sol";
 import {ReferralSplitter} from "../src/ReferralSplitter.sol";
 import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
@@ -117,11 +117,11 @@ contract DeployMVPScript is Script {
     ///      transfer, only the multisig can call setPauseGuardian.
     function _wirePauseGuardian(Deployed memory d, address pauseGuardian) internal {
         TegridyStaking(d.staking).setPauseGuardian(pauseGuardian);
-        TegridyRestaking(d.restaking).setPauseGuardian(pauseGuardian);
+        // TegridyRestaking deferred to Phase 7 (see _deployCore) — guardian wired then.
         RevenueDistributor(payable(d.revenueDistributor)).setPauseGuardian(pauseGuardian);
         SwapFeeRouter(payable(d.swapFeeRouter)).setPauseGuardian(pauseGuardian);
         POLAccumulator(payable(d.polAccumulator)).setPauseGuardian(pauseGuardian);
-        console.log("    -> pauseGuardian wired on 5 Pausable contracts:", pauseGuardian);
+        console.log("    -> pauseGuardian wired on 4 Pausable contracts:", pauseGuardian);
     }
 
     /// @dev mvp-launch Phase 0.7: set launch caps BEFORE transferOwnership.
@@ -178,16 +178,15 @@ contract DeployMVPScript is Script {
         d.twap = address(twap);
         console.log(" 5. TegridyTWAP:           ", d.twap);
 
-        // 6. TegridyRestaking (deployed but paused at launch per battle plan
-        //    Phase 6 — restake() opens only at Phase 7.0 after MVP-cycle audit
-        //    on the restaking-side flows).
-        TegridyRestaking restaking = new TegridyRestaking(d.staking, TOWELI, WETH, 0);
-        d.restaking = address(restaking);
-        console.log(" 6. TegridyRestaking:      ", d.restaking);
-
-        // Propose restaking on staking admin (48h timelock).
-        stakingAdmin.proposeRestakingContract(d.restaking);
-        console.log("    -> stakingAdmin.proposeRestakingContract queued (48h)");
+        // 6. TegridyRestaking — DEFERRED to Phase 7 (audit 2026-05-24 / C1).
+        //    Restaking ships PAUSED and does not open until Phase 7.0; nothing in the
+        //    MVP requires it deployed (staking.restakingContract / revDist.restaking /
+        //    referral.restakingContract are all wired post-deploy via timelock and
+        //    tolerate being unset, with try/catch -> 0 reads). Deferring its deployment
+        //    keeps it off the MVP EIP-170 critical path AND removes the acceptOwnership
+        //    proposal-flush race (H2): no restaking wiring is queued at deploy. Deploy +
+        //    wire it in a dedicated Phase-7 script once TegridyRestaking is itself split
+        //    under EIP-170.
 
         // 7. TegridyTokenURIReader
         TegridyTokenURIReader uriReader = new TegridyTokenURIReader(d.staking);
@@ -207,8 +206,7 @@ contract DeployMVPScript is Script {
         d.revenueDistributor = address(revDist);
         console.log(" 8. RevenueDistributor:    ", d.revenueDistributor);
 
-        revDist.proposeRestakingChange(d.restaking);
-        console.log("    -> revDist.restaking proposed (48h)");
+        // revDist.restaking wiring DEFERRED to Phase 7 with TegridyRestaking (C1).
 
         // 9. ReferralSplitter
         ReferralSplitter splitter = new ReferralSplitter(REFERRAL_FEE_BPS, d.staking, treasury, WETH);
@@ -240,10 +238,8 @@ contract DeployMVPScript is Script {
     }
 
     function _wireAndTransfer(Deployed memory d, address multisig) internal {
-        // Battle plan Phase 6: restaking is deployed but PAUSED at launch.
-        // Opens only at Phase 7.0 after MVP-cycle audit on restaking flows.
-        TegridyRestaking(d.restaking).pause();
-        console.log("    -> TegridyRestaking paused at deploy (opens Phase 7.0)");
+        // TegridyRestaking deferred to Phase 7 (see _deployCore) — no restaking
+        // deploy / pause / ownership-transfer here.
 
         // Propose feeTo -> RevenueDistributor (48h timelock).
         TegridyFactory(d.factory).proposeFeeToChange(d.revenueDistributor);
@@ -252,7 +248,6 @@ contract DeployMVPScript is Script {
         // Transfer ownership to multisig on every owned MVP contract.
         TegridyStaking(d.staking).transferOwnership(multisig);
         TegridyStakingAdmin(d.stakingAdmin).transferOwnership(multisig);
-        TegridyRestaking(d.restaking).transferOwnership(multisig);
         TegridyTWAP(payable(d.twap)).transferOwnership(multisig);
         RevenueDistributor(payable(d.revenueDistributor)).transferOwnership(multisig);
         SwapFeeRouter(payable(d.swapFeeRouter)).transferOwnership(multisig);
@@ -264,12 +259,12 @@ contract DeployMVPScript is Script {
         TegridyFactory(d.factory).proposeFeeToSetter(multisig);
         console.log("    -> Factory.feeToSetter proposed to multisig (48h)");
 
-        console.log("12. Ownership transfer initiated for 9 owned MVP contracts to:", multisig);
+        console.log("12. Ownership transfer initiated for 8 owned MVP contracts to:", multisig);
     }
 
     function _logSummary(Deployed memory d) internal pure {
         console.log("");
-        console.log("=== MVP DEPLOYMENT COMPLETE (15 contracts) ===");
+        console.log("=== MVP DEPLOYMENT COMPLETE (14 contracts; Restaking deferred to Phase 7) ===");
         console.log("Toweli (token):           ", TOWELI);
         console.log(" 1. TegridyStaking:       ", d.staking);
         console.log(" 1b. JbacVault:           ", d.jbacVault);
@@ -278,7 +273,7 @@ contract DeployMVPScript is Script {
         console.log(" 3. TegridyRouter:        ", d.router);
         console.log(" 4. TOWELI/WETH Pair:     ", d.pair);
         console.log(" 5. TegridyTWAP:          ", d.twap);
-        console.log(" 6. TegridyRestaking:     ", d.restaking);
+        console.log(" 6. TegridyRestaking:      DEFERRED to Phase 7 (C1 / EIP-170)");
         console.log(" 7. TokenURIReader:       ", d.tokenURIReader);
         console.log(" 8. RevenueDistributor:   ", d.revenueDistributor);
         console.log(" 9. ReferralSplitter:     ", d.referralSplitter);
@@ -287,16 +282,15 @@ contract DeployMVPScript is Script {
         console.log("11. POLAccumulator:       ", d.polAccumulator);
         console.log("");
         console.log("NEXT STEPS (operator runbook - DO NOT SKIP):");
-        console.log("  1. Multisig acceptOwnership() on all 9 owned contracts");
+        console.log("  1. Multisig acceptOwnership() on all 8 owned contracts");
         console.log("     within OwnableNoRenounce 14-day expiry. Verify each with Verify.s.sol.");
         console.log("  2. After 48h: factory.executeFeeToChange()");
         console.log("  3. After 48h: factory.acceptFeeToSetter() from multisig");
-        console.log("  4. After 48h: stakingAdmin.executeRestakingContract()");
-        console.log("  5. After 48h: revenueDistributor.executeRestakingChange()");
-        console.log("  6. Fund staking with TOWELI via fund()");
-        console.log("  7. Add initial liquidity to TOWELI/WETH pair");
-        console.log("  8. PAUSE restaking via restaking.pause() until Phase 7.0 audit clears it");
-        console.log("  9. Wire PAUSE_GUARDIAN onto each contract (set pauseGuardian addr)");
-        console.log(" 10. Run Verify.s.sol - must report ALL invariants green before announcing live");
+        console.log("  4. Fund staking with TOWELI via fund()");
+        console.log("  5. Add initial liquidity to TOWELI/WETH pair (use a private relay + set min amounts to avoid the first-LP price-set/sandwich window - audit M7)");
+        console.log("  6. Wire PAUSE_GUARDIAN onto each contract (set pauseGuardian addr)");
+        console.log("  7. (Phase 7) Split TegridyRestaking under EIP-170, deploy it, then wire via");
+        console.log("     stakingAdmin.proposeRestakingContract + revDist.proposeRestakingChange (48h each)");
+        console.log("  8. Run Verify.s.sol - must report ALL invariants green before announcing live");
     }
 }
