@@ -694,4 +694,26 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
     function getRewardForDuration() external view returns (uint256) {
         return rewardRate * rewardsDuration;
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue hostile
+    ///         proposals immediately before `transferOwnership`; the timelock would silently
+    ///         keep running and the new owner inherits an executable booby-trap.
+    /// @dev    Calls `super.acceptOwnership()` first so the Ownable2Step pendingOwner→owner
+    ///         promotion happens before the cancellations. Base `ProposalCancelled(KEY)`
+    ///         from `_cancel` provides the audit trail (no typed per-key events on this
+    ///         contract — base event is sufficient).
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[REWARDS_DURATION_CHANGE] != 0) {
+            _cancel(REWARDS_DURATION_CHANGE);
+            pendingRewardsDuration = 0;
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+        }
+    }
 }

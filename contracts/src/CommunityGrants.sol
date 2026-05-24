@@ -1254,4 +1254,24 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             }
         }
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue a hostile
+    ///         `proposeFeeReceiverChange(attacker)` immediately before `transferOwnership`;
+    ///         the new owner inherits an executable booby-trap.
+    /// @dev    Per-proposal `CANCEL_APPROVED_KEY` proposals are keyed via the proposal id
+    ///         and not enumerable on-chain; they remain the new owner's responsibility to
+    ///         triage one-by-one (`cancelCancelApproved(id)`). The static `FEE_RECEIVER_CHANGE`
+    ///         is flushed here.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_RECEIVER_CHANGE] != 0) {
+            address cancelled = pendingFeeReceiver;
+            _cancel(FEE_RECEIVER_CHANGE);
+            pendingFeeReceiver = address(0);
+            emit FeeReceiverChangeCancelled(cancelled);
+        }
+    }
 }
