@@ -122,6 +122,15 @@ contract DeployMVPScript is Script {
         SwapFeeRouter(payable(d.swapFeeRouter)).setPauseGuardian(pauseGuardian);
         POLAccumulator(payable(d.polAccumulator)).setPauseGuardian(pauseGuardian);
         console.log("    -> pauseGuardian wired on 4 Pausable contracts:", pauseGuardian);
+
+        // AUDIT FIX M6: rotate the TegridyFactory guardian OFF the deployer EOA to the
+        // pauseGuardian multisig. proposeGuardianChange is feeToSetter-gated (the deployer
+        // is still feeToSetter at this point) and requires a multisig-class (contract)
+        // guardian, which pauseGuardian is. The multisig executes it post-deploy after it
+        // accepts feeToSetter (48h timelock — see runbook). Queuing it here ensures the
+        // deployer EOA does not silently retain the factory's emergency pair-disable power.
+        TegridyFactory(d.factory).proposeGuardianChange(pauseGuardian);
+        console.log("    -> factory.proposeGuardianChange(pauseGuardian) queued (48h)");
     }
 
     /// @dev mvp-launch Phase 0.7: set launch caps BEFORE transferOwnership.
@@ -286,6 +295,7 @@ contract DeployMVPScript is Script {
         console.log("     within OwnableNoRenounce 14-day expiry. Verify each with Verify.s.sol.");
         console.log("  2. After 48h: factory.executeFeeToChange()");
         console.log("  3. After 48h: factory.acceptFeeToSetter() from multisig");
+        console.log("  3b. Then (multisig is now feeToSetter): factory.executeGuardianChange() - rotates factory guardian off the deployer EOA (audit M6)");
         console.log("  4. Fund staking with TOWELI via fund()");
         console.log("  5. Add initial liquidity to TOWELI/WETH pair (use a private relay + set min amounts to avoid the first-LP price-set/sandwich window - audit M7)");
         console.log("  6. Wire PAUSE_GUARDIAN onto each contract (set pauseGuardian addr)");
