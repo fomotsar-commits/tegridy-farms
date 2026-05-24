@@ -699,14 +699,24 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
                 referrerPower += r;
             } catch {}
         }
-        if (
-            // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-            // slither-disable-next-line incorrect-equality
-            referrerPower >= MIN_REFERRAL_STAKE_POWER ||
-            lastBelowStakeTime[_referrer] == 0 ||
-            block.timestamp < lastBelowStakeTime[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
-            block.timestamp < lastClaimTime[_referrer] + FORFEITURE_PERIOD
-        ) revert ForfeitureConditionsNotMet();
+        // AUDIT FIX (banned-referrer forfeit): a banned referrer is a lifecycle-
+        // ended account that can never claim (claimReferralRewards reverts
+        // ReferrerBannedError), so the anti-griefing stake/inactivity gate that
+        // protects LEGITIMATE referrers must NOT apply to them — otherwise their
+        // pre-ban pendingETH is frozen forever (un-claimable, un-forfeitable, and
+        // reserved out of sweepUnclaimable). The 24h-timelocked ban ceremony is the
+        // authorization; this routes their balance to treasury exactly as the ban
+        // NatSpec already promises. Non-banned referrers are unaffected.
+        if (!bannedReferrers[_referrer]) {
+            if (
+                // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+                // slither-disable-next-line incorrect-equality
+                referrerPower >= MIN_REFERRAL_STAKE_POWER ||
+                lastBelowStakeTime[_referrer] == 0 ||
+                block.timestamp < lastBelowStakeTime[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
+                block.timestamp < lastClaimTime[_referrer] + FORFEITURE_PERIOD
+            ) revert ForfeitureConditionsNotMet();
+        }
 
         pendingETH[_referrer] = 0;
         totalPendingETH -= amount;

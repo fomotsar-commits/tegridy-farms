@@ -747,8 +747,17 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // recovered epochs and no fresh claimable share. Mirror the same fix in
         // `claimUpTo()`.
         if (totalOwed == 0) {
+            // Commit the advance and RETURN (do NOT revert): a revert here rolls
+            // back the cursor write, re-parking the user forever once their leading
+            // zero-power/settled run reaches MAX_CLAIM_EPOCHS (claimUpTo caps the
+            // window at 250, so they could never step past it). No external call is
+            // made, so commit-and-return is reentrancy-safe; per-epoch double-pay
+            // stays blocked by claimedAtEpoch / recoveryClaimed independent of this
+            // cursor.
             if (actualEndEpoch > startEpoch) {
                 lastClaimedEpoch[msg.sender] = actualEndEpoch;
+                emit Claimed(msg.sender, 0, startEpoch, actualEndEpoch);
+                return;
             }
             revert NothingToClaim();
         }
@@ -819,8 +828,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // recovery-settled epochs, the cursor must still advance so the user can
         // make forward progress on subsequent calls.
         if (totalOwed == 0) {
+            // Commit-and-return (see claim() for full rationale): reverting would
+            // undo the cursor advance and permanently strand the user.
             if (actualEndEpoch > startEpoch) {
                 lastClaimedEpoch[msg.sender] = actualEndEpoch;
+                emit Claimed(msg.sender, 0, startEpoch, actualEndEpoch);
+                return;
             }
             revert NothingToClaim();
         }

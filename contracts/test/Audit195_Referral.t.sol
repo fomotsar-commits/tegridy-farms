@@ -832,6 +832,37 @@ contract Audit195Referral is Test {
         ref.forfeitUnclaimedRewards(bob);
     }
 
+    /// @notice M1 REGRESSION: a BANNED referrer's pre-ban pendingETH must be
+    ///         forfeitable to treasury even while they remain staked above
+    ///         MIN_REFERRAL_STAKE_POWER. Pre-fix, claimReferralRewards reverted
+    ///         (banned) AND forfeitUnclaimedRewards reverted (still staked), so
+    ///         the funds were permanently frozen — un-claimable, un-forfeitable,
+    ///         and reserved out of sweepUnclaimable.
+    function test_M1_bannedReferrer_forfeitableEvenWhileStaked() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+        uint256 bobPending = ref.pendingETH(bob);
+        assertGt(bobPending, 0, "bob accrued referral pendingETH");
+
+        // bob stays staked >= MIN_STAKE (set in setUp). Ban bob (24h timelock).
+        ref.proposeBanReferrer(bob);
+        vm.warp(block.timestamp + 2 days);
+        ref.executeBanReferrer();
+
+        // Banned bob cannot claim his pre-ban accrual.
+        vm.prank(bob);
+        vm.expectRevert(ReferralSplitter.ReferrerBannedError.selector);
+        ref.claimReferralRewards();
+
+        // M1 FIX: owner can now forfeit the banned referrer's frozen pendingETH to
+        // treasury despite the active stake (pre-fix: ForfeitureConditionsNotMet).
+        uint256 treasuryBefore = ref.accumulatedTreasuryETH();
+        ref.forfeitUnclaimedRewards(bob);
+        assertEq(ref.pendingETH(bob), 0, "M1: banned referrer's pendingETH cleared");
+        assertEq(ref.accumulatedTreasuryETH(), treasuryBefore + bobPending, "M1: frozen funds routed to treasury");
+    }
+
     function test_forfeitRewards_revert_graceNotElapsed() public {
         vm.prank(alice);
         ref.setReferrer(bob);
