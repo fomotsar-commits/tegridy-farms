@@ -47,6 +47,9 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {PauseGuardian} from "./base/PauseGuardian.sol";
+// AUDIT FIX (C1 EIP-170 split): Position struct + read-only view/math extracted to a
+// linked (delegatecall) library to bring runtime bytecode under the 24,576-byte limit.
+import {Position, StakingViewLib} from "./lib/StakingViewLib.sol";
 
 /// @dev AUDIT FIX H8: Minimal interface for restaking-aware view functions
 interface ITegridyRestakingView {
@@ -202,22 +205,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     uint256 private _nextTokenId = 1;
 
-    struct Position {
-        uint256 amount;
-        uint256 boostedAmount;
-        int256 rewardDebt;
-        uint64 lockEnd;
-        uint16 boostBps;
-        uint32 lockDuration;
-        bool autoMaxLock;  // If true, lock auto-extends to max on every interaction
-        bool hasJbacBoost;
-        uint64 stakeTimestamp;
-        // AUDIT H-1 (2026-04-20): Deposit-based JBAC boost (ApeCoin-Staking pattern).
-        // Replaces flash-loan-able `jbacNFT.balanceOf(msg.sender) > 0` cache with a
-        // physical deposit that stays locked for the position's lifetime.
-        uint256 jbacTokenId;   // 0 = none / legacy-grandfathered
-        bool jbacDeposited;    // true = physical deposit (new pattern); false = legacy-grandfathered
-    }
+    // `Position` struct relocated to ./lib/StakingViewLib.sol (C1 EIP-170 split) so the
+    // linked view library can operate on `positions` storage. Layout unchanged; the
+    // `positions` public-getter ABI is identical. Field semantics preserved:
+    //   amount, boostedAmount, rewardDebt, lockEnd, boostBps, lockDuration, autoMaxLock,
+    //   hasJbacBoost, stakeTimestamp, jbacTokenId (0=none/legacy), jbacDeposited.
 
     mapping(uint256 => Position) public positions; // tokenId => position
     mapping(address => uint256) public userTokenId; // user => their tokenId (0 = no position)
@@ -684,34 +676,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param user The address to query voting power for
     /// @return total Aggregated voting power (sum of amount * boostBps / BOOST_PRECISION)
     ///         across all active, non-expired positions held by `user`.
-    function votingPowerOf(address user) public view returns (uint256 total) {
-        // AUDIT FIX M-5: the restaking contract exposes per-restaker voting power via
-        // its own aggregation; a raw sum here would double-count. Force 0 for the
-        // restaking contract so governance consumers route through the restaking path.
-        // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
-        //         lending contracts are escrow addresses that legitimately hold
-        //         many borrower NFTs. Borrowers vote via their own checkpoints
-        //         (positions remain credited to the borrower's checkpoint via
-        //         _settleRewardsOnTransfer), not via the lending contract. Force
-        //         0 here to prevent O(n_loans) iteration once the per-holder cap
-        //         is lifted for these addresses, AND to prevent double-counting
-        //         any future governance consumer that mistakenly reads from the
-        //         escrow address.
+    function votingPowerOf(address user) public view returns (uint256) {
+        // Restaking/lending escrow carve-out (AUDIT FIX M-5 + FRESH-2026
+        // STAKING-MAX-POS-ESCROW-CARVE-OUT): these addresses expose power via their
+        // own per-holder aggregation; force 0 here to avoid double-count and O(n)
+        // iteration. The per-position summation is delegated to StakingViewLib (C1).
         if (user == restakingContract || isLendingContract[user]) return 0;
-
-        EnumerableSet.UintSet storage set = _positionsByOwner[user];
-        uint256 len = set.length();
-        uint256 nowTs = block.timestamp;
-        for (uint256 i; i < len; ++i) {
-            // Reach into storage per-field rather than copying the full Position struct —
-            // avoids loading `boostedAmount`, `rewardDebt`, `lockDuration`, `autoMaxLock`,
-            // `hasJbacBoost`, `stakeTimestamp` slots that voting power doesn't need.
-            Position storage p = positions[set.at(i)];
-            uint256 amount = p.amount;
-            if (amount == 0) continue;
-            if (nowTs >= p.lockEnd) continue;
-            total += (amount * p.boostBps) / BOOST_PRECISION;
-        }
+        return StakingViewLib.votingPowerOf(_positionsByOwner[user], positions);
     }
 
     // votingPowerAt() removed — use votingPowerAtTimestamp() instead
@@ -767,31 +738,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         TegridyLPFarming) that need a single boost ratio per user — bypasses the
     ///         single-pointer `userTokenId` undercount for multi-NFT contract holders.
     /// @return weightedBps amount-weighted boostBps in [MIN_BOOST_BPS, MAX_BOOST_BPS+JBAC_BONUS_BPS]
-    function aggregateActiveBoostBps(address user) external view returns (uint256 weightedBps) {
-        // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
-        //         same rationale as votingPowerOf above. Prevent O(n_loans)
-        //         iteration on lending-contract addresses now that the per-holder
-        //         cap is lifted for escrow addresses.
+    function aggregateActiveBoostBps(address user) external view returns (uint256) {
+        // Same restaking/lending escrow carve-out as votingPowerOf; per-position
+        // weighting delegated to StakingViewLib (C1 EIP-170 split).
         if (user == restakingContract || isLendingContract[user]) return 0;
-        EnumerableSet.UintSet storage set = _positionsByOwner[user];
-        uint256 len = set.length();
-        uint256 nowTs = block.timestamp;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 totalAmount;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 totalBoosted;
-        for (uint256 i; i < len; ++i) {
-            Position storage p = positions[set.at(i)];
-            uint256 amt = p.amount;
-            if (amt == 0) continue;
-            if (nowTs >= p.lockEnd) continue;
-            totalAmount += amt;
-            totalBoosted += amt * p.boostBps;
-        }
-        if (totalAmount == 0) return 0;
-        weightedBps = totalBoosted / totalAmount;
+        return StakingViewLib.aggregateActiveBoostBps(_positionsByOwner[user], positions);
     }
 
     /// @notice AUDIT M13: returns true iff `user` currently owns `tokenId` per the
@@ -812,20 +763,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param tokenId The NFT token ID of the staking position
     /// @return Claimable reward tokens for this position
     function earned(uint256 tokenId) public view returns (uint256) {
-        Position memory p = positions[tokenId];
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (p.boostedAmount == 0) return 0;
-        // AUDIT FIX M-01: Expired positions still have claimable rewards accrued before expiry.
-        // _getReward() computes rewards BEFORE _decayIfExpired zeros boostedAmount, so earned()
-        // must mirror that by including expired positions. Removes the early return that was
-        // causing the frontend to show 0 pending rewards for expired locks.
-        uint256 currentAcc = rewardPerTokenStored;
-        if (block.timestamp > lastUpdateTime && totalBoostedStake > 0) {
-            currentAcc += ((block.timestamp - lastUpdateTime) * rewardRate * ACC_PRECISION) / totalBoostedStake;
-        }
-        int256 diff = int256((p.boostedAmount * currentAcc) / ACC_PRECISION) - p.rewardDebt;
-        return diff > 0 ? uint256(diff) : 0;
+        // AUDIT FIX M-01 (expired-position accrual) preserved inside StakingViewLib.earned;
+        // body delegated there (C1 EIP-170 split).
+        return StakingViewLib.earned(
+            positions[tokenId], rewardPerTokenStored, lastUpdateTime, rewardRate, totalBoostedStake
+        );
     }
 
     // earnedByAddress() removed — use earned(userTokenId[user]) directly
