@@ -2253,4 +2253,39 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         totalETHReceived += msg.value;
         emit ETHReceived(msg.sender, msg.value);
     }
+
+    /// @notice AUDIT FIX 2026-05-22 M19-PORT-INLINE: override `acceptOwnership` so any
+    ///         pending INLINE timelock proposals queued by the outgoing owner are CANCELLED
+    ///         on handoff. Mirrors the canonical TimelockAdmin override pattern from
+    ///         `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438), adapted
+    ///         to this contract's three inline-timelocked surfaces (admin replacement, TWAP
+    ///         snapshot reset, ETH sweep) that predate TimelockAdmin and aren't keyed via
+    ///         `_executeAfter`. Every other parameter on SwapFeeRouter delegates to
+    ///         SwapFeeRouterAdmin (whose own acceptOwnership flush is in the sister PR).
+    /// @dev    Without this override, an outgoing/compromised owner could queue any of
+    ///         three hostile proposals immediately before `transferOwnership`:
+    ///           - `proposeAdminReplacement(attackerAdmin)` — 48h to hijack the admin pointer
+    ///           - `proposeResetTWAPSnapshot(targetToken)` — 7d to wipe a specific snapshot
+    ///           - `proposeSweepETH(maxAmount)` — 48h to extract protocol ETH on accept
+    ///         All three readyAt timers would silently keep running under the new owner.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (adminReplacementReadyAt != 0) {
+            address proposed = pendingSwapFeeRouterAdmin;
+            pendingSwapFeeRouterAdmin = address(0);
+            adminReplacementReadyAt = 0;
+            emit SwapFeeRouterAdminReplacementCancelled(proposed);
+        }
+        if (twapSnapshotResetReadyAt != 0) {
+            address cancelled = pendingResetToken;
+            pendingResetToken = address(0);
+            twapSnapshotResetReadyAt = 0;
+            emit TWAPSnapshotResetCancelled(cancelled);
+        }
+        if (sweepETHReadyAt != 0) {
+            pendingSweepETHAmount = 0;
+            sweepETHReadyAt = 0;
+            emit SweepETHCancelled();
+        }
+    }
 }
