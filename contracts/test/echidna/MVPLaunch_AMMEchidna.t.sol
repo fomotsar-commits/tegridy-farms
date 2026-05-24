@@ -131,12 +131,14 @@ contract MVPLaunch_AMMEchidna {
     }
 
     // ─── INV-LP-SUPPLY-CONSERVED ─────────────────────────────────────
-    /// @dev totalSupply >= MINIMUM_LIQUIDITY locked at address(0) once
-    ///      bootstrap mint happened.
+    /// @dev totalSupply >= MINIMUM_LIQUIDITY locked at address(0xdead) once
+    ///      bootstrap mint happened. TegridyPair locks at 0xdead (not V2's
+    ///      address(0)) — intentional hardening to dodge ERC20
+    ///      transfer-to-zero edge cases. See TegridyPair.sol:169.
     function echidna_minLiquidityLocked() public view returns (bool) {
         if (!bootstrapped) return true;
-        uint256 lockedAtZero = pair.balanceOf(address(0));
-        return lockedAtZero >= 1000; // MINIMUM_LIQUIDITY
+        uint256 lockedAtDead = pair.balanceOf(address(0xdead));
+        return lockedAtDead >= 1000; // MINIMUM_LIQUIDITY
     }
 }
 
