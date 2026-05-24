@@ -17,8 +17,25 @@ import {TegridyStakingJbacVault} from "../../src/TegridyStakingJbacVault.sol";
 ///         ```
 ///         pip install halmos
 ///         cd contracts
-///         halmos --match-contract MVPLaunch_HalmosSpecs --solver-timeout-assertion 10000
+///         # On Windows: also export PYTHONIOENCODING=utf-8 PYTHONUTF8=1 so
+///         # Slither/Halmos output decodes cleanly.
+///         export HALMOS_ALLOW_DOWNLOAD=1   # lets halmos fetch its fallback solver
+///         halmos --match-contract MVPLaunch_HalmosSpecs \
+///                --solver-timeout-assertion 10000 \
+///                --storage-layout generic
 ///         ```
+///
+///         `--storage-layout generic` is required: without it, the cap/principal
+///         checks ERROR with `NotConcreteError: symbolic storage base slot`
+///         because the harness pranks symbolic callers into mappings keyed by
+///         address. Side-effect: `check_guardianCannotUnpause` reports a
+///         spurious FAIL with `Counterexample: ∅` under generic layout
+///         (Halmos re-symbolizes the `_owner` storage slot and finds a
+///         model where owner == pauseGuardian). The semantic property is
+///         correct — see TegridyStaking.sol::unpause `onlyOwner` and
+///         test/MVPLaunch_StakeCapsAndGuardian.t.sol for the concrete check.
+///         Auditor handoff: re-spec as a Certora rule (Certora models
+///         msg.sender directly without prank).
 ///
 ///         If halmos isn't installed locally, these files still compile and
 ///         run under `forge test` as regular tests (without symbolic
