@@ -12,3 +12,9 @@ docs/
 
 # Dotenv file
 .env
+
+# Audit handoff tooling: generated artifacts only — configs are tracked.
+echidna-corpus/
+.echidna-runs/
+crytic-export/
+halmos-cache/
