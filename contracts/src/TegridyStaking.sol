@@ -2763,4 +2763,26 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_cap > MAX_MAX_UNSETTLED) revert CapTooHigh();
         maxUnsettledRewards = _cap;
     }
+
+    /// @notice AUDIT FIX 2026-05-22 M19-PORT-INLINE: override `acceptOwnership` so any
+    ///         pending INLINE timelock proposals queued by the outgoing owner are CANCELLED
+    ///         on handoff. Mirrors the canonical TimelockAdmin override pattern from
+    ///         `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438), adapted
+    ///         to this contract's inline `pendingStakingAdmin` / `adminReplacementReadyAt`
+    ///         state (which predates TimelockAdmin and isn't keyed via `_executeAfter`).
+    /// @dev    The inherited `stakingAdmin` rotation is the only inline-timelocked surface on
+    ///         TegridyStaking — every other parameter delegates to TegridyStakingAdmin (whose
+    ///         own acceptOwnership flush is in the sister PR). Without this override, an
+    ///         outgoing/compromised owner could call `proposeAdminReplacement` immediately
+    ///         before `transferOwnership`; the 48h timer would silently keep running and the
+    ///         new owner inherits an executable admin swap.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (adminReplacementReadyAt != 0) {
+            address proposed = pendingStakingAdmin;
+            pendingStakingAdmin = address(0);
+            adminReplacementReadyAt = 0;
+            emit StakingAdminReplacementCancelled(proposed);
+        }
+    }
 }

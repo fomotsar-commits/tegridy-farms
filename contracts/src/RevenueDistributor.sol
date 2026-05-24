@@ -1792,4 +1792,47 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         Epoch memory epoch = epochs[epochId];
         return (epoch.totalETH, epoch.totalLocked, epoch.timestamp);
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue hostile
+    ///         proposals (e.g. `proposeTreasuryChange(attacker)`, `proposeEmergencyWithdrawExcess`)
+    ///         immediately before `transferOwnership`; the timelock would silently keep running
+    ///         and the new owner inherits an executable booby-trap.
+    /// @dev    Per-(user,epoch) `FORFEIT_RECLAIM` mirror is `pendingForfeitAmount` (single
+    ///         slot — only one reclaim pending at a time per the existing flow's invariant).
+    ///         Per-(user, epoch) `pendingRecoveries` is a SEPARATE non-TimelockAdmin mapping
+    ///         and not flushed here (triaged via `cancelClaimRecovery(user, epoch)`).
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[RESTAKING_CHANGE] != 0) {
+            address cancelled = pendingRestaking;
+            _cancel(RESTAKING_CHANGE);
+            pendingRestaking = address(0);
+            emit RestakingChangeCancelled(cancelled);
+        }
+        if (_executeAfter[EMERGENCY_WITHDRAW_EXCESS] != 0) {
+            _cancel(EMERGENCY_WITHDRAW_EXCESS);
+            emit EmergencyWithdrawExcessCancelled();
+        }
+        if (_executeAfter[TOKEN_SWEEP] != 0) {
+            address token = pendingSweepToken;
+            _cancel(TOKEN_SWEEP);
+            pendingSweepToken = address(0);
+            pendingSweepTo = address(0);
+            emit TokenSweepCancelled(token);
+        }
+        if (_executeAfter[FORFEIT_RECLAIM] != 0) {
+            _cancel(FORFEIT_RECLAIM);
+            pendingForfeitAmount = 0;
+            emit ForfeitReclaimCancelled();
+        }
+    }
 }

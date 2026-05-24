@@ -1026,4 +1026,59 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     // AUDIT FIX FRESH-2026 (post-fix scan7 DC-5): three legacy *_PROPOSAL_VALIDITY
     // constants deleted — comment claimed "test compatibility" but no test
     // referenced them; they were dead surface inflation.
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue hostile
+    ///         proposals (e.g. `proposeTreasuryChange(attacker)`, `proposeSweepETH(attackerAmount)`,
+    ///         `proposeBackstopChange(10000)`) immediately before `transferOwnership`; the
+    ///         timelock would silently keep running and the new owner inherits an
+    ///         executable booby-trap.
+    /// @dev    Calls `super.acceptOwnership()` first so the Ownable2Step pendingOwner→owner
+    ///         promotion happens before the cancellations — typed events emit under the
+    ///         NEW owner's authority for a clean audit trail.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[SLIPPAGE_CHANGE] != 0) {
+            uint256 cancelled = pendingMaxSlippage;
+            _cancel(SLIPPAGE_CHANGE);
+            pendingMaxSlippage = 0;
+            emit MaxSlippageChangeCancelled(cancelled);
+        }
+        if (_executeAfter[ACCUMULATE_CAP_CHANGE] != 0) {
+            uint256 cancelled = pendingMaxAccumulateAmount;
+            _cancel(ACCUMULATE_CAP_CHANGE);
+            pendingMaxAccumulateAmount = 0;
+            emit MaxAccumulateAmountChangeCancelled(cancelled);
+        }
+        if (_executeAfter[BACKSTOP_CHANGE] != 0) {
+            uint256 cancelled = pendingBackstopBps;
+            _cancel(BACKSTOP_CHANGE);
+            pendingBackstopBps = 0;
+            emit BackstopChangeCancelled(cancelled);
+        }
+        if (_executeAfter[SWEEP_ETH_CHANGE] != 0) {
+            _cancel(SWEEP_ETH_CHANGE);
+            sweepETHProposedAmount = 0;
+            emit SweepETHCancelled();
+        }
+        if (_executeAfter[SWEEP_TOKENS] != 0) {
+            address cancelled = pendingSweepToken;
+            _cancel(SWEEP_TOKENS);
+            pendingSweepToken = address(0);
+            emit SweepTokensCancelled(cancelled);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[POL_HARVEST] != 0) {
+            _cancel(POL_HARVEST);
+            pendingHarvestLpAmount = 0;
+            emit POLHarvestCancelled();
+        }
+    }
 }

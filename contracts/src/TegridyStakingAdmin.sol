@@ -359,4 +359,51 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     function extendFeeRecycleChangeReadyAt() external view returns (uint256) {
         return _executeAfter[EXTEND_FEE_RECYCLE_CHANGE];
     }
+
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
+    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
+    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
+    ///         Without this override, an outgoing/compromised owner could queue hostile
+    ///         proposals immediately before `transferOwnership`; the timelock would silently
+    ///         keep running and the new owner inherits an executable booby-trap.
+    /// @dev    Calls `super.acceptOwnership()` first so the Ownable2Step pendingOwner→owner
+    ///         promotion happens before the cancellations. Base `ProposalCancelled(KEY)`
+    ///         events from `_cancel` provide the audit trail (this contract has no typed
+    ///         per-key cancellation events — base event is sufficient).
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[REWARD_RATE_CHANGE] != 0) {
+            _cancel(REWARD_RATE_CHANGE);
+            pendingRewardRate = 0;
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+        }
+        if (_executeAfter[RESTAKING_CHANGE] != 0) {
+            _cancel(RESTAKING_CHANGE);
+            pendingRestakingContract = address(0);
+        }
+        if (_executeAfter[UNSETTLED_CAP_CHANGE] != 0) {
+            _cancel(UNSETTLED_CAP_CHANGE);
+            pendingMaxUnsettledRewards = 0;
+        }
+        if (_executeAfter[LENDING_CONTRACT_CHANGE] != 0) {
+            _cancel(LENDING_CONTRACT_CHANGE);
+            pendingLendingContract = address(0);
+            pendingLendingContractApproval = false;
+        }
+        if (_executeAfter[EXTEND_FEE_CHANGE] != 0) {
+            _cancel(EXTEND_FEE_CHANGE);
+            pendingExtendFeeBps = 0;
+        }
+        if (_executeAfter[PENALTY_RECYCLE_CHANGE] != 0) {
+            _cancel(PENALTY_RECYCLE_CHANGE);
+            pendingPenaltyRecycleBps = 0;
+        }
+        if (_executeAfter[EXTEND_FEE_RECYCLE_CHANGE] != 0) {
+            _cancel(EXTEND_FEE_RECYCLE_CHANGE);
+            pendingExtendFeeRecycleBps = 0;
+        }
+    }
 }
