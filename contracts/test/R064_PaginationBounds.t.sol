@@ -269,10 +269,13 @@ contract R064_NFTPoolFactoryBoundsTest is Test {
         // Deploy a hostile contract whose claimProtocolFees re-enters claimPoolFees.
         ReentrantHostilePool hostile = new ReentrantHostilePool(address(factory));
 
-        // FRESH-2026 TEST REALIGN: storage layout shifted (ownershipTransferExpiresAt
-        // added), `isPool` mapping moved from slot 9 to slot 11.
+        // 2026-05-23 TEST REALIGN: storage layout shifted again — `isPool` mapping
+        // now sits at slot 12 (was slot 9 originally, slot 11 after the
+        // FRESH-2026 OwnableNoRenounce.ownershipTransferExpiresAt addition; this
+        // PR catches a further drift surfaced when Contracts CI was un-rotted
+        // and the slice that owns this file actually started running).
         // Verified via `forge inspect TegridyNFTPoolFactory storage-layout`.
-        bytes32 isPoolSlot = keccak256(abi.encode(address(hostile), uint256(11)));
+        bytes32 isPoolSlot = keccak256(abi.encode(address(hostile), uint256(12)));
         vm.store(address(factory), isPoolSlot, bytes32(uint256(1)));
         assertTrue(factory.isPool(address(hostile)), "hostile registered as pool via storage poke");
 
