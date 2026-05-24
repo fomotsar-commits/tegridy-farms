@@ -595,8 +595,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         require(amount > 0, "NO_ETH");
         address recipient = treasury;
         sweepETHProposedAmount = 0;
-        (bool success,) = recipient.call{value: amount}("");
-        require(success, "ETH_TRANSFER_FAILED");
+        // AUDIT FIX (L6): route through WETHFallbackLib for parity with
+        // executeHarvestLP. If treasury is later rotated to a contract whose
+        // receive() reverts, the WETH-wrap fallback keeps this sweep from bricking
+        // (the raw .call + require(success) would have needed another 48h treasury
+        // rotation to recover).
+        WETHFallbackLib.safeTransferETHOrWrap(weth, recipient, amount);
         emit SweepETHExecuted(recipient, amount);
     }
 
