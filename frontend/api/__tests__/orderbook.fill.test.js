@@ -18,9 +18,12 @@
 // 2. In the fill handler, ABI-decode the OrderFulfilled `data` field —
 //    the first 32 bytes are the canonical orderHash — and compare to
 //    the stored value.
-// 3. For pre-migration rows where `seaport_order_hash` is NULL, fall
-//    back to a presence-only check (Seaport-allowlisted address +
-//    matching offerer in topic[1]).
+// 3. For pre-migration rows where `seaport_order_hash` is NULL, REJECT the
+//    fill outright. (An earlier revision fell back to a presence-only check —
+//    Seaport-allowlisted address + matching offerer in topic[1] — but that let
+//    anyone replay a maker's past Seaport sale to mark an unrelated active
+//    legacy listing as filled. The fallback was removed; NULL-hash rows expire
+//    on their own 7-day TTL.)
 //
 // These tests cover:
 //   - canonical hash helper produces a value matching viem hashStruct
@@ -29,9 +32,9 @@
 //   - successful fill: ABI-decoded orderHash equals stored seaport_order_hash
 //   - rejected fill: legitimate Seaport log but DIFFERENT orderHash in data
 //   - rejected fill: same orderHash from a non-Seaport contract (forgery)
-//   - legacy fallback (NULL seaport_order_hash) accepts a Seaport log with
-//     matching offerer address in topic[1]
-//   - legacy fallback rejects a log emitted from non-Seaport address
+//   - NULL seaport_order_hash is rejected even with a matching-offerer Seaport
+//     log (the old maker-spoof acceptance path)
+//   - NULL seaport_order_hash is rejected for a non-Seaport log address
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
@@ -427,7 +430,7 @@ describe("orderbook fill — F10 strict-hash path", () => {
   });
 });
 
-describe("orderbook fill — F10 legacy fallback path (NULL seaport_order_hash)", () => {
+describe("orderbook fill — F10 NULL seaport_order_hash is rejected (legacy fallback REMOVED)", () => {
   let handler;
 
   beforeEach(async () => {
@@ -446,7 +449,13 @@ describe("orderbook fill — F10 legacy fallback path (NULL seaport_order_hash)"
     handler = (await import("../orderbook.js")).default;
   });
 
-  it("accepts a fill when seaport_order_hash is NULL but offerer matches topic[1] from a Seaport log", async () => {
+  // AUDIT FIX (2026-05-25): the old "legacy fallback" accepted a NULL-hash fill
+  // whenever topic[1] (the indexed offerer) matched the recorded maker. That let
+  // anyone who observed ANY past Seaport sale by `maker` replay that tx hash to
+  // mark an unrelated active legacy listing as filled (maker-spoof). The fallback
+  // was removed: every NULL-hash row is now rejected outright. This test asserts
+  // the secure behavior — what used to be the maker-spoof acceptance path.
+  it("rejects a fill when seaport_order_hash is NULL even if topic[1] offerer matches a real Seaport log", async () => {
     mocks.supabaseState.storedRow = { seaport_order_hash: null, maker: OFFERER, status: "active" };
 
     mocks.fetchMock.mockResolvedValueOnce({
@@ -462,13 +471,13 @@ describe("orderbook fill — F10 legacy fallback path (NULL seaport_order_hash)"
 
     const { req, res, statusSpy, jsonSpy } = makeReqRes(buildFillBody());
     await handler(req, res);
-    // Handler returns 200 implicitly via res.json without calling res.status.
-    expect(jsonSpy).toHaveBeenCalledWith({ success: true });
-    expect(statusSpy).not.toHaveBeenCalledWith(400);
-    expect(statusSpy).not.toHaveBeenCalledWith(503);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(jsonSpy).toHaveBeenCalledWith(expect.objectContaining({
+      error: expect.stringMatching(/Legacy listing without canonical order hash/i),
+    }));
   });
 
-  it("rejects legacy fill when topic[1] offerer does not match recorded maker", async () => {
+  it("rejects NULL-hash fill when topic[1] offerer does not match recorded maker", async () => {
     mocks.supabaseState.storedRow = { seaport_order_hash: null, maker: OFFERER, status: "active" };
 
     mocks.fetchMock.mockResolvedValueOnce({
@@ -487,7 +496,7 @@ describe("orderbook fill — F10 legacy fallback path (NULL seaport_order_hash)"
     expect(statusSpy).toHaveBeenCalledWith(400);
   });
 
-  it("rejects legacy fill when log emitted from non-Seaport address", async () => {
+  it("rejects NULL-hash fill when log emitted from non-Seaport address", async () => {
     mocks.supabaseState.storedRow = { seaport_order_hash: null, maker: OFFERER, status: "active" };
 
     mocks.fetchMock.mockResolvedValueOnce({

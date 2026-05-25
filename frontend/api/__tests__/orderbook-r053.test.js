@@ -44,6 +44,18 @@ vi.mock("../_lib/seaport-verify.js", () => ({
   },
 }));
 
+// AUDIT FIX F10-FOLLOWUP: seaportOrderHash is now REQUIRED on create. This
+// suite mocks viem minimally (recover only), so the real seaportHash helper
+// (which needs viem's hashing primitives) can't run. Stub it deterministically:
+// computeSeaportOrderHash returns a fixed value and buildOrder() supplies the
+// same value, so the server's re-derive-and-compare check passes. (The literal
+// is inlined in the factory to dodge vi.mock's top-of-file hoisting.)
+vi.mock("../_lib/seaportHash.js", () => ({
+  computeSeaportOrderHash: vi.fn(() => "0x" + "c".repeat(64)),
+  isValidSeaportOrderHash: vi.fn((h) => typeof h === "string" && /^0x[0-9a-f]{64}$/.test(h)),
+}));
+const FIXED_SEAPORT_HASH = "0x" + "c".repeat(64);
+
 // Supabase client stub. Every chain call returns `this` so the .then()
 // terminator returns a configurable result. We track the inserted row.
 const insertedRows = [];
@@ -125,6 +137,10 @@ function buildOrder({ priceWei = "1000000000000000000", offerer = OFFERER } = {}
     signature: authSig,
     seaportSignature: seaportSig,
     protocol_address: "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC",
+    // AUDIT FIX F10-FOLLOWUP: now required on create; mocked seaportHash helper
+    // re-derives this exact value (see vi.mock above).
+    seaportOrderHash: FIXED_SEAPORT_HASH,
+    seaportCounter: "0",
   };
 }
 

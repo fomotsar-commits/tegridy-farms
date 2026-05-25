@@ -35,6 +35,21 @@ import { logSafe } from "./logSafe.js";
 // caps at on the response side.
 export const MAX_REQUEST_BODY_SIZE = 32 * 1024;
 
+// AUDIT FIX F1 (2026-05-25): treat Vercel preview AND production as "prod-like".
+// Vercel preview deploys inherit the production env (incl. secrets) but DO NOT
+// set NODE_ENV=production, so a bare `NODE_ENV !== "production"` check left the
+// origin gate WIDE OPEN on every preview URL — anyone could curl the preview
+// origin to burn the upstream aggregator quota or amplify arbitrary POSTs
+// through our trusted origin. Mirrors the prod-like gate in
+// supabase-proxy.js:172-174 and auth/me.js.
+function isProdLikeEnv() {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "preview" ||
+    process.env.VERCEL_ENV === "production"
+  );
+}
+
 // Origin allowlist mirroring alchemy.js / opensea.js / orderbook.js. Kept
 // in one place so security policy doesn't drift between proxies.
 function buildAllowedOrigins() {
@@ -46,7 +61,10 @@ function buildAllowedOrigins() {
     "https://tegridyfarms.vercel.app",
   ]);
   if (process.env.ALLOWED_ORIGIN) set.add(process.env.ALLOWED_ORIGIN);
-  if (process.env.NODE_ENV !== "production") {
+  // Only widen to localhost in genuine dev — never on a prod-like (preview /
+  // production) deploy, where an attacker-supplied `Origin: http://localhost`
+  // header would otherwise pass the gate.
+  if (!isProdLikeEnv()) {
     set.add("http://localhost:8742");
     set.add("http://localhost:3000");
     set.add("http://localhost:5173");
@@ -68,7 +86,9 @@ function buildAllowedOrigins() {
 //         supported by `buildAllowedOrigins`).
 function isOriginAllowed(origin) {
   const allowed = buildAllowedOrigins();
-  if (process.env.NODE_ENV !== "production") return true;
+  // AUDIT FIX F1: fail-closed on prod-like (production + Vercel preview), not
+  // just NODE_ENV==="production". See isProdLikeEnv() above.
+  if (!isProdLikeEnv()) return true;
   return allowed.has(origin);
 }
 

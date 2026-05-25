@@ -467,9 +467,21 @@ export default async function handler(req, res) {
       // path will reject anyway (Seaport emits the canonical hash on chain),
       // so this re-check is belt-and-suspenders to fail fast at create-time
       // rather than silently accept a wrong hash and DoS later fills.
+      // AUDIT FIX F10-FOLLOWUP (2026-05-25): seaportOrderHash is now REQUIRED.
+      // The fill verifier rejects every row whose seaport_order_hash is NULL
+      // (the old "legacy fallback" that matched on indexed offerer was removed
+      // because it let anyone replay a maker's past Seaport sale to mark an
+      // unrelated active listing as filled). Accepting a NULL-hash create
+      // therefore only produces a dead, unfilable listing that clutters the
+      // book until its TTL — a free griefing/footgun vector. Reject at create
+      // time instead. The frontend always supplies it
+      // (src/nakamigos/lib/orderbook.js), so legitimate flows are unaffected.
       let seaportOrderHash = null;
       const clientSeaportHash = order.seaportOrderHash;
-      if (clientSeaportHash !== undefined && clientSeaportHash !== null) {
+      if (clientSeaportHash === undefined || clientSeaportHash === null) {
+        return res.status(400).json({ error: "Missing seaportOrderHash — required so the order can be verified at fill time" });
+      }
+      {
         if (!isValidSeaportOrderHash(clientSeaportHash)) {
           return res.status(400).json({ error: "Invalid seaportOrderHash format (expected 0x + 64 lowercase hex)" });
         }
