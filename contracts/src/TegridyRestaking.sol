@@ -398,6 +398,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (_rewardToken == address(0)) revert ZeroAddress();
         if (_bonusRewardToken == address(0)) revert ZeroAddress();
         if (_rewardToken == _bonusRewardToken) revert RewardTokenMatchesBonusToken();
+        // AUDIT NOTE (2026-05-25 2nd pass): `_bonusRewardToken` MUST be a standard,
+        // non-callback ERC-20 (no ERC-777 `tokensReceived` / transfer hook). Reentrancy
+        // safety of every bonus payout already holds via the `nonReentrant` guards + CEI
+        // ordering (bonusDebt anchored BEFORE each transfer; `_safeBonusTransferExt` is a
+        // self-call inside a nonReentrant parent), so a hook token still cannot re-enter
+        // — but a non-hook bonus token is the intended deploy invariant. On-chain ERC-777
+        // detection is intentionally NOT added: best-effort ERC-1820/165 probing is
+        // bypassable and adds attack surface for a value the deployer fully controls at
+        // construction. Enforce via the deploy checklist (mirrors TegridyFactory's
+        // documented "standard ERC-20 only" envelope).
         staking = ITegridyStaking(_staking);
         stakingNFT = IERC721(_staking); // TegridyStaking IS the ERC721
         rewardToken = IERC20(_rewardToken);

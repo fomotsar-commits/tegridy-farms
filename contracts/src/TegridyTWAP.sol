@@ -6,6 +6,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 
 /// @title ITegridyPair — Minimal interface for TegridyPair reserve + cumulative queries
 /// @dev   AUDIT R014 (oracle layer, Wave-014): extended with `price0CumulativeLast` and
@@ -43,45 +44,21 @@ interface ITegridyFactoryForTWAP {
 ///   - MAX_STALENESS of 2 hours ensures consult() rejects stale data.
 ///   - Price deviation check rejects observations that deviate >=MAX_DEVIATION_BPS from
 ///     the previous, mitigating flash-loan manipulation of reserves.
-/// @dev Minimal Ownable2Step + timelock-style admin for the optional update fee.
-abstract contract TWAPAdmin {
-    address public owner;
-    address public pendingOwner;
-    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    error NotOwner();
-    error TWAPZeroAddress();
-    constructor() {
-        owner = msg.sender;
-        emit OwnershipTransferred(address(0), msg.sender);
-    }
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert TWAPZeroAddress();
-        pendingOwner = newOwner;
-        emit OwnershipTransferStarted(owner, newOwner);
-    }
-    function acceptOwnership() external {
-        if (msg.sender != pendingOwner) revert NotOwner();
-        address prev = owner;
-        owner = pendingOwner;
-        pendingOwner = address(0);
-        emit OwnershipTransferred(prev, owner);
-    }
-    function renounceOwnership() external pure {
-        revert("RENOUNCE_DISABLED");
-    }
-}
+// AUDIT FIX (2026-05-25 2nd pass): the bespoke `TWAPAdmin` (a minimal Ownable2Step that
+// LACKED the protocol-standard 14-day transfer expiry, `cancelOwnershipTransfer`, and
+// EIP-7702 reject) was removed in favour of the shared `OwnableNoRenounce` base used by
+// every other admin contract. `TegridyTWAP` now inherits it directly (see below), bringing
+// the oracle's ownership-transfer surface in line with the rest of the protocol. NOTE:
+// the per-pair `PAIR_RESET` timelock keys are not enumerable, so (as with every other
+// per-key TimelockAdmin consumer) a pending pair-reset is triaged by the new owner via
+// `cancelAdminResetPair` after handoff rather than auto-flushed.
 
 /// @dev AUDIT FIX D-AMM-L3: inherit ReentrancyGuard for defense-in-depth on
 ///      `update()` (refunds excess ETH) and `withdrawFees()` (sends fees to
 ///      recipient). CEI is preserved; nonReentrant is belt-and-suspenders.
 /// @dev AUDIT FIX D-AMM-H3: inherit TimelockAdmin for the new
 ///      `adminResetPair(pair)` recovery primitive (24h timelocked).
-contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
+contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     // ─── Types ───────────────────────────────────────────────────────
 
     /// @notice AUDIT R014 (oracle layer, Wave-014): widened cumulative slots from
@@ -298,7 +275,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime feed; pass
     ///                       `address(0)` for mainnet / non-L2 deployments to disable
     ///                       gating (no-op).
-    constructor(address _factory, address _sequencerFeed) {
+    constructor(address _factory, address _sequencerFeed) OwnableNoRenounce(msg.sender) {
         if (_factory == address(0)) revert TWAPZeroAddress();
         factory = ITegridyFactoryForTWAP(_factory);
         // R062: zero permitted (mainnet / non-L2 = gating disabled).
@@ -326,6 +303,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
     // ─── Errors ──────────────────────────────────────────────────────
 
+    /// @notice AUDIT FIX (2026-05-25 2nd pass): relocated here from the removed TWAPAdmin.
+    error TWAPZeroAddress();
     error PeriodNotElapsed();
     error NoReserves();
     error InsufficientObservations();
@@ -557,7 +536,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             //         Owner-only bootstrap forces an honest baseline at the
             //         single inflection point where there is no prior
             //         `lastSpot` to gate against.
-            if (msg.sender != owner) revert BypassObservationOwnerOnly();
+            if (msg.sender != owner()) revert BypassObservationOwnerOnly();
             bypassed = true;
             lastBypassUsed[pair] = block.timestamp;
             emit DeviationBypassed(pair, 0, spotPrice0, spotPrice1);
@@ -623,7 +602,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 //         all the way through the bootstrap-to-enforcement
                 //         transition. Once count > 2 the path is
                 //         permissionless again.
-                if (msg.sender != owner) revert BypassObservationOwnerOnly();
+                if (msg.sender != owner()) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
@@ -677,7 +656,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 // post-dormancy rebootstrap on tokens whose real price has
                 // drifted past the deviation cap during dormancy — see
                 // DEVIATION_BYPASS_AFTER.
-                if (msg.sender != owner) revert BypassObservationOwnerOnly();
+                if (msg.sender != owner()) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
@@ -997,7 +976,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         uint256 amount = accumulatedFees;
         if (amount == 0) revert NoFees();
         accumulatedFees = 0;
-        address to = feeRecipient == address(0) ? owner : feeRecipient;
+        address to = feeRecipient == address(0) ? owner() : feeRecipient;
         (bool ok,) = to.call{value: amount}("");
         require(ok, "WITHDRAW_FAILED");
         emit FeesWithdrawn(to, amount);
