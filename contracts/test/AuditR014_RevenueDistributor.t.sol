@@ -197,7 +197,7 @@ contract AuditR014_RevenueDistributorTest is Test {
         // extended cutoff (DUST_RECLAIM_GRACE + 30d), so active stakers keep headroom past
         // a monthly claim cadence. Warp past 44d so epoch 0 is fully reclaimable.
         _distribute(2 ether); // epoch 0: 2 ETH
-        vm.warp(block.timestamp + dist.DUST_RECLAIM_GRACE() + 30 days + 1);
+        vm.warp(block.timestamp + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1);
         _distribute(2 ether); // epoch 1: 2 ETH (destination)
 
         // Snapshot the destination epoch's totalETH BEFORE reconcile.
@@ -235,7 +235,7 @@ contract AuditR014_RevenueDistributorTest is Test {
         // Wait long enough that all earlier epochs are past their grace window AND
         // that MIN_DISTRIBUTE_INTERVAL has elapsed since the most recent distribute.
         // FIX REALIGN: autoReconcileDust now reclaims only epochs >44d (extended cutoff).
-        t += dist.DUST_RECLAIM_GRACE() + 30 days + 1;
+        t += dist.AUTO_RECLAIM_ABANDONED_AGE() + 1;
         vm.warp(t);
         _distribute(2 ether); // epoch 12 destination
 
@@ -279,7 +279,7 @@ contract AuditR014_RevenueDistributorTest is Test {
         // dead and only recovery can rescue her.
         ve.corrupt(carol);
 
-        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 30 days + 1); // FIX REALIGN: past 44d extended cutoff
+        vm.warp(t0 + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1); // FIX REALIGN: past 180d abandoned-age (permissionless reclaim threshold)
         _distribute(10 ether); // epoch 1 — destination
 
         // Admin proposes recovery for carol on the now-past-grace epoch 0.
@@ -321,7 +321,7 @@ contract AuditR014_RevenueDistributorTest is Test {
         // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         uint256 t0 = block.timestamp;
         _distribute(10 ether); // epoch 0
-        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 30 days + 1); // FIX REALIGN: past 44d extended cutoff
+        vm.warp(t0 + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1); // FIX REALIGN: past 180d abandoned-age (permissionless reclaim threshold)
         _distribute(10 ether); // epoch 1
         dist.autoReconcileDust();
         assertEq(dist.lastReconciledEpoch(), 1, "epoch 0 was reconciled");

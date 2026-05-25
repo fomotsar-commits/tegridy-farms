@@ -214,6 +214,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice AUDIT FIX FRESH-2026: F-04-3 — owner-only timelocked clear of
     ///         an abandoned residual claimant (e.g. lost-keys restaker).
     uint256 public constant CLEAR_RESIDUAL_TIMELOCK = 7 days;
+    /// @notice AUDIT FIX (2026-05-25 2nd pass): validity window after the timelock
+    ///         elapses, so an abandoned residual-clear proposal self-expires instead of
+    ///         staying executable forever (parity with sibling inline timelocks).
+    uint256 public constant CLEAR_RESIDUAL_VALIDITY = 7 days;
     struct PendingResidualClear {
         address newClaimant;
         uint256 executeAfter;
@@ -379,6 +383,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         residual-clear admin path.
     error NoPendingResidualClear();
     error ResidualClearTimelockNotElapsed();
+    /// @notice AUDIT FIX (2026-05-25 2nd pass): residual-clear proposal expired (past validity).
+    error ResidualClearExpired();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -1621,6 +1627,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         PendingResidualClear memory p = pendingResidualClears[tokenId];
         if (p.executeAfter == 0) revert NoPendingResidualClear();
         if (block.timestamp < p.executeAfter) revert ResidualClearTimelockNotElapsed();
+        // AUDIT FIX (2026-05-25 2nd pass): stale-proposal expiry — matches the 7-day
+        // validity every sibling inline timelock enforces, so a proposal from a since-
+        // rotated/compromised owner key cannot be executed an arbitrary time later.
+        if (block.timestamp > p.executeAfter + CLEAR_RESIDUAL_VALIDITY) revert ResidualClearExpired();
         address oldClaimant = _residualClaimant[tokenId];
         if (p.newClaimant == address(0)) {
             delete _residualClaimant[tokenId];

@@ -323,6 +323,10 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // AUDIT FIX (BATCH-L3 M4): 4h staleness on price-sensitive path.
         SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
         require(block.timestamp >= lastAccumulateTime + ACCUMULATE_COOLDOWN, "ACCUMULATE_COOLDOWN");
+        // AUDIT FIX (2026-05-25 2nd pass): stamp the cooldown BEFORE the external swap/add
+        // (CEI), matching SwapFeeRouter's conversion-cooldown ordering. Defense-in-depth on
+        // top of nonReentrant; if the swap path reverts, the whole tx (incl. this) rolls back.
+        lastAccumulateTime = block.timestamp;
         require(_deadline >= block.timestamp, "EXPIRED");
         // SECURITY FIX: Enforce tight deadline cap — accumulate() is high-value MEV target
         if (_deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
@@ -407,7 +411,6 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         totalLPCreated += lpReceived;
         totalAccumulations++;
 
-        lastAccumulateTime = block.timestamp;
         emit Accumulated(halfETH + ethUsed, tokenUsed, lpReceived);
     }
 

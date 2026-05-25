@@ -920,13 +920,6 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                 //         (returns 0 via try/catch + Trace208 length-0 path).
                 userPower += _restakedPowerAt(user, epoch.timestamp);
                 if (userPower > 0) {
-                    // AUDIT FIX FRESH-2026: F-REV-EXRESTAKER — only seal the
-                    //         per-epoch claim flag when the user actually had
-                    //         non-zero historical power. Zero-power epochs stay
-                    //         eligible for `proposeClaimRecovery` (which
-                    //         requires owner-attested non-zero `power` anyway,
-                    //         so this cannot enable double-credit).
-                    claimedAtEpoch[user][i] = true;
                     // Cap userPower to epoch.totalLocked to prevent over-payment
                     uint256 effectivePower = userPower > epoch.totalLocked ? epoch.totalLocked : userPower;
                     uint256 share = (epoch.totalETH * effectivePower) / epoch.totalLocked;
@@ -939,6 +932,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
                         share = remaining;
                     }
                     if (share > 0) {
+                        // AUDIT FIX FRESH-2026 F-REV-EXRESTAKER + (2026-05-25 2nd pass):
+                        //         seal the per-epoch claim flag ONLY when a non-zero share
+                        //         is actually paid. F-REV-EXRESTAKER first moved this inside
+                        //         `userPower > 0` to keep zero-POWER epochs eligible for
+                        //         `proposeClaimRecovery`; the 2nd-pass move further keeps
+                        //         zero-PAYOUT epochs eligible (power>0 but share==0 because
+                        //         the epoch pool was drained by autoReconcileDust or exhausted
+                        //         by the C-03 cap) — otherwise a corruption victim who claims
+                        //         0 would ALSO be sealed out of recovery via
+                        //         `AlreadyClaimedNormally`. The `lastClaimedEpoch` cursor still
+                        //         prevents normal re-traversal, so no double-credit is possible.
+                        claimedAtEpoch[user][i] = true;
                         epochClaimed[i] += share;
                         totalOwed += share;
                     }
@@ -1351,6 +1356,16 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     uint256 public constant DUST_RECLAIM_GRACE = 14 days;
     /// @notice Bound on how many epochs a single autoReconcileDust() call may scan.
     uint256 public constant MAX_AUTO_RECONCILE_EPOCHS = 10;
+    /// @notice AUDIT FIX (2026-05-25 2nd pass): the PERMISSIONLESS `autoReconcileDust`
+    ///         only reclaims epochs OLDER than this "abandoned" age. Set far beyond the
+    ///         owner-forfeit extendedCutoff (DUST_RECLAIM_GRACE + 30d = 44d) so that
+    ///         (1) active stakers (locks have NO claim deadline; incl. quarterly/semi-
+    ///         annual claimers) keep a long window before any permissionless reclaim
+    ///         touches their epoch, and (2) a late-discovered checkpoint-corruption
+    ///         victim still finds a FUNDED epoch when `proposeClaimRecovery` runs. The
+    ///         owner-forfeit path (timelocked + 1% lifetime cap) still handles the
+    ///         44d→180d window for legitimate dust cleanup, so dust is not left unbounded.
+    uint256 public constant AUTO_RECLAIM_ABANDONED_AGE = 180 days;
     /// @notice Cursor tracking the next epoch index to attempt auto-reconcile for.
     uint256 public lastReconciledEpoch;
 
@@ -1419,29 +1434,28 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         bool anyEligible = false;
         uint256 lastTouched = cursor;
 
-        // AUDIT FIX (autoReconcileDust hardening): this PERMISSIONLESS path must NOT
-        // reclaim revenue an active staker can still claim. Pre-fix it set
-        // `epochClaimed[i] = epoch.totalETH` at the 14-day mark, permanently stranding
-        // the revenue of any monthly/quarterly claimer (active stakers have NO claim
-        // deadline). Now it only reclaims epochs older than the 44-day EXTENDED cutoff
-        // (DUST_RECLAIM_GRACE + 30d) — the same full-reclaim threshold the owner-forfeit
-        // path uses (`_reclaimEligibleInRange` extendedCutoff). A documented monthly
-        // claimer (≤30d) therefore always keeps ≥14 days of headroom before any
-        // auto-reclaim can touch their epoch. Epochs newer than 44d are skipped entirely
-        // (intentionally STRONGER than the owner path's 14-44d half-window — correct for
-        // an unprivileged caller). The funds-based gate in `proposeClaimRecovery` (not
-        // this cursor) protects checkpoint-corruption recovery.
-        uint256 cutoff = block.timestamp > DUST_RECLAIM_GRACE ? block.timestamp - DUST_RECLAIM_GRACE : 0;
-        uint256 extendedCutoff = cutoff > 30 days ? cutoff - 30 days : 0;
+        // AUDIT FIX (autoReconcileDust hardening; re-hardened 2026-05-25 2nd pass): this
+        // PERMISSIONLESS path must NOT reclaim revenue an active staker can still claim.
+        // The original code drained epochs at the 14-day mark; the first fix raised that
+        // to 44 days (still exposed quarterly claimers and late-discovered corruption
+        // victims). It now reclaims ONLY epochs older than AUTO_RECLAIM_ABANDONED_AGE
+        // (180d). Active locks have NO claim deadline, so this gives quarterly/semi-annual
+        // claimers a long headroom, and a corruption victim a generous window in which
+        // `proposeClaimRecovery` still sees a FUNDED epoch (the funds-based recovery gate
+        // keys off `epochClaimed`, not this cursor). The owner-forfeit path (timelocked +
+        // 1% lifetime cap) still cleans the 44d→180d window, so dust is not left unbounded.
+        uint256 abandonBoundary = block.timestamp > AUTO_RECLAIM_ABANDONED_AGE
+            ? block.timestamp - AUTO_RECLAIM_ABANDONED_AGE
+            : 0;
 
         for (uint256 i = cursor; i < endEpoch; i++) {
             Epoch memory epoch = epochs[i];
 
-            // Reclaim gate — only epochs OLDER than the 44-day extended cutoff are
-            // eligible. Newer epochs (the entire <44d window, incl. 14-44d) are still
-            // claimable by active stakers, so we stop scanning and do NOT advance the
-            // cursor past them; subsequent calls retry once they age past 44d.
-            if (epoch.timestamp >= extendedCutoff) {
+            // Reclaim gate — only epochs OLDER than AUTO_RECLAIM_ABANDONED_AGE (180d) are
+            // eligible. Newer epochs are still claimable by active stakers (no deadline),
+            // so we stop scanning and do NOT advance the cursor past them; subsequent
+            // calls retry once they age past 180d.
+            if (epoch.timestamp >= abandonBoundary) {
                 if (!anyEligible) revert GracePeriodActive();
                 break;
             }
