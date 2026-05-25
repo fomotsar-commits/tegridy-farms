@@ -782,6 +782,23 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///         integrations or under-protect cautious ones. Both signals (`bypassed` flag +
     ///         `lastBypassUsed`) are surfaced verbatim so any consumer can implement its own
     ///         policy.
+    ///
+    /// @notice CONSUMER REQUIREMENT (idle-pair bridging — 2026-05-25 audit): the
+    ///         per-observation cumulative includes a `spot * elapsedSinceLastPairTouch`
+    ///         bridge term (R014 stale-pair freshness fix), bounded by MAX_BRIDGING_GAP
+    ///         and the per-step MAX_DEVIATION_BPS gate. On a pair that is idle between
+    ///         observations, a single gate-passing endpoint can weight the consult average
+    ///         toward a recently-manipulated spot. The manipulation must PERSIST across the
+    ///         idle gap (arbitrage-resisted) and the pair must clear the per-pair reserve
+    ///         floor, but `consult()` ALONE is NOT a manipulation-proof price. Every
+    ///         consumer MUST therefore (a) reject pairs below a meaningful reserve floor
+    ///         (see `effectiveMinReserveFloor`) AND (b) gate the read against live spot with
+    ///         a deviation bound — exactly the `_assertSpotNearTWAP` pattern POLAccumulator
+    ///         already applies (50 bps; the only in-tree consult() consumer). Do NOT consume
+    ///         `consult()` as a sole price oracle (e.g. lending valuation / liquidation)
+    ///         without that spot-vs-TWAP sanity gate. The bridge is intentionally NOT
+    ///         removed here: dropping it reintroduces the R014 stale-pair drift, and the
+    ///         spot-gate is the correct, battle-tested place to bound the residual.
     function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
         external
         view
