@@ -1718,6 +1718,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             uint256 shortfall = pending - cappedPending;
             if (shortfall > 0) {
                 uint256 actualSettled = _settleUnsettled(recipient, shortfall);
+                // AUDIT FIX L1: mirror kick() and _settleRewardsOnTransfer — when the
+                // shortfall is credited to a TRACKED holder (the restaking contract or a
+                // lending escrow), also record per-tokenId attribution so the slice can be
+                // pulled via claimUnsettledForTokenId. Without this it was permanently
+                // stranded: claimUnsettledFor reverts for tracked holders and
+                // claimUnsettledForTokenId reads a zero mapping. (Latent today since
+                // restaking is deferred to Phase 7, but correct before it ships.)
+                if (actualSettled > 0 && _isTrackedHolder(recipient)) {
+                    unsettledRewardsByTokenId[tokenId] += actualSettled;
+                }
                 uint256 forfeited = shortfall - actualSettled;
                 if (forfeited > 0) {
                     emit RewardsForfeited(recipient, forfeited);
