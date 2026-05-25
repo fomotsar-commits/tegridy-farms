@@ -726,6 +726,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX (sentinel short-circuit): getResumeTimestamp returns
+        // type(uint256).max on a stale L2 feed; surface a typed OracleStale revert
+        // instead of letting `resumeAt + SEQUENCER_GRACE_PERIOD` overflow into a
+        // checked-math Panic(0x11). Matches TegridyTWAP's own short-circuit. No-op on
+        // mainnet (feed == address(0) → resumeAt == 0).
+        if (resumeAt == type(uint256).max) revert OracleStale();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }
@@ -773,6 +779,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // R014 H-6: post-resume observation freshness. See dev-note above for the
         // attack model. resumeAt == 0 → mainnet no-op (skip the comparison).
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX (sentinel short-circuit): getResumeTimestamp returns
+        // type(uint256).max on a stale L2 feed; surface a typed OracleStale revert
+        // instead of letting `resumeAt + SEQUENCER_GRACE_PERIOD` overflow into a
+        // checked-math Panic(0x11). Matches TegridyTWAP's own short-circuit. No-op on
+        // mainnet (feed == address(0) → resumeAt == 0).
+        if (resumeAt == type(uint256).max) revert OracleStale();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }
@@ -813,6 +825,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
         // R014 H-6: same post-resume freshness gate as `_twapMinOut`.
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX (sentinel short-circuit): getResumeTimestamp returns
+        // type(uint256).max on a stale L2 feed; surface a typed OracleStale revert
+        // instead of letting `resumeAt + SEQUENCER_GRACE_PERIOD` overflow into a
+        // checked-math Panic(0x11). Matches TegridyTWAP's own short-circuit. No-op on
+        // mainnet (feed == address(0) → resumeAt == 0).
+        if (resumeAt == type(uint256).max) revert OracleStale();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }

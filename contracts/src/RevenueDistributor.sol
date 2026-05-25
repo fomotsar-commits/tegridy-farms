@@ -1419,13 +1419,29 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         bool anyEligible = false;
         uint256 lastTouched = cursor;
 
+        // AUDIT FIX (autoReconcileDust hardening): this PERMISSIONLESS path must NOT
+        // reclaim revenue an active staker can still claim. Pre-fix it set
+        // `epochClaimed[i] = epoch.totalETH` at the 14-day mark, permanently stranding
+        // the revenue of any monthly/quarterly claimer (active stakers have NO claim
+        // deadline). Now it only reclaims epochs older than the 44-day EXTENDED cutoff
+        // (DUST_RECLAIM_GRACE + 30d) — the same full-reclaim threshold the owner-forfeit
+        // path uses (`_reclaimEligibleInRange` extendedCutoff). A documented monthly
+        // claimer (≤30d) therefore always keeps ≥14 days of headroom before any
+        // auto-reclaim can touch their epoch. Epochs newer than 44d are skipped entirely
+        // (intentionally STRONGER than the owner path's 14-44d half-window — correct for
+        // an unprivileged caller). The funds-based gate in `proposeClaimRecovery` (not
+        // this cursor) protects checkpoint-corruption recovery.
+        uint256 cutoff = block.timestamp > DUST_RECLAIM_GRACE ? block.timestamp - DUST_RECLAIM_GRACE : 0;
+        uint256 extendedCutoff = cutoff > 30 days ? cutoff - 30 days : 0;
+
         for (uint256 i = cursor; i < endEpoch; i++) {
             Epoch memory epoch = epochs[i];
 
-            // Grace period gate — if the next-eligible epoch is still in its grace
-            // window, stop scanning. We do NOT advance the cursor past an in-grace
-            // epoch; subsequent calls will retry it once enough time has passed.
-            if (epoch.timestamp + DUST_RECLAIM_GRACE > block.timestamp) {
+            // Reclaim gate — only epochs OLDER than the 44-day extended cutoff are
+            // eligible. Newer epochs (the entire <44d window, incl. 14-44d) are still
+            // claimable by active stakers, so we stop scanning and do NOT advance the
+            // cursor past them; subsequent calls retry once they age past 44d.
+            if (epoch.timestamp >= extendedCutoff) {
                 if (!anyEligible) revert GracePeriodActive();
                 break;
             }
@@ -1449,11 +1465,13 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             anyEligible = true;
             lastTouched = i;
 
+            // Epoch is older than 44d → genuinely abandoned; reclaim the full unclaimed
+            // remainder. Bump (NOT set-to-total) the per-epoch high-water mark by exactly
+            // the reclaimed amount so the funds-based recovery gate reads it correctly
+            // (epochClaimed[i] reaches epoch.totalETH only once truly drained).
             uint256 dust = epoch.totalETH > epochClaimed[i] ? epoch.totalETH - epochClaimed[i] : 0;
             if (dust >= MIN_DUST_RECONCILE) {
-                // Mark the source epoch fully claimed so future claims/views correctly
-                // see no remaining share.
-                epochClaimed[i] = epoch.totalETH;
+                epochClaimed[i] += dust;
                 // ─── AUDIT FIX F-12-K-3 (LOW / fairness) ─────────────────────
                 // Pre-fix: `epochs[destEpoch].totalETH += dust` mutated the
                 // latest epoch's pool, locking out already-claimed users from
@@ -1538,12 +1556,15 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // recovery for zero-power-loop visitors and burned a 48h timelock window
         // before the executeClaimRecovery guards caught it.
         if (claimedAtEpoch[user][epoch]) revert AlreadyClaimedNormally();
-        // AUDIT REV-H-02 (HIGH): refuse proposals on epochs the auto-reconcile cursor
-        // has already passed. Once epoch < lastReconciledEpoch the source pool may
-        // have been emptied (epochClaimed[epoch] = epoch.totalETH), in which case
-        // executeClaimRecovery would revert NothingToClaim() — fail fast at propose
-        // time so admins do not waste a 48h timelock on a doomed proposal.
-        if (epoch < lastReconciledEpoch) revert EpochAlreadyReconciled();
+        // AUDIT FIX (recovery/cursor decoupling): gate recovery on whether the epoch
+        // pool is ACTUALLY empty, not on the autoReconcileDust cursor. Pre-fix the
+        // check was `epoch < lastReconciledEpoch`, so a cursor that merely passed a
+        // partially-reclaimed epoch permanently bricked recovery for a checkpoint-
+        // corruption victim — even though claimable funds remained. Now recovery only
+        // fast-fails when there is genuinely nothing left to draw (the high-water mark
+        // has reached epoch.totalETH), preserving the "don't burn a 48h timelock on a
+        // doomed proposal" intent without the false brick.
+        if (epochClaimed[epoch] >= epochs[epoch].totalETH) revert EpochAlreadyReconciled();
 
         Epoch memory ep = epochs[epoch];
         if (power > ep.totalLocked) revert PowerExceedsTotalLocked();

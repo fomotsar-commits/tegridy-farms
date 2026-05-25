@@ -193,10 +193,11 @@ contract AuditR014_RevenueDistributorTest is Test {
         // destination epoch's `totalETH`; it now lands in `protocolDustPool` and
         // becomes sweepable via the 48h-timelocked owner sweep path. The fairness
         // fix prevents racing-claimer advantages on the latest epoch.
-        // Distribute 2 ETH at t=t0, wait > DUST_RECLAIM_GRACE, distribute another 2 ETH.
-        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d to 14d.
+        // FIX REALIGN: autoReconcileDust now reclaims only epochs OLDER than the 44-day
+        // extended cutoff (DUST_RECLAIM_GRACE + 30d), so active stakers keep headroom past
+        // a monthly claim cadence. Warp past 44d so epoch 0 is fully reclaimable.
         _distribute(2 ether); // epoch 0: 2 ETH
-        vm.warp(block.timestamp + dist.DUST_RECLAIM_GRACE() + 1);
+        vm.warp(block.timestamp + dist.DUST_RECLAIM_GRACE() + 30 days + 1);
         _distribute(2 ether); // epoch 1: 2 ETH (destination)
 
         // Snapshot the destination epoch's totalETH BEFORE reconcile.
@@ -233,8 +234,8 @@ contract AuditR014_RevenueDistributorTest is Test {
         // Need a 13th epoch as the destination (cannot reconcile the latest into itself).
         // Wait long enough that all earlier epochs are past their grace window AND
         // that MIN_DISTRIBUTE_INTERVAL has elapsed since the most recent distribute.
-        // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
-        t += dist.DUST_RECLAIM_GRACE() + 1;
+        // FIX REALIGN: autoReconcileDust now reclaims only epochs >44d (extended cutoff).
+        t += dist.DUST_RECLAIM_GRACE() + 30 days + 1;
         vm.warp(t);
         _distribute(2 ether); // epoch 12 destination
 
@@ -278,7 +279,7 @@ contract AuditR014_RevenueDistributorTest is Test {
         // dead and only recovery can rescue her.
         ve.corrupt(carol);
 
-        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 1);
+        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 30 days + 1); // FIX REALIGN: past 44d extended cutoff
         _distribute(10 ether); // epoch 1 — destination
 
         // Admin proposes recovery for carol on the now-past-grace epoch 0.
@@ -320,13 +321,16 @@ contract AuditR014_RevenueDistributorTest is Test {
         // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         uint256 t0 = block.timestamp;
         _distribute(10 ether); // epoch 0
-        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 1);
+        vm.warp(t0 + dist.DUST_RECLAIM_GRACE() + 30 days + 1); // FIX REALIGN: past 44d extended cutoff
         _distribute(10 ether); // epoch 1
         dist.autoReconcileDust();
         assertEq(dist.lastReconciledEpoch(), 1, "epoch 0 was reconciled");
+        // FIX REALIGN: with the 44d gate, epoch 0 (>44d) is FULLY reclaimed, so the
+        // funds-based recovery gate (epochClaimed >= totalETH) now applies.
+        assertEq(dist.epochClaimed(0), 10 ether, "epoch 0 fully reclaimed (>44d)");
 
-        // Now any new recovery proposal on the reconciled epoch must be
-        // rejected fail-fast — the source pool is empty.
+        // Now any new recovery proposal on the drained epoch must be rejected
+        // fail-fast — the source pool is empty (funds-based gate).
         vm.expectRevert(RevenueDistributor.EpochAlreadyReconciled.selector);
         dist.proposeClaimRecovery(carol, 0, 50_000 ether);
     }

@@ -86,12 +86,26 @@ library StakingViewLib {
         uint256 rewardPerTokenStored,
         uint256 lastUpdateTime,
         uint256 rewardRate,
-        uint256 totalBoostedStake
+        uint256 totalBoostedStake,
+        uint256 available,
+        uint256 totalStaked,
+        uint256 totalUnsettledRewards
     ) public view returns (uint256) {
         if (p.boostedAmount == 0) return 0;
         uint256 currentAcc = rewardPerTokenStored;
         if (block.timestamp > lastUpdateTime && totalBoostedStake > 0) {
-            currentAcc += ((block.timestamp - lastUpdateTime) * rewardRate * ACC_PRECISION) / totalBoostedStake;
+            // AUDIT FIX (earned pool-cap): mirror StakingRewardLib.accumulateRewards —
+            // the live accrual caps the elapsed reward to the unreserved pool
+            // (balance - totalStaked - totalUnsettledRewards). Pre-fix this view advanced
+            // currentAcc by the full `elapsed * rewardRate` with NO cap, over-reporting
+            // claimable vs what `getReward` actually pays whenever the pool is under-funded.
+            uint256 reward = (block.timestamp - lastUpdateTime) * rewardRate;
+            uint256 reserved = totalStaked + totalUnsettledRewards;
+            uint256 rewardPool = available > reserved ? available - reserved : 0;
+            if (reward > rewardPool) reward = rewardPool;
+            if (reward > 0) {
+                currentAcc += (reward * ACC_PRECISION) / totalBoostedStake;
+            }
         }
         int256 diff = int256((p.boostedAmount * currentAcc) / ACC_PRECISION) - p.rewardDebt;
         return diff > 0 ? uint256(diff) : 0;

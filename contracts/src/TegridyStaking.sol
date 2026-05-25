@@ -738,7 +738,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX M-01 (expired-position accrual) preserved inside StakingViewLib.earned;
         // body delegated there (C1 EIP-170 split).
         return StakingViewLib.earned(
-            positions[tokenId], rewardPerTokenStored, lastUpdateTime, rewardRate, totalBoostedStake
+            positions[tokenId], rewardPerTokenStored, lastUpdateTime, rewardRate, totalBoostedStake,
+            rewardToken.balanceOf(address(this)), totalStaked, totalUnsettledRewards
         );
     }
 
@@ -1616,6 +1617,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         Rewards are stored in a mapping during transfer to prevent reverts.
     /// @dev AUDIT FIX v2: Retains unsettled amount on partial payout instead of zeroing
     function claimUnsettled() external nonReentrant whenNotPaused {
+        // AUDIT FIX (guard symmetry): tracked holders (restakingContract + whitelisted
+        // lending contracts) MUST drain only via `claimUnsettledForTokenId` so the
+        // per-tokenId backing stays in lockstep with the holder bucket. Without this,
+        // a tracked-holder contract calling `claimUnsettled()` would zero its bucket
+        // while leaving `unsettledRewardsByTokenId[*]` dangling — permanently bricking
+        // every restaker/borrower's per-tokenId recovery. Mirrors the identical guard
+        // in `claimUnsettledFor`.
+        if (_isTrackedHolder(msg.sender)) revert Unauthorized();
         _claimUnsettledInternal(msg.sender);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
     }

@@ -2180,6 +2180,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         // (mainnet, address(0) feed) short-circuits this comparison.
         if (sequencerFeed != address(0)) {
             uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+            // AUDIT FIX (sentinel short-circuit): typed revert on the stale-feed
+            // sentinel (type(uint256).max) instead of a checked-math Panic on
+            // `resumeAt + SEQUENCER_GRACE_PERIOD`. No-op on mainnet (feed == 0).
+            if (resumeAt == type(uint256).max) revert TWAPBootstrapRequired();
             if (resumeAt != 0 && prev.timestamp != 0 && uint256(prev.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
                 revert TWAPBootstrapRequired();
             }

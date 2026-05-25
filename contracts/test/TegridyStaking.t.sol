@@ -906,6 +906,11 @@ contract TegridyStakingTest is Test {
 
         // 5. Bob earns rewards again going forward — the pre-fix bug left him
         //    locked-forward at zero boost, so this would have been 0.
+        //    NOTE (earned() pool-cap fix): the 4-year getReward above drained the entire
+        //    funded reward pool to Bob, so earned() now correctly reads 0 from an empty
+        //    pool (it mirrors what getReward would actually pay). Re-fund so the "earns
+        //    again going forward" property is actually exercisable.
+        staking.notifyRewardAmount(1_000_000 ether);
         vm.warp(block.timestamp + 1000);
         assertGt(staking.earned(tokenId), 0, "position must earn after the fix");
     }
