@@ -695,8 +695,13 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // when the underlying conditions for that honest cumulative are
         // not met (frozen disable interval / unrefreshed reserves during
         // a sequencer outage).
+        // AUDIT FIX L5: track whether THIS observation's bypass was FORCED by an
+        // outage / bridging-gap trip (the permissionless path) so the honest
+        // deviation baseline can be preserved below.
+        bool forcedBypass;
         if (!bypassed && (bridgingGapTrip || sequencerOutage)) {
             bypassed = true;
+            forcedBypass = true;
             lastBypassUsed[pair] = block.timestamp;
             uint32 elapsedForEvent;
             unchecked {
@@ -706,8 +711,17 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         }
 
         // R012: capture the spot prices for the next deviation gate (H-1/H-2).
-        lastSpot0[pair] = spotPrice0;
-        lastSpot1[pair] = spotPrice1;
+        // AUDIT FIX L5: do NOT overwrite the baseline when the bypass was FORCED by a
+        // sequencer outage / bridging-gap trip. During an outage the spot is derived
+        // from frozen/unrefreshed reserves; writing it would let a post-resume attacker
+        // (first in the queue) pin a manipulated baseline and brick honest updates via
+        // the deviation gate until the dormancy/admin-reset path heals. Bootstrap and
+        // owner-deviation bypass paths set `bypassed` before this block, so
+        // `forcedBypass` stays false and they still refresh the baseline.
+        if (!forcedBypass) {
+            lastSpot0[pair] = spotPrice0;
+            lastSpot1[pair] = spotPrice1;
+        }
 
         uint8 idx = observationIndex[pair];
         observations[pair][idx] = Observation({
