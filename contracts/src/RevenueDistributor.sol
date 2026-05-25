@@ -1337,25 +1337,6 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         emit ForfeitReclaimCancelled();
     }
 
-    /// @notice Reconcile rounding dust trapped inside totalEarmarked.
-    ///         Per-epoch share calculations round down, so sum(claimed) < totalEarmarked.
-    ///         This function reduces totalEarmarked to match actual obligations, freeing
-    ///         the trapped dust for sweepDust().
-    ///         AUDIT FIX H-03: Removed totalBoostedStake == 0 requirement which made this
-    ///         function uncallable in a healthy protocol (stakers always present).
-    ///         Increased dust cap from 0.01 to 1 ether to handle long-running accumulation.
-    ///         The owner-only + gap-cap guards prevent abuse.
-    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
-    ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
-    function reconcileRoundingDust() external onlyOwner whenNotPaused {
-        uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
-        require(gap <= 1 ether, "GAP_TOO_LARGE");
-        if (gap == 0) revert NoDustToSweep();
-        totalForfeited += gap;
-        totalEarmarked = totalClaimed;
-        emit DustSwept(treasury, gap);
-    }
-
     // ─── Auto Dust Reconcile (AUDIT R014 M-8) ─────────────────────────
     /// @notice Minimum per-epoch dust threshold to consider for auto-reconcile.
     uint256 public constant MIN_DUST_RECONCILE = 0.01 ether;

@@ -602,14 +602,6 @@ contract Audit195Revenue is Test {
         ve.removeLock(bob);
         ve.removeLock(carol);
 
-        // Reconcile if needed
-        uint256 gap = dist.totalEarmarked() > dist.totalClaimed()
-            ? dist.totalEarmarked() - dist.totalClaimed()
-            : 0;
-        if (gap > 0 && gap <= 0.01 ether) {
-            dist.reconcileRoundingDust();
-        }
-
         // Now sweep
         uint256 tb = treasury.balance;
         dist.sweepDust();
@@ -643,42 +635,6 @@ contract Audit195Revenue is Test {
 
         vm.expectRevert(RevenueDistributor.ZeroAddress.selector);
         dist.proposeTokenSweep(address(token), address(0));
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  15. Reconcile rounding dust
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function test_reconcileRoundingDust() public {
-        _distributeN(3, 1 ether);
-
-        // All claim
-        vm.prank(alice);
-        dist.claim();
-        vm.prank(bob);
-        dist.claim();
-        vm.prank(carol);
-        dist.claim();
-
-        // Remove all locks
-        ve.removeLock(alice);
-        ve.removeLock(bob);
-        ve.removeLock(carol);
-
-        uint256 gap = dist.totalEarmarked() - dist.totalClaimed();
-        if (gap > 0 && gap <= 0.01 ether) {
-            dist.reconcileRoundingDust();
-            assertEq(dist.totalEarmarked(), dist.totalClaimed(), "reconciled");
-        }
-    }
-
-    function test_reconcileRoundingDust_fails_if_users_staking() public {
-        _distributeN(3, 1 ether);
-        vm.prank(alice);
-        dist.claim();
-
-        vm.expectRevert(); // "USERS_STILL_STAKING"
-        dist.reconcileRoundingDust();
     }
 
     // ═══════════════════════════════════════════════════════════════════════

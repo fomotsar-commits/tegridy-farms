@@ -309,26 +309,6 @@ contract RevenueDistributorTest is Test {
         dist.claim();
     }
 
-    // ===== RECONCILE ROUNDING DUST =====
-
-    function test_reconcileRoundingDust_reverts_when_users_staking() public {
-        // Distribute some ETH to create earmarked amounts
-        (bool ok,) = address(dist).call{value: 1 ether}("");
-        assertTrue(ok);
-        dist.distribute();
-
-        // AUDIT FIX M-09: USERS_STILL_STAKING check was removed. The gap (1 ether)
-        // is within the 1 ether GAP_TOO_LARGE threshold, so the function now succeeds.
-        // Verify reconcileRoundingDust works and zeroes the gap.
-        uint256 earmarkedBefore = dist.totalEarmarked();
-        assertGt(earmarkedBefore, 0, "earmarked should be non-zero before reconcile");
-
-        dist.reconcileRoundingDust();
-
-        // After reconciliation, totalEarmarked == totalClaimed (gap zeroed)
-        assertEq(dist.totalEarmarked(), dist.totalClaimed(), "gap should be zeroed after reconcile");
-    }
-
     // ===== M-09: DISTRIBUTE COOLDOWN =====
 
     function test_revert_distribute_withinCooldown() public {
