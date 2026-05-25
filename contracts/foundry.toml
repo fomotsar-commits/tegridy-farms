@@ -4,14 +4,25 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.26"
 optimizer = true
-# mvp-launch: after the 15-contract MVP cut, runs restored to 200 — the canonical
-# OpenZeppelin / Solady / Solmate value. Pre-cut the value was pinned to 1 to
-# squeeze TegridyStaking under the EIP-170 24,576-byte limit. With Lending /
-# NFTLending / Gauges / Vote / Drop / Launchpad moved to the next-wave branch,
-# the remaining 15 MVP contracts have enough headroom that runs=200 is safe AND
-# removes the runtime-gas tax users were paying on every call.
-# If a future change pushes any MVP contract back over 24KB, the right answer
-# is to split that contract, NOT to drop runs again.
+# mvp-launch: runs = 200 (the canonical OpenZeppelin / Solady / Solmate value).
+# This is the correct runtime-gas optimum; it is NOT a size lever. EIP-170
+# compliance for the heavy contracts is achieved by CONTRACT SPLITTING, not by
+# dropping runs (dropping runs to 1 only saved ~1.2KB and never brought
+# TegridyStaking under 24,576 — confirmed during the 2026-05-24 re-audit).
+#
+# TegridyStaking: brought under EIP-170 (24,505 B at runs=200, ~71 B headroom)
+#   by the C1 split — the read-only view/math cluster lives in
+#   src/lib/StakingViewLib.sol and the live reward-accounting cluster
+#   (_accumulateRewards / _getReward / kick / _settleRewardsOnTransfer /
+#   _settleUnsettled / claimUnsettled* / _afterTokenTransfer) lives in
+#   src/lib/StakingRewardLib.sol, both linked via delegatecall.
+# TegridyRestaking: still ~29.5 KB — DEFERRED to Phase 7 (removed from the MVP
+#   DeployMVP/VerifyMVP path). It MUST be split + deployed + wired before
+#   restaking opens; it is the only remaining contract over EIP-170.
+#
+# If a future change pushes any LIVE-on-mainnet contract back over 24,576, the
+# right answer is to split that contract (extract to a linked library), NOT to
+# drop runs.
 optimizer_runs = 200
 # via_ir kept on: SwapFeeRouter still has paths deep enough to need IR scheduling.
 via_ir = true

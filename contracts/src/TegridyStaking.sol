@@ -50,6 +50,9 @@ import {PauseGuardian} from "./base/PauseGuardian.sol";
 // AUDIT FIX (C1 EIP-170 split): Position struct + read-only view/math extracted to a
 // linked (delegatecall) library to bring runtime bytecode under the 24,576-byte limit.
 import {Position, StakingViewLib} from "./lib/StakingViewLib.sol";
+// AUDIT FIX (C1 EIP-170 split): the LIVE reward-accounting cluster extracted to a
+// linked (delegatecall) library to bring runtime bytecode under the 24,576-byte limit.
+import {StakingRewardLib} from "./lib/StakingRewardLib.sol";
 
 /// @dev AUDIT FIX H8: Minimal interface for restaking-aware view functions
 interface ITegridyRestakingView {
@@ -321,8 +324,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         failures; this record handles VAULT-side failures. JBAC stays
     ///         physically at the vault; the user retries via
     ///         `retryReturnJbacFromVault` when the vault path heals.
-    mapping(uint256 => address) public strandedJbacAtVaultOwner;
-    mapping(uint256 => uint256) public strandedJbacAtVaultId;
+    // AUDIT FIX (C1 EIP-170 split): visibility lowered public→internal to reclaim the
+    // auto-getter bytecode (the final ~52B under the 24,576 limit). Zero off-chain
+    // readers exist (verified repo-wide); the stranded record is observable via the
+    // JbacReturnDeferred / JbacReturnRetried events, and recovery goes through
+    // retryReturnJbacFromVault. Same de-getter pattern used across batch-14.
+    mapping(uint256 => address) internal strandedJbacAtVaultOwner;
+    mapping(uint256 => uint256) internal strandedJbacAtVaultId;
 
     // AUDIT FIX (pass-8): test/off-chain ABI compatibility shim. Internal
     // mapping uses `_` prefix to free the public name; this view surfaces
@@ -585,11 +593,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit JbacReturnRetried(stakingTokenId, to, jId);
     }
 
-    // V2: Simplified — dead penalty variables removed
-    function _reserved() internal view returns (uint256) {
-        return totalStaked + totalUnsettledRewards;
-    }
-
+    // C1 EIP-170 split: `_reserved()` and `_settleUnsettled()` moved into
+    // StakingRewardLib (their only callers — the reward cluster — now delegate there).
+    // `_decayIfExpired` is kept here (and called by the host `kick` wrapper AFTER the
+    // library settles): the library `kick` cannot also take the checkpoint/voting
+    // storage refs without exceeding the via-IR stack depth, so the decay tail runs
+    // host-side. `getReward` keeps its decay in the library (it sits mid-function).
     /// @notice V2: Lazy boost decay — zero out boostedAmount for expired locks on interaction.
     ///         Prevents expired positions from diluting active stakers' rewards.
     ///         Pattern: Curve veCRV uses linear decay; we use cliff decay (zero on expiry).
@@ -756,27 +765,40 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      window's `elapsed * rewardRate` to whoever was first to act — letting the
     ///      front-running claimer capture pause-window emission that the protocol
     ///      explicitly froze. Mirrors Compound `Comptroller.setMintPaused` semantics.
+    // ─── C1 EIP-170 split: reward-state marshalling choke-points ─────────
+    // Standalone scalar state vars cannot be passed to a delegatecall library by
+    // storage reference, so the reward cluster is marshalled through these two
+    // helpers: load the four mutable scalars into a memory struct, let the library
+    // mutate them, then write ALL FOUR back in one place. Routing every cluster
+    // wrapper through the SAME store helper makes a dropped write-back impossible.
+    function _loadRewardState() private view returns (StakingRewardLib.RewardState memory rs) {
+        rs.rewardPerTokenStored = rewardPerTokenStored;
+        rs.lastUpdateTime = lastUpdateTime;
+        rs.totalBoostedStake = totalBoostedStake;
+        rs.totalUnsettledRewards = totalUnsettledRewards;
+    }
+
+    function _storeRewardState(StakingRewardLib.RewardState memory rs) private {
+        rewardPerTokenStored = rs.rewardPerTokenStored;
+        lastUpdateTime = rs.lastUpdateTime;
+        totalBoostedStake = rs.totalBoostedStake;
+        totalUnsettledRewards = rs.totalUnsettledRewards;
+    }
+
+    function _rewardCfg() private view returns (StakingRewardLib.Cfg memory cfg) {
+        cfg.totalStaked = totalStaked;
+        cfg.maxUnsettledRewards = maxUnsettledRewards;
+        cfg.rewardRate = rewardRate;
+        cfg.rewardToken = rewardToken;
+        cfg.restakingContract = restakingContract;
+        cfg.isPaused = paused();
+    }
+
     function _accumulateRewards() private {
-        uint256 _totalBoosted = totalBoostedStake;
-        if (block.timestamp > lastUpdateTime && _totalBoosted > 0 && !paused()) {
-            uint256 elapsed = block.timestamp - lastUpdateTime;
-            uint256 reward = elapsed * rewardRate;
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            if (available > reserved) {
-                uint256 rewardPool = available - reserved;
-                if (reward > rewardPool) reward = rewardPool;
-            } else {
-                reward = 0;
-            }
-            if (reward > 0) {
-                rewardPerTokenStored += (reward * ACC_PRECISION) / _totalBoosted;
-            }
-        }
-        // Advance even while paused so the next post-unpause call doesn't credit
-        // the pause window. This is the "skip pause-window emission" half of the
-        // Compound pattern.
-        lastUpdateTime = block.timestamp;
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        rs = StakingRewardLib.accumulateRewards(rs, _rewardCfg());
+        _storeRewardState(rs);
     }
 
     modifier updateReward() {
@@ -1301,120 +1323,30 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.amount == 0) revert NoPosition(); // DEEP-DS-07
         uint256 prior = p.boostedAmount;
         if (prior == 0 || p.lockEnd == 0 || block.timestamp < p.lockEnd) revert NoOpKick(); // DEEP-DS-07
-        _accumulateRewards();
-        // DEEP-DS-02: capture and settle pre-expiry rewards BEFORE decay.
+        // C1 EIP-170 split: the settle/forfeit body is delegated to StakingRewardLib
+        // (behaviour-identical). Guards + `prior` capture stay here; `holder =
+        // ownerOf(tokenId)` is resolved here (ownership storage is not reachable from a
+        // delegatecall lib). The decay + post-decay checkpoint + PositionKicked emit run
+        // host-side AFTER the library settles — keeping the library `kick` under the
+        // via-IR stack-depth limit and preserving the exact original ordering
+        // (settle pre-expiry rewards, then decay boost, then write the post-state).
         address holder = ownerOf(tokenId);
-        int256 accumulated = _safeInt256((prior * rewardPerTokenStored) / ACC_PRECISION);
-        int256 diff = accumulated - p.rewardDebt;
-        // AUDIT FIX: DS2-01 — DO NOT advance p.rewardDebt yet; we need to know
-        // how much actually got credited before we can advance the anchor safely.
-        if (diff > 0) {
-            uint256 pending = uint256(diff);
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            uint256 rewardPool = available > reserved ? available - reserved : 0;
-            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
-            // AUDIT FIX: DS2-02 — emit rewardPool shortfall event so off-chain monitors
-            // detect under-funded reward pools at kick time (rather than silent drop).
-            if (pending > cappedPending) {
-                emit KickRewardPoolShortfall(holder, pending, cappedPending);
-            }
-            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-            // slither-disable-next-line uninitialized-local
-            uint256 totalSettled;
-            if (cappedPending > 0) {
-                uint256 actualSettled = _settleUnsettled(holder, cappedPending);
-                if (actualSettled > 0) {
-                    emit RewardPaid(holder, tokenId, actualSettled);
-                    totalSettled += actualSettled;
-                    // AUDIT FIX C-1: when the credited holder is the restaking
-                    // contract, also record per-tokenId attribution so the
-                    // restaker can later pull only their slice (instead of
-                    // racing the shared bucket via `claimUnsettled()`).
-                    // AUDIT FIX D-LD-H1: extended to lending contracts. Pre-fix,
-                    // a permissionless kick on one borrower's escrowed NFT
-                    // credited unsettledRewards[lending], which a DIFFERENT
-                    // repaying borrower's claimUnsettled() then drained — that
-                    // borrower's pre-kick reward slice landed in the lending
-                    // contract's "donated" pool instead of their owed bucket.
-                    // _isTrackedHolder() consolidates the gate so every future
-                    // bucket-tracking holder (e.g., new escrow contract) gets
-                    // attribution for free. Mirrors the restakingContract C-1 fix.
-                    if (_isTrackedHolder(holder)) {
-                        unsettledRewardsByTokenId[tokenId] += actualSettled;
-                    }
-                }
-            }
-            // AUDIT FIX: DS2-02 — route the rewardPool shortfall through
-            // `_settleUnsettled` too (parity with `_getReward` shortfall handling).
-            // Without this, an under-funded contract silently dropped the entire
-            // post-pool slice on every kick, with no event and no recovery.
-            uint256 shortfall = pending - cappedPending;
-            if (shortfall > 0) {
-                uint256 actualSettledShortfall = _settleUnsettled(holder, shortfall);
-                if (actualSettledShortfall > 0) {
-                    totalSettled += actualSettledShortfall;
-                    // AUDIT FIX C-1: same per-tokenId attribution for the
-                    // shortfall-path credits.
-                    // AUDIT FIX D-LD-H1: extended to lending contracts (see
-                    // primary kick-path attribution above for full rationale).
-                    if (_isTrackedHolder(holder)) {
-                        unsettledRewardsByTokenId[tokenId] += actualSettledShortfall;
-                    }
-                }
-            }
-            // AUDIT FIX (BATCH-J2 H8): revert kick when ANY portion of pending
-            // rewards would be forfeited. Pre-fix, the forfeited slice was
-            // emitted via RewardsForfeitedDuringKick + RewardsForfeited and
-            // PERMANENTLY DESTROYED for the kicked holder (the slice re-accrued
-            // to all active stakers via the next _accumulateRewards cycle —
-            // positive-sum protocol but zero-sum for the holder). Attacker
-            // could frontrun a whale's claim, kick the tokenId, saturate the
-            // 100k unsettled cap, and burn the whale's surplus.
-            // Curve LiquidityGaugeV4.kick NEVER forfeits — it credits the
-            // FULL pending slice into integrate_fraction unconditionally.
-            // Mirror that semantic here: if we cannot fully credit the
-            // pending amount (because reward-pool shortfall + unsettled cap
-            // collectively block it), abort the kick. The holder retains
-            // their boost (anti-dilution defense weakens when bucket is
-            // saturated), and a subsequent kick after the holder claims
-            // succeeds. NEVER destroy user value silently.
-            if (totalSettled < pending) revert KickWouldForfeit();
-            // AUDIT FIX: DS2-01 — advance p.rewardDebt by ONLY the actually-credited
-            // slice.
-            // AUDIT FIX DS3-04: previous NatSpec falsely claimed "forfeited
-            // portion stays claimable once room is freed" — that's NOT true.
-            // The forfeited slice (`forfeitedTotal`) is PERMANENTLY LOST. When
-            // we advance `p.rewardDebt` by `totalSettled` only, the next
-            // `_getReward` call will compute `accumulated - p.rewardDebt = 0`
-            // (since `accumulated` and `p.rewardDebt` only differ by the
-            // already-credited portion) and the forfeited slice never re-enters
-            // the calc. Implementing the true "claimable later" semantic would
-            // require a per-position forfeit-debt mapping plus reconciliation,
-            // which is out of scope. The honest contract is: holders who want
-            // ALL their rewards must call `getReward` BEFORE lock expiry; kick
-            // is an anti-dilution primitive with explicit forfeit semantics.
-            if (totalSettled > 0) {
-                p.rewardDebt = p.rewardDebt + _safeInt256(totalSettled);
-                // AUDIT FIX: DS2-03 — refresh holder's activity timestamp; we just
-                // credited unsettledRewards[holder] from a non-claim, holder-not-
-                // msg.sender path. Mirrors DS-04's _touch(from) in
-                // _settleRewardsOnTransfer so the R014 M-9 invariant ("every reward-
-                // touching path that materially affects unsettled rewards for `user`
-                // must `_touch(user)`") holds on the parallel kick code path.
-                _touch(holder);
-            }
-        }
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        rs = StakingRewardLib.kick(
+            rs,
+            p,
+            tokenId,
+            holder,
+            prior,
+            unsettledRewards,
+            unsettledRewardsByTokenId,
+            isLendingContract,
+            lastActivityAt,
+            _rewardCfg()
+        );
+        _storeRewardState(rs);
         _decayIfExpired(tokenId, p);
-        // AUDIT FIX DS3-06: write a checkpoint between settle and decay so the
-        // holder's voting power record correctly reflects the post-decay state.
-        // Without this, RevenueDistributor lookups in the same block could read
-        // a stale checkpoint until the next reward-touching path runs.
-        // _decayIfExpired internally calls _writeCheckpoint(ownerOf(tokenId)),
-        // but we re-call here defensively to ensure the post-state is the
-        // recorded one even if a future _decayIfExpired refactor skips the
-        // checkpoint write.
-        _writeCheckpoint(holder);
+        _writeCheckpoint(holder); // DS3-06: record the post-decay voting power
         emit PositionKicked(tokenId, msg.sender, prior - p.boostedAmount);
     }
 
@@ -1548,92 +1480,28 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      position-tracking + checkpoint writes + autoMaxLock reset +
     ///      emergencyExit cleanup happen here.
     function _afterTokenTransfer(address from, address to, uint256 id) internal virtual override {
-        // AUDIT FIX M-5 (full aggregation) preserved: maintain the per-owner
-        // position set so votingPowerOf can correctly aggregate multi-NFT
-        // holders. The set is the source of truth for voting power.
-        if (from != address(0)) {
-            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
-            // slither-disable-next-line unused-return
-            _positionsByOwner[from].remove(id);
-        }
+        // C1 EIP-170 split: per-owner set / userTokenId / autoMaxLock / emergency-exit
+        // bookkeeping delegated to StakingRewardLib (behaviour-identical, no reward-scalar
+        // marshalling). The voting-power checkpoints + paused-conditional touch run here
+        // AFTER the library returns — they sit after BOTH set updates so the recorded
+        // values are identical, and host-side keeps the library under the via-IR stack limit.
+        StakingRewardLib.afterTokenTransfer(
+            from,
+            to,
+            id,
+            _positionsByOwner,
+            positions,
+            userTokenId,
+            _emergencyExitRequests,
+            isLendingContract,
+            restakingContract
+        );
+        if (from != address(0)) _writeCheckpoint(from);
         if (to != address(0)) {
-            // Enforce the per-holder cap BEFORE the EOA AlreadyHasPosition guard.
-            // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
-            //         the `MAX_POSITIONS_PER_HOLDER` cap exists to bound the O(n)
-            //         iteration in `votingPowerOf` / `aggregateActiveBoostBps`.
-            //         The restaking contract and whitelisted lending contracts
-            //         already short-circuit those views to 0 (see lines 550, 621
-            //         below — extended to lending contracts in the same fix), so
-            //         the cap protects nothing for them while structurally
-            //         capping the restaking module + lending market at 50 users
-            //         (pool TVL ceiling = 50 × MIN_STAKE). Mirrors the existing
-            //         `escrowHop` carve-outs at lines 1494/1501.
-            bool isEscrowTo = (to == restakingContract) || isLendingContract[to];
-            if (!isEscrowTo && _positionsByOwner[to].length() >= MAX_POSITIONS_PER_HOLDER) {
-                revert TooManyPositions();
-            }
-            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
-            // slither-disable-next-line unused-return
-            _positionsByOwner[to].add(id);
-        }
-
-        // AUDIT FIX #2 preserved: Prevent overwriting an existing position for EOAs.
-        // Contracts (e.g. TegridyRestaking) may hold multiple position NFTs,
-        // so the guard only applies to externally-owned accounts.
-        // AUDIT NEW-L2 (HIGH) preserved: when the NFT returns to its original
-        // owner from a whitelisted lending contract, the borrower may have
-        // re-staked in the meantime — relax the guard so the round-trip closes.
-        // AUDIT FIX FRESH-2026: F-60-3 [LOW] — also treat EIP-7702 delegated
-        // EOAs (code.length == 23) as EOAs so the safety rail still fires
-        // post-Pectra. Without this, a 7702 user with an existing position can
-        // silently receive a second NFT and lose `userTokenId` resolution to
-        // the older one.
-        uint256 toCodeLen = to.code.length;
-        if (
-            to != address(0) &&
-            userTokenId[to] != 0 &&
-            (toCodeLen == 0 || toCodeLen == 23) &&
-            !isLendingContract[from]
-        ) revert AlreadyHasPosition();
-
-        // AUDIT TF-07 (Spartan MEDIUM) preserved: only reset autoMaxLock on a
-        // genuine ownership change. Round-trips through whitelisted lending or
-        // the restaking contract preserve the user's autoMaxLock preference.
-        bool escrowHop =
-            isLendingContract[from] || isLendingContract[to] ||
-            from == restakingContract || to == restakingContract;
-        if (from != address(0)) {
-            if (!escrowHop) {
-                positions[id].autoMaxLock = false;
-            }
-            delete _emergencyExitRequests[id];
-            userTokenId[from] = 0;
-            _writeCheckpoint(from);
-        }
-        if (to != address(0)) {
-            // AUDIT FIX M-5 preserved: emit MultipleNFTsAtAddress when a non-restaking
-            // contract receives a second+ staking NFT.
-            if (to.code.length > 0 && to != restakingContract && userTokenId[to] != 0) {
-                emit MultipleNFTsAtAddress(to, id, userTokenId[to]);
-            }
-            userTokenId[to] = id;
             _writeCheckpoint(to);
-            // AUDIT FIX 2026-05-20 M16-REVISED: paused-conditional skip mirrors the
-            // request/cancelEmergencyExit patch from M16 batch 5 (2026-05-16). Pre-fix
-            // attack path: direct self-transfer is blocked by the M-5
-            // `AlreadyHasPosition` guard above, but the BOUNCE pattern slips it —
-            // attacker with a >24h-old NFT does `transferFrom(self, sock_puppet)`,
-            // waits the 1h `TRANSFER_RATE_LIMIT`, then `transferFrom(sock_puppet,
-            // self)`. The return leg lands here and refreshes `lastActivityAt[self]`,
-            // defeating the 90-day `USER_INACTIVITY_GATE` on `claimUnsettledFor`.
-            // SoladyERC721 `transferFrom` has no pause hook; the time gates above
-            // (TRANSFER_COOLDOWN / TRANSFER_RATE_LIMIT) don't check `paused()`.
-            // Skipping `_touch(to)` while paused closes the bounce. The batch-5
-            // patch closed request/cancelEmergencyExit but missed this transfer-hook
-            // path. Discovered by the defensive scan of PR #28 (same pass that
-            // caught M10 over-credit). Regression test in Audit195_StakingGov.t.sol:
-            // test_M16_revised_bounceTransferDuringPause_doesNotRefreshTouch.
-            if (!paused()) _touch(to); // AUDIT M-AUDIT-2026-3 (paused-conditional 2026-05-20)
+            // AUDIT FIX 2026-05-20 M16-REVISED: paused-conditional skip closes the
+            // bounce-transfer inactivity-gate bypass (SoladyERC721 has no pause hook).
+            if (!paused()) _touch(to);
         }
     }
 
@@ -1684,155 +1552,46 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     // AUDIT FIX C-03: Safe int256 cast — only transfer if accumulated > rewardDebt
-    function _getReward(uint256 tokenId, Position storage p) internal returns (uint256) {
-        if (p.boostedAmount == 0) return 0;
-        // AUDIT FIX M-01: Compute rewards BEFORE decay zeroes boostedAmount.
-        // Previously, _decayIfExpired was called first, setting boostedAmount=0 and
-        // causing all pending rewards for expired positions to be permanently lost.
-        address recipient = ownerOf(tokenId);
-        int256 accumulated = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
-        int256 diff = accumulated - p.rewardDebt;
-        p.rewardDebt = accumulated;
-
-        // Now decay the expired position (zeroes boostedAmount, updates totalBoostedStake)
-        _decayIfExpired(tokenId, p);
-
-        if (diff > 0) {
-            uint256 pending = uint256(diff);
-            // AUDIT FIX M-03: Cap reward to available balance excluding reserved tokens
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            uint256 rewardPool = available > reserved ? available - reserved : 0;
-            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
-
-            if (cappedPending > 0) {
-                rewardToken.safeTransfer(recipient, cappedPending);
-                emit RewardPaid(recipient, tokenId, cappedPending);
-            }
-
-            // AUDIT FIX (critique 5.1 / battle-tested): route shortfall through
-            // _settleUnsettled so the user can reclaim once the pool is refunded,
-            // mirroring _settleRewardsOnTransfer semantics. Prior behavior silently
-            // advanced rewardDebt to the full accumulated value while paying only
-            // `rewardPool`, permanently losing the difference.
-            uint256 shortfall = pending - cappedPending;
-            if (shortfall > 0) {
-                uint256 actualSettled = _settleUnsettled(recipient, shortfall);
-                // AUDIT FIX L1: mirror kick() and _settleRewardsOnTransfer — when the
-                // shortfall is credited to a TRACKED holder (the restaking contract or a
-                // lending escrow), also record per-tokenId attribution so the slice can be
-                // pulled via claimUnsettledForTokenId. Without this it was permanently
-                // stranded: claimUnsettledFor reverts for tracked holders and
-                // claimUnsettledForTokenId reads a zero mapping. (Latent today since
-                // restaking is deferred to Phase 7, but correct before it ships.)
-                if (actualSettled > 0 && _isTrackedHolder(recipient)) {
-                    unsettledRewardsByTokenId[tokenId] += actualSettled;
-                }
-                uint256 forfeited = shortfall - actualSettled;
-                if (forfeited > 0) {
-                    emit RewardsForfeited(recipient, forfeited);
-                }
-            }
-
-            return cappedPending;
-        }
-        return 0;
+    function _getReward(uint256 tokenId, Position storage p) internal returns (uint256 claimed) {
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        // `ownerOf(tokenId)` is resolved here (immutables / ownership storage are not
+        // reachable from a delegatecall lib) and passed as `recipient`.
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        (claimed, rs) = StakingRewardLib.getReward(
+            rs,
+            p,
+            tokenId,
+            ownerOf(tokenId),
+            unsettledRewards,
+            unsettledRewardsByTokenId,
+            _checkpoints,
+            _totalBoostedStakeCheckpoints,
+            _positionsByOwner,
+            positions,
+            isLendingContract,
+            _rewardCfg()
+        );
+        _storeRewardState(rs);
     }
 
     /// @notice AUDIT FIX C-04: Settle rewards to the previous owner on NFT transfer.
     ///         Updates rewardPerTokenStored inline (same logic as updateReward modifier) and
     ///         sends pending rewards to `from`, then resets rewardDebt for the new owner.
     function _settleRewardsOnTransfer(uint256 tokenId, address from) private {
-        // Accumulate pending rewards (same logic as updateReward modifier)
-        _accumulateRewards();
-
-        // AUDIT FIX M-04: Accumulate rewards in mapping instead of inline transfer
-        // SECURITY FIX: Cap to available reward pool excluding all reserved tokens
-        Position storage p = positions[tokenId];
-        int256 accumulated = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
-        int256 diff = accumulated - p.rewardDebt;
-        if (diff > 0) {
-            uint256 pending = uint256(diff);
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            uint256 rewardPool = available > reserved ? available - reserved : 0;
-            // Cap pending to available reward pool
-            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
-            // AUDIT FIX DS3-01 / DS3-05: emit RewardPoolShortfall when the
-            // pool can't cover the full pending amount. DS2-02 added this
-            // event to kick(); the same code-shape exists here in
-            // _settleRewardsOnTransfer (every NFT transfer with under-funded
-            // pool silently strands the post-pool slice). Mirrors the kick()
-            // event so off-chain monitors see the loss on either path.
-            if (pending > rewardPool) {
-                emit TransferRewardPoolShortfall(from, pending, rewardPool);
-            }
-            uint256 actualSettled = _settleUnsettled(from, cappedPending);
-            // AUDIT FIX FRESH-2026: M-1 [F-02-K-02] — route the rewardPool
-            // shortfall (`pending - cappedPending`) through `_settleUnsettled`
-            // for later reclaim, mirroring `_getReward` and `kick()`. Previously
-            // this slice was silently destroyed because `p.rewardDebt = accumulated`
-            // (line below) advances the anchor by the full pending amount.
-            uint256 shortfall = pending - cappedPending;
-            uint256 shortfallSettled;
-            if (shortfall > 0) {
-                shortfallSettled = _settleUnsettled(from, shortfall);
-                if (shortfallSettled > 0) {
-                    emit RewardSettledToUnsettled(from, tokenId, shortfallSettled);
-                    if (_isTrackedHolder(from)) {
-                        unsettledRewardsByTokenId[tokenId] += shortfallSettled;
-                    }
-                }
-                uint256 shortfallForfeited = shortfall - shortfallSettled;
-                if (shortfallForfeited > 0) {
-                    emit RewardsForfeited(from, shortfallForfeited);
-                }
-            }
-            // AUDIT FIX C-02: Emit forfeiture event when cap blocks settlement
-            uint256 forfeited = cappedPending - actualSettled;
-            if (forfeited > 0) {
-                emit RewardsForfeited(from, forfeited);
-            }
-            // AUDIT FIX DS3-03: emit a distinct event for the
-            // settled-to-unsettled path. RewardPaid implies an actual wallet
-            // transfer; this path only credits the unsettled mapping. Off-chain
-            // tooling now has unambiguous semantics: RewardPaid = ETH/TOWELI
-            // moved; RewardSettledToUnsettled = booked, awaiting claim.
-            if (actualSettled > 0) {
-                emit RewardSettledToUnsettled(from, tokenId, actualSettled);
-                // AUDIT FIX C-1: when the prior holder is the restaking contract
-                // (i.e., NFT is being unrestaked back to the user), record
-                // per-tokenId attribution so the restaking contract can pull
-                // exactly this credit via `claimUnsettledForTokenId`. Same
-                // motivation as the kick() instrumentation: prevents one
-                // restaker from draining another's pre-existing kick credits
-                // in the shared `unsettledRewards[restakingContract]` bucket.
-                // AUDIT FIX D-LD-H1: extended to lending contracts. When the
-                // NFT exits the lending escrow (repay or default-claim), the
-                // final-period accrual is credited here; per-tokenId tracking
-                // lets the lending contract pull EXACTLY this loan's slice via
-                // claimUnsettledForTokenId — no bucket-drain race with other
-                // borrowers' deltas, no mis-attribution to the donated pool.
-                if (_isTrackedHolder(from)) {
-                    unsettledRewardsByTokenId[tokenId] += actualSettled;
-                }
-            }
-            // AUDIT FIX: DEEP-DS-04 — refresh `from`'s activity timestamp; we just
-            // credited unsettledRewards[from] from a non-claim path (NFT transfer).
-            // The R014 M-9 invariant requires every reward-touching path that
-            // materially affects unsettled rewards for `user` to `_touch(user)`.
-            // AUDIT FIX 2026-05-20 M16-REVISED: paired with the `_afterTokenTransfer`
-            // paused-skip (see that comment in `_afterTokenTransfer`). Pre-fix, the
-            // bounce attack relied on this DEEP-DS-04 touch firing on the outgoing
-            // leg (FROM-side) to refresh `lastActivityAt[attacker]` once accrued
-            // rewards landed in `unsettledRewards[attacker]`. Skipping during pause
-            // closes that half of the bounce; the `_afterTokenTransfer` skip closes
-            // the return-leg TO-side touch. Regression test in
-            // Audit195_StakingGov.t.sol: test_M16_revised_bounceTransferDuringPause_doesNotRefreshTouch.
-            if (!paused()) _touch(from);
-        }
-        // AUDIT FIX: Set rewardDebt AFTER the reward pool check to ensure correct accounting
-        p.rewardDebt = accumulated;
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        rs = StakingRewardLib.settleRewardsOnTransfer(
+            rs,
+            positions[tokenId],
+            tokenId,
+            from,
+            unsettledRewards,
+            unsettledRewardsByTokenId,
+            isLendingContract,
+            lastActivityAt,
+            _rewardCfg()
+        );
+        _storeRewardState(rs);
     }
 
     /// @notice Write a checkpoint for the user's current voting power (OZ Checkpoints.Trace208).
@@ -1941,32 +1700,17 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (!_isTrackedHolder(msg.sender)) revert Unauthorized();
         if (recipient == address(0)) revert ZeroAddress();
 
-        uint256 amount = unsettledRewardsByTokenId[tokenId];
-        if (amount == 0) return 0;
-
-        // Defensive cap: holder bucket must be at least `amount`. Under normal
-        // accounting the per-tokenId mapping is always <= holder bucket because
-        // every per-tokenId credit was paired with a holder-bucket credit via
-        // _settleUnsettled(holder, ...). The cap defends against any future
-        // refactor that decouples the two writes.
-        uint256 holderUnsettled = unsettledRewards[msg.sender];
-        if (amount > holderUnsettled) amount = holderUnsettled;
-
-        // Apply the same reward-pool cap as `_claimUnsettledInternal`: reserve
-        // totalStaked + other users' unsettled (everything except this claim).
-        uint256 available = rewardToken.balanceOf(address(this));
-        uint256 otherUnsettled = totalUnsettledRewards > amount ? totalUnsettledRewards - amount : 0;
-        uint256 otherReserved = totalStaked + otherUnsettled;
-        uint256 rewardPool = available > otherReserved ? available - otherReserved : 0;
-        paid = amount > rewardPool ? rewardPool : amount;
-
-        if (paid > 0) {
-            unsettledRewardsByTokenId[tokenId] -= paid;
-            unsettledRewards[msg.sender] = holderUnsettled - paid;
-            totalUnsettledRewards = totalUnsettledRewards > paid ? totalUnsettledRewards - paid : 0;
-            rewardToken.safeTransfer(recipient, paid);
-            emit UnsettledClaimedForTokenId(tokenId, recipient, paid);
-        }
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        (paid, totalUnsettledRewards) = StakingRewardLib.claimUnsettledForTokenId(
+            unsettledRewardsByTokenId,
+            unsettledRewards,
+            tokenId,
+            msg.sender,
+            recipient,
+            totalUnsettledRewards,
+            totalStaked,
+            rewardToken
+        );
     }
 
     /// @notice AUDIT FIX D-LD-H1: tracked-holder predicate. A "tracked holder"
@@ -1986,25 +1730,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     function _claimUnsettledInternal(address _user) private {
-        uint256 amount = unsettledRewards[_user];
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (amount == 0) revert ZeroAmount();
-        // Cap to available reward pool: reserve totalStaked + other users' unsettled rewards
-        // (this user's unsettled amount is being claimed, so exclude it from reserved)
-        uint256 available = rewardToken.balanceOf(address(this));
-        uint256 otherUnsettled = totalUnsettledRewards > amount ? totalUnsettledRewards - amount : 0;
-        uint256 otherReserved = totalStaked + otherUnsettled;
-        uint256 rewardPool = available > otherReserved ? available - otherReserved : 0;
-        uint256 payout = amount > rewardPool ? rewardPool : amount;
-        // AUDIT FIX v2: Only deduct what's actually paid; remainder stays claimable
-        unsettledRewards[_user] = amount - payout;
-        // SECURITY FIX: Decrease totalUnsettledRewards as rewards are claimed
-        totalUnsettledRewards = totalUnsettledRewards > payout ? totalUnsettledRewards - payout : 0;
-        if (payout > 0) {
-            rewardToken.safeTransfer(_user, payout);
-            emit UnsettledClaimed(_user, payout);
-        }
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        totalUnsettledRewards = StakingRewardLib.claimUnsettledInternal(
+            unsettledRewards, _user, totalUnsettledRewards, totalStaked, rewardToken
+        );
     }
 
     // ─── Emergency ─────────────────────────────────────────────────────
@@ -2455,29 +2184,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         }
     }
 
-    /// @dev Settle unsettled rewards for a user, respecting the global cap.
-    /// @return settled The actual amount settled (may be less than requested if cap hit)
-    function _settleUnsettled(address user, uint256 amount) private returns (uint256 settled) {
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (amount == 0) return 0;
-        // AUDIT FIX L-06: Cap totalUnsettledRewards to prevent unbounded growth
-        uint256 unsettledRoom = totalUnsettledRewards < maxUnsettledRewards
-            ? maxUnsettledRewards - totalUnsettledRewards : 0;
-        settled = amount > unsettledRoom ? unsettledRoom : amount;
-        if (settled > 0) {
-            unsettledRewards[user] += settled;
-            totalUnsettledRewards += settled;
-        }
-        // AUDIT FIX M-3 (battle-tested): forfeit-to-treasury redirect removed.
-        // Previously, overage above maxUnsettledRewards was credited to
-        // unsettledRewards[treasury] and counted against totalUnsettledRewards, letting the
-        // treasury cap-squeeze honest users' claims (owner could then claimUnsettledFor(treasury)
-        // to extract). Under the corrected semantics, the overage remains unreserved in the
-        // reward-pool balance and is re-accrued to all active stakers via the next
-        // _accumulateRewards cycle — the cap is now genuinely honored. Caller-site
-        // RewardsForfeited events remain as-is for off-chain observability.
-    }
+    // C1 EIP-170 split: `_settleUnsettled()` moved into StakingRewardLib (its only
+    // callers — the reward cluster — now delegate there). AUDIT FIX L-06 cap +
+    // M-3 (forfeit-to-treasury redirect removed) semantics preserved verbatim there.
 
     /// @dev AUDIT FIX: Safe uint256 -> int256 cast. Reverts if value exceeds int256 max,
     ///      preventing silent wrap-around that could allow reward theft via negative rewardDebt.
