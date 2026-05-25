@@ -1,13 +1,15 @@
-// This file enables type-safe imports from "ponder:registry" and "ponder:schema".
-// It is auto-updated by `ponder codegen`.
+/// <reference types="ponder/virtual" />
 
-declare module "ponder:registry" {
-  import type { Virtual } from "ponder";
-  type config = typeof import("./ponder.config.ts").default;
-  type schema = typeof import("./ponder.schema.ts");
-  export const ponder: Virtual.Registry<config, schema>;
+declare module "ponder:internal" {
+  const config: typeof import("./ponder.config.ts");
+  const schema: typeof import("./ponder.schema.ts");
 }
 
 declare module "ponder:schema" {
   export * from "./ponder.schema.ts";
 }
+
+// This file enables type checking and editor autocomplete for this Ponder project.
+// After upgrading, you may find that changes have been made to this file.
+// If this happens, please commit the changes. Do not manually edit this file.
+// See https://ponder.sh/docs/getting-started/installation#typescript for more information.

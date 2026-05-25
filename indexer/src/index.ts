@@ -1,34 +1,19 @@
 import { ponder } from "ponder:registry";
+// AUDIT M5 (2026-05-24): imports for tables exclusively used by removed
+// non-MVP subscriptions (restaking*/gaugeVote/bribe*/voteIncentives*/
+// lpFarmAction/loanOffer/loan/proposal/proposalVote/bounty/gauge*) were
+// pruned alongside those handlers + their schema tables.
 import {
   stakingPosition,
   stakingAction,
-  restakingPosition,
-  restakingClaim,
-  restakingAdminAction,
   revenueEpoch,
   revenueClaim,
-  gaugeVote,
-  bribeDeposit,
-  bribeClaim,
-  voteIncentivesCommit,
-  voteIncentivesEpoch,
-  voteIncentivesRefund,
-  voteIncentivesMinBribeChange,
   factoryGuardianEvent,
   factoryEmergencyDisable,
   twapRebootstrap,
   swap,
   pairEvent,
-  lpFarmAction,
-  loanOffer,
-  loan,
-  proposal,
-  proposalVote,
-  bounty,
-  gauge,
-  gaugeEvent,
-  gaugeVoteCommit,
-  gaugeVoteRevealed,
+  indexedPair,
   pauseState,
   pauseEvent,
   timelockProposal,
@@ -303,142 +288,9 @@ ponder.on("TegridyStaking:Unpaused", async ({ event, context }) => {
   await recordPauseState(context, event, "TegridyStaking", false);
 });
 
-// ─── TegridyRestaking ────────────────────────────────────────────────────────
-
-// AUDIT R054 (Agent 084 IDX-M1): Restaked persists `positionAmount` so
-// emergency reconciliation can compare on-chain reality against indexer
-// state without re-reading the chain.
-ponder.on("TegridyRestaking:Restaked", async ({ event, context }) => {
-  const { user, tokenId, positionAmount } = event.args;
-  const ts = event.block.timestamp;
-
-  await context.db
-    .insert(restakingPosition)
-    .values({
-      tokenId,
-      user,
-      depositTime: ts,
-      positionAmount,
-    })
-    .onConflictDoUpdate({
-      user,
-      depositTime: ts,
-      positionAmount,
-    });
-});
-
-ponder.on("TegridyRestaking:Unrestaked", async ({ event, context }) => {
-  const { user, tokenId } = event.args;
-
-  await context.db
-    .insert(restakingPosition)
-    .values({
-      tokenId,
-      user,
-      depositTime: 0n,
-      positionAmount: null,
-    })
-    .onConflictDoUpdate({
-      depositTime: 0n,
-      positionAmount: null,
-    });
-});
-
-// AUDIT INDEXER-M2: track base + bonus restaking claims in restakingClaim.
-ponder.on("TegridyRestaking:BonusClaimed", async ({ event, context }) => {
-  const { user, bonusAmount } = event.args;
-  await context.db
-    .insert(restakingClaim)
-    .values({
-      id: event.log.id,
-      user,
-      type: "bonus",
-      amount: bonusAmount,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("TegridyRestaking:BaseClaimed", async ({ event, context }) => {
-  const { user, baseAmount } = event.args;
-  await context.db
-    .insert(restakingClaim)
-    .values({
-      id: event.log.id,
-      user,
-      type: "base",
-      amount: baseAmount,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT R054 (Agent 084): admin reconciliation events.
-ponder.on(
-  "TegridyRestaking:PositionRefreshed",
-  async ({ event, context }) => {
-    const { user, tokenId, oldAmount, newAmount } = event.args;
-    await context.db
-      .insert(restakingAdminAction)
-      .values({
-        id: event.log.id,
-        type: "positionRefreshed",
-        restaker: user,
-        tokenId,
-        oldValue: oldAmount,
-        newValue: newAmount,
-        timestamp: event.block.timestamp,
-        txHash: event.transaction.hash,
-      })
-      .onConflictDoNothing();
-  },
-);
-
-ponder.on(
-  "TegridyRestaking:BoostRevalidated",
-  async ({ event, context }) => {
-    const { restaker, tokenId, oldBoosted, newBoosted } = event.args;
-    await context.db
-      .insert(restakingAdminAction)
-      .values({
-        id: event.log.id,
-        type: "boostRevalidated",
-        restaker,
-        tokenId,
-        oldValue: oldBoosted,
-        newValue: newBoosted,
-        timestamp: event.block.timestamp,
-        txHash: event.transaction.hash,
-      })
-      .onConflictDoNothing();
-  },
-);
-
-ponder.on(
-  "TegridyRestaking:EmergencyForceReturn",
-  async ({ event, context }) => {
-    const { restaker, tokenId, nftReturned } = event.args;
-    await context.db
-      .insert(restakingAdminAction)
-      .values({
-        id: event.log.id,
-        type: "emergencyForceReturn",
-        restaker,
-        tokenId,
-        nftReturned,
-        timestamp: event.block.timestamp,
-        txHash: event.transaction.hash,
-      })
-      .onConflictDoNothing();
-  },
-);
-
-ponder.on("TegridyRestaking:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyRestaking", true);
-});
-ponder.on("TegridyRestaking:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyRestaking", false);
-});
+// AUDIT M5 (2026-05-24): TegridyRestaking handlers removed — DEFERRED to
+// Phase 7, not in the MVP set. Its exclusive tables (restakingPosition/
+// restakingClaim/restakingAdminAction) were dropped from ponder.schema.ts.
 
 // ─── RevenueDistributor ──────────────────────────────────────────────────────
 
@@ -481,226 +333,10 @@ ponder.on("RevenueDistributor:Unpaused", async ({ event, context }) => {
   await recordPauseState(context, event, "RevenueDistributor", false);
 });
 
-// ─── VoteIncentives ──────────────────────────────────────────────────────────
-
-ponder.on("VoteIncentives:GaugeVoted", async ({ event, context }) => {
-  const { user, epoch, pair, power } = event.args;
-  const ts = event.block.timestamp;
-
-  await context.db
-    .insert(gaugeVote)
-    .values({
-      id: event.log.id,
-      user,
-      epoch,
-      pair,
-      power,
-      timestamp: ts,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("VoteIncentives:BribeDeposited", async ({ event, context }) => {
-  const { epoch, pair, token, depositor, amount, fee } = event.args;
-  const ts = event.block.timestamp;
-
-  await context.db
-    .insert(bribeDeposit)
-    .values({
-      id: event.log.id,
-      epoch,
-      pair,
-      token,
-      depositor,
-      amount,
-      fee,
-      timestamp: ts,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT R054: ETH-bribe path. `token` is null to flag the deposit
-// originated as native ETH (frontend renders WETH symbol fallback).
-ponder.on("VoteIncentives:BribeDepositedETH", async ({ event, context }) => {
-  const { epoch, pair, depositor, amount, fee } = event.args;
-  const ts = event.block.timestamp;
-
-  await context.db
-    .insert(bribeDeposit)
-    .values({
-      id: event.log.id,
-      epoch,
-      pair,
-      token: null,
-      depositor,
-      amount,
-      fee,
-      timestamp: ts,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT INDEXER-M2: track bribe claims in bribeClaim so per-user claim history
-// is reconstructible alongside the existing bribeDeposit deposit flow.
-ponder.on("VoteIncentives:BribeClaimed", async ({ event, context }) => {
-  const { user, epoch, pair, token, amount } = event.args;
-  await context.db
-    .insert(bribeClaim)
-    .values({
-      id: event.log.id,
-      user,
-      epoch,
-      pair,
-      token,
-      amount,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT R054 (R020/R021): commit-reveal vote flow.
-ponder.on("VoteIncentives:VoteCommitted", async ({ event, context }) => {
-  const { user, epoch, commitIndex, commitHash } = event.args;
-  await context.db
-    .insert(voteIncentivesCommit)
-    .values({
-      id: event.log.id,
-      user,
-      epoch,
-      commitIndex,
-      commitHash,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("VoteIncentives:VoteRevealed", async ({ event, context }) => {
-  const { user, epoch, commitIndex, pair, power } = event.args;
-  // Reveal lands as a separate row keyed by log id; the original commit
-  // remains queryable for forensic purposes (commit→reveal latency etc).
-  await context.db
-    .insert(voteIncentivesCommit)
-    .values({
-      id: event.log.id,
-      user,
-      epoch,
-      commitIndex,
-      revealedAt: event.block.timestamp,
-      revealedPair: pair,
-      revealedPower: power,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("VoteIncentives:EpochAdvanced", async ({ event, context }) => {
-  const { epochId, totalPower, timestamp } = event.args;
-  await context.db
-    .insert(voteIncentivesEpoch)
-    .values({
-      epochId,
-      totalPower,
-      timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT R054 (NEW-G2): per-depositor orphaned-bribe pull refund.
-ponder.on("VoteIncentives:OrphanedBribeRefunded", async ({ event, context }) => {
-  const { epoch, pair, token, depositor, amount } = event.args;
-  await context.db
-    .insert(voteIncentivesRefund)
-    .values({
-      id: event.log.id,
-      type: "orphaned",
-      epoch,
-      pair,
-      token,
-      depositor,
-      amount,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT R020 H-1 (Batch B, commit 1b7ad2f): zero-vote epoch bribe rescue.
-// Distinct from the orphaned-bribe path — fires on snapshotted epochs whose
-// targeted pair received zero votes after the 14-day grace window.
-ponder.on("VoteIncentives:UnvotedBribeRefunded", async ({ event, context }) => {
-  const { epoch, pair, token, depositor, amount } = event.args;
-  await context.db
-    .insert(voteIncentivesRefund)
-    .values({
-      id: event.log.id,
-      type: "unvoted",
-      epoch,
-      pair,
-      token,
-      depositor,
-      amount,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT R020 H-3 (Batch B): per-token min-bribe governance lifecycle.
-// Frontends and operators want full visibility into proposed/executed/cancelled
-// changes so the timelock UI can show the live queue.
-ponder.on("VoteIncentives:MinBribeAmountChangeProposed", async ({ event, context }) => {
-  const { token, amount, executeAfter } = event.args;
-  await context.db
-    .insert(voteIncentivesMinBribeChange)
-    .values({
-      id: event.log.id,
-      action: "proposed",
-      token,
-      amount,
-      executeAfter,
-      timestamp: event.block.timestamp,
-      txHash: event.transaction.hash,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("VoteIncentives:MinBribeAmountChangeExecuted", async ({ event, context }) => {
-  const { token, oldAmount, newAmount } = event.args;
-  await context.db
-    .insert(voteIncentivesMinBribeChange)
-    .values({
-      id: event.log.id,
-      action: "executed",
-      token,
-      amount: newAmount,
-      previousAmount: oldAmount,
-      executeAfter: 0n,
-      timestamp: event.block.timestamp,
-      txHash: event.transaction.hash,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("VoteIncentives:MinBribeAmountChangeCancelled", async ({ event, context }) => {
-  const { token, amount } = event.args;
-  await context.db
-    .insert(voteIncentivesMinBribeChange)
-    .values({
-      id: event.log.id,
-      action: "cancelled",
-      token,
-      amount,
-      executeAfter: 0n,
-      timestamp: event.block.timestamp,
-      txHash: event.transaction.hash,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("VoteIncentives:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "VoteIncentives", true);
-});
-ponder.on("VoteIncentives:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "VoteIncentives", false);
-});
+// AUDIT M5 (2026-05-24): VoteIncentives handlers removed — non-MVP. Its
+// exclusive tables (gaugeVote/bribeDeposit/bribeClaim/voteIncentivesCommit/
+// voteIncentivesEpoch/voteIncentivesRefund/voteIncentivesMinBribeChange)
+// were dropped from ponder.schema.ts.
 
 // ─── SwapFeeRouter ───────────────────────────────────────────────────────────
 
@@ -730,469 +366,118 @@ ponder.on("SwapFeeRouter:Unpaused", async ({ event, context }) => {
   await recordPauseState(context, event, "SwapFeeRouter", false);
 });
 
-// ─── LPFarming ───────────────────────────────────────────────────────────────
+// AUDIT M5 (2026-05-24): LPFarming handlers removed — non-MVP. Its exclusive
+// table (lpFarmAction) was dropped from ponder.schema.ts.
 
-ponder.on("LPFarming:Staked", async ({ event, context }) => {
-  const { user, amount } = event.args;
-  const ts = event.block.timestamp;
+// AUDIT M5 (2026-05-24): TegridyLending handlers removed — non-MVP. Its
+// exclusive tables (loanOffer/loan) were dropped from ponder.schema.ts. The
+// stub `logEvent` handlers (LoanOfferCancelled/EscrowRewardsPaid/
+// CollateralStuck/StuckCollateralClaimed) further down were removed too.
 
-  await context.db
-    .insert(lpFarmAction)
-    .values({
-      id: event.log.id,
-      user,
-      type: "stake",
-      amount,
-      timestamp: ts,
-    })
-    .onConflictDoNothing();
-});
+// AUDIT M5 (2026-05-24): CommunityGrants handlers removed — non-MVP. Its
+// exclusive tables (proposal/proposalVote) were dropped from
+// ponder.schema.ts.
 
-ponder.on("LPFarming:Withdrawn", async ({ event, context }) => {
-  const { user, amount } = event.args;
-  const ts = event.block.timestamp;
+// AUDIT M5 (2026-05-24): MemeBountyBoard handlers removed — non-MVP. Its
+// exclusive table (bounty) was dropped from ponder.schema.ts.
 
-  await context.db
-    .insert(lpFarmAction)
-    .values({
-      id: event.log.id,
-      user,
-      type: "withdraw",
-      amount,
-      timestamp: ts,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("LPFarming:RewardPaid", async ({ event, context }) => {
-  const { user, reward } = event.args;
-  const ts = event.block.timestamp;
-
-  await context.db
-    .insert(lpFarmAction)
-    .values({
-      id: event.log.id,
-      user,
-      type: "claim",
-      amount: reward,
-      timestamp: ts,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("LPFarming:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "LPFarming", true);
-});
-ponder.on("LPFarming:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "LPFarming", false);
-});
-
-// ─── TegridyLending ──────────────────────────────────────────────────────────
-
-ponder.on("TegridyLending:LoanOfferCreated", async ({ event, context }) => {
-  const { offerId, lender, principal, aprBps, duration } = event.args;
-
-  await context.db
-    .insert(loanOffer)
-    .values({
-      offerId,
-      lender,
-      principal,
-      aprBps,
-      duration,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("TegridyLending:LoanAccepted", async ({ event, context }) => {
-  const { loanId, offerId, borrower, lender, tokenId, principal, deadline } =
-    event.args;
-
-  await context.db
-    .insert(loan)
-    .values({
-      loanId,
-      offerId,
-      borrower,
-      lender,
-      tokenId,
-      principal,
-      deadline,
-      repaid: false,
-      defaulted: false,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT INDEXER-H1: LoanRepaid / DefaultClaimed fire on existing loans; use
-// update() and bail if the loan row is missing (chain inconsistency).
-ponder.on("TegridyLending:LoanRepaid", async ({ event, context }) => {
-  const { loanId } = event.args;
-  const existing = await context.db.find(loan, { loanId });
-  if (!existing) return;
-  await context.db.update(loan, { loanId }).set({ repaid: true });
-});
-
-ponder.on("TegridyLending:DefaultClaimed", async ({ event, context }) => {
-  const { loanId } = event.args;
-  const existing = await context.db.find(loan, { loanId });
-  if (!existing) return;
-  await context.db.update(loan, { loanId }).set({ defaulted: true });
-});
-
-// AUDIT R010: TimelockAdmin events (bytes32 key) — only one overload
-// exists in TegridyLending's ABI so the name-only form resolves cleanly.
-ponder.on("TegridyLending:ProposalCreated", async ({ event, context }) => {
-  await recordTimelockEvent(context, event, "TegridyLending", "created");
-});
-ponder.on("TegridyLending:ProposalExecuted", async ({ event, context }) => {
-  await recordTimelockEvent(context, event, "TegridyLending", "executed");
-});
-ponder.on("TegridyLending:ProposalCancelled", async ({ event, context }) => {
-  await recordTimelockEvent(context, event, "TegridyLending", "cancelled");
-});
-
-ponder.on("TegridyLending:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyLending", true);
-});
-ponder.on("TegridyLending:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyLending", false);
-});
-
-// ─── CommunityGrants ─────────────────────────────────────────────────────────
-
-// AUDIT R010: full Solidity-signature notation disambiguates the
-// grant-lifecycle (uint256 id) overloads from the inherited TimelockAdmin
-// (bytes32 key) overloads.
-ponder.on(
-  "CommunityGrants:ProposalCreated(uint256 indexed id, address indexed proposer, address recipient, uint256 amount, string description)",
-  async ({ event, context }) => {
-    const { id, proposer, recipient, amount, description } = event.args;
-
-    await context.db
-      .insert(proposal)
-      .values({
-        id,
-        proposer,
-        recipient,
-        amount,
-        description,
-        executed: false,
-        cancelled: false,
-      })
-      .onConflictDoNothing();
-  },
-);
-
-// AUDIT INDEXER-H1: ProposalExecuted fires on an existing proposal; use update().
-ponder.on(
-  "CommunityGrants:ProposalExecuted(uint256 indexed id, address recipient, uint256 amount)",
-  async ({ event, context }) => {
-    const { id } = event.args;
-    const existing = await context.db.find(proposal, { id });
-    if (!existing) return;
-    await context.db.update(proposal, { id }).set({ executed: true });
-  },
-);
-
-ponder.on(
-  "CommunityGrants:ProposalCancelled(uint256 indexed id)",
-  async ({ event, context }) => {
-    const { id } = event.args;
-    const existing = await context.db.find(proposal, { id });
-    if (!existing) return;
-    await context.db.update(proposal, { id }).set({ cancelled: true });
-  },
-);
-
-// AUDIT INDEXER-M2: track per-user proposal votes so governance UI can show
-// who voted which way and by how much power.
-ponder.on("CommunityGrants:ProposalVoted", async ({ event, context }) => {
-  const { id, voter, support, power } = event.args;
-  await context.db
-    .insert(proposalVote)
-    .values({
-      id: event.log.id,
-      proposalId: id,
-      voter,
-      support,
-      power,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT R010: TimelockAdmin overloads (bytes32 key).
-ponder.on(
-  "CommunityGrants:ProposalCreated(bytes32 indexed key, uint256 executeAfter, uint256 expiresAt)",
-  async ({ event, context }) => {
-    await recordTimelockEvent(context, event, "CommunityGrants", "created");
-  },
-);
-ponder.on(
-  "CommunityGrants:ProposalExecuted(bytes32 indexed key)",
-  async ({ event, context }) => {
-    await recordTimelockEvent(context, event, "CommunityGrants", "executed");
-  },
-);
-ponder.on(
-  "CommunityGrants:ProposalCancelled(bytes32 indexed key)",
-  async ({ event, context }) => {
-    await recordTimelockEvent(context, event, "CommunityGrants", "cancelled");
-  },
-);
-
-ponder.on("CommunityGrants:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "CommunityGrants", true);
-});
-ponder.on("CommunityGrants:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "CommunityGrants", false);
-});
-
-// ─── MemeBountyBoard ─────────────────────────────────────────────────────────
-
-ponder.on("MemeBountyBoard:BountyCreated", async ({ event, context }) => {
-  const { id, creator, reward, description } = event.args;
-
-  await context.db
-    .insert(bounty)
-    .values({
-      id,
-      creator,
-      reward,
-      description,
-      completed: false,
-      winner: null,
-    })
-    .onConflictDoNothing();
-});
-
-// AUDIT INDEXER-H1: BountyCompleted fires on an existing bounty; use update().
-ponder.on("MemeBountyBoard:BountyCompleted", async ({ event, context }) => {
-  const { bountyId, winner } = event.args;
-  const existing = await context.db.find(bounty, { id: bountyId });
-  if (!existing) return;
-  await context.db.update(bounty, { id: bountyId }).set({ completed: true, winner });
-});
-
-ponder.on("MemeBountyBoard:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "MemeBountyBoard", true);
-});
-ponder.on("MemeBountyBoard:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "MemeBountyBoard", false);
-});
-
-// ─── GaugeController (R054 / Agent 084 IDX-H1) ───────────────────────────────
-
-ponder.on("GaugeController:Voted", async ({ event, context }) => {
-  const { voter, tokenId, epoch, gauges, weights } = event.args;
-  // Folded into gaugeVoteRevealed for symmetry with VoteIncentives flow:
-  // legacy `Voted` events are equivalent to a same-block commit+reveal.
-  await context.db
-    .insert(gaugeVoteRevealed)
-    .values({
-      id: event.log.id,
-      voter,
-      tokenId,
-      epoch,
-      gauges: JSON.stringify(gauges),
-      weights: JSON.stringify(weights.map((w) => w.toString())),
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("GaugeController:VoteCommitted", async ({ event, context }) => {
-  const { voter, tokenId, epoch, commitmentHash } = event.args;
-  await context.db
-    .insert(gaugeVoteCommit)
-    .values({
-      id: event.log.id,
-      voter,
-      tokenId,
-      epoch,
-      commitmentHash,
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("GaugeController:VoteRevealed", async ({ event, context }) => {
-  const { voter, tokenId, epoch, gauges, weights } = event.args;
-  await context.db
-    .insert(gaugeVoteRevealed)
-    .values({
-      id: event.log.id,
-      voter,
-      tokenId,
-      epoch,
-      gauges: JSON.stringify(gauges),
-      weights: JSON.stringify(weights.map((w) => w.toString())),
-      timestamp: event.block.timestamp,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("GaugeController:GaugeAddProposed", async ({ event, context }) => {
-  const { gauge: gaugeAddr, executeAfter } = event.args;
-  const ts = event.block.timestamp;
-  await context.db
-    .insert(gauge)
-    .values({
-      address: gaugeAddr,
-      status: "proposedAdd",
-      proposedAt: ts,
-      updatedAt: ts,
-    })
-    .onConflictDoUpdate({
-      status: "proposedAdd",
-      proposedAt: ts,
-      updatedAt: ts,
-    });
-  await context.db
-    .insert(gaugeEvent)
-    .values({
-      id: event.log.id,
-      type: "proposed",
-      gauge: gaugeAddr,
-      valueA: executeAfter,
-      timestamp: ts,
-      txHash: event.transaction.hash,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("GaugeController:GaugeAdded", async ({ event, context }) => {
-  const { gauge: gaugeAddr } = event.args;
-  const ts = event.block.timestamp;
-  await context.db
-    .insert(gauge)
-    .values({
-      address: gaugeAddr,
-      status: "active",
-      addedAt: ts,
-      updatedAt: ts,
-    })
-    .onConflictDoUpdate({
-      status: "active",
-      addedAt: ts,
-      updatedAt: ts,
-    });
-  await context.db
-    .insert(gaugeEvent)
-    .values({
-      id: event.log.id,
-      type: "added",
-      gauge: gaugeAddr,
-      timestamp: ts,
-      txHash: event.transaction.hash,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("GaugeController:GaugeRemoveProposed", async ({ event, context }) => {
-  const { gauge: gaugeAddr, executeAfter } = event.args;
-  const ts = event.block.timestamp;
-  await context.db
-    .insert(gauge)
-    .values({
-      address: gaugeAddr,
-      status: "proposedRemove",
-      removeProposedAt: ts,
-      updatedAt: ts,
-    })
-    .onConflictDoUpdate({
-      status: "proposedRemove",
-      removeProposedAt: ts,
-      updatedAt: ts,
-    });
-  await context.db
-    .insert(gaugeEvent)
-    .values({
-      id: event.log.id,
-      type: "removeProposed",
-      gauge: gaugeAddr,
-      valueA: executeAfter,
-      timestamp: ts,
-      txHash: event.transaction.hash,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("GaugeController:GaugeRemoved", async ({ event, context }) => {
-  const { gauge: gaugeAddr } = event.args;
-  const ts = event.block.timestamp;
-  await context.db
-    .insert(gauge)
-    .values({
-      address: gaugeAddr,
-      status: "removed",
-      removedAt: ts,
-      updatedAt: ts,
-    })
-    .onConflictDoUpdate({
-      status: "removed",
-      removedAt: ts,
-      updatedAt: ts,
-    });
-  await context.db
-    .insert(gaugeEvent)
-    .values({
-      id: event.log.id,
-      type: "removed",
-      gauge: gaugeAddr,
-      timestamp: ts,
-      txHash: event.transaction.hash,
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on(
-  "GaugeController:EmissionBudgetProposed",
-  async ({ event, context }) => {
-    const { newBudget, executeAfter } = event.args;
-    await context.db
-      .insert(gaugeEvent)
-      .values({
-        id: event.log.id,
-        type: "budgetProposed",
-        valueA: newBudget,
-        valueB: executeAfter,
-        timestamp: event.block.timestamp,
-        txHash: event.transaction.hash,
-      })
-      .onConflictDoNothing();
-  },
-);
-
-ponder.on(
-  "GaugeController:EmissionBudgetUpdated",
-  async ({ event, context }) => {
-    const { oldBudget, newBudget } = event.args;
-    await context.db
-      .insert(gaugeEvent)
-      .values({
-        id: event.log.id,
-        type: "budgetUpdated",
-        valueA: oldBudget,
-        valueB: newBudget,
-        timestamp: event.block.timestamp,
-        txHash: event.transaction.hash,
-      })
-      .onConflictDoNothing();
-  },
-);
-
-ponder.on("GaugeController:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "GaugeController", true);
-});
-ponder.on("GaugeController:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "GaugeController", false);
-});
+// AUDIT M5 (2026-05-24): GaugeController handlers removed — non-MVP. Its
+// exclusive tables (gauge/gaugeEvent/gaugeVoteCommit/gaugeVoteRevealed) were
+// dropped from ponder.schema.ts.
 
 // ─── TegridyPair (R054 / Agent 084 IDX-H2) ───────────────────────────────────
 
+// AUDIT M4 (2026-05-24): pair-event poisoning — allowlist TOWELI/WETH pairs
+// only.
+//
+// TegridyPair is subscribed via factory(TegridyFactory.PairCreated), so the
+// indexer auto-tracks EVERY pair the factory ever creates. If pair creation is
+// permissionless, an attacker can create junk pairs (e.g. ATTACK/SCAM) and
+// spam Swap/Mint/Burn to poison indexed DEX volume + TVL. We index a pair's
+// events ONLY if its token0 or token1 is a canonical protocol token.
+//
+// To avoid an RPC call per event we cache the per-pair token0/token1 + verdict
+// in the `indexedPair` table: the first event for a pair triggers one
+// readContract pair (token0()+token1()); every later event reads the cached
+// row. `isPairAllowed` returns the cached/!computed verdict; handlers early-
+// return when it is false.
+const CANONICAL_TOKENS: ReadonlySet<string> = new Set([
+  "0x420698cfdeddea6bc78d59bc17798113ad278f9d", // TOWELI
+  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", // WETH
+]);
+
+// Minimal Uniswap-V2-style pair ABI for the token0()/token1() reads.
+const PairTokensAbi = [
+  {
+    type: "function",
+    name: "token0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "token1",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
+async function isPairAllowed(
+  context: { db: any; client: { readContract: (args: any) => Promise<any> } },
+  pair: `0x${string}`,
+): Promise<boolean> {
+  const id = pair.toLowerCase() as `0x${string}`;
+
+  // Fast path: cached verdict from a prior event for this pair.
+  const cached = await context.db.find(indexedPair, { id });
+  if (cached) return cached.allowed;
+
+  // Slow path (once per pair): resolve token0()/token1() over RPC, then cache.
+  // If the read reverts (non-conforming contract), treat the pair as NOT a
+  // canonical pair — fail closed so junk pairs can never poison the data.
+  let token0: `0x${string}`;
+  let token1: `0x${string}`;
+  try {
+    token0 = (await context.client.readContract({
+      abi: PairTokensAbi,
+      address: pair,
+      functionName: "token0",
+    })) as `0x${string}`;
+    token1 = (await context.client.readContract({
+      abi: PairTokensAbi,
+      address: pair,
+      functionName: "token1",
+    })) as `0x${string}`;
+  } catch {
+    await context.db
+      .insert(indexedPair)
+      .values({
+        id,
+        token0: "0x0000000000000000000000000000000000000000",
+        token1: "0x0000000000000000000000000000000000000000",
+        allowed: false,
+      })
+      .onConflictDoNothing();
+    return false;
+  }
+
+  const allowed =
+    CANONICAL_TOKENS.has(token0.toLowerCase()) ||
+    CANONICAL_TOKENS.has(token1.toLowerCase());
+
+  await context.db
+    .insert(indexedPair)
+    .values({ id, token0, token1, allowed })
+    .onConflictDoNothing();
+
+  return allowed;
+}
+
 ponder.on("TegridyPair:Swap", async ({ event, context }) => {
+  // AUDIT M4: skip events from non-canonical (potentially poisoned) pairs.
+  if (!(await isPairAllowed(context, event.log.address))) return;
   const { sender, amount0In, amount1In, amount0Out, amount1Out, to } =
     event.args;
   await context.db
@@ -1216,6 +501,8 @@ ponder.on("TegridyPair:Swap", async ({ event, context }) => {
 });
 
 ponder.on("TegridyPair:Mint", async ({ event, context }) => {
+  // AUDIT M4: skip events from non-canonical (potentially poisoned) pairs.
+  if (!(await isPairAllowed(context, event.log.address))) return;
   const { sender, amount0, amount1 } = event.args;
   await context.db
     .insert(pairEvent)
@@ -1233,6 +520,8 @@ ponder.on("TegridyPair:Mint", async ({ event, context }) => {
 });
 
 ponder.on("TegridyPair:Burn", async ({ event, context }) => {
+  // AUDIT M4: skip events from non-canonical (potentially poisoned) pairs.
+  if (!(await isPairAllowed(context, event.log.address))) return;
   const { sender, amount0, amount1, to } = event.args;
   await context.db
     .insert(pairEvent)
@@ -1252,25 +541,14 @@ ponder.on("TegridyPair:Burn", async ({ event, context }) => {
 
 // ─── Pause-only contracts (R054 / Agent 084 IDX-H4) ──────────────────────────
 
-ponder.on("PremiumAccess_Pause:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "PremiumAccess", true);
-});
-ponder.on("PremiumAccess_Pause:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "PremiumAccess", false);
-});
-
+// AUDIT M5 (2026-05-24): PremiumAccess_Pause and TegridyNFTLending_Pause
+// handlers removed — both contracts are non-MVP. POLAccumulator_Pause is
+// retained (POLAccumulator is in the MVP set).
 ponder.on("POLAccumulator_Pause:Paused", async ({ event, context }) => {
   await recordPauseState(context, event, "POLAccumulator", true);
 });
 ponder.on("POLAccumulator_Pause:Unpaused", async ({ event, context }) => {
   await recordPauseState(context, event, "POLAccumulator", false);
-});
-
-ponder.on("TegridyNFTLending_Pause:Paused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyNFTLending", true);
-});
-ponder.on("TegridyNFTLending_Pause:Unpaused", async ({ event, context }) => {
-  await recordPauseState(context, event, "TegridyNFTLending", false);
 });
 
 // ─── Wave-3 IDX-1: business-event handlers for previously-orphaned contracts ─
@@ -1306,51 +584,10 @@ ponder.on("POLAccumulator_Business:TreasuryChanged", async ({ event }) => {
   logEvent("POLAccumulator", "TreasuryChanged", event.args, event.block.timestamp, event.transaction.hash);
 });
 
-// --- PremiumAccess business events ----------------------------------------
-ponder.on("PremiumAccess_Business:Subscribed", async ({ event }) => {
-  logEvent("PremiumAccess", "Subscribed", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("PremiumAccess_Business:SubscriptionCancelled", async ({ event }) => {
-  logEvent("PremiumAccess", "SubscriptionCancelled", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("PremiumAccess_Business:NFTAccessGranted", async ({ event }) => {
-  logEvent("PremiumAccess", "NFTAccessGranted", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("PremiumAccess_Business:NFTAccessRevoked", async ({ event }) => {
-  logEvent("PremiumAccess", "NFTAccessRevoked", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("PremiumAccess_Business:RefundShorted", async ({ event }) => {
-  // Operationally important — RefundShorted means the contract's TOWELI
-  // balance was insufficient to fully refund a cancelled subscription.
-  // Off-chain monitor should alert on this.
-  logEvent("PremiumAccess", "RefundShorted", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("PremiumAccess_Business:ShortfallClaimed", async ({ event }) => {
-  logEvent("PremiumAccess", "ShortfallClaimed", event.args, event.block.timestamp, event.transaction.hash);
-});
-
-// --- TegridyLending: only NEW events that the pre-existing TegridyLendingAbi
-// didn't cover. LoanOfferCreated/LoanAccepted/LoanRepaid/DefaultClaimed/Paused/
-// Unpaused already have handlers earlier in this file (lines 792-858); adding
-// them again would crash Ponder with "duplicate handler". The new events
-// (LoanOfferCancelled, EscrowRewardsPaid, CollateralStuck, StuckCollateralClaimed)
-// require their ABI entries to be merged into TegridyLendingAbi in ponder.config.ts.
-ponder.on("TegridyLending:LoanOfferCancelled", async ({ event }) => {
-  // Wave-3 finding: this was unindexed; frontend could not distinguish
-  // "still live" from "lender pulled the offer" without it.
-  logEvent("TegridyLending", "LoanOfferCancelled", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("TegridyLending:EscrowRewardsPaid", async ({ event }) => {
-  logEvent("TegridyLending", "EscrowRewardsPaid", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("TegridyLending:CollateralStuck", async ({ event }) => {
-  // Operationally important — collateral could not be returned because the
-  // whitelisted ERC-721 silently no-op'd transferFrom. Alert + delist target.
-  logEvent("TegridyLending", "CollateralStuck", event.args, event.block.timestamp, event.transaction.hash);
-});
-ponder.on("TegridyLending:StuckCollateralClaimed", async ({ event }) => {
-  logEvent("TegridyLending", "StuckCollateralClaimed", event.args, event.block.timestamp, event.transaction.hash);
-});
+// AUDIT M5 (2026-05-24): PremiumAccess_Business stub handlers removed —
+// PremiumAccess is non-MVP. TegridyLending stub handlers (LoanOfferCancelled/
+// EscrowRewardsPaid/CollateralStuck/StuckCollateralClaimed) removed too —
+// TegridyLending is non-MVP. These were log-only stubs with no DB tables.
 
 // ─── TegridyFactory governance (post-Batch-J sweep) ──────────────────────────
 
