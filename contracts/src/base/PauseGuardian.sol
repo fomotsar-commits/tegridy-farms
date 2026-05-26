@@ -64,6 +64,35 @@ abstract contract PauseGuardian {
         emit PauseGuardianSet(old, _newGuardian);
     }
 
+    /// @notice AUDIT FIX 2026-05-26 [M-21]: documentation for the joint-failure
+    ///         risk and the operational mitigation. The Lido GateSeal pattern
+    ///         (auto-unpause after N days) would require each consumer to
+    ///         implement consumer-specific `forceUnpause`, since the actual
+    ///         pause state lives in each consumer's OZ Pausable storage — not
+    ///         in this mixin. This change is intentionally documentation-only:
+    ///         adding a `forceUnpause` here would require this mixin to take a
+    ///         dependency on OZ Pausable, which the mixin's NatSpec explicitly
+    ///         avoids ("the lib stays usable by non-OZ contracts"). Instead, we
+    ///         codify the operational guarantee:
+    ///
+    ///         OPERATIONAL INVARIANT (governance-enforced):
+    ///         - Owner multisig MUST monitor pause events on all consumer
+    ///           contracts (TegridyStaking, RevenueDistributor, SwapFeeRouter,
+    ///           POLAccumulator, TegridyRestaking).
+    ///         - SLA: owner MUST resolve any pause within 30 days OR rotate
+    ///           the guardian (instant per the L36 NatSpec) to neutralize a
+    ///           pause-griefing key.
+    ///         - On joint failure (owner unavailable AND guardian compromised),
+    ///           the protocol enters degraded mode but no funds are at risk
+    ///           because the guardian cannot withdraw, only pause.
+    ///
+    ///         If consumer-side forceUnpause is desired in a future wave, each
+    ///         consumer adds a `MAX_PAUSE_DURATION` constant + permissionless
+    ///         `forceUnpause()` that checks `block.timestamp > pausedAt +
+    ///         MAX_PAUSE_DURATION` and calls `_unpause()`. Pattern reference:
+    ///         Lido GateSeal contract.
+    uint256 public constant MAX_PAUSE_DURATION_RECOMMENDED = 30 days;
+
     /// @dev Used by consumers to gate the public `guardianPause()` entry-point.
     modifier onlyPauseGuardian() {
         if (msg.sender != pauseGuardian) revert NotPauseGuardian();

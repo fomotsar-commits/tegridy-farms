@@ -198,4 +198,26 @@ abstract contract OwnableNoRenounce is Ownable2Step {
         // ordering (state → event).
         emit OwnershipTransferCancelled(prev, reason);
     }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-20]: too-early-to-warn typed revert.
+    error PokeTooEarly();
+    /// @notice AUDIT FIX 2026-05-26 [M-20]: poke event for off-chain monitors.
+    event OwnershipTransferExpiringIn(address indexed pendingOwner, uint256 secondsRemaining);
+
+    /// @notice AUDIT FIX 2026-05-26 [M-20]: permissionless poke for off-chain
+    ///         alerting on impending 14-day expiry. Fires only in the last
+    ///         24h of the window; allows monitors to subscribe to a single
+    ///         event rather than poll `ownershipTransferExpiresAt` per-contract.
+    ///         Pattern reference: Compound TimelockController surface for queue
+    ///         visibility. Single function, permissionless, no state mutation
+    ///         outside the event emit. DELETE > ADD compliant — the function
+    ///         only exists to emit; off-chain monitoring takes over.
+    function pokeOwnershipExpiryWarning() external {
+        uint256 expiry = ownershipTransferExpiresAt;
+        if (expiry == 0) revert NoPendingOwnershipTransfer();
+        if (block.timestamp >= expiry) revert OwnershipTransferExpired();
+        uint256 remaining = expiry - block.timestamp;
+        if (remaining > 1 days) revert PokeTooEarly();
+        emit OwnershipTransferExpiringIn(pendingOwner(), remaining);
+    }
 }

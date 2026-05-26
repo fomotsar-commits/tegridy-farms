@@ -107,7 +107,17 @@ library StakingViewLib {
                 currentAcc += (reward * ACC_PRECISION) / totalBoostedStake;
             }
         }
-        int256 diff = int256((p.boostedAmount * currentAcc) / ACC_PRECISION) - p.rewardDebt;
+        // AUDIT FIX 2026-05-26 [M-18]: guard the int256 cast against the
+        // `_safeInt256` invariant. Pre-fix, this view used a raw `int256(...)`
+        // cast — at extreme reward-pool inputs (boostedAmount × currentAcc above
+        // 2^255), the cast wraps to a large negative and `diff > 0` returns 0
+        // (UI lies "no pending"). Practical caps make this unreachable today,
+        // but the view violated the contract's own SafeCast discipline. Fix:
+        // bail to 0 when the product exceeds int256.max — matches the host's
+        // intent (view should never return >= int256.max as positive).
+        uint256 v = (p.boostedAmount * currentAcc) / ACC_PRECISION;
+        if (v > uint256(type(int256).max)) return 0;
+        int256 diff = int256(v) - p.rewardDebt;
         return diff > 0 ? uint256(diff) : 0;
     }
 }
