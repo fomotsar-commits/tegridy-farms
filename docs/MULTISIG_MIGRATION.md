@@ -176,7 +176,7 @@ As of writing, these contracts require migration. **Update this table before eac
 
 ## 5. The migration script
 
-Create [`contracts/script/TransferOwnershipToMultisig.s.sol`](../contracts/script/TransferOwnershipToMultisig.s.sol) (does not exist yet; this section is the spec).
+Shipped at [`contracts/script/TransferOwnershipToMultisig.s.sol`](../contracts/script/TransferOwnershipToMultisig.s.sol). Unit-tested at [`contracts/test/TransferOwnershipToMultisig.t.sol`](../contracts/test/TransferOwnershipToMultisig.t.sol) (9 tests, covers happy path, MULTISIG validation, owner-mismatch, factory-mismatch, partial-inventory, idempotent replay, length-mismatch).
 
 ### 5.1 Why a script (not Safe Tx Builder)
 
@@ -184,42 +184,20 @@ The deployer EOA is the *outgoing* owner, so it must initiate `transferOwnership
 
 A single `forge script` ensures atomic ordering and a single broadcast cost. Doing it tx-by-tx via cast risks fat-fingering an address mid-pass.
 
-### 5.2 Skeleton
+### 5.2 What the script does
 
-```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+The implementation has three layers:
 
-import "forge-std/Script.sol";
+1. **`run()` — production entrypoint.** Reads every contract address from env vars (`MULTISIG`, `TEGRIDY_STAKING`, `SWAP_FEE_ROUTER`, etc.), wraps the migration in `vm.startBroadcast()` so each `transferOwnership` is signed by the `--private-key` deployer.
+2. **`_runPreChecks(sender)` — fail-fast guards.**
+   - `MULTISIG != address(0)` and `MULTISIG.code.length > 0` (catches the "pasted a hardware-wallet address" mistake).
+   - For each ownable contract: `owner() == sender` (catches typo'd env vars that point at an unrelated contract that happens to expose `transferOwnership`).
+   - For the factory: `feeToSetter() == sender` (same guard, separate auth model).
+3. **`_executeTransfers()` — the actual writes.** Loops the inventory, calls `transferOwnership(multisig)` per ownable, and `proposeFeeToSetter(multisig)` on the factory. Logs each transition to console.
 
-interface IOwnable2Step {
-    function transferOwnership(address newOwner) external;
-    function owner() external view returns (address);
-}
+The inventory is built from env vars in `_collect()`. Any env var resolving to `address(0)` is silently skipped — so the same script works for MVP-only deploys and the full 22-contract set without code edits.
 
-contract TransferOwnershipToMultisig is Script {
-    // Read these from env vars, never hardcode signer-affecting addresses
-    function run() external {
-        address multisig = vm.envAddress("MULTISIG");
-        address[22] memory contracts = [
-            vm.envAddress("TEGRIDY_STAKING"),
-            vm.envAddress("TEGRIDY_RESTAKING"),
-            // ... 20 more
-        ];
-
-        vm.startBroadcast();
-        for (uint256 i = 0; i < contracts.length; i++) {
-            address c = contracts[i];
-            require(c != address(0), "ZERO_ADDRESS_IN_INVENTORY");
-            require(IOwnable2Step(c).owner() == msg.sender, "NOT_CURRENT_OWNER");
-            IOwnable2Step(c).transferOwnership(multisig);
-        }
-        vm.stopBroadcast();
-    }
-}
-```
-
-Read the asserts twice. The `owner() == msg.sender` check is what stops a typo'd contract address from silently being skipped (the call would succeed against a random contract that happens to expose `transferOwnership`).
+`runForTest(sender, multisig, ownables, labels, factory)` is a unit-test entrypoint that takes the inventory as explicit args (avoids env-var pollution between tests) and uses `vm.startPrank(sender)` internally so the prank propagates into the mock contracts' `transferOwnership` calls. Tests cover happy path, MULTISIG validation, owner-mismatch, factory-mismatch, partial-inventory, idempotent replay, and array length-mismatch.
 
 ### 5.3 Dry-run first
 
