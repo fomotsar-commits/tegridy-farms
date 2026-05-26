@@ -282,7 +282,16 @@ contract R028_SFR_M01 is Test {
         _bootstrap();
         _seedFees(100 ether);
         // AUDIT FIX V3-DEEP-R3-M01: minOut floor now `>= MIN_MULTIHOP_ETH_OUT_WEI`.
-        sfr.convertTokenFeesToETH(address(toweli), _multiHop3(), sfr.MIN_MULTIHOP_ETH_OUT_WEI(), block.timestamp + 30 minutes);
+        // AUDIT FIX 2026-05-26 [H-02]: when a direct token/WETH pair exists, the
+        // effective floor also includes the TWAP-derived minETHOut (1.5% safety).
+        // With BASELINE reserves of 100_000 toweli : 100 WETH (price 1:1000) and a
+        // 100-toweli seed, the TWAP floor lands ≈ 4.9e16 wei after the safety bps.
+        // We pass 5e16 (just above the floor) so the H-02 gate passes and the
+        // Uniswap-side slippage check still has headroom against actual output.
+        // Pre-H-02 this test used `MIN_MULTIHOP_ETH_OUT_WEI` (1e14); that is now
+        // strictly below the H-02 floor, so the call would revert ZeroMinOut.
+        uint256 minOut = 5e16;
+        sfr.convertTokenFeesToETH(address(toweli), _multiHop3(), minOut, block.timestamp + 30 minutes);
         // ETH was received and folded into accumulatedETHFees.
         assertGt(sfr.accumulatedETHFees(), 0, "owner multi-hop should produce ETH");
     }
@@ -476,7 +485,10 @@ contract R028_SFR_M04 is Test {
     function test_SFRM04_setSwapFeeRouterAdmin_stillOneShot() public {
         SwapFeeRouterAdmin other = new SwapFeeRouterAdmin(address(sfr));
         // Already set in setUp(); calling setSwapFeeRouterAdmin again must revert.
-        vm.expectRevert(SwapFeeRouter.Unauthorized.selector);
+        // AUDIT FIX 2026-05-26 [L-08]: error swapped Unauthorized → AdminAlreadySet
+        // for clearer caller diagnostics. One-shot semantic unchanged; rotation
+        // still requires the 7-day proposeAdminReplacement timelock.
+        vm.expectRevert(SwapFeeRouter.AdminAlreadySet.selector);
         sfr.setSwapFeeRouterAdmin(address(other));
     }
 

@@ -651,24 +651,34 @@ contract Audit195Restaking is Test {
     // ═══════════════════════════════════════════════════════════════════
     //  10. sweepStuckRewards() — cannot sweep bonus or reward tokens
     // ═══════════════════════════════════════════════════════════════════
+    // AUDIT FIX 2026-05-26 [M-09]: sweepStuckRewards is now split into
+    // proposeSweepStuckRewards + executeSweepStuckRewards behind a 24h
+    // timelock. The propose side validates the bonus/reward-token rejects;
+    // execute re-checks at execution time (defends against rewardToken
+    // rotation during the 24h window). Pre-fix tests called the deprecated
+    // one-shot directly; updated to walk the new propose → wait → execute
+    // flow.
 
     function test_sweepStuckRewards_revertOnBonusToken() public {
         vm.expectRevert(TegridyRestaking.CannotSweepBonusToken.selector);
-        restaking.sweepStuckRewards(address(weth));
+        restaking.proposeSweepStuckRewards(address(weth));
     }
 
     function test_sweepStuckRewards_revertOnRewardToken() public {
         vm.expectRevert(TegridyRestaking.CannotSweepRewardToken.selector);
-        restaking.sweepStuckRewards(address(toweli));
+        restaking.proposeSweepStuckRewards(address(toweli));
     }
 
     function test_sweepStuckRewards_sweepsRandomToken() public {
         // BATCH-J1 H17: sweepStuckRewards now routes to address(staking), not owner.
+        // M-09: must traverse propose → 24h wait → execute.
         A195_MockWETH randomToken = new A195_MockWETH();
         randomToken.transfer(address(restaking), 100 ether);
 
         uint256 stakingBefore = randomToken.balanceOf(address(staking));
-        restaking.sweepStuckRewards(address(randomToken));
+        restaking.proposeSweepStuckRewards(address(randomToken));
+        skip(restaking.SWEEP_STUCK_TIMELOCK() + 1);
+        restaking.executeSweepStuckRewards();
         assertEq(randomToken.balanceOf(address(staking)) - stakingBefore, 100 ether, "Should sweep random token to staking");
     }
 

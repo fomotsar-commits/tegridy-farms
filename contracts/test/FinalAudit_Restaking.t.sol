@@ -385,13 +385,15 @@ contract FinalAuditRestaking is Test {
     // =========================================================================
 
     function test_sweepStuckRewards_blocks_bonus_and_reward_tokens() public {
+        // AUDIT FIX 2026-05-26 [M-09]: now traverses proposeSweepStuckRewards;
+        // the typed-error guards moved to the propose side (and re-check on execute).
         // Should revert for bonusRewardToken
         vm.expectRevert(TegridyRestaking.CannotSweepBonusToken.selector);
-        restaking.sweepStuckRewards(address(weth));
+        restaking.proposeSweepStuckRewards(address(weth));
 
         // Should revert for rewardToken
         vm.expectRevert(TegridyRestaking.CannotSweepRewardToken.selector);
-        restaking.sweepStuckRewards(address(toweli));
+        restaking.proposeSweepStuckRewards(address(toweli));
     }
 
     // =========================================================================
