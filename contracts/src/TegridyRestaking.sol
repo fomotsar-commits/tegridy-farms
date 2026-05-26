@@ -797,6 +797,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             depositTime: block.timestamp,
             unsettledSnapshot: 0
         });
+        // AUDIT FIX 2026-05-26 [M-02]: reset the per-user one-shot recovery flag
+        // when entering a NEW position. Pre-fix, a user who used
+        // `recoverStuckPrincipal()` once for a force-closed position could never
+        // use it again for any FUTURE position — the per-user flag was sticky.
+        // Reset here ties the flag's lifecycle to the position's lifecycle.
+        _hasRecoveredPrincipal[msg.sender] = false;
 
         tokenIdToRestaker[_tokenId] = msg.sender;
         totalRestaked += boostedAmount;
@@ -1502,7 +1508,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         at exit time, now un-blacklisted). Reads from
     ///         `unforwardedBonusRewards` — the redemption-currency match
     ///         closes the H-3 wrong-token bug at the user-claim leg.
-    function claimPendingBonusPayout() external nonReentrant {
+    // AUDIT FIX 2026-05-26 [M-05]: add `whenNotPaused` so deferred bonus payouts cannot
+    // continue mid-incident. Closes the asymmetric-pause gap noted in the swarm audit —
+    // sibling state-mutating paths (`claimResidualForTokenId` at line 1543) already gate
+    // on pause. `emergencyWithdrawNFT` remains pause-free (true-emergency exit path).
+    function claimPendingBonusPayout() external nonReentrant whenNotPaused {
         uint256 paid = _sweepUnforwardedBonus(msg.sender);
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
@@ -1523,12 +1533,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function _reserveResidual(uint256 tokenId, address claimant) internal {
         uint256 residue = staking.unsettledRewardsByTokenId(tokenId);
         if (residue == 0) return;
-        // If a prior residual claim already exists for this tokenId from a
-        // DIFFERENT claimant, leave it intact — the prior claimant's right
-        // takes precedence. (This shouldn't happen in normal flow because
-        // restake() blocks foreign re-restake, but defensively ignore.)
-        address prior = _residualClaimant[tokenId];
-        if (prior != address(0) && prior != claimant) return;
+        // AUDIT FIX 2026-05-26 [H-04]: ALWAYS overwrite `_residualClaimant` when
+        // residue is non-zero. Pre-fix, the "preserve prior claimant" branch
+        // was a hijack vector: Alice self-re-restakes (M28 carve-out admits
+        // her because residue == 0 at that instant), exits during a later
+        // pool-short event leaving residue R, and the function returned
+        // without writing because `prior == alice` and `claimant == alice`
+        // would have matched anyway — BUT if Alice sold the NFT to Bob and
+        // Bob restaked + exited with residue, this function's old logic
+        // would have left `_residualClaimant[tokenId] = alice` because
+        // `prior == alice && prior != bob`, locking Bob's residue to Alice
+        // (cross-holder gate blocks Alice from pulling). The residue
+        // physically belongs to the current exit caller; preserving a
+        // stale prior is incorrect. The audit doc cites this as the
+        // "residual claim hijack" class — closes that surface.
         _residualClaimant[tokenId] = claimant;
         emit ResidualReserved(tokenId, claimant, residue);
     }
@@ -1612,7 +1630,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         attributable per `unsettledRewardsByTokenId[tokenId]` and is
     ///         claimable by the next legitimate restaker.
     /// @param tokenId The tsTOWELI NFT token ID whose residual claim to waive.
-    function waiveResidualClaim(uint256 tokenId) external nonReentrant {
+    // AUDIT FIX 2026-05-26 [M-05]: `whenNotPaused` mirrors claimPendingBonusPayout +
+    // claimResidualForTokenId. Waiving is irreversible — must not be triggerable
+    // during pause when owner is investigating compromised keys.
+    function waiveResidualClaim(uint256 tokenId) external nonReentrant whenNotPaused {
         if (_residualClaimant[tokenId] != msg.sender) revert NotResidualClaimant();
         delete _residualClaimant[tokenId];
         emit ResidualClaimWaived(tokenId, msg.sender);
@@ -1632,6 +1653,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         address (e.g. the new NFT owner) to retarget the claim.
     function proposeClearResidualClaimant(uint256 tokenId, address newClaimant) external onlyOwner {
         if (_residualClaimant[tokenId] == address(0)) revert BadParam();
+        // AUDIT FIX 2026-05-26 [M-03]: reject when a proposal is already pending.
+        // Pre-fix, a captured-key owner could spam re-proposals to keep resetting
+        // the 7-day executeAfter clock; multisig would have to cancel each one.
+        // Mirrors sibling timelocked setters' `ExistingProposalPending` shape from
+        // TimelockAdmin (uses tokenId as the disambiguator key).
+        if (pendingResidualClears[tokenId].executeAfter != 0) {
+            revert ExistingProposalPending(bytes32(tokenId));
+        }
         pendingResidualClears[tokenId] = PendingResidualClear({
             newClaimant: newClaimant,
             executeAfter: block.timestamp + CLEAR_RESIDUAL_TIMELOCK
@@ -1755,30 +1784,61 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     /// @notice AUDIT FIX H-02: Sweep stuck reward tokens (from revalidateBoost or other external calls).
-    ///         Base reward tokens (rewardToken) may arrive outside of claimAll flows and become stuck.
-    ///         Cannot sweep bonusRewardToken to protect the bonus reward pool.
-    /// @dev AUDIT FIX (BATCH-J1 H17): route to TegridyStaking.treasury() instead
-    ///      of `owner()`. Pre-fix, captured owner key could instantly drain ANY
-    ///      whitelisted-stuck token to attacker EOA. Now sweeps go to the
-    ///      staking-side treasury (timelocked-rotation via TegridyStakingAdmin
-    ///      48h propose/execute), so a captured Restaking owner must additionally
-    ///      compromise the Staking admin AND wait 48h to extract — chained
-    ///      defense effectively requires multi-key coordination + visible
-    ///      48h window. Pattern: Aave V3 rescueTokens routes to ACL-governed
-    ///      recipient, not function caller.
-    function sweepStuckRewards(address _token) external onlyOwner {
+    /// @dev AUDIT FIX 2026-05-26 [M-09]: split into propose/execute behind a 24h
+    ///      timelock. Pre-fix, the function was instant-onlyOwner. The chained
+    ///      defense via `address(staking)` + Staking's own 24h timelocked sweep
+    ///      already mitigated drain (BATCH-J1 H17), but the visible 24h propose
+    ///      window here gives off-chain monitoring an extra signal AND aligns
+    ///      with every other captured-owner-residual-surface fix in this batch.
+    ///      DELETE > ADD principle: kept the original receiver invariants
+    ///      (address(staking), bonus/reward token rejects); only added the
+    ///      timelock wrapper using existing TimelockAdmin base.
+    bytes32 public constant SWEEP_STUCK_CHANGE = keccak256("RESTAKING_SWEEP_STUCK_REWARDS");
+    uint256 public constant SWEEP_STUCK_TIMELOCK = 24 hours;
+    address public pendingSweepStuckToken;
+
+    event SweepStuckProposed(address indexed token, uint256 executeAfter);
+    event SweepStuckCancelled(address indexed token);
+    event SweepStuckExecuted(address indexed token, uint256 amount);
+
+    function proposeSweepStuckRewards(address _token) external onlyOwner {
         if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
-        // AUDIT FIX v2: Block sweeping base reward token to protect user rewards in transit
+        if (_token == address(rewardToken)) revert CannotSweepRewardToken();
+        if (_token == address(0)) revert ZeroAddress();
+        pendingSweepStuckToken = _token;
+        _propose(SWEEP_STUCK_CHANGE, SWEEP_STUCK_TIMELOCK);
+        emit SweepStuckProposed(_token, _executeAfter[SWEEP_STUCK_CHANGE]);
+    }
+
+    function executeSweepStuckRewards() external onlyOwner {
+        _execute(SWEEP_STUCK_CHANGE);
+        address _token = pendingSweepStuckToken;
+        pendingSweepStuckToken = address(0);
+        // Re-check guards at execute time — defends against a token classification
+        // changing during the 24h window (e.g., rewardToken rotated on staking side
+        // via that contract's 48h timelock).
+        if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
         if (_token == address(rewardToken)) revert CannotSweepRewardToken();
         uint256 balance = IERC20(_token).balanceOf(address(this));
         if (balance > 0) {
-            // AUDIT FIX (BATCH-J1 H17): route to address(staking) (immutable)
-            // instead of `owner()`. Pre-fix, captured Restaking owner could
-            // instantly drain. Now stuck tokens land in TegridyStaking which has
-            // its own 24h-timelocked sweepToken to treasury — chained delay,
-            // multi-key coordination required for extraction.
+            // Route to address(staking) (immutable) — see BATCH-J1 H17 rationale.
             IERC20(_token).safeTransfer(address(staking), balance);
+            emit SweepStuckExecuted(_token, balance);
         }
+    }
+
+    function cancelSweepStuckRewards() external onlyOwner {
+        address cancelled = pendingSweepStuckToken;
+        pendingSweepStuckToken = address(0);
+        _cancel(SWEEP_STUCK_CHANGE);
+        emit SweepStuckCancelled(cancelled);
+    }
+
+    /// @notice DEPRECATED — pre-2026-05-26 instant sweep. Use the
+    ///         propose/execute pair above. Reverts to flag to callers
+    ///         that migration is required.
+    function sweepStuckRewards(address) external view onlyOwner {
+        revert("AUDIT 2026-05-26 [M-09]: use proposeSweepStuckRewards/executeSweepStuckRewards");
     }
 
     /// @notice AUDIT FIX H-06: Recover stuck principal TOWELI when the underlying staking
@@ -2112,6 +2172,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // stranded claim is live; user's `claimStrandedRestakeNFT` takes
         // precedence over owner rescue.
         if (strandedRestakeRecipient[_tokenId] != address(0)) revert BadParam();
+        // AUDIT FIX 2026-05-26 [M-06]: refuse rescue while a residual claim is live.
+        // Pre-fix, rescue would extract the NFT to `_to`, leaving the residue
+        // permanently unreachable (the cross-holder gate at claimResidualForTokenId
+        // line 1568 then blocks recovery because ownerOf is now `_to`). Owner can
+        // still clear via the 7-day `proposeClearResidualClaimant` path first.
+        if (_residualClaimant[_tokenId] != address(0)) revert BadParam();
         if (_to == address(0)) revert ZeroAddress();
         pendingRescueNFT = PendingRescueNFT({tokenId: _tokenId, to: _to});
         _propose(RESCUE_NFT_CHANGE, RESCUE_NFT_TIMELOCK);
@@ -2501,6 +2567,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function decayExpiredRestaker(address _restaker) external nonReentrant {
         RestakeInfo storage info = restakers[_restaker];
         if (info.tokenId == 0) revert NotRestaked();
+
+        // AUDIT FIX 2026-05-26 [M-01]: trigger staking-side lazy decay BEFORE reading
+        // the cached boosted amount. Without this, the staking position's
+        // `boostedAmount` is still inflated (lazy-decay model — only updates on
+        // touch), so the equality check below trips `NoDecay` even though
+        // decay IS due. Mirrors the pattern at claimAll / unrestake / refreshPosition.
+        // try/catch absorbs any future revert from staking-side kick.
+        try staking.kick(info.tokenId) {} catch { /* fall through with stale cache */ }
 
         // Read current position from staking contract (where decay has been applied)
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
