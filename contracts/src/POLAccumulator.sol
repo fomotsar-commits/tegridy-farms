@@ -322,14 +322,17 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // the chain wakes up risks executing at stale spot price.
         // AUDIT FIX (BATCH-L3 M4): 4h staleness on price-sensitive path.
         SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
+        // AUDIT FIX 2026-05-26 [M-14]: validate deadline BEFORE stamping cooldown.
+        // Pre-fix ordering (stamp then validate) was safe via Solidity tx-rollback,
+        // but a future refactor extracting the cooldown stamp could break the
+        // rollback assumption. Single-line move — same gas, clearer invariant.
+        require(_deadline >= block.timestamp, "EXPIRED");
+        if (_deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         require(block.timestamp >= lastAccumulateTime + ACCUMULATE_COOLDOWN, "ACCUMULATE_COOLDOWN");
         // AUDIT FIX (2026-05-25 2nd pass): stamp the cooldown BEFORE the external swap/add
         // (CEI), matching SwapFeeRouter's conversion-cooldown ordering. Defense-in-depth on
         // top of nonReentrant; if the swap path reverts, the whole tx (incl. this) rolls back.
         lastAccumulateTime = block.timestamp;
-        require(_deadline >= block.timestamp, "EXPIRED");
-        // SECURITY FIX: Enforce tight deadline cap — accumulate() is high-value MEV target
-        if (_deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
 
         uint256 ethBalance = address(this).balance;
         if (ethBalance < 0.01 ether) revert InsufficientETH();
@@ -766,7 +769,18 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         uint256 twapEthPer1eToweli = twap.consult(lpToken, address(toweli), toweliUnit, TWAP_PERIOD);
         if (twapEthPer1eToweli == 0) revert OracleStale();
+        _assertSpotDeviationFromTWAP(toweliReserve, ethReserve, twapEthPer1eToweli);
+    }
 
+    /// @notice AUDIT FIX 2026-05-26 [M-15]: extracted the duplicated spot-vs-TWAP
+    ///         deviation check (was inline in both `_assertSpotNearTWAP` and
+    ///         `_twapHarvestMinOut`). Drift between the two copies was the M-15
+    ///         finding's concern; one source of truth now.
+    function _assertSpotDeviationFromTWAP(
+        uint256 toweliReserve,
+        uint256 ethReserve,
+        uint256 twapEthPer1eToweli
+    ) internal view {
         uint256 spotEthPer1eToweli = (ethReserve * toweliUnit) / toweliReserve;
         uint256 priceDelta = spotEthPer1eToweli > twapEthPer1eToweli
             ? spotEthPer1eToweli - twapEthPer1eToweli
@@ -899,14 +913,8 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // same unit so the deviation comparison and fairToweli math line up.
         uint256 twapEthPer1eToweli = twap.consult(lpToken, address(toweli), toweliUnit, TWAP_PERIOD);
         if (twapEthPer1eToweli == 0) revert OracleStale();
-
-        uint256 spotEthPer1eToweli = (ethReserve * toweliUnit) / toweliReserve;
-        uint256 priceDelta = spotEthPer1eToweli > twapEthPer1eToweli
-            ? spotEthPer1eToweli - twapEthPer1eToweli
-            : twapEthPer1eToweli - spotEthPer1eToweli;
-        if ((priceDelta * BPS) / twapEthPer1eToweli > HARVEST_TWAP_DEVIATION_BPS) {
-            revert ReservesDeviateFromTWAP();
-        }
+        // AUDIT FIX 2026-05-26 [M-15]: shared helper — see `_assertSpotDeviationFromTWAP`.
+        _assertSpotDeviationFromTWAP(toweliReserve, ethReserve, twapEthPer1eToweli);
 
         uint256 K = toweliReserve * ethReserve;
         // AUDIT FIX D-POL-M1: use toweliUnit consistent with the consult quote.

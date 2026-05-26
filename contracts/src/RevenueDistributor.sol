@@ -1269,7 +1269,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         }
     }
 
-    function proposeForfeitReclaim(uint256 _amount) external onlyOwner {
+    // AUDIT FIX 2026-05-26 [M-17]: add `whenNotPaused` so a captured owner cannot
+    // pre-queue a forfeit during a pause (then execute the moment the multisig
+    // unpauses). Sibling `executeForfeitReclaim` already has `whenNotPaused`;
+    // missing on propose was the asymmetry the audit flagged.
+    function proposeForfeitReclaim(uint256 _amount) external onlyOwner whenNotPaused {
         require(_amount > 0 && _amount <= 10 ether, "INVALID_AMOUNT");
         uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         require(_amount <= gap, "EXCEEDS_GAP");
@@ -1755,7 +1759,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     }
 
     /// @dev Internal shared logic for pendingETH and pendingETHPaginated.
+    /// @dev AUDIT FIX 2026-05-26 [L-20]: return 0 during staking pause to mirror the
+    ///      write-path `StakingPaused` revert (claim/claimUpTo/executeClaimRecovery).
+    ///      Frontends were showing non-zero claimables that would fail on submission.
     function _pendingETH(address user, uint256 maxEpochs) internal view returns (uint256) {
+        if (_isStakingPaused()) return 0;
         uint256 startEpoch = lastClaimedEpoch[user];
         uint256 endEpoch = epochs.length;
 
