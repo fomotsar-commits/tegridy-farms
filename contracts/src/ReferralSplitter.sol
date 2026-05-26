@@ -119,6 +119,16 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     bytes32 public constant BAN_REFERRER = keccak256("BAN_REFERRER");
     uint256 public constant BAN_REFERRER_DELAY = 24 hours;
     address public pendingBanReferrer;
+    /// @notice AUDIT FIX 2026-05-26 [L-52]: timestamp at which `executeBanReferrer`
+    ///         landed. Used by `forfeitUnclaimedRewards` to enforce a 7-day grace
+    ///         window AFTER the ban (in addition to the 24h propose timelock).
+    mapping(address => uint256) public banExecutedAt;
+    uint256 public constant BAN_FORFEIT_GRACE = 7 days;
+    /// @notice AUDIT FIX 2026-05-26 [L-51]: per-referrer lifetime forfeited counter
+    ///         so `getReferralInfo`-style consumers can disambiguate "earned" (gross
+    ///         lifetime credits) from "forfeited" (post-ban / inactivity routed to
+    ///         treasury) without inferring from `totalEarned - totalClaimed`.
+    mapping(address => uint256) public totalForfeited;
 
     // ─── Timelock Constants ──────────────────────────────────────────
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
@@ -179,6 +189,11 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error SetupAlreadyComplete(); // AUDIT FIX M-17
     error ReferralAgeTooRecent();
     error ReferrerBannedError(); // AUDIT FIX: DEEP-DR-L-04 — referrer is on the ban list
+    /// @notice AUDIT FIX 2026-05-26 [L-28]: invalid setApprovedCaller target.
+    error InvalidCaller();
+    /// @notice AUDIT FIX 2026-05-26 [L-52]: forfeit attempted within the 7-day
+    ///         post-ban grace window.
+    error ForfeitGracePending();
     /// @notice AUDIT FIX: V2-DR-L-01 — replaces the misleading `ZeroAddress()` revert
     ///         in `unbanReferrer` for callers passing a non-banned (but non-zero)
     ///         address. Off-chain monitoring can now distinguish input-validation
@@ -358,6 +373,15 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         address referrer = referrerOf[_user];
         uint256 referrerShare = (msg.value * referralFeeBps) / BPS;
         if (referrerShare == 0) {
+            // AUDIT FIX 2026-05-26 [L-50]: if a referrer IS set but the share rounded
+            // to zero (`msg.value * referralFeeBps < BPS`), route the dust to treasury
+            // instead of crediting the caller. Pre-fix, repeated tiny-amount calls
+            // could siphon the caller's "no referrer" credit indefinitely. Treasury
+            // is the legitimate destination for un-attributable dust.
+            if (referrer != address(0)) {
+                accumulatedTreasuryETH += msg.value;
+                return;
+            }
             // SECURITY FIX H-04: Use pull pattern — credit caller instead of pushing ETH back
             callerCredit[msg.sender] += msg.value;
             totalCallerCredit += msg.value; // S2-H-01: Track total
@@ -524,6 +548,15 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     function setApprovedCaller(address _caller, bool _approved) external onlyOwner {
         if (setupComplete) revert SetupAlreadyComplete();
         if (_caller == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-26 [L-28]: when granting (not revoking), enforce
+        // type-filter against EOAs and EIP-7702 delegated EOAs. Pre-fix, a
+        // captured deployer EOA could whitelist an attacker EOA pre-setup;
+        // post-completeSetup the whitelist is frozen (the timelocked
+        // `proposeApprovedCaller` path is the only way to add more).
+        // Type-filter only; operator still verifies the contract behaves.
+        if (_approved && (_caller.code.length == 0 || _caller.code.length == 23)) {
+            revert InvalidCaller();
+        }
         approvedCallers[_caller] = _approved;
         emit ApprovedCallerSet(_caller, _approved);
     }
@@ -716,10 +749,24 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
                 block.timestamp < lastBelowStakeTime[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
                 block.timestamp < lastClaimTime[_referrer] + FORFEITURE_PERIOD
             ) revert ForfeitureConditionsNotMet();
+        } else {
+            // AUDIT FIX 2026-05-26 [L-52]: 7-day grace after ban execute. Pre-fix,
+            // captured-owner could 24h-ban + INSTANTLY forfeit, end-to-end ~24h.
+            // Post-fix: 24h ban timelock + 7d post-ban grace = ~8 days monitoring
+            // window total. New `banExecutedAt` mapping stamped in executeBanReferrer;
+            // legacy banned referrers (none on mvp-launch) have `banExecutedAt == 0`
+            // → grace effectively expired at unix-epoch + 7d (same as pre-fix).
+            if (block.timestamp < banExecutedAt[_referrer] + BAN_FORFEIT_GRACE) {
+                revert ForfeitGracePending();
+            }
         }
 
         pendingETH[_referrer] = 0;
         totalPendingETH -= amount;
+        // AUDIT FIX 2026-05-26 [L-51]: track lifetime forfeited per-referrer
+        // separate from `totalEarned`. Pre-fix `getReferralInfo` returned
+        // `earned` that included forfeited amounts, overstating lifetime payout.
+        totalForfeited[_referrer] += amount;
 
         // A3-M-01: Accumulate instead of push — withdraw via withdrawTreasuryFees()
         accumulatedTreasuryETH += amount;
@@ -765,6 +812,13 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         address banned = pendingBanReferrer;
         pendingBanReferrer = address(0);
         bannedReferrers[banned] = true;
+        // AUDIT FIX 2026-05-26 [L-52]: stamp ban-execution time so forfeit on a
+        // banned referrer has a 7-day grace window AFTER the ban executes.
+        // Pre-fix, a captured owner could 24h-timelock-ban then INSTANTLY
+        // forfeit (the bannedReferrers gate bypassed all stake/grace/inactivity
+        // checks at the forfeit). The 7-day grace adds a second monitoring
+        // window matching the Aave Safety Module cooldown pattern.
+        banExecutedAt[banned] = block.timestamp;
         emit ReferrerBanned(banned);
     }
 
