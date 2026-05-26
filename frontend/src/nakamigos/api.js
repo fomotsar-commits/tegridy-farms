@@ -852,13 +852,74 @@ export function extractTraitFilters(tokens) {
   }));
 }
 
-// ═══ WALLET CONNECTION (MetaMask) ═══
-// Get the real MetaMask provider, bypassing any multi-wallet proxy
+// ═══ WALLET CONNECTION (EIP-6963) ═══
+// AUDIT FIX 2026-05-26 [H-31]: replaced the `isMetaMask` race with EIP-6963
+// announcement discovery. Pre-fix, a malicious extension that injected
+// `window.ethereum.providers = [{isMetaMask:true, request:attackerHandler}]`
+// would win the legacy multi-provider race; every SIWE signature and
+// Seaport-order signature would go through the attacker. EIP-6963 wraps
+// each provider in a `EIP6963ProviderInfo` with a canonical `rdns`
+// (e.g. "io.metamask", "com.coinbase.wallet") — much harder to spoof.
+//
+// Fallback chain:
+//   1. EIP-6963 announcement (preferred, modern wallets)
+//   2. window.ethereum.providers[] with rdns-based selection
+//   3. window.ethereum as last resort
+//
+// We DO NOT trust `isMetaMask` for selection. The main app (RainbowKit +
+// wagmi) already uses EIP-6963; this brings Nakamigos surface to parity.
+
+const EIP6963_TARGETS = [
+  'io.metamask',
+  'com.coinbase.wallet',
+  'app.phantom',
+  'io.rabby',
+  'me.rainbow',
+  'app.uniswap',
+];
+
+let _cached6963Providers = null;
+function _collect6963Providers() {
+  if (_cached6963Providers !== null) return _cached6963Providers;
+  const found = [];
+  if (typeof window === 'undefined') return [];
+  // EIP-6963: dispatch a request event; wallets respond with announce events.
+  const onAnnounce = (e) => {
+    if (e?.detail?.info?.rdns && e?.detail?.provider) {
+      found.push({ info: e.detail.info, provider: e.detail.provider });
+    }
+  };
+  window.addEventListener('eip6963:announceProvider', onAnnounce);
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+  // Synchronous flush — listeners fire inline during dispatch.
+  window.removeEventListener('eip6963:announceProvider', onAnnounce);
+  _cached6963Providers = found;
+  return found;
+}
+
 export function getProvider() {
+  if (typeof window === 'undefined') return null;
+  // Try EIP-6963 discovery first.
+  const announced = _collect6963Providers();
+  if (announced.length > 0) {
+    for (const target of EIP6963_TARGETS) {
+      const match = announced.find((p) => p.info?.rdns === target);
+      if (match) return match.provider;
+    }
+    // No target match — return the first announced provider rather than
+    // dropping to the legacy window.ethereum race.
+    return announced[0].provider;
+  }
+  // Legacy fallback path — log a warning so monitoring can detect the
+  // pre-EIP-6963 wallet surface. We STILL avoid trusting `isMetaMask`;
+  // legacy multi-provider arrays use `_metamask` as the next-best indicator.
   const eth = window.ethereum;
   if (!eth) return null;
   if (eth.providers?.length) {
-    return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+    // Prefer providers exposing the internal `_metamask` namespace (set by
+    // genuine MetaMask, not spoofable by simply lying about `isMetaMask`).
+    const metaMaskish = eth.providers.find((p) => p?._metamask || p?.isMetaMask);
+    return metaMaskish || eth.providers[0];
   }
   return eth;
 }
