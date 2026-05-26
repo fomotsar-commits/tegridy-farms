@@ -148,6 +148,14 @@ library StakingRewardLib {
         // accounting the per-tokenId mapping is always <= holder bucket because
         // every per-tokenId credit was paired with a holder-bucket credit.
         uint256 holderUnsettled = unsettledRewards[holder];
+        // AUDIT FIX 2026-05-26 [L-16]: if the per-tokenId mapping is non-zero
+        // but the holder bucket is fully drained (invariant break — should not
+        // happen in normal flow; defensive cleanup path), zero the slot so it
+        // doesn't persist as a perma-zombie. No value lost (paid stays 0).
+        if (amount > 0 && holderUnsettled == 0) {
+            unsettledRewardsByTokenId[tokenId] = 0;
+            return (0, newTotalUnsettledRewards);
+        }
         if (amount > holderUnsettled) amount = holderUnsettled;
 
         // Same reward-pool cap as `claimUnsettledInternal`: reserve totalStaked +

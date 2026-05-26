@@ -446,6 +446,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     // ─── Modifiers ──────────────────────────────────────────────────
+    /// @dev AUDIT FIX 2026-05-26 [L-02]: this modifier reads
+    ///      `bonusRewardToken.balanceOf(address(this))` and distributes the
+    ///      delta as bonus. Anyone direct-transferring bonus tokens to the
+    ///      contract (bypassing `fundBonus`) will have those tokens silently
+    ///      distributed at the next `updateBonus` invocation. This is the
+    ///      intended "donations welcome" semantic but means `totalBonusFunded`
+    ///      does NOT track direct sends — operators MUST use `fundBonus` for
+    ///      observable accounting. No code fix; ABI is correct.
     modifier updateBonus() {
         if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
             uint256 elapsed = block.timestamp - lastBonusRewardTime;
@@ -534,6 +542,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // slither-disable-next-line incorrect-equality
         if (info.tokenId == 0) return 0;
         return staking.earned(info.tokenId);
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [L-03]: sum of accruing bonus + deferred
+    ///         payout sitting in `unforwardedBonusRewards`. The standalone
+    ///         `pendingBonus(user)` view returns 0 when the user has no
+    ///         active restake — but a previously-deferred bonus payout (e.g.
+    ///         caught by a blacklist arm in claimAll/unrestake) still owes
+    ///         them ETH/tokens via `claimPendingBonusPayout`. This combined
+    ///         view lets UIs surface the full claimable in one read.
+    function totalBonusClaimable(address user) external view returns (uint256) {
+        return pendingBonus(user) + unforwardedBonusRewards[user];
     }
 
     /// @notice Total pending rewards (base + bonus) for display
