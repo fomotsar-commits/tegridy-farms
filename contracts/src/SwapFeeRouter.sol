@@ -492,6 +492,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         are restricted to non-Uniswap-pair tokens (genuine "exotic / non-swappable
     ///         token" escape hatches).
     error UseConvertTokenFeesToETH();
+    /// @notice AUDIT FIX 2026-05-26 [H-10 / L-06]: typed errors for setSwapFeeRouterAdmin
+    ///         — distinct from `Unauthorized()` (semantic: caller lacks permission) and
+    ///         `ZeroAddress()` (semantic: input is zero). Lets off-chain monitors
+    ///         decode the exact reject branch.
+    error InvalidAdmin();
+    /// @notice AUDIT FIX 2026-05-26 [L-08]: typed error — was `Unauthorized()` pre-fix.
+    error AdminAlreadySet();
 
     constructor(address _router, address _treasury, uint256 _feeBps, address _referralSplitter)
         OwnableNoRenounce(msg.sender)
@@ -1088,7 +1095,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         cannot block its own removal.
     function setSwapFeeRouterAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
-        if (swapFeeRouterAdmin != address(0)) revert Unauthorized();
+        // AUDIT FIX 2026-05-26 [H-10 / L-06]: reject EOAs and EIP-7702 delegated EOAs
+        // (code.length == 23 → `0xef0100‖addr` magic). Type-filter — not a capability
+        // check; operator MUST verify the admin contract implements `applyXxx` methods.
+        // Mirrors the sister setter `setSequencerFeed` (line 537).
+        if (_admin.code.length == 0 || _admin.code.length == 23) revert InvalidAdmin();
+        // AUDIT FIX 2026-05-26 [L-08]: typed error — "AlreadySet" is the semantic, not
+        // "Unauthorized". Existing one-shot semantics preserved; recovery from a missed
+        // wire still goes through `proposeAdminReplacement` (7d timelock, line 1110+).
+        if (swapFeeRouterAdmin != address(0)) revert AdminAlreadySet();
         swapFeeRouterAdmin = _admin;
         emit SwapFeeRouterAdminSet(_admin);
         emit SwapFeeRouterAdminReplaced(address(0), _admin);
@@ -1730,6 +1745,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         // slither-disable-next-line uninitialized-local
         uint32 currentTs;
         if (path.length > 2) {
+            // AUDIT FIX 2026-05-26 [H-03]: sequencer-uptime gate on multi-hop path.
+            // The 2-hop branch gets this via `_enforceTWAPMinETHOut` (line 2170);
+            // multi-hop bypassed sequencer protection entirely pre-fix. On L2, a
+            // captured-owner could convert against stale pre-outage reserves.
+            SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+
             // Owner-only branch: no direct-pair TWAP anchor; trust the operator's minETHOut.
             // AUDIT FIX: DEEP-R2-M01 — require a non-zero minETHOut floor on the multi-hop
             // path. The owner-only gate is a TRUST boundary, not a substitute for defence
@@ -1743,10 +1764,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
             // parameter-meaningful. Realistic conversions accumulate ≥1e18 of token first
             // (`MIN_TOKEN_FEE_FOR_CONVERSION`) and produce orders of magnitude more ETH
             // on any liquid path, so legitimate flows are unaffected.
-            if (minETHOut < MIN_MULTIHOP_ETH_OUT_WEI) revert ZeroMinOut();
-            effectiveMin = minETHOut;
-            // currentCum/currentTs left zero — we only update the snapshot on direct
-            // 2-hop conversions (otherwise we'd seed a meaningless zero baseline).
+            // AUDIT FIX 2026-05-26 [H-02]: when a direct token/WETH pair exists, ALSO
+            // derive the TWAP-based floor (1.5% safety) and require the MAX of (TWAP,
+            // absolute, caller). Defense-in-depth against captured-owner using multi-hop
+            // to bypass the 2-hop direct-pair TWAP. Bypass only when no direct pair exists.
+            uint256 effectiveFloor = MIN_MULTIHOP_ETH_OUT_WEI;
+            if (uniFactory.getPair(token, WETH) != address(0)) {
+                (uint256 twapMin, uint256 hopCurCum, uint32 hopCurTs) =
+                    _enforceTWAPMinETHOut(token, amount, minETHOut);
+                if (twapMin > effectiveFloor) effectiveFloor = twapMin;
+                // Capture the snapshot data — invalidation logic at end of fn still applies
+                currentCum = hopCurCum;
+                currentTs = hopCurTs;
+            }
+            if (minETHOut < effectiveFloor) revert ZeroMinOut();
+            effectiveMin = minETHOut > effectiveFloor ? minETHOut : effectiveFloor;
             emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
         } else {
             // AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut and pick the tighter of
@@ -1856,13 +1888,25 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         // slither-disable-next-line uninitialized-local
         uint32 currentTs;
         if (path.length > 2) {
+            // AUDIT FIX 2026-05-26 [H-03 / FoT]: sequencer gate parity with non-FoT variant.
+            SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
+
             // AUDIT FIX: DEEP-R2-M01 — same non-zero floor as the standard variant. See
             // convertTokenFeesToETH above for the full rationale; both entry points must
             // enforce identical multi-hop guards or an attacker can pick the unlocked door.
             // AUDIT FIX: DEEP-R3-M01 — anchor against `MIN_MULTIHOP_ETH_OUT_WEI` to close
             // the `minETHOut = 1` bypass (mirrors convertTokenFeesToETH above).
-            if (minETHOut < MIN_MULTIHOP_ETH_OUT_WEI) revert ZeroMinOut();
-            effectiveMin = minETHOut;
+            // AUDIT FIX 2026-05-26 [H-02 / FoT]: TWAP floor parity with non-FoT variant.
+            uint256 effectiveFloor = MIN_MULTIHOP_ETH_OUT_WEI;
+            if (uniFactory.getPair(token, WETH) != address(0)) {
+                (uint256 twapMin, uint256 hopCurCum, uint32 hopCurTs) =
+                    _enforceTWAPMinETHOut(token, swapAmount, minETHOut);
+                if (twapMin > effectiveFloor) effectiveFloor = twapMin;
+                currentCum = hopCurCum;
+                currentTs = hopCurTs;
+            }
+            if (minETHOut < effectiveFloor) revert ZeroMinOut();
+            effectiveMin = minETHOut > effectiveFloor ? minETHOut : effectiveFloor;
             emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
         } else {
             // AUDIT SFR-H-01: TWAP-floor minETHOut sized against the actual swap input. Caller
@@ -1912,6 +1956,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         treasury at 100% — bypassing the split for accidental-deposit value.
     function sweepTokens(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-26 [H-01]: explicit WETH reject. `getPair(WETH, WETH)` returns
+        // `address(0)` (UniV2 same-token reject) so the line below cannot catch the WETH
+        // case — without this gate, captured-owner could drain donated/fallback WETH past
+        // the staker/POL split. Mirrors the line-1581 reject in `withdrawTokenFees`.
+        if (token == WETH) revert UseConvertTokenFeesToETH();
         // AUDIT FIX 2026-05-16 M3: refuse if token has a Uniswap V2 pair against WETH.
         if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
         uint256 balance = IERC20(token).balanceOf(address(this));
