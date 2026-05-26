@@ -708,12 +708,27 @@ contract Audit195Referral is Test {
         // Deploy a fresh splitter to exercise pre-completeSetup behaviour
         // (setUp() finalises setup on the shared `ref`).
         ReferralSplitter freshRef = new ReferralSplitter(REFERRAL_FEE_BPS, address(staking), treasuryAddr, address(weth));
-        address newCaller = makeAddr("newCaller");
+        // AUDIT FIX 2026-05-26 [L-28]: setApprovedCaller now rejects EOAs.
+        // Use a contract address (`caller` is the MockApprovedCaller deployed
+        // in setUp() — has bytecode, satisfies the type-filter).
+        address newCaller = address(caller);
         freshRef.setApprovedCaller(newCaller, true);
         assertTrue(freshRef.approvedCallers(newCaller));
 
         freshRef.setApprovedCaller(newCaller, false);
         assertFalse(freshRef.approvedCallers(newCaller));
+    }
+
+    /// @dev AUDIT FIX 2026-05-26 [L-28]: confirm the new type-filter
+    ///      rejects raw EOAs on the grant path.
+    function test_setApprovedCaller_rejectsEOA() public {
+        ReferralSplitter freshRef = new ReferralSplitter(REFERRAL_FEE_BPS, address(staking), treasuryAddr, address(weth));
+        address eoaCaller = makeAddr("eoaCaller");
+        vm.expectRevert(ReferralSplitter.InvalidCaller.selector);
+        freshRef.setApprovedCaller(eoaCaller, true);
+        // Revoke path (approved=false) should still accept any address since
+        // there's no security risk in revoking a non-existent approval.
+        freshRef.setApprovedCaller(eoaCaller, false);
     }
 
     function test_setApprovedCaller_revert_afterSetupComplete() public {
@@ -857,10 +872,33 @@ contract Audit195Referral is Test {
 
         // M1 FIX: owner can now forfeit the banned referrer's frozen pendingETH to
         // treasury despite the active stake (pre-fix: ForfeitureConditionsNotMet).
+        // AUDIT FIX 2026-05-26 [L-52]: 7-day post-ban grace window added. The
+        // ban was executed above; warp past the grace before forfeit.
+        vm.warp(block.timestamp + 8 days);
         uint256 treasuryBefore = ref.accumulatedTreasuryETH();
         ref.forfeitUnclaimedRewards(bob);
         assertEq(ref.pendingETH(bob), 0, "M1: banned referrer's pendingETH cleared");
         assertEq(ref.accumulatedTreasuryETH(), treasuryBefore + bobPending, "M1: frozen funds routed to treasury");
+    }
+
+    /// @dev AUDIT FIX 2026-05-26 [L-52]: confirm forfeit reverts during the
+    ///      7-day post-ban grace window.
+    function test_L52_bannedForfeitGracePending() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+        ref.proposeBanReferrer(bob);
+        vm.warp(block.timestamp + 2 days);
+        ref.executeBanReferrer();
+
+        // Immediately attempt forfeit — should revert ForfeitGracePending.
+        vm.expectRevert(ReferralSplitter.ForfeitGracePending.selector);
+        ref.forfeitUnclaimedRewards(bob);
+
+        // After grace, forfeit succeeds.
+        vm.warp(block.timestamp + 8 days);
+        ref.forfeitUnclaimedRewards(bob);
+        assertEq(ref.pendingETH(bob), 0);
     }
 
     function test_forfeitRewards_revert_graceNotElapsed() public {
