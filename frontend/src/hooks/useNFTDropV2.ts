@@ -11,25 +11,38 @@ import type { ContractMetadata } from '../lib/nftMetadata';
 /// Anything else (ipfs://, data:, raw https) passes through as well — the
 /// JSON fetch will either succeed or fail gracefully and we fall back to
 /// on-chain name/symbol.
+// AUDIT FIX 2026-05-26 [H-34]: pipe the contractURI through the shared
+// isAllowedUri / resolveSafeUrl gate so attacker-controlled `contractURI`
+// values (file://, javascript:, http://192.168...) cannot reach the fetch.
+// Returns empty string for disallowed schemes — caller treats empty as
+// "metadata fetch failed", falling back to on-chain name/symbol.
+import { isAllowedUri as isAllowedUriShared, resolveSafeUrl as resolveSafeUrlShared } from '../lib/imageSafety';
+
 export function resolveContractUri(uri: string): string {
   if (!uri) return '';
   const trimmed = uri.trim();
   if (trimmed.startsWith('ar://')) {
-    // ar://<id>/<path?>  →  https://arweave.net/<id>/<path?>
     return `https://arweave.net/${trimmed.slice(5)}`;
   }
+  // AUDIT FIX 2026-05-26 [H-34]: scheme allowlist via shared imageSafety helper.
+  // Rejects file:/vbscript:/http-LAN/etc. before the upstream fetch.
+  if (!isAllowedUriShared(trimmed)) return '';
   return trimmed;
 }
 
-/// Convert an image/banner URI inside a contractURI JSON payload into a
-/// browser-renderable URL. Same rules as resolveContractUri, exposed
-/// separately so the detail page can normalise `image` / `banner_image`.
+/// AUDIT FIX 2026-05-26 [H-32]: pipe image/banner_image through the shared
+/// resolveSafeUrl gate so an attacker-controlled creator metadata payload
+/// cannot inject tracking pixels (https://attacker.com/?wallet=...) or
+/// vbscript:/data:text/html into `<img src>`. Returns undefined for
+/// disallowed schemes — caller's UI falls back to a placeholder.
 export function resolveAssetUrl(uri: string | undefined): string | undefined {
   if (!uri) return undefined;
   if (uri.startsWith('ar://')) {
-    return `https://arweave.net/${uri.slice(5)}`;
+    const arweaveUrl = `https://arweave.net/${uri.slice(5)}`;
+    return arweaveUrl;
   }
-  return uri;
+  const safe = resolveSafeUrlShared(uri);
+  return safe ?? undefined;
 }
 
 export function useNFTDropV2(dropAddress: string) {

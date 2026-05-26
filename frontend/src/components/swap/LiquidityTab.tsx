@@ -21,10 +21,49 @@ const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
 
 const CUSTOM_TOKENS_KEY = 'tegridy_liquidity_custom_tokens';
 
+// AUDIT FIX 2026-05-26 [H-33]: validate rehydrated custom tokens before
+// trusting them. Pre-fix, a malicious browser extension that wrote a
+// spoofed entry (`{symbol:"USDC", address:"0xATTACKER", decimals:6}`) to
+// localStorage would silently surface in the picker and the user would
+// approve LP additions against the attacker contract. Mirrors the
+// equivalent rehydrate validation in `useSwap.ts` (D-FE-L1/L2 hardening).
+const ETH_ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
+const SAFE_SYMBOL_RE = /^[A-Z0-9]{1,12}$/;
+
+function isValidCustomToken(t: unknown): t is TokenInfo {
+  if (!t || typeof t !== 'object') return false;
+  const o = t as Record<string, unknown>;
+  if (typeof o.address !== 'string' || !ETH_ADDR_RE.test(o.address)) return false;
+  if (typeof o.symbol !== 'string' || !SAFE_SYMBOL_RE.test(o.symbol)) return false;
+  if (typeof o.name !== 'string' || o.name.length === 0 || o.name.length > 64) return false;
+  if (typeof o.decimals !== 'number' || o.decimals < 0 || o.decimals > 36 || !Number.isInteger(o.decimals)) return false;
+  if (typeof o.logoURI !== 'string') return false;
+  if (o.isNative !== undefined && typeof o.isNative !== 'boolean') return false;
+  // Reject the native-ETH pseudo-address from being spoofed by a non-native entry.
+  if (o.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' && !o.isNative) return false;
+  return true;
+}
+
 function loadCustomTokens(): TokenInfo[] {
   try {
     const raw = localStorage.getItem(CUSTOM_TOKENS_KEY);
-    return raw ? JSON.parse(raw) as TokenInfo[] : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Validate per-entry AND filter out any symbol that collides with the
+    // canonical DEFAULT_TOKENS list (anti-spoof; a custom "USDC" must be
+    // rejected because the default-list USDC at 0xA0b8... is authoritative).
+    const defaultSymbols = new Set(DEFAULT_TOKENS.map((t) => t.symbol.toUpperCase()));
+    const seenAddrs = new Set<string>();
+    const filtered = parsed.filter((entry: unknown) => {
+      if (!isValidCustomToken(entry)) return false;
+      if (defaultSymbols.has(entry.symbol.toUpperCase())) return false;
+      const addrLower = entry.address.toLowerCase();
+      if (seenAddrs.has(addrLower)) return false;
+      seenAddrs.add(addrLower);
+      return true;
+    });
+    return filtered as TokenInfo[];
   } catch { return []; }
 }
 
