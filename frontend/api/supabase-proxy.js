@@ -17,6 +17,10 @@ import { jwtVerify } from "jose";
 import { createClient } from "@supabase/supabase-js";
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { validateBody } from "./_lib/proxy-schemas.js";
+// AUDIT FIX 2026-05-26 [H-21]: bound Supabase response reads — a hostile
+// PostgREST or rogue gateway upstream could otherwise OOM the lambda with a
+// large payload or gzip-bomb. Parity with aggregator-proxy + orderbook hardening.
+import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 
 // AUDIT FIX H-3: lazily initialised service-role client used ONLY for the
 // revoked_jwts revocation check. Never used to forward user-controlled writes
@@ -304,7 +308,19 @@ export default async function handler(req, res) {
       body: fetchBody,
     });
 
-    const text = await response.text();
+    // AUDIT FIX 2026-05-26 [H-21]: bounded read replaces `response.text()`.
+    let text;
+    try {
+      const { text: bodyText, truncated } = await readBoundedText(response, MAX_RESPONSE_BYTES);
+      if (truncated) {
+        console.error("Supabase upstream over-cap");
+        return res.status(502).json({ error: "Upstream service error" });
+      }
+      text = bodyText;
+    } catch (readErr) {
+      console.error("Supabase read error:", readErr?.message ?? readErr);
+      return res.status(502).json({ error: "Upstream service error" });
+    }
     const status = response.status;
 
     if (status >= 400) {

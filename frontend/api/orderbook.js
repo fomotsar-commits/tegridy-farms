@@ -15,6 +15,10 @@ import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { verifySeaportSignature, verifyNftOwnership, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
+// AUDIT FIX 2026-05-26 [H-20]: bound the Alchemy RPC response so a hostile /
+// compromised RPC cannot OOM the lambda or rack up memory-time billing with a
+// 100MB receipt or a gzip-bomb. Parity with the aggregator-proxy hardening.
+import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 
 // Whitelist allowed contract addresses (lowercase)
 const ALLOWED_CONTRACTS = new Set([
@@ -690,13 +694,29 @@ export default async function handler(req, res) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
           });
-          const rpcData = await rpcRes.json();
+          // AUDIT FIX 2026-05-26 [H-20]: bounded read. A 100MB receipt or gzip-bomb
+          // upstream would otherwise OOM the lambda. readBoundedText cancels mid-stream.
+          const { text: rpcBodyText, truncated } = await readBoundedText(rpcRes, MAX_RESPONSE_BYTES);
+          if (truncated) {
+            console.error("Alchemy RPC response over cap:", txHash);
+            return res.status(502).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
+          }
+          let rpcData;
+          try { rpcData = JSON.parse(rpcBodyText); } catch {
+            return res.status(502).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
+          }
           const receipt = rpcData?.result;
           if (!receipt) {
             return res.status(400).json({ error: "Transaction not found on-chain — it may still be pending" });
           }
           if (receipt.status !== "0x1") {
             return res.status(400).json({ error: "Transaction reverted on-chain" });
+          }
+          // AUDIT FIX 2026-05-26 [H-23]: cap log-count to prevent a 100k-log receipt
+          // from stalling per-request CPU budget. Real Seaport fills have <10 logs;
+          // 256 is generous headroom for batched fills sharing one tx.
+          if (Array.isArray(receipt.logs) && receipt.logs.length > 256) {
+            return res.status(400).json({ error: "Transaction log count exceeds verification budget" });
           }
           // Verify the tx contains a Seaport OrderFulfilled event for this order.
           // OrderFulfilled signature:

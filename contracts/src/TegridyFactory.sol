@@ -3,6 +3,10 @@ pragma solidity ^0.8.26;
 
 import "./TegridyPair.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+// AUDIT FIX 2026-05-26 [H-08] — EnumerableSet tracks per-token TOKEN_BLOCK_CHANGE
+// and per-pair PAIR_DISABLE_CHANGE pending proposals so acceptFeeToSetter can
+// flush every queued proposal the OLD setter left behind on rotation.
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 /// @title TegridyFactory — Creates and manages AMM liquidity pools
 /// @notice Fork of Uniswap V2 Factory. Creates TegridyPair pools for any token pair.
@@ -13,6 +17,7 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 ///         - Unlimited pools — add any pair anytime
 ///         - Each pool is a TegridyPair contract with its own LP token
 contract TegridyFactory is TimelockAdmin {
+    using EnumerableSet for EnumerableSet.AddressSet; // AUDIT FIX 2026-05-26 [H-08]
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant FEE_TO_CHANGE = keccak256("FEE_TO_CHANGE");
@@ -154,6 +159,21 @@ contract TegridyFactory is TimelockAdmin {
     ///         `emergencyDisablesToday` was last reset. Used to detect day
     ///         rollover before incrementing the counter.
     uint64 public lastDisableDay;
+
+    // ─── AUDIT FIX 2026-05-26 [H-08] — pending-proposal enumeration ─────
+    /// @notice Set of tokens with a currently-pending TOKEN_BLOCK_CHANGE proposal.
+    ///         Maintained by `proposeTokenBlocked` (add) and
+    ///         `executeTokenBlocked` / `cancelTokenBlocked` (remove). Iterated
+    ///         in `acceptFeeToSetter` to force-cancel every token-block the
+    ///         OLD setter queued before rotation.
+    /// @dev    Appended at the end of storage to preserve the existing slot layout.
+    EnumerableSet.AddressSet private _pendingTokenBlocks;
+    /// @notice Set of pairs with a currently-pending PAIR_DISABLE_CHANGE proposal.
+    ///         Maintained by `proposePairDisabled` (add) and
+    ///         `executePairDisabled` / `cancelPairDisabled` / `emergencyDisablePair`
+    ///         (remove). Iterated in `acceptFeeToSetter` to force-cancel every
+    ///         pair-disable the OLD setter queued before rotation.
+    EnumerableSet.AddressSet private _pendingPairDisables;
 
     /// @param _feeToSetter The administrative key (multisig recommended) that controls
     ///                     fee redirection and pair-disable timelocks.
@@ -374,11 +394,42 @@ contract TegridyFactory is TimelockAdmin {
             _forceCancel(GUARDIAN_CHANGE); // emits ProposalCancelled(GUARDIAN_CHANGE)
             emit GuardianChangeCancelled(cancelledGuardian); // legacy supplemental event
         }
+
+        // AUDIT FIX 2026-05-26 [H-08] — flush every per-token TOKEN_BLOCK_CHANGE
+        // proposal queued by the OLD setter. Iterate from end so remove's swap-and-pop
+        // never shifts an unvisited index.
+        uint256 nTokens = _pendingTokenBlocks.length();
+        for (uint256 i = nTokens; i > 0; i--) {
+            address token = _pendingTokenBlocks.at(i - 1);
+            bytes32 tKey = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
+            _forceCancel(tKey);
+            delete pendingTokenBlockValue[token];
+            _pendingTokenBlocks.remove(token);
+            emit TokenBlockCancelled(token);
+        }
+        // AUDIT FIX 2026-05-26 [H-08] — same flush for per-pair PAIR_DISABLE_CHANGE.
+        uint256 nPairs = _pendingPairDisables.length();
+        for (uint256 i = nPairs; i > 0; i--) {
+            address pair = _pendingPairDisables.at(i - 1);
+            bytes32 pKey = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
+            _forceCancel(pKey);
+            delete pendingPairDisableValue[pair];
+            _pendingPairDisables.remove(pair);
+            emit PairDisableCancelled(pair);
+        }
+
         emit FeeToSetterAccepted(oldSetter, feeToSetter);
     }
 
     /// @notice AUDIT FIX: Cancel a pending feeToSetter proposal.
     ///         Consistent with cancelFeeToChange() pattern.
+    /// @dev    AUDIT FIX 2026-05-26 [L-24] — the legacy FeeToSetterProposalCancelled
+    ///         event is the CANONICAL cancellation signal for this key. It does NOT
+    ///         use the TimelockAdmin._cancel(KEY) pattern (and so does NOT emit
+    ///         ProposalCancelled) because this rotation runs on its own pre-TimelockAdmin
+    ///         storage slot (pendingFeeToSetter + feeToSetterChangeTime) rather than
+    ///         through _executeAfter. Off-chain indexers must subscribe to
+    ///         FeeToSetterProposalCancelled (NOT ProposalCancelled) for this flow.
     function cancelFeeToSetterProposal() external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(pendingFeeToSetter != address(0), "NO_PENDING_PROPOSAL");
@@ -411,6 +462,13 @@ contract TegridyFactory is TimelockAdmin {
         if (ok && result.length >= 32) {
             bool supported = abi.decode(result, (bool));
             require(!supported, "ERC777_NOT_SUPPORTED");
+        }
+        // AUDIT FIX 2026-05-26 [L-32] — fail-closed on AMBIGUOUS short returndata.
+        // A non-abi-compliant token returning 1..31 bytes from supportsInterface could
+        // be deliberately ambiguous to bypass the ERC-777 gate. Conservative direction:
+        // treat as "yes, ERC-777" and reject pair creation.
+        if (ok && result.length > 0 && result.length < 32) {
+            revert("ERC777_NOT_SUPPORTED");
         }
 
         // Check for granularity() — mandatory ERC-777 function not found in standard ERC-20.
@@ -450,11 +508,13 @@ contract TegridyFactory is TimelockAdmin {
     }
 
     /// @notice AUDIT FIX L-29: Block or unblock a token (timelocked for consistency)
+    /// @dev    AUDIT FIX 2026-05-26 [H-08]: track in _pendingTokenBlocks for flush on rotation.
     function proposeTokenBlocked(address token, bool blocked) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         bytes32 key = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
         pendingTokenBlockValue[token] = blocked;
         _propose(key, TOKEN_BLOCK_DELAY);
+        _pendingTokenBlocks.add(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlockProposed(token, blocked, _executeAfter[key]);
     }
 
@@ -464,6 +524,7 @@ contract TegridyFactory is TimelockAdmin {
         _execute(key);
         blockedTokens[token] = pendingTokenBlockValue[token];
         delete pendingTokenBlockValue[token];
+        _pendingTokenBlocks.remove(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlocked(token, blockedTokens[token]);
     }
 
@@ -472,6 +533,7 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
         _cancel(key);
         delete pendingTokenBlockValue[token];
+        _pendingTokenBlocks.remove(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlockCancelled(token);
     }
 
@@ -520,6 +582,7 @@ contract TegridyFactory is TimelockAdmin {
     ///         the same gate in `emergencyDisablePair`. Off-chain consumers
     ///         (TWAP / VoteIncentives) defend in depth, but the registry should
     ///         not carry semantically-meaningless entries.
+    /// @dev AUDIT FIX 2026-05-26 [H-08]: track in _pendingPairDisables for flush on rotation.
     function proposePairDisabled(address pair, bool disabled) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(pair != address(0), "ZERO_ADDRESS");
@@ -527,6 +590,7 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         pendingPairDisableValue[pair] = disabled;
         _propose(key, PAIR_DISABLE_DELAY);
+        _pendingPairDisables.add(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableProposed(pair, disabled, _executeAfter[key]);
     }
 
@@ -537,6 +601,7 @@ contract TegridyFactory is TimelockAdmin {
         _execute(key);
         disabledPairs[pair] = pendingPairDisableValue[pair];
         delete pendingPairDisableValue[pair];
+        _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableExecuted(pair, disabledPairs[pair]);
     }
 
@@ -549,6 +614,7 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         _cancel(key);
         delete pendingPairDisableValue[pair];
+        _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableCancelled(pair);
     }
 
@@ -587,23 +653,25 @@ contract TegridyFactory is TimelockAdmin {
     }
 
     /// @notice AUDIT R028 H-01: propose a guardian change (takes effect after 48h).
-    ///         _newGuardian == address(0) is allowed and disables emergency powers.
+    /// @dev    AUDIT FIX 2026-05-26 [L-26] — guardian rotation to address(0) is now
+    ///         REJECTED. Per user decision 2026-05-26 the emergency role must ALWAYS
+    ///         exist (a zero guardian leaves the protocol with no instant-disable
+    ///         capability, defeating the NEW-A2 design rationale). Rotation to a fresh
+    ///         non-zero multisig is the supported path; disabling the role outright is not.
     /// @dev    AUDIT FIX D-AMM-L2: reject same-guardian no-op proposals so a captured
     ///         feeToSetter cannot occupy the GUARDIAN_CHANGE proposal slot for 48h
     ///         and block legitimate rotation. Mirrors the SAME_SETTER guard in
     ///         `proposeFeeToSetter` and the SAME_VALUE pattern across audit fixes.
     function proposeGuardianChange(address _newGuardian) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
+        // AUDIT FIX 2026-05-26 [L-26] — explicit zero-address reject.
+        require(_newGuardian != address(0), "ZERO_GUARDIAN");
         require(_newGuardian != guardian, "SAME_GUARDIAN");
-        // AUDIT FIX H-16 / F-94-02 (HIGH): require multisig-class guardian on
-        // rotation (skip the gate when _newGuardian == address(0) — that's the
-        // explicit "disable emergency role" path). Mirrors `setGuardian` so a
-        // captured feeToSetter cannot rotate the guardian to a single-key EOA
-        // they control, even after the 48h delay.
-        if (_newGuardian != address(0)) {
-            uint256 codeLen = _newGuardian.code.length;
-            require(codeLen > 0 && codeLen != 23, "GUARDIAN_NOT_MULTISIG");
-        }
+        // AUDIT FIX H-16 / F-94-02 (HIGH): require multisig-class guardian on rotation.
+        // The prior `if (_newGuardian != address(0))` carve-out is removed (per L-26 above)
+        // so the check is now unconditional.
+        uint256 codeLen = _newGuardian.code.length;
+        require(codeLen > 0 && codeLen != 23, "GUARDIAN_NOT_MULTISIG");
         pendingGuardian = _newGuardian;
         _propose(GUARDIAN_CHANGE, GUARDIAN_CHANGE_DELAY);
         emit GuardianChangeProposed(guardian, _newGuardian, _executeAfter[GUARDIAN_CHANGE]);
@@ -667,6 +735,9 @@ contract TegridyFactory is TimelockAdmin {
             emergencyDisablesToday = 1;
         } else {
             // Same day — enforce cap before incrementing.
+            // AUDIT FIX 2026-05-26 [L-33] — uint8 overflow path is impossible: cap
+            // MAX_EMERGENCY_DISABLES_PER_DAY=3 trips at 4, well below uint8 max 255.
+            // Solidity 0.8 checked arith would revert if ever reached.
             uint8 nextCount = emergencyDisablesToday + 1;
             if (nextCount > MAX_EMERGENCY_DISABLES_PER_DAY) {
                 revert EmergencyDisableRateLimited();
@@ -681,6 +752,7 @@ contract TegridyFactory is TimelockAdmin {
         if (_executeAfter[key] != 0 && pendingPairDisableValue[pair] == false) {
             _cancel(key);
             delete pendingPairDisableValue[pair];
+            _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         }
         emit PairEmergencyDisabled(pair, msg.sender);
     }

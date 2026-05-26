@@ -128,10 +128,12 @@ library SafeERC721Call {
             // staticcall(g, addr, in, insize, out, outsize)
             // gasBudget gas, 32-byte out buffer at memory slot 0.
             let success := staticcall(gasBudget, coll, add(data, 0x20), mload(data), 0, 32)
-            // Require both call success AND ≥32 bytes returned. Truncating high
-            // bits to address space is implicit in the cast.
+            // AUDIT FIX 2026-05-26 [H-06] — Explicit AND-mask to address space.
+            // Inline assembly bypasses Solidity's implicit cast masking; without
+            // this, a malicious ERC721 can return bytes32 with high-bit garbage
+            // that survives equality checks against expected addresses.
             if and(success, gt(returndatasize(), 31)) {
-                owner := mload(0)
+                owner := and(mload(0), 0xffffffffffffffffffffffffffffffffffffffff)
                 ok := 1
             }
         }

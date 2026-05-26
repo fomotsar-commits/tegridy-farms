@@ -81,6 +81,11 @@ contract TegridyRouter is ReentrancyGuard {
         // AUDIT FIX v2: Zero-address checks prevent deploying a bricked router
         require(_factory != address(0), "ZERO_FACTORY");
         require(_WETH != address(0), "ZERO_WETH");
+        // AUDIT FIX 2026-05-26 [L-49] — WETH constructor arg expected to be canonical
+        // WETH9 with bool-returning transfer; verified at deploy via CheckCanonicalWETH.s.sol.
+        // All IWETH(WETH).transfer(...) callsites check the bool return with require, which
+        // is safe against mainnet WETH9 (always returns true) and any future non-conforming
+        // WETH-alike that might silently fail.
         factory = _factory;
         WETH = _WETH;
     }
@@ -97,6 +102,10 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountAMin, uint256 amountBMin,
         address to, uint256 deadline
     ) external nonReentrant ensure(deadline) returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
+        // AUDIT FIX 2026-05-26 [L-23] — zero-recipient gate to match removeLiquidity
+        // (line 151) and the ETH variants. Keeps error surfaces uniform across the
+        // four liquidity entry points.
+        require(to != address(0), "ZERO_TO");
         address pair = ITegridyFactoryRouter(factory).getPair(tokenA, tokenB);
         require(pair != address(0), "PAIR_NOT_FOUND");
 

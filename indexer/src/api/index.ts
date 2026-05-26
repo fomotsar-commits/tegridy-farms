@@ -1,5 +1,6 @@
 import { ponder } from "ponder:registry";
 import { graphql } from "ponder";
+import { cors } from "hono/cors";
 
 // ─── AUDIT M3 (2026-05-24): harden the public GraphQL serve ──────────────────
 //
@@ -35,5 +36,27 @@ const graphqlMiddleware = graphql({
   maxOperationTokens: 1000,
 });
 
-ponder.use("/graphql", graphqlMiddleware);
-ponder.use("/", graphqlMiddleware);
+// AUDIT FIX 2026-05-26 [H-26]: replace Ponder/Hono's default `origin: "*"` with
+// an explicit allowlist. The pre-fix CORS header let any web origin (e.g. an
+// attacker's compromised site) drive cross-origin browser fetches against the
+// `/graphql` + `/metrics` endpoints, opening a DoS amplification surface and
+// trivial credential-coupled lookups. Set ALLOWED_ORIGINS in the indexer env
+// (comma-separated) for additional preview/staging origins.
+const allowedOrigins = [
+  "https://tegridyfarms.xyz",
+  "https://www.tegridyfarms.xyz",
+  "https://nakamigos.gallery",
+  "https://www.nakamigos.gallery",
+  "https://tegridyfarms.vercel.app",
+  ...(process.env.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) ?? []),
+];
+const corsMiddleware = cors({
+  origin: (origin) => (origin && allowedOrigins.includes(origin) ? origin : ""),
+  allowMethods: ["GET", "POST", "OPTIONS"],
+  allowHeaders: ["Content-Type", "Authorization"],
+  credentials: false,
+  maxAge: 86400,
+});
+
+ponder.use("/graphql", corsMiddleware, graphqlMiddleware);
+ponder.use("/", corsMiddleware, graphqlMiddleware);

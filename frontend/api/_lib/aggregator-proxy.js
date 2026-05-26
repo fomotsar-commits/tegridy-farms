@@ -268,9 +268,15 @@ export async function runProxy(req, res, cfg) {
     return res.status(502).json({ error: "Upstream service error" });
   }
 
-  // Forward upstream Content-Type if present, otherwise default to JSON.
-  const upstreamCt = upstreamRes.headers?.get?.("content-type") || "application/json";
-  res.setHeader("Content-Type", upstreamCt);
+  // AUDIT FIX 2026-05-26 [H-22] — force JSON response Content-Type + nosniff.
+  // Pre-fix the proxy reflected the upstream Content-Type verbatim, so a
+  // compromised aggregator returning `text/html` would be rendered as HTML by
+  // any browser that hit the proxy URL directly (XSS pivot via our trusted
+  // origin). All seven aggregator providers contract JSON responses; force
+  // application/json + X-Content-Type-Options: nosniff so the browser cannot
+  // be tricked into HTML interpretation regardless of upstream behavior.
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   // AUDIT FE-CRIT-01: explicitly DO NOT forward Set-Cookie or Authorization
   // headers. Default cache header is private, no-store unless caller overrides.
   res.setHeader("Cache-Control", cfg.cacheControl || "private, no-store");

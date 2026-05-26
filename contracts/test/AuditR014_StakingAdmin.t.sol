@@ -76,7 +76,9 @@ contract AuditR014_StakingAdminTest is Test {
     function test_h2_setStakingAdmin_revertsOnSecondCall() public {
         TegridyStakingAdmin replacement = new TegridyStakingAdmin(address(staking));
         // Owner cannot rewire via setStakingAdmin once stakingAdmin != address(0).
-        vm.expectRevert(TegridyStaking.Unauthorized.selector);
+        // AUDIT FIX 2026-05-26 [H-09]: error swapped Unauthorized → AdminAlreadySet
+        // for clearer caller diagnostics. Behaviour unchanged — still one-shot.
+        vm.expectRevert(TegridyStaking.AdminAlreadySet.selector);
         staking.setStakingAdmin(address(replacement));
     }
 

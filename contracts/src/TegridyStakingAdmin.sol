@@ -167,6 +167,11 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
         // AUDIT FIX FRESH-2026: F-43-C + F-60-2 — reject EOA / EIP-7702 delegated
         // EOAs at propose time. Mirrors TegridyStaking.setStakingAdmin /
         // proposeAdminReplacement contract-only enforcement.
+        // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
+        // EOAs); NOT a capability check. Operator MUST verify the proposed restaking
+        // contract implements ITegridyRestakingView (consumed by TegridyStaking for
+        // depositor lookups in getReward / revalidateBoost / toggleAutoMaxLock /
+        // extendLock JBAC re-validation paths).
         uint256 codeLen = _restaking.code.length;
         if (codeLen == 0 || codeLen == 23) revert NotAContract();
         pendingRestakingContract = _restaking;

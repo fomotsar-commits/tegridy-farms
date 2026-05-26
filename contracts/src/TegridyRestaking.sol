@@ -1002,7 +1002,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
-                totalRestaked = totalRestaked - oldBoosted + currentBoosted;
+                // AUDIT FIX 2026-05-26 [L-38] defensive underflow guard on totalRestaked
+                // See refreshPosition stale path for full rationale.
+                totalRestaked = (totalRestaked >= oldBoosted ? totalRestaked - oldBoosted : 0) + currentBoosted;
 
                 // R014 RETRY step 3 — accrue against the corrected (smaller)
                 // denominator. The micro-period elapsed since
@@ -1062,7 +1064,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 uint256 oldB = info.boostedAmount;
                 info.boostedAmount = postClaimBoosted;
                 _writeBoostCheckpoint(msg.sender, postClaimBoosted);
-                totalRestaked = totalRestaked - oldB + postClaimBoosted;
+                // AUDIT FIX 2026-05-26 [L-38] defensive underflow guard on totalRestaked
+                // See refreshPosition stale path for full rationale.
+                totalRestaked = (totalRestaked >= oldB ? totalRestaked - oldB : 0) + postClaimBoosted;
                 // Re-anchor bonusDebt at current accBonusPerShare on the new
                 // boost so the restaker doesn't immediately accrue against
                 // emission they haven't earned (the upcoming bonus claim
@@ -1201,7 +1205,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
-                totalRestaked = totalRestaked - oldBoosted + currentBoosted;
+                // AUDIT FIX 2026-05-26 [L-38] defensive underflow guard on totalRestaked
+                // See refreshPosition stale path for full rationale.
+                totalRestaked = (totalRestaked >= oldBoosted ? totalRestaked - oldBoosted : 0) + currentBoosted;
 
                 // R014 RETRY step 3 — accrue against the corrected (smaller)
                 // denominator.
