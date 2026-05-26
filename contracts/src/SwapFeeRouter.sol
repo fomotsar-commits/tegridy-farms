@@ -2252,20 +2252,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///      next `distribute()` along with the legitimate fee balance. The
     ///      forward-distribute flow itself is `nonReentrant` and only callable
     ///      after a 24-hour cooldown, which is the actual safety bound.
-    /// @dev AUDIT FIX (pass-8 batch-18): track cumulative ETH ingress so
-    ///      off-chain monitoring can reconcile `address(this).balance`
-    ///      against `accumulatedETHFees`. Any drift between
-    ///      `totalETHReceived` and the sum of accounted fee categories is
-    ///      "donated" / accidental ETH that the next `distribute()` will
-    ///      sweep proportionally. Counter is monotonic and never decremented
-    ///      — distribution outflows are tracked separately on the receiving
-    ///      contracts (RevenueDistributor / ReferralSplitter / POLAccumulator).
-    uint256 public totalETHReceived;
-    event ETHReceived(address indexed sender, uint256 amount);
-    receive() external payable {
-        totalETHReceived += msg.value;
-        emit ETHReceived(msg.sender, msg.value);
-    }
+    /// @dev AUDIT FIX C-01 (2026-05-26 swarm): `receive()` MUST stay empty to fit
+    ///      canonical WETH9.withdraw()'s `.transfer(2300)` stipend. The prior body
+    ///      (SSTORE + LOG2 ≈ 6.5k gas) bricked `convertTokenFeesToETH(WETH)` and
+    ///      stranded every WETH-input swap's fees permanently. Diagnostics counter
+    ///      removed — drift reconcilable from existing fee-recording events.
+    receive() external payable {}
 
     /// @notice AUDIT FIX 2026-05-22 M19-PORT-INLINE: override `acceptOwnership` so any
     ///         pending INLINE timelock proposals queued by the outgoing owner are CANCELLED
