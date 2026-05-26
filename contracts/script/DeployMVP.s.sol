@@ -186,6 +186,16 @@ contract DeployMVPScript is Script {
         TegridyTWAP twap = new TegridyTWAP(d.factory, sequencerFeed);
         d.twap = address(twap);
         console.log(" 5. TegridyTWAP:           ", d.twap);
+        // AUDIT FIX 2026-05-26 [H-18]: TWAP bootstrap is operator-paced (15-min
+        // MIN_PERIOD between observations, multi-step). Loud warning so the
+        // operator does NOT call POL.accumulate() until ≥4 observations exist
+        // (count <= 2 paths are owner-only bootstrap; permissionless consult
+        // requires count >= 4 + the 60-min cooldown after the last bypass).
+        // Runbook step (NEW): post-LP-seed, call `twap.update{value: MIN_UPDATE_FEE}
+        // (pair)` four times spaced ≥15 min apart, THEN wait 60 min before
+        // POL.accumulate(). Total wall-clock: ~2h 45m to first POL accumulate.
+        console.log(" 5b. WARN [H-18]: bootstrap TWAP via 4x update() >= 15min apart");
+        console.log("                  AFTER LP seed; do NOT POL.accumulate until ~2h45m later.");
 
         // 6. TegridyRestaking — DEFERRED to Phase 7 (audit 2026-05-24 / C1).
         //    Restaking ships PAUSED and does not open until Phase 7.0; nothing in the
@@ -233,6 +243,15 @@ contract DeployMVPScript is Script {
         sfr.setSwapFeeRouterAdmin(d.swapFeeRouterAdmin);
         console.log("10b. SwapFeeRouterAdmin:   ", d.swapFeeRouterAdmin);
 
+        // AUDIT FIX 2026-05-26 [H-13]: wire L2 sequencer feed on SwapFeeRouter BEFORE
+        // ownership transfer. Pre-fix, the one-shot setter was silently missed (the
+        // constructor doesn't take it). Mainnet (chainid == 1) skip is intentional;
+        // mainnet sequencerFeed remains address(0) by design.
+        if (sequencerFeed != address(0)) {
+            sfr.setSequencerFeed(sequencerFeed);
+            console.log("10c. swapFeeRouter.setSequencerFeed wired (L2)");
+        }
+
         // Approve SwapFeeRouter on ReferralSplitter, then lock instant setter.
         splitter.setApprovedCaller(d.swapFeeRouter, true);
         splitter.completeSetup();
@@ -267,6 +286,15 @@ contract DeployMVPScript is Script {
         // TegridyFactory.feeToSetter is the role that needs handoff; propose it now.
         TegridyFactory(d.factory).proposeFeeToSetter(multisig);
         console.log("    -> Factory.feeToSetter proposed to multisig (48h)");
+
+        // AUDIT FIX 2026-05-26 [H-17]: emit a loud reminder that the multisig
+        // MUST run all three factory-rotation acceptances within the 48h+7d
+        // validity window. VerifyMVP INV-11 will fail loud if any are missed.
+        console.log("    -> WARN [H-17]: multisig MUST run, after 48h delays:");
+        console.log("                  factory.executeFeeToChange()");
+        console.log("                  factory.acceptFeeToSetter()");
+        console.log("                  factory.executeGuardianChange()");
+        console.log("                  (all three asserted by VerifyMVP INV-11)");
 
         console.log("12. Ownership transfer initiated for 8 owned MVP contracts to:", multisig);
     }

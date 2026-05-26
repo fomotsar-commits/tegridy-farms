@@ -75,6 +75,17 @@ contract VerifyMVPScript is Script {
         require(TegridyStaking(staking).jbacVault()     == jbacVault,    "INV-3a: staking.jbacVault unset");
         require(TegridyStaking(staking).stakingAdmin()  == stakingAdmin, "INV-3b: staking.stakingAdmin unset");
         require(SwapFeeRouter(payable(swapFeeRouter)).swapFeeRouterAdmin() == swapFeeRouterAdmin, "INV-3c: swapFeeRouter.swapFeeRouterAdmin unset");
+        // AUDIT FIX 2026-05-26 [H-14]: assert ReferralSplitter setup finalized.
+        // Without this, recordFee silently redirects to treasury and the entire
+        // referral program is dead — INV-2/3 went green pre-fix even if the
+        // operator skipped `splitter.completeSetup()` in DeployMVP.
+        require(ReferralSplitter(payable(referralSplitter)).setupComplete(), "INV-3d: ReferralSplitter setup not completed");
+        // AUDIT FIX 2026-05-26 [H-15]: assert SwapFeeRouter is on the approved-caller
+        // allowlist. Pre-fix this could be silently missed and EVERY swap's referral
+        // slice would land in the catch arm (try/catch fallback) instead of crediting
+        // the legitimate referrer. Post-completeSetup the list is frozen, so this
+        // check is permanent state.
+        require(ReferralSplitter(payable(referralSplitter)).approvedCallers(swapFeeRouter), "INV-3e: ReferralSplitter has not approved SwapFeeRouter as caller");
         console.log("INV-3: one-shot setters wired .................... OK");
 
         // ─── INV-4: PauseGuardian wired on every Pausable MVP contract ──
@@ -116,6 +127,45 @@ contract VerifyMVPScript is Script {
         require(pauseGuardian != Ownable(staking).owner(), "INV-10: pauseGuardian == staking owner - disjoint violated");
         console.log("INV-10: pauseGuardian remains disjoint ........... OK");
 
+        // ─── INV-11: Factory rotation finalized (H-16) ────────────────
+        // AUDIT FIX 2026-05-26 [H-16]: assert the three factory roles ended
+        // up at multisig / revDist / pauseGuardian. Pre-fix, VerifyMVP went
+        // green while the deployer EOA STILL controlled the factory because
+        // the post-deploy 48h timelock acceptance (steps 2/3/3b in the
+        // runbook) are MANUAL. This INV catches "operator forgot the
+        // multisig acceptance ceremony" before announce-live.
+        require(TegridyFactory(factory).feeToSetter() == multisig, "INV-11a: factory.feeToSetter != multisig (runbook step 3 not run)");
+        require(TegridyFactory(factory).feeTo() == revDist,        "INV-11b: factory.feeTo != revDist (runbook step 2 not run)");
+        require(TegridyFactory(factory).guardian() == pauseGuardian, "INV-11c: factory.guardian != pauseGuardian (runbook step 3b not run)");
+        console.log("INV-11: factory rotation finalized ............... OK");
+
+        // ─── INV-12: Pending-owner cleared on every owned contract (H-12) ──
+        // AUDIT FIX 2026-05-26 [H-12]: assert that NO contract has a stale
+        // `pendingOwner` slot. INV-2 catches owner == multisig but not
+        // pendingOwner != address(0). A stale pendingOwner that the multisig
+        // forgot to accept is silent-rot — recovery requires another transferOwnership
+        // cycle and the 14-day expiry window. Loud check here per the OwnableNoRenounce
+        // M-20 family.
+        require(_pendingOwner(staking) == address(0),            "INV-12a: staking pendingOwner not cleared");
+        require(_pendingOwner(stakingAdmin) == address(0),       "INV-12b: stakingAdmin pendingOwner not cleared");
+        require(_pendingOwner(twap) == address(0),               "INV-12c: twap pendingOwner not cleared");
+        require(_pendingOwner(revDist) == address(0),            "INV-12d: revDist pendingOwner not cleared");
+        require(_pendingOwner(swapFeeRouter) == address(0),      "INV-12e: swapFeeRouter pendingOwner not cleared");
+        require(_pendingOwner(swapFeeRouterAdmin) == address(0), "INV-12f: swapFeeRouterAdmin pendingOwner not cleared");
+        require(_pendingOwner(polAccumulator) == address(0),     "INV-12g: polAccumulator pendingOwner not cleared");
+        require(_pendingOwner(referralSplitter) == address(0),   "INV-12h: referralSplitter pendingOwner not cleared");
+        console.log("INV-12: pending-owner cleared (no stale pending) . OK");
+
+        // ─── INV-13: Sequencer feed wired on L2 SwapFeeRouter (H-13) ──────
+        // AUDIT FIX 2026-05-26 [H-13]: on L2 deploys, `sequencerFeed` MUST
+        // be set on SwapFeeRouter — the one-shot setter is silently missed
+        // by DeployMVP otherwise. Mainnet (chainid == 1) is a no-op (feed
+        // remains address(0) by design).
+        if (block.chainid != 1) {
+            require(SwapFeeRouter(payable(swapFeeRouter)).sequencerFeed() != address(0), "INV-13: L2 swapFeeRouter.sequencerFeed unset");
+            console.log("INV-13: L2 sequencerFeed wired ................... OK");
+        }
+
         console.log("");
         console.log("=== ALL INVARIANTS GREEN ===");
         console.log("Treasury:        ", treasury);
@@ -125,5 +175,16 @@ contract VerifyMVPScript is Script {
         console.log("Safe to announce live. Monitor on Forta + Defender before TVL ramp.");
         // Silence unused-var lint
         router; referralSplitter;
+    }
+
+    /// @dev AUDIT FIX 2026-05-26 [H-12]: read Ownable2Step pending owner via
+    ///      staticcall so we can use the same helper across every owned
+    ///      contract without importing OwnableNoRenounce. Returns address(0)
+    ///      when the call reverts or returns garbage — fail-closed only when
+    ///      the caller's `require` checks expect a non-zero address.
+    function _pendingOwner(address c) internal view returns (address p) {
+        (bool ok, bytes memory data) = c.staticcall(abi.encodeWithSignature("pendingOwner()"));
+        if (!ok || data.length < 32) return address(0);
+        p = abi.decode(data, (address));
     }
 }
