@@ -340,7 +340,14 @@ library StakingRewardLib {
         // AUDIT FIX M-01: compute rewards BEFORE decay zeroes boostedAmount.
         int256 accumulated = _safeInt256((p.boostedAmount * rs.rewardPerTokenStored) / ACC_PRECISION);
         int256 diff = accumulated - p.rewardDebt;
-        p.rewardDebt = accumulated;
+        // AUDIT FIX 2026-05-26 [H-05 / L-15]: do NOT advance `rewardDebt = accumulated`
+        // unconditionally. Pre-fix, when the unsettled cap or reward-pool saturated,
+        // the function silently forfeited (line 374 emitted but rewardDebt was already
+        // advanced), so the holder permanently lost the un-paid slice. `kick` (line
+        // 527) reverts on this condition; `getReward` must at least preserve recovery
+        // by advancing `rewardDebt` by ONLY the actually-credited amount. Now the next
+        // claim sees the same `diff` and can re-credit when pool/cap clears. Mirrors
+        // kick line 530 (`p.rewardDebt += totalSettled`) instead of full overwrite.
 
         // Now decay the expired position (zeroes boostedAmount, updates totalBoostedStake).
         rs = _decayIfExpired(
@@ -356,9 +363,11 @@ library StakingRewardLib {
             uint256 rewardPool = available > reserved ? available - reserved : 0;
             uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
 
+            uint256 totalCredited;
             if (cappedPending > 0) {
                 cfg.rewardToken.safeTransfer(recipient, cappedPending);
                 emit RewardPaid(recipient, tokenId, cappedPending);
+                totalCredited = cappedPending;
             }
 
             // AUDIT FIX (critique 5.1): route shortfall through _settleUnsettled.
@@ -370,10 +379,17 @@ library StakingRewardLib {
                 if (actualSettled > 0 && _isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
                     unsettledRewardsByTokenId[tokenId] += actualSettled;
                 }
+                totalCredited += actualSettled;
                 uint256 forfeited = shortfall - actualSettled;
                 if (forfeited > 0) {
                     emit RewardsForfeited(recipient, forfeited);
                 }
+            }
+
+            // AUDIT FIX 2026-05-26 [H-05]: advance rewardDebt by ONLY the credited
+            // amount so the user can re-claim the residual slice when pool/cap clears.
+            if (totalCredited > 0) {
+                p.rewardDebt = p.rewardDebt + _safeInt256(totalCredited);
             }
 
             return (cappedPending, rs);
@@ -503,7 +519,12 @@ library StakingRewardLib {
                 uint256 actualSettled;
                 (rs, actualSettled) = _settleUnsettled(rs, unsettledRewards, holder, cappedPending, cfg.maxUnsettledRewards);
                 if (actualSettled > 0) {
-                    emit RewardPaid(holder, tokenId, actualSettled);
+                    // AUDIT FIX 2026-05-26 [L-13]: `kick` credits to unsettled bucket
+                    // (NOT a wallet transfer), so emitting `RewardPaid` here was
+                    // semantically wrong — `RewardPaid` documents wallet-side transfers.
+                    // Switch to `RewardSettledToUnsettled` which exists precisely for
+                    // the credit-to-bucket case (DS3-03 fix's distinct event).
+                    emit RewardSettledToUnsettled(holder, tokenId, actualSettled);
                     totalSettled += actualSettled;
                     // C-1 / D-LD-H1: per-tokenId attribution for tracked holders.
                     if (_isTrackedHolder(holder, cfg.restakingContract, isLendingContract)) {
