@@ -1,0 +1,23 @@
+# Created 2026-05-27 to enable manual `vercel --prod` deploys from repo root.
+# The Vercel project has Root Directory = `frontend`, so it needs to resolve
+# repo_root/frontend correctly — running from repo root works for resolution
+# but uploads the entire repo (hits Vercel's 10mb upload limit).
+# This file restricts the upload to ONLY the frontend/ subdirectory MINUS
+# heavyweight artefacts (node_modules, dist, build logs).
+*
+!frontend
+!frontend/**
+# Vercel installs deps server-side; never upload node_modules (1.1GB on disk).
+frontend/node_modules
+# Build artefacts — Vercel re-runs `npm run build`; no need to upload.
+frontend/dist
+frontend/.next
+frontend/build-output.log
+# Test results + playwright artefacts
+frontend/test-results
+frontend/playwright-report
+# Local env files (never upload secrets)
+frontend/.env
+frontend/.env.local
+# Existing nested .vercel/ — the project link at repo root is canonical now
+frontend/.vercel
