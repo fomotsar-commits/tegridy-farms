@@ -129,7 +129,14 @@ export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlu
 export async function fetchTraitOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
   const osSlug = openseaSlug || slug;
   try {
-    const data = await openseaGet(`offers/collection/${osSlug}/traits`, {}, { signal });
+    // BUGFIX 2026-05-27: OpenSea v2 `offers/collection/{slug}/traits` requires
+    // either a `mode` param OR filter params (type+value, type+min/max, traits).
+    // Without it the endpoint returns HTTP 400 with the message:
+    //   "'mode' parameter is required, or provide filter params ..."
+    // `mode=best` returns the best/highest offer per trait — the canonical
+    // "browse trait offers" semantic that the UI panel renders. This matches
+    // the OpenSea Pro and Blur trait-bid grid behavior.
+    const data = await openseaGet(`offers/collection/${osSlug}/traits`, { mode: "best" }, { signal });
     return data.traits || {};
   } catch (err) {
     console.warn("Fetch trait offers failed:", err.message);
