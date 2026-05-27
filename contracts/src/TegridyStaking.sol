@@ -2174,6 +2174,20 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         `claimUnsettledForTokenId` for every escrowed position.
     function applyRestakingContract(address _restaking) external onlyAdmin {
         if (_restaking == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-26 [L-18]: execute-time code.length recheck.
+        // Pre-fix, the admin's `proposeRestakingContract` checked
+        // `code.length != 0 && != 23` at propose-time only. EIP-6780 closed
+        // SELFDESTRUCT-as-clear on mainnet post-Cancun, but pending checks
+        // remain useful as defense-in-depth against:
+        //   (a) EIP-7702 delegation revocation during the 48h propose→exec
+        //       window (a 7702-delegated EOA could un-delegate and end up
+        //       as raw code.length == 0),
+        //   (b) any future EVM upgrade that re-enables full SELFDESTRUCT,
+        //   (c) script bugs that pass an address that was a contract at
+        //       propose-time but is no longer at execute-time.
+        // Mirrors the propose-time check; cheap ~2k gas.
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert ZeroAddress();
         // AUDIT FIX FRESH-2026: M-28 — block rotation while old restaker still escrows NFTs.
         address oldRestaking = restakingContract;
         // AUDIT FIX 2026-05-26 [M-07] — no-op rotation guard + observability event.
