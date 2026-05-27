@@ -2210,6 +2210,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // tokenId re-restaked, user filed stranded claim, etc).
         if (tokenIdToRestaker[p.tokenId] != address(0)) revert BadParam();
         if (strandedRestakeRecipient[p.tokenId] != address(0)) revert BadParam();
+        // SELF-AUDIT FIX 2026-05-26 [M-06 SYMMETRIC RECHECK]: also re-check
+        // residual claimant at execute time. Pre-fix the propose-time check
+        // (M-06) was asymmetric — a residue claim materializing during the 48h
+        // window (currently unreachable but defense-in-depth) would let rescue
+        // strand the residue. Mirrors the propose-time guard at line ~2199.
+        if (_residualClaimant[p.tokenId] != address(0)) revert BadParam();
         delete pendingRescueNFT;
         stakingNFT.safeTransferFrom(address(this), p.to, p.tokenId); // M-16
         emit RescueNFTExecuted(p.tokenId, p.to);

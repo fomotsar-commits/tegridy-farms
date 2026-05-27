@@ -28,7 +28,14 @@ const CUSTOM_TOKENS_KEY = 'tegridy_liquidity_custom_tokens';
 // approve LP additions against the attacker contract. Mirrors the
 // equivalent rehydrate validation in `useSwap.ts` (D-FE-L1/L2 hardening).
 const ETH_ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
-const SAFE_SYMBOL_RE = /^[A-Z0-9]{1,12}$/;
+// SELF-AUDIT FIX 2026-05-26 [H-33]: relaxed from /^[A-Z0-9]{1,12}$/ which
+// rejected legitimate mixed-case LSDs (stETH, wstETH, rETH, cbETH); even
+// DEFAULT_TOKENS includes `stETH` so the strict-uppercase form would have
+// dropped the canonical Lido token symbol on rehydrate. Allow ASCII alphanum
+// (case-insensitive) — Unicode lookalikes remain rejected by the explicit
+// regex bounds, and the default-symbol collision check below uses
+// `.toUpperCase()` so case-permutation spoofs are still caught.
+const SAFE_SYMBOL_RE = /^[A-Za-z0-9]{1,12}$/;
 
 function isValidCustomToken(t: unknown): t is TokenInfo {
   if (!t || typeof t !== 'object') return false;

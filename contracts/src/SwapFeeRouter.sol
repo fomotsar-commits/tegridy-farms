@@ -500,10 +500,30 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     /// @notice AUDIT FIX 2026-05-26 [L-08]: typed error — was `Unauthorized()` pre-fix.
     error AdminAlreadySet();
 
-    constructor(address _router, address _treasury, uint256 _feeBps, address _referralSplitter)
+    /// @dev AUDIT FIX 2026-05-26 [DEPLOY-H1]: `_revenueDistributor` added to the
+    ///      constructor so the SFR ships wired from block 1. Pre-fix the only
+    ///      writepath was `applyRevenueDistributor` (onlyAdmin) reached through
+    ///      48 h `proposeRevenueDistributor` on `SwapFeeRouterAdmin`, AND the
+    ///      admin's `acceptOwnership` flushes any pending REV_DIST_CHANGE on
+    ///      handoff — so the deployer literally could NOT pre-queue this. The
+    ///      result was a ≥96 h post-deploy window where `distributeFeesToStakers`
+    ///      reverts `ZeroAddress()` while `accumulatedETHFees` keeps growing.
+    ///
+    /// Pattern of record: Aave V3 `LendingPoolAddressesProvider` and Compound III
+    /// `Configurator` both fix critical addresses at construction and reserve
+    /// governance setters for FUTURE rotations only. `applyRevenueDistributor`
+    /// remains the post-deploy rotation path; this constructor arg is the genesis.
+    constructor(
+        address _router,
+        address _treasury,
+        uint256 _feeBps,
+        address _referralSplitter,
+        address _revenueDistributor
+    )
         OwnableNoRenounce(msg.sender)
     {
         if (_router == address(0) || _treasury == address(0)) revert ZeroAddress();
+        if (_revenueDistributor == address(0)) revert ZeroAddress();
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
         router = IUniswapV2Router02(_router);
         WETH = IUniswapV2Router02(_router).WETH();
@@ -519,6 +539,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         if (_referralSplitter != address(0)) {
             referralSplitter = IReferralSplitter(_referralSplitter);
         }
+        revenueDistributor = _revenueDistributor;
+        emit RevenueDistributorUpdated(address(0), _revenueDistributor);
         // PASS7-SFR-05 FIX: `sequencerFeed` defaults to address(0) (mainnet
         // semantics — SequencerCheck helpers no-op). On an L2 deploy, owner
         // must call `setSequencerFeed(feed)` once before the first conversion.
@@ -1769,7 +1791,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
             // absolute, caller). Defense-in-depth against captured-owner using multi-hop
             // to bypass the 2-hop direct-pair TWAP. Bypass only when no direct pair exists.
             uint256 effectiveFloor = MIN_MULTIHOP_ETH_OUT_WEI;
-            if (uniFactory.getPair(token, WETH) != address(0)) {
+            bool directPairExists = uniFactory.getPair(token, WETH) != address(0);
+            if (directPairExists) {
                 (uint256 twapMin, uint256 hopCurCum, uint32 hopCurTs) =
                     _enforceTWAPMinETHOut(token, amount, minETHOut);
                 if (twapMin > effectiveFloor) effectiveFloor = twapMin;
@@ -1779,7 +1802,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
             }
             if (minETHOut < effectiveFloor) revert ZeroMinOut();
             effectiveMin = minETHOut > effectiveFloor ? minETHOut : effectiveFloor;
-            emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
+            // SELF-AUDIT FIX 2026-05-26 [H-02 NEW-1]: only emit ConversionTWAPFloor
+            // when _enforceTWAPMinETHOut did NOT already emit (which it does on every
+            // call). The helper's emit is canonical for direct-pair cases; this
+            // callsite emit only fires for the no-direct-pair branch (where the
+            // helper was skipped) to keep indexer event counts at one-per-conversion.
+            if (!directPairExists) {
+                emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
+            }
         } else {
             // AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut and pick the tighter of
             // (callerMinETHOut, twapMinETHOut). Bootstrap path is owner-only (see helper).
@@ -1898,7 +1928,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
             // the `minETHOut = 1` bypass (mirrors convertTokenFeesToETH above).
             // AUDIT FIX 2026-05-26 [H-02 / FoT]: TWAP floor parity with non-FoT variant.
             uint256 effectiveFloor = MIN_MULTIHOP_ETH_OUT_WEI;
-            if (uniFactory.getPair(token, WETH) != address(0)) {
+            bool directPairExists = uniFactory.getPair(token, WETH) != address(0);
+            if (directPairExists) {
                 (uint256 twapMin, uint256 hopCurCum, uint32 hopCurTs) =
                     _enforceTWAPMinETHOut(token, swapAmount, minETHOut);
                 if (twapMin > effectiveFloor) effectiveFloor = twapMin;
@@ -1907,7 +1938,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
             }
             if (minETHOut < effectiveFloor) revert ZeroMinOut();
             effectiveMin = minETHOut > effectiveFloor ? minETHOut : effectiveFloor;
-            emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
+            // SELF-AUDIT FIX 2026-05-26 [H-02 NEW-1 / FoT]: single-emit parity.
+            if (!directPairExists) {
+                emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
+            }
         } else {
             // AUDIT SFR-H-01: TWAP-floor minETHOut sized against the actual swap input. Caller
             // can only TIGHTEN the floor; bootstrap is owner-only (see helper).

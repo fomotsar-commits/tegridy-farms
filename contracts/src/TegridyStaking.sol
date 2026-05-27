@@ -1815,16 +1815,21 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // atomic, and both holders ALWAYS drain on transfer-out via this same
         // function — see TegridyRestaking.unrestake / TegridyLending.repayLoan).
         if (!_isTrackedHolder(msg.sender)) revert Unauthorized();
-        // AUDIT FIX 2026-05-26 [H-11] — additionally require msg.sender to be the
-        // current ESCROW HOLDER of the staking NFT. Closes cross-lending-contract
-        // attribution theft: lending-contract A (whitelisted but holding no
-        // position for `tokenId`) cannot drain `unsettledRewardsByTokenId[tokenId]`
-        // that was attributed to lending-contract B (or restakingContract). The
-        // per-tokenId mapping is written in lockstep with the OWNERSHIP of the
-        // NFT at the time of credit, so requiring ownership at drain time keeps
-        // the invariant consistent. Uses Solady's `ownerOf` directly (reverts on
-        // non-existent tokenId, which is the correct behaviour here).
-        if (ownerOf(tokenId) != msg.sender) revert NotEscrowedHere();
+        // AUDIT FIX 2026-05-26 [H-11 REVERTED 2026-05-26 self-audit] — the
+        // ownership-at-drain-time check broke the documented C-1 POST-transfer
+        // residue pull pattern: TegridyRestaking.unrestake/emergencyWithdrawNFT/
+        // emergencyForceReturn pull per-tokenId residue AFTER transferring the
+        // NFT to the user, at which point `ownerOf(tokenId)` is the user (not
+        // the restakingContract that credited the residue). The H-11 check
+        // silently reverted (try/catch absorbed) and stranded user residue.
+        //
+        // The original H-11 threat ("cross-lending attribution theft") is
+        // bounded by `min(perTokenId, msg.sender's bucket, pool)` so a
+        // captured lending contract can only drain UP TO ITS OWN BUCKET. That
+        // is the existing _isTrackedHolder gate behavior. The full fix
+        // requires per-tokenId attribution tracking (new storage slot) — a
+        // larger surgery deferred to a dedicated PR. The `NotEscrowedHere`
+        // error declaration is preserved for that future fix.
         if (recipient == address(0)) revert ZeroAddress();
 
         // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).

@@ -27,8 +27,12 @@ CREATE POLICY "No direct deletes" ON public.messages
 -- callers MUST stop passing the `wallet` arg; the old signature is kept as a
 -- compatibility wrapper that ignores the parameter and only trusts the JWT.
 
+-- H-29 SELF-AUDIT FIX 2026-05-26: original migration returned `void` which
+-- broke the JS caller at frontend/src/nakamigos/lib/supabase.js:251-262
+-- (`.single()` + `rowToMsg(data)` expects the updated row). RETURNS messages
+-- restores the row-return contract; case normalization fix is preserved.
 CREATE OR REPLACE FUNCTION toggle_like(msg_id uuid, wallet text)
-RETURNS void
+RETURNS messages
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
@@ -36,6 +40,7 @@ AS $$
 DECLARE
   jwt_wallet text;
   norm_wallet text;
+  result messages;
 BEGIN
   -- Pull the JWT wallet claim. Lowercase it for canonical storage.
   jwt_wallet := lower(current_setting('request.jwt.claims', true)::json->>'wallet');
@@ -59,11 +64,14 @@ BEGIN
     WHEN norm_wallet = ANY(likes) THEN array_remove(likes, norm_wallet)
     ELSE array_append(likes, norm_wallet)
   END
-  WHERE id = msg_id;
+  WHERE id = msg_id
+  RETURNING * INTO result;
 
-  IF NOT FOUND THEN
+  IF result.id IS NULL THEN
     RAISE EXCEPTION 'Message not found: %', msg_id;
   END IF;
+
+  RETURN result;
 END;
 $$;
 
