@@ -423,15 +423,25 @@ Two parallel work tracks closed the bulk of the swarm findings on the same day t
 
 | # | Why deferred |
 |---|--------------|
-| H-24 | Indexer Transfer subscription needs Ponder ABI extension or Solady→OZ ERC721 migration. NatSpec breadcrumb in [indexer/src/index.ts](indexer/src/index.ts) documents the workaround (frontend `ownerOf` fallback). Tracked for indexer-schema-extension PR. |
-| H-27 | Indexer RPC stall vector via `isPairAllowed`. Fix is multicall + in-memory cache (~50 lines). Tracked with H-24. |
-| H-38 | CI `continue-on-error: true` is intentional pre-existing-debt tracker (50 known client failures already chip-spawned). Flipping today would block merges. |
-| L-14 / L-15 | Settle-on-transfer event reorder + rewardDebt fix; NFT recipient changes mid-transfer making the kick-style "revert" inappropriate. Dedicated PR. |
-| L-18 | applyRestakingContract code.length recheck at execute — SELFDESTRUCT/EIP-7702 carve-out, largely closed post-Cancun. |
-| M-16 | RevenueDistributor 1% lifetime recovery cap — documented multisig-trust per Q1. |
-| L-10 | withdrawPendingDistribution CREATE2-codehash binding — explicitly deferred DEEP-R-L01. |
-| L-29 | POL accumulate owner-trust surface — documented multisig-trust per Q1. |
-| L-42, L-43 | EIP-2612 permit replay + addLiquidity slippage — frontend-responsibility per Q2. |
+**Round 2 closures (later same day, 2026-05-26)** — user requested closing as many deferred items as possible with battle-tested code. H-24, H-27, L-14, L-15, L-18 closed:
+
+| # | Round 2 Commit | Pattern |
+|---|----------------|---------|
+| H-24 | [43e77e7](indexer/ponder.config.ts) | Canonical ERC-721 Transfer event fragment in inline ABI; handler updates `stakingPosition.user` on secondary trades. |
+| H-27 | [43e77e7](indexer/src/index.ts) | In-memory `Map<address, boolean>` cache (positive + negative verdicts) wrapping the DB cache. Per-process LRU pattern from Aave reserveDataMemoryCache / Compound accrueInterestCache. |
+| L-14 | [0973002](contracts/src/lib/StakingRewardLib.sol) | Main-slice event/credit emitted before shortfall (chronological accuracy). |
+| L-15 | [0973002](contracts/src/lib/StakingRewardLib.sol) | `rewardDebt += credited` instead of `= accumulated`, mirroring `kick` line 530 + H-05 `getReward` fix. Closes silent forfeit on transfer-path under cap saturation. |
+| L-18 | [1e733fd](contracts/src/TegridyStaking.sol) | Execute-time `code.length` recheck on `applyRestakingContract`. Mirrors propose-time check; defense against EIP-7702 delegation revocation during 48h propose→exec. Pattern: Aave V3 ACL execute-time rechecks. |
+
+**FINAL deferred set** (post-Round-2):
+
+| # | Why deferred (FINAL) |
+|---|----------------------|
+| H-38 | CI `continue-on-error: true` is intentional pre-existing-debt tracker (50 known client failures already chip-spawned). Flipping today would block merges. Battle-tested practice is to flip ON and fix what breaks — that's the chip-spawn track. |
+| M-16 | RevenueDistributor 1% lifetime recovery cap — documented multisig-trust per Q1. Adding more timelocks would introduce new propose/execute surface that itself attracts findings (violates DELETE > ADD). |
+| L-10 | withdrawPendingDistribution CREATE2-codehash binding — explicitly deferred DEEP-R-L01. CREATE2 metaproxies aren't in use; adding codehash binding now would force storage-layout migration on every existing pendingDistribution entry. Add when a real CREATE2 use case lands. |
+| L-29 | POL accumulate owner-trust surface — documented multisig-trust per Q1. Same rationale as M-16. |
+| L-42, L-43 | EIP-2612 permit replay + addLiquidity slippage — inherent properties of standards (EIP-2612, UniV2). Frontend-responsibility per Q2 (Permit2 wrapper for L-42; mandatory non-zero slippage in UI for L-43). |
 
 ## Build & test verification
 
