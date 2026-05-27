@@ -443,6 +443,24 @@ library StakingRewardLib {
             }
             uint256 actualSettled;
             (rs, actualSettled) = _settleUnsettled(rs, unsettledRewards, from, cappedPending, cfg.maxUnsettledRewards);
+            // AUDIT FIX 2026-05-26 [L-14]: emit main-slice event + per-tokenId
+            // credit BEFORE the shortfall block. Pre-fix order was inverted —
+            // off-chain indexers reconstructing per-tokenId unsettled credit
+            // history saw shortfall before main, even though main accrues
+            // first in time. Pure event/credit reorder; no semantic change.
+            // AUDIT FIX C-02: forfeiture event when the cap blocks settlement.
+            uint256 forfeited = cappedPending - actualSettled;
+            if (forfeited > 0) {
+                emit RewardsForfeited(from, forfeited);
+            }
+            // AUDIT FIX DS3-03: distinct settled-to-unsettled event + C-1/D-LD-H1
+            // per-tokenId attribution for tracked holders.
+            if (actualSettled > 0) {
+                emit RewardSettledToUnsettled(from, tokenId, actualSettled);
+                if (_isTrackedHolder(from, cfg.restakingContract, isLendingContract)) {
+                    unsettledRewardsByTokenId[tokenId] += actualSettled;
+                }
+            }
             // AUDIT FIX FRESH-2026 M-1 [F-02-K-02]: route the rewardPool shortfall
             // through _settleUnsettled too (parity with _getReward / kick).
             uint256 shortfall = pending - cappedPending;
@@ -460,26 +478,30 @@ library StakingRewardLib {
                     emit RewardsForfeited(from, shortfallForfeited);
                 }
             }
-            // AUDIT FIX C-02: forfeiture event when the cap blocks settlement.
-            uint256 forfeited = cappedPending - actualSettled;
-            if (forfeited > 0) {
-                emit RewardsForfeited(from, forfeited);
-            }
-            // AUDIT FIX DS3-03: distinct settled-to-unsettled event + C-1/D-LD-H1
-            // per-tokenId attribution for tracked holders.
-            if (actualSettled > 0) {
-                emit RewardSettledToUnsettled(from, tokenId, actualSettled);
-                if (_isTrackedHolder(from, cfg.restakingContract, isLendingContract)) {
-                    unsettledRewardsByTokenId[tokenId] += actualSettled;
-                }
-            }
             // AUDIT FIX DEEP-DS-04 / M16-REVISED: refresh `from`'s activity timestamp
             // from this non-claim path, but NOT while paused (closes the bounce-attack
             // half that relied on the FROM-side touch firing during pause).
             if (!cfg.isPaused && from != address(0)) lastActivityAt[from] = block.timestamp;
+
+            // AUDIT FIX 2026-05-26 [L-15]: advance `rewardDebt` by ONLY the
+            // actually-credited amount, mirroring the `kick` (line 530) and
+            // `getReward` (H-05 fix) pattern. Pre-fix, `p.rewardDebt =
+            // accumulated` unconditionally advanced to FULL pre-decay accrual
+            // even when the unsettled cap or reward-pool saturated, silently
+            // forfeiting the uncredited slice (the new owner inherited the
+            // position with no recovery path). The kick-class fix preserves
+            // recovery: the next `kick`/`getReward` cycle sees the same
+            // `diff` and re-credits when pool/cap clears.
+            uint256 totalCredited = actualSettled + shortfallSettled;
+            if (totalCredited > 0) {
+                p.rewardDebt = p.rewardDebt + _safeInt256(totalCredited);
+            }
+        } else {
+            // No pending — keep historical behavior: rewardDebt advances to
+            // current accumulated (no-op when diff == 0; preserves reset on
+            // newly-zero positions).
+            p.rewardDebt = accumulated;
         }
-        // Set rewardDebt AFTER the reward-pool check for correct accounting.
-        p.rewardDebt = accumulated;
         return rs;
     }
 
