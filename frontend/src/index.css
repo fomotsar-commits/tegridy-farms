@@ -237,9 +237,14 @@ body {
   animation: border-glow 4s ease-in-out infinite;
 }
 
-/* Replace backdrop-blur with solid bg on mobile for performance (#83) */
+/* Replace backdrop-blur with solid bg on mobile for performance (#83).
+   2026-05-27: extended to `.listing-card` — iOS Safari has a documented
+   bug where backdrop-filter + aspect-ratio + overflow:hidden on the same
+   element intermittently collapses the element to 0 height (the
+   Nakamigos listing-card uses all three). Disabling backdrop-filter on
+   small viewports closes the failure mode AND matches the perf rationale. */
 @media (max-width: 767px) {
-  .glass, .glass-card, .glass-card-strong, .glass-card-subtle {
+  .glass, .glass-card, .glass-card-strong, .glass-card-subtle, .listing-card {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

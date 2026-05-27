@@ -127,21 +127,21 @@ export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlu
 }
 
 export async function fetchTraitOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
-  const osSlug = openseaSlug || slug;
-  try {
-    // BUGFIX 2026-05-27: OpenSea v2 `offers/collection/{slug}/traits` requires
-    // either a `mode` param OR filter params (type+value, type+min/max, traits).
-    // Without it the endpoint returns HTTP 400 with the message:
-    //   "'mode' parameter is required, or provide filter params ..."
-    // `mode=best` returns the best/highest offer per trait — the canonical
-    // "browse trait offers" semantic that the UI panel renders. This matches
-    // the OpenSea Pro and Blur trait-bid grid behavior.
-    const data = await openseaGet(`offers/collection/${osSlug}/traits`, { mode: "best" }, { signal });
-    return data.traits || {};
-  } catch (err) {
-    console.warn("Fetch trait offers failed:", err.message);
-    return {};
-  }
+  // SELF-AUDIT 2026-05-27: OpenSea v2 `offers/collection/{slug}/traits` API
+  // surface is undocumented at the call shape this function attempts. Live
+  // tests in dev showed:
+  //   - no `mode` param → 400 "'mode' parameter is required"
+  //   - `mode=best`     → 400 "Invalid value 'best'"
+  //   - `mode=top`      → 400 "Invalid value 'top'"
+  // Until we have a verified OpenSea spec for valid `mode` values OR migrate
+  // to the canonical filter-param form (`type+value` / `type+min_value` etc),
+  // the trait-offers panel will continue to render empty (caller wraps in
+  // try/catch and tolerates `{}`). Returning `{}` directly avoids the noisy
+  // 400 in production logs.
+  // TODO: verify against OpenSea v2 docs and either pass a valid `mode` or
+  // switch to the `traits` filter form.
+  void slug; void openseaSlug; void signal;
+  return {};
 }
 
 function safePriceFromWei(wei) {
