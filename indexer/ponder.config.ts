@@ -96,6 +96,21 @@ const TegridyStakingAbi = [
     name: "Unpaused",
     inputs: [{ name: "account", type: "address", indexed: false }],
   },
+  // AUDIT FIX 2026-05-26 [H-24]: canonical ERC-721 Transfer event. Solady
+  // ERC721 emits this signature verbatim per EIP-721. Adding it to the
+  // event-only ABI lets the indexer subscribe to staking-position NFT
+  // transfers and update `stakingPosition.user` on secondary-market trades
+  // / wallet rotations — pre-fix, "your positions" misattributed to the
+  // original minter forever.
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: true },
+    ],
+  },
 ] as const;
 
 // AUDIT M5 (2026-05-24): TegridyRestakingAbi removed — TegridyRestaking is
