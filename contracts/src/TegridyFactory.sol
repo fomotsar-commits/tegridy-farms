@@ -136,8 +136,6 @@ contract TegridyFactory is TimelockAdmin {
     event TokenBlockProposed(address indexed token, bool blocked, uint256 executeAfter);
     event TokenBlockCancelled(address indexed token);
     event FeeToSetterProposalCancelled(address indexed cancelledSetter);
-    // [H2]
-    event FirstMintRightGranted(address indexed pair, address indexed to);
 
     // Legacy constant kept for test compatibility
     uint256 public constant MAX_PROPOSAL_VALIDITY = 7 days;
@@ -180,12 +178,6 @@ contract TegridyFactory is TimelockAdmin {
     ///         `executePairDisabled` / `cancelPairDisabled` / `emergencyDisablePair`
     ///         (remove). [M1 FIX]: drained via flushStaleProposals() after acceptFeeToSetter.
     EnumerableSet.AddressSet private _pendingPairDisables;
-
-    // [H2] Permissioned first-mint (Uniswap V3 initialize pattern).
-    // createPair stores the caller as firstMinter[pair]. Only that address (or address(0)
-    // meaning "unrestricted") may call TegridyPair.mint when _totalSupply == 0.
-    // Use grantFirstMintRight(pair, router) to delegate to a router before adding liquidity.
-    mapping(address => address) public firstMinter;
 
     /// @param _feeToSetter The administrative key (multisig recommended) that controls
     ///                     fee redirection and pair-disable timelocks.
@@ -294,8 +286,6 @@ contract TegridyFactory is TimelockAdmin {
         // AUDIT R014: O(1) pair-authenticity registry consumed by TegridyTWAP.update()
         // to reject forged-pair sources that would otherwise poison the oracle.
         isPair[pair] = true;
-        // [H2] firstMinter defaults to address(0) = unrestricted (original V2 behaviour).
-        // Use createPairProtected() to gate the first mint to the creator.
         allPairs.push(pair);
 
         emit PairCreated(token0, token1, pair, allPairs.length);
@@ -439,31 +429,6 @@ contract TegridyFactory is TimelockAdmin {
         pendingFeeToSetter = address(0);
         feeToSetterChangeTime = 0;
         emit FeeToSetterProposalCancelled(cancelled);
-    }
-
-    /// @notice [H2 FIX] Like createPair but gates the first-mint to msg.sender.
-    ///         Use when you want to prevent a front-runner from seeding the pool at
-    ///         a manipulated price between pair creation and your first liquidity add.
-    ///         Delegate to a router via grantFirstMintRight(pair, router) if you plan
-    ///         to add liquidity through a contract rather than directly.
-    function createPairProtected(address tokenA, address tokenB) external returns (address pair) {
-        pair = this.createPair(tokenA, tokenB); // reuse all validation
-        // Override default unrestricted firstMinter with caller
-        firstMinter[pair] = msg.sender;
-        emit FirstMintRightGranted(pair, msg.sender);
-    }
-
-    /// @notice [H2 FIX] Delegate first-mint rights to a router or another address.
-    ///         The pair creator (from createPair) is initially the firstMinter.
-    ///         Call this BEFORE adding liquidity via a router so the router can
-    ///         seed the empty pool. Once any liquidity exists (_totalSupply > 0)
-    ///         the first-mint gate no longer applies. Setting `to = address(0)`
-    ///         opens the first mint to anyone (original V2 permissionless behaviour).
-    function grantFirstMintRight(address pair, address to) external {
-        require(isPair[pair], "NOT_A_PAIR");
-        require(firstMinter[pair] == msg.sender, "NOT_FIRST_MINTER");
-        firstMinter[pair] = to;
-        emit FirstMintRightGranted(pair, to);
     }
 
     /// @notice [M1 FIX] Paginated flush of stale per-token and per-pair proposals.
