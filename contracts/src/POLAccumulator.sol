@@ -153,7 +153,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public lastAccumulateTime;
     uint256 public constant ACCUMULATE_COOLDOWN = 1 hours;
 
-    /// @notice [M7] Rolling 24h ETH accumulation cap — Compound supplyCap pattern.
+    /// @notice [M7] Fixed-window 24h ETH accumulation cap — rate-limiter pattern
+    ///         (analog of Chainlink CCIP `RateLimiter.sol`; NOT Compound/Aave supplyCap,
+    ///         which is an absolute supply ceiling rather than a per-window throughput limit).
     ///         Prevents a single compromise from draining the entire ETH balance in one day.
     ///         Default 50 ETH = 5 × maxAccumulateAmount (10 ETH/call × max 5 calls visible
     ///         in a 24h window given the 1h cooldown, with headroom for legitimate spikes).
@@ -390,7 +392,7 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (ethBalance < 0.01 ether) revert InsufficientETH();
         if (ethBalance > maxAccumulateAmount) ethBalance = maxAccumulateAmount;
 
-        // [M7 FIX] Rolling 24h ETH cap — Compound supplyCap pattern.
+        // [M7 FIX] Fixed-window 24h ETH cap — rate-limiter (CCIP RateLimiter analog).
         // Resets the window counter on the first call after each 24h interval.
         // Caps `ethBalance` to remaining daily allowance; reverts DailyCapExceeded
         // if the window is already exhausted. Flash-loan proof: no loan survives 24h.
