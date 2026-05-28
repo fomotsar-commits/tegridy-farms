@@ -142,6 +142,11 @@ contract TegridyFactory is TimelockAdmin {
     uint256 public constant MAX_SETTER_PROPOSAL_VALIDITY = 7 days;
     uint256 public constant TOKEN_BLOCK_DELAY = 24 hours;
 
+    // [M1 FIX] Max entries flushed per flushStaleProposals call. Bounds the per-tx
+    // gas cost so a griefing setter who queued many proposals cannot OOG the flush.
+    // 50 entries × ~5 000 gas each ≈ 250 000 gas — comfortably within any block limit.
+    uint256 public constant MAX_FLUSH_BATCH = 50;
+
     // ─── AUDIT R028 H-01 — appended to preserve original storage layout ───
     /// @dev Pending value for the timelocked guardian rotation flow. Placed at
     ///      the end of storage so existing test cheats and any external slot-
@@ -163,16 +168,15 @@ contract TegridyFactory is TimelockAdmin {
     // ─── AUDIT FIX 2026-05-26 [H-08] — pending-proposal enumeration ─────
     /// @notice Set of tokens with a currently-pending TOKEN_BLOCK_CHANGE proposal.
     ///         Maintained by `proposeTokenBlocked` (add) and
-    ///         `executeTokenBlocked` / `cancelTokenBlocked` (remove). Iterated
-    ///         in `acceptFeeToSetter` to force-cancel every token-block the
-    ///         OLD setter queued before rotation.
+    ///         `executeTokenBlocked` / `cancelTokenBlocked` (remove).
+    ///         [M1 FIX]: drained via flushStaleProposals() after acceptFeeToSetter
+    ///         (not inside it — unbounded iteration caused OOG on setter rotation).
     /// @dev    Appended at the end of storage to preserve the existing slot layout.
     EnumerableSet.AddressSet private _pendingTokenBlocks;
     /// @notice Set of pairs with a currently-pending PAIR_DISABLE_CHANGE proposal.
     ///         Maintained by `proposePairDisabled` (add) and
     ///         `executePairDisabled` / `cancelPairDisabled` / `emergencyDisablePair`
-    ///         (remove). Iterated in `acceptFeeToSetter` to force-cancel every
-    ///         pair-disable the OLD setter queued before rotation.
+    ///         (remove). [M1 FIX]: drained via flushStaleProposals() after acceptFeeToSetter.
     EnumerableSet.AddressSet private _pendingPairDisables;
 
     /// @param _feeToSetter The administrative key (multisig recommended) that controls
@@ -395,28 +399,16 @@ contract TegridyFactory is TimelockAdmin {
             emit GuardianChangeCancelled(cancelledGuardian); // legacy supplemental event
         }
 
-        // AUDIT FIX 2026-05-26 [H-08] — flush every per-token TOKEN_BLOCK_CHANGE
-        // proposal queued by the OLD setter. Iterate from end so remove's swap-and-pop
-        // never shifts an unvisited index.
-        uint256 nTokens = _pendingTokenBlocks.length();
-        for (uint256 i = nTokens; i > 0; i--) {
-            address token = _pendingTokenBlocks.at(i - 1);
-            bytes32 tKey = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
-            _forceCancel(tKey);
-            delete pendingTokenBlockValue[token];
-            _pendingTokenBlocks.remove(token);
-            emit TokenBlockCancelled(token);
-        }
-        // AUDIT FIX 2026-05-26 [H-08] — same flush for per-pair PAIR_DISABLE_CHANGE.
-        uint256 nPairs = _pendingPairDisables.length();
-        for (uint256 i = nPairs; i > 0; i--) {
-            address pair = _pendingPairDisables.at(i - 1);
-            bytes32 pKey = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
-            _forceCancel(pKey);
-            delete pendingPairDisableValue[pair];
-            _pendingPairDisables.remove(pair);
-            emit PairDisableCancelled(pair);
-        }
+        // [M1 FIX] Per-token TOKEN_BLOCK_CHANGE and per-pair PAIR_DISABLE_CHANGE
+        // proposals queued by the OLD setter are NOT flushed here.
+        // Pre-fix, unbounded loops caused acceptFeeToSetter to OOG when a
+        // griefing setter queued many proposals, permanently bricking rotation.
+        // Post-fix: the new setter calls flushStaleProposals(tokenCount, pairCount)
+        // in up to MAX_FLUSH_BATCH-sized batches AFTER accepting. The old setter's
+        // proposals cannot be executed by anyone other than the current feeToSetter
+        // (see executeTokenBlocked / executePairDisabled require guards), so the new
+        // setter will not accidentally trigger hostile proposals while draining the queues.
+        // Pending proposals expire naturally after PROPOSAL_VALIDITY (7 days) regardless.
 
         emit FeeToSetterAccepted(oldSetter, feeToSetter);
     }
@@ -437,6 +429,62 @@ contract TegridyFactory is TimelockAdmin {
         pendingFeeToSetter = address(0);
         feeToSetterChangeTime = 0;
         emit FeeToSetterProposalCancelled(cancelled);
+    }
+
+    /// @notice [M1 FIX] Paginated flush of stale per-token and per-pair proposals.
+    ///         MUST be called by the new feeToSetter after acceptFeeToSetter() until
+    ///         both sets are empty. Each call drains at most `tokenCount` token-block
+    ///         proposals and `pairCount` pair-disable proposals.
+    ///         Calling with tokenCount=0 and pairCount=0 is a no-op.
+    ///         Sets are empty when pendingTokenBlockCount() / pendingPairDisableCount() == 0.
+    ///         Old setter's proposals expire automatically after 7 days (PROPOSAL_VALIDITY)
+    ///         even if flush is never called — the flush just provides an explicit
+    ///         canonical path with on-chain events.
+    /// @dev    Pattern: OZ Governor batched execute (page-by-page with per-call limit).
+    function flushStaleProposals(uint256 tokenCount, uint256 pairCount) external {
+        require(msg.sender == feeToSetter, "FORBIDDEN");
+        // Cap each leg to MAX_FLUSH_BATCH for predictable per-tx gas
+        if (tokenCount > MAX_FLUSH_BATCH) tokenCount = MAX_FLUSH_BATCH;
+        if (pairCount  > MAX_FLUSH_BATCH) pairCount  = MAX_FLUSH_BATCH;
+        _flushTokenBlocks(tokenCount);
+        _flushPairDisables(pairCount);
+    }
+
+    /// @notice Pending token-block proposal count (for off-chain flush scheduling).
+    function pendingTokenBlockCount() external view returns (uint256) {
+        return _pendingTokenBlocks.length();
+    }
+
+    /// @notice Pending pair-disable proposal count (for off-chain flush scheduling).
+    function pendingPairDisableCount() external view returns (uint256) {
+        return _pendingPairDisables.length();
+    }
+
+    function _flushTokenBlocks(uint256 count) internal {
+        uint256 n = _pendingTokenBlocks.length();
+        if (n < count) count = n;
+        for (uint256 i = 0; i < count; i++) {
+            // Always pop the last element (swap-and-pop safe iteration)
+            address token = _pendingTokenBlocks.at(n - 1 - i);
+            bytes32 tKey = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
+            _forceCancel(tKey);
+            delete pendingTokenBlockValue[token];
+            _pendingTokenBlocks.remove(token);
+            emit TokenBlockCancelled(token);
+        }
+    }
+
+    function _flushPairDisables(uint256 count) internal {
+        uint256 n = _pendingPairDisables.length();
+        if (n < count) count = n;
+        for (uint256 i = 0; i < count; i++) {
+            address pair = _pendingPairDisables.at(n - 1 - i);
+            bytes32 pKey = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
+            _forceCancel(pKey);
+            delete pendingPairDisableValue[pair];
+            _pendingPairDisables.remove(pair);
+            emit PairDisableCancelled(pair);
+        }
     }
 
     /// @dev A4-M-10: Best-effort ERC-777 detection. Checks ERC-165 supportsInterface for

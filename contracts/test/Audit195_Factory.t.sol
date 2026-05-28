@@ -658,6 +658,86 @@ contract Audit195Factory is Test {
     }
 
     // ============================================================
+    // M1: flushStaleProposals — paginated post-rotation flush
+    // ============================================================
+
+    /// @dev [M1 FIX] acceptFeeToSetter no longer loops over pending token/pair
+    ///      proposals. New setter drains them with flushStaleProposals().
+    function test_M1_acceptFeeToSetter_succeeds_with_pending_proposals() public {
+        // Admin queues 3 token blocks and 2 pair disables
+        address pair1 = factory.createPair(address(tokenA), address(tokenB));
+        address pair2 = factory.createPair(address(tokenA), address(tokenC));
+
+        vm.startPrank(admin);
+        factory.proposeTokenBlocked(address(tokenA), true);
+        factory.proposeTokenBlocked(address(tokenB), true);
+        factory.proposeTokenBlocked(address(tokenC), true);
+        factory.proposePairDisabled(pair1, true);
+        factory.proposePairDisabled(pair2, true);
+        vm.stopPrank();
+
+        assertEq(factory.pendingTokenBlockCount(), 3, "3 token blocks pending");
+        assertEq(factory.pendingPairDisableCount(), 2, "2 pair disables pending");
+
+        // Rotate setter — must NOT OOG (pre-fix, 5 iterations might be fine;
+        // with hundreds of entries the pre-fix loop would OOG)
+        vm.prank(admin);
+        factory.proposeFeeToSetter(newSetter);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(newSetter);
+        factory.acceptFeeToSetter(); // post-fix: no loops — always succeeds
+
+        assertEq(factory.feeToSetter(), newSetter, "setter rotated");
+        // Proposals still in queue (flushed separately)
+        assertEq(factory.pendingTokenBlockCount(), 3, "still pending after accept");
+        assertEq(factory.pendingPairDisableCount(), 2, "still pending after accept");
+    }
+
+    /// @dev [M1 FIX] New setter drains stale proposals page-by-page.
+    function test_M1_flushStaleProposals_paginates() public {
+        address pair1 = factory.createPair(address(tokenA), address(tokenB));
+
+        vm.startPrank(admin);
+        factory.proposeTokenBlocked(address(tokenA), true);
+        factory.proposeTokenBlocked(address(tokenB), true);
+        factory.proposeTokenBlocked(address(tokenC), true);
+        factory.proposePairDisabled(pair1, true);
+        vm.stopPrank();
+
+        // Rotate to newSetter
+        vm.prank(admin);
+        factory.proposeFeeToSetter(newSetter);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(newSetter);
+        factory.acceptFeeToSetter();
+
+        // Page 1: drain 1 token block only
+        vm.prank(newSetter);
+        factory.flushStaleProposals(1, 0);
+        assertEq(factory.pendingTokenBlockCount(), 2, "1 drained, 2 remain");
+        assertEq(factory.pendingPairDisableCount(), 1, "pair untouched");
+
+        // Page 2: drain remaining 2 tokens + 1 pair
+        vm.prank(newSetter);
+        factory.flushStaleProposals(2, 1);
+        assertEq(factory.pendingTokenBlockCount(), 0, "all tokens flushed");
+        assertEq(factory.pendingPairDisableCount(), 0, "all pairs flushed");
+    }
+
+    /// @dev [M1 FIX] flushStaleProposals is restricted to feeToSetter.
+    function test_M1_flushStaleProposals_accessControl() public {
+        vm.prank(attacker);
+        vm.expectRevert("FORBIDDEN");
+        factory.flushStaleProposals(10, 10);
+    }
+
+    /// @dev [M1 FIX] flushStaleProposals with 0 counts is a no-op (no revert).
+    function test_M1_flushStaleProposals_zeroCount_noRevert() public {
+        vm.prank(admin);
+        factory.flushStaleProposals(0, 0); // must not revert
+    }
+
+    // ============================================================
     // F-18: createPair event emission [Informational]
     // ============================================================
 
