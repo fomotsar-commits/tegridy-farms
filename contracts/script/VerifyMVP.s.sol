@@ -166,6 +166,17 @@ contract VerifyMVPScript is Script {
             console.log("INV-13: L2 sequencerFeed wired ................... OK");
         }
 
+        // ─── INV-14: SFR revenueDistributor wired at construction (DEPLOY-H1) ──
+        // AUDIT FIX 2026-05-27 [DEPLOY-H1]: revenueDistributor is now set in the
+        // SwapFeeRouter constructor — governance rotation via applyRevenueDistributor
+        // after an acceptOwnership flush was provably impossible. Assert the
+        // constructor actually wired it to the expected RevenueDistributor.
+        require(
+            SwapFeeRouter(payable(swapFeeRouter)).revenueDistributor() == revDist,
+            "INV-14: swapFeeRouter.revenueDistributor != revDist (constructor wiring failed)"
+        );
+        console.log("INV-14: SFR revenueDistributor wired at construction . OK");
+
         console.log("");
         console.log("=== ALL INVARIANTS GREEN ===");
         console.log("Treasury:        ", treasury);

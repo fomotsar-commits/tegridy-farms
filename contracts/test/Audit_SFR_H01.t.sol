@@ -6,11 +6,11 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SwapFeeRouter.sol";
 import "../src/SwapFeeRouterAdmin.sol";
 
-/// @title AUDIT SFR-H-01 — TWAP-floor minETHOut prevents permissionless conversion sandwich
+/// @title AUDIT SFR-H-01 â€” TWAP-floor minETHOut prevents permissionless conversion sandwich
 /// @notice Regression test for the senior-recon HIGH finding on
 ///         `SwapFeeRouter.convertTokenFeesToETH{,FoT}`. Pre-fix, a permissionless caller
 ///         could:
-///           1. Front-run with a token→WETH sell that pushed the spot price down.
+///           1. Front-run with a tokenâ†’WETH sell that pushed the spot price down.
 ///           2. Call convertTokenFeesToETH with `minETHOut = 1 wei` so the conversion
 ///              executed at the depressed price.
 ///           3. Back-run with the inverse buy, capturing the spread.
@@ -26,7 +26,7 @@ import "../src/SwapFeeRouterAdmin.sol";
 ///         honors `getReserves` / `price{0,1}CumulativeLast` exactly the way real
 ///         mainnet pairs do, so the contract's TWAP read is exercised end-to-end. The
 ///         router's "swap" trades at whatever spot price the attacker sets just before
-///         the conversion lands — which is the on-chain primitive a sandwich exploits.
+///         the conversion lands â€” which is the on-chain primitive a sandwich exploits.
 
 contract MockToken_SFR is ERC20 {
     constructor(string memory n, string memory s) ERC20(n, s) {
@@ -59,7 +59,7 @@ contract MockUniPair_SFR {
         return (reserve0, reserve1, blockTimestampLast);
     }
 
-    /// @dev Helper: set reserves (instant price set). Does NOT advance the cumulative —
+    /// @dev Helper: set reserves (instant price set). Does NOT advance the cumulative â€”
     ///      tests use this to reset the pre-snapshot baseline and to simulate
     ///      attacker-induced spot-price changes between snapshot + conversion.
     function setReserves(uint112 r0, uint112 r1) external {
@@ -104,7 +104,7 @@ contract MockUniFactory_SFR {
 /// @dev Mock V2 router that honors the SwapFeeRouter constructor's `factory()` read
 ///      and routes swaps through a per-test in-memory pair. The swap's output ETH
 ///      amount tracks whatever spot price the test has set on the pair right before
-///      the call — this is precisely the surface a real sandwich attack manipulates.
+///      the call â€” this is precisely the surface a real sandwich attack manipulates.
 contract MockUniRouter_SFR {
     address public immutable WETH_ADDR;
     address public immutable factoryAddr;
@@ -117,9 +117,9 @@ contract MockUniRouter_SFR {
     function WETH() external view returns (address) { return WETH_ADDR; }
     function factory() external view returns (address) { return factoryAddr; }
 
-    /// @dev token → ETH swap: prices at the pair's CURRENT spot reserves. The router
+    /// @dev token â†’ ETH swap: prices at the pair's CURRENT spot reserves. The router
     ///      deposits the input tokens and sends out an ETH amount equal to the
-    ///      constant-product-respecting output (no fee, no slippage curve — kept
+    ///      constant-product-respecting output (no fee, no slippage curve â€” kept
     ///      simple so tests assert against an exact expected value).
     function swapExactTokensForETH(
         uint256 amountIn,
@@ -175,7 +175,7 @@ contract Audit_SFR_H01 is Test {
 
     uint256 constant FEE_BPS = 30; // 0.3% global fee (irrelevant to this test surface)
 
-    /// @dev Baseline reserves: 100k TOWELI : 100 ETH ⇒ spot price 1 TOWELI = 0.001 ETH.
+    /// @dev Baseline reserves: 100k TOWELI : 100 ETH â‡’ spot price 1 TOWELI = 0.001 ETH.
     ///      Picked so a sandwich-induced 50% reserve imbalance produces a numerically
     ///      obvious price gap (TWAP says ~0.001 ETH/TOWELI; sandwich-spot says ~0.0005).
     uint112 constant BASELINE_TOWELI = 100_000 ether;
@@ -206,7 +206,7 @@ contract Audit_SFR_H01 is Test {
             pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
         }
 
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
 
@@ -223,7 +223,7 @@ contract Audit_SFR_H01 is Test {
 
     /// @dev Helper: poke the cumulative forward by `dt` seconds at the current pair
     ///      spot price + advance block.timestamp by `dt`. Simulates the pair sitting
-    ///      idle (no swaps) for the period — the canonical prerequisite for a clean
+    ///      idle (no swaps) for the period â€” the canonical prerequisite for a clean
     ///      TWAP read.
     function _advanceTime(uint32 dt) internal {
         pair.pokeCumulative(dt);
@@ -239,9 +239,9 @@ contract Audit_SFR_H01 is Test {
         path[1] = address(weth);
     }
 
-    /// @dev Helper: simulate the attacker's front-running TOWELI→WETH sell that pushes
+    /// @dev Helper: simulate the attacker's front-running TOWELIâ†’WETH sell that pushes
     ///      the TOWELI price down right before the keeper's conversion. We just slam
-    ///      the reserves to a depressed-TOWELI ratio — the swap that lands next will
+    ///      the reserves to a depressed-TOWELI ratio â€” the swap that lands next will
     ///      see this price.
     function _frontrunSandwich() internal {
         bool tokenIs0 = address(toweli) < address(weth);
@@ -253,12 +253,12 @@ contract Audit_SFR_H01 is Test {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  Bootstrap gate: first conversion is owner-only
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_SFR_H01_bootstrap_rejects_nonOwner() public {
-        // No prior snapshot → permissionless caller hits TWAPBootstrapRequired.
+        // No prior snapshot â†’ permissionless caller hits TWAPBootstrapRequired.
         _advanceTime(60 minutes);
         vm.prank(keeper);
         vm.expectRevert(SwapFeeRouter.TWAPBootstrapRequired.selector);
@@ -267,7 +267,7 @@ contract Audit_SFR_H01 is Test {
 
     function test_SFR_H01_bootstrap_succeeds_forOwner() public {
         _advanceTime(60 minutes);
-        // Owner bootstraps — caller-supplied minETHOut acts as the only floor for this
+        // Owner bootstraps â€” caller-supplied minETHOut acts as the only floor for this
         // single call (treasury policy off-chain). Snapshot is written for next time.
         sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, block.timestamp + 1 hours);
         // Snapshot is non-zero: subsequent calls are permissionless.
@@ -275,13 +275,13 @@ contract Audit_SFR_H01 is Test {
         assertGt(ts, 0, "bootstrap snapshot not written");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  Sandwich attack: TWAP floor blocks the depressed-price conversion
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    /// @dev The headline regression: bootstrap → wait the cooldown + TWAP period →
-    ///      attacker front-runs to push spot price down → permissionless caller tries
-    ///      to convert with minETHOut=0 → conversion REVERTS at the inner router's
+    /// @dev The headline regression: bootstrap â†’ wait the cooldown + TWAP period â†’
+    ///      attacker front-runs to push spot price down â†’ permissionless caller tries
+    ///      to convert with minETHOut=0 â†’ conversion REVERTS at the inner router's
     ///      INSUFFICIENT_OUTPUT because the contract-derived effectiveMin is the
     ///      TWAP-derived floor, not 1 wei. Without SFR-H-01 the conversion would
     ///      have settled at the depressed price and the attacker's back-run captured
@@ -329,9 +329,9 @@ contract Audit_SFR_H01 is Test {
         sfr.convertTokenFeesToETH(address(toweli), _directPath(), 0, d2);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  Caller can only TIGHTEN the floor (never relax)
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// @dev Mirror of the sandwich test, but the caller passes a HIGHER minETHOut than
     ///      the TWAP floor. The contract enforces `max(callerMin, twapMin) = callerMin`
@@ -366,9 +366,9 @@ contract Audit_SFR_H01 is Test {
         sfr.convertTokenFeesToETH(address(toweli), _directPath(), 1 ether, d2);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  Happy path: no sandwich, conversion settles at TWAP-floor or above
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// @dev Sanity: when the pair sits at the baseline price the keeper's conversion
     ///      goes through cleanly. Confirms SFR-H-01 isn't a false-positive that

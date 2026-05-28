@@ -67,7 +67,7 @@ contract MockUniFactory_R028 {
 }
 
 /// @dev Mock router that handles arbitrary path lengths (so multi-hop tests work).
-///      For multi-hop, the swap pricing uses the FIRST hop only — that's sufficient
+///      For multi-hop, the swap pricing uses the FIRST hop only â€” that's sufficient
 ///      for the test surface where we only need to verify path forwarding + slippage.
 contract MockUniRouter_R028 {
     address public immutable WETH_ADDR;
@@ -118,7 +118,7 @@ contract MockUniRouter_R028 {
     receive() external payable {}
 }
 
-/// @title AUDIT SFR-M-01 — Caller-supplied conversion path with multi-hop owner gate
+/// @title AUDIT SFR-M-01 â€” Caller-supplied conversion path with multi-hop owner gate
 contract R028_SFR_M01 is Test {
     SwapFeeRouter public sfr;
     SwapFeeRouterAdmin public sfrAdmin;
@@ -160,7 +160,7 @@ contract R028_SFR_M01 is Test {
             pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
         }
 
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -285,7 +285,7 @@ contract R028_SFR_M01 is Test {
         // AUDIT FIX 2026-05-26 [H-02]: when a direct token/WETH pair exists, the
         // effective floor also includes the TWAP-derived minETHOut (1.5% safety).
         // With BASELINE reserves of 100_000 toweli : 100 WETH (price 1:1000) and a
-        // 100-toweli seed, the TWAP floor lands ≈ 4.9e16 wei after the safety bps.
+        // 100-toweli seed, the TWAP floor lands â‰ˆ 4.9e16 wei after the safety bps.
         // We pass 5e16 (just above the floor) so the H-02 gate passes and the
         // Uniswap-side slippage check still has headroom against actual output.
         // Pre-H-02 this test used `MIN_MULTIHOP_ETH_OUT_WEI` (1e14); that is now
@@ -297,7 +297,7 @@ contract R028_SFR_M01 is Test {
     }
 }
 
-/// @title AUDIT SFR-M-02 — Minimum token-fee balance gate before cooldown
+/// @title AUDIT SFR-M-02 â€” Minimum token-fee balance gate before cooldown
 contract R028_SFR_M02 is Test {
     SwapFeeRouter public sfr;
     SwapFeeRouterAdmin public sfrAdmin;
@@ -332,7 +332,7 @@ contract R028_SFR_M02 is Test {
         if (tokenIs0) pair.setReserves(BASELINE_TOWELI, BASELINE_WETH);
         else          pair.setReserves(BASELINE_WETH, BASELINE_TOWELI);
 
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -360,7 +360,7 @@ contract R028_SFR_M02 is Test {
 
     function test_SFRM02_belowMinimum_reverts() public {
         _bootstrap();
-        // Drain accumulatedTokenFees down to a dust amount (1 wei) — the bootstrap
+        // Drain accumulatedTokenFees down to a dust amount (1 wei) â€” the bootstrap
         // zeroed it out, so we just write a sub-MIN value.
         // FRESH-2026 TEST REALIGN: accumulatedTokenFees at slot 10 (mvp-launch PauseGuardian add shifted +1).
         bytes32 slot = keccak256(abi.encode(address(toweli), uint256(10)));
@@ -404,7 +404,7 @@ contract R028_SFR_M02 is Test {
 
         // Cooldown stamp was NOT updated (attack failed early).
         // Now the keeper's legitimate conversion (above MIN) should succeed in
-        // the SAME block — pre-fix it would have hit CONVERSION_COOLDOWN_ACTIVE.
+        // the SAME block â€” pre-fix it would have hit CONVERSION_COOLDOWN_ACTIVE.
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         toweli.mint(address(sfr), 100 ether);
         vm.prank(keeper);
@@ -412,7 +412,7 @@ contract R028_SFR_M02 is Test {
     }
 }
 
-/// @title AUDIT SFR-M-04 — Admin replaceability with 7d timelock
+/// @title AUDIT SFR-M-04 â€” Admin replaceability with 7d timelock
 contract R028_SFR_M04 is Test {
     SwapFeeRouter public sfr;
     SwapFeeRouterAdmin public sfrAdmin;
@@ -427,7 +427,7 @@ contract R028_SFR_M04 is Test {
         weth = new MockToken_R028("WETH", "WETH");
         factory = new MockUniFactory_R028();
         uniRouter = new MockUniRouter_R028(address(weth), address(factory));
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -476,7 +476,7 @@ contract R028_SFR_M04 is Test {
 
     function test_SFRM04_cannotProposeIfNoAdminSet() public {
         // Deploy a fresh router without setting swapFeeRouterAdmin.
-        SwapFeeRouter fresh = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        SwapFeeRouter fresh = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         SwapFeeRouterAdmin adm = new SwapFeeRouterAdmin(address(fresh));
         vm.expectRevert(SwapFeeRouter.Unauthorized.selector);
         fresh.proposeAdminReplacement(address(adm));
@@ -485,7 +485,7 @@ contract R028_SFR_M04 is Test {
     function test_SFRM04_setSwapFeeRouterAdmin_stillOneShot() public {
         SwapFeeRouterAdmin other = new SwapFeeRouterAdmin(address(sfr));
         // Already set in setUp(); calling setSwapFeeRouterAdmin again must revert.
-        // AUDIT FIX 2026-05-26 [L-08]: error swapped Unauthorized → AdminAlreadySet
+        // AUDIT FIX 2026-05-26 [L-08]: error swapped Unauthorized â†’ AdminAlreadySet
         // for clearer caller diagnostics. One-shot semantic unchanged; rotation
         // still requires the 7-day proposeAdminReplacement timelock.
         vm.expectRevert(SwapFeeRouter.AdminAlreadySet.selector);
@@ -520,10 +520,10 @@ contract R028_SFR_M04 is Test {
 ///      entirely-broken admin contract that has no fallback / doesn't honor the
 ///      ISwapFeeRouterApply interface. The router's replacement path must still work.
 contract BadAdmin {
-    // No functions — every call reverts.
+    // No functions â€” every call reverts.
 }
 
-/// @dev WETH9-shaped mock supporting deposit/withdraw — required for the
+/// @dev WETH9-shaped mock supporting deposit/withdraw â€” required for the
 ///      M4-revised regression tests because the production `convertTokenFeesToETH`
 ///      now calls `IWETH(WETH).withdraw(amount)` on the WETH branch.
 contract MockWETH_R028 is ERC20 {
@@ -541,7 +541,7 @@ contract MockWETH_R028 is ERC20 {
     }
 }
 
-/// @title R028 M4-REVISED — `accumulatedTokenFees[WETH]` unwrap path
+/// @title R028 M4-REVISED â€” `accumulatedTokenFees[WETH]` unwrap path
 /// @notice Pre-fix, WETH-input swaps populated `accumulatedTokenFees[WETH]` at
 ///         line 837 in `swapExactTokensForTokens`. The 2026-05-16 M4 `getPair`
 ///         gate in `withdrawTokenFees` passed for WETH because UniV2 rejects
@@ -571,13 +571,13 @@ contract R028_SFR_M04_REVISED is Test {
         uniRouter = new MockUniRouter_R028(address(weth), address(factory));
         vm.deal(address(uniRouter), 10_000 ether);
 
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
 
     /// @dev Park `amount` WETH on the router and bump `accumulatedTokenFees[WETH]`
-    ///      to match. Mirrors `_seedFees` from R028_SFR_M01 — slot 10 is the storage
+    ///      to match. Mirrors `_seedFees` from R028_SFR_M01 â€” slot 10 is the storage
     ///      index of `accumulatedTokenFees`.
     function _seedWETHFees(uint256 amount) internal {
         // Mint actual WETH to the router (so the unwrap has something to burn).
@@ -609,7 +609,7 @@ contract R028_SFR_M04_REVISED is Test {
         uint256 ethFeesBefore = sfr.accumulatedETHFees();
         uint256 ethBalanceBefore = address(sfr).balance;
 
-        // Permissionless — keeper can call.
+        // Permissionless â€” keeper can call.
         vm.prank(keeper);
         sfr.convertTokenFeesToETH(address(weth), _emptyPath(), 0, block.timestamp + 30 minutes);
 
@@ -661,7 +661,7 @@ contract R028_SFR_M04_REVISED is Test {
         vm.prank(keeper);
         sfr.convertTokenFeesToETH(address(weth), _emptyPath(), 0, block.timestamp + 30 minutes);
 
-        // Treasury hasn't received anything directly — proceeds are in the
+        // Treasury hasn't received anything directly â€” proceeds are in the
         // ETH-fees pool, awaiting the timelocked distribute call.
         assertEq(treasury.balance, treasuryBefore, "treasury MUST NOT receive direct ETH on unwrap");
         assertEq(

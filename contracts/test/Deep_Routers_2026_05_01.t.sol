@@ -10,7 +10,7 @@ import "../src/TegridyRouter.sol";
 import "../src/TegridyPair.sol";
 import "../src/TegridyFactory.sol";
 
-// â”€â”€â”€ Shared mocks (compatible with R028 fixture pattern) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Shared mocks (compatible with R028 fixture pattern) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract _Token is ERC20 {
     constructor(string memory n, string memory s) ERC20(n, s) {
@@ -118,7 +118,7 @@ contract _MockUniRouter {
     receive() external payable {}
 }
 
-// â”€â”€â”€ DEEP-R-H01: multi-hop conversion bypasses direct-pair TWAP â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-H01: multi-hop conversion bypasses direct-pair TWAP Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract Deep_R_H01_MultiHop is Test {
     SwapFeeRouter public sfr;
@@ -126,7 +126,7 @@ contract Deep_R_H01_MultiHop is Test {
     _MockUniRouter public uniRouter;
     _MockUniFactory public factoryC;
     _Token public weth;
-    _Token public alt;   // ALT token: NO direct ALT/WETH pair â€” multi-hop required
+    _Token public alt;   // ALT token: NO direct ALT/WETH pair Ã¢â‚¬â€ multi-hop required
     _Token public mid;
     _MockUniPair public altMidPair;
 
@@ -152,7 +152,7 @@ contract Deep_R_H01_MultiHop is Test {
         if (address(alt) == t0) altMidPair.setReserves(ALT_RES, MID_RES);
         else                    altMidPair.setReserves(MID_RES, ALT_RES);
 
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -176,7 +176,7 @@ contract Deep_R_H01_MultiHop is Test {
         path[0] = address(alt); path[1] = address(mid); path[2] = address(weth);
 
         // AUDIT FIX V3-DEEP-R3-M01: minOut floor raised from `> 0` to
-        // `>= MIN_MULTIHOP_ETH_OUT_WEI` (1e14 wei) â€” closes the
+        // `>= MIN_MULTIHOP_ETH_OUT_WEI` (1e14 wei) Ã¢â‚¬â€ closes the
         // `minETHOut = 1` bypass.
         sfr.convertTokenFeesToETH(address(alt), path, sfr.MIN_MULTIHOP_ETH_OUT_WEI(), block.timestamp + 30 minutes);
 
@@ -189,7 +189,7 @@ contract Deep_R_H01_MultiHop is Test {
         _seedFees(100 ether);
         address[] memory path = new address[](3);
         path[0] = address(alt); path[1] = address(mid); path[2] = address(weth);
-        // Capture the MIN_MULTIHOP_ETH_OUT_WEI BEFORE the prank â€” vm.prank only
+        // Capture the MIN_MULTIHOP_ETH_OUT_WEI BEFORE the prank Ã¢â‚¬â€ vm.prank only
         // applies to the next CALL, and a staticcall to the public constant
         // would consume the prank if read inside the convertTokenFeesToETH arg
         // list.
@@ -200,7 +200,7 @@ contract Deep_R_H01_MultiHop is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-H02: pause guards on distribute / withdraw / recover â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-H02: pause guards on distribute / withdraw / recover Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract Deep_R_H02_Pause is Test {
     SwapFeeRouter public sfr;
@@ -214,7 +214,7 @@ contract Deep_R_H02_Pause is Test {
         weth = new _Token("WETH", "WETH");
         factoryC = new _MockUniFactory();
         uniRouter = new _MockUniRouter(address(weth), address(factoryC));
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -238,7 +238,7 @@ contract Deep_R_H02_Pause is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-M01: admin replacement expiry â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-M01: admin replacement expiry Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract Deep_R_M01_AdminExpiry is Test {
     SwapFeeRouter public sfr;
@@ -252,7 +252,7 @@ contract Deep_R_M01_AdminExpiry is Test {
         weth = new _Token("WETH", "WETH");
         factoryC = new _MockUniFactory();
         uniRouter = new _MockUniRouter(address(weth), address(factoryC));
-        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
         newAdmin = new SwapFeeRouterAdmin(address(sfr));
@@ -277,7 +277,7 @@ contract Deep_R_M01_AdminExpiry is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-M02: zero intermediate hop rejected â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-M02: zero intermediate hop rejected Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract Deep_R_M02_ZeroHop is Test {
     SwapFeeRouter public sfr;
@@ -297,7 +297,7 @@ contract Deep_R_M02_ZeroHop is Test {
         address t1 = address(alt) < address(weth) ? address(weth) : address(alt);
         pair = new _MockUniPair(t0, t1);
         factoryC.setPair(address(alt), address(weth), address(pair));
-        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -317,7 +317,7 @@ contract Deep_R_M02_ZeroHop is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-M04: applyPolAccumulator(0) blocked when polShareBps > 0 â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-M04: applyPolAccumulator(0) blocked when polShareBps > 0 Ã¢â€â‚¬
 
 contract Deep_R_M04_PolZero is Test {
     SwapFeeRouter public sfr;
@@ -330,7 +330,7 @@ contract Deep_R_M04_PolZero is Test {
         weth = new _Token("WETH", "WETH");
         factoryC = new _MockUniFactory();
         uniRouter = new _MockUniRouter(address(weth), address(factoryC));
-        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -363,7 +363,7 @@ contract Deep_R_M04_PolZero is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-M05: TegridyRouter rejects to == address(this) â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-M05: TegridyRouter rejects to == address(this) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract Deep_R_M05_TegRouterTo is Test {
     TegridyRouter public router;
@@ -444,7 +444,7 @@ contract Deep_R_M05_TegRouterTo is Test {
     }
 
     function test_removeLiquidity_rejectsRouter() public {
-        // No pair created yet â€” but the to==address(this) check fires first.
+        // No pair created yet Ã¢â‚¬â€ but the to==address(this) check fires first.
         vm.expectRevert(TegridyRouter.InvalidRecipient.selector);
         router.removeLiquidity(address(tokenA), address(tokenB), 1 ether, 0, 0, address(router), block.timestamp + 30 minutes);
     }
@@ -455,7 +455,7 @@ contract Deep_R_M05_TegRouterTo is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-L02: removeLiquidity (non-ETH) rejects to == 0 â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-L02: removeLiquidity (non-ETH) rejects to == 0 Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract Deep_R_L02_RemoveZeroTo is Test {
     TegridyRouter public router;
@@ -478,7 +478,7 @@ contract Deep_R_L02_RemoveZeroTo is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-M06: TWAP snapshot reset (timelocked) â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-M06: TWAP snapshot reset (timelocked) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract Deep_R_M06_SnapshotReset is Test {
     SwapFeeRouter public sfr;
@@ -503,7 +503,7 @@ contract Deep_R_M06_SnapshotReset is Test {
         factoryC.setPair(address(alt), address(weth), address(pair));
         if (address(alt) == t0) pair.setReserves(100_000 ether, 100 ether);
         else                    pair.setReserves(100 ether, 100_000 ether);
-        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
@@ -538,7 +538,7 @@ contract Deep_R_M06_SnapshotReset is Test {
 
     function test_resetTWAPSnapshot_revertsBeforeReady() public {
         sfr.proposeResetTWAPSnapshot(address(alt));
-        // No skip â€” should revert.
+        // No skip Ã¢â‚¬â€ should revert.
         vm.expectRevert(SwapFeeRouter.TWAPSnapshotResetUnavailable.selector);
         sfr.executeResetTWAPSnapshot();
     }
@@ -557,7 +557,7 @@ contract Deep_R_M06_SnapshotReset is Test {
     }
 }
 
-// â”€â”€â”€ DEEP-R-L03: recoverCallerCredit cooldown â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ DEEP-R-L03: recoverCallerCredit cooldown Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 contract _MockSplitter {
     function recordFee(address) external payable {}
@@ -577,7 +577,7 @@ contract Deep_R_L03_RecoverCooldown is Test {
         factoryC = new _MockUniFactory();
         uniRouter = new _MockUniRouter(address(weth), address(factoryC));
         splitter = new _MockSplitter();
-        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(splitter));
+        sfr = new SwapFeeRouter(address(uniRouter), makeAddr("treasury"), 30, address(splitter), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }

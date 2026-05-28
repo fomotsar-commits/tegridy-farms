@@ -7,7 +7,7 @@ import "../src/SwapFeeRouter.sol";
 import "../src/SwapFeeRouterAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
-// ─── Mock Contracts ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Mock Contracts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockERC20 is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {
@@ -133,7 +133,7 @@ contract MockUniswapV2Router {
     receive() external payable {}
 }
 
-// ─── Test Suite ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Test Suite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract AuditFixes_SwapFeeRouterTest is Test {
     SwapFeeRouter public feeRouter;
@@ -163,7 +163,7 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         mockRouter.setOutputToken(address(tokenB));
 
         // Deploy SwapFeeRouter + sister admin
-        feeRouter = new SwapFeeRouter(address(mockRouter), treasury, FEE_BPS, address(0));
+        feeRouter = new SwapFeeRouter(address(mockRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         feeRouterAdmin = new SwapFeeRouterAdmin(address(feeRouter));
         feeRouter.setSwapFeeRouterAdmin(address(feeRouterAdmin));
 
@@ -179,7 +179,7 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         tokenA.approve(address(feeRouter), type(uint256).max);
     }
 
-    // ─── #4: Slippage checked after fee ──────────────────────────────────
+    // â”€â”€â”€ #4: Slippage checked after fee â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// @notice Verify that amountOutMin is enforced on the post-fee output amount.
     ///         The router passes 0 to Uniswap and checks slippage itself after fee deduction.
@@ -208,13 +208,13 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         assertGe(amounts[amounts.length - 1], 1000 ether);
     }
 
-    // ─── #6: forceApprove used (not bare approve) ────────────────────────
+    // â”€â”€â”€ #6: forceApprove used (not bare approve) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    /// @notice Verify swaps work for token->ETH path — this implicitly tests
+    /// @notice Verify swaps work for token->ETH path â€” this implicitly tests
     ///         that forceApprove is used (bare approve would fail for USDT-like tokens).
     function test_forceApprove_usedNotBareApprove() public {
         // Approve mock router to pull tokens from feeRouter
-        // The feeRouter uses forceApprove internally — if it works, the fix is correct
+        // The feeRouter uses forceApprove internally â€” if it works, the fix is correct
 
         address[] memory path = new address[](2);
         path[0] = address(tokenA);
@@ -241,7 +241,7 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         assertGt(amounts[amounts.length - 1], 0);
     }
 
-    // ─── #19: Paused contract blocks swaps ───────────────────────────────
+    // â”€â”€â”€ #19: Paused contract blocks swaps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_revert_swap_whenPaused() public {
         // Pause the contract
@@ -277,7 +277,7 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         feeRouter.swapExactETHForTokens{value: 1 ether}(0, path, alice, block.timestamp + 1, 100);
     }
 
-    // ─── #67: setFee reverts — use propose + execute ─────────────────────
+    // â”€â”€â”€ #67: setFee reverts â€” use propose + execute â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_revert_setFee_deprecated() public {
         vm.expectRevert(SwapFeeRouter.UseProposeFeeChange.selector);
@@ -331,7 +331,7 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         assertEq(feeRouter.feeBps(), newFee);
     }
 
-    // ─── #68: Treasury timelock ──────────────────────────────────────────
+    // â”€â”€â”€ #68: Treasury timelock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_treasuryTimelock() public {
         address newTreasury = makeAddr("newTreasury");
@@ -358,7 +358,7 @@ contract AuditFixes_SwapFeeRouterTest is Test {
         assertEq(feeRouterAdmin.treasuryChangeTime(), 0);
     }
 
-    // ─── Additional edge case: execute without proposal ──────────────────
+    // â”€â”€â”€ Additional edge case: execute without proposal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_revert_executeFeeChange_noPending() public {
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, feeRouterAdmin.FEE_CHANGE()));

@@ -90,7 +90,7 @@ contract MockUniRouter {
         MockERC20(path[path.length - 1]).mint(to, amountIn);
     }
 
-    // ─── Fee-on-Transfer variants ────────────────────────────────────
+    // â”€â”€â”€ Fee-on-Transfer variants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // These simulate Uniswap V2 Router02's *SupportingFeeOnTransferTokens helpers.
     // They transferFrom the input, measure the actual-received delta (to handle
     // fee-on-transfer input tokens), then mint an equivalent amount of output
@@ -103,7 +103,7 @@ contract MockUniRouter {
         uint256
     ) external payable {
         // Simple 1:1 simulation. Real Uniswap would also account for the output
-        // token's FoT haircut — our FeeOnTransferToken mock handles that on mint/transfer.
+        // token's FoT haircut â€” our FeeOnTransferToken mock handles that on mint/transfer.
         require(msg.value >= amountOutMin, "INSUFFICIENT_OUTPUT");
         MockERC20(path[path.length - 1]).mint(to, msg.value);
     }
@@ -172,7 +172,7 @@ contract SwapFeeRouterTest is Test {
 
         vm.deal(address(uniRouter), 1000 ether);
 
-        router = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0)); // 0.3% fee
+        router = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST"))))); // 0.3% fee
         admin = new SwapFeeRouterAdmin(address(router));
         router.setSwapFeeRouterAdmin(address(admin));
 
@@ -274,8 +274,8 @@ contract SwapFeeRouterTest is Test {
         vm.deal(address(router), 5 ether);
 
         // AUDIT FIX 2026-05-16 M2: destination forced to revenueDistributor.
-        // AUDIT FIX (Wave-2 2026-05-16): sweepETH is now 48h-timelocked —
-        // propose → wait 48h → execute. Asserts the post-execute balance
+        // AUDIT FIX (Wave-2 2026-05-16): sweepETH is now 48h-timelocked â€”
+        // propose â†’ wait 48h â†’ execute. Asserts the post-execute balance
         // delta lands at revenueDistributor (M2 invariant preserved).
         uint256 sinkBefore = address(revenueDistributor).balance;
         router.proposeSweepETH(5 ether);
@@ -298,7 +298,7 @@ contract SwapFeeRouterTest is Test {
     function test_sweepETH_timelock_rejectsEarlyExecute() public {
         vm.deal(address(router), 5 ether);
         router.proposeSweepETH(5 ether);
-        // 48h - 1s — one second short of ready.
+        // 48h - 1s â€” one second short of ready.
         vm.warp(block.timestamp + 48 hours - 1);
         vm.expectRevert(SwapFeeRouter.SweepETHUnavailable.selector);
         router.executeSweepETH();
@@ -319,7 +319,7 @@ contract SwapFeeRouterTest is Test {
         assertEq(router.sweepETHReadyAt(), 0);
         assertEq(router.pendingSweepETHAmount(), 0);
         // Move time forward so the second proposal's readyAt is strictly later
-        // — proves cancel didn't leave the old timelock window open.
+        // â€” proves cancel didn't leave the old timelock window open.
         vm.warp(block.timestamp + 1 hours);
         router.proposeSweepETH(3 ether);
         assertGt(router.sweepETHReadyAt(), firstReadyAt);
@@ -332,7 +332,7 @@ contract SwapFeeRouterTest is Test {
     function test_sweepETH_timelock_rejectsAfterValidityExpiry() public {
         vm.deal(address(router), 5 ether);
         router.proposeSweepETH(5 ether);
-        // Warp past `readyAt + 7 days` — proposal must be expired.
+        // Warp past `readyAt + 7 days` â€” proposal must be expired.
         vm.warp(block.timestamp + 48 hours + 7 days + 1);
         vm.expectRevert(SwapFeeRouter.SweepETHUnavailable.selector);
         router.executeSweepETH();
@@ -343,7 +343,7 @@ contract SwapFeeRouterTest is Test {
 
     /// @notice Wave-2 regression: amount locked at propose is capped down to
     ///         the live sweepable balance at execute. Propose 10 ETH; if only
-    ///         3 ETH is sweepable at execute time, the tx must send 3 ETH —
+    ///         3 ETH is sweepable at execute time, the tx must send 3 ETH â€”
     ///         not revert and not over-send.
     function test_sweepETH_executeCapsAtLiveSweepable() public {
         // Propose 10 ETH (overly generous).
@@ -351,7 +351,7 @@ contract SwapFeeRouterTest is Test {
         router.proposeSweepETH(10 ether);
         vm.warp(block.timestamp + 48 hours);
         // Right before execute, drain the router balance down to 3 ETH so
-        // the live sweepable is 3 ETH (no accumulated fees → reserved = 0).
+        // the live sweepable is 3 ETH (no accumulated fees â†’ reserved = 0).
         vm.deal(address(router), 3 ether);
 
         uint256 sinkBefore = address(revenueDistributor).balance;
@@ -365,14 +365,14 @@ contract SwapFeeRouterTest is Test {
     }
 
     /// @notice Wave-2 regression: `executeSweepETH` carries `whenNotPaused`
-    ///         (defense-in-depth — a guardian who pauses during incident
+    ///         (defense-in-depth â€” a guardian who pauses during incident
     ///         response freezes the executor while propose-side stays open).
     function test_sweepETH_executeRejectsWhilePaused() public {
         vm.deal(address(router), 5 ether);
         router.proposeSweepETH(5 ether);
         vm.warp(block.timestamp + 48 hours);
         router.pause();
-        // OZ Pausable reverts EnforcedPause / Pausable: paused — match either.
+        // OZ Pausable reverts EnforcedPause / Pausable: paused â€” match either.
         vm.expectRevert();
         router.executeSweepETH();
     }
@@ -383,7 +383,7 @@ contract SwapFeeRouterTest is Test {
     function test_sweepETH_rejectsConcurrentPropose() public {
         vm.deal(address(router), 5 ether);
         router.proposeSweepETH(5 ether);
-        // Second propose while pending must revert — proves no overwrite path.
+        // Second propose while pending must revert â€” proves no overwrite path.
         vm.expectRevert(SwapFeeRouter.SweepETHUnavailable.selector);
         router.proposeSweepETH(3 ether);
         // Original proposal is unchanged.
@@ -423,7 +423,7 @@ contract SwapFeeRouterTest is Test {
     }
 
     function test_revert_sweepETH_zeroBalance() public {
-        // Wave-2 fix: behaviour preserved — when there's nothing sweepable at
+        // Wave-2 fix: behaviour preserved â€” when there's nothing sweepable at
         // execute time, the execute call reverts ZeroAmount. (The propose
         // side also rejects amount=0 with ZeroAmount, but that's a separate
         // validation; this test pins the original execute-time invariant.)
@@ -651,7 +651,7 @@ contract SwapFeeRouterTest is Test {
         RevertingSplitter badSplitter = new RevertingSplitter();
         SwapFeeRouter routerWithSplitter = new SwapFeeRouter(
             address(uniRouter), treasury, 30, address(badSplitter)
-        );
+        , address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         vm.deal(alice, 100 ether);
 
         address[] memory path = new address[](2);
@@ -734,7 +734,7 @@ contract SwapFeeRouterFOTTest is Test {
 
         vm.deal(address(uniRouter), 1000 ether);
 
-        feeRouter = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0));
+        feeRouter = new SwapFeeRouter(address(uniRouter), treasury, 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         feeAdmin = new SwapFeeRouterAdmin(address(feeRouter));
         feeRouter.setSwapFeeRouterAdmin(address(feeAdmin));
         feeAdmin.proposeRevenueDistributor(address(revenueDistributor));
@@ -771,7 +771,7 @@ contract SwapFeeRouterFOTTest is Test {
         uint256 actualReceived = treasuryAfter - treasuryBefore;
         uint256 remaining = feeRouter.accumulatedTokenFees(address(fotToken));
 
-        // AUDIT FIX M-04: CEI pattern — accounting is zeroed BEFORE transfer.
+        // AUDIT FIX M-04: CEI pattern â€” accounting is zeroed BEFORE transfer.
         // With FOT tokens, treasury receives less than `routerBalance`, but
         // accumulatedTokenFees is already zero (no phantom dust remains).
         assertEq(remaining, 0, "accounting zeroed before transfer (CEI pattern)");
@@ -796,7 +796,7 @@ contract SwapFeeRouterFOTTest is Test {
         );
 
         // MockUniRouter mints sendValue of fotToken to feeRouter. feeRouter takes 0.3% fee,
-        // then transfers the rest to alice — that transfer triggers another 1% FoT haircut.
+        // then transfers the rest to alice â€” that transfer triggers another 1% FoT haircut.
         uint256 expectedFee = (sendValue * 30) / 10000; // 0.3% protocol fee
         uint256 expectedPreHaircut = sendValue - expectedFee;
         // Alice receives expectedPreHaircut minus the 1% FoT haircut on the router's transfer to her
@@ -910,14 +910,14 @@ contract SwapFeeRouterFOTTest is Test {
         // The legacy path transfers fotToken from alice -> feeRouter (1% burned),
         // then from feeRouter -> uniRouter (another 1% burned). The MockUniRouter's
         // legacy swapExactTokensForTokens calls transferFrom(feeRouter, uniRouter, amountIn)
-        // where `amountIn` is what feeRouter expected to send — but because of the FoT burn,
+        // where `amountIn` is what feeRouter expected to send â€” but because of the FoT burn,
         // the router's allowance spend succeeds but the balance change is less than claimed.
         // In our mock this means the router transfers less actual tokens than it expected.
         // That's the core reason Uniswap V2 needs the SupportingFeeOnTransferTokens variant.
         //
         // In our MockUniRouter the legacy swap will `transferFrom(feeRouter, uniRouter, amountIn)`
         // which burns 1% on the way, then mint `amountIn` of tokenB to alice. So the mock is
-        // actually too forgiving to reproduce a revert directly — but the real Uniswap pair
+        // actually too forgiving to reproduce a revert directly â€” but the real Uniswap pair
         // would detect the k-invariant mismatch and revert. We document this via a passing
         // swap that demonstrates the accounting asymmetry: the recorded fee is based on the
         // incorrect pre-burn amount, not the post-burn amount.

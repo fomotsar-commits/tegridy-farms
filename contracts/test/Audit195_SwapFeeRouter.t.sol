@@ -7,7 +7,7 @@ import "../src/SwapFeeRouter.sol";
 import "../src/SwapFeeRouterAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
-// ──────── Mocks ────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€ Mocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract MockERC20A195 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
@@ -45,7 +45,7 @@ contract MockUniFactory195 {
     }
 }
 
-/// @dev Mock Uniswap V2 Router – 1:1 swap simulation
+/// @dev Mock Uniswap V2 Router â€“ 1:1 swap simulation
 contract MockUniRouter195 {
     address public immutable WETH_ADDR;
     address public immutable FACTORY;
@@ -127,7 +127,7 @@ contract NoETHReceiver {
     // intentionally no receive/fallback
 }
 
-// ──────── Main Test Contract ──────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€ Main Test Contract â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 contract Audit195SwapFeeRouter is Test {
     SwapFeeRouter public sfr;
@@ -154,7 +154,7 @@ contract Audit195SwapFeeRouter is Test {
         revenueDistributor = new MockRevenueDistributorSink195();
         vm.deal(address(uniRouter), 10_000 ether);
 
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
 
@@ -174,9 +174,9 @@ contract Audit195SwapFeeRouter is Test {
         vm.stopPrank();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  1. FEE CALCULATION ACCURACY
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_feeCalc_ETHForTokens_exact() public {
         uint256 swapAmt = 10 ether;
@@ -237,7 +237,7 @@ contract Audit195SwapFeeRouter is Test {
 
     /// @dev When feeBps=0, no fee is taken and no minimum is forced
     function test_feeCalc_zeroFeeBps() public {
-        SwapFeeRouter zeroFee = new SwapFeeRouter(address(uniRouter), treasury, 0, address(0));
+        SwapFeeRouter zeroFee = new SwapFeeRouter(address(uniRouter), treasury, 0, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         address[] memory path = _ethToTokenA();
         vm.deal(alice, 10 ether);
         vm.prank(alice);
@@ -246,9 +246,9 @@ contract Audit195SwapFeeRouter is Test {
         assertEq(amounts[amounts.length - 1], 1 ether, "full amount passed through");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  2. ADJUSTED MIN CORRECTNESS (swapExactTokensForETH)
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// @dev adjustedMin formula should properly invert fee so user gets >= amountOutMin
     function test_adjustedMin_normalCase() public {
@@ -300,9 +300,9 @@ contract Audit195SwapFeeRouter is Test {
         assertTrue(sel != bytes4(0), "AdjustedMinOverflow error exists");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  3. BALANCE-BEFORE/AFTER PATTERNS
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// @dev swapExactTokensForETH uses balance-diff for both token input and ETH output
     function test_balanceDiff_tokensForETH() public {
@@ -339,13 +339,13 @@ contract Audit195SwapFeeRouter is Test {
         assertEq(sfr.accumulatedTokenFees(address(fot)), protocolFee, "FOT fee accounting correct");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  4. REFERRAL FEE RECORDING
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_referralFee_forwarded() public {
         MockSplitter195 splitter = new MockSplitter195();
-        SwapFeeRouter withRef = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter));
+        SwapFeeRouter withRef = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
 
         address[] memory path = _ethToTokenA();
         vm.deal(alice, 10 ether);
@@ -361,7 +361,7 @@ contract Audit195SwapFeeRouter is Test {
 
     function test_referralFee_fallbackOnRevert() public {
         RevertSplitter195 bad = new RevertSplitter195();
-        SwapFeeRouter withBad = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(bad));
+        SwapFeeRouter withBad = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(bad), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
 
         address[] memory path = _ethToTokenA();
         vm.deal(alice, 10 ether);
@@ -386,7 +386,7 @@ contract Audit195SwapFeeRouter is Test {
     /// @dev Token-to-token swaps don't use referral for ETH -- token fees go to accumulator
     function test_referralFee_tokenToToken_noReferral() public {
         MockSplitter195 splitter = new MockSplitter195();
-        SwapFeeRouter withRef = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter));
+        SwapFeeRouter withRef = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
 
         tokenA.transfer(alice, 10 ether);
         vm.prank(alice);
@@ -405,9 +405,9 @@ contract Audit195SwapFeeRouter is Test {
         assertEq(address(splitter).balance, 0, "splitter got no ETH");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  5. TREASURY WITHDRAWAL SAFETY
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     // AUDIT H-3 (battle-tested fix): withdrawFees() removed. All ETH fee distribution now
     // routes through distributeFeesToStakers(), which enforces the timelocked split. Tests for
@@ -438,9 +438,9 @@ contract Audit195SwapFeeRouter is Test {
         sfr.withdrawTokenFees(address(tokenA));
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  6. SWEEP SAFETY
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_sweepETH_onlySweepsBeyondAccumulated() public {
         // First accumulate some fees
@@ -472,7 +472,7 @@ contract Audit195SwapFeeRouter is Test {
 
         // Balance == accumulatedETHFees, nothing to sweep.
         // Wave-2 fix: invariant preserved at execute time after the 48h
-        // timelock — `executeSweepETH` reverts ZeroAmount when sweepable=0.
+        // timelock â€” `executeSweepETH` reverts ZeroAmount when sweepable=0.
         sfr.proposeSweepETH(1 ether);
         vm.warp(block.timestamp + 48 hours);
         vm.expectRevert(SwapFeeRouter.ZeroAmount.selector);
@@ -507,9 +507,9 @@ contract Audit195SwapFeeRouter is Test {
         sfr.sweepTokens(address(tokenA));
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  7. PATH VALIDATION
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_revert_pathTooShort() public {
         address[] memory path = new address[](1);
@@ -566,9 +566,9 @@ contract Audit195SwapFeeRouter is Test {
         sfr.swapExactTokensForETH(1 ether, 0, path, alice, block.timestamp + 1, 100);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  8. RECIPIENT VALIDATION
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_revert_recipientZero() public {
         address[] memory path = _ethToTokenA();
@@ -593,9 +593,9 @@ contract Audit195SwapFeeRouter is Test {
         sfr.swapExactTokensForTokens(1 ether, 0, path, address(sfr), block.timestamp + 1, 100);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  9. REENTRANCY PROTECTION
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     // All swap and withdrawal functions use nonReentrant. We verify the modifier exists
     // by checking that the functions are correctly guarded.
@@ -604,9 +604,9 @@ contract Audit195SwapFeeRouter is Test {
 
     // AUDIT H-3: test_withdrawFees_nonReentrant removed (function deleted).
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  10. ACCESS CONTROL
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_onlyOwner_proposeFeeChange() public {
         vm.prank(attacker);
@@ -706,9 +706,9 @@ contract Audit195SwapFeeRouter is Test {
         sfrAdmin.proposeReferralSplitterChange(attacker);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  11. TIMELOCK FLOWS (FEE, TREASURY, REFERRAL)
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_feeTimelock_fullCycle() public {
         sfrAdmin.proposeFeeChange(50);
@@ -821,9 +821,9 @@ contract Audit195SwapFeeRouter is Test {
         sfrAdmin.cancelReferralSplitterChange();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  12. PAUSE / UNPAUSE
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_pause_blocksAllSwaps() public {
         sfr.pause();
@@ -856,9 +856,9 @@ contract Audit195SwapFeeRouter is Test {
         assertTrue(sfr.totalETHFees() > 0, "swap worked after unpause");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  13. MAX FEE BPS CHECK (maxFeeBps parameter)
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_maxFeeBps_rejectsIfCurrentFeeExceeds() public {
         address[] memory path = _ethToTokenA();
@@ -891,9 +891,9 @@ contract Audit195SwapFeeRouter is Test {
         sfr.swapExactTokensForTokens(1 ether, 0, path, alice, block.timestamp + 1, 20);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  14. DEADLINE VALIDATION
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_deadline_tooFar_reverts() public {
         address[] memory path = _ethToTokenA();
@@ -924,13 +924,13 @@ contract Audit195SwapFeeRouter is Test {
         sfr.swapExactTokensForTokens(1 ether, 0, path, alice, block.timestamp + 3 hours, 100);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  15. RECOVER CALLER CREDIT
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_recoverCallerCredit_works() public {
         MockSplitter195 splitter = new MockSplitter195();
-        SwapFeeRouter withRef = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter));
+        SwapFeeRouter withRef = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
 
         // Do a swap to send fee to splitter
         address[] memory path = _ethToTokenA();
@@ -958,7 +958,7 @@ contract Audit195SwapFeeRouter is Test {
         vm.deal(address(splitter), 1 ether);
         // We need to set callerCredit for the sfr address
         // Instead, create a router that uses this splitter, do a swap, change splitter, then recover from old
-        SwapFeeRouter r2 = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter));
+        SwapFeeRouter r2 = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(splitter), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         SwapFeeRouterAdmin r2Admin = new SwapFeeRouterAdmin(address(r2));
         r2.setSwapFeeRouterAdmin(address(r2Admin));
         address[] memory path = _ethToTokenA();
@@ -984,33 +984,33 @@ contract Audit195SwapFeeRouter is Test {
         sfr.recoverCallerCreditFrom(address(0));
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  16. CONSTRUCTOR VALIDATION
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_constructor_zeroRouter_reverts() public {
         vm.expectRevert(SwapFeeRouter.ZeroAddress.selector);
-        new SwapFeeRouter(address(0), treasury, 30, address(0));
+        new SwapFeeRouter(address(0), treasury, 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
     }
 
     function test_constructor_zeroTreasury_reverts() public {
         vm.expectRevert(SwapFeeRouter.ZeroAddress.selector);
-        new SwapFeeRouter(address(uniRouter), address(0), 30, address(0));
+        new SwapFeeRouter(address(uniRouter), address(0), 30, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
     }
 
     function test_constructor_feeTooHigh_reverts() public {
         vm.expectRevert(SwapFeeRouter.FeeTooHigh.selector);
-        new SwapFeeRouter(address(uniRouter), treasury, 101, address(0));
+        new SwapFeeRouter(address(uniRouter), treasury, 101, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
     }
 
     function test_constructor_maxFee_succeeds() public {
-        SwapFeeRouter r = new SwapFeeRouter(address(uniRouter), treasury, 100, address(0));
+        SwapFeeRouter r = new SwapFeeRouter(address(uniRouter), treasury, 100, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         assertEq(r.feeBps(), 100);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  17. DEPRECATED SETTERS
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_setFee_alwaysReverts() public {
         vm.expectRevert(SwapFeeRouter.UseProposeFeeChange.selector);
@@ -1026,9 +1026,9 @@ contract Audit195SwapFeeRouter is Test {
         sfr.setTreasury(makeAddr("x"));
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  18. SLIPPAGE PROTECTION (swapExactTokensForETH)
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_slippage_tokensForETH_enforced() public {
         // With 1:1 mock and 0.3% fee, swapping 10 ETH yields ~9.97 ETH to user
@@ -1049,9 +1049,9 @@ contract Audit195SwapFeeRouter is Test {
         assertEq(alice.balance - aliceBefore, 9.97 ether);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  19. ZERO AMOUNT GUARDS
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_zeroAmount_ETHForTokens() public {
         address[] memory path = _ethToTokenA();
@@ -1076,9 +1076,9 @@ contract Audit195SwapFeeRouter is Test {
         sfr.swapExactTokensForTokens(0, 0, path, alice, block.timestamp + 1, 100);
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  20. APPROVAL REVOCATION AFTER SWAP
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_approvalRevoked_tokensForETH() public {
         address[] memory path = _tokenAToETH();
@@ -1100,9 +1100,9 @@ contract Audit195SwapFeeRouter is Test {
         assertEq(remaining, 0, "approval should be revoked after swap");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  21. RECEIVE FUNCTION
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_receive_acceptsETH() public {
         vm.deal(alice, 1 ether);
@@ -1111,9 +1111,9 @@ contract Audit195SwapFeeRouter is Test {
         assertTrue(ok, "should accept ETH");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  22. MULTIPLE SWAPS ACCUMULATION
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function test_multipleSwaps_feesAccumulate() public {
         address[] memory path = _ethToTokenA();
@@ -1133,9 +1133,9 @@ contract Audit195SwapFeeRouter is Test {
     // ETH fee accumulation across swaps is validated in test_accumulateFees_multipleSwaps
     // above; end-to-end outflow is tested in FinalAudit_Revenue via distributeFeesToStakers.
 
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  HELPERS
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     function _ethToTokenA() internal view returns (address[] memory path) {
         path = new address[](2);

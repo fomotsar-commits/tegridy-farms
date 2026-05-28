@@ -233,7 +233,15 @@ contract DeployMVPScript is Script {
         console.log(" 9. ReferralSplitter:      ", d.referralSplitter);
 
         // 10. SwapFeeRouter
-        SwapFeeRouter sfr = new SwapFeeRouter(d.router, treasury, SWAP_FEE_BPS, d.referralSplitter);
+        // AUDIT FIX 2026-05-26 [DEPLOY-H1]: pass `_revenueDistributor` through the
+        // constructor so SFR is wired at genesis. Pre-fix the only post-deploy
+        // setter was 48 h-timelocked via SwapFeeRouterAdmin, AND the admin's
+        // `acceptOwnership` flushes any pre-queued REV_DIST_CHANGE on handoff —
+        // creating a ≥96 h window where `distributeFeesToStakers()` reverts
+        // `ZeroAddress()` while `accumulatedETHFees` grows on every swap.
+        SwapFeeRouter sfr = new SwapFeeRouter(
+            d.router, treasury, SWAP_FEE_BPS, d.referralSplitter, d.revenueDistributor
+        );
         d.swapFeeRouter = address(sfr);
         console.log("10. SwapFeeRouter:         ", d.swapFeeRouter);
 
