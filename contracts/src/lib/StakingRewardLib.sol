@@ -357,52 +357,103 @@ library StakingRewardLib {
         // claim sees the same `diff` and can re-credit when pool/cap clears. Mirrors
         // kick line 530 (`p.rewardDebt += totalSettled`) instead of full overwrite.
 
-        // Now decay the expired position (zeroes boostedAmount, updates totalBoostedStake).
-        rs = _decayIfExpired(
-            rs, p, recipient, checkpoints, totalBoostedStakeCheckpoints,
-            positionsByOwner, positions, isLendingContract, cfg.restakingContract
-        );
-
+        // AUDIT FIX 2026-05-27 [M5]: _decayIfExpired is no longer called from this
+        // library function. The host's `_getReward` wrapper calls `_decayIfExpired`
+        // AFTER this returns — identical to the `kick` pattern (TegridyStaking.sol line
+        // ~1448). This frees the stack-depth budget so the M5 expiry-residual
+        // force-settle can live inline in _creditGetReward without a Yul stack fault.
+        // Pre-M5 order was: decay → credit. Residual stranded if pool/cap was exhausted
+        // because the next call early-returned on the boostedAmount==0 guard.
+        // New order: credit (including force-settle) → host decays. Same behavior on
+        // the non-expiring path; expiring path now routes residual to unsettledRewards.
         if (diff > 0) {
-            uint256 pending = uint256(diff);
-            // AUDIT FIX M-03: cap reward to available balance excluding reserved tokens.
-            uint256 available = cfg.rewardToken.balanceOf(address(this));
-            uint256 reserved = cfg.totalStaked + rs.totalUnsettledRewards;
-            uint256 rewardPool = available > reserved ? available - reserved : 0;
-            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
+            uint256 cappedPending;
+            (cappedPending, rs) = _creditGetReward(
+                rs, p, tokenId, recipient,
+                uint256(diff),
+                unsettledRewards,
+                unsettledRewardsByTokenId,
+                isLendingContract,
+                cfg
+            );
+            // NOTE: _decayIfExpired runs HOST-side after this returns (mirrors kick).
+            return (cappedPending, rs);
+        }
+        // diff <= 0: nothing to credit. Host decays regardless.
+        return (0, rs);
+    }
 
-            uint256 totalCredited;
-            if (cappedPending > 0) {
-                cfg.rewardToken.safeTransfer(recipient, cappedPending);
-                emit RewardPaid(recipient, tokenId, cappedPending);
-                totalCredited = cappedPending;
+    /// @dev AUDIT FIX 2026-05-27 [M5]: reward-credit body for `getReward`, extracted
+    ///      to a dedicated function so the parent stays under the EVM 16-slot stack
+    ///      limit. Handles pool-cap, shortfall→unsettled routing (critique 5.1 / L1),
+    ///      and expiry-residual force-settle (M5). All local variables live here.
+    ///
+    ///      M5 force-settle: when the position is expiring (`p.lockEnd <= now`) and
+    ///      `_settleUnsettled` cannot credit the full shortfall (cap saturated), the
+    ///      uncredited "forfeited" slice is force-routed to `unsettledRewards[recipient]`
+    ///      — bypassing the cap — rather than being permanently stranded in the inert
+    ///      post-decay slot. Cap bypass is intentional: these are already-earned tokens;
+    ///      `maxUnsettledRewards` is a flow-control guard, not a loss gate. Synthetix
+    ///      "no silent forfeiture" pattern.
+    function _creditGetReward(
+        RewardState memory rs,
+        Position storage p,
+        uint256 tokenId,
+        address recipient,
+        uint256 pending,
+        mapping(address => uint256) storage unsettledRewards,
+        mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
+        mapping(address => bool) storage isLendingContract,
+        Cfg memory cfg
+    ) internal returns (uint256 cappedPending, RewardState memory) {
+        // AUDIT FIX M-03: cap reward to available balance excluding reserved tokens.
+        uint256 available = cfg.rewardToken.balanceOf(address(this));
+        uint256 reserved = cfg.totalStaked + rs.totalUnsettledRewards;
+        uint256 rewardPool = available > reserved ? available - reserved : 0;
+        cappedPending = pending > rewardPool ? rewardPool : pending;
+
+        uint256 totalCredited;
+        if (cappedPending > 0) {
+            cfg.rewardToken.safeTransfer(recipient, cappedPending);
+            emit RewardPaid(recipient, tokenId, cappedPending);
+            totalCredited = cappedPending;
+        }
+
+        // AUDIT FIX (critique 5.1): route shortfall through _settleUnsettled.
+        uint256 shortfall = pending - cappedPending;
+        if (shortfall > 0) {
+            uint256 actualSettled;
+            (rs, actualSettled) = _settleUnsettled(rs, unsettledRewards, recipient, shortfall, cfg.maxUnsettledRewards);
+            // AUDIT FIX L1: per-tokenId attribution for tracked holders.
+            if (actualSettled > 0 && _isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
+                unsettledRewardsByTokenId[tokenId] += actualSettled;
             }
-
-            // AUDIT FIX (critique 5.1): route shortfall through _settleUnsettled.
-            uint256 shortfall = pending - cappedPending;
-            if (shortfall > 0) {
-                uint256 actualSettled;
-                (rs, actualSettled) = _settleUnsettled(rs, unsettledRewards, recipient, shortfall, cfg.maxUnsettledRewards);
-                // AUDIT FIX L1: per-tokenId attribution for tracked holders.
-                if (actualSettled > 0 && _isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
-                    unsettledRewardsByTokenId[tokenId] += actualSettled;
-                }
-                totalCredited += actualSettled;
-                uint256 forfeited = shortfall - actualSettled;
-                if (forfeited > 0) {
+            totalCredited += actualSettled;
+            uint256 forfeited = shortfall - actualSettled;
+            if (forfeited > 0) {
+                // [M5] If the position is expiring, force-settle the residual instead of
+                // forfeiting it. After decay, boostedAmount==0 makes the slot inert and
+                // the residual permanently inaccessible via the normal getReward path.
+                if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) {
+                    unsettledRewards[recipient] += forfeited;
+                    rs.totalUnsettledRewards += forfeited;
+                    emit RewardSettledToUnsettled(recipient, tokenId, forfeited);
+                    if (_isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
+                        unsettledRewardsByTokenId[tokenId] += forfeited;
+                    }
+                    totalCredited += forfeited;
+                } else {
                     emit RewardsForfeited(recipient, forfeited);
                 }
             }
-
-            // AUDIT FIX 2026-05-26 [H-05]: advance rewardDebt by ONLY the credited
-            // amount so the user can re-claim the residual slice when pool/cap clears.
-            if (totalCredited > 0) {
-                p.rewardDebt = p.rewardDebt + _safeInt256(totalCredited);
-            }
-
-            return (cappedPending, rs);
         }
-        return (0, rs);
+
+        // AUDIT FIX 2026-05-26 [H-05]: advance rewardDebt by ONLY the credited
+        // amount so the user can re-claim the residual slice when pool/cap clears.
+        if (totalCredited > 0) {
+            p.rewardDebt = p.rewardDebt + _safeInt256(totalCredited);
+        }
+        return (cappedPending, rs);
     }
 
     // ════════════════════════════════════════════════════════════════════

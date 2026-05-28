@@ -620,10 +620,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     // C1 EIP-170 split: `_reserved()` and `_settleUnsettled()` moved into
     // StakingRewardLib (their only callers — the reward cluster — now delegate there).
-    // `_decayIfExpired` is kept here (and called by the host `kick` wrapper AFTER the
-    // library settles): the library `kick` cannot also take the checkpoint/voting
+    // `_decayIfExpired` is kept here (and called by the host wrappers AFTER the
+    // library settles): the library functions cannot also take the checkpoint/voting
     // storage refs without exceeding the via-IR stack depth, so the decay tail runs
-    // host-side. `getReward` keeps its decay in the library (it sits mid-function).
+    // host-side. This pattern applies to BOTH `kick` AND `getReward` post-M5 fix.
     /// @notice V2: Lazy boost decay — zero out boostedAmount for expired locks on interaction.
     ///         Prevents expired positions from diluting active stakers' rewards.
     ///         Pattern: Curve veCRV uses linear decay; we use cliff decay (zero on expiry).
@@ -1665,6 +1665,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
         // `ownerOf(tokenId)` is resolved here (immutables / ownership storage are not
         // reachable from a delegatecall lib) and passed as `recipient`.
+        // AUDIT FIX 2026-05-27 [M5]: decay now runs HOST-side AFTER the library
+        // credits rewards (mirrors the `kick` pattern — see kick() ~line 1448).
+        // Pre-M5, the library called _decayIfExpired mid-function before crediting,
+        // which could strand cap-blocked residual in the inert post-decay slot.
+        // The library's M5 force-settle handles expiry residual before returning;
+        // we decay here so checkpoints and totalBoostedStake are updated correctly.
         StakingRewardLib.RewardState memory rs = _loadRewardState();
         (claimed, rs) = StakingRewardLib.getReward(
             rs,
@@ -1681,6 +1687,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             _rewardCfg()
         );
         _storeRewardState(rs);
+        // [M5]: decay host-side AFTER crediting (same pattern as kick).
+        _decayIfExpired(tokenId, p);
     }
 
     /// @notice AUDIT FIX C-04: Settle rewards to the previous owner on NFT transfer.
