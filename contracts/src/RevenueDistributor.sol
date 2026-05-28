@@ -1129,6 +1129,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         floor, well below an exploit-grade slow drain.
     uint256 public constant MAX_LIFETIME_FORFEIT_BPS = 100;
     uint256 public pendingForfeitAmount;
+    /// @notice AUDIT FIX 2026-05-27 [M3]: epoch window locked at propose time so
+    ///         executeForfeitReclaim uses the same bounded slice, preventing the
+    ///         O(epochs.length) unbounded write-path loop.
+    uint256 public pendingForfeitStartEpoch;
+    uint256 public pendingForfeitEndEpoch;
     /// @notice AUDIT REV-H-01: cumulative ETH reclaimed via the forfeit-reclaim path.
     ///         Bounded by MAX_LIFETIME_FORFEIT_BPS of totalDistributed.
     uint256 public totalForfeitedReclaimed;
@@ -1273,33 +1278,83 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // pre-queue a forfeit during a pause (then execute the moment the multisig
     // unpauses). Sibling `executeForfeitReclaim` already has `whenNotPaused`;
     // missing on propose was the asymmetry the audit flagged.
+    //
+    // AUDIT FIX 2026-05-27 [M3]: unbounded O(epochs.length) replaced by a
+    // bounded scan (≤ MAX_RECLAIM_PAGE_SIZE). The convenience 1-arg form works
+    // as long as epochs.length ≤ MAX_RECLAIM_PAGE_SIZE; once the protocol ages
+    // past that threshold the multisig MUST use `proposeForfeitReclaimPaged`
+    // with an explicit epoch window. The window is stored in state so
+    // `executeForfeitReclaim` consumes the same bounded slice — no unbounded
+    // write-path loop. Pattern: OZ Governor stores targets[]/values[]/calldatas[]
+    // at proposal time so execute reads them back (same bounded-window principle).
     function proposeForfeitReclaim(uint256 _amount) external onlyOwner whenNotPaused {
+        // Guard: block unbounded write path once the epoch count grows large.
+        if (epochs.length > MAX_RECLAIM_PAGE_SIZE) revert ReclaimPageSizeExceeded();
+        _proposeForfeitReclaimCore(_amount, 0, epochs.length);
+    }
+
+    /// @notice Paginated propose form for use once epochs.length > MAX_RECLAIM_PAGE_SIZE.
+    ///         Off-chain: iterate `reclaimEligibleAmountPaginated(start, end)` to find a
+    ///         window that covers the desired eligible dust, then call this.
+    /// @param _amount    ETH to reclaim (> 0, ≤ 10 ether, ≤ gap, ≤ eligible in window).
+    /// @param startEpoch First epoch index to scan (inclusive).
+    /// @param endEpoch   End epoch index (exclusive). Must be ≤ epochs.length and
+    ///                   endEpoch - startEpoch ≤ MAX_RECLAIM_PAGE_SIZE.
+    function proposeForfeitReclaimPaged(uint256 _amount, uint256 startEpoch, uint256 endEpoch)
+        external
+        onlyOwner
+        whenNotPaused
+    {
+        if (endEpoch > epochs.length) revert ReclaimEndEpochOutOfBounds();
+        if (startEpoch >= endEpoch) revert ReclaimRangeEmpty();
+        if (endEpoch - startEpoch > MAX_RECLAIM_PAGE_SIZE) revert ReclaimPageSizeExceeded();
+        _proposeForfeitReclaimCore(_amount, startEpoch, endEpoch);
+    }
+
+    /// @dev Shared core for both propose variants. Validates amounts, stores the
+    ///      epoch window, and arms the timelock. The window is replayed verbatim by
+    ///      `executeForfeitReclaim` so the write path is bounded to the same slice.
+    function _proposeForfeitReclaimCore(uint256 _amount, uint256 startEpoch, uint256 endEpoch)
+        internal
+    {
         require(_amount > 0 && _amount <= 10 ether, "INVALID_AMOUNT");
         uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         require(_amount <= gap, "EXCEEDS_GAP");
         // AUDIT REV-H-01 (HIGH): the requested amount must be backed by per-epoch dust
         // whose grace period has already elapsed. This prevents draining still-claimable
-        // ETH from fresh epochs.
-        if (_amount > reclaimEligibleAmount()) revert ForfeitExceedsEligibleDust();
+        // ETH from fresh epochs. Bounded to [startEpoch, endEpoch).
+        if (_amount > _reclaimEligibleInRange(startEpoch, endEpoch)) revert ForfeitExceedsEligibleDust();
         // AUDIT REV-H-01: lifetime cap — total lifetime reclaims may not exceed
         // MAX_LIFETIME_FORFEIT_BPS of totalDistributed.
         uint256 lifetimeCap = (totalDistributed * MAX_LIFETIME_FORFEIT_BPS) / 10_000;
         if (totalForfeitedReclaimed + _amount > lifetimeCap) revert ForfeitExceedsLifetimeCap();
         pendingForfeitAmount = _amount;
+        // AUDIT FIX [M3]: lock the epoch window so executeForfeitReclaim uses the same
+        // bounded slice rather than re-scanning 0..epochs.length.
+        pendingForfeitStartEpoch = startEpoch;
+        pendingForfeitEndEpoch = endEpoch;
         _propose(FORFEIT_RECLAIM, FORFEIT_RECLAIM_DELAY);
         emit ForfeitReclaimProposed(_amount, _executeAfter[FORFEIT_RECLAIM]);
     }
 
     /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
     ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
+    ///      AUDIT FIX 2026-05-27 [M3]: uses the epoch window stored at propose time
+    ///      (pendingForfeitStartEpoch..pendingForfeitEndEpoch) — bounded to
+    ///      MAX_RECLAIM_PAGE_SIZE — instead of scanning 0..epochs.length.
     function executeForfeitReclaim() external onlyOwner whenNotPaused {
         _execute(FORFEIT_RECLAIM);
         uint256 amount = pendingForfeitAmount;
+        // Read the epoch window locked at propose time (bounded ≤ MAX_RECLAIM_PAGE_SIZE).
+        uint256 startEpoch = pendingForfeitStartEpoch;
+        uint256 endEpoch   = pendingForfeitEndEpoch;
         uint256 gap = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         if (amount > gap) amount = gap;
-        // AUDIT REV-H-01: re-check eligible dust at execution time. Defense-in-depth
-        // against the race where epochs appear/are claimed during the 48h delay.
-        uint256 eligible = reclaimEligibleAmount();
+        // AUDIT REV-H-01: re-check eligible dust at execution time using the SAME
+        // bounded window chosen at propose time. Defense-in-depth against epochs
+        // being claimed during the 48h delay — if the eligible pool in this window
+        // shrank the amount is clamped accordingly.
+        uint256 eligible = _reclaimEligibleInRange(startEpoch, endEpoch);
         if (amount > eligible) amount = eligible;
         // AUDIT FIX: DEEP-DR-H-02 — re-check the lifetime cap at execute time.
         // The propose-time cap is computed against `totalDistributed` at propose
@@ -1323,13 +1378,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // permanently. By bumping `epochClaimed[i]` here, those late claimers
         // see zero remaining for the consumed epochs and skip them cleanly.
         //
-        // The consume loop applies the same eligibility filter as
-        // `_reclaimEligibleInRange` (the view used to size `eligible` above),
-        // so the consumed slice exactly equals the slice the view counted as
-        // eligible. By construction `consumed <= amount <= eligible`, but we
-        // re-clamp `amount` to `consumed` defensively in case a future filter
-        // change introduces drift.
-        uint256 consumed = _consumeEligibleAndBumpClaimed(0, epochs.length, amount);
+        // AUDIT FIX [M3]: bounded to [startEpoch, endEpoch) — same window as
+        // `_reclaimEligibleInRange` above, so the consumed slice exactly equals
+        // the slice the view counted as eligible. `consumed <= amount <= eligible`.
+        uint256 consumed = _consumeEligibleAndBumpClaimed(startEpoch, endEpoch, amount);
         if (consumed < amount) amount = consumed;
         if (amount == 0) revert ForfeitExceedsEligibleDust();
 
@@ -1337,12 +1389,16 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         totalForfeited += amount;
         totalForfeitedReclaimed += amount;
         pendingForfeitAmount = 0;
+        pendingForfeitStartEpoch = 0;
+        pendingForfeitEndEpoch = 0;
         emit ForfeitReclaimed(amount);
     }
 
     function cancelForfeitReclaim() external onlyOwner {
         _cancel(FORFEIT_RECLAIM);
         pendingForfeitAmount = 0;
+        pendingForfeitStartEpoch = 0;
+        pendingForfeitEndEpoch = 0;
         emit ForfeitReclaimCancelled();
     }
 
@@ -1869,6 +1925,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (_executeAfter[FORFEIT_RECLAIM] != 0) {
             _cancel(FORFEIT_RECLAIM);
             pendingForfeitAmount = 0;
+            pendingForfeitStartEpoch = 0;
+            pendingForfeitEndEpoch = 0;
             emit ForfeitReclaimCancelled();
         }
     }
