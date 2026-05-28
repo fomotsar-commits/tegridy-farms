@@ -967,15 +967,62 @@ contract Audit195Referral is Test {
         assertEq(ref.lastBelowStakeTime(bob), block.timestamp);
     }
 
-    function test_markBelowStake_resetsWhenAboveThreshold() public {
+    /// @dev [M6 FIX] markBelowStake no longer resets the clock when power ≥ threshold.
+    ///      The permissionless reset was the double-stamp attack vector: flash-loan stake above
+    ///      threshold → call markBelowStake (resets clock to 0) → drop stake → re-mark →
+    ///      repeat forever, preventing forfeiture. Post-fix, the mark STAYS once set; clearing
+    ///      requires the owner 2-step: proposeClearBelowStakeMark + executeClearBelowStakeMark.
+    function test_markBelowStake_noLongerResetsWhenAboveThreshold() public {
         staking.setPower(bob, 0);
         ref.markBelowStake(bob);
-        assertGt(ref.lastBelowStakeTime(bob), 0);
+        uint256 marked = ref.lastBelowStakeTime(bob);
+        assertGt(marked, 0, "mark should be set when below threshold");
 
-        // Bob restakes
+        // Bob restakes to above threshold — permissionless markBelowStake is now a no-op
         staking.setPower(bob, MIN_STAKE);
+        ref.markBelowStake(bob); // [M6]: no longer resets clock
+        assertEq(ref.lastBelowStakeTime(bob), marked, "[M6] mark must NOT be reset by permissionless call when above threshold");
+    }
+
+    /// @dev [M6 FIX] Owner can clear a mark via the 24h 2-step path once referrer is above threshold.
+    function test_M6_ownerCanClearMarkAfterRecovery() public {
+        staking.setPower(bob, 0);
         ref.markBelowStake(bob);
-        assertEq(ref.lastBelowStakeTime(bob), 0, "timer reset when above threshold");
+        assertGt(ref.lastBelowStakeTime(bob), 0, "mark set");
+
+        // Bob recovers
+        staking.setPower(bob, MIN_STAKE);
+
+        // Owner proposes clear
+        ref.proposeClearBelowStakeMark(bob);
+        assertTrue(ref.hasPendingProposal(ref.CLEAR_BELOW_STAKE_MARK()), "proposal must be pending");
+
+        // Warp 24h + 1s
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // Execute clear
+        ref.executeClearBelowStakeMark();
+        assertEq(ref.lastBelowStakeTime(bob), 0, "mark cleared after 2-step");
+    }
+
+    /// @dev [M6 FIX] Owner cannot clear mark if referrer is still below threshold at execute time.
+    function test_M6_clearMarkReverts_ifStillBelowAtExecute() public {
+        staking.setPower(bob, 0);
+        ref.markBelowStake(bob);
+
+        // Bob temporarily above at propose time
+        staking.setPower(bob, MIN_STAKE);
+        ref.proposeClearBelowStakeMark(bob);
+
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // Bob drops back below by execute time
+        staking.setPower(bob, 0);
+        vm.expectRevert(ReferralSplitter.StillBelowThreshold.selector);
+        ref.executeClearBelowStakeMark();
+
+        // Mark must still be active
+        assertGt(ref.lastBelowStakeTime(bob), 0, "mark must persist after failed clear");
     }
 
     function test_markBelowStake_doesNotResetIfAlreadyMarked() public {

@@ -135,11 +135,21 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
     uint256 public constant CALLER_GRANT_DELAY = 24 hours;
 
+    // [M6] Owner-gated below-stake mark clear (Aave V3 2-step pattern).
+    // The permissionless reset path is removed from markBelowStake to prevent the
+    // double-stamp attack where an attacker flash-loans stake ≥ threshold → resets
+    // clock → drops stake → re-marks → repeats indefinitely, blocking forfeiture.
+    // Recovery path: owner proposes clear (verifying above threshold at both propose
+    // AND execute time), waits 24 h, then executes.
+    bytes32 public constant CLEAR_BELOW_STAKE_MARK  = keccak256("CLEAR_BELOW_STAKE_MARK");
+    uint256 public constant CLEAR_BELOW_STAKE_DELAY = 24 hours;
+
     // ─── Pending Values (for timelocked changes) ─────────────────────
     address public pendingTreasury;
     uint256 public pendingReferralFee;
     // For caller grants, we use a per-address pending mapping
     mapping(address => bool) public pendingCallerGrant; // tracks which address has a pending grant
+    address public pendingClearMarkReferrer;             // [M6] pending referrer for owner-gated mark clear
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -171,6 +181,10 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     event BanReferrerCancelled(address indexed referrer);                      // DEEP-DR-L-04
     event ReferrerUnbanned(address indexed referrer);                          // DEEP-DR-L-04
     event RestakingContractSet(address indexed restaking);                     // pass-8 GOV-ECON-01
+    // [M6] owner-gated mark-clear events
+    event BelowStakeMarkCleared(address indexed referrer);
+    event ClearBelowStakeMarkProposed(address indexed referrer, uint256 executeAfter);
+    event ClearBelowStakeMarkCancelled(address indexed referrer);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -208,6 +222,9 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error AlreadyBanned();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
+    // [M6] mark-clear errors
+    error NotMarked();         // referrer has no active below-stake mark
+    error StillBelowThreshold(); // referrer is still below MIN_REFERRAL_STAKE_POWER at clear time
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function referralFeeChangeTime() external view returns (uint256) { return _executeAfter[REFERRAL_FEE_CHANGE]; }
@@ -669,39 +686,61 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         emit TreasuryChangeCancelled(cancelled);
     }
 
-    /// @notice Mark a referrer as below MIN_REFERRAL_STAKE_POWER, starting the grace period clock.
-    ///         Anyone can call this. Resets if the referrer is actually above threshold.
+    /// @notice Mark a referrer as below MIN_REFERRAL_STAKE_POWER, starting the 7-day grace period.
+    ///         Permissionless — anyone can call. Idempotent: no-op if already marked or above threshold.
+    /// @dev    [M6 FIX] The permissionless reset-on-above-threshold path has been REMOVED.
+    ///         Pre-fix, an attacker could call this when power ≥ threshold (via flash loan) to reset
+    ///         `lastBelowStakeTime` to 0, then immediately re-mark — restarting the 7-day clock
+    ///         indefinitely (double-stamp attack). Post-fix: this function can only START the
+    ///         clock, never clear it. To clear a stale mark for a referrer who has genuinely
+    ///         recovered above threshold, the owner must call proposeClearBelowStakeMark →
+    ///         executeClearBelowStakeMark (24-hour Aave V3 2-step, re-verifies power at both steps).
     /// @param _referrer The referrer to mark
     function markBelowStake(address _referrer) external {
         // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
         require(setupComplete, "SETUP_NOT_COMPLETE");
-        // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 power;
-        try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
-            power = p;
-        } catch {
-            power = 0;
-        }
-        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additively include restaked
-        // voting power. Without this, a referrer with all power restaked would
-        // be erroneously below threshold and the markBelowStake clock would tick.
-        if (restakingContract != address(0)) {
-            try IRestakingForReferral(restakingContract).votingPowerOf(_referrer) returns (uint256 r) {
-                power += r;
-            } catch {}
-        }
-        if (power >= MIN_REFERRAL_STAKE_POWER) {
-            // Referrer is above threshold — reset the timer
-            lastBelowStakeTime[_referrer] = 0;
-            return;
-        }
-        // Only set if not already marked
-        if (lastBelowStakeTime[_referrer] == 0) {
+        // Only start the clock if not already marked AND below threshold.
+        // [M6]: removed "if (power >= MIN_REFERRAL_STAKE_POWER) { lastBelowStakeTime = 0; return; }"
+        // that was the double-stamp attack vector.
+        if (lastBelowStakeTime[_referrer] == 0 && _votingPowerOf(_referrer) < MIN_REFERRAL_STAKE_POWER) {
             lastBelowStakeTime[_referrer] = block.timestamp;
             emit BelowStakeMarked(_referrer, block.timestamp);
         }
+    }
+
+    /// @notice [M6 FIX] Owner proposes clearing a below-stake mark for a referrer who has
+    ///         genuinely recovered above MIN_REFERRAL_STAKE_POWER. Requires power ≥ threshold
+    ///         at BOTH propose time and execute time to block flash-loan gaming.
+    ///         24-hour Aave V3 2-step — execute via executeClearBelowStakeMark.
+    function proposeClearBelowStakeMark(address _referrer) external onlyOwner {
+        if (_referrer == address(0)) revert ZeroAddress();
+        if (lastBelowStakeTime[_referrer] == 0) revert NotMarked();
+        // Require above threshold at propose time — prevents no-op clears
+        if (_votingPowerOf(_referrer) < MIN_REFERRAL_STAKE_POWER) revert StillBelowThreshold();
+        pendingClearMarkReferrer = _referrer;
+        _propose(CLEAR_BELOW_STAKE_MARK, CLEAR_BELOW_STAKE_DELAY);
+        emit ClearBelowStakeMarkProposed(_referrer, _executeAfter[CLEAR_BELOW_STAKE_MARK]);
+    }
+
+    /// @notice [M6 FIX] Execute a pending mark-clear after the 24-hour delay.
+    ///         Re-verifies power at execute time — a flash-loan that boosted power at propose
+    ///         time cannot also be active 24 hours later, so this gate is flash-loan-proof.
+    function executeClearBelowStakeMark() external onlyOwner {
+        _execute(CLEAR_BELOW_STAKE_MARK);
+        address referrer = pendingClearMarkReferrer;
+        // Re-check power at execute time
+        if (_votingPowerOf(referrer) < MIN_REFERRAL_STAKE_POWER) revert StillBelowThreshold();
+        lastBelowStakeTime[referrer] = 0;
+        pendingClearMarkReferrer = address(0);
+        emit BelowStakeMarkCleared(referrer);
+    }
+
+    /// @notice Cancel a pending below-stake mark-clear proposal.
+    function cancelClearBelowStakeMark() external onlyOwner {
+        _cancel(CLEAR_BELOW_STAKE_MARK);
+        address cancelled = pendingClearMarkReferrer;
+        pendingClearMarkReferrer = address(0);
+        emit ClearBelowStakeMarkCancelled(cancelled);
     }
 
     /// @notice Forfeit unclaimed rewards for a referrer who has been below stake threshold
@@ -715,23 +754,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         uint256 amount = pendingETH[_referrer];
         if (amount == 0) revert NothingToClaim();
         // Must be below min stake for at least grace period AND inactive for 90 days
-        // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold (allow forfeiture)
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 referrerPower;
-        try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
-            referrerPower = p;
-        } catch {
-            referrerPower = 0;
-        }
-        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additively include restaked
-        // voting power so a referrer who restakes is not erroneously eligible
-        // for forfeiture (the forfeit gate is "below threshold AND inactive").
-        if (restakingContract != address(0)) {
-            try IRestakingForReferral(restakingContract).votingPowerOf(_referrer) returns (uint256 r) {
-                referrerPower += r;
-            } catch {}
-        }
+        // [M6]: unified into _votingPowerOf helper (same try/catch + restaking logic).
+        uint256 referrerPower = _votingPowerOf(_referrer);
         // AUDIT FIX (banned-referrer forfeit): a banned referrer is a lifecycle-
         // ended account that can never claim (claimReferralRewards reverts
         // ReferrerBannedError), so the anti-griefing stake/inactivity gate that
@@ -873,6 +897,21 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         return (totalReferred[_referrer], totalEarned[_referrer], pendingETH[_referrer]);
     }
 
+    // ─── Internal helpers ─────────────────────────────────────────────
+
+    /// @notice Unified voting-power reader used by markBelowStake, forfeitUnclaimedRewards,
+    ///         and the M6 clear-mark path. Includes restaking-side power (GOV-ECON-01 / C10).
+    ///         Wraps both calls in try/catch — staking revert → 0 (conservative: treats as
+    ///         below threshold so marks/forfeits are not silently blocked by a bad oracle).
+    function _votingPowerOf(address _account) internal view returns (uint256 power) {
+        try stakingContract.votingPowerOf(_account) returns (uint256 p) { power = p; } catch {}
+        if (restakingContract != address(0)) {
+            try IRestakingForReferral(restakingContract).votingPowerOf(_account) returns (uint256 r) {
+                power += r;
+            } catch {}
+        }
+    }
+
     /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
     ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
     ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
@@ -902,6 +941,14 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
             _cancel(BAN_REFERRER);
             pendingBanReferrer = address(0);
             emit BanReferrerCancelled(cancelled);
+        }
+        // [M6]: flush pending mark-clear on owner rotation so incoming owner
+        // is not bound by an outgoing-owner clear proposal.
+        if (_executeAfter[CLEAR_BELOW_STAKE_MARK] != 0) {
+            address cancelled = pendingClearMarkReferrer;
+            _cancel(CLEAR_BELOW_STAKE_MARK);
+            pendingClearMarkReferrer = address(0);
+            emit ClearBelowStakeMarkCancelled(cancelled);
         }
     }
 }
