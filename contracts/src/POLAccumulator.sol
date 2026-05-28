@@ -80,6 +80,8 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     bytes32 public constant SWEEP_TOKENS = keccak256("SWEEP_TOKENS");
     bytes32 public constant TREASURY_CHANGE = keccak256("POL_TREASURY_CHANGE");
     bytes32 public constant POL_HARVEST = keccak256("POL_HARVEST"); // AUDIT M12
+    /// @dev [M7] Timelock key for daily ETH cap adjustments.
+    bytes32 public constant DAILY_ETH_CAP_CHANGE = keccak256("DAILY_ETH_CAP_CHANGE");
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -150,6 +152,20 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public totalETHUsed;
     uint256 public lastAccumulateTime;
     uint256 public constant ACCUMULATE_COOLDOWN = 1 hours;
+
+    /// @notice [M7] Rolling 24h ETH accumulation cap — Compound supplyCap pattern.
+    ///         Prevents a single compromise from draining the entire ETH balance in one day.
+    ///         Default 50 ETH = 5 × maxAccumulateAmount (10 ETH/call × max 5 calls visible
+    ///         in a 24h window given the 1h cooldown, with headroom for legitimate spikes).
+    ///         Hard ceiling MAX_DAILY_ETH_CAP prevents accidental misconfiguration.
+    uint256 public dailyETHCap        = 50 ether;
+    uint256 public dailyETHAccumulated;         // ETH used in the current DAILY_WINDOW
+    uint256 public currentDayStart;             // timestamp of the window that opened last
+    uint256 public pendingDailyETHCap;
+    uint256 public constant DAILY_WINDOW           = 1 days;
+    uint256 public constant MAX_DAILY_ETH_CAP      = 500 ether;
+    uint256 public constant DAILY_ETH_CAP_CHANGE_DELAY = 24 hours;
+
     uint256 public totalLPCreated;
     uint256 public totalAccumulations;
 
@@ -190,10 +206,17 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         could extract value the moment the gate opened.
     error OracleObservationPredatesResume();
     error AccumulateCapTooLow();
+    /// @notice [M7] All dailyETHCap has been consumed in the current 24h window.
+    error DailyCapExceeded();
 
     event MaxAccumulateAmountUpdated(uint256 oldAmount, uint256 newAmount);
     event MaxAccumulateAmountChangeProposed(uint256 newAmount, uint256 executeAfter);
     event MaxAccumulateAmountChangeCancelled(uint256 cancelledAmount);
+
+    event DailyETHCapUpdated(uint256 oldCap, uint256 newCap);
+    event DailyETHCapChangeProposed(uint256 newCap, uint256 executeAfter);
+    event DailyETHCapChangeCancelled(uint256 cancelledCap);
+    event DailyWindowReset(uint256 newWindowStart);
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -297,6 +320,35 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return _executeAfter[ACCUMULATE_CAP_CHANGE];
     }
 
+    // ─── M7: Daily ETH cap governance ────────────────────────────────
+
+    /// @notice [M7] Propose a new rolling 24h ETH cap (timelocked 24h).
+    /// @param _cap New cap in wei; must be in [0.01 ether, MAX_DAILY_ETH_CAP].
+    function proposeDailyETHCap(uint256 _cap) external onlyOwner {
+        require(_cap >= 0.01 ether, "DAILY_CAP_TOO_LOW");
+        require(_cap <= MAX_DAILY_ETH_CAP, "EXCEEDS_DAILY_HARD_CAP");
+        pendingDailyETHCap = _cap;
+        _propose(DAILY_ETH_CAP_CHANGE, DAILY_ETH_CAP_CHANGE_DELAY);
+        emit DailyETHCapChangeProposed(_cap, _executeAfter[DAILY_ETH_CAP_CHANGE]);
+    }
+
+    /// @notice [M7] Execute a pending daily ETH cap change after the 24h timelock.
+    function executeDailyETHCap() external onlyOwner {
+        _execute(DAILY_ETH_CAP_CHANGE);
+        uint256 old = dailyETHCap;
+        dailyETHCap = pendingDailyETHCap;
+        pendingDailyETHCap = 0;
+        emit DailyETHCapUpdated(old, dailyETHCap);
+    }
+
+    /// @notice [M7] Cancel a pending daily ETH cap change.
+    function cancelDailyETHCap() external onlyOwner {
+        uint256 cancelled = pendingDailyETHCap;
+        _cancel(DAILY_ETH_CAP_CHANGE);
+        pendingDailyETHCap = 0;
+        emit DailyETHCapChangeCancelled(cancelled);
+    }
+
     // ─── Core ─────────────────────────────────────────────────────────
 
     /// @notice Use ETH balance to buy TOWELI and add permanent LP.
@@ -337,6 +389,19 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         uint256 ethBalance = address(this).balance;
         if (ethBalance < 0.01 ether) revert InsufficientETH();
         if (ethBalance > maxAccumulateAmount) ethBalance = maxAccumulateAmount;
+
+        // [M7 FIX] Rolling 24h ETH cap — Compound supplyCap pattern.
+        // Resets the window counter on the first call after each 24h interval.
+        // Caps `ethBalance` to remaining daily allowance; reverts DailyCapExceeded
+        // if the window is already exhausted. Flash-loan proof: no loan survives 24h.
+        if (block.timestamp >= currentDayStart + DAILY_WINDOW) {
+            currentDayStart = block.timestamp;
+            dailyETHAccumulated = 0;
+            emit DailyWindowReset(block.timestamp);
+        }
+        uint256 _dailyRemaining = dailyETHCap - dailyETHAccumulated;
+        if (_dailyRemaining == 0) revert DailyCapExceeded();
+        if (ethBalance > _dailyRemaining) ethBalance = _dailyRemaining;
 
         uint256 halfETH = ethBalance / 2;
 
@@ -410,11 +475,13 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // A4-M-17: Revoke residual approval after addLiquidity to prevent leftover approval exploit
         toweli.forceApprove(address(router), 0);
 
-        totalETHUsed += halfETH + ethUsed;
-        totalLPCreated += lpReceived;
+        uint256 ethConsumed = halfETH + ethUsed;
+        totalETHUsed          += ethConsumed;
+        dailyETHAccumulated   += ethConsumed; // [M7] track against rolling 24h cap
+        totalLPCreated        += lpReceived;
         totalAccumulations++;
 
-        emit Accumulated(halfETH + ethUsed, tokenUsed, lpReceived);
+        emit Accumulated(ethConsumed, tokenUsed, lpReceived);
     }
 
     // ─── Treasury Change (L-11) ────────────────────────────────────────

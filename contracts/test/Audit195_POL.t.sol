@@ -752,4 +752,111 @@ contract Audit195POL is Test {
         pol.proposeMaxAccumulateAmount(100 ether);
         assertEq(pol.pendingMaxAccumulateAmount(), 100 ether);
     }
+
+    // ─── 23. M7: DAILY ROLLING ETH CAP ──────────────────────────────
+
+    /// @notice Default dailyETHCap is 50 ETH; single call well under cap succeeds.
+    function test_M7_accumulate_underDailyCap_succeeds() public {
+        vm.deal(address(pol), 10 ether);
+        _accumulateDefault();
+        assertEq(pol.dailyETHAccumulated(), 10 ether);
+    }
+
+    /// @notice Once dailyETHCap is consumed, further calls in the same window revert.
+    function test_M7_accumulate_reverts_whenDailyCapExhausted() public {
+        // Set a tiny daily cap so we can exhaust it with a single call.
+        pol.proposeDailyETHCap(5 ether);
+        vm.warp(block.timestamp + pol.DAILY_ETH_CAP_CHANGE_DELAY() + 1);
+        twap.setLatestTimestamp(uint32(block.timestamp));
+        pol.executeDailyETHCap();
+        assertEq(pol.dailyETHCap(), 5 ether);
+
+        // First accumulate uses 5 ETH → window exhausted.
+        vm.deal(address(pol), 10 ether);
+        _accumulateDefault();
+        assertEq(pol.dailyETHAccumulated(), 5 ether);
+
+        // Second call in same window must revert.
+        vm.deal(address(pol), 5 ether);
+        vm.warp(block.timestamp + pol.ACCUMULATE_COOLDOWN());
+        twap.setLatestTimestamp(uint32(block.timestamp));
+        vm.prank(owner);
+        vm.expectRevert(POLAccumulator.DailyCapExceeded.selector);
+        pol.accumulate(1, 1, 1, block.timestamp + 30 seconds);
+    }
+
+    /// @notice After 24 h the window resets and accumulation is allowed again.
+    function test_M7_accumulate_resetsAfter24h() public {
+        // Compute ALL timestamps up front from setUp's baseline (block.timestamp == T0)
+        // to avoid Foundry test-frame block.timestamp caching after vm.warp calls.
+        uint256 T0  = block.timestamp;                              // 2,599,200
+        uint256 ts1 = T0 + pol.DAILY_ETH_CAP_CHANGE_DELAY() + 1;   // T0 + 24h + 1
+        uint256 ts2 = ts1 + pol.DAILY_WINDOW() + 1;                 // ts1 + 24h + 1 — past next window
+
+        // --- propose + execute a 10 ETH daily cap ---
+        pol.proposeDailyETHCap(10 ether);
+        vm.warp(ts1);
+        twap.setLatestTimestamp(uint32(ts1));
+        pol.executeDailyETHCap();
+
+        // First accumulate: exhausts the 10 ETH window.
+        vm.deal(address(pol), 10 ether);
+        vm.prank(owner);
+        pol.accumulate(1, 1, 1, ts1 + 30 seconds);
+        assertEq(pol.dailyETHAccumulated(), 10 ether);
+
+        // Jump past DAILY_WINDOW; the window counter should reset.
+        vm.warp(ts2);
+        twap.setLatestTimestamp(uint32(ts2));
+        vm.deal(address(pol), 10 ether);
+        vm.prank(owner);
+        pol.accumulate(1, 1, 1, ts2 + 30 seconds);
+        // After reset: counter restarted and this call consumed 10 ETH.
+        assertEq(pol.dailyETHAccumulated(), 10 ether);
+        assertEq(pol.totalAccumulations(), 2);
+    }
+
+    /// @notice The cap clips `ethBalance` — excess stays in contract, not lost.
+    function test_M7_accumulate_clipsToRemainingDailyAllowance() public {
+        // Set daily cap to 6 ETH; contract has 10 ETH; only 6 should be used.
+        pol.proposeDailyETHCap(6 ether);
+        vm.warp(block.timestamp + pol.DAILY_ETH_CAP_CHANGE_DELAY() + 1);
+        twap.setLatestTimestamp(uint32(block.timestamp));
+        pol.executeDailyETHCap();
+
+        vm.deal(address(pol), 10 ether);
+        _accumulateDefault();
+        // 6 ETH used, 4 ETH remains.
+        assertEq(pol.dailyETHAccumulated(), 6 ether);
+        assertEq(address(pol).balance, 4 ether);
+    }
+
+    /// @notice proposeDailyETHCap rejects a cap above MAX_DAILY_ETH_CAP.
+    function test_M7_proposeDailyETHCap_rejectsAboveHardCap() public {
+        vm.expectRevert("EXCEEDS_DAILY_HARD_CAP");
+        pol.proposeDailyETHCap(501 ether);
+    }
+
+    /// @notice proposeDailyETHCap rejects a cap below 0.01 ETH.
+    function test_M7_proposeDailyETHCap_rejectsTooLow() public {
+        vm.expectRevert("DAILY_CAP_TOO_LOW");
+        pol.proposeDailyETHCap(0.009 ether);
+    }
+
+    /// @notice cancelDailyETHCap clears pending state.
+    function test_M7_cancelDailyETHCap() public {
+        pol.proposeDailyETHCap(20 ether);
+        assertEq(pol.pendingDailyETHCap(), 20 ether);
+        pol.cancelDailyETHCap();
+        assertEq(pol.pendingDailyETHCap(), 0);
+    }
+
+    /// @notice executeDailyETHCap before delay reverts.
+    function test_M7_executeDailyETHCap_reverts_beforeTimelock() public {
+        pol.proposeDailyETHCap(20 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, pol.DAILY_ETH_CAP_CHANGE())
+        );
+        pol.executeDailyETHCap();
+    }
 }
