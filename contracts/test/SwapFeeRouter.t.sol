@@ -757,10 +757,10 @@ contract SwapFeeRouterFOTTest is Test {
         uint256 routerBalance = fotToken.balanceOf(address(feeRouter));
         assertTrue(routerBalance < sendAmount, "FOT should reduce received amount");
 
-        // mvp-launch: accumulatedTokenFees now slot 10 (PauseGuardian added a
+        // mvp-launch: accumulatedTokenFees now slot 11 (L1 fix: lastPokeTime added to OwnableNoRenounce shifted +1 from
         // 1-slot state variable above this mapping). Verified via
         // `forge inspect SwapFeeRouter storage-layout`.
-        bytes32 slot = keccak256(abi.encode(address(fotToken), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(fotToken), uint256(11)));
         vm.store(address(feeRouter), slot, bytes32(routerBalance));
         assertEq(feeRouter.accumulatedTokenFees(address(fotToken)), routerBalance);
 

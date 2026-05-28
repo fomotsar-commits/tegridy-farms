@@ -216,7 +216,7 @@ contract Audit_SFR_H01 is Test {
         // FRESH-2026 TEST REALIGN: storage layout shifted (ownershipTransferExpiresAt
         // added at slot 2, swapFeeRouterAdmin packed with _paused). `accumulatedTokenFees`
         // is now slot 10 (mvp-launch PauseGuardian add shifted +1). Verified via `forge inspect SwapFeeRouter storage-layout`.
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(11)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         assertEq(sfr.accumulatedTokenFees(address(toweli)), 100 ether, "fee balance seed failed");
     }
@@ -305,7 +305,7 @@ contract Audit_SFR_H01 is Test {
         // Re-establish accumulated balance so the next convert has work to do.
         toweli.mint(address(sfr), 100 ether);
         // FRESH-2026 TEST REALIGN: accumulatedTokenFees at slot 10 (mvp-launch PauseGuardian add shifted +1).
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(11)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
 
         // 2) The 2h skip moved block.timestamp forward, so we need to seed the
@@ -349,7 +349,7 @@ contract Audit_SFR_H01 is Test {
         vm.warp(block.timestamp + 2 hours);
         toweli.mint(address(sfr), 100 ether);
         // FRESH-2026 TEST REALIGN: accumulatedTokenFees at slot 10 (mvp-launch PauseGuardian add shifted +1).
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(11)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         pair.pokeCumulative(uint32(2 hours));
 
@@ -385,7 +385,7 @@ contract Audit_SFR_H01 is Test {
         vm.warp(block.timestamp + 2 hours);
         toweli.mint(address(sfr), 100 ether);
         // FRESH-2026 TEST REALIGN: accumulatedTokenFees at slot 10 (mvp-launch PauseGuardian add shifted +1).
-        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(toweli), uint256(11)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         pair.pokeCumulative(uint32(2 hours));
         // No front-run; pair stays at baseline.

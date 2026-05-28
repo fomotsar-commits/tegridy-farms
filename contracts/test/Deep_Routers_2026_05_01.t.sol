@@ -160,7 +160,7 @@ contract Deep_R_H01_MultiHop is Test {
     function _seedFees(uint256 amount) internal {
         alt.transfer(address(sfr), amount);
         // FRESH-2026 TEST REALIGN: accumulatedTokenFees at slot 10 (mvp-launch PauseGuardian add shifted +1).
-        bytes32 slot = keccak256(abi.encode(address(alt), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(alt), uint256(11)));
         vm.store(address(sfr), slot, bytes32(amount));
     }
 
@@ -306,7 +306,7 @@ contract Deep_R_M02_ZeroHop is Test {
     ///         the FoT swap path. Post-fix, the validator rejects with `InvalidConversionPath`.
     function test_validateConversionPath_rejectsZeroIntermediate() public {
         alt.transfer(address(sfr), 100 ether);
-        bytes32 slot = keccak256(abi.encode(address(alt), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(alt), uint256(11)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
 
         address[] memory path = new address[](3);
@@ -514,7 +514,7 @@ contract Deep_R_M06_SnapshotReset is Test {
         // Seed and bootstrap.
         alt.transfer(address(sfr), 100 ether);
         // FRESH-2026 TEST REALIGN: accumulatedTokenFees at slot 10 (mvp-launch PauseGuardian add shifted +1).
-        bytes32 slot = keccak256(abi.encode(address(alt), uint256(10)));
+        bytes32 slot = keccak256(abi.encode(address(alt), uint256(11)));
         vm.store(address(sfr), slot, bytes32(uint256(100 ether)));
         pair.pokeCumulative(uint32(60 minutes));
         skip(60 minutes);
