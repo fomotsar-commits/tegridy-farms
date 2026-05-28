@@ -20,6 +20,32 @@ const SECTIONS: { key: Section; label: string; subtitle?: string }[] = [
   { key: 'launchpad', label: 'Launchpad' },
 ];
 
+// Per-section wallet-gate copy. Without this, every disconnected tab rendered
+// the identical generic ConnectPrompt, so switching tabs looked broken (the
+// body never changed). Each section now reflects what that surface does.
+const SECTION_PROMPTS: Record<Section, { title: string; description: string }> = {
+  lending: {
+    title: 'Connect to lend & borrow TOWELI',
+    description:
+      'Supply TOWELI for yield, borrow against your staking NFT, or restake for bonus rewards. 1-hour grace period, no liquidation auctions — peer-to-peer.',
+  },
+  nftlending: {
+    title: 'Connect to borrow against your NFTs',
+    description:
+      'Use JBAC, Nakamigos, or GNSS NFTs as collateral to borrow ETH. No oracles, peer-to-peer terms you set yourself.',
+  },
+  amm: {
+    title: 'Connect to trade NFTs on bonding curves',
+    description:
+      'Buy and sell NFTs instantly against AMM pools, or provide liquidity to a collection and earn trading fees.',
+  },
+  launchpad: {
+    title: 'Connect to the NFT launchpad',
+    description:
+      'Mint and launch new NFT collections with built-in bonding-curve liquidity from day one.',
+  },
+};
+
 const INTRO_CARDS = [
   {
     key: 'lending' as Section,
@@ -189,7 +215,11 @@ export default function LendingPage() {
         </m.div>
 
         {!isConnected ? (
-          <ConnectPrompt surface="lending" />
+          <ConnectPrompt
+            surface="lending"
+            title={SECTION_PROMPTS[section].title}
+            description={SECTION_PROMPTS[section].description}
+          />
         ) : (
           <m.div
             key={section}
