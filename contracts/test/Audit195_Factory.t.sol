@@ -753,6 +753,99 @@ contract Audit195Factory is Test {
     }
 
     // ============================================================
+    // H2: Permissioned first-mint (Uniswap V3 initialize pattern)
+    // ============================================================
+
+    /// @dev createPairProtected gates first-mint to the creator.
+    function test_H2_createPairProtected_setsFirstMinter() public {
+        vm.prank(admin);
+        address pair = factory.createPairProtected(address(tokenA), address(tokenB));
+        assertEq(factory.firstMinter(pair), admin, "creator is firstMinter");
+    }
+
+    /// @dev Regular createPair leaves firstMinter=0 (unrestricted, backward compat).
+    function test_H2_createPair_firstMinterUnrestricted() public {
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+        assertEq(factory.firstMinter(pair), address(0), "unrestricted by default");
+    }
+
+    /// @dev Attacker cannot seed a protected pair first (NOT_FIRST_MINTER).
+    function test_H2_protectedPair_blocksAttackerFirstMint() public {
+        // Creator creates protected pair
+        vm.prank(admin);
+        address pairAddr = factory.createPairProtected(address(tokenA), address(tokenB));
+        TegridyPair pair = TegridyPair(pairAddr);
+
+        // Fund attacker
+        tokenA.transfer(attacker, 100_000 ether);
+        tokenB.transfer(attacker, 100_000 ether);
+
+        // Attacker tries to seed first — must fail
+        vm.startPrank(attacker);
+        tokenA.transfer(pairAddr, 10_000 ether);
+        tokenB.transfer(pairAddr, 10_000 ether);
+        vm.expectRevert("NOT_FIRST_MINTER");
+        pair.mint(attacker);
+        vm.stopPrank();
+    }
+
+    /// @dev Creator can delegate first-mint to a router via grantFirstMintRight.
+    function test_H2_grantFirstMintRight_delegatesToRouter() public {
+        address router = makeAddr("router");
+
+        vm.prank(admin);
+        address pairAddr = factory.createPairProtected(address(tokenA), address(tokenB));
+
+        // Admin delegates to router
+        vm.prank(admin);
+        factory.grantFirstMintRight(pairAddr, router);
+        assertEq(factory.firstMinter(pairAddr), router, "delegated to router");
+
+        // Router (first minter) can now seed the pool
+        TegridyPair pair = TegridyPair(pairAddr);
+        tokenA.transfer(pairAddr, 10_000 ether);
+        tokenB.transfer(pairAddr, 10_000 ether);
+        vm.prank(router);
+        uint256 liquidity = pair.mint(router);
+        assertGt(liquidity, 0, "router seeded pool");
+    }
+
+    /// @dev After delegation, original creator can no longer seed (grantFirstMintRight transfers right).
+    function test_H2_grantFirstMintRight_revokesCreator() public {
+        address router = makeAddr("router2");
+
+        vm.prank(admin);
+        address pairAddr = factory.createPairProtected(address(tokenA), address(tokenB));
+
+        vm.prank(admin);
+        factory.grantFirstMintRight(pairAddr, router); // admin gives right to router
+
+        // Admin tries to seed directly — now blocked
+        tokenA.transfer(pairAddr, 10_000 ether);
+        tokenB.transfer(pairAddr, 10_000 ether);
+        vm.prank(admin);
+        vm.expectRevert("NOT_FIRST_MINTER");
+        TegridyPair(pairAddr).mint(admin);
+    }
+
+    /// @dev Setting firstMinter=address(0) opens the pool (original V2 behaviour).
+    function test_H2_grantFirstMintRight_zeroOpensPool() public {
+        vm.prank(admin);
+        address pairAddr = factory.createPairProtected(address(tokenA), address(tokenB));
+
+        // Admin opens pool to everyone
+        vm.prank(admin);
+        factory.grantFirstMintRight(pairAddr, address(0));
+
+        // Anyone can now seed
+        tokenA.transfer(pairAddr, 10_000 ether);
+        tokenB.transfer(pairAddr, 10_000 ether);
+        vm.prank(attacker);
+        uint256 liquidity = TegridyPair(pairAddr).mint(attacker);
+        assertGt(liquidity, 0, "anyone can seed after grant to 0");
+    }
+
+    // ============================================================
     // F-19: Anyone can createPair (no access control) [Informational]
     // By design (Uniswap V2 pattern). Combined with F-06, attacker
     // can create pair with stealth ERC-777 and lure users.

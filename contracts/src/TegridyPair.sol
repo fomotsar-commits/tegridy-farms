@@ -159,6 +159,14 @@ contract TegridyPair is ERC20, ReentrancyGuard {
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (_totalSupply == 0) {
+            // [H2 FIX] Permissioned first-mint (Uniswap V3 initialize pattern).
+            // Prevents a front-runner from seeding the pool at a manipulated price
+            // before the legitimate pair creator can add liquidity. The factory stores
+            // the pair creator as firstMinter[pair]; address(0) = unrestricted.
+            // Call factory.grantFirstMintRight(pair, router) to delegate to a router.
+            address fm = ITegridyFactory(factory).firstMinter(address(this));
+            require(fm == address(0) || msg.sender == fm, "NOT_FIRST_MINTER");
+
             require(amount0 >= 1000 && amount1 >= 1000, "MIN_INITIAL_TOKENS");
             // AUDIT FIX C-01: Use raw amounts (no normalization), exactly like Uniswap V2.
             uint256 rawLiquidity = FixedPointMathLib.sqrt(amount0 * amount1);
@@ -572,4 +580,5 @@ interface ITegridyFactory {
     function feeToSetter() external view returns (address); // FRESH-EYES M-2: gate harvest bootstrap
     function disabledPairs(address pair) external view returns (bool);
     function blockedTokens(address token) external view returns (bool); // AUDIT FIX L-05
+    function firstMinter(address pair) external view returns (address); // [H2] permissioned first-mint
 }
