@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SwapFeeRouter.sol";
 import "../src/SwapFeeRouterAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
+import {OwnableNoRenounce} from "../src/base/OwnableNoRenounce.sol";
 
 // â”€â”€â”€â”€â”€â”€â”€â”€ Mocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -782,7 +783,9 @@ contract Audit195SwapFeeRouter is Test {
     }
 
     function test_referralTimelock_fullCycle() public {
-        address newSplitter = makeAddr("newSplitter");
+        // [L5 TEST FIX]: splitter must be a deployed contract (new L5 EOA gate).
+        // Replaced makeAddr("newSplitter") with a real MockSplitter195 instance.
+        address newSplitter = address(new MockSplitter195());
         sfrAdmin.proposeReferralSplitterChange(newSplitter);
         vm.warp(block.timestamp + 48 hours);
         sfrAdmin.executeReferralSplitterChange();
@@ -1132,6 +1135,82 @@ contract Audit195SwapFeeRouter is Test {
     // AUDIT H-3: test_withdrawAndSwapAgain removed (withdrawFees deleted).
     // ETH fee accumulation across swaps is validated in test_accumulateFees_multipleSwaps
     // above; end-to-end outflow is tested in FinalAudit_Revenue via distributeFeesToStakers.
+
+    // ─── L5: applyReferralSplitter EOA / EIP-7702 rejection ─────────
+
+    /// @notice [L5] Setting a non-zero EOA as splitter reverts SplitterNotAContract.
+    function test_L5_applyReferralSplitter_rejectsEOA() public {
+        address eoa = makeAddr("eoa");
+        vm.expectRevert(SwapFeeRouter.SplitterNotAContract.selector);
+        vm.prank(address(sfrAdmin));
+        sfr.applyReferralSplitter(eoa);
+    }
+
+    /// @notice [L5] Setting a contract splitter succeeds.
+    function test_L5_applyReferralSplitter_acceptsContract() public {
+        MockSplitter195 splitter = new MockSplitter195();
+        vm.prank(address(sfrAdmin));
+        sfr.applyReferralSplitter(address(splitter));
+        assertEq(address(sfr.referralSplitter()), address(splitter));
+    }
+
+    /// @notice [L5] Setting address(0) (clear splitter) bypasses the code-length check.
+    function test_L5_applyReferralSplitter_zeroAddressClearsWithoutCodeCheck() public {
+        // First wire a contract splitter.
+        MockSplitter195 splitter = new MockSplitter195();
+        vm.prank(address(sfrAdmin));
+        sfr.applyReferralSplitter(address(splitter));
+        // Clear it — referralFeeBps() returns 0 on mock, so transition allowed.
+        vm.prank(address(sfrAdmin));
+        sfr.applyReferralSplitter(address(0));
+        assertEq(address(sfr.referralSplitter()), address(0));
+    }
+
+    // ─── L1: pokeOwnershipExpiryWarning rate-limit ────────────────────
+
+    /// @notice [L1] Poke succeeds inside the last 24h, then reverts PokeRateLimited
+    ///         if called again before POKE_COOLDOWN elapses.
+    function test_L1_poke_rateLimited() public {
+        // Propose a new owner (must be a contract per SFR's InvalidAdmin gate).
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.transferOwnership(address(newAdmin));
+
+        // Warp to 23 h before expiry (inside the 24 h poke window).
+        uint256 expiry = sfr.ownershipTransferExpiresAt();
+        vm.warp(expiry - 23 hours);
+
+        // First poke: should succeed.
+        sfr.pokeOwnershipExpiryWarning();
+
+        // Second poke within POKE_COOLDOWN: should revert.
+        vm.expectRevert(OwnableNoRenounce.PokeRateLimited.selector);
+        sfr.pokeOwnershipExpiryWarning();
+    }
+
+    /// @notice [L1] Poke succeeds again after POKE_COOLDOWN elapses.
+    function test_L1_poke_succeedsAfterCooldown() public {
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.transferOwnership(address(newAdmin));
+
+        uint256 expiry = sfr.ownershipTransferExpiresAt();
+        vm.warp(expiry - 23 hours);
+        sfr.pokeOwnershipExpiryWarning();
+
+        vm.warp(block.timestamp + sfr.POKE_COOLDOWN());
+        sfr.pokeOwnershipExpiryWarning(); // should not revert
+    }
+
+    /// @notice [L1] Poke before the 24 h window reverts PokeTooEarly.
+    function test_L1_poke_revertsPokeTooEarly() public {
+        SwapFeeRouterAdmin newAdmin = new SwapFeeRouterAdmin(address(sfr));
+        sfr.transferOwnership(address(newAdmin));
+
+        uint256 expiry = sfr.ownershipTransferExpiresAt();
+        // Still 2 days out — outside the poke window.
+        vm.warp(expiry - 2 days);
+        vm.expectRevert(OwnableNoRenounce.PokeTooEarly.selector);
+        sfr.pokeOwnershipExpiryWarning();
+    }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  HELPERS

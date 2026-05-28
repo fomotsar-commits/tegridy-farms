@@ -201,23 +201,34 @@ abstract contract OwnableNoRenounce is Ownable2Step {
 
     /// @notice AUDIT FIX 2026-05-26 [M-20]: too-early-to-warn typed revert.
     error PokeTooEarly();
+    /// @notice [L1] Poke called before the global cooldown window has elapsed.
+    error PokeRateLimited();
     /// @notice AUDIT FIX 2026-05-26 [M-20]: poke event for off-chain monitors.
     event OwnershipTransferExpiringIn(address indexed pendingOwner, uint256 secondsRemaining);
+
+    /// @notice [L1] Global cooldown between successive poke events — 1 hour.
+    ///         Prevents spammers from flooding indexers / alert queues at zero cost.
+    ///         Pattern: Compound TimelockController rate-limited notification surface.
+    uint256 public constant POKE_COOLDOWN = 1 hours;
+    /// @notice Timestamp of the most recent successful poke (0 = never poked).
+    uint256 public lastPokeTime;
 
     /// @notice AUDIT FIX 2026-05-26 [M-20]: permissionless poke for off-chain
     ///         alerting on impending 14-day expiry. Fires only in the last
     ///         24h of the window; allows monitors to subscribe to a single
     ///         event rather than poll `ownershipTransferExpiresAt` per-contract.
     ///         Pattern reference: Compound TimelockController surface for queue
-    ///         visibility. Single function, permissionless, no state mutation
-    ///         outside the event emit. DELETE > ADD compliant — the function
-    ///         only exists to emit; off-chain monitoring takes over.
+    ///         visibility. [L1] Rate-limited to POKE_COOLDOWN (1 h) to prevent
+    ///         event-log spam from permissionless callers.
     function pokeOwnershipExpiryWarning() external {
         uint256 expiry = ownershipTransferExpiresAt;
         if (expiry == 0) revert NoPendingOwnershipTransfer();
         if (block.timestamp >= expiry) revert OwnershipTransferExpired();
         uint256 remaining = expiry - block.timestamp;
         if (remaining > 1 days) revert PokeTooEarly();
+        // [L1] Rate-limit: one event per POKE_COOLDOWN regardless of caller.
+        if (block.timestamp < lastPokeTime + POKE_COOLDOWN) revert PokeRateLimited();
+        lastPokeTime = block.timestamp;
         emit OwnershipTransferExpiringIn(pendingOwner(), remaining);
     }
 }

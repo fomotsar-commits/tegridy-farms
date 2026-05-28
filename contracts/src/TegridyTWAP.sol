@@ -1146,7 +1146,11 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///      because the timelocked `proposeFeeRecipient` path (M-11) lets
     ///      the owner rotate to a working recipient.
     function withdrawFees() external nonReentrant onlyOwner {
-        uint256 amount = accumulatedFees;
+        // [L11] Use address(this).balance rather than accumulatedFees so any
+        //       ETH stranded by direct sends or update() refunds is included
+        //       in the sweep and cannot accumulate indefinitely. accumulatedFees
+        //       is still zeroed for accounting consistency.
+        uint256 amount = address(this).balance;
         if (amount == 0) revert NoFees();
         accumulatedFees = 0;
         address to = feeRecipient == address(0) ? owner() : feeRecipient;

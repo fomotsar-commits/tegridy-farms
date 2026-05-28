@@ -499,6 +499,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     error InvalidAdmin();
     /// @notice AUDIT FIX 2026-05-26 [L-08]: typed error — was `Unauthorized()` pre-fix.
     error AdminAlreadySet();
+    /// @notice [L5] Non-zero splitter address has no deployed code (EOA or EIP-7702 delegated EOA).
+    error SplitterNotAContract();
 
     /// @dev AUDIT FIX 2026-05-26 [DEPLOY-H1]: `_revenueDistributor` added to the
     ///      constructor so the SFR ships wired from block 1. Pre-fix the only
@@ -1276,6 +1278,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         `applyPolAccumulator`.
     function applyReferralSplitter(address _newSplitter) external onlyAdmin {
         address old = address(referralSplitter);
+        // [L5] Reject EOAs and EIP-7702 delegated EOAs (code.length == 23 → `0xef0100‖addr`
+        //      magic). Mirrors the admin-validation check at line 1120-1124. Setting an EOA
+        //      as the splitter would silently break all referral payouts.
+        if (_newSplitter != address(0)) {
+            uint256 clen = _newSplitter.code.length;
+            if (clen == 0 || clen == 23) revert SplitterNotAContract();
+        }
         // AUDIT FIX: DEEP-R3-M02 — sibling-miss closure for the DEEP-R-M04 pattern.
         // Only check when transitioning a live splitter to address(0). The current splitter
         // must already be set (otherwise there is no `referralFeeBps()` to read) AND the
