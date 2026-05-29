@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "./TegridyPair.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {TegridyFactoryLib} from "./lib/TegridyFactoryLib.sol";
 // AUDIT FIX 2026-05-26 [H-08] — EnumerableSet tracks per-token TOKEN_BLOCK_CHANGE
 // and per-pair PAIR_DISABLE_CHANGE pending proposals so acceptFeeToSetter can
 // flush every queued proposal the OLD setter left behind on rotation.
@@ -263,8 +264,7 @@ contract TegridyFactory is TimelockAdmin {
         _rejectERC777(token1);
         require(getPair[token0][token1] == address(0), "PAIR_EXISTS");
 
-        // Deploy new pair contract
-        bytes memory bytecode = type(TegridyPair).creationCode;
+        // Deploy new pair contract.
         // AUDIT FIX (BATCH-L4 M2, mirrors NFTPoolFactory + LaunchpadV2 M3):
         // include chainid + factory so cross-chain CREATE2 collisions and
         // pre-deployed-elsewhere squatting are structurally impossible.
@@ -273,10 +273,11 @@ contract TegridyFactory is TimelockAdmin {
         // produce different addresses. Acceptable for the Wave-0 relaunch
         // (no cross-version address compatibility required).
         bytes32 salt = keccak256(abi.encode(block.chainid, address(this), token0, token1));
-        assembly {
-            pair := create2(0, add(bytecode, 32), mload(bytecode), salt)
-        }
-        require(pair != address(0), "CREATE2_FAILED");
+        // EIP-170 split: the CREATE2 deploy (which embeds the ~11KB TegridyPair creationCode)
+        // is relocated to TegridyFactoryLib.deployPair via delegatecall. The executor is
+        // still this Factory, so the deterministic pair address and the pair's
+        // `factory = msg.sender` are byte-identical to the prior in-line create2.
+        pair = TegridyFactoryLib.deployPair(salt);
 
         // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
         // slither-disable-next-line reentrancy-no-eth
@@ -501,58 +502,13 @@ contract TegridyFactory is TimelockAdmin {
     ///      OOG-griefing legitimate `createPair` callers.
     function _rejectERC777(address token) internal view {
         require(!blockedTokens[token], "TOKEN_BLOCKED");
-
-        // ERC-777 token interface ID = 0xe58e113c
-        // AUDIT FIX D-AMM-INFO2: 30k gas cap (see function-level NatSpec).
-        (bool ok, bytes memory result) = token.staticcall{gas: 30_000}(
-            abi.encodeWithSelector(0x01ffc9a7, bytes4(0xe58e113c)) // supportsInterface(0xe58e113c)
-        );
-        if (ok && result.length >= 32) {
-            bool supported = abi.decode(result, (bool));
-            require(!supported, "ERC777_NOT_SUPPORTED");
-        }
-        // AUDIT FIX 2026-05-26 [L-32] — fail-closed on AMBIGUOUS short returndata.
-        // A non-abi-compliant token returning 1..31 bytes from supportsInterface could
-        // be deliberately ambiguous to bypass the ERC-777 gate. Conservative direction:
-        // treat as "yes, ERC-777" and reject pair creation.
-        if (ok && result.length > 0 && result.length < 32) {
-            revert("ERC777_NOT_SUPPORTED");
-        }
-
-        // Check for granularity() — mandatory ERC-777 function not found in standard ERC-20.
-        // If the token implements granularity(), it is likely an ERC-777 token.
-        // AUDIT FIX D-AMM-INFO2: 30k gas cap.
-        (bool grOk, bytes memory grResult) = token.staticcall{gas: 30_000}(
-            abi.encodeWithSelector(bytes4(keccak256("granularity()")))
-        );
-        if (grOk && grResult.length >= 32) {
-            revert("ERC777_NOT_SUPPORTED");
-        }
-
-        // AUDIT NEW-A9 (MEDIUM): ERC-1820 has MULTIPLE hook interfaces — `ERC777Token`,
-        // `ERC777TokensRecipient`, and `ERC777TokensSender`. The prior check covered
-        // only the first. A token could register `ERC777TokensSender` alone (which
-        // fires on outgoing transfers from holders — including pairs transferring
-        // output tokens) without registering the full `ERC777Token` interface. Check
-        // all three to close the gap.
-        address ERC1820_REGISTRY = 0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24;
-        if (ERC1820_REGISTRY.code.length > 0) {
-            bytes32[3] memory hashes = [
-                keccak256("ERC777Token"),
-                keccak256("ERC777TokensRecipient"),
-                keccak256("ERC777TokensSender")
-            ];
-            for (uint256 i = 0; i < 3; i++) {
-                // AUDIT FIX D-AMM-INFO2: 30k gas cap.
-                (bool regOk, bytes memory regResult) = ERC1820_REGISTRY.staticcall{gas: 30_000}(
-                    abi.encodeWithSelector(0xaabbb8ca, token, hashes[i])
-                );
-                if (regOk && regResult.length >= 32) {
-                    address implementer = abi.decode(regResult, (address));
-                    require(implementer == address(0), "ERC777_NOT_SUPPORTED");
-                }
-            }
-        }
+        // EIP-170 split: the ERC-777 detection probing (ERC-165 supportsInterface /
+        // granularity() / all three ERC-1820 hook interfaces, every staticcall 30k-gas-
+        // capped) is relocated VERBATIM to TegridyFactoryLib.assertNotERC777 (delegatecall
+        // lib). The `blockedTokens` gate stays here because it touches host storage; the
+        // detection tail is storage-free + view-only, so it moves cleanly. Behaviour
+        // byte-identical — same probes, same revert reason, same ordering.
+        TegridyFactoryLib.assertNotERC777(token);
     }
 
     /// @notice AUDIT FIX L-29: Block or unblock a token (timelocked for consistency)
