@@ -2,6 +2,13 @@
 pragma solidity ^0.8.26;
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+/// @dev Minimal restaking-view surface used by `resolveJbac`. Mirrors the
+///      ITegridyRestakingView.tokenIdToRestaker selector in TegridyStaking.
+interface ITegridyRestakingView {
+    function tokenIdToRestaker(uint256 tokenId) external view returns (address);
+}
 
 /// @notice Staking position struct. Relocated to file level (from inside
 ///         TegridyStaking) during the EIP-170 split so the linked view library
@@ -38,6 +45,33 @@ library StakingViewLib {
     // universal protocol constants (must equal the contract's values).
     uint256 internal constant BOOST_PRECISION = 10000;
     uint256 internal constant ACC_PRECISION = 1e18;
+
+    /// @dev EIP-170 split + DRY: the JBAC re-validation block that was copy-pasted inline
+    ///      in `getReward`, `toggleAutoMaxLock`, and `extendLock`. Behaviour byte-identical
+    ///      to the three inline copies (F3-PERMA-STRIP preserved: transient lookup failure
+    ///      leaves the cached flag intact). Collapsing 3 copies of security-critical code
+    ///      to 1 body reduces attack surface AND removes drift risk between sites.
+    ///      Caller pattern: if (jbacValid) newBoost += JBAC_BONUS_BPS;
+    ///                      else if (clearStaleFlag) p.hasJbacBoost = false;
+    function resolveJbac(
+        Position storage p,
+        uint256 tokenId,
+        address caller,
+        address restakingContract,
+        IERC721 jbacNFT
+    ) public view returns (bool jbacValid, bool clearStaleFlag) {
+        address jbacHolder = caller;
+        bool lookupOk = true;
+        if (caller == restakingContract && restakingContract != address(0)) {
+            try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
+                if (depositor != address(0)) jbacHolder = depositor;
+            } catch {
+                lookupOk = false;
+            }
+        }
+        jbacValid = p.jbacDeposited || (p.hasJbacBoost && lookupOk && jbacNFT.balanceOf(jbacHolder) > 0);
+        clearStaleFlag = !jbacValid && p.hasJbacBoost && lookupOk;
+    }
 
     /// @dev Aggregated active voting power across every position in `set`.
     ///      Equivalent to the original TegridyStaking.votingPowerOf loop (post

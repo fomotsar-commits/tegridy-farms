@@ -710,7 +710,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     /// @notice AUDIT REV-M-01: number of `_totalBoostedStakeCheckpoints` entries.
     ///         Exposed for off-chain integrators / dashboards to size pagination.
-    function totalBoostedStakeNumCheckpoints() external view returns (uint256) {
+    // AUDIT EIP-170 golf: external → internal (verified zero on-chain/script/test
+    // callers via repo-wide grep 2026-05-29). _totalBoostedStakeCheckpoints itself
+    // remains public; reconstruct length from that getter if needed off-chain.
+    function totalBoostedStakeNumCheckpoints() internal view returns (uint256) {
         return _totalBoostedStakeCheckpoints.length();
     }
 
@@ -752,7 +755,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice AUDIT H12 / M13: number of staking NFTs `user` currently holds.
-    function userPositionCount(address user) external view returns (uint256) {
+    // AUDIT EIP-170 golf: external → internal (verified zero on-chain/script/test
+    // callers via repo-wide grep 2026-05-29). EnumerableSet maintains cardinality;
+    // off-chain consumers can derive from _positionsByOwner events.
+    function userPositionCount(address user) internal view returns (uint256) {
         return _positionsByOwner[user].length();
     }
 
@@ -1081,22 +1087,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             // contract). On transient lookup failure the cached flag is preserved
             // — same F3-PERMA-STRIP defense as `getReward`.
             {
-                address jbacHolder = msg.sender;
-                bool lookupOk = true;
-                if (msg.sender == restakingContract && restakingContract != address(0)) {
-                    try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
-                        if (depositor != address(0)) jbacHolder = depositor;
-                    } catch {
-                        lookupOk = false;
-                    }
-                }
-                bool jbacStillValid =
-                    p.jbacDeposited ||
-                    (p.hasJbacBoost && lookupOk && jbacNFT.balanceOf(jbacHolder) > 0);
-                if (jbacStillValid) {
+                // EIP-170/DRY: JBAC re-validation moved to StakingViewLib.resolveJbac
+                // (behaviour-identical; F3-PERMA-STRIP preserved). Was inline here, in
+                // extendLock, and in getReward — three copies of security-critical code.
+                (bool jbacValid, bool clearStale) =
+                    StakingViewLib.resolveJbac(p, tokenId, msg.sender, restakingContract, jbacNFT);
+                if (jbacValid) {
                     newBoost += JBAC_BONUS_BPS;
-                } else if (p.hasJbacBoost && lookupOk) {
-                    // Proven non-holding: clear stale flag so subsequent cycles align with reality.
+                } else if (clearStale) {
                     p.hasJbacBoost = false;
                 }
             }
@@ -1115,9 +1113,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param tokenId The NFT token ID of the staking position
     /// @param _newLockDuration New lock duration in seconds (must be longer than current)
     function extendLock(uint256 tokenId, uint256 _newLockDuration) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         // AUDIT FIX FRESH-2026: F-02-K-03 [LOW] — compare against the resulting
         // lockEnd, not the original duration. Without this, a user who staked
         // with a long original duration and is now mid-lock cannot extend even
@@ -1152,21 +1148,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // resolve to the depositor; transient lookup failure preserves the
         // cached flag (F3-PERMA-STRIP defense).
         {
-            address jbacHolder = msg.sender;
-            bool lookupOk = true;
-            if (msg.sender == restakingContract && restakingContract != address(0)) {
-                try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
-                    if (depositor != address(0)) jbacHolder = depositor;
-                } catch {
-                    lookupOk = false;
-                }
-            }
-            bool jbacStillValid =
-                p.jbacDeposited ||
-                (p.hasJbacBoost && lookupOk && jbacNFT.balanceOf(jbacHolder) > 0);
-            if (jbacStillValid) {
+            // EIP-170/DRY: see toggleAutoMaxLock — same lib call, byte-identical semantics.
+            (bool jbacValid, bool clearStale) =
+                StakingViewLib.resolveJbac(p, tokenId, msg.sender, restakingContract, jbacNFT);
+            if (jbacValid) {
                 newBoost += JBAC_BONUS_BPS;
-            } else if (p.hasJbacBoost && lookupOk) {
+            } else if (clearStale) {
                 p.hasJbacBoost = false;
             }
         }
@@ -1182,9 +1169,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param tokenId The NFT token ID of the staking position
     /// @param _additionalAmount Amount of TOWELI to add (must be >= MIN_STAKE)
     function increaseAmount(uint256 tokenId, uint256 _additionalAmount) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (_additionalAmount == 0) revert ZeroAmount();
         if (_additionalAmount < MIN_STAKE) revert StakeTooSmall(); // AUDIT FIX: prevent dust spam
         // AUDIT FIX: reject increase on expired positions — would create zombie boosted stake
@@ -1243,9 +1228,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @notice Withdraw after lock expires. No penalty. Burns the position NFT.
     /// @param tokenId The NFT token ID of the staking position to withdraw
     function withdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (block.timestamp < p.lockEnd) revert LockNotExpired();
         // AUDIT FIX: DEEP-DS-01 — DO NOT pre-decay before _getReward. The pre-decay
         // call was a vestige from before AUDIT M-01 and defeated that fix on the
@@ -1268,9 +1251,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @dev AUDIT FIX L-23: Corrected comment — penalty goes to treasury, not redistributed to stakers.
     /// @param tokenId The NFT token ID of the staking position to early-withdraw
     function earlyWithdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         // SECURITY FIX H-3: Prevent accidental 25% penalty on already-unlockable positions.
         // Users with expired locks should use withdraw() (no penalty) instead.
         if (block.timestamp >= p.lockEnd) revert MustUseWithdraw();
@@ -1308,9 +1289,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      perpetually" semantic. `_applyNewBoost` handles the (now-zero)
     ///      boostedAmount delta correctly via its `totalBoostedStake -= ...` line.
     function getReward(uint256 tokenId) external nonReentrant whenNotPaused updateReward returns (uint256 claimed) {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
 
         claimed = _getReward(tokenId, p);
 
@@ -1338,34 +1317,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
                 //         first decay-restore even though the original depositor
                 //         still held the JBAC NFT. Resolve to the actual depositor
                 //         when the caller is the restaking contract.
-                address jbacHolder = msg.sender;
-                bool lookupOk = true;
-                if (msg.sender == restakingContract && restakingContract != address(0)) {
-                    try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
-                        if (depositor != address(0)) jbacHolder = depositor;
-                    } catch {
-                        // AUDIT FIX FRESH-2026: F3-PERMA-STRIP — preserve cached
-                        //         `hasJbacBoost` on transient lookup failure
-                        //         (restaking upgrade, paused view, etc.).
-                        //         Pre-fix the catch fell through to msg.sender
-                        //         (= restaking contract, no JBAC) → jbacStillValid
-                        //         = false → `p.hasJbacBoost = false` permanently
-                        //         (no recovery path; revalidateBoost is one-way
-                        //         downgrade). Now: skip the strip-on-fail branch
-                        //         when we cannot prove holding/non-holding.
-                        lookupOk = false;
-                    }
-                }
-                bool jbacStillValid =
-                    p.jbacDeposited ||
-                    (p.hasJbacBoost && lookupOk && jbacNFT.balanceOf(jbacHolder) > 0);
+                // EIP-170/DRY: JBAC re-validation moved to StakingViewLib.resolveJbac.
+                // F3-PERMA-STRIP defence preserved inside the lib (transient restaking
+                // lookup failure leaves the cached flag intact — no permanent strip since
+                // revalidateBoost is one-way downgrade with no recovery path).
+                (bool jbacValid, bool clearStale) =
+                    StakingViewLib.resolveJbac(p, tokenId, msg.sender, restakingContract, jbacNFT);
                 uint256 newBoost = MAX_BOOST_BPS;
-                if (jbacStillValid) {
+                if (jbacValid) {
                     newBoost += JBAC_BONUS_BPS;
-                } else if (p.hasJbacBoost && lookupOk) {
-                    // Clear stale flag so future cycles agree with reality.
-                    // Only clear when we successfully proved non-holding —
-                    // otherwise leave the cached flag intact for next cycle.
+                } else if (clearStale) {
                     p.hasJbacBoost = false;
                 }
                 _applyNewBoost(p, newBoost);
@@ -1660,6 +1621,18 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         lastActivityAt[user] = block.timestamp;
     }
 
+    /// @dev EIP-170 dedup: the (ownerOf == caller, Position storage p, p.amount != 0)
+    ///      triplet appeared inline in 9 user-facing functions. Collapsing to one internal
+    ///      helper that returns the storage ref preserves byte-identical behaviour AND
+    ///      lets the optimizer keep one shared body instead of 9 copies.
+    function _ownedPosition(uint256 tokenId, address caller)
+        internal view returns (Position storage p)
+    {
+        if (ownerOf(tokenId) != caller) revert NotPositionOwner();
+        p = positions[tokenId];
+        if (p.amount == 0) revert NoPosition();
+    }
+
     // AUDIT FIX C-03: Safe int256 cast — only transfer if accumulated > rewardDebt
     function _getReward(uint256 tokenId, Position storage p) internal returns (uint256 claimed) {
         // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
@@ -1881,9 +1854,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @notice AUDIT FIX #11: Emergency withdraw — ONLY callable when contract is paused.
     ///         Forfeits all pending rewards.
     function emergencyWithdrawPosition(uint256 tokenId) external nonReentrant whenPaused {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
 
         // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
@@ -1898,9 +1869,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         Previously silently forfeited all accrued rewards.
     /// @param tokenId The NFT token ID of the staking position to exit
     function emergencyExitPosition(uint256 tokenId) external nonReentrant updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (block.timestamp < p.lockEnd) revert LockStillActive();
 
         // AUDIT FIX M-05: Attempt reward claim before exit. If reward transfer reverts
@@ -1921,9 +1890,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      the user is mid-emergency-exit. A user actively exiting is clearly active.
     /// @param tokenId The NFT token ID of the staking position
     function requestEmergencyExit(uint256 tokenId) external nonReentrant {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (_emergencyExitRequests[tokenId] != 0) revert EmergencyExitAlreadyRequested();
 
         _emergencyExitRequests[tokenId] = block.timestamp;
@@ -1956,9 +1923,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         AUDIT FIX M-06: Attempts reward claim before exit instead of silently forfeiting.
     /// @param tokenId The NFT token ID of the staking position
     function executeEmergencyExit(uint256 tokenId) external nonReentrant updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         uint256 requestTime = _emergencyExitRequests[tokenId];
         if (requestTime == 0) revert EmergencyExitNotRequested();
         if (block.timestamp < requestTime + EMERGENCY_EXIT_DELAY) revert EmergencyExitDelayNotElapsed();
