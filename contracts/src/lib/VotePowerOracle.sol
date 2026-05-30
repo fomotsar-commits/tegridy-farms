@@ -37,7 +37,8 @@ interface IVoteSource {
 ///         other four consumers were not.
 ///
 ///         This library wraps both reads and returns the additive sum, so
-///         consumers calling `VotePowerOracle.powerOf(user, staking, restaking)`
+///         consumers calling `VotePowerOracle.powerOfLiveUnsafe(user, staking, restaking)`
+///         (live) or `VotePowerOracle.powerAt(user, ts, ...)` (epoch-pinned)
 ///         get the user's TOTAL voting power across both contracts.
 ///
 /// @dev Pattern reference:
@@ -51,27 +52,14 @@ interface IVoteSource {
 ///      slot. No upgrade surface; future changes are source-only and require
 ///      consumer recompilation (acceptable for a governance-critical primitive).
 ///
-/// @dev AUDIT FIX FRESH-2026: H-10 [F-40-VPO-1] — `powerOf` is a LIVE read
-///      that can be amplified by flash-stake patterns (stake → vote → unstake
-///      in one tx). The lib retains `powerOf` as a deprecated compile-
-///      compatible alias for `powerOfLiveUnsafe`. The `LiveUnsafe` suffix
-///      surfaces the footgun at every call site.
+/// @dev AUDIT FIX FRESH-2026: H-10 [F-40-VPO-1] — live reads can be amplified
+///      by flash-stake patterns (stake → vote → unstake in one tx). The only
+///      public surface is `powerOfLiveUnsafe` (explicit-acknowledgement) and
+///      `powerAt(_, ts, _, _)` (epoch-pinned, safe). The earlier compile-
+///      compatible `powerOf` alias was REMOVED (2026-05-30 fresh review) to
+///      eliminate the autocomplete footgun — junior consumers reaching for
+///      `powerOf` will get a compile error and have to choose explicitly.
 library VotePowerOracle {
-    /// @notice DEPRECATED — compile-compatible alias for `powerOfLiveUnsafe`.
-    /// @param user      Address whose voting power to read.
-    /// @param staking   TegridyStaking contract address.
-    /// @param restaking TegridyRestaking contract address; pass `address(0)` if a
-    ///                  consumer was deployed before restaking existed (additive
-    ///                  read silently degrades to staking-only — fail closed).
-    /// @return power    Sum of staking-side and restaking-side voting power.
-    function powerOf(address user, address staking, address restaking)
-        internal
-        view
-        returns (uint256 power)
-    {
-        return powerOfLiveUnsafe(user, staking, restaking);
-    }
-
     /// @notice AUDIT FIX FRESH-2026: H-10 [F-40-VPO-1] — explicitly-named
     ///         live read. The `LiveUnsafe` suffix surfaces the flash-stake
     ///         amplification footgun at every consumer call site, forcing

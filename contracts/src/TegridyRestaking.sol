@@ -606,9 +606,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         against `kick()` / autoMaxLock non-monotonic restoration
     ///         (existing DEEP-DR-04 / DR2-02 hardening preserved).
     ///
-    ///         Consumed by `lib/VotePowerOracle.sol::powerOf` which sums this
-    ///         with `staking.votingPowerOf(user)`. Safe to call at any time;
-    ///         returns 0 when user has no restake or it has expired.
+    ///         Consumed by `lib/VotePowerOracle.sol::powerOfLiveUnsafe` which
+    ///         sums this with `staking.votingPowerOf(user)`. Safe to call at any
+    ///         time; returns 0 when user has no restake or it has expired.
     function votingPowerOf(address _user) external view returns (uint256) {
         return _boostedAmountAt(_user, block.timestamp);
     }
