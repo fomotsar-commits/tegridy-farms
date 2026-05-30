@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 
 contract C1L1MockToken is ERC20 {
@@ -77,6 +78,7 @@ contract TrackedHolderMock {
 ///         via `claimUnsettledForTokenId` once the pool is refunded.
 contract C1L1GetRewardShortfallAttributionTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin public admin;
     C1L1MockToken public token;
     C1L1MockNFT public nft;
@@ -94,6 +96,7 @@ contract C1L1GetRewardShortfallAttributionTest is Test {
         token = new C1L1MockToken();
         nft = new C1L1MockNFT();
         staking = new TegridyStaking(address(token), address(nft), treasury, START_RATE);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -201,7 +204,7 @@ contract C1L1GetRewardShortfallAttributionTest is Test {
         // shortfall instead of a never-accrued no-op).
         _bakeAccrualAtHealthyPool();
 
-        uint256 pendingBefore = staking.earned(tokenId);
+        uint256 pendingBefore = monitor.earned(tokenId);
         assertGt(pendingBefore, 0, "mock position must have accrued pending rewards");
 
         // ── Phase C: STARVE the pool. The mock's `pending` is already locked into
@@ -314,7 +317,7 @@ contract C1L1GetRewardShortfallAttributionTest is Test {
         // branch the tracked-holder test exercises.
         _bakeAccrualAtHealthyPool();
 
-        uint256 pendingBefore = staking.earned(tokenId);
+        uint256 pendingBefore = monitor.earned(tokenId);
         assertGt(pendingBefore, 0, "control EOA must have accrued pending");
 
         // Drain the reward pool down to a thin sliver (same lever as the main test).

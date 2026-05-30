@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 
 // ─── Mock Contracts ──────────────────────────────────────────────────
@@ -42,6 +43,7 @@ contract FinalAuditStaking is Test {
     FA_MockTOWELI toweli;
     FA_MockJBAC jbac;
     TegridyStaking staking;
+    StakingMonitorView monitor;
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -62,6 +64,7 @@ contract FinalAuditStaking is Test {
             treasury,
             REWARD_RATE
         );
+        monitor = new StakingMonitorView(address(staking));
         // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister so stakeWithBoost works.
         TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));
@@ -118,7 +121,7 @@ contract FinalAuditStaking is Test {
         // Wait past cooldown
         vm.warp(block.timestamp + 25 hours);
 
-        uint256 pendingBefore = staking.earned(bobTokenId);
+        uint256 pendingBefore = monitor.earned(bobTokenId);
         assertGt(pendingBefore, 0, "Bob should have pending rewards");
 
         // Transfer triggers _settleRewardsOnTransfer
@@ -147,7 +150,7 @@ contract FinalAuditStaking is Test {
         staking.stake(STAKE_AMOUNT, 30 days);
 
         uint256 tokenId = staking.userTokenId(bob);
-        (,,uint256 lockEnd,,,) = staking.getPosition(tokenId);
+        (,,uint256 lockEnd,,,) = monitor.getPosition(tokenId);
 
         // One second before lock end - should have voting power
         vm.warp(lockEnd - 1);
@@ -380,12 +383,12 @@ contract FinalAuditStaking is Test {
         uint256 aliceTokenId = _stakeAs(alice, STAKE_AMOUNT, 30 days);
 
         // Check pending immediately - should be 0 (no windfall)
-        uint256 pending = staking.earned(aliceTokenId);
+        uint256 pending = monitor.earned(aliceTokenId);
         assertEq(pending, 0, "DEFENDED: No windfall rewards for first staker after gap");
 
         // Wait 1 day and verify normal reward accrual
         vm.warp(block.timestamp + 1 days);
-        uint256 pendingAfter = staking.earned(aliceTokenId);
+        uint256 pendingAfter = monitor.earned(aliceTokenId);
         assertGt(pendingAfter, 0, "Normal rewards accrue after stake");
     }
 
@@ -413,7 +416,7 @@ contract FinalAuditStaking is Test {
         uint256 aliceTokenId = staking.userTokenId(alice);
         vm.stopPrank();
 
-        (,uint256 boostBps,,,,) = staking.getPosition(aliceTokenId);
+        (,uint256 boostBps,,,,) = monitor.getPosition(aliceTokenId);
         assertEq(boostBps, 45000, "Max boost with JBAC = 45000, stored correctly in uint16");
     }
 
@@ -432,7 +435,7 @@ contract FinalAuditStaking is Test {
 
         // Verify the value is preserved correctly
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 4 * 365 days);
-        (,,,uint256 lockDuration,,) = staking.getPosition(bobTokenId);
+        (,,,uint256 lockDuration,,) = monitor.getPosition(bobTokenId);
         assertEq(lockDuration, 4 * 365 days, "Lock duration stored correctly in uint32");
     }
 
@@ -470,9 +473,9 @@ contract FinalAuditStaking is Test {
         uint256 carolTokenId = _stakeAs(carol, STAKE_AMOUNT / 2, 7 days);
 
         // Check totalStaked = sum of amounts
-        (uint256 aliceAmt,,,,,) = staking.getPosition(aliceTokenId);
-        (uint256 bobAmt,,,,,) = staking.getPosition(bobTokenId);
-        (uint256 carolAmt,,,,,) = staking.getPosition(carolTokenId);
+        (uint256 aliceAmt,,,,,) = monitor.getPosition(aliceTokenId);
+        (uint256 bobAmt,,,,,) = monitor.getPosition(bobTokenId);
+        (uint256 carolAmt,,,,,) = monitor.getPosition(carolTokenId);
 
         assertEq(
             staking.totalStaked(),
@@ -484,8 +487,8 @@ contract FinalAuditStaking is Test {
         vm.prank(bob);
         staking.earlyWithdraw(bobTokenId);
 
-        (uint256 aliceAmt2,,,,,) = staking.getPosition(aliceTokenId);
-        (uint256 carolAmt2,,,,,) = staking.getPosition(carolTokenId);
+        (uint256 aliceAmt2,,,,,) = monitor.getPosition(aliceTokenId);
+        (uint256 carolAmt2,,,,,) = monitor.getPosition(carolTokenId);
         assertEq(
             staking.totalStaked(),
             aliceAmt2 + carolAmt2,
@@ -497,7 +500,7 @@ contract FinalAuditStaking is Test {
         vm.prank(carol);
         staking.withdraw(carolTokenId);
 
-        (uint256 aliceAmt3,,,,,) = staking.getPosition(aliceTokenId);
+        (uint256 aliceAmt3,,,,,) = monitor.getPosition(aliceTokenId);
         assertEq(
             staking.totalStaked(),
             aliceAmt3,
@@ -523,10 +526,10 @@ contract FinalAuditStaking is Test {
         // Verify state is clean after withdrawal
         assertEq(staking.userTokenId(bob), 0, "userTokenId cleared");
         assertEq(staking.totalStaked(), 0, "totalStaked decremented");
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked decremented");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "totalLocked decremented");
 
         // Position should be deleted
-        (uint256 amt,,,,,) = staking.getPosition(bobTokenId);
+        (uint256 amt,,,,,) = monitor.getPosition(bobTokenId);
         assertEq(amt, 0, "Position deleted");
     }
 
@@ -549,7 +552,7 @@ contract FinalAuditStaking is Test {
         vm.prank(bob);
         staking.toggleAutoMaxLock(bobTokenId);
 
-        (,uint256 boostAfterToggle,,,,) = staking.getPosition(bobTokenId);
+        (,uint256 boostAfterToggle,,,,) = monitor.getPosition(bobTokenId);
         assertEq(boostAfterToggle, staking.MAX_BOOST_BPS(), "Boost should be max after toggle");
 
         // Wait and claim - lockEnd extends but boost stays the same
@@ -558,10 +561,10 @@ contract FinalAuditStaking is Test {
         vm.prank(bob);
         staking.getReward(bobTokenId);
 
-        (,uint256 boostAfterClaim,, uint256 lockDuration,,) = staking.getPosition(bobTokenId);
+        (,uint256 boostAfterClaim,, uint256 lockDuration,,) = monitor.getPosition(bobTokenId);
         assertEq(boostAfterClaim, boostAfterToggle, "Boost unchanged after claim with autoMaxLock");
         // lockEnd should have been extended
-        (,,uint256 lockEnd,,,) = staking.getPosition(bobTokenId);
+        (,,uint256 lockEnd,,,) = monitor.getPosition(bobTokenId);
         assertEq(lockEnd, block.timestamp + staking.MAX_LOCK_DURATION(), "Lock end extended to max");
     }
 
@@ -646,7 +649,7 @@ contract FinalAuditStaking is Test {
         vm.prank(bob);
         staking.extendLock(bobTokenId, 365 days);
 
-        (,,,uint256 lockDuration,,) = staking.getPosition(bobTokenId);
+        (,,,uint256 lockDuration,,) = monitor.getPosition(bobTokenId);
         assertEq(lockDuration, 365 days, "Lock duration extended correctly");
 
         // Cannot extend to same or shorter duration
@@ -677,24 +680,24 @@ contract FinalAuditStaking is Test {
     function test_FA18_totalLockedTracksWithTotalStaked() public {
         _stakeAs(alice, STAKE_AMOUNT, 365 days);
         assertEq(staking.totalStaked(), STAKE_AMOUNT, "totalStaked should reflect alice's stake");
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         _stakeAs(bob, STAKE_AMOUNT * 2, 30 days);
         assertEq(staking.totalStaked(), STAKE_AMOUNT * 3, "totalStaked should reflect both stakes");
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         uint256 bobTokenId = staking.userTokenId(bob);
         vm.prank(bob);
         staking.earlyWithdraw(bobTokenId);
         assertEq(staking.totalStaked(), STAKE_AMOUNT, "alice's stake remains after bob earlyWithdraw");
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
 
         vm.warp(block.timestamp + 366 days);
         uint256 aliceTokenId = staking.userTokenId(alice);
         vm.prank(alice);
         staking.withdraw(aliceTokenId);
         assertEq(staking.totalStaked(), 0, "totalStaked zero after all withdrawals");
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "totalLocked deprecated (always zero post L-22)");
     }
 
     // ═══════════════════════════════════════════════════════════════════

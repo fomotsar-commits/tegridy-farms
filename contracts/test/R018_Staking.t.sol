@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 
 contract R018MockToken is ERC20 {
@@ -24,6 +25,7 @@ contract R018MockNFT is ERC721 {
 ///         reversibility), and M-005-01 (Synthetix streaming) on TegridyStaking.
 contract R018StakingTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin public admin;
     R018MockToken public token;
     R018MockNFT public nft;
@@ -41,6 +43,7 @@ contract R018StakingTest is Test {
         token = new R018MockToken();
         nft = new R018MockNFT();
         staking = new TegridyStaking(address(token), address(nft), treasury, START_RATE);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -184,7 +187,7 @@ contract R018StakingTest is Test {
         // CODE path (not the cap-shortfall numerical path). The fallback
         // logic still asserts: rewardDebt should advance only by paid+queued.
 
-        uint256 earnedBefore = staking.earned(aliceId);
+        uint256 earnedBefore = monitor.earned(aliceId);
         (, , , , int256 debtBefore, ) = _readDebt(aliceId);
 
         vm.prank(alice);
@@ -213,7 +216,7 @@ contract R018StakingTest is Test {
 
             // Now earned() should still reflect the prior shortfall PLUS
             // any new accrual. Specifically, alice can now claim more.
-            uint256 earnedAfterRefund = staking.earned(aliceId);
+            uint256 earnedAfterRefund = monitor.earned(aliceId);
             assertGt(earnedAfterRefund, 0,
                 "shortfall should be reversible after refund");
         }

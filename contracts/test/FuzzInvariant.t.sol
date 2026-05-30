@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyPair.sol";
 import "../src/TegridyFactory.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/RevenueDistributor.sol";
 
 // â”€â”€â”€ Mock Contracts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -357,6 +358,7 @@ contract TegridyPairInvariantTest is Test {
 
 contract TegridyStakingFuzzTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     MockERC20Fuzz public token;
     MockNFTFuzz public nft;
     address public treasury = makeAddr("treasury");
@@ -366,6 +368,7 @@ contract TegridyStakingFuzzTest is Test {
         token = new MockERC20Fuzz("Towelie", "TOWELI");
         nft = new MockNFTFuzz();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        monitor = new StakingMonitorView(address(staking));
 
         // Fund staking contract with rewards
         token.approve(address(staking), type(uint256).max);
@@ -426,7 +429,7 @@ contract TegridyStakingFuzzTest is Test {
         vm.warp(block.timestamp + time);
 
         // pendingReward should never revert and should return >= 0
-        uint256 pending = staking.earned(tokenId);
+        uint256 pending = monitor.earned(tokenId);
         // By definition, pending is uint256 so >= 0, but we verify no revert
         // and that after time passes with rewards, it should be > 0
         if (time > 0) {

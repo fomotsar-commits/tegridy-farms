@@ -4,7 +4,9 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+// EIP-170 split (2026-05-30): swapped to Solady EnumerableSetLib (API-identical
+// UintSet → Uint256Set; smaller bytecode; verbatim battle-tested).
+import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Position, StakingViewLib} from "./StakingViewLib.sol";
 
@@ -34,7 +36,7 @@ import {Position, StakingViewLib} from "./StakingViewLib.sol";
 library StakingRewardLib {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
-    using EnumerableSet for EnumerableSet.UintSet;
+    using EnumerableSetLib for EnumerableSetLib.Uint256Set;
 
     // Mirror of TegridyStaking's reward-math constant (must equal the contract's value).
     uint256 internal constant ACC_PRECISION = 1e18;
@@ -203,7 +205,7 @@ library StakingRewardLib {
     ///      carve-out then the per-position summation delegated to StakingViewLib.
     function _votingPowerOf(
         address user,
-        mapping(address => EnumerableSet.UintSet) storage positionsByOwner,
+        mapping(address => EnumerableSetLib.Uint256Set) storage positionsByOwner,
         mapping(uint256 => Position) storage positions,
         mapping(address => bool) storage isLendingContract,
         address restakingContract
@@ -216,7 +218,7 @@ library StakingRewardLib {
     function _writeCheckpoint(
         address user,
         mapping(address => Checkpoints.Trace208) storage checkpoints,
-        mapping(address => EnumerableSet.UintSet) storage positionsByOwner,
+        mapping(address => EnumerableSetLib.Uint256Set) storage positionsByOwner,
         mapping(uint256 => Position) storage positions,
         mapping(address => bool) storage isLendingContract,
         address restakingContract
@@ -252,7 +254,7 @@ library StakingRewardLib {
         address owner,
         mapping(address => Checkpoints.Trace208) storage checkpoints,
         Checkpoints.Trace208 storage totalBoostedStakeCheckpoints,
-        mapping(address => EnumerableSet.UintSet) storage positionsByOwner,
+        mapping(address => EnumerableSetLib.Uint256Set) storage positionsByOwner,
         mapping(uint256 => Position) storage positions,
         mapping(address => bool) storage isLendingContract,
         address restakingContract
@@ -339,7 +341,7 @@ library StakingRewardLib {
         mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
         mapping(address => Checkpoints.Trace208) storage checkpoints,
         Checkpoints.Trace208 storage totalBoostedStakeCheckpoints,
-        mapping(address => EnumerableSet.UintSet) storage positionsByOwner,
+        mapping(address => EnumerableSetLib.Uint256Set) storage positionsByOwner,
         mapping(uint256 => Position) storage positions,
         mapping(address => bool) storage isLendingContract,
         Cfg memory cfg
@@ -657,7 +659,7 @@ library StakingRewardLib {
         address from,
         address to,
         uint256 id,
-        mapping(address => EnumerableSet.UintSet) storage positionsByOwner,
+        mapping(address => EnumerableSetLib.Uint256Set) storage positionsByOwner,
         mapping(uint256 => Position) storage positions,
         mapping(address => uint256) storage userTokenId,
         mapping(uint256 => uint256) storage emergencyExitRequests,

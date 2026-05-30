@@ -52,7 +52,10 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 // Solady's assembly-tight storage layout is meaningfully smaller. Verbatim battle-tested
 // (Aerodrome, Velodrome, many others). Fresh-deploy contract → storage layout change OK.
 import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+// AUDIT EIP-170 split (2026-05-30): OZ SafeCast → Solady SafeCastLib. Verbatim
+// battle-tested (Aerodrome, V4 hooks, many); assembly-tight checks vs OZ's Solidity
+// implementation. API-compatible (toUint48 / toUint208 are byte-identical semantics).
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {PauseGuardian} from "./base/PauseGuardian.sol";
 // AUDIT FIX (C1 EIP-170 split): Position struct + read-only view/math extracted to a
@@ -694,7 +697,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param ts The timestamp to look up
     /// @return Voting power at the given timestamp (0 if no checkpoint exists before that time)
     function votingPowerAtTimestamp(address user, uint256 ts) public view returns (uint256) {
-        return _checkpoints[user].upperLookup(SafeCast.toUint48(ts));
+        return _checkpoints[user].upperLookup(SafeCastLib.toUint48(ts));
     }
 
     /// @notice Number of checkpoints for a user
@@ -710,7 +713,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         pin the epoch denominator at T-1 and close the same-block dilution window
     ///         that REV C-01 left half-open.
     function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256) {
-        return _totalBoostedStakeCheckpoints.upperLookup(SafeCast.toUint48(ts));
+        return _totalBoostedStakeCheckpoints.upperLookup(SafeCastLib.toUint48(ts));
     }
 
     /// @notice AUDIT REV-M-01: number of `_totalBoostedStakeCheckpoints` entries.
@@ -728,14 +731,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      bloat checkpoints when a delta nets to zero (e.g., `_applyNewBoost` that
     ///      decrements then increments the identical amount on a no-op boost rewrite).
     function _writeTotalBoostedStakeCheckpoint() internal {
-        uint208 newTotal = SafeCast.toUint208(totalBoostedStake);
+        uint208 newTotal = SafeCastLib.toUint208(totalBoostedStake);
         uint208 last = _totalBoostedStakeCheckpoints.latest();
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (last == newTotal) return;
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
         // slither-disable-next-line unused-return
-        _totalBoostedStakeCheckpoints.push(SafeCast.toUint48(block.timestamp), newTotal);
+        _totalBoostedStakeCheckpoints.push(SafeCastLib.toUint48(block.timestamp), newTotal);
     }
 
     /// @notice AUDIT H12: amount-weighted average active boost across all of `user`'s
@@ -1679,12 +1682,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      against the latest checkpoint before pushing.
     function _writeCheckpoint(address user) internal {
         uint256 power = votingPowerOf(user);
-        uint208 newPower = SafeCast.toUint208(power);
+        uint208 newPower = SafeCastLib.toUint208(power);
         uint208 last = _checkpoints[user].latest();
         if (last == newPower) return;
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
         // slither-disable-next-line unused-return
-        _checkpoints[user].push(SafeCast.toUint48(block.timestamp), newPower);
+        _checkpoints[user].push(SafeCastLib.toUint48(block.timestamp), newPower);
     }
 
     event UnsettledClaimed(address indexed user, uint256 amount);

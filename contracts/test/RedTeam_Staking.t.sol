@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import "../src/TegridyRestaking.sol";
@@ -84,6 +85,7 @@ contract RedTeamStaking is Test {
     RT_MockJBAC jbac;
     RT_MockWETH weth;
     TegridyStaking staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
@@ -108,6 +110,7 @@ contract RedTeamStaking is Test {
             treasury,
             REWARD_RATE
         );
+        monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
         // AUDIT FIX (pass-8 batch-14): JBAC vault sister.
@@ -116,6 +119,7 @@ contract RedTeamStaking is Test {
 
         restaking = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             BONUS_RATE
@@ -236,14 +240,14 @@ contract RedTeamStaking is Test {
         vm.warp(block.timestamp + 1 days);
 
         // Check pending before donation
-        uint256 pendingBefore = staking.earned(bobTokenId);
+        uint256 pendingBefore = monitor.earned(bobTokenId);
 
         // Attacker donates tokens directly to the staking contract
         vm.prank(attacker);
         toweli.transfer(address(staking), 500_000 ether);
 
         // Check pending after donation — reward pool is larger
-        uint256 pendingAfter = staking.earned(bobTokenId);
+        uint256 pendingAfter = monitor.earned(bobTokenId);
 
         // This is expected behavior (donations accelerate reward distribution)
         // Not a vulnerability per se — attacker loses money, bob gains
@@ -404,8 +408,8 @@ contract RedTeamStaking is Test {
         uint256 bobTokenId = staking.userTokenId(bob);
         uint256 attackerTokenId = staking.userTokenId(attacker);
 
-        uint256 bobPending = staking.earned(bobTokenId);
-        uint256 attackerPending = staking.earned(attackerTokenId);
+        uint256 bobPending = monitor.earned(bobTokenId);
+        uint256 attackerPending = monitor.earned(attackerTokenId);
 
         emit log_named_uint("Bob pending (100k, 30d)", bobPending);
         emit log_named_uint("Attacker pending (100, 4yr)", attackerPending);
@@ -438,7 +442,7 @@ contract RedTeamStaking is Test {
         vm.warp(block.timestamp + 7 days);
 
         // Bob's pending rewards before transfer
-        uint256 bobPendingBefore = staking.earned(bobTokenId);
+        uint256 bobPendingBefore = monitor.earned(bobTokenId);
         assertGt(bobPendingBefore, 0, "Bob should have pending rewards");
 
         // Wait past cooldown
@@ -453,7 +457,7 @@ contract RedTeamStaking is Test {
         assertGt(bobUnsettled, 0, "Bob should have unsettled rewards from transfer");
 
         // Carol's pending should be near zero (just transferred)
-        uint256 carolPending = staking.earned(bobTokenId);
+        uint256 carolPending = monitor.earned(bobTokenId);
         assertLe(carolPending, 1e15, "Carol should have near-zero pending after receiving NFT");
     }
 
@@ -567,8 +571,8 @@ contract RedTeamStaking is Test {
         vm.warp(block.timestamp + 7 days);
 
         // Both have pending rewards
-        uint256 bobPending = staking.earned(bobTokenId);
-        uint256 carolPending = staking.earned(carolTokenId);
+        uint256 bobPending = monitor.earned(bobTokenId);
+        uint256 carolPending = monitor.earned(carolTokenId);
         assertGt(bobPending, 0);
         assertGt(carolPending, 0);
 
@@ -670,14 +674,14 @@ contract RedTeamStaking is Test {
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 365 days);
         vm.warp(block.timestamp + 30 days);
 
-        uint256 pendingBeforeFlash = staking.earned(bobTokenId);
+        uint256 pendingBeforeFlash = monitor.earned(bobTokenId);
 
         // Flash-loan attempt via revalidate: no-op.
         uint256 jbacId = jbac.mint(bob);
         vm.prank(bob);
         staking.revalidateBoost(bobTokenId);
 
-        uint256 pendingAfterRevalidate = staking.earned(bobTokenId);
+        uint256 pendingAfterRevalidate = monitor.earned(bobTokenId);
         assertEq(pendingAfterRevalidate, pendingBeforeFlash, "H-1: revalidate is no-op, no reward claim");
 
         (,,,,,,,bool hasJbacAfter,,,) = staking.positions(bobTokenId);
@@ -826,7 +830,7 @@ contract RedTeamStaking is Test {
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 30 days);
         vm.warp(block.timestamp + 7 days);
 
-        uint256 pendingBefore = staking.earned(bobTokenId);
+        uint256 pendingBefore = monitor.earned(bobTokenId);
         uint256 bobBalBefore = toweli.balanceOf(bob);
 
         // Bob extends lock — this should claim pending, then reset debt
@@ -840,7 +844,7 @@ contract RedTeamStaking is Test {
         assertGe(claimed, pendingBefore - 1e15, "ExtendLock should have claimed pending rewards");
 
         // Pending should be near zero after extend
-        uint256 pendingAfter = staking.earned(bobTokenId);
+        uint256 pendingAfter = monitor.earned(bobTokenId);
         assertLe(pendingAfter, 1e15, "Pending should be near zero after extend");
     }
 

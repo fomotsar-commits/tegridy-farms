@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {TegridyStaking} from "../../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../../src/StakingMonitorView.sol";
 import {TegridyStakingJbacVault} from "../../src/TegridyStakingJbacVault.sol";
 import {TegridyStakingAdmin} from "../../src/TegridyStakingAdmin.sol";
 import {TegridyRestaking} from "../../src/TegridyRestaking.sol";
@@ -46,6 +47,7 @@ import {TegridyRestaking} from "../../src/TegridyRestaking.sol";
 ///           invariant — restaking NFT transfers must not desync principal.
 contract MVPLaunch_RewardTriangleInvariantsTest is Test {
     TegridyStaking staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
     MockTowel toweli;
@@ -63,12 +65,14 @@ contract MVPLaunch_RewardTriangleInvariantsTest is Test {
         weth = new MockWETH();
 
         staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        monitor = new StakingMonitorView(address(staking));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 
-        restaking = new TegridyRestaking(address(staking), address(toweli), address(weth), 0);
+        restaking = new TegridyRestaking(address(staking),
+            address(monitor), address(toweli), address(weth), 0);
 
         // Wire restaking via the admin propose/execute. Fast-forward past the
         // 48h timelock. We are still the owner of admin (deployer) here so
@@ -86,7 +90,7 @@ contract MVPLaunch_RewardTriangleInvariantsTest is Test {
         staking.setMaxStakePerUser(100_000e18);
         staking.setMaxTotalStaked(10_000_000e18);
 
-        handler = new RewardTriangleHandler(staking, restaking, toweli);
+        handler = new RewardTriangleHandler(staking, monitor, restaking, toweli);
         targetContract(address(handler));
 
         // Limit selectors to the user-facing surface the runner exercises.
@@ -152,6 +156,7 @@ contract MVPLaunch_RewardTriangleInvariantsTest is Test {
 
 contract RewardTriangleHandler is Test {
     TegridyStaking public immutable staking;
+    StakingMonitorView public immutable monitor;
     TegridyRestaking public immutable restaking;
     MockTowel public immutable toweli;
 
@@ -164,8 +169,9 @@ contract RewardTriangleHandler is Test {
 
     uint256 constant MIN_STAKE = 100e18;
 
-    constructor(TegridyStaking _staking, TegridyRestaking _restaking, MockTowel _toweli) {
+    constructor(TegridyStaking _staking, StakingMonitorView _monitor, TegridyRestaking _restaking, MockTowel _toweli) {
         staking = _staking;
+        monitor = _monitor;
         restaking = _restaking;
         toweli = _toweli;
 
@@ -240,7 +246,7 @@ contract RewardTriangleHandler is Test {
         address user = _actor(actorSeed);
         uint256 tid = tokenIdOf[user];
         if (tid == 0 || isRestaked[user]) return; // can't withdraw while restaked
-        (,,uint256 lockEnd,,,) = staking.getPosition(tid);
+        (,,uint256 lockEnd,,,) = monitor.getPosition(tid);
         if (block.timestamp < lockEnd) return;
         vm.prank(user);
         try staking.withdraw(tid) {

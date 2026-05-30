@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {TegridyStaking} from "../../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../../src/StakingMonitorView.sol";
 import {TegridyStakingJbacVault} from "../../src/TegridyStakingJbacVault.sol";
 
 /// @title  MVPLaunch_StakingInvariants — property-based campaigns on TegridyStaking
@@ -27,6 +28,7 @@ import {TegridyStakingJbacVault} from "../../src/TegridyStakingJbacVault.sol";
 ///         invariants here are the surviving subset.
 contract MVPLaunch_StakingInvariantsTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     MockTowel public toweli;
     MockJBAC public jbac;
     TegridyStakingJbacVault public vault;
@@ -39,6 +41,7 @@ contract MVPLaunch_StakingInvariantsTest is Test {
         toweli = new MockTowel();
         jbac = new MockJBAC();
         staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        monitor = new StakingMonitorView(address(staking));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));
 
@@ -53,7 +56,7 @@ contract MVPLaunch_StakingInvariantsTest is Test {
 
         // Hand staking interactions to the handler so foundry's invariant
         // runner exercises arbitrary action sequences.
-        handler = new StakingHandler(staking, toweli);
+        handler = new StakingHandler(staking, monitor, toweli);
         targetContract(address(handler));
 
         // Limit selectors to the public-facing user actions; the invariant
@@ -103,6 +106,7 @@ contract MVPLaunch_StakingInvariantsTest is Test {
 
 contract StakingHandler is Test {
     TegridyStaking public immutable staking;
+    StakingMonitorView public immutable monitor;
     MockTowel public immutable toweli;
 
     address[] public actors;
@@ -110,8 +114,9 @@ contract StakingHandler is Test {
 
     uint256 public constant MIN_STAKE = 100e18;
 
-    constructor(TegridyStaking _staking, MockTowel _toweli) {
+    constructor(TegridyStaking _staking, StakingMonitorView _monitor, MockTowel _toweli) {
         staking = _staking;
+        monitor = _monitor;
         toweli = _toweli;
         // Seed 5 actors with plenty of TOWELI.
         for (uint256 i = 0; i < 5; i++) {
@@ -145,7 +150,7 @@ contract StakingHandler is Test {
         uint256 tokenId = tokenIdOf[user];
         if (tokenId == 0) return;
         amount = bound(amount, MIN_STAKE, 25_000e18);
-        (uint256 currentAmount,,uint256 lockEnd,,,) = staking.getPosition(tokenId);
+        (uint256 currentAmount,,uint256 lockEnd,,,) = monitor.getPosition(tokenId);
         if (block.timestamp >= lockEnd && lockEnd > 0) return; // can't increase expired
         if (currentAmount + amount > staking.maxStakePerUser()) return;
         if (staking.totalStaked() + amount > staking.maxTotalStaked()) return;
@@ -157,7 +162,7 @@ contract StakingHandler is Test {
         address user = _actor(actorSeed);
         uint256 tokenId = tokenIdOf[user];
         if (tokenId == 0) return;
-        (,,uint256 lockEnd,,,) = staking.getPosition(tokenId);
+        (,,uint256 lockEnd,,,) = monitor.getPosition(tokenId);
         if (block.timestamp < lockEnd) return; // lock not yet expired
         vm.prank(user);
         try staking.withdraw(tokenId) {

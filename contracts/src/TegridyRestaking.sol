@@ -11,6 +11,9 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
+// EIP-170 split (2026-05-30): pendingBase delegates to StakingMonitorView since
+// `earned(uint256)` moved off TegridyStaking into the read-only sister.
+import {StakingMonitorView} from "./StakingMonitorView.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {PauseGuardian} from "./base/PauseGuardian.sol";
 
@@ -105,6 +108,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     IERC20 public immutable bonusRewardToken;  // ETH (WETH) or any ERC20 for bonus
     ITegridyStaking public immutable staking;  // TegridyStaking contract
     IERC721 public immutable stakingNFT;       // tsTOWELI NFT (same address as staking)
+    StakingMonitorView public immutable monitor; // EIP-170 sister: earned(tokenId), etc.
 
     uint256 public bonusRewardPerSecond;
     uint256 public lastBonusRewardTime;
@@ -389,12 +393,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
         address _staking,
+        address _monitor,
         address _rewardToken,
         address _bonusRewardToken,
         uint256 _bonusRewardPerSecond
     ) OwnableNoRenounce(msg.sender) {
         // L-01: Zero-address validation for all constructor params
         if (_staking == address(0)) revert ZeroAddress();
+        if (_monitor == address(0)) revert ZeroAddress();
         if (_rewardToken == address(0)) revert ZeroAddress();
         if (_bonusRewardToken == address(0)) revert ZeroAddress();
         if (_rewardToken == _bonusRewardToken) revert RewardTokenMatchesBonusToken();
@@ -410,6 +416,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // documented "standard ERC-20 only" envelope).
         staking = ITegridyStaking(_staking);
         stakingNFT = IERC721(_staking); // TegridyStaking IS the ERC721
+        monitor = StakingMonitorView(_monitor);
         rewardToken = IERC20(_rewardToken);
         bonusRewardToken = IERC20(_bonusRewardToken);
 
@@ -541,7 +548,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (info.tokenId == 0) return 0;
-        return staking.earned(info.tokenId);
+        return monitor.earned(info.tokenId);
     }
 
     /// @notice AUDIT FIX 2026-05-26 [L-03]: sum of accruing bonus + deferred

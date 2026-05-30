@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
@@ -46,6 +47,7 @@ contract Audit195Restaking is Test {
     A195_MockJBAC jbac;
     A195_MockWETH weth;
     TegridyStaking staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
@@ -71,11 +73,13 @@ contract Audit195Restaking is Test {
             treasury,
             REWARD_RATE
         );
+        monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             BONUS_RATE
@@ -893,6 +897,7 @@ contract Audit195Restaking is Test {
         // Deploy restaking with high bonus rate (max constructor allows is 10e18) to exhaust pool
         TegridyRestaking highRate = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             10 ether // Max allowed rate by constructor

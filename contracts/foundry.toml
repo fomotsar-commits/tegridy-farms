@@ -10,15 +10,35 @@ optimizer = true
 # dropping runs (dropping runs to 1 only saved ~1.2KB and never brought
 # TegridyStaking under 24,576 — confirmed during the 2026-05-24 re-audit).
 #
-# TegridyStaking: brought under EIP-170 (24,505 B at runs=200, ~71 B headroom)
-#   by the C1 split — the read-only view/math cluster lives in
-#   src/lib/StakingViewLib.sol and the live reward-accounting cluster
-#   (_accumulateRewards / _getReward / kick / _settleRewardsOnTransfer /
-#   _settleUnsettled / claimUnsettled* / _afterTokenTransfer) lives in
-#   src/lib/StakingRewardLib.sol, both linked via delegatecall.
-# TegridyRestaking: still ~29.5 KB — DEFERRED to Phase 7 (removed from the MVP
-#   DeployMVP/VerifyMVP path). It MUST be split + deployed + wired before
-#   restaking opens; it is the only remaining contract over EIP-170.
+# MVP-path EIP-170 status (2026-05-30 re-split — the May 26-28 fix waves
+# re-inflated all three of TegridyStaking / TegridyFactory / SwapFeeRouter past the
+# 24,576-byte ceiling). Battle-tested approach: ZERO new custom marshalling code;
+# only (1) DRY refactors that DELETE duplicated patterns, (2) verbatim Solady
+# primitive swaps from billion-dollar protocols, (3) read-only sister contracts.
+#
+# TegridyStaking: 24,537 B (~39 B headroom — RAZOR-THIN, FROZEN for launch).
+#   ANY further growth must extract more to a lib or sister; do NOT consume buffer.
+#   - src/lib/StakingViewLib.sol: read-only views (votingPowerOf / aggregateActive
+#     BoostBps / earned / earnedFromMem) + resolveJbac JBAC-revalidation helper
+#     (2026-05-30 DRY split: was inline in 3 callsites). All `internal` so they
+#     inline rather than paying the per-callsite delegatecall wrapper.
+#   - src/lib/StakingRewardLib.sol: live reward-accounting cluster (May-24 C1).
+#   - src/StakingMonitorView.sol: read-only SISTER contract exposing the heaviest
+#     off-chain views (earned, getPosition, totalLocked, stakeCapUtilizationBps,
+#     stakeCapHeadroom). Forta / Defender / dashboards / indexers point at the
+#     sister address — zero off-chain breakage, zero protocol state.
+#   - Verbatim Solady swaps: SafeTransferLib (was OZ SafeERC20), EnumerableSetLib
+#     (was OZ EnumerableSet), SafeCastLib (was OZ SafeCast). All assembly-tight
+#     drop-ins used in production by Aerodrome, Uniswap V4 hooks, many others.
+# TegridyFactory: 12,133 B (~12,443 B headroom).
+#   - src/lib/TegridyFactoryLib.sol: ERC-777 detection + CREATE2 pair deployment
+#     (carries the ~11 KB type(TegridyPair).creationCode blob into the lib).
+# SwapFeeRouter: 21,392 B (~3,184 B headroom).
+#   - src/lib/SwapFeeRouterConvertLib.sol: TWAP-floor conversion cluster.
+#
+# TegridyRestaking: still ~31.3 KB — DEFERRED to Phase 7 (removed from the MVP
+#   DeployMVP/VerifyMVP path). MUST be split + deployed + wired before restaking
+#   opens; it is the only LIVE-on-mainnet candidate currently over EIP-170.
 #
 # If a future change pushes any LIVE-on-mainnet contract back over 24,576, the
 # right answer is to split that contract (extract to a linked library), NOT to

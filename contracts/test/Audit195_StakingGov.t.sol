@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
@@ -39,6 +40,7 @@ contract MockSafe195 {
 
 contract Audit195StakingGov is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin public admin;
     MockToken195 public token;
     MockNFT195 public nft;
@@ -64,6 +66,7 @@ contract Audit195StakingGov is Test {
         token = new MockToken195();
         nft = new MockNFT195();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -597,7 +600,7 @@ contract Audit195StakingGov is Test {
         vm.prank(bob);
         staking.transferFrom(bob, carol, tokenId);
 
-        (,,,,bool autoMaxLock,) = staking.getPosition(tokenId);
+        (,,,,bool autoMaxLock,) = monitor.getPosition(tokenId);
         assertFalse(autoMaxLock, "AutoMaxLock should be reset on transfer");
     }
 

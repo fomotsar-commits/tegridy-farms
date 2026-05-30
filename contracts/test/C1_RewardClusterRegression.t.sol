@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
@@ -85,6 +86,7 @@ contract C1RCTrackedHolder {
 
 contract C1RewardClusterRegressionTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin public admin;
     C1RCMockToken public token;
     C1RCMockNFT public nft;
@@ -107,6 +109,7 @@ contract C1RewardClusterRegressionTest is Test {
         token = new C1RCMockToken();
         nft = new C1RCMockNFT();
         staking = new TegridyStaking(address(token), address(nft), treasury, RATE);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -228,7 +231,7 @@ contract C1RewardClusterRegressionTest is Test {
         uint256 expectedAccDelta = (dt * RATE * ACC) / staking.totalBoostedStake();
         uint256 expectedEarned = (boosted * (rptBefore + expectedAccDelta)) / ACC
             - uint256(_debt(id));
-        assertEq(staking.earned(id), expectedEarned, "earned() must match closed-form exactly");
+        assertEq(monitor.earned(id), expectedEarned, "earned() must match closed-form exactly");
 
         // Trigger accrual via a no-stake notify (updateReward modifier) so we can
         // read the materialised rewardPerTokenStored AFTER accrual.
@@ -238,7 +241,7 @@ contract C1RewardClusterRegressionTest is Test {
             "rewardPerTokenStored advanced by EXACTLY reward*ACC/totalBoosted");
 
         // Fully-funded getReward pays EXACTLY earned at this instant (no extra dt).
-        uint256 pendingNow = staking.earned(id);
+        uint256 pendingNow = monitor.earned(id);
         uint256 balBefore = token.balanceOf(bob);
         vm.prank(bob);
         uint256 paid = staking.getReward(id);
@@ -251,7 +254,7 @@ contract C1RewardClusterRegressionTest is Test {
         (, uint256 boostedAfter, int256 debtAfter) = _pos(id);
         assertEq(debtAfter, int256((boostedAfter * staking.rewardPerTokenStored()) / ACC),
             "rewardDebt advanced to boosted*rpt/ACC");
-        assertEq(staking.earned(id), 0, "earned == 0 immediately after full claim");
+        assertEq(monitor.earned(id), 0, "earned == 0 immediately after full claim");
     }
 
     /// @notice Two stakers with DIFFERENT boosts split emission pro-rata by
@@ -280,8 +283,8 @@ contract C1RewardClusterRegressionTest is Test {
         uint256 expBob   = (bBoost * accDelta) / ACC;
         uint256 expCarol = (cBoost * accDelta) / ACC;
 
-        assertApproxEqAbs(staking.earned(bobId),   expBob,   1, "bob pro-rata share exact");
-        assertApproxEqAbs(staking.earned(carolId), expCarol, 1, "carol pro-rata share exact");
+        assertApproxEqAbs(monitor.earned(bobId),   expBob,   1, "bob pro-rata share exact");
+        assertApproxEqAbs(monitor.earned(carolId), expCarol, 1, "carol pro-rata share exact");
 
         // The two shares together equal the MATERIALISED accrual exactly
         // (total*accDelta/ACC). This is <= the ideal `emitted` by the ACC integer
@@ -289,7 +292,7 @@ contract C1RewardClusterRegressionTest is Test {
         // extraction-sensitive invariant (no value created or lost in the split).
         uint256 materialised = (total * accDelta) / ACC;
         assertApproxEqAbs(
-            staking.earned(bobId) + staking.earned(carolId), materialised, 1,
+            monitor.earned(bobId) + monitor.earned(carolId), materialised, 1,
             "shares sum to the materialised accrual within 1 wei"
         );
         // And the materialised accrual is never MORE than the ideal emission.
@@ -349,7 +352,7 @@ contract C1RewardClusterRegressionTest is Test {
         uint256 id = _stake(bob, 1_000_000 ether, 365 days);
 
         vm.warp(block.timestamp + 5000);
-        uint256 pending = staking.earned(id);
+        uint256 pending = monitor.earned(id);
         assertGt(pending, 0, "must have pending");
 
         // Pool comfortably exceeds pending.
@@ -384,7 +387,7 @@ contract C1RewardClusterRegressionTest is Test {
         // so it is locked in before we drain (otherwise _accumulateRewards, which
         // itself caps to the pool, would never accrue it and there'd be no shortfall).
         _fund(1_000 ether);
-        uint256 pending = staking.earned(id);
+        uint256 pending = monitor.earned(id);
         assertGt(pending, 1_000 ether, "pending must dwarf the leftover pool");
 
         // Leave only a thin pool so the pay is partial but non-zero.
@@ -445,7 +448,7 @@ contract C1RewardClusterRegressionTest is Test {
         // forfeits.
         vm.warp(block.timestamp + 200_000); // ~ huge pending given 5M @ 4x boost
         _fund(1_000 ether); // bake accrual at healthy pool
-        uint256 pending = staking.earned(id);
+        uint256 pending = monitor.earned(id);
 
         // Cap is 100_000e18; ensure pending - pool > cap so a forfeit is forced.
         uint256 cap = staking.maxUnsettledRewards();
@@ -506,7 +509,7 @@ contract C1RewardClusterRegressionTest is Test {
         // then diff = boosted*rpt/ACC - rewardDebt. With a healthy pool that
         // equals earned() captured at THIS block (earned()'s inline accrual term
         // matches the pool-capped _accumulateRewards exactly when funded).
-        uint256 owedAtKick = staking.earned(aliceId); // same block as the kick below
+        uint256 owedAtKick = monitor.earned(aliceId); // same block as the kick below
         assertGt(owedAtKick, 0, "alice has pre-expiry pending");
         assertLt(owedAtKick, staking.maxUnsettledRewards(), "owed fits under the raised cap");
 
@@ -552,7 +555,7 @@ contract C1RewardClusterRegressionTest is Test {
         _fund(1_000 ether); // bake accrual at healthy pool
         vm.warp(block.timestamp + 2 days + 1); // expire alice
 
-        uint256 pending = staking.earned(aliceId);
+        uint256 pending = monitor.earned(aliceId);
         uint256 cap = staking.maxUnsettledRewards();
         // Drain pool to a sliver; ensure pending - pool > cap so even the cap
         // can't absorb the shortfall => a forfeit WOULD occur => revert.
@@ -591,7 +594,7 @@ contract C1RewardClusterRegressionTest is Test {
         vm.warp(block.timestamp + 24 hours + 500);
 
         // Owed to alice at the transfer block (same block, no extra warp).
-        uint256 owedAlice = staking.earned(id);
+        uint256 owedAlice = monitor.earned(id);
         assertGt(owedAlice, 0, "alice accrued pending before transfer");
 
         // Pool healthy => the settle pays out via the unsettled mapping in full.
@@ -608,13 +611,13 @@ contract C1RewardClusterRegressionTest is Test {
         (, uint256 boosted, int256 debt) = _pos(id);
         assertEq(debt, int256((boosted * staking.rewardPerTokenStored()) / ACC),
             "new owner rewardDebt == boosted*rpt/ACC");
-        assertEq(staking.earned(id), 0, "new owner starts at zero pending");
+        assertEq(monitor.earned(id), 0, "new owner starts at zero pending");
 
         // Clean hand-off: after more time, ALL new accrual is bob's; alice's
         // claimable (her settled bucket) is unchanged by bob's accrual.
         uint256 aliceBucket = staking.unsettledRewards(alice);
         vm.warp(block.timestamp + 1000);
-        assertGt(staking.earned(id), 0, "bob accrues after transfer");
+        assertGt(monitor.earned(id), 0, "bob accrues after transfer");
         assertEq(staking.unsettledRewards(alice), aliceBucket,
             "alice's settled bucket untouched by bob's post-transfer accrual");
     }
@@ -631,7 +634,7 @@ contract C1RewardClusterRegressionTest is Test {
 
         vm.warp(block.timestamp + 24 hours + 50_000); // cooldown cleared + accrual
         _fund(1_000 ether); // bake accrual at healthy pool
-        uint256 owedAlice = staking.earned(id);
+        uint256 owedAlice = monitor.earned(id);
         assertGt(owedAlice, 1_000 ether, "owed dwarfs the leftover pool");
 
         // Thin pool => transfer settle can only partially cover; the rest books
@@ -706,7 +709,7 @@ contract C1RewardClusterRegressionTest is Test {
 
         vm.warp(block.timestamp + 50_000);
         _fund(1_000 ether); // bake accrual
-        uint256 pending = staking.earned(id);
+        uint256 pending = monitor.earned(id);
 
         // Drain so getReward books a big shortfall to unsettled[alice].
         _drainPoolTo(0);

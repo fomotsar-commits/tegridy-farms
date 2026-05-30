@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import "../src/TegridyRestaking.sol";
@@ -54,6 +55,7 @@ contract TegridyRestakingTest is Test {
     MockJBAC jbac;
     MockWETH weth;
     TegridyStaking staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyStakingJbacVault vault; // AUDIT FIX (pass-8 batch-14)
     TegridyRestaking restaking;
@@ -82,6 +84,7 @@ contract TegridyRestakingTest is Test {
             treasury,
             REWARD_RATE
         );
+        monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
         // AUDIT FIX (pass-8 batch-14): JBAC vault sister (state-var so other tests can read).
@@ -90,6 +93,7 @@ contract TegridyRestakingTest is Test {
 
         restaking = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             BONUS_RATE
