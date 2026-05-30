@@ -987,7 +987,17 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         uint256 K = toweliReserve * ethReserve;
         // AUDIT FIX D-POL-M1: use toweliUnit consistent with the consult quote.
-        uint256 fairToweli = Math.sqrt((K * toweliUnit) / twapEthPer1eToweli);
+        // AUDIT FIX FRESH-2026 [M-POL-MULDIV-OVERFLOW]: route through
+        // Math.mulDiv (512-bit intermediate) so `K * toweliUnit` cannot trip
+        // the Solidity-0.8 checked-math overflow on high-decimal token
+        // redeploys. With uint112 reserves at theoretical max (~5.19e33)
+        // and toweliUnit at 18-decimal default (1e18), `K * toweliUnit`
+        // reaches ~2.7e85 — over uint256.max (~1.16e77). At realistic
+        // mainnet reserves this never trips, but a forward-compat redeploy
+        // to >18-decimal token + deep pool would silently DoS executeHarvestLP
+        // with Panic(0x11). Pattern matches Uniswap V3 FullMath usage in
+        // OracleLibrary consumers.
+        uint256 fairToweli = Math.sqrt(Math.mulDiv(K, toweliUnit, twapEthPer1eToweli));
         if (fairToweli == 0) revert OracleStale();
         // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
         // slither-disable-next-line divide-before-multiply

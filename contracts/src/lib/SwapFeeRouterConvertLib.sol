@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SequencerCheck} from "./SequencerCheck.sol";
 import {IWETH} from "./WETHFallbackLib.sol";
 
@@ -529,9 +530,17 @@ library SwapFeeRouterConvertLib {
         unchecked {
             priceDiff = currentCum - prev.cumulative;
         }
-        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
-        // slither-disable-next-line divide-before-multiply
-        uint256 twapEthOut = (amountIn * priceDiff) / (uint256(elapsed) * Q112_SFR);
+        // AUDIT FIX FRESH-2026 [M-SFRCL-MULDIV-OVERFLOW]: route through
+        // Math.mulDiv (512-bit intermediate) to handle high-price tokens.
+        // Pre-fix `(amountIn * priceDiff) / (uint64(elapsed) * Q112)` used
+        // Solidity 0.8 checked math — for tokens with high WETH-relative
+        // reserve ratio (e.g. WBTC, low-supply ERC20s), `priceDiff = spot *
+        // elapsed_seconds` can reach 1e46+ and the numerator approaches/
+        // exceeds uint256.max (~1.16e77), triggering Panic(0x11) that DoS's
+        // owner-only multi-hop conversions silently from off-chain ops view.
+        // Pattern of record: Uniswap V3 OracleLibrary + UniswapV2-OracleLibrary
+        // consumers (FullMath.mulDiv) use this exact 512-bit pattern.
+        uint256 twapEthOut = Math.mulDiv(amountIn, priceDiff, uint256(elapsed) * Q112_SFR);
         // Apply 1.5% safety margin — caller cannot relax below this floor.
         uint256 twapMin = (twapEthOut * (BPS - TWAP_SAFETY_BPS)) / BPS;
 

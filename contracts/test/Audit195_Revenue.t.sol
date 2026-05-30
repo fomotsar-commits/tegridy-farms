@@ -618,23 +618,26 @@ contract Audit195Revenue is Test {
     // ═══════════════════════════════════════════════════════════════════════
 
     function test_emergencySweepToken() public {
+        // FRESH-2026 TEST REALIGN [M-REV-TOKEN-SWEEP-DEST]: destination is now
+        // hard-pinned to `treasury` (no `to` parameter). Mirror of SwapFeeRouter
+        // executeSweepETH M2 fix. Captured-key blast radius narrowed from
+        // arbitrary-recipient drain to treasury-only routing.
         MockERC20_195 token = new MockERC20_195();
         token.transfer(address(dist), 1000e18);
 
-        address recipient = makeAddr("recipient");
-        dist.proposeTokenSweep(address(token), recipient);
+        uint256 treasuryBefore = token.balanceOf(treasury);
+        dist.proposeTokenSweep(address(token));
         vm.warp(block.timestamp + 48 hours);
         dist.executeTokenSweep();
-        assertEq(token.balanceOf(recipient), 1000e18);
+        assertEq(token.balanceOf(treasury) - treasuryBefore, 1000e18);
     }
 
     function test_emergencySweepToken_zero_address() public {
-        MockERC20_195 token = new MockERC20_195();
+        // FRESH-2026 TEST REALIGN [M-REV-TOKEN-SWEEP-DEST]: only the `token`
+        // parameter remains (destination is treasury). The prior
+        // `to == address(0)` rejection branch is no longer reachable.
         vm.expectRevert(RevenueDistributor.ZeroAddress.selector);
-        dist.proposeTokenSweep(address(0), makeAddr("x"));
-
-        vm.expectRevert(RevenueDistributor.ZeroAddress.selector);
-        dist.proposeTokenSweep(address(token), address(0));
+        dist.proposeTokenSweep(address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

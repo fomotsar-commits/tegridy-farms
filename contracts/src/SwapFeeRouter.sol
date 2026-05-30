@@ -1309,7 +1309,23 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     }
 
     /// @notice Apply a premium-access registry change. address(0) disables the discount.
+    /// @dev AUDIT FIX FRESH-2026 [M-SFR-PREMIUM-ACCESS-CODELEN]: validate the new
+    ///      registry is a CONTRACT (codeLen > 0 && codeLen != 23) — mirror of
+    ///      sister setters `setSwapFeeRouterAdmin` (L1078), `applyReferralSplitter`
+    ///      (L1238), `setSequencerFeed` (L519). Pre-fix `applyPremiumAccess`
+    ///      accepted arbitrary addresses with no check; after Pectra, an EOA
+    ///      with a 7702 delegation could return ANY value from
+    ///      `hasPremiumSecure(user)` — including conditioning the return on
+    ///      caller identity, granting up to MAX_PREMIUM_DISCOUNT_BPS fee
+    ///      discount to attacker-controlled addresses while honest users still
+    ///      pay full fees (silent metric-positive griefing). Length-23 carve-
+    ///      out rejects 7702-delegated EOAs (`0xef0100‖addr`); address(0)
+    ///      remains the explicit disable path.
     function applyPremiumAccess(address _newAccess) external onlyAdmin {
+        if (_newAccess != address(0)) {
+            uint256 codeLen = _newAccess.code.length;
+            require(codeLen > 0 && codeLen != 23, "PREMIUM_ACCESS_NOT_CONTRACT");
+        }
         address old = address(premiumAccess);
         premiumAccess = IPremiumAccess(_newAccess);
         emit PremiumAccessUpdated(old, _newAccess);

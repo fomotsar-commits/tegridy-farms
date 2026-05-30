@@ -1067,25 +1067,30 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     }
 
     /// @notice Propose sweeping ERC-20 tokens (timelocked 48h).
+    /// @dev AUDIT FIX FRESH-2026 [M-REV-TOKEN-SWEEP-DEST]: destination is HARD-PINNED
+    ///      to `treasury` at execute time (mirrors sister fix in
+    ///      SwapFeeRouter.executeSweepETH after AUDIT 2026-05-16 M2). Pre-fix the
+    ///      `to` parameter accepted any address — widening the captured-key blast
+    ///      radius from "tokens stuck in protocol" to "tokens drained to attacker"
+    ///      via 48h-timelocked sweep. Treasury is itself timelock-rotatable via
+    ///      `proposeTreasuryChange`, so a captured key cannot rotate treasury AND
+    ///      sweep tokens in less than 48h + 48h windows (both observable on-chain).
     uint256 public constant TOKEN_SWEEP_DELAY = 48 hours;
     address public pendingSweepToken;
-    address public pendingSweepTo;
 
-    event TokenSweepProposed(address indexed token, address indexed to, uint256 readyAt);
+    event TokenSweepProposed(address indexed token, uint256 readyAt);
     event TokenSweepCancelled(address indexed token);
 
-    function proposeTokenSweep(address token, address to) external onlyOwner {
+    function proposeTokenSweep(address token) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
-        if (to == address(0)) revert ZeroAddress();
         // AUDIT FIX F-13-4 (INFO): fail fast at propose time so admins do not
         // burn a 48h timelock on a doomed proposal that the execute-time deny
         // would revert anyway. See `executeTokenSweep` below for the full
         // rationale on why WETH must be excluded.
         if (token == address(weth)) revert TokenSweepWETHDenied();
         pendingSweepToken = token;
-        pendingSweepTo = to;
         _propose(TOKEN_SWEEP, TOKEN_SWEEP_DELAY);
-        emit TokenSweepProposed(token, to, _executeAfter[TOKEN_SWEEP]);
+        emit TokenSweepProposed(token, _executeAfter[TOKEN_SWEEP]);
     }
 
     /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
@@ -1093,9 +1098,7 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function executeTokenSweep() external onlyOwner whenNotPaused {
         _execute(TOKEN_SWEEP);
         address token = pendingSweepToken;
-        address to = pendingSweepTo;
         pendingSweepToken = address(0);
-        pendingSweepTo = address(0);
         // AUDIT FIX F-13-4 (INFO): explicit deny-list for the canonical WETH.
         // The WETHFallbackLib's wrap-on-fail leaves WETH ERC20 inside this
         // contract whenever a 10k-stipend ETH push fails (e.g., a contract
@@ -1106,6 +1109,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // Mirror lib-side wrap recovery is via the existing claim/withdraw
         // mechanics; admin-side sweep MUST exclude WETH.
         if (token == address(weth)) revert TokenSweepWETHDenied();
+        // AUDIT FIX FRESH-2026 [M-REV-TOKEN-SWEEP-DEST]: destination forced to
+        // treasury — see proposeTokenSweep dev note.
+        address to = treasury;
         uint256 balance = IERC20(token).balanceOf(address(this));
         require(balance > 0, "NO_TOKEN_BALANCE");
         IERC20(token).safeTransfer(to, balance);
@@ -1116,7 +1122,6 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         _cancel(TOKEN_SWEEP);
         address token = pendingSweepToken;
         pendingSweepToken = address(0);
-        pendingSweepTo = address(0);
         emit TokenSweepCancelled(token);
     }
 
@@ -1935,7 +1940,6 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             address token = pendingSweepToken;
             _cancel(TOKEN_SWEEP);
             pendingSweepToken = address(0);
-            pendingSweepTo = address(0);
             emit TokenSweepCancelled(token);
         }
         if (_executeAfter[FORFEIT_RECLAIM] != 0) {
