@@ -467,7 +467,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             uint256 reward = elapsed * bonusRewardPerSecond;
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                available = bal;
+                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: subtract the
+                // already-committed `totalUnforwardedBonus` (deferred-payout
+                // debt sitting in `unforwardedBonusRewards[user]` queues from
+                // prior failed bonus-token transfers) BEFORE using the on-hand
+                // balance as the accrual cap. Pre-fix the cap conflated
+                // uncommitted pool liquidity with already-owed debt, letting
+                // fresh emission shares be minted into `accBonusPerShare`
+                // backed by funds already promised to deferred-payout users.
+                // Pattern of record: SushiSwap MasterChefV2 / Curve gauge
+                // factories track "queued debt" separately from "claimable
+                // pool" — emission flows against the uncommitted slice only.
+                // Honest restakers' bonus values then stay claimable in full
+                // and deferred-payout users (Carol after blacklist lift) are
+                // not silently shortchanged by Bob's normal claim runs.
+                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
             } catch {
                 available = 0;
             }
@@ -524,7 +538,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // slither-disable-next-line uninitialized-local
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                available = bal;
+                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: view-side
+                // mirror of the updateBonus cap fix — subtract deferred-payout
+                // debt from the cap so the view shows the same number a
+                // mutator-side accrual would actually credit. Avoids
+                // frontend/indexer drift relative to on-chain accrual.
+                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
             } catch {
                 available = 0;
             }
@@ -1679,6 +1698,23 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         address (e.g. the new NFT owner) to retarget the claim.
     function proposeClearResidualClaimant(uint256 tokenId, address newClaimant) external onlyOwner {
         if (_residualClaimant[tokenId] == address(0)) revert BadParam();
+        // AUDIT FIX FRESH-2026 [H-RESTAKE-CLEAR-ABANDONS-RESIDUE]: reject the
+        // `newClaimant == address(0)` "fully abandon" path. Pre-fix, executing
+        // with newClaimant=0 would `delete _residualClaimant[tokenId]` while
+        // leaving the staking-side `unsettledRewardsByTokenId[tokenId]`
+        // residue UNCLAIMED. The next restaker of that NFT would then trigger
+        // `claimUnsettledForTokenId(tokenId, newRestaker)` on the next
+        // unrestake, silently inheriting the abandoned lost-key user's
+        // residue. Owner intent ("clear the local claim") quietly leaked
+        // those funds to a third party.
+        //
+        // Fix (option b from finding): force owner to nominate a successor.
+        // If no clear successor exists, the original `_residualClaimant`
+        // stays in place; the lost-key user's residue remains stuck (no
+        // worse than the pre-fix state) but no one else can siphon it. The
+        // legitimate claimant retains the self-help path via
+        // `waiveResidualClaim` (L1681-1685) if they ever recover their key.
+        if (newClaimant == address(0)) revert ZeroAddress();
         // AUDIT FIX 2026-05-26 [M-03]: reject when a proposal is already pending.
         // Pre-fix, a captured-key owner could spam re-proposals to keep resetting
         // the 7-day executeAfter clock; multisig would have to cancel each one.
@@ -2749,7 +2785,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // slither-disable-next-line uninitialized-local
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                available = bal;
+                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: sibling-port
+                // of the updateBonus modifier cap fix — see L468-489 for full
+                // rationale. _accrueBonus is the stale-path settlement helper
+                // called by claimAll / unrestake / refreshPosition / etc; it
+                // must apply the same uncommitted-pool cap as the modifier.
+                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
             } catch {
                 available = 0;
             }
@@ -2855,6 +2896,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             _cancel(RESCUE_NFT_CHANGE);
             delete pendingRescueNFT;
             emit RescueNFTCancelled(tid);
+        }
+        // AUDIT FIX FRESH-2026 [H-RESTAKE-ACCEPT-OWNERSHIP-SWEEP-STUCK]: cancel
+        // any pending `SWEEP_STUCK_CHANGE` proposal on owner handoff. Pre-fix
+        // the override only swept 3 of the 4 TimelockAdmin keys; an outgoing
+        // owner could pre-queue `proposeSweepStuckRewards(arbitraryToken)`
+        // immediately before transferOwnership, and the new owner would
+        // inherit a live timelock. The execute destination IS hard-pinned to
+        // `address(staking)` (L1870), but the new owner's first inadvertent
+        // execute would still move tokens out of the restaking contract that
+        // the new owner may have NOT intended to relocate. Sweep here for
+        // parity with the BONUS_RATE / ATTRIBUTION / RESCUE_NFT clears.
+        if (_executeAfter[SWEEP_STUCK_CHANGE] != 0) {
+            address cancelledToken = pendingSweepStuckToken;
+            pendingSweepStuckToken = address(0);
+            _cancel(SWEEP_STUCK_CHANGE);
+            emit SweepStuckCancelled(cancelledToken);
         }
     }
 }
