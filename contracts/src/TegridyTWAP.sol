@@ -802,10 +802,25 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // AUDIT FIX L5: track whether THIS observation's bypass was FORCED by an
         // outage / bridging-gap trip (the permissionless path) so the honest
         // deviation baseline can be preserved below.
-        bool forcedBypass;
-        if (!bypassed && (bridgingGapTrip || sequencerOutage)) {
+        //
+        // AUDIT FIX FRESH-2026 [H-TWAP-COMBINED-DORMANCY-OUTAGE]: compute
+        // `forcedBypass` UNCONDITIONALLY (decoupled from `bypassed`). The
+        // prior `if (!bypassed && ...)` guard meant the flag was only set
+        // when no other branch had already raised `bypassed` — but the
+        // dormancy-bypass branch (count>2 + elapsed>DEVIATION_BYPASS_AFTER)
+        // pre-empts that condition. In the combined case (dormancy + outage
+        // or dormancy + multi-MAX_BRIDGING_GAP idle), `forcedBypass` stayed
+        // false, and the L5 lastSpot-write gate at L863 (`!forcedBypass &&
+        // count > 2`) silently admitted writes from frozen/unrefreshed
+        // reserves — violating the L5 invariant comment immediately below.
+        // Decoupled computation closes the combined-event case while
+        // preserving all single-event semantics: bypassed is OR'd from
+        // both sources; forcedBypass is a pure function of the
+        // outage/bridging trips and reflects the physical untrustworthiness
+        // of the spot regardless of which branch raised bypassed.
+        bool forcedBypass = (bridgingGapTrip || sequencerOutage);
+        if (forcedBypass && !bypassed) {
             bypassed = true;
-            forcedBypass = true;
             lastBypassUsed[pair] = block.timestamp;
             uint32 elapsedForEvent;
             unchecked {

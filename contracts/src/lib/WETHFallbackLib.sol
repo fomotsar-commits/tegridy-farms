@@ -37,8 +37,7 @@ library WETHFallbackLib {
 
     // ─── AUDIT FIX FRESH-2026: M-36 [F-40-WFL-1] — stipend constant ────────
     /// @notice AUDIT FIX FRESH-2026: M-36 [F-40-WFL-1] — gas stipend for the
-    ///         raw ETH `.call` leg of `safeTransferETHOrWrap` /
-    ///         `safeTransferETHOrWrapNoRevert` / `safeTransferETH`.
+    ///         raw ETH `.call` leg of `safeTransferETHOrWrap` / `safeTransferETH`.
     ///         Bumped from 10_000 → 30_000 to accommodate the cold-storage
     ///         SSTORE pattern at first-ingress sites (RevenueDistributor /
     ///         SwapFeeRouter / POLAccumulator `receive()` updates a cumulative

@@ -226,11 +226,11 @@ The directory holds **30 root `.sol` files** at HEAD, broken down as:
   - `SwapFeeRouter` ↔ `SwapFeeRouterAdmin`
   - `VoteIncentives` ↔ `VoteIncentivesAdmin`
 
-Plus **6 utility files** outside `src/` root:
-- `contracts/src/base/` (2 files) — `OwnableNoRenounce`, `TimelockAdmin`
-- `contracts/src/lib/` (4 files) — `SafeERC721Call`, `SequencerCheck`, `VotePowerOracle`, `WETHFallbackLib`
+Plus **10 utility files** outside `src/` root:
+- `contracts/src/base/` (3 files) — `OwnableNoRenounce`, `PauseGuardian`, `TimelockAdmin`
+- `contracts/src/lib/` (7 files) — `SequencerCheck`, `StakingRewardLib`, `StakingViewLib`, `SwapFeeRouterConvertLib`, `TegridyFactoryLib`, `VotePowerOracle`, `WETHFallbackLib`
 
-Math: **25 primitives + 5 sisters = 30 root files**, + 6 utility files = **36 `.sol` files total** under `contracts/src/**`.
+Math: **25 primitives + 5 sisters = 30 root files**, + 10 utility files = **40 `.sol` files total** under `contracts/src/**`.
 
 **No V1 duplicates remain.** `TegridyDrop.sol` (V1) and `TegridyLaunchpad.sol` (V1) source files were **deleted 2026-04-19** per the scope decision in `memory/project_scope_decision.md` — only the V2 contracts ship. The deployed V1 clones still live on-chain at their original addresses, but the source is gone and no new V1 deploys are possible. See the "Governance & launchpad" section in [Deployed contracts](#deployed-contracts-ethereum-mainnet) for the legacy address reference.
 
