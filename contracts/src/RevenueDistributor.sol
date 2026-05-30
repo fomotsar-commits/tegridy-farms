@@ -330,6 +330,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         ABI break or new revert path). Lets ops dashboards distinguish
     ///         "staking contract is broken" from "no stakers" / "amount too small".
     error StakingTotalBoostedStakeFailed();
+    /// @dev AUDIT FIX FRESH-2026 [H-REV-GENESIS-RACE]: genesis-block grief where every
+    ///      stake happened in the current block. See `_distribute` for full rationale.
+    error GenesisEpochUnsettled();
     /// @notice AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): paginated-form callers must
     ///         supply a window no larger than `MAX_RECLAIM_PAGE_SIZE` (250).
     error ReclaimPageSizeExceeded();
@@ -492,33 +495,46 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
         // slither-disable-next-line uninitialized-local
         uint256 locked;
+        bool histCallSucceeded;
         try votingEscrow.totalBoostedStakeAtTimestamp(snapshotTime) returns (uint256 hist) {
             locked = hist;
+            histCallSucceeded = true;
         } catch {
-            locked = 0;
+            histCallSucceeded = false;
         }
-        // If the historical checkpoint reads 0 (no checkpoint at or before T-1), fall back
-        // to the live value so the very first distribution after a fresh deploy doesn't
-        // brick. The live value also serves as the floor when the upgraded staking
-        // contract hasn't yet been wired in.
+
+        // AUDIT FIX FRESH-2026 [H-REV-GENESIS-RACE]: split the prior "fall back to live on 0"
+        // path into two distinct semantics:
         //
-        // AUDIT FIX F-12-K-4 (LOW / liveness): wrap the live-fallback in try/catch
-        // mirroring the historical lookup above. Without this, a future staking-side
-        // ABI break or new revert path on `totalBoostedStake()` would brick
-        // distribution permanently (votingEscrow is immutable). With the try/catch,
-        // a broken live read surfaces as a typed `StakingTotalBoostedStakeFailed`
-        // error instead of an opaque cascade — keeper and ops dashboards can detect
-        // and trigger the staking-contract recovery path immediately.
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (locked == 0) {
+        //   (a) hist CALL SUCCEEDED, value is 0
+        //       → genuine zero at T-1. Combined with the entry guards (L428 / L449
+        //         enforcing `totalBoostedStake() >= MIN_DISTRIBUTE_STAKE = 1000e18`),
+        //         this is mathematically reachable ONLY when every settled stake
+        //         happened in THE CURRENT BLOCK (genesis-grief / bootstrap race).
+        //         If we fell back to live here, the denominator would include
+        //         those same-block stakes BUT every per-user
+        //         `votingPowerAtTimestamp(user, T-1)` read in `_calculateClaim`
+        //         would return 0 — the entire epoch's revenue would forfeit to
+        //         auto-reconcile (180d) until an owner `executeForfeitReclaim`.
+        //         Revert and force the keeper to retry one block later when the
+        //         T-1 checkpoint is settled. Pattern of record: Curve
+        //         FeeDistributor's `time_cursor` advance refuses to act on
+        //         genesis-empty windows for the same reason.
+        //
+        //   (b) hist CALL REVERTED (future staking-side ABI break)
+        //       → preserve the F-12-K-4 liveness-fallback verbatim. votingEscrow
+        //         is immutable, so a future ABI break would brick distribution
+        //         permanently without this catch.
+        if (histCallSucceeded) {
+            if (locked == 0) revert GenesisEpochUnsettled();
+        } else {
             try votingEscrow.totalBoostedStake() returns (uint256 live) {
                 locked = live;
             } catch {
                 revert StakingTotalBoostedStakeFailed();
             }
+            if (locked == 0) revert NoLockedTokens();
         }
-        if (locked == 0) revert NoLockedTokens();
 
         epochs.push(Epoch({
             totalETH: newETH,
