@@ -2398,7 +2398,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Pre-fix sequence: stakingNFT.safeTransferFrom → staking-side _afterTokenTransfer
         // adds tokenId to _positionsByOwner[restaker] and writes a vote checkpoint at T,
         // so staking.votingPowerOf(restaker) returns boostedAmount. The recipient's
-        // onERC721Received callback can then read VotePowerOracle.powerOf(restaker)
+        // onERC721Received callback can then read VotePowerOracle.powerOfLiveUnsafe(restaker)
         // which sums staking + restaking. Because restakers[restaker].boostedAmount
         // was STILL set at this moment (deletion was after the transfer), the read
         // returned 2X — letting a malicious-recipient contract vote with double

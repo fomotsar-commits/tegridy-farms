@@ -821,28 +821,36 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // (first in the queue) pin a manipulated baseline and brick honest updates via
         // the deviation gate until the dormancy/admin-reset path heals.
         //
-        // AUDIT FIX FRESH-2026 [H-TWAP-BYPASS-LASTSPOT]: extend the no-write rule
-        // to ALL bypass observations (bootstrap, count<=2 grace, dormancy-bypass)
-        // — not just the forced-bypass class. Pre-fix the owner-only bypass paths
-        // (count==0, count<=2, DEVIATION_BYPASS_AFTER) all wrote `lastSpot{0,1}`
-        // from CURRENT spot, which an attacker can pre-position via reserve tilt
-        // before the owner's bootstrap tx lands. Even though the OBSERVATION's
-        // cumulative is honest (pair's `price{0,1}CumulativeLast` integrates
-        // pre-attack prices up to the last pair touch, plus a bridging term that
-        // is forced-bypassed past MAX_BRIDGING_GAP), the DEVIATION BASELINE was
-        // poisoned, letting subsequent honest observations trip
-        // `PriceDeviationTooLarge` against the attacker-pinned baseline. By
-        // refusing the write whenever `bypassed=true`, the next deviation-gated
-        // observation (the first non-bypass landing) seeds the baseline from
-        // organic mid-stream reserves — closing the bootstrap-sandwich attack
-        // without regressing the dormancy-recovery semantic (the next non-bypass
-        // observation after dormancy still establishes the new baseline). The
-        // residual `bypassed=false` path is still gated by the
-        // MAX_DEVIATION_BPS = 20% per-observation step, which bounds the
-        // multi-block grind-attack to 20% bend per MIN_PERIOD = 15min slot.
-        // Pattern of record: Uniswap V3's observation.tick is sourced from the
-        // last accepted swap in the block, never from a bypass-class snapshot.
-        if (!bypassed) {
+        // AUDIT FIX FRESH-2026 [H-TWAP-BYPASS-LASTSPOT] (REVISED): the
+        // earlier `!bypassed` gate over-restricted writes — closing the
+        // bootstrap-sandwich attack at count<=2 but ALSO blocking the
+        // dormancy-bypass branch (count>2 + elapsed>DEVIATION_BYPASS_AFTER)
+        // from reseeding `lastSpot`. After a legitimate dormancy-bypass, the
+        // pre-dormancy `lastSpot` is by definition stale (real market price
+        // has drifted >20% during the dormant window — that's exactly why
+        // owner invoked the bypass), so the next deviation-gated observation
+        // would compare current honest spot to stale lastSpot, trip
+        // `PriceDeviationTooLarge`, and require the 24h `proposeAdminResetPair`
+        // path to recover. Revised gate: refuse the write only on the
+        // bootstrap-and-grace paths (count<=2) AND on the forced-bypass
+        // (outage/bridging-gap) path; ALLOW the write on the dormancy-bypass
+        // and honest paths (both count>2). Justifications by branch:
+        //   - count<=2 (bootstrap + grace): owner-only, but sandwichable
+        //     across multi-block grind; refusing the write closes that surface.
+        //   - count>2 + dormancy-bypass: owner-only, fires only after >1day
+        //     of dormancy; reseeding is REQUIRED for recovery (this is the
+        //     branch's entire purpose). Manipulation cost is the inventory
+        //     carry across 1+ day of dormancy, far higher than the bootstrap
+        //     case. The bypass observation itself is consult-side rejected
+        //     via `best.bypassed`, so a manipulated reseed only affects the
+        //     deviation-gate baseline (bounded next-step bend at 20%).
+        //   - forcedBypass: spot is from frozen/unrefreshed reserves under
+        //     outage/long-bridging; refusing the write is the L5 invariant.
+        //   - count>2 honest: unchanged write-through.
+        // Pattern of record: Uniswap V3's observation.tick is sourced from
+        // the last accepted swap in the block — symmetric here for the honest
+        // and dormancy-recovery paths.
+        if (!forcedBypass && count > 2) {
             lastSpot0[pair] = spotPrice0;
             lastSpot1[pair] = spotPrice1;
         }

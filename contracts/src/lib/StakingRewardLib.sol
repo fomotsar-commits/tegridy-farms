@@ -437,37 +437,38 @@ library StakingRewardLib {
                 // forfeiting it. After decay, boostedAmount==0 makes the slot inert and
                 // the residual permanently inaccessible via the normal getReward path.
                 //
-                // AUDIT FIX FRESH-2026 [H-STAKING-EXPIRY-CAP-BYPASS]: route the
-                // expiry residual THROUGH `_settleUnsettled` instead of inlining
-                // the direct write. Pre-fix the inline `unsettledRewards[recipient]
-                // += forfeited; rs.totalUnsettledRewards += forfeited;` bypassed
-                // the `cfg.maxUnsettledRewards` guardrail — letting a sequence of
-                // expiring positions with under-pool emissions inflate the global
-                // unsettled bucket past its designed cap. The cap exists as the
-                // protocol-debt guardrail (operator commits to backfill at most
-                // this much unbacked debt); bypassing it could leave the
-                // unsettled bucket unredeemable when the operator's backfill
-                // capacity is exceeded. The cap-respecting helper applies the
-                // unsettled-room math identically to the normal-path settle at
-                // L428, preserving the [M5] residual-access intent within the
-                // designed bound. Portion that doesn't fit the cap surfaces as
-                // a true `RewardsForfeited` event — observable, not silent.
-                // Pattern of record: Curve / Aave both respect their debt-cap
-                // guardrails on the expire/decay path.
+                // FRESH-2026 REVERT [H-STAKING-EXPIRY-CAP-BYPASS]: the prior
+                // attempt to route the expiry residual through `_settleUnsettled`
+                // for cap-respect was REVERTED after a post-fix audit pass found
+                // it was structurally dead code AND regressed the documented [M5]
+                // intent. Mechanism: `forfeited > 0` only fires when the FIRST
+                // `_settleUnsettled` call at L428 cap-saturated, which means
+                // `rs.totalUnsettledRewards == cfg.maxUnsettledRewards`. The
+                // would-be SECOND `_settleUnsettled` call then computes
+                // `unsettledRoom = maxCap - maxCap = 0`, so the helper returns
+                // `forceSettled = 0` for any non-zero `forfeited` — making the
+                // entire expiry branch semantically identical to the `else`
+                // (pure forfeit) branch. Combined with host-side
+                // `_decayIfExpired` zeroing `boostedAmount` after the lib
+                // returns and the L349 `if (p.boostedAmount == 0) return (0,
+                // rs);` short-circuit, the cap-blocked tail became permanently
+                // unrecoverable — exactly the failure mode [M5] was designed
+                // to prevent. The cap bypass is INTENTIONAL: it tracks
+                // already-earned tokens, and `maxUnsettledRewards` is a
+                // flow-control guard, NOT a loss gate. Pattern of record:
+                // Synthetix "no silent forfeiture" — the operator commits to
+                // backfilling earned-but-unbacked debt; bounded cap inflation
+                // on the expire path is the accepted operational surface.
+                // Sister `kick` path (L597-668) maintains the same property
+                // via the `KickWouldForfeit` revert, preserving symmetry.
                 if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) {
-                    uint256 forceSettled;
-                    (rs, forceSettled) = _settleUnsettled(rs, unsettledRewards, recipient, forfeited, cfg.maxUnsettledRewards);
-                    if (forceSettled > 0) {
-                        emit RewardSettledToUnsettled(recipient, tokenId, forceSettled);
-                        if (_isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
-                            unsettledRewardsByTokenId[tokenId] += forceSettled;
-                        }
-                        totalCredited += forceSettled;
+                    unsettledRewards[recipient] += forfeited;
+                    rs.totalUnsettledRewards += forfeited;
+                    emit RewardSettledToUnsettled(recipient, tokenId, forfeited);
+                    if (_isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
+                        unsettledRewardsByTokenId[tokenId] += forfeited;
                     }
-                    // Cap-blocked tail becomes a true forfeit (observable).
-                    if (forceSettled < forfeited) {
-                        emit RewardsForfeited(recipient, forfeited - forceSettled);
-                    }
+                    totalCredited += forfeited;
                 } else {
                     emit RewardsForfeited(recipient, forfeited);
                 }
