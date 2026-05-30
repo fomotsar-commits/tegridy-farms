@@ -436,29 +436,70 @@ contract RedTeamStaking is Test {
     // 6. EXPLOIT THE NFT TRANSFER MECHANISM
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice DEFENDED: NFT transfer settles rewards to previous owner, new owner cannot steal accrued rewards
+    /// @notice DEFENDED: NFT transfer settles rewards to previous owner.
+    /// @dev    2026-05-30 realignment for L-15 semantics. The pre-L-15 invariant was
+    ///         "after transfer, earned(tokenId) returns ~0" (settle reset the position's
+    ///         rewardDebt to the full accrual). L-15 (2026-05-26) deliberately changed
+    ///         settleRewardsOnTransfer to advance rewardDebt by ONLY `totalCredited`
+    ///         when the reward pool is under-funded — the uncredited slice remains
+    ///         recoverable on the position rather than being silently forfeited.
+    ///
+    ///         What "DEFENDED" actually requires: NO DOUBLE-SPEND across the transfer.
+    ///         The Synthetix-style principal-recoverable invariant
+    ///         (`balance >= totalStaked + totalUnsettledRewards`) must hold both before
+    ///         AND after the transfer, and `rewardDebt` accounting must remain
+    ///         consistent so the contract cannot pay out more than the pool covers.
     function test_DEFENDED_nftTransferSettlesRewards() public {
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 30 days);
         vm.warp(block.timestamp + 7 days);
 
-        // Bob's pending rewards before transfer
-        uint256 bobPendingBefore = monitor.earned(bobTokenId);
-        assertGt(bobPendingBefore, 0, "Bob should have pending rewards");
+        // Sanity: bob accrued non-zero pending at +7 days.
+        assertGt(monitor.earned(bobTokenId), 0, "Bob should have pending rewards");
 
-        // Wait past cooldown
+        // Principal-recoverable invariant BEFORE transfer.
+        assertGe(
+            toweli.balanceOf(address(staking)),
+            staking.totalStaked() + staking.totalUnsettledRewards(),
+            "principal+unsettled covered BEFORE transfer"
+        );
+
+        // Wait past the 24h transfer cooldown. Re-measure pending AFTER the wait so
+        // the no-double-spend upper bound reflects the accrual at transfer time, not
+        // an earlier snapshot.
         vm.warp(block.timestamp + 25 hours);
+        uint256 pendingAtTransfer = monitor.earned(bobTokenId);
 
-        // Transfer to carol
+        // Transfer to carol — triggers _settleRewardsOnTransfer.
         vm.prank(bob);
         staking.transferFrom(bob, carol, bobTokenId);
 
-        // Bob should have unsettled rewards
+        // Settle MUST credit bob's unsettled (the core "settle fired" property).
         uint256 bobUnsettled = staking.unsettledRewards(bob);
         assertGt(bobUnsettled, 0, "Bob should have unsettled rewards from transfer");
 
-        // Carol's pending should be near zero (just transferred)
+        // L-15 invariant (no double-spend): the contract balance MUST cover
+        // `totalStaked + totalUnsettledRewards` even after settle-on-transfer credited
+        // bob's unsettled. Equivalent: settle didn't conjure rewards out of thin air —
+        // `unsettledRewards[bob]` grew only against pool capacity that was already
+        // earmarked for staker payouts, and the position's rewardDebt advanced in
+        // lockstep (the L-15 fix advances rewardDebt by ONLY totalCredited so any
+        // uncredited slice is recoverable later, not double-paid).
+        assertGe(
+            toweli.balanceOf(address(staking)),
+            staking.totalStaked() + staking.totalUnsettledRewards(),
+            "L-15 invariant: balance covers principal+unsettled AFTER transfer"
+        );
+
+        // Carol's `earned(bobTokenId)` view MAY be non-zero (the L-15 recoverable slice
+        // when the pool was under-funded). What it MUST NOT be: a path to double-payment.
+        // Bound it by the pending measured AT the transfer instant — Carol's recoverable
+        // share + Bob's unsettled cannot exceed what was claimable just before settle.
         uint256 carolPending = monitor.earned(bobTokenId);
-        assertLe(carolPending, 1e15, "Carol should have near-zero pending after receiving NFT");
+        assertLe(
+            bobUnsettled + carolPending,
+            pendingAtTransfer + 1,               // tolerate 1 wei rounding in accounting
+            "no double-spend: bob.unsettled + carol.earned <= pending at transfer"
+        );
     }
 
     /// @notice DEFENDED: Cannot overwrite an existing position via NFT transfer (for EOAs)
