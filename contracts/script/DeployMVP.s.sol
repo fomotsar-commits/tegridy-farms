@@ -16,6 +16,7 @@ import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
 import {SwapFeeRouterAdmin} from "../src/SwapFeeRouterAdmin.sol";
 import {POLAccumulator} from "../src/POLAccumulator.sol";
 import {TegridyTokenURIReader} from "../src/TegridyTokenURIReader.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 
 /// @title  DeployMVP — Canonical MVP-launch deploy script
 /// @notice Deploys the 15 MVP contracts that constitute the day-1 economic loop:
@@ -66,6 +67,7 @@ contract DeployMVPScript is Script {
         address swapFeeRouterAdmin;
         address polAccumulator;
         address tokenURIReader;
+        address monitorView;
     }
 
     function run() external {
@@ -211,6 +213,15 @@ contract DeployMVPScript is Script {
         TegridyTokenURIReader uriReader = new TegridyTokenURIReader(d.staking);
         d.tokenURIReader = address(uriReader);
         console.log(" 7. TegridyTokenURIReader: ", d.tokenURIReader);
+
+        // 7b. StakingMonitorView (EIP-170 sibling — exposes earned + getPosition
+        //     off-host so TegridyStaking can stay under 24,576 B). Read-only, no
+        //     privileged role, holds no funds. Off-chain consumers (frontends,
+        //     indexers) call earned/getPosition on THIS address (ABI is byte-
+        //     identical to the removed on-host wrappers).
+        StakingMonitorView monitorView = new StakingMonitorView(d.staking);
+        d.monitorView = address(monitorView);
+        console.log(" 7b. StakingMonitorView:    ", d.monitorView);
 
         return d;
     }
