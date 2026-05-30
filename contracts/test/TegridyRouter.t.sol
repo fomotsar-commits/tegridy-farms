@@ -173,18 +173,33 @@ contract TegridyRouterTest is Test {
         assertGt(liquidity, 0, "liquidity should be > 0");
     }
 
-    function test_addLiquidity_revertWhen_pairNotFound() public {
+    /// @notice 2026-05-30: addLiquidity now follows the canonical Uniswap V2 Router02
+    ///         atomic create-or-find pattern — if the pair doesn't exist yet, it is
+    ///         created atomically inside the same tx as the first mint. This closes
+    ///         the H2 first-mint front-run window structurally (no inter-tx gap for an
+    ///         attacker to seed the pool at a manipulated price).
+    function test_addLiquidity_autoCreatesPairIfMissing() public {
+        // Pair starts missing.
+        assertEq(factory.getPair(address(tokenA), address(tokenB)), address(0));
+
         vm.startPrank(alice);
         tokenA.approve(address(router), 10 ether);
         tokenB.approve(address(router), 10 ether);
 
-        vm.expectRevert("PAIR_NOT_FOUND");
-        router.addLiquidity(
+        (uint256 amountA, uint256 amountB, uint256 liquidity) = router.addLiquidity(
             address(tokenA), address(tokenB),
             10 ether, 10 ether, 0, 0,
             alice, block.timestamp + 300
         );
         vm.stopPrank();
+
+        // Pair now exists with the requested liquidity, atomically.
+        address pair = factory.getPair(address(tokenA), address(tokenB));
+        assertTrue(pair != address(0),                "pair auto-created by addLiquidity");
+        assertEq(amountA, 10 ether,                   "amountA matches desired (first mint uses desired)");
+        assertEq(amountB, 10 ether,                   "amountB matches desired");
+        assertGt(liquidity, 0,                        "alice received LP tokens");
+        assertEq(TegridyPair(pair).balanceOf(alice), liquidity, "LP credited to alice");
     }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

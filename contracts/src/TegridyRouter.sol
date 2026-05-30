@@ -9,6 +9,7 @@ import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 
 interface ITegridyFactoryRouter {
     function getPair(address tokenA, address tokenB) external view returns (address pair);
+    function createPair(address tokenA, address tokenB) external returns (address pair);
     function disabledPairs(address pair) external view returns (bool);
 }
 
@@ -106,8 +107,16 @@ contract TegridyRouter is ReentrancyGuard {
         // (line 151) and the ETH variants. Keeps error surfaces uniform across the
         // four liquidity entry points.
         require(to != address(0), "ZERO_TO");
+        // [H2 STRUCTURAL FIX 2026-05-30] Canonical Uniswap V2 Router02 pattern: atomic
+        // create-or-find. Bundling pair creation with the first mint into ONE tx closes
+        // the first-mint front-run window structurally — there is no inter-tx gap for
+        // an attacker to seed the pool at a manipulated price between createPair and
+        // mint. Verbatim Uniswap V2 Router02 since 2020 (multi-billion-dollar TVL).
+        // `_calculateLiquidity` already handles the empty-reserves case (line 570).
         address pair = ITegridyFactoryRouter(factory).getPair(tokenA, tokenB);
-        require(pair != address(0), "PAIR_NOT_FOUND");
+        if (pair == address(0)) {
+            pair = ITegridyFactoryRouter(factory).createPair(tokenA, tokenB);
+        }
 
         (amountA, amountB) = _calculateLiquidity(pair, tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin);
 
@@ -126,8 +135,13 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountETHMin,
         address to, uint256 deadline
     ) external payable nonReentrant ensure(deadline) returns (uint256 amountToken, uint256 amountETH, uint256 liquidity) {
+        // [H2 STRUCTURAL FIX 2026-05-30] Atomic create-or-find — see addLiquidity above
+        // for the full rationale (canonical Uniswap V2 Router02 pattern, closes the
+        // first-mint front-run window structurally for the ETH-pair path too).
         address pair = ITegridyFactoryRouter(factory).getPair(token, WETH);
-        require(pair != address(0), "PAIR_NOT_FOUND");
+        if (pair == address(0)) {
+            pair = ITegridyFactoryRouter(factory).createPair(token, WETH);
+        }
 
         (amountToken, amountETH) = _calculateLiquidity(pair, token, WETH, amountTokenDesired, msg.value, amountTokenMin, amountETHMin);
 
