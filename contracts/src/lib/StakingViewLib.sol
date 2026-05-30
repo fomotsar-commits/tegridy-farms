@@ -53,13 +53,18 @@ library StakingViewLib {
     ///      to 1 body reduces attack surface AND removes drift risk between sites.
     ///      Caller pattern: if (jbacValid) newBoost += JBAC_BONUS_BPS;
     ///                      else if (clearStaleFlag) p.hasJbacBoost = false;
+    /// @dev Visibility intentionally `internal`: the 3 callsites in TegridyStaking get
+    ///      inlined at each callsite (same bytecode shape as the pre-refactor inline
+    ///      copies), so the DRY consolidation is a SOURCE-LEVEL win for audit / review
+    ///      without paying the ~250 B per-callsite delegatecall wrapper overhead that
+    ///      `public` visibility would incur. Verified against measured sizes 2026-05-30.
     function resolveJbac(
         Position storage p,
         uint256 tokenId,
         address caller,
         address restakingContract,
         IERC721 jbacNFT
-    ) public view returns (bool jbacValid, bool clearStaleFlag) {
+    ) internal view returns (bool jbacValid, bool clearStaleFlag) {
         address jbacHolder = caller;
         bool lookupOk = true;
         if (caller == restakingContract && restakingContract != address(0)) {
