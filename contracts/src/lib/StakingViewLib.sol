@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+// EIP-170 split (2026-05-30): swapped to Solady EnumerableSetLib (API-identical for
+// UintSet → Uint256Set; smaller bytecode; verbatim battle-tested).
+import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 /// @dev Minimal restaking-view surface used by `resolveJbac`. Mirrors the
@@ -39,7 +41,7 @@ struct Position {
 ///         keeps thin wrappers that apply the restaking/lending carve-out guards
 ///         then delegate the iteration/math here.
 library StakingViewLib {
-    using EnumerableSet for EnumerableSet.UintSet;
+    using EnumerableSetLib for EnumerableSetLib.Uint256Set;
 
     // Mirror of the TegridyStaking constants used by the extracted math. These are
     // universal protocol constants (must equal the contract's values).
@@ -81,8 +83,12 @@ library StakingViewLib {
     /// @dev Aggregated active voting power across every position in `set`.
     ///      Equivalent to the original TegridyStaking.votingPowerOf loop (post
     ///      restaking/lending carve-out, which the caller applies before delegating).
+    /// @dev Visibility kept `public`: the for-loop body (~300 B inlined) is LARGER
+    ///      than the ~250 B delegatecall wrapper it would replace. Measured 2026-05-30:
+    ///      flipping to internal added +104 B to TegridyStaking. The trick only works
+    ///      for cheaply-bodied functions (see resolveJbac).
     function votingPowerOf(
-        EnumerableSet.UintSet storage set,
+        EnumerableSetLib.Uint256Set storage set,
         mapping(uint256 => Position) storage positions
     ) public view returns (uint256 total) {
         uint256 len = set.length();
@@ -98,8 +104,9 @@ library StakingViewLib {
 
     /// @dev Amount-weighted average active boostBps. Mirrors
     ///      TegridyStaking.aggregateActiveBoostBps (post carve-out).
+    /// @dev Visibility kept `public` — same for-loop-too-big trade-off as votingPowerOf.
     function aggregateActiveBoostBps(
-        EnumerableSet.UintSet storage set,
+        EnumerableSetLib.Uint256Set storage set,
         mapping(uint256 => Position) storage positions
     ) public view returns (uint256 weightedBps) {
         uint256 len = set.length();
@@ -116,6 +123,39 @@ library StakingViewLib {
         }
         if (totalAmount == 0) return 0;
         weightedBps = totalBoosted / totalAmount;
+    }
+
+    /// @dev Memory variant of `earned` for off-chain callers (external contracts) that
+    ///      cannot pass `storage` pointers. Body byte-identical to the storage variant
+    ///      below — kept side-by-side so any future audit fix to one MUST land in the
+    ///      other (compiler enforces no shared body, so this comment is the discipline).
+    ///      Caller pattern: read `positions(tokenId)` tuple from the staking contract,
+    ///      pack into Position memory, pass here with the relevant scalar reads.
+    function earnedFromMem(
+        Position memory p,
+        uint256 rewardPerTokenStored,
+        uint256 lastUpdateTime,
+        uint256 rewardRate,
+        uint256 totalBoostedStake,
+        uint256 available,
+        uint256 totalStaked,
+        uint256 totalUnsettledRewards
+    ) internal view returns (uint256) {
+        if (p.boostedAmount == 0) return 0;
+        uint256 currentAcc = rewardPerTokenStored;
+        if (block.timestamp > lastUpdateTime && totalBoostedStake > 0) {
+            uint256 reward = (block.timestamp - lastUpdateTime) * rewardRate;
+            uint256 reserved = totalStaked + totalUnsettledRewards;
+            uint256 rewardPool = available > reserved ? available - reserved : 0;
+            if (reward > rewardPool) reward = rewardPool;
+            if (reward > 0) {
+                currentAcc += (reward * ACC_PRECISION) / totalBoostedStake;
+            }
+        }
+        uint256 v = (p.boostedAmount * currentAcc) / ACC_PRECISION;
+        if (v > uint256(type(int256).max)) return 0;
+        int256 diff = int256(v) - p.rewardDebt;
+        return diff > 0 ? uint256(diff) : 0;
     }
 
     /// @dev Pending rewards for a position. Mirrors TegridyStaking.earned, including

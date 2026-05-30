@@ -2,7 +2,11 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+// AUDIT EIP-170 split (2026-05-30): OZ SafeERC20 swapped for Solady SafeTransferLib.
+// Verbatim battle-tested code (Aerodrome, Uniswap V4 hooks ecosystem, many others);
+// assembly-tight implementation is meaningfully smaller than OZ's Solidity version,
+// with identical safety semantics (gracefully handles missing return values).
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 // AUDIT FIX (pass-8): EIP170-02 — replaced OpenZeppelin ERC721 with Solmate's
 // minimal ERC721 implementation to bring TegridyStaking under the EIP-170
 // 24,576-byte runtime limit. Solmate ERC721 is ~3-4 KB smaller than OZ's
@@ -43,7 +47,11 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 // Strings import removed — tokenURI simplified to reduce contract size
 // Base64 import removed — SVG on-chain generation moved out to reduce contract size
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+// AUDIT EIP-170 split (2026-05-30): OZ EnumerableSet swapped for Solady EnumerableSetLib.
+// API-identical for UintSet → Uint256Set (length / contains / add / remove / at / values);
+// Solady's assembly-tight storage layout is meaningfully smaller. Verbatim battle-tested
+// (Aerodrome, Velodrome, many others). Fresh-deploy contract → storage layout change OK.
+import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {PauseGuardian} from "./base/PauseGuardian.sol";
@@ -87,9 +95,9 @@ interface ITegridyStakingJbacVault {
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
 contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGuardian {
-    using SafeERC20 for IERC20;
+    using SafeTransferLib for address;
     using Checkpoints for Checkpoints.Trace208;
-    using EnumerableSet for EnumerableSet.UintSet;
+    using EnumerableSetLib for EnumerableSetLib.Uint256Set;
 
     // ─── Constants ────────────────────────────────────────────────────
 
@@ -223,7 +231,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // Now votingPowerOf iterates the full set, summing active voting power across all positions.
     // Cap at MAX_POSITIONS_PER_HOLDER bounds checkpoint-write gas and votingPowerOf read gas;
     // also protects against push-grief (attacker flooding a target address with stale NFTs).
-    mapping(address => EnumerableSet.UintSet) private _positionsByOwner;
+    mapping(address => EnumerableSetLib.Uint256Set) private _positionsByOwner;
     // AUDIT C-2 (HIGH): cap restored to 50 from the prior 100. Every external integrator
     // that reads votingPowerOf — ReferralSplitter on each fee credit, RevenueDistributor's
     // checkpoint-fallback path, governance/voting consumers — pays the O(n) cost. Doubling
@@ -657,7 +665,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      with multiple staking NFTs (contract wallets, Safes, aggregating vaults) had
     ///      their voting power silently undercounted — only the most recently received
     ///      position was visible. We now iterate `_positionsByOwner[user]` (an
-    ///      EnumerableSet.UintSet maintained in `_update`) and sum the active voting
+    ///      EnumerableSetLib.Uint256Set maintained in `_update`) and sum the active voting
     ///      power of every position owned. The per-holder cap of MAX_POSITIONS_PER_HOLDER
     ///      bounds the O(n) iteration; in practice checkpoint writes on the push side cost
     ///      ~130k at the cap vs ~100k for a single-position holder.
@@ -762,29 +770,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         return _positionsByOwner[user].length();
     }
 
-    /// @notice Pending rewards for a position
-    /// @param tokenId The NFT token ID of the staking position
-    /// @return Claimable reward tokens for this position
-    function earned(uint256 tokenId) public view returns (uint256) {
-        // AUDIT FIX M-01 (expired-position accrual) preserved inside StakingViewLib.earned;
-        // body delegated there (C1 EIP-170 split).
-        return StakingViewLib.earned(
-            positions[tokenId], rewardPerTokenStored, lastUpdateTime, rewardRate, totalBoostedStake,
-            rewardToken.balanceOf(address(this)), totalStaked, totalUnsettledRewards
-        );
-    }
-
-    // earnedByAddress() removed — use earned(userTokenId[user]) directly
-
-    /// @notice Get position details
-    function getPosition(uint256 tokenId) external view returns (
-        uint256 amount, uint256 boostBps, uint256 lockEnd,
-        uint256 lockDuration, bool autoMaxLock, bool canWithdraw
-    ) {
-        Position memory p = positions[tokenId];
-        return (p.amount, p.boostBps, p.lockEnd, p.lockDuration, p.autoMaxLock,
-                p.amount > 0 && block.timestamp >= p.lockEnd);
-    }
+    // EIP-170 sibling: `earned(uint256)` and `getPosition(uint256)` moved verbatim to
+    // src/StakingMonitorView.sol, deployed alongside this contract. Off-chain consumers
+    // call those views on the sibling's address. ABI signatures are byte-identical.
+    // The on-host pure-storage `StakingViewLib.earned` remains for any future in-contract
+    // use; the sibling uses the memory variant `StakingViewLib.earnedFromMem`.
 
     // ─── Modifiers ────────────────────────────────────────────────────
 
@@ -950,7 +940,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT L-22 / Spartan TF-10: totalLocked tracking removed — was redundant with totalStaked.
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
-        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
 
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
@@ -1023,7 +1013,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
-        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
         // AUDIT FIX (pass-8 batch-14): JBAC custody handed off to the vault.
         // User approves THIS contract for the JBAC (unchanged UX); `safeTransferFrom`
         // pulls from the user using the staking-side approval, and lands at the
@@ -1216,7 +1206,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         _applyNewBoost(p, effectiveBoost);
 
         // Transfer tokens
-        rewardToken.safeTransferFrom(msg.sender, address(this), _additionalAmount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _additionalAmount);
 
         // Update voting power
         _writeCheckpoint(msg.sender);
@@ -1242,7 +1232,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // slot. See `_clearPosition` natspec for the full invariant statement.
         uint256 amount = _clearPosition(tokenId, p);
 
-        rewardToken.safeTransfer(msg.sender, amount);
+        address(rewardToken).safeTransfer(msg.sender, amount);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
         emit Withdrawn(msg.sender, tokenId, amount);
     }
@@ -1269,8 +1259,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // Entire penalty goes to treasury (AUDIT FIX L-23). The penalty-recycle
         // split was removed for EIP-170 size (its bps defaulted to 0, so this is
         // behaviour-identical to the launch config); deferred to a later version.
-        rewardToken.safeTransfer(treasury, penalty);
-        rewardToken.safeTransfer(msg.sender, userReceives);
+        address(rewardToken).safeTransfer(treasury, penalty);
+        address(rewardToken).safeTransfer(msg.sender, userReceives);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
         emit PenaltySentToTreasury(tokenId, penalty);
         emit EarlyWithdrawn(msg.sender, tokenId, userReceives, penalty);
@@ -1859,7 +1849,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
 
-        rewardToken.safeTransfer(msg.sender, amount);
+        address(rewardToken).safeTransfer(msg.sender, amount);
         emit EmergencyWithdraw(msg.sender, tokenId, amount);
     }
 
@@ -1879,7 +1869,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
 
-        rewardToken.safeTransfer(msg.sender, amount);
+        address(rewardToken).safeTransfer(msg.sender, amount);
         emit EmergencyExitPosition(msg.sender, tokenId, amount);
     }
 
@@ -1947,13 +1937,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             // Entire penalty goes to treasury — same path as earlyWithdraw. The
             // penalty-recycle split was removed for EIP-170 size (bps defaulted
             // to 0, so this is behaviour-identical); deferred to a later version.
-            rewardToken.safeTransfer(treasury, penalty);
+            address(rewardToken).safeTransfer(treasury, penalty);
             emit PenaltySentToTreasury(tokenId, penalty);
         } else {
             userReceives = amount;
         }
 
-        rewardToken.safeTransfer(msg.sender, userReceives);
+        address(rewardToken).safeTransfer(msg.sender, userReceives);
         _touch(msg.sender); // AUDIT M-AUDIT-2026-3: refresh inactivity gate post-exit
         emit EmergencyExitPosition(msg.sender, tokenId, userReceives);
     }
@@ -2005,7 +1995,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall(); // AUDIT FIX #61
         // AUDIT FIX: DEEP-DS-08 — delta-measure pattern.
         uint256 balBefore = rewardToken.balanceOf(address(this));
-        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
         uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
         if (received < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall();
         totalRewardsFunded += received;
@@ -2233,7 +2223,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (balance == 0) revert ZeroBalance();
-        IERC20(token).safeTransfer(treasury, balance);
+        SafeTransferLib.safeTransfer(token, treasury, balance);
     }
 
     /// @dev AUDIT FIX (pass-8 batch-14): `_returnJbac` (private) and
@@ -2300,7 +2290,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX: DEEP-DS-13 — `_burn` ran `_update` which removed tokenId from
         // `_positionsByOwner[msg.sender]` and zeroed `userTokenId[msg.sender]`. If
         // any positions remain, re-point the legacy pointer at one of them.
-        EnumerableSet.UintSet storage set = _positionsByOwner[msg.sender];
+        EnumerableSetLib.Uint256Set storage set = _positionsByOwner[msg.sender];
         uint256 setLen = set.length();
         if (setLen > 0) {
             // AUDIT FIX: DS2-05 — pick latest surviving position (preserves M-5 semantic).
