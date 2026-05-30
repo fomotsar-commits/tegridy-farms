@@ -802,10 +802,30 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // sequencer outage / bridging-gap trip. During an outage the spot is derived
         // from frozen/unrefreshed reserves; writing it would let a post-resume attacker
         // (first in the queue) pin a manipulated baseline and brick honest updates via
-        // the deviation gate until the dormancy/admin-reset path heals. Bootstrap and
-        // owner-deviation bypass paths set `bypassed` before this block, so
-        // `forcedBypass` stays false and they still refresh the baseline.
-        if (!forcedBypass) {
+        // the deviation gate until the dormancy/admin-reset path heals.
+        //
+        // AUDIT FIX FRESH-2026 [H-TWAP-BYPASS-LASTSPOT]: extend the no-write rule
+        // to ALL bypass observations (bootstrap, count<=2 grace, dormancy-bypass)
+        // — not just the forced-bypass class. Pre-fix the owner-only bypass paths
+        // (count==0, count<=2, DEVIATION_BYPASS_AFTER) all wrote `lastSpot{0,1}`
+        // from CURRENT spot, which an attacker can pre-position via reserve tilt
+        // before the owner's bootstrap tx lands. Even though the OBSERVATION's
+        // cumulative is honest (pair's `price{0,1}CumulativeLast` integrates
+        // pre-attack prices up to the last pair touch, plus a bridging term that
+        // is forced-bypassed past MAX_BRIDGING_GAP), the DEVIATION BASELINE was
+        // poisoned, letting subsequent honest observations trip
+        // `PriceDeviationTooLarge` against the attacker-pinned baseline. By
+        // refusing the write whenever `bypassed=true`, the next deviation-gated
+        // observation (the first non-bypass landing) seeds the baseline from
+        // organic mid-stream reserves — closing the bootstrap-sandwich attack
+        // without regressing the dormancy-recovery semantic (the next non-bypass
+        // observation after dormancy still establishes the new baseline). The
+        // residual `bypassed=false` path is still gated by the
+        // MAX_DEVIATION_BPS = 20% per-observation step, which bounds the
+        // multi-block grind-attack to 20% bend per MIN_PERIOD = 15min slot.
+        // Pattern of record: Uniswap V3's observation.tick is sourced from the
+        // last accepted swap in the block, never from a bypass-class snapshot.
+        if (!bypassed) {
             lastSpot0[pair] = spotPrice0;
             lastSpot1[pair] = spotPrice1;
         }
@@ -1154,7 +1174,22 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         if (amount == 0) revert NoFees();
         accumulatedFees = 0;
         address to = feeRecipient == address(0) ? owner() : feeRecipient;
-        (bool ok,) = to.call{value: amount}("");
+        // AUDIT FIX FRESH-2026 [H-TWAP-WITHDRAW-GAS]: bound the gas stipend on
+        // the recipient call to 50_000. Pre-fix, the unbounded `to.call{value:
+        // amount}("")` forwarded ALL gas (millions) to the fee recipient. The
+        // recipient is settable via the 24h-timelocked `proposeFeeRecipient`
+        // path; a captured owner key could install a malicious recipient
+        // whose receive() executes arbitrary code with `amount` ETH and full
+        // gas in the call frame — most importantly enabling cross-contract
+        // reentry into OTHER protocol contracts (TWAP itself is nonReentrant-
+        // protected here, but the recipient's frame can call out to
+        // RevenueDistributor, POLAccumulator, etc.). 50k is sufficient for
+        // a Gnosis Safe v1.4 receive() with one or two modules running on the
+        // ingress path (Safe's bare receive() is ~6k; a module-running variant
+        // ~30k-45k) and is the same envelope Aave V3's PoolAddressesProvider
+        // uses for treasury sweeps. Legitimate recipients fit comfortably;
+        // hostile recipients cannot execute arbitrary downstream calls.
+        (bool ok,) = to.call{value: amount, gas: 50_000}("");
         require(ok, "WITHDRAW_FAILED");
         emit FeesWithdrawn(to, amount);
     }

@@ -371,8 +371,16 @@ contract TegridyTWAPTest is Test {
     // â”€â”€â”€ Price deviation protection test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_update_revertsOnLargePriceDeviation() public {
-        // Seed 3 observations at normal 1:2 price ratio
-        _seedObservations(3, 15 minutes);
+        // FRESH-2026 TEST REALIGN [H-TWAP-BYPASS-LASTSPOT]: bumped seed count
+        // from 3 to 4. Under the fresh-review fix, `lastSpot{0,1}` is no longer
+        // written during bypass observations (count<=2 grace + count==0
+        // bootstrap + dormancy-bypass). The first non-bypass observation
+        // (count=3 / iter 4) establishes the deviation baseline. The attack
+        // observation then runs the deviation gate against that organic
+        // baseline. Pre-fix the test relied on the bootstrap immediately
+        // pinning lastSpot from owner-call reserves — a property that was
+        // itself the bootstrap-sandwich attack surface this fix closes.
+        _seedObservations(4, 15 minutes);
 
         // Warp forward, then do a massive swap to distort price >50%
         vm.warp(block.timestamp + 15 minutes);
