@@ -333,6 +333,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// @dev AUDIT FIX FRESH-2026 [H-REV-GENESIS-RACE]: genesis-block grief where every
     ///      stake happened in the current block. See `_distribute` for full rationale.
     error GenesisEpochUnsettled();
+    /// @dev AUDIT FIX FRESH-2026 [M-REV-CONCENTRATION]: hist-side stake at T-1 fell
+    ///      below MIN_DISTRIBUTE_STAKE concentration guardrail. See `_distribute`.
+    error StakeBelowMinimumAtSnapshot();
     /// @notice AUDIT FIX F-13-3 [F-50-1, F-72-7] (LOW): paginated-form callers must
     ///         supply a window no larger than `MAX_RECLAIM_PAGE_SIZE` (250).
     error ReclaimPageSizeExceeded();
@@ -535,6 +538,28 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             }
             if (locked == 0) revert NoLockedTokens();
         }
+
+        // AUDIT FIX FRESH-2026 [M-REV-CONCENTRATION]: the entry guards at L431
+        // / L452 enforce `totalBoostedStake() >= MIN_DISTRIBUTE_STAKE` against
+        // the LIVE total, but the epoch denominator (`locked` above) reads the
+        // HIST value at T-1. The mismatch admits a concentration attack:
+        //   1. Attacker stakes exactly MIN_DISTRIBUTE_STAKE at T-N (settled by T-1).
+        //   2. At block T, honest users stake large amounts (checkpoints at T,
+        //      not yet settled at T-1).
+        //   3. Attacker calls distributePermissionless() at T.
+        //   4. Live = attacker + honest >> MIN, entry guard passes.
+        //   5. Hist@T-1 = attacker alone (e.g., 100e18). No GenesisEpochUnsettled
+        //      revert because hist > 0.
+        //   6. Epoch records totalLocked = 100e18. Attacker's votingPowerAtTimestamp(
+        //      attacker, T-1) = 100e18. Attacker claims 100% of epoch ETH.
+        //
+        // The M-12 invariant ("prevent concentration at low effective stake") was
+        // only enforced on the LIVE value. Mirror the check on the HIST value used
+        // as the actual denominator. This catches the concentration scenario at
+        // the right point AND keeps the genesis-grief revert path unchanged.
+        // Pattern of record: Curve FeeDistributor checks `ve_supply[week] >=
+        // CONFIGURED_MIN` against the SAME snapshot it uses as denominator.
+        if (locked < MIN_DISTRIBUTE_STAKE) revert StakeBelowMinimumAtSnapshot();
 
         epochs.push(Epoch({
             totalETH: newETH,

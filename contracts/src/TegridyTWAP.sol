@@ -734,6 +734,24 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
             } else if (uint256(elapsed) <= DEVIATION_BYPASS_AFTER) {
                 uint256 prev0 = lastSpot0[pair];
                 uint256 prev1 = lastSpot1[pair];
+                // AUDIT FIX FRESH-2026 [H-TWAP-OBS4-UNGATED]: when the lastSpot
+                // baseline has never been seeded (count<=2 bypass paths under
+                // the H-Z `count > 2` write-gate did NOT write lastSpot, so
+                // prev0/prev1 are zero through observation #3), the `if (prev0
+                // > 0)` checks below SKIP — leaving obs #4 (the first
+                // permissionless observation) with NO deviation enforcement.
+                // An attacker who races the first permissionless update at
+                // the MIN_PERIOD boundary post-bootstrap with flash-loan
+                // distorted reserves pins lastSpot at their value; subsequent
+                // honest obs #5+ either fit within a 20% bend of the lie or
+                // trip PriceDeviationTooLarge — bricking the buffer for 24h
+                // until proposeAdminResetPair. Restrict the unseeded transition
+                // to owner-only so the baseline is anchored under owner
+                // verification, the same trust assumption as count<=2 grace.
+                // Once prev0 > 0 (i.e. obs #5+), the path is permissionless
+                // again and the 20%-per-step deviation gate provides the
+                // ongoing manipulation cap.
+                if ((prev0 == 0 || prev1 == 0) && msg.sender != owner()) revert BypassObservationOwnerOnly();
                 if (prev0 > 0) {
                     uint256 deviation0 = spotPrice0 > prev0
                         ? ((spotPrice0 - prev0) * BPS) / prev0
