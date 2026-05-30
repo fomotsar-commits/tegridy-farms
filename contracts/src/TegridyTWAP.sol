@@ -234,6 +234,17 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         to the per-pair side-0 reserve floor.
     function proposeAdminMinReserveFloor(address pair, uint256 floor) external onlyOwner {
         if (!factory.isPair(pair)) revert UnknownPair();
+        // AUDIT FIX FRESH-2026 [M-TWAP-FLOOR-MIN]: enforce a hard minimum on
+        // the override so a captured-key (or honest mis-typed) owner cannot
+        // set per-pair `minReserveFloor[pair] = 1` (1 wei). For 6-decimal
+        // pairs (USDC), 1 wei means reserve0 can drop to 1 USDC-base-unit
+        // while spotPrice0 = reserve1 * 2^112 — the deviation-gate's BPS
+        // math becomes meaningless when the denominator is dominated by a
+        // 2^112 factor. UniV2's MINIMUM_LIQUIDITY = 1000 is the natural
+        // floor here; reject anything below that for both decimal-6 and
+        // decimal-18 pairs. Floor must be either explicitly 0 (use default)
+        // or >= 1000.
+        if (floor != 0 && floor < 1000) revert FloorTooLow();
         bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_0, pair));
         pendingMinReserveFloor0[pair] = floor;
         _propose(key, MIN_RESERVE_FLOOR_DELAY);
@@ -265,6 +276,8 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         restores side-0 fallback.
     function proposeAdminMinReserveFloor1(address pair, uint256 floor) external onlyOwner {
         if (!factory.isPair(pair)) revert UnknownPair();
+        // AUDIT FIX FRESH-2026 [M-TWAP-FLOOR-MIN]: sibling-port of side-0 floor minimum.
+        if (floor != 0 && floor < 1000) revert FloorTooLow();
         bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_1, pair));
         pendingMinReserveFloor1[pair] = floor;
         _propose(key, MIN_RESERVE_FLOOR_DELAY);
@@ -424,6 +437,10 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     /// @notice AUDIT R014: caller passed a `pair` that the bound TegridyFactory does
     ///         not recognise. Prevents oracle poisoning from forged "pair-shaped" contracts.
     error UnknownPair();
+    /// @dev AUDIT FIX FRESH-2026 [M-TWAP-FLOOR-MIN]: floor < 1000 wei rejected.
+    ///      Mirrors UniV2's MINIMUM_LIQUIDITY so a captured-key cannot set
+    ///      a 1-wei floor that effectively disables the deviation gate.
+    error FloorTooLow();
     /// @notice FRESH-EYES H-2: factory has disabled this pair. Refusing observations during
     ///         the disabled window prevents manipulated frozen-reserve poisoning of the buffer.
     error PairDisabled();

@@ -1765,7 +1765,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      claimers saw their `safeTransfer` revert when the on-hand
     ///      balance ran out before `totalBonusFunded` exhausted. Mirrors
     ///      `TegridyStaking.notifyRewardAmount` pattern.
-    function fundBonus(uint256 _amount) external nonReentrant updateBonus {
+    function fundBonus(uint256 _amount) external nonReentrant {
+        // AUDIT FIX FRESH-2026 [M-RESTAKE-FUNDBONUS-ORDER]: drop the
+        // `updateBonus` MODIFIER and inline the accrual AFTER the deposit.
+        // Pre-fix the modifier ran first — capping `reward = elapsed * rate`
+        // against the OLD (pre-deposit) balance. The elapsed window was
+        // consumed against the pre-fund pool, then `lastBonusRewardTime`
+        // advanced to now — the just-deposited funds never retroactively
+        // backfilled the missed accrual slice (operator topping up "now"
+        // observed pendingBonus didn't move, double-funded thinking the
+        // first call failed). Post-fix: run safeTransferFrom first so the
+        // post-deposit balance is visible to the accrual cap; then call
+        // `_accrueBonusChecked` (the monotonicity-checked accrual wrapper,
+        // R014 RETRY) which uses the bumped balance for its cap. Matches
+        // Curve gauge factory's "fund then accrue" topology.
         if (_amount == 0) revert ZeroAmount();
         uint256 balBefore = bonusRewardToken.balanceOf(address(this));
         bonusRewardToken.safeTransferFrom(msg.sender, address(this), _amount);
@@ -1774,6 +1787,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // slither-disable-next-line incorrect-equality
         if (received == 0) revert ZeroAmount();
         totalBonusFunded += received;
+        // Now accrue against the post-deposit balance.
+        _accrueBonusChecked();
         emit BonusFunded(received);
     }
 

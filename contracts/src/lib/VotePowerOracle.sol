@@ -99,6 +99,19 @@ library VotePowerOracle {
         address staking,
         address restaking
     ) internal view returns (uint256 power) {
+        // AUDIT FIX FRESH-2026 [M-VPO-TS-FUTURE]: enforce ts < block.timestamp.
+        // The NatSpec says "typically epochStart - 1 to exclude same-block
+        // stakes per OZ Trace208 upperLookup semantics" — but pre-fix this
+        // was advisory only. A junior consumer reaching for the obvious
+        // `powerAt(user, block.timestamp, ...)` ("safe" because they chose
+        // the epoch-pinned variant) would get the SAME flash-stake-vulnerable
+        // read as `powerOfLiveUnsafe` because OZ Trace208.upperLookup(T)
+        // includes the exact-key checkpoint written at T. Require ts strictly
+        // less than block.timestamp here so the call signature itself enforces
+        // the snapshot semantic. Consumers MUST pass `block.timestamp - 1` or
+        // earlier — eliminating the same-block-amplification footgun by
+        // compile-time-grade contract instead of NatSpec discipline.
+        require(ts < block.timestamp, "VPO_FUTURE_TS");
         power = IVoteSource(staking).votingPowerAtTimestamp(user, ts);
         if (restaking != address(0)) {
             try IVoteSource(restaking).votingPowerAtTimestamp(user, ts) returns (uint256 r) {
