@@ -207,12 +207,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error PerUserStakeCapExceeded();
     error TotalStakeCapExceeded();
     error CapCannotBeZero();
-    // AUDIT H-4 (battle-tested fix): totalLocked is a view proxy for totalStaked (they are
-    // always equal). The prior state-variable design permanently returned 0, causing
-    // third-party integrators (allocators, dashboards, indexers) to read zero TVL.
-    function totalLocked() external view returns (uint256) {
-        return totalStaked;
-    }
+    // EIP-170 golf 2026-05-30: `totalLocked()` removed. It was a 1-line alias for
+    // `totalStaked` (the AUDIT H-4 fix for the old state-var-zero bug). `totalStaked` is
+    // already public — integrators read it directly via the auto-getter. ABI rename only.
 
     uint256 private _nextTokenId = 1;
 
