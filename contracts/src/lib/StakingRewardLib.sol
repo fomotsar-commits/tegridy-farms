@@ -436,14 +436,38 @@ library StakingRewardLib {
                 // [M5] If the position is expiring, force-settle the residual instead of
                 // forfeiting it. After decay, boostedAmount==0 makes the slot inert and
                 // the residual permanently inaccessible via the normal getReward path.
+                //
+                // AUDIT FIX FRESH-2026 [H-STAKING-EXPIRY-CAP-BYPASS]: route the
+                // expiry residual THROUGH `_settleUnsettled` instead of inlining
+                // the direct write. Pre-fix the inline `unsettledRewards[recipient]
+                // += forfeited; rs.totalUnsettledRewards += forfeited;` bypassed
+                // the `cfg.maxUnsettledRewards` guardrail — letting a sequence of
+                // expiring positions with under-pool emissions inflate the global
+                // unsettled bucket past its designed cap. The cap exists as the
+                // protocol-debt guardrail (operator commits to backfill at most
+                // this much unbacked debt); bypassing it could leave the
+                // unsettled bucket unredeemable when the operator's backfill
+                // capacity is exceeded. The cap-respecting helper applies the
+                // unsettled-room math identically to the normal-path settle at
+                // L428, preserving the [M5] residual-access intent within the
+                // designed bound. Portion that doesn't fit the cap surfaces as
+                // a true `RewardsForfeited` event — observable, not silent.
+                // Pattern of record: Curve / Aave both respect their debt-cap
+                // guardrails on the expire/decay path.
                 if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) {
-                    unsettledRewards[recipient] += forfeited;
-                    rs.totalUnsettledRewards += forfeited;
-                    emit RewardSettledToUnsettled(recipient, tokenId, forfeited);
-                    if (_isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
-                        unsettledRewardsByTokenId[tokenId] += forfeited;
+                    uint256 forceSettled;
+                    (rs, forceSettled) = _settleUnsettled(rs, unsettledRewards, recipient, forfeited, cfg.maxUnsettledRewards);
+                    if (forceSettled > 0) {
+                        emit RewardSettledToUnsettled(recipient, tokenId, forceSettled);
+                        if (_isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
+                            unsettledRewardsByTokenId[tokenId] += forceSettled;
+                        }
+                        totalCredited += forceSettled;
                     }
-                    totalCredited += forfeited;
+                    // Cap-blocked tail becomes a true forfeit (observable).
+                    if (forceSettled < forfeited) {
+                        emit RewardsForfeited(recipient, forfeited - forceSettled);
+                    }
                 } else {
                     emit RewardsForfeited(recipient, forfeited);
                 }

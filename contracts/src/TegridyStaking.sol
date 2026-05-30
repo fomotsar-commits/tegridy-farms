@@ -588,11 +588,24 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (jbacVault != address(0)) revert JbacVaultAlreadySet();
         // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
         // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
-        // EOAs); NOT a capability check. Operator MUST verify the vault contract
-        // implements ITegridyStakingJbacVault.returnJbac and was deployed with
-        // `staking = address(this)` immutable.
+        // EOAs); NOT a capability check.
         uint256 codeLen = _vault.code.length;
         if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        // AUDIT FIX FRESH-2026 [H-STAKING-JBAC-VAULT-VERIFY]: vault wire-back
+        // verification (`vault.staking() == address(this)`) is enforced
+        // OFF-CHAIN by script/VerifyMVP.s.sol:113 (INV-7 invariant). The
+        // on-chain check was evaluated and rejected as a deploy-time
+        // operator-discipline matter; adding the cross-check here would
+        // push TegridyStaking over the EIP-170 24,576-byte runtime limit
+        // (~+90 bytes for the external call + conditional revert vs ~39 B
+        // current headroom). Critically: the vault's `onlyStaking` modifier
+        // reverts BEFORE `returnJbac`'s safeTransferFrom-catch branch when
+        // msg.sender != staking, so a mis-wired vault would NEVER record
+        // `strandedJbacOwner` — leaving users with no on-chain recovery
+        // path. Operator MUST run VerifyMVP.s.sol after `setJbacVault` to
+        // catch misconfiguration before users deposit JBACs. setJbacVault
+        // is one-shot (locked once set) so a captured-key owner cannot
+        // rotate to a hostile vault.
         jbacVault = _vault;
         emit JbacVaultSet(_vault);
     }
