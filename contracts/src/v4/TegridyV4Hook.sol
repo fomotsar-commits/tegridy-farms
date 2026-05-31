@@ -7,6 +7,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
@@ -48,7 +49,7 @@ import {CurrencySettler} from "@openzeppelin/uniswap-hooks/src/utils/CurrencySet
 ///
 /// @dev    AntiSandwichHook / LimitOrderHook cannot share this pool (both drive
 ///         `_beforeSwap`/fee). If adopted, each runs on its OWN pool.
-contract TegridyV4Hook is LiquidityPenaltyHook {
+contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -67,6 +68,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
     error InvalidFeeBounds();
     error SkimOutOfBounds();
     error ZeroAddress();
+    error NotPoolManagerUnlock();
 
     // ─── Events ───────────────────────────────────────────────────────
     event PoolAllowed(PoolId indexed id, bool allowed);
@@ -75,6 +77,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
     event PolRecipientSet(address indexed recipient);
     event PolAccrued(Currency indexed currency, uint256 amount);
     event PolSwept(Currency indexed currency, address indexed to, uint256 amount);
+    event PolRedeemed(Currency indexed currency, address indexed to, uint256 amount);
 
     // ─── Params (mutated only by paramAdmin; hook code itself is immutable) ──
     /// @notice Becomes the TegridyV4HookAdmin timelock in Batch 4. Set at construction.
@@ -236,6 +239,28 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
         if (bal == 0) return;
         poolManager.transfer(polRecipient, id, bal);
         emit PolSwept(currency, polRecipient, bal);
+    }
+
+    /// @notice Redeem accrued POL claims of `currency` into the REAL underlying
+    ///         (ERC20 or native ETH) and send it to `polRecipient` (e.g. the
+    ///         RevenueDistributor, which expects native ETH). Permissionless —
+    ///         destination is admin-set. Re-entrancy is impossible: this opens a
+    ///         PoolManager lock, and any nested `unlock` reverts while locked.
+    function redeemPOL(Currency currency) external {
+        uint256 amount = poolManager.balanceOf(address(this), currency.toId());
+        if (amount == 0) return;
+        poolManager.unlock(abi.encode(currency, amount));
+    }
+
+    /// @dev PoolManager unlock callback for `redeemPOL`: burn the hook's ERC-6909
+    ///      claims and take the real currency out to `polRecipient`.
+    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+        if (msg.sender != address(poolManager)) revert NotPoolManagerUnlock();
+        (Currency currency, uint256 amount) = abi.decode(data, (Currency, uint256));
+        poolManager.burn(address(this), currency.toId(), amount);
+        poolManager.take(currency, polRecipient, amount);
+        emit PolRedeemed(currency, polRecipient, amount);
+        return "";
     }
 
     // ─── Permissions ──────────────────────────────────────────────────
