@@ -10,6 +10,8 @@ import { NFTLendingSection } from '../components/nftfinance/NFTLendingSection';
 import { LaunchpadSection } from '../components/nftfinance/LaunchpadSection';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 import { ArtImg } from '../components/ArtImg';
+import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
+import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../lib/constants';
 
 type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
 
@@ -231,7 +233,9 @@ export default function LendingPage() {
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
           >
             {section === 'lending' && <LendingSection address={address} />}
-            {section === 'nftlending' && <NFTLendingSection />}
+            {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
+              ? <NFTLendingSection />
+              : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
             {section === 'amm' && <AMMSection />}
             {section === 'launchpad' && <LaunchpadSection />}
           </m.div>

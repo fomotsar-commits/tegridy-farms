@@ -5,10 +5,11 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { usePremiumAccess } from '../hooks/usePremiumAccess';
 import { useRevenueStats } from '../hooks/useRevenueStats';
-import { PREMIUM_ACCESS_ADDRESS } from '../lib/constants';
+import { PREMIUM_ACCESS_ADDRESS, isDeployed } from '../lib/constants';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
+import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 
 const PLANS = [
   { months: 1, label: '1 Month', discount: 0 },
@@ -69,6 +70,28 @@ export default function PremiumPage() {
   const isLoading = premium.isDataLoading;
   const hasError = premium.isDataError || revenue.isDataError;
   const errorMsg = premium.dataError?.message || revenue.dataError?.message || 'Failed to load contract data';
+
+  // PremiumAccess isn't part of the relaunch deployment (address zeroed in
+  // constants.ts). Render a clean placeholder rather than a live subscribe flow
+  // wired to an undeployed contract. Revenue-share stats remain available on
+  // the Dashboard. Restore the address post-redeploy to bring this page back.
+  if (!isDeployed(PREMIUM_ACCESS_ADDRESS)) {
+    return (
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <ArtImg pageId="premium" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-16">
+          <FeatureNotDeployed
+            pageId="premium"
+            idx={0}
+            title="Gold Card isn't live yet"
+            subtitle="Premium memberships and revenue-share perks return once the PremiumAccess contract is deployed for the relaunch."
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="-mt-14 relative min-h-screen">

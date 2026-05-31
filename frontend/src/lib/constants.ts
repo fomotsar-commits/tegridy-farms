@@ -26,27 +26,35 @@ export const SWAP_FEE_ROUTER_ADDRESS = '0xea13Cd47a37cC5B59675bfd52BFc8ff8691937
 export const POL_ACCUMULATOR_ADDRESS = '0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca' as const;
 
 // LP Farming — Wave 0 2026-04-18: C-01 fix (MAX_BOOST_BPS_CEILING=45000) redeploy
-export const LP_FARMING_ADDRESS = '0xa7EF711Be3662B9557634502032F98944eC69ec1' as const;
+// ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).
+// Restore the real address after the relaunch redeploy. Prev: 0xa7EF711Be3662B9557634502032F98944eC69ec1
+export const LP_FARMING_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // Gauge Controller — Wave 0 2026-04-18: H-2 commit-reveal redeploy
-export const GAUGE_CONTROLLER_ADDRESS = '0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb' as const;
+// ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).
+// Restore after redeploy. Prev: 0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb
+export const GAUGE_CONTROLLER_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // Community
-export const COMMUNITY_GRANTS_ADDRESS = '0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032' as const;
-export const MEME_BOUNTY_BOARD_ADDRESS = '0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9' as const;
+// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032
+export const COMMUNITY_GRANTS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9
+export const MEME_BOUNTY_BOARD_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 export const REFERRAL_SPLITTER_ADDRESS = '0xd3d46C0d25Ef1F4EAdb58b9218AA23Ed4c2f2c16' as const;
-export const PREMIUM_ACCESS_ADDRESS = '0xaA16dF3dC66c7A6aD7db153711329955519422Ad' as const;
-export const VOTE_INCENTIVES_ADDRESS = '0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A' as const;
+// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0xaA16dF3dC66c7A6aD7db153711329955519422Ad
+export const PREMIUM_ACCESS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A
+export const VOTE_INCENTIVES_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // V3 Features — Deployed 2026-04-14
-export const TEGRIDY_LENDING_ADDRESS = '0xd471e5675EaDbD8C192A5dA2fF44372D5713367f' as const;
+export const TEGRIDY_LENDING_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0xd471e5675EaDbD8C192A5dA2fF44372D5713367f
 // V1 TegridyLaunchpad (0x5d5976...FF3C2) deleted from source 2026-04-19; existing
 // V1 clones remain browseable on Etherscan. Use TEGRIDY_LAUNCHPAD_V2_ADDRESS.
-export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0' as const;
+export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0
 // Wave 0 2026-04-18: redeployed pointing at current staking (0x6266...)
 export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0xfec9aea42ea966c9382eeb03f63a784579841eb2' as const;
 // Wave 0 2026-04-18: C-02 grace period redeploy
-export const TEGRIDY_NFT_LENDING_ADDRESS = '0x05409880aDFEa888F2c93568B8D88c7b4aAdB139' as const;
+export const TEGRIDY_NFT_LENDING_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x05409880aDFEa888F2c93568B8D88c7b4aAdB139
 // Wave 0 2026-04-18: fresh TWAP oracle deploy
 export const TEGRIDY_TWAP_ADDRESS = '0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995' as const;
 // Wave 0 2026-04-18: Uniswap V4 fee hook (B7). Address ends in 0x0044 for

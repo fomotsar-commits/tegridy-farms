@@ -182,10 +182,15 @@ const GROUPS: ContractGroup[] = [
 function ContractRow({ entry }: { entry: ContractEntry }) {
   const isExternal = entry.source.startsWith('external');
   const sourceHref = isExternal ? undefined : `${GITHUB_BASE}/${entry.source}`;
-  const isPending = entry.status === 'pending';
+  // Our own contracts with an unset (zero) address aren't part of the current
+  // deployment — route them through the clean "pending deploy" path so we never
+  // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
+  // note. (The relaunch zeroed all Wave-0 addresses in constants.ts.)
+  const undeployed = !isExternal && !isDeployed(entry.address);
+  const isPending = entry.status === 'pending' || undeployed;
   const isDeprecated = entry.status === 'deprecated';
-  const isRedeploy = entry.status === 'redeploy';
-  const isMultisig = entry.status === 'multisig';
+  const isRedeploy = entry.status === 'redeploy' && !undeployed;
+  const isMultisig = entry.status === 'multisig' && !undeployed;
   return (
     <div
       className={`grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] items-center gap-2 md:gap-4 py-3 border-b border-white/5 last:border-0 ${isPending ? 'opacity-70' : ''}`}

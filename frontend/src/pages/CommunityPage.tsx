@@ -12,6 +12,8 @@ import { GrantsSection } from '../components/community/GrantsSection';
 import { BountiesSection } from '../components/community/BountiesSection';
 import { VoteIncentivesSection } from '../components/community/VoteIncentivesSection';
 import { ArtImg } from '../components/ArtImg';
+import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
+import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_ADDRESS, isDeployed } from '../lib/constants';
 
 type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
 
@@ -146,9 +148,15 @@ export default function CommunityPage() {
                   </div>
                 </div>
               }>
-                {section === 'grants' && <GrantsSection />}
-                {section === 'bounties' && <BountiesSection />}
-                {section === 'bribes' && <VoteIncentivesSection />}
+                {section === 'grants' && (isDeployed(COMMUNITY_GRANTS_ADDRESS)
+                  ? <GrantsSection />
+                  : <FeatureNotDeployed pageId="community" idx={1} title="Community governance isn't live yet" subtitle="On-chain grants and proposals open once the governance contract is deployed for the relaunch." />)}
+                {section === 'bounties' && (isDeployed(MEME_BOUNTY_BOARD_ADDRESS)
+                  ? <BountiesSection />
+                  : <FeatureNotDeployed pageId="community" idx={2} title="The bounty board isn't live yet" subtitle="Meme bounties open once the bounty contract is deployed for the relaunch." />)}
+                {section === 'bribes' && (isDeployed(VOTE_INCENTIVES_ADDRESS)
+                  ? <VoteIncentivesSection />
+                  : <FeatureNotDeployed pageId="community" idx={1} title="Vote incentives aren't live yet" subtitle="Cartman's Market opens once the vote-incentives contract is deployed for the relaunch." />)}
                 {section === 'gauges' && <GaugeVoting />}
               </Suspense>
             </ErrorBoundary>
