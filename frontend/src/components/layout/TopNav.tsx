@@ -212,7 +212,13 @@ export const TopNav = React.memo(function TopNav() {
           </nav>
 
           <div className="flex items-center gap-1.5 md:gap-2 min-w-0">
-            <NavLink to="/nakamigos" className={({ isActive }) => `nav-link text-[13px] hidden md:block ${isActive ? 'active' : ''}`}>
+            {/* AUDIT 2026-05-30 (mobile+iPad re-pass): was `hidden md:block` which (a) failed
+                to actually hide at 390 in the wild and (b) collided with the Connect button
+                at the 768 iPad-portrait breakpoint (50px allocated slot vs 85px text width).
+                Bumped to `lg:` (≥1024) so this top-nav link only appears at true desktop —
+                mobile + iPad users still reach Tradermigos via the BottomNav tab. `!` prefix
+                forces the rules through any selector-specificity override. */}
+            <NavLink to="/nakamigos" className={({ isActive }) => `nav-link text-[13px] !hidden lg:!flex ${isActive ? 'active' : ''}`}>
               Tradermigos
             </NavLink>
 

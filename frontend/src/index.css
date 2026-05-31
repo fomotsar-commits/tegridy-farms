@@ -388,6 +388,10 @@ body {
   text-decoration: none;
   padding: 6px 14px;
   border-radius: 8px;
+  /* AUDIT 2026-05-30 (iPad portrait re-pass): without this, multi-word nav labels
+     like "NFT Finance" wrap to 2 lines at the md breakpoint, breaking row alignment
+     (54px tall vs siblings' 44px). Single-line every nav link, every viewport. */
+  white-space: nowrap;
   transition: color 200ms, background-color 200ms;
 }
 .nav-link::after {

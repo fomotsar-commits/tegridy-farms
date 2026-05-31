@@ -200,6 +200,68 @@ attempted desktop / iPhone-14+ / iPad viewports.
 
 ---
 
+## Re-pass: mobile + iPad verified (2026-05-30)
+
+The original pass couldn't actually drive sub-1287 viewports because the test window was maximized
+AND because Chrome on Windows has an OS-level minimum window width that the MCP extension's
+`resize_window` can't go below. The fix turned out to be **Chrome DevTools Device Mode**
+(F12 → Ctrl+Shift+M → iPhone 14 Pro / iPad Mini) — only DevTools-level emulation overrides the
+viewport at the rendering layer so CSS `@media` queries actually fire. With that working, the full
+mobile + iPad sweep ran and produced:
+
+| Viewport | CRIT | HIGH | MED | LOW | PERF |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Mobile (iPhone 14 Pro 390×844) | 0 | 10 | 8 | 2 | 1 |
+| iPad (iPad Mini 768 portrait) | **1** | 5 | 13 | 5 | 2 |
+
+### Refutations (no longer accurate)
+- `/treasury` `—` TVL + "Price oracle is stale" banner is **NOT mobile-specific** — same on desktop.
+  It's a data state from `eth.merkle.io` HTTP 429 RPC throttling, not a viewport regression.
+- **Towelie pill ×** is **44×44 with `aria-label="Dismiss Towelie"`** — the prior pass's structural
+  ~10px concern was based on stale data; the current code is correct.
+
+### Verified-in-browser ✅
+- `/premium` Gold Card icon = gold credit-card SVG glyph (NOT cat photo)
+- `/nft-finance` 4 disconnected tabs each show a distinct ConnectPrompt string
+- Nakamigos console has no React `fetchpriority` warning
+
+### Highest-leverage new issues
+- **Header collision on every global-header page** — the desktop `Tradermigos` link `hidden md:block`
+  failed to hide at 390 (CSS specificity) AND overflowed its 50px slot at 768 (iPad portrait),
+  visually bleeding under the Connect button. **Fixed in same commit** (see below).
+- **`.nav-link` had no `white-space: nowrap`** → "NFT Finance" wrapped to 2 lines at iPad portrait,
+  breaking row height alignment. **Fixed in same commit.**
+- **CRIT** — `/changelog` body text essentially invisible over the jungle-ape orange/yellow art
+  panel at iPad. Scrim was 0.55 + 2px blur, not enough vs the bright bg. **Fixed in same commit.**
+- **Body-text contrast over bg-art** — recurring on `/faq`, `/security`, `/risks`, `/terms`,
+  `/privacy`, `/lore` at both viewports. Needs the same scrim bump (deferred — single-pattern fix).
+- **Floating "Protocol Active" pill** overlaps content on `/treasury` Balance, `/lore` body,
+  `/nft-finance` disclaimer, `/community` footer, home Core-Loop card 4. Bottom-collision detection
+  or hide-on-info-pages needed.
+- **`/swap` + `/liquidity`** "Recurring Swap" / "Price Alert" labels overflow tab buttons at 390.
+- **`/nakamigos`** custom-header `Connect` clipped 43px off-screen at 390 (custom header doesn't
+  responsive-shrink).
+- **3-col stats-grid orphan** on `/tokenomics`, `/treasury`, `/community` — 4 cards in `grid-cols-3`
+  leaves an iPad-only middle-breakpoint orphan. Standardize on `grid-cols-2 md:grid-cols-4`.
+
+### Fixed in commit 2026-05-30 (this pass)
+1. `frontend/src/components/layout/TopNav.tsx` — Tradermigos NavLink `hidden md:block` → `!hidden lg:!flex`.
+   Hides at mobile + iPad (BottomNav already carries Tradermigos for those viewports), only shows
+   at true desktop ≥1024 where there's space. `!` prefix forces through any nav-link selector override.
+2. `frontend/src/index.css` — added `white-space: nowrap` to `.nav-link` to stop multi-word labels
+   wrapping at iPad portrait.
+3. `frontend/src/pages/ChangelogPage.tsx` — entry-card scrim bumped `rgba(0,0,0,0.55)` →
+   `rgba(0,0,0,0.85)` and blur 2px → 4px so changelog body copy reads against bright bg art.
+
+### Outstanding (recommended next commits)
+- Apply the same scrim pattern to `/faq`, `/security`, `/risks`, `/terms`, `/privacy`, `/lore`.
+- `grid-cols-3` → `grid-cols-2 md:grid-cols-4` on the 3 affected stats grids.
+- Floating Protocol Active pill: bottom-collision logic or hide on info routes.
+- `/swap` `/liquidity` tab label fit at 390.
+- `/nakamigos` custom-header responsive fit.
+
+---
+
 ## Appendix — full per-agent reports
 
 The complete per-page / per-viewport detail (every LOW item, exact selectors, repro steps) is in
