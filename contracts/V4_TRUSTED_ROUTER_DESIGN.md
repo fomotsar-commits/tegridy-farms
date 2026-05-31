@@ -1,8 +1,10 @@
 # Design Doc — Trusted Tegridy Router (the user-identity piece for #2 / #3)
 
-> Status: **DESIGN ONLY.** The missing piece that lets the premium fee discount (#2)
-> and boosted-LP rewards (#3) actually reach end users. Sits on `next-wave/v4-migration`.
-> Author pass: 2026-05-31.
+> Status: **Part A IMPLEMENTED (2026-05-31, UNAUDITED); Part B = design rec.** The
+> missing piece that lets the premium fee discount (#2) and boosted-LP rewards (#3)
+> actually reach end users. Sits on `next-wave/v4-migration`.
+> Part A (trusted SWAP router) → `contracts/src/v4/TegridyV4SwapRouter.sol`, 33 hook-suite
+> tests green. Part B (boosted-LP attribution) → NFT-staker pivot, implemented next.
 
 ## The problem it solves
 

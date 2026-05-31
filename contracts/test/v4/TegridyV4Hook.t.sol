@@ -16,6 +16,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {TegridyV4Hook} from "../../src/v4/TegridyV4Hook.sol";
 import {TegridyV4HookAdmin} from "../../src/v4/TegridyV4HookAdmin.sol";
 import {TegridyBoostedLP} from "../../src/v4/TegridyBoostedLP.sol";
+import {TegridyV4SwapRouter} from "../../src/v4/TegridyV4SwapRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
@@ -473,6 +474,75 @@ contract TegridyV4HookTest is Test, Deployers {
         );
         // sender (the LP from the module's view) is the modifyLiquidity router
         assertEq(m.liquidityOf(address(modifyLiquidityRouter)), 50 ether, "hook reported real V4 liquidity");
+    }
+
+    // ─── Trusted swap router (Part A — user-identity for #2) ──────────
+
+    function _approveRouter(TegridyV4SwapRouter r) internal {
+        MockERC20(Currency.unwrap(currency0)).approve(address(r), type(uint256).max);
+        MockERC20(Currency.unwrap(currency1)).approve(address(r), type(uint256).max);
+    }
+
+    function test_trustedRouter_swapDeliversOutput() public {
+        TegridyV4SwapRouter r = new TegridyV4SwapRouter(manager);
+        _approveRouter(r);
+        uint256 before = currency1.balanceOf(address(this));
+        r.swap(
+            poolKey,
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1}),
+            0,
+            block.timestamp,
+            address(this)
+        );
+        assertGt(currency1.balanceOf(address(this)), before, "router delivered swap output");
+    }
+
+    function test_trustedRouter_slippageReverts() public {
+        TegridyV4SwapRouter r = new TegridyV4SwapRouter(manager);
+        _approveRouter(r);
+        vm.expectRevert(TegridyV4SwapRouter.TooLittleReceived.selector);
+        r.swap(
+            poolKey,
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1}),
+            100 ether, // absurd minOut
+            block.timestamp,
+            address(this)
+        );
+    }
+
+    function test_trustedRouter_deadlineReverts() public {
+        TegridyV4SwapRouter r = new TegridyV4SwapRouter(manager);
+        _approveRouter(r);
+        vm.expectRevert(TegridyV4SwapRouter.DeadlinePassed.selector);
+        r.swap(
+            poolKey,
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1}),
+            0,
+            block.timestamp - 1, // expired
+            address(this)
+        );
+    }
+
+    /// @dev End-to-end: with the discount configured and this router wired as the
+    ///      trustedRouter, a premium user's swap routes through and delivers output
+    ///      (the discount path runs without breaking; discount math is unit-tested
+    ///      separately via quoteFee).
+    function test_trustedRouter_discountPathEndToEnd() public {
+        TegridyV4SwapRouter r = new TegridyV4SwapRouter(manager);
+        MockPremiumAccess pa = new MockPremiumAccess();
+        pa.setPremium(address(this), true);
+        hook.setDiscountConfig(address(pa), address(r), 5000); // router = trusted, 50% off
+        _approveRouter(r);
+
+        uint256 before = currency1.balanceOf(address(this));
+        r.swap(
+            poolKey,
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1}),
+            0,
+            block.timestamp,
+            address(this)
+        );
+        assertGt(currency1.balanceOf(address(this)), before, "premium swap via trusted router succeeds end-to-end");
     }
 }
 
