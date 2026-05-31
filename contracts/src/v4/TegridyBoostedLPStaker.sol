@@ -33,13 +33,14 @@ interface IPositionMgr {
 ///         (Aerodrome/Curve gauge model; the V2 `TegridyLPFarming` analog for V4.)
 ///
 /// @dev    Reward math is the Synthetix `rewardPerToken` pattern, copied verbatim from
-///         TegridyLPFarming / TegridyBoostedLP; the balance is the escrowed position's
+///         the V2 `TegridyLPFarming`; the balance is the escrowed position's
 ///         liquidity × `aggregateActiveBoostBps`. While escrowed, only this contract
 ///         owns the NFT, so the position's liquidity cannot change → caching it at
 ///         deposit is safe.
 ///
-/// @dev    Use this (NOT the hook-callback `TegridyBoostedLP`) as the production path,
-///         so a position is never counted twice. v1: emissions-funded. **UNAUDITED.**
+/// @dev    This is the SOLE #3 path. The earlier hook-callback alternative
+///         (`TegridyBoostedLP`) was DELETED (audit M-3) to remove the double-count
+///         foot-gun and shrink the hook's hot path. v1: emissions-funded. **UNAUDITED.**
 contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Receiver {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;

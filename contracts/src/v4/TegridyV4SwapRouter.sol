@@ -36,6 +36,7 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
 
     error DeadlinePassed();
     error TooLittleReceived();
+    error TooMuchSpent();
     error NotPoolManager();
 
     struct CallbackData {
@@ -44,6 +45,7 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
         PoolKey key;
         SwapParams params;
         uint256 minOut;
+        uint256 maxIn;
     }
 
     constructor(IPoolManager poolManager_) {
@@ -51,21 +53,27 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
     }
 
     /// @param recipient destination for the output (address(0) ⇒ the caller).
-    /// @param minOut    minimum output amount (slippage floor; exact-input semantics).
-    function swap(PoolKey calldata key, SwapParams calldata params, uint256 minOut, uint256 deadline, address recipient)
-        external
-        payable
-        nonReentrant
-        returns (BalanceDelta delta)
-    {
+    /// @param minOut    minimum output (slippage floor; matters for exact-input).
+    /// @param maxIn     maximum input (slippage ceiling; matters for exact-output —
+    ///                  M-1). Pass `type(uint256).max` to disable.
+    function swap(
+        PoolKey calldata key,
+        SwapParams calldata params,
+        uint256 minOut,
+        uint256 maxIn,
+        uint256 deadline,
+        address recipient
+    ) external payable nonReentrant returns (BalanceDelta delta) {
         if (block.timestamp > deadline) revert DeadlinePassed();
         address to = recipient == address(0) ? msg.sender : recipient;
+        // L-1: snapshot any pre-existing/stuck ETH so the refund below returns ONLY
+        //      this call's unspent native, never balances that aren't the caller's.
+        uint256 preBal = address(this).balance - msg.value;
         delta = abi.decode(
-            poolManager.unlock(abi.encode(CallbackData(msg.sender, to, key, params, minOut))), (BalanceDelta)
+            poolManager.unlock(abi.encode(CallbackData(msg.sender, to, key, params, minOut, maxIn))), (BalanceDelta)
         );
-        // Refund any over-sent native ETH to the caller (PoolSwapTest pattern).
         uint256 bal = address(this).balance;
-        if (bal > 0) CurrencyLibrary.ADDRESS_ZERO.transfer(msg.sender, bal);
+        if (bal > preBal) CurrencyLibrary.ADDRESS_ZERO.transfer(msg.sender, bal - preBal);
     }
 
     function unlockCallback(bytes calldata raw) external returns (bytes memory) {
@@ -78,9 +86,16 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
         int128 a0 = delta.amount0();
         int128 a1 = delta.amount1();
 
-        // Settle what the router owes, pulling from the user.
-        if (a0 < 0) d.key.currency0.settle(poolManager, d.user, uint256(uint128(-a0)), false);
-        if (a1 < 0) d.key.currency1.settle(poolManager, d.user, uint256(uint128(-a1)), false);
+        // Settle what the router owes, pulling from the user; track input for slippage.
+        uint256 inAmt;
+        if (a0 < 0) {
+            d.key.currency0.settle(poolManager, d.user, uint256(uint128(-a0)), false);
+            inAmt = uint256(uint128(-a0));
+        }
+        if (a1 < 0) {
+            d.key.currency1.settle(poolManager, d.user, uint256(uint128(-a1)), false);
+            inAmt = uint256(uint128(-a1));
+        }
 
         // Take what the router is owed, to the recipient; track output for slippage.
         uint256 outAmt;
@@ -92,7 +107,8 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
             d.key.currency1.take(poolManager, d.recipient, uint256(uint128(a1)), false);
             outAmt = uint256(uint128(a1));
         }
-        if (outAmt < d.minOut) revert TooLittleReceived();
+        if (outAmt < d.minOut) revert TooLittleReceived(); // exact-input slippage floor
+        if (inAmt > d.maxIn) revert TooMuchSpent(); // M-1: exact-output slippage ceiling
 
         return abi.encode(delta);
     }

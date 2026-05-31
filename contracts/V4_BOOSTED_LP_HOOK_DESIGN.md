@@ -1,18 +1,20 @@
 # Design Doc — Boosted LP-Incentive Hook (#3)
 
-> **CANONICAL PATH UPDATE (2026-05-31):** the production model is now the NFT-staker
+> **SOLE PATH UPDATE (2026-05-31):** the production model is the NFT-staker
 > `contracts/src/v4/TegridyBoostedLPStaker.sol` (escrow the V4 position NFT, attribute
 > to the depositor) — it reaches PM-routed LPs, which the hook-callback model below
-> cannot. The hook-callback `TegridyBoostedLP` remains the optional direct-EOA path
-> (`hook.boostedLP` stays 0 in prod so a position is never counted twice). See
-> `V4_TRUSTED_ROUTER_DESIGN.md` Part B.
+> cannot. **The hook-callback `TegridyBoostedLP` and its hook wiring were DELETED
+> (audit finding M-3, 2026-05-31)** to remove the double-count foot-gun and to shrink
+> the immutable hook's hot path; the staker is now the only #3 path. The
+> `_afterAddLiquidity`/`_afterRemoveLiquidity` overrides are gone — the hook inherits
+> `LiquidityPenaltyHook`'s callbacks directly (verbatim JIT, no reward notify). See
+> `V4_TRUSTED_ROUTER_DESIGN.md` Part B and `V4_SECURITY_FINDINGS.md` (M-3).
 >
 > Status: **IMPLEMENTED v1 (2026-05-31) at owner direction — UNAUDITED.** Built ahead
-> of the audit gate. Code: `contracts/src/v4/TegridyBoostedLP.sol` (isolated module) +
-> `TegridyV4Hook` liquidity-callback notify + `TegridyV4HookAdmin` timelock wiring.
-> 29 hook-suite tests green. This doc remains the spec + the open-items list below.
-> (Originally specced design-only; the riskiest custom surface, so kept in its own
-> module rather than folded into the immutable core hook.)
+> of the audit gate. Code: `contracts/src/v4/TegridyBoostedLPStaker.sol` only.
+> This doc remains the spec rationale + open-items list. The "Mechanism" section below
+> describes the original hook-callback accrual; the shipped staker uses the SAME
+> Synthetix math but with a deposited-NFT balance instead of a callback-tracked one.
 
 ## Why this exists
 
