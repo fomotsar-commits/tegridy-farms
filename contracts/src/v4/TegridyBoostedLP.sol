@@ -56,6 +56,7 @@ contract TegridyBoostedLP is OwnableNoRenounce, ReentrancyGuard {
     error NotifyAmountTooSmall();
     error DurationOutOfRange();
     error ZeroAddress();
+    error RewardTooHigh();
 
     event RewardAdded(uint256 amount, uint256 duration);
     event LiquidityChanged(address indexed lp, uint256 rawLiquidity, uint256 effective);
@@ -163,6 +164,8 @@ contract TegridyBoostedLP is OwnableNoRenounce, ReentrancyGuard {
             uint256 leftover = (periodFinish - block.timestamp) * rewardRate;
             rewardRate = (leftover + actual) / duration;
         }
+        // H-2: never schedule more rewards than the contract holds.
+        if (rewardRate * duration > rewardToken.balanceOf(address(this))) revert RewardTooHigh();
         rewardsDuration = duration;
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp + duration;

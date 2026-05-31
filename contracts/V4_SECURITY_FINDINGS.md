@@ -8,6 +8,13 @@
 
 ## Verdict: 1 CRITICAL, 2 HIGH, 3 MEDIUM, 4 LOW. Do not deploy until C-1/H-1/H-2 are fixed.
 
+> **UPDATE 2026-05-31 — C-1, H-1, H-2 FIXED + exploit tests (38 green).**
+> - **C-1 FIXED:** `deposit` now requires the position's pool == canonical `allowedPoolId` AND full-range (via `getPoolAndPositionInfo` + `TickMath` usable-tick bounds). Tests: `test_C1_boostedStaker_rejectsForeignPool`, `test_C1_boostedStaker_rejectsNonFullRange` (both revert), happy-path full-range deposit still works.
+> - **H-1 FIXED:** `_notifyBoostedLP` wraps the module call in `try/catch`. Test: `test_H1_revertingModuleDoesNotBlockLiquidity` (a reverting module no longer blocks add/remove).
+> - **H-2 FIXED (and reassessed → defense-in-depth):** added the Synthetix `rewardRate*duration <= balanceOf` guard to both reward contracts. On deeper analysis the live-exploit severity was **overstated**: because `rewardRate` is derived from the `actual` transferred balance and `leftover` is bounded by prior funding, the contract is solvent *by construction* with a standard token — so the guard is hardening, not a live HIGH. Kept anyway (cheap, standard); the happy-path reward test still passes (guard doesn't false-revert).
+>
+> M-1/M-2/M-3 + LOWs remain open (tracked for the external audit). Suite: 38 passed.
+
 ---
 
 ## C-1 (CRITICAL) — Boosted-LP staker farms rewards with ANY position → total emission theft

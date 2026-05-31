@@ -407,7 +407,10 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         address m = boostedLP;
         if (m == address(0)) return;
         address lp = (sender == trustedRouter && hookData.length >= 32) ? abi.decode(hookData, (address)) : sender;
-        ITegridyBoostedLP(m).onLiquidityChange(lp, params.liquidityDelta);
+        // H-1: a reward module must NEVER be able to brick core liquidity ops
+        //      (incl. emergency exit while paused). Swallow module reverts — worst
+        //      case is a skipped reward update, not a frozen position.
+        try ITegridyBoostedLP(m).onLiquidityChange(lp, params.liquidityDelta) {} catch {}
     }
 
     // ─── Permissions ──────────────────────────────────────────────────

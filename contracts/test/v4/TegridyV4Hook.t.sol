@@ -7,6 +7,8 @@ import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PositionInfo, PositionInfoLibrary} from "@uniswap/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -27,6 +29,7 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 ///         logic is covered by OZ's own suite.
 contract TegridyV4HookTest is Test, Deployers {
     using CurrencyLibrary for Currency;
+    using PoolIdLibrary for PoolKey;
 
     TegridyV4Hook internal hook;
     PoolKey internal poolKey;
@@ -548,15 +551,26 @@ contract TegridyV4HookTest is Test, Deployers {
 
     // ─── #3 NFT-staker (Part B — canonical boosted-LP) ────────────────
 
-    function test_boostedStaker_depositEarnsBoostedAndWithdraws() public {
-        MockStaking ms = new MockStaking();
-        MockERC20 rt = new MockERC20("Reward", "RWD", 18);
-        MockPositionManager pm = new MockPositionManager();
-        TegridyBoostedLPStaker s =
-            new TegridyBoostedLPStaker(IERC20(address(rt)), address(ms), address(pm), address(this));
+    function _setupStaker()
+        internal
+        returns (MockStaking ms, MockERC20 rt, MockPositionManager pm, TegridyBoostedLPStaker s)
+    {
+        ms = new MockStaking();
+        rt = new MockERC20("Reward", "RWD", 18);
+        pm = new MockPositionManager();
+        s = new TegridyBoostedLPStaker(
+            IERC20(address(rt)), address(ms), address(pm), PoolId.unwrap(poolKey.toId()), address(this)
+        );
+    }
 
+    function _mintFullRange(MockPositionManager pm, address to, uint256 id, uint128 liq) internal {
+        pm.mint(to, id, liq, poolKey, TickMath.minUsableTick(60), TickMath.maxUsableTick(60));
+    }
+
+    function test_boostedStaker_depositEarnsBoostedAndWithdraws() public {
+        (MockStaking ms, MockERC20 rt, MockPositionManager pm, TegridyBoostedLPStaker s) = _setupStaker();
         ms.setBoost(address(this), 20000); // 2x
-        pm.mint(address(this), 1, 100);
+        _mintFullRange(pm, address(this), 1, 100);
         s.deposit(1);
         assertEq(s.liquidityOf(address(this)), 100, "raw liquidity escrowed");
         assertEq(s.effectiveBalanceOf(address(this)), 200, "2x boost applied");
@@ -575,31 +589,71 @@ contract TegridyV4HookTest is Test, Deployers {
     }
 
     function test_boostedStaker_onlyDepositorWithdraws() public {
-        MockStaking ms = new MockStaking();
-        MockPositionManager pm = new MockPositionManager();
-        TegridyBoostedLPStaker s = new TegridyBoostedLPStaker(
-            IERC20(address(new MockERC20("R", "R", 18))), address(ms), address(pm), address(this)
-        );
-        pm.mint(address(this), 7, 50);
+        (,, MockPositionManager pm, TegridyBoostedLPStaker s) = _setupStaker();
+        _mintFullRange(pm, address(this), 7, 50);
         s.deposit(7);
         vm.prank(makeAddr("thief"));
         vm.expectRevert(TegridyBoostedLPStaker.NotDepositor.selector);
         s.withdraw(7);
     }
+
+    // C-1: a position from any OTHER pool (e.g. a worthless pair an attacker
+    //      controls, with huge `liquidity` units) must be rejected → no free farming.
+    function test_C1_boostedStaker_rejectsForeignPool() public {
+        (,, MockPositionManager pm, TegridyBoostedLPStaker s) = _setupStaker();
+        PoolKey memory rogue = PoolKey(currency0, currency1, uint24(3000), int24(60), IHooks(address(hook)));
+        pm.mint(address(this), 9, 1e30, rogue, TickMath.minUsableTick(60), TickMath.maxUsableTick(60));
+        vm.expectRevert(TegridyBoostedLPStaker.WrongPool.selector);
+        s.deposit(9);
+    }
+
+    // C-1: even in the right pool, a tight out-of-range band (high liquidity units,
+    //      ~0 capital) must be rejected.
+    function test_C1_boostedStaker_rejectsNonFullRange() public {
+        (,, MockPositionManager pm, TegridyBoostedLPStaker s) = _setupStaker();
+        pm.mint(address(this), 11, 1e30, poolKey, int24(-120), int24(120));
+        vm.expectRevert(TegridyBoostedLPStaker.NotFullRange.selector);
+        s.deposit(11);
+    }
+
+    // H-1: a reverting boosted-LP module must NOT brick liquidity add OR remove.
+    function test_H1_revertingModuleDoesNotBlockLiquidity() public {
+        RevertingModule bad = new RevertingModule();
+        hook.setBoostedLP(address(bad)); // paramAdmin == this
+        modifyLiquidityRouter.modifyLiquidity(
+            poolKey, ModifyLiquidityParams({tickLower: -600, tickUpper: 600, liquidityDelta: 10 ether, salt: 0}), ""
+        );
+        vm.roll(block.number + 11); // past JIT window
+        modifyLiquidityRouter.modifyLiquidity(
+            poolKey, ModifyLiquidityParams({tickLower: -600, tickUpper: 600, liquidityDelta: -10 ether, salt: 0}), ""
+        );
+    }
 }
 
-/// @dev Minimal V4 PositionManager stand-in (ERC721 ownership + liquidity reader).
+/// @dev Minimal V4 PositionManager stand-in (ERC721 ownership + liquidity + pool/tick info).
 contract MockPositionManager {
     mapping(uint256 => address) public ownerOf;
     mapping(uint256 => uint128) internal _liq;
+    mapping(uint256 => PoolKey) internal _key;
+    mapping(uint256 => int24) internal _tickLower;
+    mapping(uint256 => int24) internal _tickUpper;
 
-    function mint(address to, uint256 id, uint128 liquidity) external {
+    function mint(address to, uint256 id, uint128 liquidity, PoolKey memory key, int24 tickLower, int24 tickUpper)
+        external
+    {
         ownerOf[id] = to;
         _liq[id] = liquidity;
+        _key[id] = key;
+        _tickLower[id] = tickLower;
+        _tickUpper[id] = tickUpper;
     }
 
     function getPositionLiquidity(uint256 id) external view returns (uint128) {
         return _liq[id];
+    }
+
+    function getPoolAndPositionInfo(uint256 id) external view returns (PoolKey memory, PositionInfo) {
+        return (_key[id], PositionInfoLibrary.initialize(_key[id], _tickLower[id], _tickUpper[id]));
     }
 
     function transferFrom(address from, address to, uint256 id) public {
@@ -609,6 +663,14 @@ contract MockPositionManager {
 
     function safeTransferFrom(address from, address to, uint256 id) external {
         transferFrom(from, to, id);
+    }
+}
+
+/// @dev A boosted-LP module that always reverts — proves H-1: the hook's try/catch
+///      means a malicious/buggy module cannot brick liquidity add/remove.
+contract RevertingModule {
+    function onLiquidityChange(address, int256) external pure {
+        revert("boom");
     }
 }
 

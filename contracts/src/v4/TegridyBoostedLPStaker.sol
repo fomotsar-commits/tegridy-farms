@@ -6,17 +6,22 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {OwnableNoRenounce} from "../base/OwnableNoRenounce.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {PositionInfo, PositionInfoLibrary} from "@uniswap/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 
 /// @dev veTOWELI boost source (TegridyStaking).
 interface IStakingBoost {
     function aggregateActiveBoostBps(address user) external view returns (uint256);
 }
 
-/// @dev V4 PositionManager — escrowed NFT + its liquidity.
+/// @dev V4 PositionManager — escrowed NFT + its liquidity + pool/tick info.
 interface IPositionMgr {
     function transferFrom(address from, address to, uint256 tokenId) external;
     function safeTransferFrom(address from, address to, uint256 tokenId) external;
     function getPositionLiquidity(uint256 tokenId) external view returns (uint128 liquidity);
+    function getPoolAndPositionInfo(uint256 tokenId) external view returns (PoolKey memory, PositionInfo);
 }
 
 /// @title  TegridyBoostedLPStaker — #3 boosted-LP rewards, NFT-staker model (Part B)
@@ -37,6 +42,8 @@ interface IPositionMgr {
 ///         so a position is never counted twice. v1: emissions-funded. **UNAUDITED.**
 contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Receiver {
     using SafeERC20 for IERC20;
+    using PoolIdLibrary for PoolKey;
+    using PositionInfoLibrary for PositionInfo;
 
     uint256 public constant BPS = 10_000;
     uint256 public constant MAX_BOOST_BPS = 45_000; // 4.5x ceiling (matches LPFarming)
@@ -47,6 +54,10 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     IERC20 public immutable rewardToken;
     IStakingBoost public immutable staking;
     IPositionMgr public immutable positionManager;
+    /// @notice The ONLY pool whose positions may be staked here (C-1 fix). A
+    ///         position from any other pool — or a worthless pair an attacker
+    ///         controls — is rejected, so emissions always have real backing.
+    bytes32 public immutable allowedPoolId;
 
     uint256 public rewardRate;
     uint256 public periodFinish;
@@ -67,6 +78,9 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     error NoLiquidity();
     error NotifyAmountTooSmall();
     error DurationOutOfRange();
+    error WrongPool();
+    error NotFullRange();
+    error RewardTooHigh();
 
     event Deposited(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
     event Withdrawn(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
@@ -83,15 +97,17 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
         _;
     }
 
-    constructor(IERC20 rewardToken_, address staking_, address positionManager_, address owner_)
+    constructor(IERC20 rewardToken_, address staking_, address positionManager_, bytes32 allowedPoolId_, address owner_)
         OwnableNoRenounce(owner_)
     {
         if (address(rewardToken_) == address(0) || staking_ == address(0) || positionManager_ == address(0)) {
             revert ZeroAddress();
         }
+        if (allowedPoolId_ == bytes32(0)) revert WrongPool();
         rewardToken = rewardToken_;
         staking = IStakingBoost(staking_);
         positionManager = IPositionMgr(positionManager_);
+        allowedPoolId = allowedPoolId_;
     }
 
     // ─── Synthetix views (verbatim) ───────────────────────────────────
@@ -113,6 +129,16 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     // ─── Deposit / withdraw the V4 position NFT ───────────────────────
 
     function deposit(uint256 tokenId) external nonReentrant updateReward(msg.sender) {
+        // C-1: the position MUST belong to the canonical pool, else an attacker
+        //      could stake a junk/foreign-pool NFT and farm emissions for free.
+        (PoolKey memory pk, PositionInfo info) = positionManager.getPoolAndPositionInfo(tokenId);
+        if (PoolId.unwrap(pk.toId()) != allowedPoolId) revert WrongPool();
+        // C-1 (cont.): v1 accepts only FULL-RANGE positions, so out-of-range
+        //      positions with huge `liquidity` units but ~0 capital can't farm.
+        int24 spacing = pk.tickSpacing;
+        if (info.tickLower() != TickMath.minUsableTick(spacing) || info.tickUpper() != TickMath.maxUsableTick(spacing)) {
+            revert NotFullRange();
+        }
         uint256 liq = positionManager.getPositionLiquidity(tokenId);
         if (liq == 0) revert NoLiquidity();
         // Pull the NFT (caller must have approved this contract).
@@ -178,6 +204,8 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
             uint256 leftover = (periodFinish - block.timestamp) * rewardRate;
             rewardRate = (leftover + actual) / duration;
         }
+        // H-2: canonical Synthetix solvency bound — never schedule more than is held.
+        if (rewardRate * duration > rewardToken.balanceOf(address(this))) revert RewardTooHigh();
         rewardsDuration = duration;
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp + duration;
