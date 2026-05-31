@@ -4,6 +4,13 @@
 > Status: **PLAN ONLY — not active code.** Awaiting V2 mainnet launch + 30-day clean monitoring window at $100M TVL before this branch goes from plan to implementation.
 > Approval given: 2026-05-23. Choice 1 = Option B (V2 now → V4 in Phase 7.x). Choices 2-5 = defaults (bundle / $1.2M staggered / V2-style NFTPool / fold FeeHook).
 > **Updated 2026-05-30** with a battle-tested-library research pass (in-chat approval). Headline change: the OZ `uniswap-hooks` library now ships a `general/` folder of ready-to-use hooks (v1.1.1, 2025-11-27), so the **JIT guard is no longer custom code — it inherits OZ `LiquidityPenaltyHook` verbatim**, and two new conversion candidates (ReferralSplitter, LPFarming) plus two evaluated user-facing modules (AntiSandwich, LimitOrder) are recorded below. No deployable logic added — the trigger gate still holds.
+>
+> ## ⚑ STRATEGY CHANGE 2026-05-31 (supersedes the Phase 7.x trigger gate below)
+> **Decision (in-chat): V4 goes live AT the V2 relaunch — not Phase 7.x.** "Build on V2 with V4 stuff" = deploy the V4 hook/pool together with the V2-fork relaunch and migrate liquidity over time (dual-AMM). Consequences:
+> - The **external audit of the 5 V4 contracts is now a HARD RELAUNCH BLOCKER** (was post-$100M). The relaunch timeline is gated on the audit, not on TVL. See `V4_AUDIT_HANDOFF.md`.
+> - The `$100M TVL / 30-clean-days / restaking-opened` conditions in the gate table below **no longer gate V4** — they're historical. The real gate is now: **audit clean + dep-pin reconciled vs mainnet PoolManager + deploy runbook**.
+> - The `next-wave/v4-migration` branch must **merge into the launch line** (currently separate from `mvp-launch`).
+> - Deploy scope grows: HookMiner CREATE2, pool init (dynamic-fee), POL seed, trusted router, boosted-LP NFT-staker, V2↔V4 liquidity-migration UX — all become launch components.
 
 ## Thesis
 
