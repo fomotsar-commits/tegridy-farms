@@ -88,6 +88,12 @@ contract StakingMonitorView {
         bool autoMaxLock,
         bool canWithdraw
     ) {
+        // AUDIT 2026-05-30 [slither unused-return]: tuple destructuring with intentionally
+        // skipped fields (boostedAmount, rewardDebt, hasJbacBoost, stakeTimestamp,
+        // jbacTokenId, jbacDeposited) — this view only exposes the 6 fields its public
+        // signature returns. Standard Solidity tuple-skip pattern; the detector flags any
+        // tuple destructuring where any field is dropped.
+        // slither-disable-next-line unused-return
         (
             uint256 amt,
             ,                  // boostedAmount

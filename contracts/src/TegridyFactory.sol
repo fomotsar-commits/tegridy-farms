@@ -470,6 +470,10 @@ contract TegridyFactory is TimelockAdmin {
             bytes32 tKey = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
             _forceCancel(tKey);
             delete pendingTokenBlockValue[token];
+            // AUDIT 2026-05-30 [slither unused-return]: EnumerableSet.remove returns a
+            // was-present bool; ignoring it is intentional and standard (the .at(...) above
+            // guarantees the element exists). Matches repo convention at TWAP L611/941.
+            // slither-disable-next-line unused-return
             _pendingTokenBlocks.remove(token);
             emit TokenBlockCancelled(token);
         }
@@ -483,6 +487,9 @@ contract TegridyFactory is TimelockAdmin {
             bytes32 pKey = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
             _forceCancel(pKey);
             delete pendingPairDisableValue[pair];
+            // AUDIT 2026-05-30 [slither unused-return]: same as _flushTokenBlocks above —
+            // EnumerableSet.remove return ignored intentionally, .at(...) guarantees presence.
+            // slither-disable-next-line unused-return
             _pendingPairDisables.remove(pair);
             emit PairDisableCancelled(pair);
         }
