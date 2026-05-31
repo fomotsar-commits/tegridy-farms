@@ -25,10 +25,11 @@
     "constable-states": "Several constants are timelock-tunable governance params, intentionally non-const",
     "external-function": "public-vs-external is a review-time call",
     "incorrect-shift": "False positives on SafeMath patterns",
-    "dead-code": "Some helpers retained for ABI compatibility and future-use carve-outs"
+    "dead-code": "Some helpers retained for ABI compatibility and future-use carve-outs",
+    "timestamp": "LOW-only, non-gating. Every flagged block.timestamp comparison on this protocol is an intentional, period-scale time gate (timelock intervals, grace/forfeiture/cooldown windows, TWAP staleness bounds) — immune to a miner's ~12s wiggle. Pure review-noise (verified FPs across RevenueDistributor / ReferralSplitter / POLAccumulator / TegridyStaking / TegridyRestaking / TegridyTWAP, 2026-05-31). weak-prng STAYS enabled below to still catch the genuinely-dangerous timestamp-as-randomness case."
   },
   "_schema_note": "Slither config expects detectors_to_run and detectors_to_exclude as comma-separated strings (it calls .split(',') on them). The fail_high/fail_medium/etc keys are NOT valid config keys — severity gating happens via the exclude_* booleans above + CI grepping the JSON output.",
-  "detectors_to_exclude": "naming-convention,solc-version,pragma,low-level-calls,assembly,similar-names,too-many-digits,constable-states,external-function,incorrect-shift,dead-code",
+  "detectors_to_exclude": "naming-convention,solc-version,pragma,low-level-calls,assembly,similar-names,too-many-digits,constable-states,external-function,incorrect-shift,dead-code,timestamp",
 
   "_detectors_promoted": "Fund-loss detector class. Run loud.",
   "detectors_to_run": "arbitrary-send-eth,arbitrary-send-erc20,arbitrary-send-erc20-permit,controlled-array-length,controlled-delegatecall,delegatecall-loop,msg-value-loop,reentrancy-eth,reentrancy-no-eth,reentrancy-unlimited-gas,reentrancy-events,reentrancy-benign,incorrect-equality,tautology,boolean-equal,uninitialized-state,uninitialized-storage,uninitialized-local,unused-return,shadowing-state,shadowing-abstract,shadowing-builtin,shadowing-local,missing-zero-check,calls-loop,events-access,events-maths,weak-prng,tx-origin,unprotected-upgrade,domain-separator-collision,erc20-interface,erc721-interface,incorrect-modifier,locked-ether,mapping-deletion,encode-packed-collision,storage-array,deprecated-standards,void-cst,function-init-state,reused-constructor,name-reused",
