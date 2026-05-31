@@ -30,6 +30,11 @@ remappings = [
     "@uniswap/v4-periphery/=lib/v4-periphery/",
     "solmate/=lib/solmate/src/",
     "solady/=lib/solady/src/",
+    # Context-scoped: inside the V4 libs, solmate is imported as `solmate/src/...`
+    # (vs. our V2 convention `solmate/...`). Scoping the override leaves the V2 build
+    # untouched. Needed for the V4 test harness (Deployers pulls in solmate mocks).
+    "lib/v4-core/:solmate/=lib/solmate/",
+    "lib/v4-periphery/:solmate/=lib/solmate/",
 ]
 
 [etherscan]

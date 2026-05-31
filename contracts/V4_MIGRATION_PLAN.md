@@ -36,7 +36,7 @@ Drawn directly from 2025 production losses:
 | 2 | Pool-key allowlist (`_beforeInitialize`, Cork defense) + admin-configurable bounded fee | ✅ compiles |
 | 3 | ~~Oracle + volatility fee~~ **DROPPED 2026-05-30** (no verbatim oracle in pinned deps; internal oracle = too much custom surface; Batch 2's bounded admin fee stands). **POL `_afterSwap` skim (3c) ✅ compiles** — flat-bps skim of the unspecified currency, accrued as ERC-6909 claims (custody stays in PoolManager), swept to treasury. take/delta mechanics copied verbatim from OZ `BaseDynamicAfterFee`. **UNTESTED** — afterSwap delta math is the highest-risk code; needs Batch 5 tests + audit. | ✅ 3c compiles |
 | 4 | `TegridyV4HookAdmin` timelock wired as `paramAdmin` + PauseGuardian | pending |
-| 5 | HookMiner CREATE2 mining + DeployV4/VerifyV4 + full test/invariant suite | pending |
+| 5 | HookMiner CREATE2 mining + DeployV4/VerifyV4 + full test/invariant suite | 🟡 partial — behavioral test harness GREEN (7 tests: allowlist rejection, dynamic-fee gate, admin gating + bounds, **POL accrual + sweep conservation / no leak**). Deploy scripts + fuzz/invariant suite + edge cases (exactOutput POL, native-ETH currency, multi-swap) still pending. |
 
 ⚠️ Still **NOT deployable or audited.** The sections below are the original (pre-override) spec and remain the target for the work.
 
