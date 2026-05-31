@@ -401,7 +401,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             dailyETHAccumulated = 0;
             emit DailyWindowReset(block.timestamp);
         }
-        uint256 _dailyRemaining = dailyETHCap - dailyETHAccumulated;
+        // AUDIT FIX 2026-05-31 [LOW-2]: saturating subtraction. If the owner lowers
+        // `dailyETHCap` below the amount already consumed in the current window, the
+        // bare subtraction would underflow → Panic(0x11), bricking accumulate() until
+        // the 24h window rolls. Saturate to 0 so the typed DailyCapExceeded fires
+        // gracefully instead (rounds in the protocol's favour — caps harder, never less).
+        uint256 _dailyRemaining = dailyETHCap > dailyETHAccumulated ? dailyETHCap - dailyETHAccumulated : 0;
         if (_dailyRemaining == 0) revert DailyCapExceeded();
         if (ethBalance > _dailyRemaining) ethBalance = _dailyRemaining;
 

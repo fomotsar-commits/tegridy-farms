@@ -88,6 +88,7 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     error NotFullRange();
     error RewardTooHigh();
     error NotifyCooldownActive();
+    error DirectNFTTransferNotAllowed();
 
     event Deposited(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
     event Withdrawn(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
@@ -244,7 +245,14 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
         emit RewardAdded(actual, duration);
     }
 
+    /// @dev AUDIT FIX 2026-05-31 [LOW-1]: positions MUST be staked via `deposit()`
+    ///      (approve + `transferFrom`), which records the depositor and credits
+    ///      liquidity. `deposit()` uses plain `transferFrom`, which does NOT invoke
+    ///      this hook, so the happy path is unaffected. A raw `safeTransferFrom`
+    ///      straight to this contract would otherwise escrow an NFT with NO depositor
+    ///      and NO recovery path (orphaned forever) — so reject it: the transfer
+    ///      reverts and the NFT stays with its owner instead of being stranded.
     function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
-        return IERC721Receiver.onERC721Received.selector;
+        revert DirectNFTTransferNotAllowed();
     }
 }

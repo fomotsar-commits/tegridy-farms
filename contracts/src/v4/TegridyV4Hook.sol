@@ -309,8 +309,16 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         return (this.afterSwap.selector, feeAmount.toInt256().toInt128());
     }
 
-    /// @notice Sweep accrued claims of `currency` to `polRecipient` (claims, no redeem).
-    function sweepPOL(Currency currency) external {
+    /// @notice Emergency rescue: sweep accrued claims of `currency` to `polRecipient`
+    ///         (ERC-6909 claims, no redeem — call-free, so it cannot be bricked by an
+    ///         ETH-rejecting sink). Routes the FULL balance to `polRecipient`, IGNORING
+    ///         the staker/treasury split, so it is `onlyParamAdmin` (governance), NOT
+    ///         permissionless. AUDIT FIX 2026-05-31 [LOW-4]: pre-fix this was
+    ///         permissionless — once a non-100%-POL split is configured, anyone could
+    ///         front-run `distributeFees` with `sweepPOL` to divert the staker/treasury
+    ///         shares to POL (griefing). Normal fee routing uses the permissionless
+    ///         `distributeFees`, which honours the split.
+    function sweepPOL(Currency currency) external onlyParamAdmin {
         uint256 id = currency.toId();
         uint256 bal = poolManager.balanceOf(address(this), id);
         if (bal == 0) return;

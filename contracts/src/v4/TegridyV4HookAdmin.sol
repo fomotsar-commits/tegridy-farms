@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {OwnableNoRenounce} from "../base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "../base/TimelockAdmin.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
 /// @notice Minimal interface to TegridyV4Hook's paramAdmin-gated setters + bounds.
 interface ITegridyV4HookApply {
@@ -16,6 +17,7 @@ interface ITegridyV4HookApply {
     function setDiscountConfig(address premiumAccess, address trustedRouter, uint16 discountBps) external;
     function setFeeSplit(uint16 stakerShareBps, uint16 treasuryShareBps) external;
     function setFeeSinks(address stakerSink, address treasury) external;
+    function sweepPOL(Currency currency) external;
     function minFeePips() external view returns (uint24);
     function maxFeePips() external view returns (uint24);
     function maxPolSkimBps() external view returns (uint16);
@@ -287,5 +289,14 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
 
     function hookSetPauseGuardian(address newGuardian) external onlyOwner hookWired {
         hook.setPauseGuardian(newGuardian);
+    }
+
+    /// @notice Emergency rescue pass-through — flush accrued fee claims of `currency`
+    ///         to the hook's `polRecipient`. INSTANT (not timelocked): the hook gates
+    ///         `sweepPOL` to `onlyParamAdmin == address(this)`, and this is a no-theft
+    ///         escape hatch (fixed destination) needed when an ETH-rejecting sink would
+    ///         brick `distributeFees`. AUDIT FIX 2026-05-31 [LOW-4].
+    function hookSweepPOL(Currency currency) external onlyOwner hookWired {
+        hook.sweepPOL(currency);
     }
 }

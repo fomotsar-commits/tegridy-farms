@@ -104,6 +104,13 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     mapping(address => uint256) public lastBelowStakeTime; // Timestamp when referrer was marked below MIN_REFERRAL_STAKE_POWER
     uint256 public constant BELOW_STAKE_GRACE_PERIOD = 7 days; // Grace period before forfeiture allowed
 
+    /// @notice AUDIT FIX 2026-05-31 [LOW-4]: owner-set, current-episode below-threshold
+    ///         anchor. The BELOW_STAKE_GRACE_PERIOD runs from THIS (set via
+    ///         armForfeiture — onlyOwner + below-now) rather than the permissionless,
+    ///         monotonic, pre-armable `lastBelowStakeTime`. Cleared on claim and forfeit
+    ///         so each forfeiture cycle requires a fresh, current-episode confirmation.
+    mapping(address => uint256) public forfeitureArmedAt;
+
     mapping(address => uint256) public referrerRegisteredAt; // When a referrer first gained a referral
     uint256 public constant MIN_REFERRAL_AGE = 7 days; // Referrer must wait 7 days before claiming
 
@@ -174,6 +181,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     event CallerGrantProposed(address indexed caller, uint256 executeAfter);
     event CallerGrantCancelled(address indexed caller);
     event BelowStakeMarked(address indexed referrer, uint256 timestamp);
+    event ForfeitureArmed(address indexed referrer, uint256 armedAt); // [LOW-4] fresh owner-set grace anchor
     event CallerCreditPaidWETH(address indexed caller, uint256 amount);
     event UnclaimedSweptWETH(address indexed treasury, uint256 amount);
     event BanReferrerProposed(address indexed referrer, uint256 executeAfter); // DEEP-DR-L-04
@@ -225,6 +233,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     // [M6] mark-clear errors
     error NotMarked();         // referrer has no active below-stake mark
     error StillBelowThreshold(); // referrer is still below MIN_REFERRAL_STAKE_POWER at clear time
+    error NotBelowThreshold();   // [LOW-4] referrer is at/above threshold — cannot arm forfeiture
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function referralFeeChangeTime() external view returns (uint256) { return _executeAfter[REFERRAL_FEE_CHANGE]; }
@@ -512,6 +521,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         pendingETH[msg.sender] = 0;
         totalPendingETH -= amount;
         lastClaimTime[msg.sender] = block.timestamp;
+        forfeitureArmedAt[msg.sender] = 0; // [LOW-4] re-engaged referrer forces a fresh owner arm
 
         // AUDIT FIX L-11: Use WETHFallbackLib directly — avoids redundant raw .call before WETH fallback
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, amount);
@@ -711,6 +721,24 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         }
     }
 
+    /// @notice AUDIT FIX 2026-05-31 [LOW-4]: owner arms the forfeiture grace with a
+    ///         FRESH, current-episode below-threshold confirmation. The 7-day
+    ///         BELOW_STAKE_GRACE_PERIOD then runs from this owner-set anchor instead of
+    ///         the permissionless, monotonic `lastBelowStakeTime` — closing the pre-arm
+    ///         vector where a third party stamped `lastBelowStakeTime` during a transient
+    ///         power dip (e.g. the block a lock expires) to collapse the grace to zero.
+    /// @dev    onlyOwner + below-now, so it cannot be pre-armed by an attacker, and it
+    ///         does NOT touch the M6 monotonic-mark invariant (lastBelowStakeTime is
+    ///         untouched). A fresh arm is required after any claim or recovery above
+    ///         threshold (the anchor is cleared on claim and on forfeit).
+    function armForfeiture(address _referrer) external onlyOwner {
+        require(setupComplete, "SETUP_NOT_COMPLETE");
+        if (_referrer == address(0)) revert ZeroAddress();
+        if (_votingPowerOf(_referrer) >= MIN_REFERRAL_STAKE_POWER) revert NotBelowThreshold();
+        forfeitureArmedAt[_referrer] = block.timestamp;
+        emit ForfeitureArmed(_referrer, block.timestamp);
+    }
+
     /// @notice [M6 FIX] Owner proposes clearing a below-stake mark for a referrer who has
     ///         genuinely recovered above MIN_REFERRAL_STAKE_POWER. Requires power ≥ threshold
     ///         at BOTH propose time and execute time to block flash-loan gaming.
@@ -773,7 +801,13 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
                 // slither-disable-next-line incorrect-equality
                 referrerPower >= MIN_REFERRAL_STAKE_POWER ||
                 lastBelowStakeTime[_referrer] == 0 ||
-                block.timestamp < lastBelowStakeTime[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
+                // AUDIT FIX 2026-05-31 [LOW-4]: the 7-day grace runs from the FRESH
+                // owner-set anchor (armForfeiture, below-now), NOT the permissionless,
+                // pre-armable monotonic mark — so a stale pre-armed lastBelowStakeTime
+                // can no longer collapse a legitimate current-episode grace window.
+                // slither-disable-next-line incorrect-equality
+                forfeitureArmedAt[_referrer] == 0 ||
+                block.timestamp < forfeitureArmedAt[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
                 block.timestamp < lastClaimTime[_referrer] + FORFEITURE_PERIOD
             ) revert ForfeitureConditionsNotMet();
         } else {
@@ -790,6 +824,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
 
         pendingETH[_referrer] = 0;
         totalPendingETH -= amount;
+        forfeitureArmedAt[_referrer] = 0; // [LOW-4] next forfeiture cycle must re-arm fresh
         // AUDIT FIX 2026-05-26 [L-51]: track lifetime forfeited per-referrer
         // separate from `totalEarned`. Pre-fix `getReferralInfo` returned
         // `earned` that included forfeited amounts, overstating lifetime payout.

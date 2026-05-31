@@ -149,6 +149,18 @@ contract TegridyV4HookTest is Test, Deployers {
         assertEq(currency1.balanceOf(treasury), treasuryRealBefore + accrued, "treasury got real tokens, no leak");
     }
 
+    /// @dev [LOW-4 2026-05-31] sweepPOL is now governance-gated (onlyParamAdmin), so it can
+    ///      no longer be called permissionlessly to bypass the staker/treasury fee split.
+    function test_LOW4_sweepPOL_onlyParamAdmin() public {
+        _swapOnceZeroForOne();
+        vm.prank(stranger);
+        vm.expectRevert(TegridyV4Hook.NotParamAdmin.selector);
+        hook.sweepPOL(currency1);
+        // paramAdmin (this test contract) can still sweep.
+        hook.sweepPOL(currency1);
+        assertEq(manager.balanceOf(address(hook), currency1.toId()), 0, "paramAdmin swept");
+    }
+
     function test_pol_zeroSkimAccruesNothing() public {
         hook.setPolSkimBps(0);
         _swapOnceZeroForOne();
@@ -581,6 +593,14 @@ contract TegridyV4HookTest is Test, Deployers {
         pm.mint(address(this), 11, 1e30, poolKey, int24(-120), int24(120));
         vm.expectRevert(TegridyBoostedLPStaker.NotFullRange.selector);
         s.deposit(11);
+    }
+
+    /// @dev [LOW-1 2026-05-31] a raw safeTransferFrom (bypassing deposit()) must REVERT
+    ///      rather than silently orphan the NFT with no depositor and no recovery path.
+    function test_LOW1_boostedStaker_rejectsDirectNFTTransfer() public {
+        (,,, TegridyBoostedLPStaker s) = _setupStaker();
+        vm.expectRevert(TegridyBoostedLPStaker.DirectNFTTransferNotAllowed.selector);
+        s.onERC721Received(address(0), address(this), 1, "");
     }
 
 }

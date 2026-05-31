@@ -823,6 +823,9 @@ contract Audit195Referral is Test {
         ref.markBelowStake(bob);
         assertGt(ref.lastBelowStakeTime(bob), 0);
 
+        // [LOW-4] owner arms the forfeiture grace with a fresh below-threshold anchor
+        ref.armForfeiture(bob);
+
         // Warp past both grace period (7d) AND forfeiture period (90d)
         vm.warp(block.timestamp + 90 days + 1);
 
@@ -955,6 +958,79 @@ contract Audit195Referral is Test {
         vm.prank(alice);
         vm.expectRevert();
         ref.forfeitUnclaimedRewards(bob);
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // 10b. [LOW-4 2026-05-31] armForfeiture — fresh current-episode grace anchor
+    // ════════════════════════════════════════════════════════════════════
+
+    /// @dev Core fix: a pre-armed (ancient, monotonic) lastBelowStakeTime can no longer
+    ///      collapse the grace. Forfeiture requires a FRESH owner arm + a full 7-day
+    ///      grace from that arm — and the M6 monotonic mark is left untouched.
+    function test_LOW4_preArmCannotCollapseGrace() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+
+        // Attacker pre-arms the permissionless monotonic mark during a transient dip.
+        staking.setPower(bob, 0);
+        ref.markBelowStake(bob);
+        uint256 ancientMark = ref.lastBelowStakeTime(bob);
+
+        // Long time passes: mark is "ancient" and the 90d inactivity is satisfied.
+        vm.warp(block.timestamp + 90 days + 1);
+
+        // Pre-fix this forfeited immediately (grace collapsed). Post-fix: not armed → revert.
+        vm.expectRevert(ReferralSplitter.ForfeitureConditionsNotMet.selector);
+        ref.forfeitUnclaimedRewards(bob);
+
+        // Owner arms fresh; M6 monotonic mark must be untouched.
+        ref.armForfeiture(bob);
+        assertEq(ref.lastBelowStakeTime(bob), ancientMark, "[LOW-4] M6 monotonic mark untouched");
+
+        // Grace runs a FULL 7 days from the arm, not the ancient mark.
+        vm.warp(block.timestamp + 6 days);
+        vm.expectRevert(ReferralSplitter.ForfeitureConditionsNotMet.selector);
+        ref.forfeitUnclaimedRewards(bob);
+
+        // Past 7 days from the fresh arm → forfeiture finally allowed.
+        vm.warp(block.timestamp + 2 days);
+        uint256 pending = ref.pendingETH(bob);
+        uint256 tBefore = ref.accumulatedTreasuryETH();
+        ref.forfeitUnclaimedRewards(bob);
+        assertEq(ref.pendingETH(bob), 0, "[LOW-4] forfeit succeeds after a fresh 7d grace");
+        assertEq(ref.accumulatedTreasuryETH(), tBefore + pending);
+    }
+
+    function test_LOW4_armForfeiture_revertsIfAboveThreshold() public {
+        staking.setPower(bob, MIN_STAKE); // qualified — cannot arm
+        vm.expectRevert(ReferralSplitter.NotBelowThreshold.selector);
+        ref.armForfeiture(bob);
+    }
+
+    function test_LOW4_armForfeiture_onlyOwner() public {
+        staking.setPower(bob, 0);
+        vm.prank(alice);
+        vm.expectRevert();
+        ref.armForfeiture(bob);
+    }
+
+    /// @dev A re-engaged referrer who claims must force a fresh owner arm (anchor cleared).
+    function test_LOW4_claimResetsForfeitureArm() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+
+        staking.setPower(bob, 0);
+        ref.markBelowStake(bob);
+        ref.armForfeiture(bob);
+        assertGt(ref.forfeitureArmedAt(bob), 0, "armed");
+
+        // bob re-engages: after MIN_REFERRAL_AGE he claims, which clears the arm.
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.prank(bob);
+        ref.claimReferralRewards();
+        assertEq(ref.forfeitureArmedAt(bob), 0, "[LOW-4] claim clears the forfeiture arm");
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -1351,6 +1427,7 @@ contract Audit195Referral is Test {
 
         staking.setPower(bob, 0);
         ref.markBelowStake(bob);
+        ref.armForfeiture(bob); // [LOW-4] owner arms fresh below-threshold anchor
         vm.warp(block.timestamp + 90 days + 1);
 
         uint256 bobPending = ref.pendingETH(bob);
