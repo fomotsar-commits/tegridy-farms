@@ -55,12 +55,26 @@ code_size_limit = 24576
 
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/uniswap-hooks/=lib/uniswap-hooks/",
     "forge-std/=lib/forge-std/src/",
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
     "solmate/=lib/solmate/src/",
     "solady/=lib/solady/src/",
+    # Context-scoped: inside the V4 libs, solmate is imported as `solmate/src/...`
+    # (vs. our V2 convention `solmate/...`). Scoping the override leaves the V2 build
+    # untouched. Needed for the V4 test harness (Deployers pulls in solmate mocks).
+    "lib/v4-core/:solmate/=lib/solmate/",
+    "lib/v4-periphery/:solmate/=lib/solmate/",
 ]
+
+[lint]
+# The forge linter does not honor the context-scoped solmate remapping above, so
+# during build-lint it fails to RESOLVE v4-core's internal `solmate/src/...` imports
+# (which the compiler resolves fine). That turned a green compile into "Lint failed".
+# Disable lint-on-build to keep `forge build` exit-0; lint our own code on demand
+# with `forge lint src/v4`. Compilation + tests are unaffected.
+lint_on_build = false
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1" }
