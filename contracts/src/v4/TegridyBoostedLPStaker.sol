@@ -129,6 +129,11 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
 
     // ─── Deposit / withdraw the V4 position NFT ───────────────────────
 
+    // AUDIT 2026-05-31 [slither reentrancy-no-eth FP]: function is `nonReentrant`, and uses
+    // ERC-721 `transferFrom` (NOT `safeTransferFrom` — no onERC721Received callback) against
+    // Uniswap's canonical PositionManager. The post-transfer `_resync`/balance writes cannot
+    // be re-entered. The pre-transfer pool/range/liquidity checks already validate the NFT.
+    // slither-disable-next-line reentrancy-no-eth
     function deposit(uint256 tokenId) external nonReentrant updateReward(msg.sender) {
         // C-1: the position MUST belong to the canonical pool, else an attacker
         //      could stake a junk/foreign-pool NFT and farm emissions for free.
