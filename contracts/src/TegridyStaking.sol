@@ -1710,6 +1710,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         uint256 power = votingPowerOf(user);
         uint208 newPower = SafeCastLib.toUint208(power);
         uint208 last = _checkpoints[user].latest();
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: intentional value-equality
+        // early-exit so a no-op transfer doesn't waste an SSTORE. Same `==` pattern as
+        // Compound / OZ Governor checkpoint writes.
+        // slither-disable-next-line incorrect-equality
         if (last == newPower) return;
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
         // slither-disable-next-line unused-return

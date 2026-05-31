@@ -1229,6 +1229,9 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         //       in the sweep and cannot accumulate indefinitely. accumulatedFees
         //       is still zeroed for accounting consistency.
         uint256 amount = address(this).balance;
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: zero-sentinel check — `0`
+        // balance means nothing to withdraw. Standard sentinel pattern.
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NoFees();
         accumulatedFees = 0;
         address to = feeRecipient == address(0) ? owner() : feeRecipient;

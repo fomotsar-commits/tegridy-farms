@@ -702,6 +702,9 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // Only start the clock if not already marked AND below threshold.
         // [M6]: removed "if (power >= MIN_REFERRAL_STAKE_POWER) { lastBelowStakeTime = 0; return; }"
         // that was the double-stamp attack vector.
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: zero-sentinel check — `0`
+        // means not-yet-marked (the M6 invariant: lastBelowStakeTime is monotonic).
+        // slither-disable-next-line incorrect-equality
         if (lastBelowStakeTime[_referrer] == 0 && _votingPowerOf(_referrer) < MIN_REFERRAL_STAKE_POWER) {
             lastBelowStakeTime[_referrer] = block.timestamp;
             emit BelowStakeMarked(_referrer, block.timestamp);

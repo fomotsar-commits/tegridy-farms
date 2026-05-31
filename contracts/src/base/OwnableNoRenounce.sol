@@ -244,6 +244,9 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     ///         event-log spam from permissionless callers.
     function pokeOwnershipExpiryWarning() external {
         uint256 expiry = ownershipTransferExpiresAt;
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: zero-sentinel check — `0`
+        // means no pending transfer. Standard sentinel pattern.
+        // slither-disable-next-line incorrect-equality
         if (expiry == 0) revert NoPendingOwnershipTransfer();
         if (block.timestamp >= expiry) revert OwnershipTransferExpired();
         uint256 remaining = expiry - block.timestamp;
