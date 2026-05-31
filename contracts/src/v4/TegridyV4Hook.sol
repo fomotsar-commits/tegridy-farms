@@ -16,6 +16,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 // Battle-tested verbatim bases / utils (OpenZeppelin/uniswap-hooks v1.1.1, pinned)
 import {LiquidityPenaltyHook} from "@openzeppelin/uniswap-hooks/src/general/LiquidityPenaltyHook.sol";
 import {CurrencySettler} from "@openzeppelin/uniswap-hooks/src/utils/CurrencySettler.sol";
+import {PauseGuardian} from "../base/PauseGuardian.sol";
 
 /// @title  TegridyV4Hook — bundled Uniswap V4 hook for the TOWELI pool
 /// @notice **BATCHES 1-3c of the V4 implementation** (gate overridden 2026-05-30).
@@ -49,7 +50,7 @@ import {CurrencySettler} from "@openzeppelin/uniswap-hooks/src/utils/CurrencySet
 ///
 /// @dev    AntiSandwichHook / LimitOrderHook cannot share this pool (both drive
 ///         `_beforeSwap`/fee). If adopted, each runs on its OWN pool.
-contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback {
+contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -69,6 +70,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback {
     error SkimOutOfBounds();
     error ZeroAddress();
     error NotPoolManagerUnlock();
+    error TradingPaused();
 
     // ─── Events ───────────────────────────────────────────────────────
     event PoolAllowed(PoolId indexed id, bool allowed);
@@ -78,6 +80,8 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback {
     event PolAccrued(Currency indexed currency, uint256 amount);
     event PolSwept(Currency indexed currency, address indexed to, uint256 amount);
     event PolRedeemed(Currency indexed currency, address indexed to, uint256 amount);
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
 
     // ─── Params (mutated only by paramAdmin; hook code itself is immutable) ──
     /// @notice Becomes the TegridyV4HookAdmin timelock in Batch 4. Set at construction.
@@ -100,6 +104,10 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback {
     /// @notice Pool-key allowlist by PoolId — `_beforeInitialize` rejects any pool
     ///         not pre-registered here (Cork defense).
     mapping(PoolId => bool) public allowedPools;
+
+    /// @notice Emergency stop. When true, `_beforeSwap` reverts so SWAPS halt;
+    ///         liquidity removal stays open (never trap LP funds).
+    bool public paused;
 
     modifier onlyParamAdmin() {
         if (msg.sender != paramAdmin) revert NotParamAdmin();
@@ -173,6 +181,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback {
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
+        if (paused) revert TradingPaused(); // emergency stop halts swaps; liquidity exit stays open
         uint24 fee = _getFee(sender, key, params, hookData);
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
@@ -199,6 +208,27 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback {
         if (newRecipient == address(0)) revert ZeroAddress();
         polRecipient = newRecipient;
         emit PolRecipientSet(newRecipient);
+    }
+
+    // ─── Emergency pause (PauseGuardian mixin) ─────────────────────────
+
+    /// @notice Hot guardian can pause instantly (pause-only authority — Aave/Lido pattern).
+    function guardianPause() external onlyPauseGuardian {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice paramAdmin (governance) can pause OR unpause. NOT timelocked —
+    ///         emergency response and recovery must be immediate.
+    function setPaused(bool p) external onlyParamAdmin {
+        paused = p;
+        if (p) emit Paused(msg.sender);
+        else emit Unpaused(msg.sender);
+    }
+
+    /// @notice paramAdmin rotates the pause guardian (instant; hot-key-compromise response).
+    function setPauseGuardian(address newGuardian) external onlyParamAdmin {
+        _setPauseGuardian(newGuardian);
     }
 
     /// @dev Skim `polSkimBps` of the swap's unspecified (output) currency as a

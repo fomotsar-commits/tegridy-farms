@@ -35,10 +35,12 @@ Drawn directly from 2025 production losses:
 | 1 | Fee+JIT core — inherit `LiquidityPenaltyHook` verbatim + verbatim `BaseOverrideFee` copy; vendor OZ hooks v1.1.1; bump v4-core/periphery | ✅ compiles (700b269) |
 | 2 | Pool-key allowlist (`_beforeInitialize`, Cork defense) + admin-configurable bounded fee | ✅ compiles |
 | 3 | ~~Oracle + volatility fee~~ **DROPPED 2026-05-30** (no verbatim oracle in pinned deps; internal oracle = too much custom surface; Batch 2's bounded admin fee stands). **POL `_afterSwap` skim (3c) ✅ compiles** — flat-bps skim of the unspecified currency, accrued as ERC-6909 claims (custody stays in PoolManager), swept to treasury. take/delta mechanics copied verbatim from OZ `BaseDynamicAfterFee`. **UNTESTED** — afterSwap delta math is the highest-risk code; needs Batch 5 tests + audit. | ✅ 3c compiles |
-| 4 | `TegridyV4HookAdmin` timelock (propose/execute/cancel for baseFee / polSkim / polRecipient / pool-allowlist; mirrors `SwapFeeRouterAdmin`) wired via one-time `setHook` (hook's `paramAdmin` is immutable → admin precedes hook). Plus claims→native-ETH redemption (`redeemPOL` + `unlockCallback`: burn claims → take real currency → treasury). ✅ compiles + tested. **PauseGuardian wiring still deferred.** | ✅ (11 tests green) |
+| 4 | `TegridyV4HookAdmin` timelock (propose/execute/cancel for baseFee / polSkim / polRecipient / pool-allowlist; mirrors `SwapFeeRouterAdmin`) wired via one-time `setHook` (hook's `paramAdmin` is immutable → admin precedes hook). Plus claims→native-ETH redemption (`redeemPOL` + `unlockCallback`: burn claims → take real currency → treasury). ✅ compiles + tested. (PauseGuardian wired in Batch 6.) | ✅ (11 tests green) |
 | 5 | DeployV4 (HookMiner CREATE2 + admin wiring + Ownable2Step handoff) + VerifyV4 (invariant asserts) ✅. Test suite now **14 green**: + fuzz POL conservation (256 runs), exactOutput-POL (skims input side), multi-swap accumulation. `forge build` exit-0 (lint-on-build disabled — forge linter can't resolve v4-core's context-remapped solmate imports). **Still open: native-ETH-currency pool test (TOWELI/ETH redemption path), broader invariant suite, PauseGuardian wiring.** | 🟡 mostly done |
 
-⚠️ Still **NOT deployable or audited.** The sections below are the original (pre-override) spec and remain the target for the work.
+| 6 | Audit-readiness gap-closure: **PauseGuardian wired** (hot-guardian pause-only + paramAdmin unpause; `_beforeSwap` halts on pause, liquidity exit stays open so funds are never trapped) · **native-ETH redemption tested** (the real TOWELI/ETH path) · fee-bounds invariant fuzz. **19 tests green.** | ✅ |
+
+⚠️ Still **NOT deployable or audited.** Remaining before audit: broader invariant suite (cross-module non-interference, POL-never-exceeds-output), and the v4-core dev-commit reconciliation vs the deployed mainnet PoolManager. The sections below are the original (pre-override) spec and remain the target.
 
 ## Scope: what's in, what's out
 

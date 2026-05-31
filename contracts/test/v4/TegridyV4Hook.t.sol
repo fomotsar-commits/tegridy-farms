@@ -27,6 +27,7 @@ contract TegridyV4HookTest is Test, Deployers {
     PoolKey internal poolKey;
     address internal treasury = makeAddr("treasury");
     address internal stranger = makeAddr("stranger");
+    address internal guardian = makeAddr("guardian");
 
     uint24 internal constant MIN_FEE = 500; // 0.05%
     uint24 internal constant MAX_FEE = 30_000; // 3%
@@ -229,5 +230,86 @@ contract TegridyV4HookTest is Test, Deployers {
         admin.setHook(address(ahook));
         vm.expectRevert(TegridyV4HookAdmin.HookAlreadySet.selector);
         admin.setHook(address(ahook));
+    }
+
+    // ─── Emergency pause ──────────────────────────────────────────────
+
+    function test_pause_guardianHaltsSwapsThenAdminUnpauses() public {
+        hook.setPauseGuardian(guardian); // as paramAdmin (== this)
+        vm.prank(guardian);
+        hook.guardianPause();
+        assertTrue(hook.paused());
+
+        vm.expectRevert(); // TradingPaused (wrapped by PoolManager)
+        _swapOnceZeroForOne();
+
+        hook.setPaused(false); // paramAdmin recovery
+        assertFalse(hook.paused());
+        _swapOnceZeroForOne(); // succeeds again
+    }
+
+    function test_pause_guardianIsPauseOnly() public {
+        hook.setPauseGuardian(guardian);
+        vm.prank(guardian);
+        hook.guardianPause();
+        // guardian cannot unpause — that's paramAdmin-only
+        vm.prank(guardian);
+        vm.expectRevert(TegridyV4Hook.NotParamAdmin.selector);
+        hook.setPaused(false);
+    }
+
+    function test_pause_liquidityExitOpenWhilePaused() public {
+        hook.setPauseGuardian(guardian);
+        vm.roll(block.number + 11); // past JIT window so removal isn't penalized
+        vm.prank(guardian);
+        hook.guardianPause();
+        // withdrawing liquidity must still work while paused (never trap funds)
+        modifyLiquidityRouter.modifyLiquidity(
+            poolKey, ModifyLiquidityParams({tickLower: -600, tickUpper: 600, liquidityDelta: -10 ether, salt: 0}), ""
+        );
+    }
+
+    // ─── Native-ETH currency pool (the real TOWELI/ETH redemption path) ──
+
+    function test_pol_nativeEthRedemption() public {
+        Currency native = CurrencyLibrary.ADDRESS_ZERO;
+        PoolKey memory nativeKey = PoolKey(native, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, int24(60), IHooks(address(hook)));
+        hook.setPoolAllowed(nativeKey, true);
+        manager.initialize(nativeKey, SQRT_PRICE_1_1);
+
+        deal(address(this), 100 ether);
+        modifyLiquidityRouter.modifyLiquidity{value: 50 ether}(
+            nativeKey, ModifyLiquidityParams({tickLower: -600, tickUpper: 600, liquidityDelta: 100 ether, salt: 0}), ""
+        );
+
+        // oneForZero exact-input: pay currency1, receive native => unspecified = native (output).
+        swapRouter.swap(
+            nativeKey,
+            SwapParams({zeroForOne: false, amountSpecified: -1 ether, sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+
+        uint256 idN = native.toId();
+        uint256 accrued = manager.balanceOf(address(hook), idN);
+        assertGt(accrued, 0, "native POL accrued as claims");
+
+        uint256 tBefore = treasury.balance;
+        hook.redeemPOL(native);
+        assertEq(manager.balanceOf(address(hook), idN), 0, "native claims burned");
+        assertEq(treasury.balance, tBefore + accrued, "treasury received real ETH, no leak");
+    }
+
+    // ─── Invariant: base fee can never leave its immutable bounds ──────
+
+    function testFuzz_baseFeeAlwaysWithinBounds(uint24 f) public {
+        if (f < MIN_FEE || f > MAX_FEE) {
+            vm.expectRevert(TegridyV4Hook.FeeOutOfBounds.selector);
+            hook.setBaseFee(f);
+        } else {
+            hook.setBaseFee(f);
+            assertGe(hook.baseFeePips(), MIN_FEE);
+            assertLe(hook.baseFeePips(), MAX_FEE);
+        }
     }
 }

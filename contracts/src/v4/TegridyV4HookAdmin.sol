@@ -11,6 +11,8 @@ interface ITegridyV4HookApply {
     function setPolSkimBps(uint16 newBps) external;
     function setPolRecipient(address newRecipient) external;
     function setPoolAllowed(PoolKey calldata key, bool allowed) external;
+    function setPaused(bool p) external;
+    function setPauseGuardian(address newGuardian) external;
     function minFeePips() external view returns (uint24);
     function maxFeePips() external view returns (uint24);
     function maxPolSkimBps() external view returns (uint16);
@@ -173,5 +175,17 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
         delete pendingPoolKey;
         pendingPoolAllowed = false;
         emit PoolAllowChangeCancelled();
+    }
+
+    // ─── Emergency pause pass-throughs (INSTANT — not timelocked) ──────
+    // Pausing/unpausing and rotating the guardian must be immediate; a timelock
+    // would defeat emergency response. Param *changes* above stay timelocked.
+
+    function hookSetPaused(bool p) external onlyOwner hookWired {
+        hook.setPaused(p);
+    }
+
+    function hookSetPauseGuardian(address newGuardian) external onlyOwner hookWired {
+        hook.setPauseGuardian(newGuardian);
     }
 }
