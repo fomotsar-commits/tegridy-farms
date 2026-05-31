@@ -15,6 +15,9 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {TegridyV4Hook} from "../../src/v4/TegridyV4Hook.sol";
 import {TegridyV4HookAdmin} from "../../src/v4/TegridyV4HookAdmin.sol";
+import {TegridyBoostedLP} from "../../src/v4/TegridyBoostedLP.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 /// @notice Behavioral tests for the custom surface of TegridyV4Hook (allowlist,
 ///         fee override wiring, admin gating, POL skim accrual + sweep/redeem
@@ -402,6 +405,87 @@ contract TegridyV4HookTest is Test, Deployers {
         assertEq(currency1.balanceOf(treasury2), tBefore + tAmt, "treasury share routed");
         assertEq(currency1.balanceOf(treasury), pBefore + pAmt, "POL remainder routed");
         assertEq(manager.balanceOf(address(hook), id1), 0, "no stuck claims (conservation)");
+    }
+
+    // ─── #3 Boosted-LP reward module ──────────────────────────────────
+
+    function _deployBoostedLP(address hook_, MockStaking ms) internal returns (TegridyBoostedLP m, MockERC20 rt) {
+        rt = new MockERC20("Reward", "RWD", 18);
+        m = new TegridyBoostedLP(hook_, IERC20(address(rt)), address(ms), address(this));
+    }
+
+    function test_boostedLP_onlyHookCanReport() public {
+        MockStaking ms = new MockStaking();
+        (TegridyBoostedLP m,) = _deployBoostedLP(address(this), ms); // this == "hook" for unit test
+        vm.prank(makeAddr("notHook"));
+        vm.expectRevert(TegridyBoostedLP.NotHook.selector);
+        m.onLiquidityChange(makeAddr("lp"), int256(1 ether));
+    }
+
+    function test_boostedLP_accruesBoostedAndPays() public {
+        MockStaking ms = new MockStaking();
+        (TegridyBoostedLP m, MockERC20 rt) = _deployBoostedLP(address(this), ms);
+        address lp = makeAddr("lp");
+        ms.setBoost(lp, 20000); // 2x
+
+        m.onLiquidityChange(lp, int256(100 ether)); // test acts as the hook
+        assertEq(m.liquidityOf(lp), 100 ether, "raw liquidity tracked");
+        assertEq(m.effectiveBalanceOf(lp), 200 ether, "2x boost applied");
+
+        rt.mint(address(this), 1000 ether);
+        rt.approve(address(m), type(uint256).max);
+        m.notifyRewardAmount(700 ether, 7 days);
+        vm.warp(block.timestamp + 7 days);
+
+        uint256 earned = m.earned(lp);
+        assertGt(earned, 0, "rewards accrue over time");
+        vm.prank(lp);
+        m.getReward();
+        assertApproxEqAbs(rt.balanceOf(lp), earned, 1e12, "reward paid out");
+    }
+
+    function test_boostedLP_boostIsProportional() public {
+        MockStaking ms = new MockStaking();
+        (TegridyBoostedLP m, MockERC20 rt) = _deployBoostedLP(address(this), ms);
+        address lp1 = makeAddr("lp1"); // 1x (no stake)
+        address lp2 = makeAddr("lp2"); // 2x
+        ms.setBoost(lp2, 20000);
+
+        m.onLiquidityChange(lp1, int256(100 ether));
+        m.onLiquidityChange(lp2, int256(100 ether));
+        rt.mint(address(this), 1000 ether);
+        rt.approve(address(m), type(uint256).max);
+        m.notifyRewardAmount(900 ether, 7 days);
+        vm.warp(block.timestamp + 7 days);
+
+        // same raw liquidity, lp2 boosted 2x => ~2x the rewards
+        assertApproxEqRel(m.earned(lp2), m.earned(lp1) * 2, 0.01e18, "2x boost => ~2x rewards");
+    }
+
+    function test_boostedLP_hookReportsRealLiquidity() public {
+        MockStaking ms = new MockStaking();
+        TegridyBoostedLP m = new TegridyBoostedLP(address(hook), IERC20(address(new MockERC20("R", "R", 18))), address(ms), address(this));
+        hook.setBoostedLP(address(m)); // paramAdmin == this
+
+        // a real add-liquidity op flows through the hook's afterAddLiquidity → module
+        modifyLiquidityRouter.modifyLiquidity(
+            poolKey, ModifyLiquidityParams({tickLower: -600, tickUpper: 600, liquidityDelta: 50 ether, salt: 0}), ""
+        );
+        // sender (the LP from the module's view) is the modifyLiquidity router
+        assertEq(m.liquidityOf(address(modifyLiquidityRouter)), 50 ether, "hook reported real V4 liquidity");
+    }
+}
+
+/// @dev Minimal staking-boost stand-in.
+contract MockStaking {
+    mapping(address => uint256) public boost;
+
+    function setBoost(address u, uint256 bps) external {
+        boost[u] = bps;
+    }
+
+    function aggregateActiveBoostBps(address u) external view returns (uint256) {
+        return boost[u];
     }
 }
 

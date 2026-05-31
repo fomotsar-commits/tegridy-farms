@@ -5,7 +5,7 @@ pragma solidity ^0.8.26;
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
@@ -22,6 +22,11 @@ import {PauseGuardian} from "../base/PauseGuardian.sol";
 ///      by address (settable), never imported, so this stays MVP-branch-clean.
 interface IPremiumAccess {
     function hasPremium(address user) external view returns (bool);
+}
+
+/// @dev Boosted-LP reward module (#3) — notified on every liquidity change.
+interface ITegridyBoostedLP {
+    function onLiquidityChange(address lp, int256 liquidityDelta) external;
 }
 
 /// @title  TegridyV4Hook — bundled Uniswap V4 hook for the TOWELI pool
@@ -89,6 +94,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     event DiscountConfigSet(address premiumAccess, address trustedRouter, uint16 discountBps);
     event FeeSplitSet(uint16 stakerShareBps, uint16 treasuryShareBps);
     event FeeSinksSet(address stakerSink, address treasury);
+    event BoostedLPSet(address indexed module);
 
     // ─── Params (mutated only by paramAdmin; hook code itself is immutable) ──
     address public immutable paramAdmin;
@@ -114,6 +120,9 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     uint16 public treasuryShareBps;
     address public stakerSink; // RevenueDistributor (native ETH); 0 => folds to POL
     address public treasury; // 0 => folds to POL
+
+    /// @notice Boosted-LP reward module (#3). 0 = disabled (no notify).
+    address public boostedLP;
 
     mapping(PoolId => bool) public allowedPools;
 
@@ -266,6 +275,12 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         emit FeeSinksSet(stakerSink_, treasury_);
     }
 
+    /// @notice Wire (or unset, with 0) the boosted-LP reward module (#3).
+    function setBoostedLP(address module) external onlyParamAdmin {
+        boostedLP = module;
+        emit BoostedLPSet(module);
+    }
+
     // ─── Emergency pause (PauseGuardian mixin) ─────────────────────────
 
     function guardianPause() external onlyPauseGuardian {
@@ -350,6 +365,49 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         if (pAmt > 0) poolManager.take(currency, pTo, pAmt);
         emit FeesDistributed(currency, sAmt, tAmt, pAmt);
         return "";
+    }
+
+    // ─── Boosted-LP (#3): notify the reward module on liquidity changes ──
+    // Override-and-extend LiquidityPenaltyHook's callbacks: call super for the
+    // VERBATIM JIT logic (return its BalanceDelta unchanged), then notify the
+    // module. Same pool — no fragmentation. Module is trusted (paramAdmin-set) and
+    // performs only accounting (no PoolManager re-entry).
+
+    function _afterAddLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued,
+        bytes calldata hookData
+    ) internal override returns (bytes4, BalanceDelta) {
+        (bytes4 sel, BalanceDelta d) = super._afterAddLiquidity(sender, key, params, delta, feesAccrued, hookData);
+        _notifyBoostedLP(sender, params, hookData);
+        return (sel, d);
+    }
+
+    function _afterRemoveLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued,
+        bytes calldata hookData
+    ) internal override returns (bytes4, BalanceDelta) {
+        (bytes4 sel, BalanceDelta d) = super._afterRemoveLiquidity(sender, key, params, delta, feesAccrued, hookData);
+        _notifyBoostedLP(sender, params, hookData);
+        return (sel, d);
+    }
+
+    /// @dev Resolve the LP (authenticated via trustedRouter+hookData, else `sender`)
+    ///      and report the liquidity delta to the boosted-LP module.
+    function _notifyBoostedLP(address sender, ModifyLiquidityParams calldata params, bytes calldata hookData)
+        internal
+    {
+        address m = boostedLP;
+        if (m == address(0)) return;
+        address lp = (sender == trustedRouter && hookData.length >= 32) ? abi.decode(hookData, (address)) : sender;
+        ITegridyBoostedLP(m).onLiquidityChange(lp, params.liquidityDelta);
     }
 
     // ─── Permissions ──────────────────────────────────────────────────

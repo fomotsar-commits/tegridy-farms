@@ -16,6 +16,7 @@ interface ITegridyV4HookApply {
     function setDiscountConfig(address premiumAccess, address trustedRouter, uint16 discountBps) external;
     function setFeeSplit(uint16 stakerShareBps, uint16 treasuryShareBps) external;
     function setFeeSinks(address stakerSink, address treasury) external;
+    function setBoostedLP(address module) external;
     function minFeePips() external view returns (uint24);
     function maxFeePips() external view returns (uint24);
     function maxPolSkimBps() external view returns (uint16);
@@ -51,6 +52,7 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     bytes32 public constant DISCOUNT_CONFIG_CHANGE = keccak256("V4_DISCOUNT_CONFIG_CHANGE");
     bytes32 public constant FEE_SPLIT_CHANGE = keccak256("V4_FEE_SPLIT_CHANGE");
     bytes32 public constant FEE_SINKS_CHANGE = keccak256("V4_FEE_SINKS_CHANGE");
+    bytes32 public constant BOOSTED_LP_CHANGE = keccak256("V4_BOOSTED_LP_CHANGE");
 
     // ─── Delays ───────────────────────────────────────────────────────
     uint256 public constant BASE_FEE_DELAY = 24 hours;
@@ -60,6 +62,7 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public constant DISCOUNT_CONFIG_DELAY = 24 hours;
     uint256 public constant FEE_SPLIT_DELAY = 48 hours; // economic routing
     uint256 public constant FEE_SINKS_DELAY = 48 hours; // changes where money flows
+    uint256 public constant BOOSTED_LP_DELAY = 48 hours; // wires the reward module
 
     // ─── Wired hook (set once; hook.paramAdmin is immutable so admin precedes hook) ──
     ITegridyV4HookApply public hook;
@@ -78,6 +81,7 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     uint16 public pendingTreasuryShareBps;
     address public pendingStakerSink;
     address public pendingTreasuryAddr;
+    address public pendingBoostedLP;
 
     // ─── Events ───────────────────────────────────────────────────────
     event HookSet(address indexed hook);
@@ -95,6 +99,8 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     event FeeSplitChangeCancelled();
     event FeeSinksChangeProposed(address stakerSink, address treasury, uint256 executeAfter);
     event FeeSinksChangeCancelled();
+    event BoostedLPChangeProposed(address module, uint256 executeAfter);
+    event BoostedLPChangeCancelled();
 
     constructor() OwnableNoRenounce(msg.sender) {}
 
@@ -275,6 +281,26 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
         pendingStakerSink = address(0);
         pendingTreasuryAddr = address(0);
         emit FeeSinksChangeCancelled();
+    }
+
+    // ─── Boosted-LP module wiring (#3) ────────────────────────────────
+    function proposeBoostedLP(address module) external onlyOwner hookWired {
+        pendingBoostedLP = module;
+        _propose(BOOSTED_LP_CHANGE, BOOSTED_LP_DELAY);
+        emit BoostedLPChangeProposed(module, _executeAfter[BOOSTED_LP_CHANGE]);
+    }
+
+    function executeBoostedLP() external onlyOwner hookWired {
+        _execute(BOOSTED_LP_CHANGE);
+        address m = pendingBoostedLP;
+        pendingBoostedLP = address(0);
+        hook.setBoostedLP(m);
+    }
+
+    function cancelBoostedLP() external onlyOwner {
+        _cancel(BOOSTED_LP_CHANGE);
+        pendingBoostedLP = address(0);
+        emit BoostedLPChangeCancelled();
     }
 
     // ─── Emergency pause pass-throughs (INSTANT — not timelocked) ──────

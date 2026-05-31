@@ -1,8 +1,11 @@
 # Design Doc — Boosted LP-Incentive Hook (#3)
 
-> Status: **DESIGN ONLY.** The riskiest custom surface of the staking↔liquidity work,
-> so it's specced here rather than coded inline. Sits on `next-wave/v4-migration`.
-> Author pass: 2026-05-31 (full-app frontend+backend review).
+> Status: **IMPLEMENTED v1 (2026-05-31) at owner direction — UNAUDITED.** Built ahead
+> of the audit gate. Code: `contracts/src/v4/TegridyBoostedLP.sol` (isolated module) +
+> `TegridyV4Hook` liquidity-callback notify + `TegridyV4HookAdmin` timelock wiring.
+> 29 hook-suite tests green. This doc remains the spec + the open-items list below.
+> (Originally specced design-only; the riskiest custom surface, so kept in its own
+> module rather than folded into the immutable core hook.)
 
 ## Why this exists
 
