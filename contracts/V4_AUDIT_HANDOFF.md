@@ -16,13 +16,13 @@ postmortems (Cork, Bunni, z0r0z) the design is built against.
 
 ## 2. Scope
 
-**In scope (custom code — ~1,012 LoC, 4 contracts):**
+**In scope (custom code — ~1,033 LoC, 4 contracts):**
 
 | Contract | LoC | Role |
 |---|---|---|
 | `src/v4/TegridyV4Hook.sol` | 375 | Bundled hook: fee override + premium discount + JIT + pool-key allowlist + POL skim/fee-split + emergency pause |
 | `src/v4/TegridyV4HookAdmin.sol` | 291 | Timelock (24h/48h) governance for every mutable hook param |
-| `src/v4/TegridyBoostedLPStaker.sol` | 229 | **Sole** #3 boosted-LP path (escrow V4 position NFT, attribute to depositor); pool-id + full-range deposit gate (C-1) |
+| `src/v4/TegridyBoostedLPStaker.sol` | 250 | **Sole** #3 boosted-LP path (escrow V4 position NFT, attribute to depositor); pool-id + full-range deposit gate (C-1) |
 | `src/v4/TegridyV4SwapRouter.sol` | 117 | Trusted router that authenticates the user for the premium discount; `maxIn` slippage ceiling (M-1) |
 | `script/DeployV4.s.sol`, `script/VerifyV4.s.sol` | — | Deploy (HookMiner CREATE2) + post-deploy invariant checks |
 
@@ -39,7 +39,7 @@ postmortems (Cork, Bunni, z0r0z) the design is built against.
 ```
 cd contracts
 forge build                                   # exit 0 (lint_on_build=false — see below)
-forge test --match-contract TegridyV4HookTest # 34 tests
+forge test --match-contract TegridyV4HookTest # 35 tests
 ```
 
 Environment quirks the auditor should know:
@@ -81,8 +81,9 @@ Environment quirks the auditor should know:
 (2) HookMiner-mine + CREATE2-deploy `TegridyV4Hook` with `paramAdmin = admin`;
 (3) `admin.setHook(hook)`; (4) `admin.transferOwnership(multisig)`; (5) post-deploy:
 allowlist the pool key, initialize (dynamic-fee flag), seed POL, wire `trustedRouter` /
-`premiumAccess` (or leave 0), set `pauseGuardian`, `multisig.acceptOwnership`; deploy +
-wire `TegridyV4SwapRouter` and `TegridyBoostedLPStaker` separately (not hook-coupled).
+`premiumAccess` (or leave 0), set `pauseGuardian`, `multisig.acceptOwnership`. (DeployV4
+also deploys `TegridyV4SwapRouter` + `TegridyBoostedLPStaker` in-script — steps 4-5,
+non-hook-coupled — and VerifyV4 asserts their wiring incl. the staker's allowedPoolId.)
 
 ## 6. Highest-priority audit focus
 
@@ -129,10 +130,14 @@ wire `TegridyV4SwapRouter` and `TegridyBoostedLPStaker` separately (not hook-cou
   **enforced** at deposit (C-1; no in-range tick attribution, unlike Aerodrome
   Slipstream); emissions-funded.
 - **`notifyRewardAmount` (the staker)** has the Synthetix solvency guard
-  (`rewardRate*duration ≤ balance`, H-2) plus amount-floor (`MIN_NOTIFY_AMOUNT`) and
-  duration bounds (`[1d, 365d]`). Remaining vs LPFarming: confirm notify-cooldown /
-  forfeit-residue-capture parity before mainnet. (Slither FPs annotated inline:
-  `reentrancy-no-eth` on `deposit`, `divide-before-multiply` on the solvency check.)
+  (`rewardRate*duration ≤ balance`, H-2), amount-floor (`MIN_NOTIFY_AMOUNT`), duration
+  bounds (`[1d, 365d]`), and the 24h anti-sandwich `NOTIFY_COOLDOWN` (ported verbatim
+  from V2 LPFarming F-93-2). LPFarming's forfeit-residue capture + `reclaimForfeitedRewards`
+  are DELIBERATELY NOT ported: that bucket's value in LPFarming comes from its
+  reward-forfeiting `emergencyWithdraw`, which this staker has no equivalent of, so the
+  bucket would only ever hold sub-nano truncation dust — and a reclaim sweep is exactly
+  the owner rug-surface L-3 rejected. (Slither FPs annotated inline: `reentrancy-no-eth`
+  on `deposit`, `divide-before-multiply` on the solvency check.)
 - **Exact-output swaps** through the router are bounded by a `maxIn` slippage ceiling
   (M-1 FIXED — `unlockCallback` reverts `TooMuchSpent` when the input leg exceeds
   `maxIn`), alongside the `minOut`-on-output floor for exact-input.
@@ -144,13 +149,13 @@ wire `TegridyV4SwapRouter` and `TegridyBoostedLPStaker` separately (not hook-cou
 
 ## 8. Test coverage & gaps
 
-- **34 tests** (`test/v4/TegridyV4Hook.t.sol`), via v4-core `Deployers` + `HookMiner`.
+- **35 tests** (`test/v4/TegridyV4Hook.t.sol`), via v4-core `Deployers` + `HookMiner`.
   Covers: allowlist rejection, dynamic-fee gate, admin gating + timelock flows, POL
   accrual/sweep/redeem + native-ETH + exactOutput + multi-swap, POL conservation fuzz
   (256 runs), fee-bounds fuzz, premium discount (incl. anti-spoof + floor), fee-split
   routing + conservation, pause (halt swaps / exit open / guardian-pause-only), trusted
   router (output/slippage/deadline/exact-output-maxIn/discount-path), NFT-staker
-  (deposit/withdraw + C-1 foreign-pool & non-full-range rejection).
+  (deposit/withdraw + C-1 foreign-pool & non-full-range rejection + notify-cooldown).
 - **Gaps for the audit/Certora**: no broad invariant suite (cross-module
   non-interference, POL-never-exceeds-output), no mainnet-fork tests, reward-rounding
   edge cases, multi-position NFT-staker accounting, boost-decay timing. Recommend

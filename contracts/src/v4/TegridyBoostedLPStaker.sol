@@ -51,6 +51,10 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     uint256 public constant MIN_NOTIFY_AMOUNT = 1e15;
     uint256 public constant MIN_REWARDS_DURATION = 1 days;
     uint256 public constant MAX_REWARDS_DURATION = 365 days;
+    /// @dev Anti-sandwich gate between successive reward notifications (V2
+    ///      `TegridyLPFarming` F-93-2, ported verbatim). 24h prices out the
+    ///      mempool-watching re-notify rate-jack while staying weekly-cadence friendly.
+    uint256 public constant NOTIFY_COOLDOWN = 24 hours;
 
     IERC20 public immutable rewardToken;
     IStakingBoost public immutable staking;
@@ -66,6 +70,7 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     uint256 public rewardsDuration;
     uint256 public rewardPerTokenStored;
     uint256 public totalEffectiveSupply;
+    uint256 public lastNotifyTime; // F-93-2: timestamp of last notify, for NOTIFY_COOLDOWN
 
     mapping(address => uint256) public liquidityOf; // raw escrowed liquidity, per depositor
     mapping(address => uint256) public effectiveBalanceOf; // boosted
@@ -82,6 +87,7 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     error WrongPool();
     error NotFullRange();
     error RewardTooHigh();
+    error NotifyCooldownActive();
 
     event Deposited(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
     event Withdrawn(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
@@ -201,9 +207,23 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     {
         if (amount < MIN_NOTIFY_AMOUNT) revert NotifyAmountTooSmall();
         if (duration < MIN_REWARDS_DURATION || duration > MAX_REWARDS_DURATION) revert DurationOutOfRange();
+        // F-93-2 (ported from V2 TegridyLPFarming): cooldown gate against a same-block /
+        // same-mempool re-notify that could compound a rate jack. Skipped on the
+        // first-ever call (lastNotifyTime == 0) so initial funding can land.
+        if (lastNotifyTime != 0 && block.timestamp < lastNotifyTime + NOTIFY_COOLDOWN) {
+            revert NotifyCooldownActive();
+        }
         uint256 balBefore = rewardToken.balanceOf(address(this));
         rewardToken.safeTransferFrom(msg.sender, address(this), amount);
         uint256 actual = rewardToken.balanceOf(address(this)) - balBefore;
+        // DELIBERATE DIVERGENCE from V2 TegridyLPFarming (audit L-3): LPFarming captures
+        // the integer-division residue (`budget - rate*duration`, < `duration` wei/cycle)
+        // into a `forfeitedRewards` bucket reclaimable by the owner. There it is worth it
+        // because that bucket's PRIMARY feed is emergencyWithdraw forfeitures (real value).
+        // This staker has NO reward-forfeiting withdraw, so the bucket would only ever hold
+        // sub-nano truncation dust — recovering it would mean adding an owner token-mover
+        // (`reclaimForfeitedRewards`), i.e. exactly the rug-surface L-3 rejected. So the
+        // dust is left stranded by design; no capture, no reclaim.
         if (block.timestamp >= periodFinish) {
             rewardRate = actual / duration;
         } else {
@@ -220,6 +240,7 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
         rewardsDuration = duration;
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp + duration;
+        lastNotifyTime = block.timestamp; // F-93-2
         emit RewardAdded(actual, duration);
     }
 

@@ -24,6 +24,11 @@
 > - **L-4 ACCEPTED (documented):** re-fetching `getPositionLiquidity` at withdraw is "cheap insurance," but the escrowed position provably cannot change (rejected-FP analysis: ERC-721 transfer clears approvals, staker approves no one). Re-fetching introduces a cache-vs-live mismatch underflow risk on withdraw for zero real benefit today. Cache kept.
 >
 > Net surface change this round: **−1 contract, −~70 LoC of hook/admin, +1 router param.** Suite re-run after these changes (see test file).
+>
+> **UPDATE 2026-05-31 (c) — follow-on hardening (not findings): notify-cooldown port + deploy/verify scripts.**
+> - **Notify-cooldown ported** into `TegridyBoostedLPStaker.notifyRewardAmount` — 24h `NOTIFY_COOLDOWN`, verbatim from V2 `TegridyLPFarming` (F-93-2 anti-sandwich gate). Forfeit-residue capture + `reclaimForfeitedRewards` were **deliberately NOT ported** (see L-3: it would add the owner rug-surface that finding rejected, and the staker has no reward-forfeiting `emergencyWithdraw` to feed the bucket). Test: `test_boostedStaker_notifyCooldownReverts`.
+> - **DeployV4** now also deploys `TegridyV4SwapRouter` + `TegridyBoostedLPStaker` (runbook steps 4-5; staker `allowedPoolId` derived in-script from the canonical pool key). **VerifyV4** now asserts: `pauseGuardian`, discount both-or-neither + router match, router↔hook PoolManager identity, and the staker's `owner` + immutable `allowedPoolId`. The impossible `hook.boostedLP()==0` check (field removed in M-3) was correctly NOT added.
+> - Suite: **35 passed** (was 34; +1 cooldown test). Build exit 0.
 
 ---
 
@@ -59,7 +64,7 @@
 ## LOW
 - **L-1 ✅ FIXED** `TegridyV4SwapRouter.sol` refunded `address(this).balance` (not the per-call surplus) → any ETH donated/stuck in the router was swept to the next `swap()` caller. Now snapshots `preBal = balance - msg.value` before `unlock` and refunds only `bal - preBal`. Donated ETH no longer at risk.
 - **L-2 ⚠️ ACCEPTED** `distributeFees` reverts if a native-ETH sink (treasury/stakerSink) can't `receive()` → that currency's distribution griefs until the admin re-points (48h). Permissionless `sweepPOL` (claims) is the escape hatch, so funds aren't locked. Resolved operationally (verify RevenueDistributor has `receive()` before wiring) rather than adding skip-sink branching to a value-moving path.
-- **L-3 ⚠️ ACCEPTED** Stranded emissions: reward dust accrued while `totalEffectiveSupply==0`, and `*1e18/total` truncation, are never recoverable. Inherent to verbatim Synthetix math; an owner dust-sweep is a generic rug vector (worse than sub-cent dust). Not added.
+- **L-3 ⚠️ ACCEPTED** Stranded emissions: reward dust accrued while `totalEffectiveSupply==0`, and `*1e18/total` truncation, are never recoverable. Inherent to verbatim Synthetix math; an owner dust-sweep is a generic rug vector (worse than sub-cent dust). Not added. **Verified 2026-05-31 vs V2 `TegridyLPFarming`:** its `forfeitedRewards`/`reclaimForfeitedRewards` bucket is fed mainly by LPFarming's reward-forfeiting `emergencyWithdraw` (real value); the staker has no such path, so it deliberately omits both residue-capture and the reclaim sweep (in-code note at the `rewardRate` calc).
 - **L-4 ⚠️ ACCEPTED (defense-in-depth)** Staker caches `positionLiquidity` at deposit. The exploit "owner modifies the escrowed position" is **blocked** (see rejected FP below). Re-reading `getPositionLiquidity` at withdraw would add a cache-vs-live mismatch underflow risk for no benefit today; cache kept.
 
 ## Rejected false positive (verified against ERC-721 semantics)

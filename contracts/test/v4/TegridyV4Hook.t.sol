@@ -550,6 +550,20 @@ contract TegridyV4HookTest is Test, Deployers {
         s.withdraw(7);
     }
 
+    // Notify-cooldown parity with V2 TegridyLPFarming (F-93-2): the first notify lands,
+    // an immediate second is gated, and after NOTIFY_COOLDOWN it lands again.
+    function test_boostedStaker_notifyCooldownReverts() public {
+        (, MockERC20 rt,, TegridyBoostedLPStaker s) = _setupStaker();
+        rt.mint(address(this), 1000 ether);
+        rt.approve(address(s), type(uint256).max);
+        s.notifyRewardAmount(100 ether, 7 days); // first call: cooldown skipped
+        vm.expectRevert(TegridyBoostedLPStaker.NotifyCooldownActive.selector);
+        s.notifyRewardAmount(100 ether, 7 days); // immediate re-notify: gated
+        vm.warp(block.timestamp + 24 hours + 1);
+        s.notifyRewardAmount(100 ether, 7 days); // after cooldown: lands again
+        assertEq(s.lastNotifyTime(), block.timestamp, "lastNotifyTime stamped");
+    }
+
     // C-1: a position from any OTHER pool (e.g. a worthless pair an attacker
     //      controls, with huge `liquidity` units) must be rejected → no free farming.
     function test_C1_boostedStaker_rejectsForeignPool() public {

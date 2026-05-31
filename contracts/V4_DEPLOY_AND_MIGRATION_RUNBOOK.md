@@ -2,11 +2,12 @@
 
 > For the **V4-live-at-relaunch** strategy (2026-05-31). Slots into the existing
 > `RELAUNCH_RUNBOOK.md` as the V4 section. **Prep only — do NOT execute before the
-> hard prerequisites below are met.** Contracts: `next-wave/v4-migration`.
+> hard prerequisites below are met.** Contracts: `mvp-launch` (V4 work merged in).
 
 ## 0. Hard prerequisites (all must be true before mainnet deploy)
 
-1. **External audit of the 5 V4 contracts is clean** (`V4_AUDIT_HANDOFF.md` scope). Relaunch blocker.
+1. **External audit of the 4 V4 contracts is clean** (`V4_AUDIT_HANDOFF.md` scope; the
+   5th, the hook-callback `TegridyBoostedLP`, was deleted in M-3). Relaunch blocker.
 2. **Dep-pin reconciled** ✅ (2026-05-31): `d153b048` vs mainnet's `v4.0.0` is a pure
    source relocation (SwapParams/ModifyLiquidityParams → PoolOperation.sol); flag bits,
    callback selectors, struct layouts all identical → **ABI-safe**. Residual: confirm vs
@@ -23,7 +24,7 @@
 | 2 | HookMiner-mine + CREATE2-deploy `TegridyV4Hook(pm, blockOffset, admin, minFee, maxFee, baseFee, maxPolBps, polBps, polRecipient)` | mined address MUST match the 9 permission flags; constructor `validateHookAddress` reverts otherwise |
 | 3 | `admin.setHook(hook)` | one-time wiring |
 | 4 | Deploy `TegridyV4SwapRouter(pm)` | the trusted router for #2 |
-| 5 | Deploy `TegridyBoostedLPStaker(TOWELI, staking, positionManager, MULTISIG)` | canonical #3; owner = MULTISIG |
+| 5 | Deploy `TegridyBoostedLPStaker(TOWELI, staking, positionManager, allowedPoolId, MULTISIG)` | canonical #3; owner = MULTISIG; `allowedPoolId` derived in-script from the canonical pool key (sorted CURRENCY0/1 + DYNAMIC fee + tickSpacing 60 + hook) |
 | 6 | `admin.transferOwnership(MULTISIG)` | Ownable2Step → step 12 accepts |
 
 **Genesis config (the timelock nuance — plan for it):** the hook launches functional
@@ -35,7 +36,7 @@ boosted-LP wiring are timelocked** (24–48h via the admin). `pauseGuardian` is 
 |---|---|---|
 | 7 | `MULTISIG.acceptOwnership()` on admin | — |
 | 8 | `admin.hookSetPauseGuardian(PAUSE_GUARDIAN)` | instant |
-| 9 | Propose: `proposeFeeSplit`, `proposeFeeSinks(stakerSink=RevenueDistributor, treasury)`, `proposeDiscountConfig(premiumAccess, swapRouter, discountBps)`, `proposeBoostedLP`(if using the hook-callback path — **leave UNSET; use the NFT-staker**), allowlist `proposePoolAllowed(key)` | during the **pre-public window** |
+| 9 | Propose: `proposeFeeSplit`, `proposeFeeSinks(stakerSink=RevenueDistributor, treasury)`, `proposeDiscountConfig(premiumAccess, swapRouter, discountBps)`, allowlist `proposePoolAllowed(key)` | during the **pre-public window** (no boostedLP step — that path was deleted in M-3; the NFT-staker is standalone) |
 | 10 | After the 24–48h delays elapse: `executeFeeSplit` / `executeFeeSinks` / `executeDiscountConfig` / `executePoolAllowed` | features go live |
 | 11 | `manager.initialize(key, sqrtPriceX96)` — dynamic-fee flag set, `hooks = TegridyV4Hook`, tickSpacing 60 | requires the pool key allowlisted first (step 10) |
 | 12 | Seed POL: `TREASURY` adds full-range liquidity via PositionManager; NFT held by treasury | gives the pool depth at launch |
@@ -50,11 +51,12 @@ boosted-LP wiring are timelocked** (24–48h via the admin). `pauseGuardian` is 
 - `Hooks.validateHookPermissions(hook, hook.getHookPermissions())` ✓ (VerifyV4)
 - `hook.paramAdmin() == admin`, `admin.hook() == hook`, `admin.owner() == MULTISIG` ✓
 - fee bounds ordered, `polSkimBps <= maxPolSkimBps`, `polRecipient != 0` ✓
-- `hook.trustedRouter() == swapRouter`, `hook.premiumAccess() == PremiumAccess` (if discount on)
-- `hook.boostedLP() == 0` (NFT-staker is canonical — **do not double-count**)
-- `hook.pauseGuardian() == PAUSE_GUARDIAN`
-- pool initialized, dynamic-fee flag set, POL position owned by `TREASURY`
-- a tiny test swap through `TegridyV4SwapRouter` succeeds; a test LP deposit into the staker accrues
+- `hook.trustedRouter() == swapRouter`, `hook.premiumAccess() == PremiumAccess` (if discount on; VerifyV4 asserts both-or-neither + router match) ✓
+- *(no `hook.boostedLP` check — the hook-callback path was DELETED in M-3; instead VerifyV4 asserts the staker's immutable `allowedPoolId` == the canonical pool, and `staker.owner() == MULTISIG`)* ✓
+- `hook.pauseGuardian() == PAUSE_GUARDIAN` ✓
+- `swapRouter.poolManager() == hook.poolManager()` ✓
+- pool initialized, dynamic-fee flag set, POL position owned by `TREASURY` (**manual** — reads live PM state)
+- a tiny test swap through `TegridyV4SwapRouter` succeeds; a test LP deposit into the staker accrues (**manual** — state-changing)
 
 ## 3. V2↔V4 dual-AMM migration
 
