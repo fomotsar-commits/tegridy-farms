@@ -532,6 +532,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         //         is immutable, so a future ABI break would brick distribution
         //         permanently without this catch.
         if (histCallSucceeded) {
+            // AUDIT 2026-05-31 [slither incorrect-equality FP]: zero-sentinel — `locked == 0`
+            // means the cached snapshot found no stake at the historical timestamp.
+            // slither-disable-next-line incorrect-equality
             if (locked == 0) revert GenesisEpochUnsettled();
         } else {
             try votingEscrow.totalBoostedStake() returns (uint256 live) {
@@ -539,6 +542,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             } catch {
                 revert StakingTotalBoostedStakeFailed();
             }
+            // AUDIT 2026-05-31 [slither incorrect-equality FP]: sibling zero-sentinel for the
+            // live-fallback path; same pattern.
+            // slither-disable-next-line incorrect-equality
             if (locked == 0) revert NoLockedTokens();
         }
 
