@@ -182,7 +182,7 @@ export default function LendingPage() {
         {/* Section Toggle — horizontal scroll on mobile */}
         <m.div
           className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit no-scrollbar snap-x snap-mandatory"
-          style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+          style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"
           initial={{ opacity: 0, y: 8 }}
