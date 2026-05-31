@@ -28,7 +28,17 @@ Drawn directly from 2025 production losses:
 | Multisigs holding stably (no signer rotations mid-period) | pending |
 | **ALL of the above true** | **→ kick off V4 implementation** |
 
-Until then, this branch holds only the plan and skeleton stubs. Implementation lives elsewhere.
+~~Until then, this branch holds only the plan and skeleton stubs.~~ **SUPERSEDED 2026-05-30:** the trigger gate was overridden in-chat; implementation has begun on this branch.
+
+| Batch | Scope | Status |
+|---|---|---|
+| 1 | Fee+JIT core — inherit `LiquidityPenaltyHook` verbatim + verbatim `BaseOverrideFee` copy; vendor OZ hooks v1.1.1; bump v4-core/periphery | ✅ compiles (700b269) |
+| 2 | Pool-key allowlist (`_beforeInitialize`, Cork defense) + admin-configurable bounded fee | ✅ compiles |
+| 3 | Volatility-aware fee **+** custom POL `_afterSwap` **+** oracle module — volatility folded in here because a principled measure needs the oracle's price history | pending |
+| 4 | `TegridyV4HookAdmin` timelock wired as `paramAdmin` + PauseGuardian | pending |
+| 5 | HookMiner CREATE2 mining + DeployV4/VerifyV4 + full test/invariant suite | pending |
+
+⚠️ Still **NOT deployable or audited.** The sections below are the original (pre-override) spec and remain the target for the work.
 
 ## Scope: what's in, what's out
 
