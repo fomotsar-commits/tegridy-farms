@@ -35,7 +35,9 @@ export function usePoolData() {
     const aprBps = aprScaled / totalBoostedStake;
     const aprNum = Number(aprBps) / 1e18;
     if (aprNum > 999999) {
-      apr = '>9999';
+      // Ceiling display for a near-empty pool (tiny stake → astronomical APR).
+      // Comma-formatted so it reads as a deliberate cap, not a render glitch.
+      apr = '>9,999';
       aprCapped = true;
     } else {
       apr = (aprNum / 100).toFixed(2);

@@ -220,7 +220,7 @@ export default function FarmPage() {
           <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-6 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-3" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div>
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-white text-[17px] font-semibold">Season {CURRENT_SEASON.number}: {CURRENT_SEASON.name}</span>
+                <span className="text-white text-[17px] font-semibold">{CURRENT_SEASON.name}</span>
                 {nft.boostLabel && <span className="badge badge-warning text-[10px]">{nft.boostLabel}</span>}
               </div>
               <p className="text-white text-[13px]">
