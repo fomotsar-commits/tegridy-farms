@@ -498,7 +498,10 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
         // slither-disable-next-line uninitialized-local
         uint256 locked;
-        bool histCallSucceeded;
+        // AUDIT 2026-05-30 [slither uninitialized-local]: bool assigned in both
+        // try/catch branches below, but explicit init makes the static-analysis
+        // gate happy without inline-suppression noise.
+        bool histCallSucceeded = false;
         try votingEscrow.totalBoostedStakeAtTimestamp(snapshotTime) returns (uint256 hist) {
             locked = hist;
             histCallSucceeded = true;

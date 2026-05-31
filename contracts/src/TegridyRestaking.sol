@@ -2051,7 +2051,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // be retro-attributed.
         uint256 balance = rewardToken.balanceOf(address(this));
         uint256 reserved = totalUnforwardedBase + totalActivePrincipal + totalPendingUnsettled;
+        // AUDIT 2026-05-30 [slither timestamp FP]: detector misfires on these two
+        // comparisons — both are token-balance/amount comparisons, no block.timestamp
+        // involved. The `timestamp` detector over-flags any non-trivial > comparison.
+        // slither-disable-next-line timestamp
         uint256 unattributed = balance > reserved ? balance - reserved : 0;
+        // slither-disable-next-line timestamp
         if (p.amount > unattributed) revert BadParam();
         unforwardedBaseRewards[p.restaker] += p.amount;
         totalUnforwardedBase += p.amount;
@@ -2852,6 +2857,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     /// @notice M-27: Safe cast from uint256 to int256, reverts on overflow
     function _safeInt256(uint256 value) internal pure returns (int256) {
+        // AUDIT 2026-05-30 [slither timestamp FP]: comparison is against the compile-time
+        // constant `type(int256).max`, NOT block.timestamp. The function is `pure` so it
+        // cannot even read block context — the detector over-flags any relational > here.
+        // slither-disable-next-line timestamp
         if (value > uint256(type(int256).max)) revert Int256Overflow();
         return int256(value);
     }
