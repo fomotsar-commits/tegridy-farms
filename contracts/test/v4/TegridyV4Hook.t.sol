@@ -312,4 +312,76 @@ contract TegridyV4HookTest is Test, Deployers {
             assertLe(hook.baseFeePips(), MAX_FEE);
         }
     }
+
+    // ─── #2 Premium fee discount (Gold Card "Reduced Fees") ───────────
+
+    function test_discount_onlyViaTrustedRouterForPremium() public {
+        MockPremiumAccess pa = new MockPremiumAccess();
+        address user = makeAddr("premiumUser");
+        pa.setPremium(user, true);
+        address router = makeAddr("trustedRouter");
+        hook.setDiscountConfig(address(pa), router, 5000); // 50% off
+
+        // premium user, via the trusted router => discounted
+        assertEq(hook.quoteFee(router, abi.encode(user)), BASE_FEE / 2, "premium via trusted router => 50% off");
+        // non-premium user => full fee
+        assertEq(hook.quoteFee(router, abi.encode(makeAddr("rando"))), BASE_FEE, "non-premium => full fee");
+        // ANTI-SPOOF: an untrusted sender passing the premium user gets NO discount
+        assertEq(hook.quoteFee(makeAddr("rawRouter"), abi.encode(user)), BASE_FEE, "untrusted router => no discount");
+    }
+
+    function test_discount_disabledByDefault() public {
+        assertEq(hook.quoteFee(address(this), abi.encode(makeAddr("anyone"))), BASE_FEE, "no config => base fee");
+    }
+
+    function test_discount_flooredAtMinFee() public {
+        MockPremiumAccess pa = new MockPremiumAccess();
+        address user = makeAddr("p");
+        pa.setPremium(user, true);
+        address router = makeAddr("r");
+        hook.setDiscountConfig(address(pa), router, 5000);
+        hook.setBaseFee(MIN_FEE); // base already at the floor
+        assertEq(hook.quoteFee(router, abi.encode(user)), MIN_FEE, "discount cannot push below minFee");
+    }
+
+    // ─── #1 Fee split → stakers / treasury / POL ──────────────────────
+
+    function test_feeSplit_routesRealCurrencyToSinks() public {
+        address stakerSink = makeAddr("stakerSink");
+        address treasury2 = makeAddr("treasury2");
+        hook.setFeeSplit(6000, 1000); // staker 60%, treasury 10%, POL 30%
+        hook.setFeeSinks(stakerSink, treasury2);
+
+        _swapOnceZeroForOne(); // accrues currency1 claims (polSkimBps default = 1%)
+        uint256 id1 = currency1.toId();
+        uint256 accrued = manager.balanceOf(address(hook), id1);
+        assertGt(accrued, 0);
+
+        uint256 sBefore = currency1.balanceOf(stakerSink);
+        uint256 tBefore = currency1.balanceOf(treasury2);
+        uint256 pBefore = currency1.balanceOf(treasury); // polRecipient == setUp `treasury`
+
+        hook.distributeFees(currency1);
+
+        uint256 sAmt = (accrued * 6000) / 10000;
+        uint256 tAmt = (accrued * 1000) / 10000;
+        uint256 pAmt = accrued - sAmt - tAmt;
+        assertEq(currency1.balanceOf(stakerSink), sBefore + sAmt, "staker share routed");
+        assertEq(currency1.balanceOf(treasury2), tBefore + tAmt, "treasury share routed");
+        assertEq(currency1.balanceOf(treasury), pBefore + pAmt, "POL remainder routed");
+        assertEq(manager.balanceOf(address(hook), id1), 0, "no stuck claims (conservation)");
+    }
+}
+
+/// @dev Minimal PremiumAccess stand-in for the discount tests.
+contract MockPremiumAccess {
+    mapping(address => bool) public premium;
+
+    function setPremium(address u, bool v) external {
+        premium[u] = v;
+    }
+
+    function hasPremium(address u) external view returns (bool) {
+        return premium[u];
+    }
 }

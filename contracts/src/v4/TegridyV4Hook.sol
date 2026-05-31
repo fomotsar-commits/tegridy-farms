@@ -18,38 +18,38 @@ import {LiquidityPenaltyHook} from "@openzeppelin/uniswap-hooks/src/general/Liqu
 import {CurrencySettler} from "@openzeppelin/uniswap-hooks/src/utils/CurrencySettler.sol";
 import {PauseGuardian} from "../base/PauseGuardian.sol";
 
+/// @dev Minimal interface to PremiumAccess (Gold Card). Deferred contract — read
+///      by address (settable), never imported, so this stays MVP-branch-clean.
+interface IPremiumAccess {
+    function hasPremium(address user) external view returns (bool);
+}
+
 /// @title  TegridyV4Hook — bundled Uniswap V4 hook for the TOWELI pool
-/// @notice **BATCHES 1-3c of the V4 implementation** (gate overridden 2026-05-30).
+/// @notice Modules (all on ONE pool — see V4_MIGRATION_PLAN.md "Architecture correction"):
+///           • JIT          — OZ `LiquidityPenaltyHook` (VERBATIM, inherited)
+///           • FeeModule    — verbatim `BaseOverrideFee` copy + admin-bounded fee
+///                            + OPTIONAL premium discount (Gold Card "Reduced Fees")
+///           • Allowlist    — pool-key allowlist in `_beforeInitialize` (Cork defense)
+///           • POL + split  — `_afterSwap` skim (ERC-6909 claims) then redeem & route
+///                            to stakers (RevenueDistributor) / treasury / POL
+///           • Pause        — PauseGuardian emergency stop (swaps halt, exit open)
 ///
-///         ARCHITECTURE (see V4_MIGRATION_PLAN.md "Architecture correction"):
-///         OZ hooks cannot be bundled by multiple inheritance — every one derives
-///         from `BaseHook(poolManager)`, so two of them collide (Solc 3364 + 6480).
-///         Resolution: inherit the ONE heavy hook verbatim (`LiquidityPenaltyHook`,
-///         the JIT fee-withholding accounting) and hand-write the lightweight
-///         concerns as overrides, copying OZ patterns verbatim where they exist.
+/// @dev    PREMIUM DISCOUNT (V4 caveat): a hook's `_beforeSwap` `sender` is the
+///         ROUTER, not the end user, so a per-user discount needs the user from
+///         `hookData`. To stop anyone spoofing a premium holder's address through a
+///         raw UniversalRouter, the discount applies ONLY when `sender ==
+///         trustedRouter` (a Tegridy router that authenticates the user before
+///         forwarding it). Disabled by default (trustedRouter / premiumAccess == 0).
+///         A try/catch isolates a misbehaving PremiumAccess so swaps never brick.
 ///
-///         Modules present:
-///           • JIT        — OZ `LiquidityPenaltyHook` (VERBATIM, inherited)
-///           • FeeModule  — 6-line verbatim copy of OZ `BaseOverrideFee` +
-///                          admin-configurable bounded fee
-///           • Allowlist  — pool-key allowlist in `_beforeInitialize` (Cork defense)
-///           • POL        — `_afterSwap` skim of the unspecified currency, accrued
-///                          as ERC-6909 claims (custody stays in the PoolManager);
-///                          swept to the treasury. take/delta mechanics copied
-///                          verbatim from OZ `BaseDynamicAfterFee`.
+/// @dev    FEE SPLIT: defaults to 100% POL (staker/treasury shares 0) = prior
+///         behavior. paramAdmin can shift shares; `distributeFees` redeems the
+///         hook's claims and routes REAL currency (native ETH for the staker sink,
+///         which is RevenueDistributor) in a single unlock.
 ///
-///         DROPPED (no verbatim source; too much custom surface): internal oracle
-///         + volatility fee. The admin-bounded base fee stands.
-///
-/// @dev    NOT YET DEPLOYABLE. Deferred:
-///           - Batch 4: TegridyV4HookAdmin timelock becomes `paramAdmin`;
-///                      redeem swept ERC-6909 claims → native ETH → RevenueDistributor
-///           - Batch 5: HookMiner CREATE2 mining + DeployV4/VerifyV4 + tests
-///         BaseHook validates the hook-address permission bits AT CONSTRUCTION,
-///         so this only deploys from a HookMiner-mined CREATE2 address.
-///
-/// @dev    AntiSandwichHook / LimitOrderHook cannot share this pool (both drive
-///         `_beforeSwap`/fee). If adopted, each runs on its OWN pool.
+/// @dev    NOT YET DEPLOYABLE (HookMiner deploy + audit pending). AntiSandwich /
+///         LimitOrder / TWAMM-DCA cannot share this pool (they drive `_beforeSwap`)
+///         — separate pools. Boosted-LP incentive accrual = separate design doc.
 contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
@@ -60,6 +60,8 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
 
     /// @dev Basis-points denominator.
     uint16 private constant BPS = 10_000;
+    /// @dev Hard cap on the premium discount (50% of the fee). Immutable policy.
+    uint16 private constant MAX_DISCOUNT_BPS = 5_000;
 
     // ─── Errors ───────────────────────────────────────────────────────
     error NotDynamicFee();
@@ -71,6 +73,8 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     error ZeroAddress();
     error NotPoolManagerUnlock();
     error TradingPaused();
+    error DiscountTooHigh();
+    error InvalidSplit();
 
     // ─── Events ───────────────────────────────────────────────────────
     event PoolAllowed(PoolId indexed id, bool allowed);
@@ -79,12 +83,14 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     event PolRecipientSet(address indexed recipient);
     event PolAccrued(Currency indexed currency, uint256 amount);
     event PolSwept(Currency indexed currency, address indexed to, uint256 amount);
-    event PolRedeemed(Currency indexed currency, address indexed to, uint256 amount);
+    event FeesDistributed(Currency indexed currency, uint256 stakerAmt, uint256 treasuryAmt, uint256 polAmt);
     event Paused(address indexed by);
     event Unpaused(address indexed by);
+    event DiscountConfigSet(address premiumAccess, address trustedRouter, uint16 discountBps);
+    event FeeSplitSet(uint16 stakerShareBps, uint16 treasuryShareBps);
+    event FeeSinksSet(address stakerSink, address treasury);
 
     // ─── Params (mutated only by paramAdmin; hook code itself is immutable) ──
-    /// @notice Becomes the TegridyV4HookAdmin timelock in Batch 4. Set at construction.
     address public immutable paramAdmin;
 
     /// @notice Immutable fee bounds (hundredths of a bip). Even a compromised
@@ -94,19 +100,24 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     /// @notice Immutable POL skim ceiling (bps of swap output). Hard upper bound.
     uint16 public immutable maxPolSkimBps;
 
-    /// @notice Current base LP fee (hundredths of a bip; 3000 = 0.30%).
     uint24 public baseFeePips;
-    /// @notice POL skim, in bps of the swap's unspecified (output) amount.
     uint16 public polSkimBps;
-    /// @notice Destination for swept POL (treasury / RevenueDistributor).
     address public polRecipient;
 
-    /// @notice Pool-key allowlist by PoolId — `_beforeInitialize` rejects any pool
-    ///         not pre-registered here (Cork defense).
+    /// @notice Premium discount config (#2). Disabled while any is zero.
+    address public premiumAccess;
+    address public trustedRouter;
+    uint16 public discountBps;
+
+    /// @notice Fee split (#1). polShare = BPS - staker - treasury (implicit).
+    uint16 public stakerShareBps;
+    uint16 public treasuryShareBps;
+    address public stakerSink; // RevenueDistributor (native ETH); 0 => folds to POL
+    address public treasury; // 0 => folds to POL
+
     mapping(PoolId => bool) public allowedPools;
 
-    /// @notice Emergency stop. When true, `_beforeSwap` reverts so SWAPS halt;
-    ///         liquidity removal stays open (never trap LP funds).
+    /// @notice Emergency stop. `_beforeSwap` reverts; liquidity removal stays open.
     bool public paused;
 
     modifier onlyParamAdmin() {
@@ -140,24 +151,18 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
 
     // ─── Allowlist (Cork defense) ─────────────────────────────────────
 
-    /// @notice Pre-register (or revoke) a pool key permitted to use this hook.
     function setPoolAllowed(PoolKey calldata key, bool allowed) external onlyParamAdmin {
         PoolId id = key.toId();
         allowedPools[id] = allowed;
         emit PoolAllowed(id, allowed);
     }
 
-    function _beforeInitialize(address, PoolKey calldata key, uint160)
-        internal
-        virtual
-        override
-        returns (bytes4)
-    {
+    function _beforeInitialize(address, PoolKey calldata key, uint160) internal virtual override returns (bytes4) {
         if (!allowedPools[key.toId()]) revert PoolNotAllowed();
         return this.beforeInitialize.selector;
     }
 
-    // ─── FeeModule (verbatim copy of OZ BaseOverrideFee) ──────────────
+    // ─── FeeModule (verbatim BaseOverrideFee + optional premium discount) ──
 
     function setBaseFee(uint24 newFeePips) external onlyParamAdmin {
         if (newFeePips < minFeePips || newFeePips > maxFeePips) revert FeeOutOfBounds();
@@ -165,12 +170,20 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         baseFeePips = newFeePips;
     }
 
-    function _afterInitialize(address, PoolKey calldata key, uint160, int24)
-        internal
-        virtual
-        override
-        returns (bytes4)
+    /// @notice Configure the premium (Gold Card) swap-fee discount. Pass any zero
+    ///         to disable. `discountBps_` is a fraction of the fee, capped at 50%.
+    function setDiscountConfig(address premiumAccess_, address trustedRouter_, uint16 discountBps_)
+        external
+        onlyParamAdmin
     {
+        if (discountBps_ > MAX_DISCOUNT_BPS) revert DiscountTooHigh();
+        premiumAccess = premiumAccess_;
+        trustedRouter = trustedRouter_;
+        discountBps = discountBps_;
+        emit DiscountConfigSet(premiumAccess_, trustedRouter_, discountBps_);
+    }
+
+    function _afterInitialize(address, PoolKey calldata key, uint160, int24) internal virtual override returns (bytes4) {
         if (!key.fee.isDynamicFee()) revert NotDynamicFee();
         return this.afterInitialize.selector;
     }
@@ -186,17 +199,44 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
 
-    /// @dev Fee seam (kept for forward-compat: a future surge plugs in here).
-    function _getFee(address, PoolKey calldata, SwapParams calldata, bytes calldata)
+    /// @dev Base fee, minus the premium discount when the swap is forwarded by the
+    ///      trusted router carrying a premium holder's address in `hookData`.
+    ///      Floored at `minFeePips`. try/catch isolates PremiumAccess failures.
+    function _getFee(address sender, PoolKey calldata, SwapParams calldata, bytes calldata hookData)
         internal
-        view
         virtual
         returns (uint24)
     {
-        return baseFeePips;
+        return _discountedFee(sender, hookData);
     }
 
-    // ─── POLModule (afterSwap skim) ───────────────────────────────────
+    /// @dev Base fee minus the premium discount, but ONLY when the swap is
+    ///      forwarded by `trustedRouter` carrying a premium holder's address in
+    ///      `hookData`. Floored at `minFeePips`. try/catch isolates PremiumAccess.
+    function _discountedFee(address sender, bytes calldata hookData) internal view returns (uint24) {
+        uint24 fee = baseFeePips;
+        address pa = premiumAccess;
+        address tr = trustedRouter;
+        uint16 disc = discountBps;
+        if (disc != 0 && pa != address(0) && tr != address(0) && sender == tr && hookData.length >= 32) {
+            address user = abi.decode(hookData, (address));
+            try IPremiumAccess(pa).hasPremium(user) returns (bool ok) {
+                if (ok) {
+                    uint256 reduced = uint256(fee) - (uint256(fee) * disc) / BPS;
+                    fee = reduced < minFeePips ? minFeePips : uint24(reduced);
+                }
+            } catch {}
+        }
+        return fee;
+    }
+
+    /// @notice Quote the effective fee for `(sender, hookData)` — exposes the
+    ///         discount path for off-chain quoting and tests.
+    function quoteFee(address sender, bytes calldata hookData) external view returns (uint24) {
+        return _discountedFee(sender, hookData);
+    }
+
+    // ─── POL skim (afterSwap) ─────────────────────────────────────────
 
     function setPolSkimBps(uint16 newBps) external onlyParamAdmin {
         if (newBps > maxPolSkimBps) revert SkimOutOfBounds();
@@ -210,30 +250,41 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         emit PolRecipientSet(newRecipient);
     }
 
+    /// @notice Set the fee split (#1). staker + treasury <= BPS; POL gets the rest.
+    function setFeeSplit(uint16 stakerShareBps_, uint16 treasuryShareBps_) external onlyParamAdmin {
+        if (uint256(stakerShareBps_) + treasuryShareBps_ > BPS) revert InvalidSplit();
+        stakerShareBps = stakerShareBps_;
+        treasuryShareBps = treasuryShareBps_;
+        emit FeeSplitSet(stakerShareBps_, treasuryShareBps_);
+    }
+
+    /// @notice Set the staker (RevenueDistributor) + treasury sinks. Either zero
+    ///         folds that share back into POL (`polRecipient`).
+    function setFeeSinks(address stakerSink_, address treasury_) external onlyParamAdmin {
+        stakerSink = stakerSink_;
+        treasury = treasury_;
+        emit FeeSinksSet(stakerSink_, treasury_);
+    }
+
     // ─── Emergency pause (PauseGuardian mixin) ─────────────────────────
 
-    /// @notice Hot guardian can pause instantly (pause-only authority — Aave/Lido pattern).
     function guardianPause() external onlyPauseGuardian {
         paused = true;
         emit Paused(msg.sender);
     }
 
-    /// @notice paramAdmin (governance) can pause OR unpause. NOT timelocked —
-    ///         emergency response and recovery must be immediate.
     function setPaused(bool p) external onlyParamAdmin {
         paused = p;
         if (p) emit Paused(msg.sender);
         else emit Unpaused(msg.sender);
     }
 
-    /// @notice paramAdmin rotates the pause guardian (instant; hot-key-compromise response).
     function setPauseGuardian(address newGuardian) external onlyParamAdmin {
         _setPauseGuardian(newGuardian);
     }
 
-    /// @dev Skim `polSkimBps` of the swap's unspecified (output) currency as a
-    ///      protocol fee, accrued to this hook as ERC-6909 claims (custody stays
-    ///      in the PoolManager). take/delta mechanics are copied verbatim from OZ
+    /// @dev Skim `polSkimBps` of the swap's unspecified currency as a protocol fee,
+    ///      accrued as ERC-6909 claims. Mechanics copied verbatim from OZ
     ///      `BaseDynamicAfterFee._afterSwap`.
     function _afterSwap(address, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata)
         internal
@@ -244,7 +295,6 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         uint16 bps = polSkimBps;
         if (bps == 0) return (this.afterSwap.selector, 0);
 
-        // Fee taken on the unspecified currency of the swap (OZ pattern).
         (Currency unspecified, int128 unspecifiedAmount) = (params.amountSpecified < 0 == params.zeroForOne)
             ? (key.currency1, delta.amount1())
             : (key.currency0, delta.amount0());
@@ -253,16 +303,12 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         uint256 feeAmount = (uint256(uint128(unspecifiedAmount)) * bps) / BPS;
         if (feeAmount == 0) return (this.afterSwap.selector, 0);
 
-        // Mint ERC-6909 claims of `unspecified` to this hook (claims = true).
         unspecified.take(poolManager, address(this), feeAmount, true);
         emit PolAccrued(unspecified, feeAmount);
-
         return (this.afterSwap.selector, feeAmount.toInt256().toInt128());
     }
 
-    /// @notice Sweep accrued POL claims of `currency` to the fixed `polRecipient`.
-    ///         Permissionless — destination is admin-set, so anyone may trigger.
-    ///         (Redeeming claims → native ETH for RevenueDistributor lands in Batch 4.)
+    /// @notice Sweep accrued claims of `currency` to `polRecipient` (claims, no redeem).
     function sweepPOL(Currency currency) external {
         uint256 id = currency.toId();
         uint256 bal = poolManager.balanceOf(address(this), id);
@@ -271,40 +317,47 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         emit PolSwept(currency, polRecipient, bal);
     }
 
-    /// @notice Redeem accrued POL claims of `currency` into the REAL underlying
-    ///         (ERC20 or native ETH) and send it to `polRecipient` (e.g. the
-    ///         RevenueDistributor, which expects native ETH). Permissionless —
-    ///         destination is admin-set. Re-entrancy is impossible: this opens a
-    ///         PoolManager lock, and any nested `unlock` reverts while locked.
-    function redeemPOL(Currency currency) external {
-        uint256 amount = poolManager.balanceOf(address(this), currency.toId());
-        if (amount == 0) return;
-        poolManager.unlock(abi.encode(currency, amount));
+    /// @notice Redeem accrued claims of `currency` into the REAL underlying and route
+    ///         by the fee split: staker share → stakerSink (RevenueDistributor; native
+    ///         ETH works via its receive()), treasury share → treasury, rest → POL.
+    ///         Permissionless (destinations are admin-set). Re-entrancy impossible:
+    ///         opens a PoolManager lock; a nested unlock reverts while locked.
+    function distributeFees(Currency currency) public {
+        uint256 bal = poolManager.balanceOf(address(this), currency.toId());
+        if (bal == 0) return;
+        uint256 stakerAmt = (bal * stakerShareBps) / BPS;
+        uint256 treasuryAmt = (bal * treasuryShareBps) / BPS;
+        uint256 polAmt = bal - stakerAmt - treasuryAmt;
+        address sTo = stakerSink == address(0) ? polRecipient : stakerSink;
+        address tTo = treasury == address(0) ? polRecipient : treasury;
+        poolManager.unlock(abi.encode(currency, stakerAmt, sTo, treasuryAmt, tTo, polAmt, polRecipient));
     }
 
-    /// @dev PoolManager unlock callback for `redeemPOL`: burn the hook's ERC-6909
-    ///      claims and take the real currency out to `polRecipient`.
+    /// @notice Back-compat alias — redeem the full balance under the current split.
+    function redeemPOL(Currency currency) external {
+        distributeFees(currency);
+    }
+
+    /// @dev Unlock callback: burn the hook's claims and take REAL currency to the
+    ///      three sinks. onlyPoolManager.
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert NotPoolManagerUnlock();
-        (Currency currency, uint256 amount) = abi.decode(data, (Currency, uint256));
-        poolManager.burn(address(this), currency.toId(), amount);
-        poolManager.take(currency, polRecipient, amount);
-        emit PolRedeemed(currency, polRecipient, amount);
+        (Currency currency, uint256 sAmt, address sTo, uint256 tAmt, address tTo, uint256 pAmt, address pTo) =
+            abi.decode(data, (Currency, uint256, address, uint256, address, uint256, address));
+        poolManager.burn(address(this), currency.toId(), sAmt + tAmt + pAmt);
+        if (sAmt > 0) poolManager.take(currency, sTo, sAmt);
+        if (tAmt > 0) poolManager.take(currency, tTo, tAmt);
+        if (pAmt > 0) poolManager.take(currency, pTo, pAmt);
+        emit FeesDistributed(currency, sAmt, tAmt, pAmt);
         return "";
     }
 
     // ─── Permissions ──────────────────────────────────────────────────
 
-    function getHookPermissions()
-        public
-        pure
-        virtual
-        override
-        returns (Hooks.Permissions memory permissions)
-    {
+    function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory permissions) {
         permissions.beforeInitialize = true; // pool-key allowlist (Cork defense)
         permissions.afterInitialize = true; // fee override: dynamic-fee assertion
-        permissions.beforeSwap = true; // fee override
+        permissions.beforeSwap = true; // fee override + discount
         permissions.afterSwap = true; // POL skim
         permissions.afterSwapReturnDelta = true; // POL skim takes a delta
         permissions.afterAddLiquidity = true; // LiquidityPenaltyHook (verbatim)
