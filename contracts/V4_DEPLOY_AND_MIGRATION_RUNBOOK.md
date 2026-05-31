@@ -7,8 +7,10 @@
 ## 0. Hard prerequisites (all must be true before mainnet deploy)
 
 1. **External audit of the 5 V4 contracts is clean** (`V4_AUDIT_HANDOFF.md` scope). Relaunch blocker.
-2. **Dep-pin reconciled**: `lib/v4-core @ d153b048` ABI matches the *deployed* mainnet
-   PoolManager `0x000000000004444c5dc75cb358380d2e3de08a90` (or re-pin + re-run tests).
+2. **Dep-pin reconciled** ✅ (2026-05-31): `d153b048` vs mainnet's `v4.0.0` is a pure
+   source relocation (SwapParams/ModifyLiquidityParams → PoolOperation.sol); flag bits,
+   callback selectors, struct layouts all identical → **ABI-safe**. Residual: confirm vs
+   the verified Etherscan source of `0x000000000004444c5dc75cb358380d2e3de08a90` at audit.
 3. **Branch merged** into the launch line; `forge build` exit-0; 35 tests green on the merge.
 4. **3 disjoint multisigs** ready: `TREASURY` ≠ `MULTISIG` (cold 4-of-7) ≠ `PAUSE_GUARDIAN` (hot 3-of-5).
 5. Reward-token budget for `TegridyBoostedLPStaker` decided (TOWELI emissions amount + duration).

@@ -105,8 +105,15 @@ allowlist the pool key, initialize (dynamic-fee flag), seed POL, wire `trustedRo
 
 ## 7. Known issues / v1 limitations / open items (honest list)
 
-- **Dep bump unreconciled**: v4-core `d153b048` is a dev commit, not the deployed mainnet
-  PoolManager's exact version. Reconcile before deploy.
+- **Dep bump — RECONCILED 2026-05-31 (ABI-safe).** Diff of v4-core `v4.0.0` (`e50237c`,
+  the audited mainnet release) → `d153b048` (our pin) on all hook-facing surfaces
+  (`Hooks.sol`, `IHooks.sol`, `IPoolManager.sol`, `PoolOperation.sol`, types) shows
+  **only a source relocation** of `SwapParams`/`ModifyLiquidityParams` from `IPoolManager`
+  into `PoolOperation.sol`. Permission-flag bits, callback selectors, and struct field
+  layouts are **identical** → our hook is ABI-compatible with the deployed mainnet
+  PoolManager; HookMiner mines to the bits the live PoolManager checks. Residual final
+  sign-off: diff our pinned interfaces vs the **verified Etherscan source** of
+  `0x000000000004444c5dc75cb358380d2e3de08a90` to confirm mainnet == v4.0.0 (cheap; do at audit).
 - **PauseGuardian set post-deploy** (not in constructor) → brief window with no guardian
   until wired. Document in the deploy runbook.
 - **Premium discount reach**: only swaps via `TegridyV4SwapRouter` get it; aggregator-
