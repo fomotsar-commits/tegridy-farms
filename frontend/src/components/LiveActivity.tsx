@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { usePriceHistory } from '../hooks/usePriceHistory';
@@ -6,7 +7,18 @@ import { formatCurrency } from '../lib/formatting';
 import { Sparkline } from './Sparkline';
 import { PulseDot } from './PulseDot';
 
+// AUDIT 2026-05-30 (iPad re-pass): hide the floating "Protocol Active" pill on
+// long-form info / legal / policy routes where the agent found it overlapping
+// body content (/treasury balance value, /lore body, /terms /privacy /risks copy,
+// /community footer, /changelog entries, etc.). Transactional + landing pages
+// keep the pill — the overlap only matters on prose-heavy surfaces.
+const HIDE_ON_ROUTES: ReadonlySet<string> = new Set([
+  '/security', '/risks', '/terms', '/privacy', '/lore', '/changelog',
+  '/contracts', '/treasury', '/tokenomics', '/faq', '/community',
+]);
+
 export function LiveActivity() {
+  const { pathname } = useLocation();
   const [visible, setVisible] = useState(false);
   const { priceInUsd, isLoaded } = useTOWELIPrice();
   const { history: priceData } = usePriceHistory();
@@ -17,6 +29,7 @@ export function LiveActivity() {
   }, []);
 
   if (!visible) return null;
+  if (HIDE_ON_ROUTES.has(pathname)) return null;
 
   const displayPrice = isLoaded && priceInUsd > 0
     ? formatCurrency(priceInUsd, 6)
