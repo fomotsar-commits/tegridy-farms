@@ -2652,6 +2652,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      immediately before this call still used the stale denominator (that
     ///      part of the past is sunk), but every future elapsed unit from now on
     ///      accrues fairly.
+    // AUDIT 2026-05-31: reentrancy-no-eth FP — function is `nonReentrant`, the cited
+    // cross-fn `restakers` reads are all views, post-staking.kick() bonusDebt write
+    // cannot be re-entered.
+    // slither-disable-next-line reentrancy-no-eth
     function decayExpiredRestaker(address _restaker) external nonReentrant {
         RestakeInfo storage info = restakers[_restaker];
         if (info.tokenId == 0) revert NotRestaked();

@@ -972,6 +972,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param _amount Amount of TOWELI to stake (must be >= MIN_STAKE)
     /// @param _lockDuration Lock duration in seconds (MIN_LOCK_DURATION to MAX_LOCK_DURATION)
     /// @param _jbacTokenId The JBAC tokenId to deposit for the boost (must be owned by caller, approved to this contract)
+    // AUDIT 2026-05-31: reentrancy-no-eth FP — function is `nonReentrant`. The cross-fn
+    // cite is `lastActivityAt` written by `_touch(msg.sender)` after the
+    // `jbacNFT.safeTransferFrom` callback; the guard makes re-entry impossible, and
+    // even a hypothetical re-entry would only refresh a monotonic timestamp (no value
+    // theft / accounting drift). Same FP class as decayExpiredRestaker.
+    // slither-disable-next-line reentrancy-no-eth
     function stakeWithBoost(uint256 _amount, uint256 _lockDuration, uint256 _jbacTokenId)
         external nonReentrant whenNotPaused updateReward
     {
@@ -1230,6 +1236,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     /// @notice Withdraw after lock expires. No penalty. Burns the position NFT.
     /// @param tokenId The NFT token ID of the staking position to withdraw
+    // AUDIT 2026-05-31: reentrancy-no-eth FP — function is `nonReentrant`. The cross-fn
+    // cite is `lastActivityAt` written by `_touch(msg.sender)` after `_clearPosition`
+    // (whose external is the JBAC `returnJbac` callback); the guard makes re-entry
+    // impossible, and `lastActivityAt` is a monotonic dormancy stamp. Same FP class as
+    // decayExpiredRestaker. CCR-01 invariant additionally burns the NFT before the
+    // external call, so any reentrant transferFrom against this contract reverts.
+    // slither-disable-next-line reentrancy-no-eth
     function withdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         Position storage p = _ownedPosition(tokenId, msg.sender);
         if (block.timestamp < p.lockEnd) revert LockNotExpired();

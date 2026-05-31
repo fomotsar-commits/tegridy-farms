@@ -1264,6 +1264,10 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         _propose(key, PAIR_RESET_DELAY);
         // AUDIT FIX 2026-05-26 [H-07] — track pair in pending-reset set so
         // acceptOwnership() can flush it on owner rotation.
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.add returns a
+        // was-added bool; idempotent add — propose key uniqueness makes
+        // in-set invariant deterministic. Matches repo convention.
+        // slither-disable-next-line unused-return
         _pendingResetPairs.add(pair);
         emit PairResetProposed(pair, _proposalReadyAt(key));
     }
@@ -1283,6 +1287,10 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
         _execute(key);
         // AUDIT FIX 2026-05-26 [H-07] — clear pending-reset tracking slot.
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — proposeAdminResetPair added it; matching pair, presence
+        // implied. Matches repo convention.
+        // slither-disable-next-line unused-return
         _pendingResetPairs.remove(pair);
         delete observationIndex[pair];
         delete observationCount[pair];
@@ -1298,6 +1306,10 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
         _cancel(key);
         // AUDIT FIX 2026-05-26 [H-07] — clear pending-reset tracking slot.
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — cancel path mirrors execute; presence implied by prior
+        // propose. Matches repo convention.
+        // slither-disable-next-line unused-return
         _pendingResetPairs.remove(pair);
         emit PairResetCancelled(pair);
     }
@@ -1329,6 +1341,10 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         for (uint256 i = len; i > 0; --i) {
             address p = _pendingResetPairs.at(i - 1);
             _forceCancel(keccak256(abi.encodePacked(PAIR_RESET, p)));
+            // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove
+            // return ignored — `.at(i-1)` above guarantees the element exists.
+            // Matches repo convention.
+            // slither-disable-next-line unused-return
             _pendingResetPairs.remove(p);
             emit AdminResetPairCancelled(p);
         }

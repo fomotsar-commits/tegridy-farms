@@ -525,6 +525,11 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
         pendingTokenBlockValue[token] = blocked;
         _propose(key, TOKEN_BLOCK_DELAY);
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.add returns a
+        // was-added bool; idempotent add — surrounding _propose timelock and
+        // pendingTokenBlockValue write make the in-set invariant deterministic.
+        // Matches repo convention at _flushTokenBlocks L473.
+        // slither-disable-next-line unused-return
         _pendingTokenBlocks.add(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlockProposed(token, blocked, _executeAfter[key]);
     }
@@ -535,6 +540,10 @@ contract TegridyFactory is TimelockAdmin {
         _execute(key);
         blockedTokens[token] = pendingTokenBlockValue[token];
         delete pendingTokenBlockValue[token];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored intentionally — proposeTokenBlocked added it; matching pair.
+        // Same convention as _flushTokenBlocks L473.
+        // slither-disable-next-line unused-return
         _pendingTokenBlocks.remove(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlocked(token, blockedTokens[token]);
     }
@@ -544,6 +553,10 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
         _cancel(key);
         delete pendingTokenBlockValue[token];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — cancel path mirrors execute; presence implied by prior propose.
+        // Same convention as _flushTokenBlocks L473.
+        // slither-disable-next-line unused-return
         _pendingTokenBlocks.remove(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlockCancelled(token);
     }
@@ -601,6 +614,11 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         pendingPairDisableValue[pair] = disabled;
         _propose(key, PAIR_DISABLE_DELAY);
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.add returns a
+        // was-added bool; idempotent add — propose key uniqueness and the
+        // pendingPairDisableValue write make in-set invariant deterministic.
+        // Matches repo convention at _flushPairDisables L486.
+        // slither-disable-next-line unused-return
         _pendingPairDisables.add(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableProposed(pair, disabled, _executeAfter[key]);
     }
@@ -612,6 +630,10 @@ contract TegridyFactory is TimelockAdmin {
         _execute(key);
         disabledPairs[pair] = pendingPairDisableValue[pair];
         delete pendingPairDisableValue[pair];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — proposePairDisabled added it; matching pair, presence implied.
+        // Same convention as _flushPairDisables L486.
+        // slither-disable-next-line unused-return
         _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableExecuted(pair, disabledPairs[pair]);
     }
@@ -625,6 +647,10 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         _cancel(key);
         delete pendingPairDisableValue[pair];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — cancel path mirrors execute; presence implied by prior propose.
+        // Same convention as _flushPairDisables L486.
+        // slither-disable-next-line unused-return
         _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableCancelled(pair);
     }
@@ -763,6 +789,11 @@ contract TegridyFactory is TimelockAdmin {
         if (_executeAfter[key] != 0 && pendingPairDisableValue[pair] == false) {
             _cancel(key);
             delete pendingPairDisableValue[pair];
+            // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+            // ignored — entered the branch only because _executeAfter[key]!=0, which
+            // means proposePairDisabled previously added `pair`; presence guaranteed.
+            // Same convention as _flushPairDisables L486.
+            // slither-disable-next-line unused-return
             _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         }
         emit PairEmergencyDisabled(pair, msg.sender);
