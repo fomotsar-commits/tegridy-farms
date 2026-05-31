@@ -67,7 +67,7 @@ function ArtCard({
       </div>
       <div
         className={`relative z-10 m-2 md:m-3 rounded-lg ${padding}`}
-        style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
+        style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.08)' }}
       >
         {children}
       </div>

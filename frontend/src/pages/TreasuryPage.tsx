@@ -242,7 +242,7 @@ export default function TreasuryPage() {
         )}
 
         {/* Top stats — each tile overlays its own ArtImg so the grid feels art-first. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
           {stats.map((s) => (
             <div key={s.label} className="relative overflow-hidden rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
               <div className="absolute inset-0">
