@@ -1495,11 +1495,14 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     ///         protocol-wide pool, all active stakers are treated symmetrically
     ///         and the dust is swept to treasury via the existing
     ///         48h-timelocked `executeForfeitReclaim` → `sweepDust` cycle.
-    /// @dev The pool is decremented in step with `totalEarmarked` because the
-    ///      dust was originally part of `totalEarmarked`. `sweepDust` reads
-    ///      `address(this).balance - reserved` where `reserved = unclaimed +
-    ///      pending`, so once `totalEarmarked` is decremented, the dust falls
-    ///      into the sweepable surplus and is timelock-routed to treasury.
+    /// @dev AUDIT CLEANUP 2026-05-31 [INFO-12]: comment corrected. `protocolDustPool`
+    ///      is a WRITE-ONLY lifetime accumulator (a metric of total dust ever reclaimed)
+    ///      — it is only ever incremented (`+= dust` below) and is never decremented or
+    ///      read for logic. The actual fund movement is on `totalEarmarked`: when dust is
+    ///      reclaimed, `totalEarmarked` is decremented so the dust falls out of `reserved`
+    ///      (= unclaimed + pending). `sweepDust` then reads `address(this).balance -
+    ///      reserved`, sees the freed dust in the sweepable surplus, and timelock-routes
+    ///      it to treasury. The pool total itself is not spent down.
     uint256 public protocolDustPool;
 
     /// @notice AUDIT R014 M-8: Auto-reclaim per-epoch dust (epoch.totalETH - epochClaimed[i])

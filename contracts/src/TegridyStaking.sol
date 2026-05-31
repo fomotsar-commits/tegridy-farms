@@ -2364,8 +2364,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      A4-C-05: Verified — this function is called for all rewardDebt assignments.
     ///      The product (boostedAmount * rewardPerTokenStored) / ACC_PRECISION is safe from uint256
     ///      overflow because: boostedAmount <= ~4.5x * totalSupply (capped by MAX_BOOST + JBAC),
-    ///      rewardPerTokenStored grows by (reward * 1e12) / totalBoostedStake per second.
-    ///      With realistic values (1B supply, 100/s rate), overflow would take >1000 years.
+    ///      and rewardPerTokenStored grows by (reward * ACC_PRECISION) / totalBoostedStake per
+    ///      second with `reward` bounded by MAX_REWARD_RATE. AUDIT CLEANUP 2026-05-31 [INFO-11]:
+    ///      figures corrected to the live constants (ACC_PRECISION = 1e18, MAX_REWARD_RATE = 1e18)
+    ///      — see the overflow-safety margin note at the ACC_PRECISION declaration.
     function _safeInt256(uint256 value) private pure returns (int256) {
         if (value > uint256(type(int256).max)) revert IntOverflow();
         return int256(value);

@@ -245,28 +245,11 @@ library StakingRewardLib {
         totalBoostedStakeCheckpoints.push(SafeCast.toUint48(block.timestamp), newTotal);
     }
 
-    /// @dev Mirror of `TegridyStaking._decayIfExpired`. `owner` is the resolved
-    ///      `ownerOf(tokenId)` passed in by the caller (the host resolves it before
-    ///      delegating; cluster call sites already hold it).
-    function _decayIfExpired(
-        RewardState memory rs,
-        Position storage p,
-        address owner,
-        mapping(address => Checkpoints.Trace208) storage checkpoints,
-        Checkpoints.Trace208 storage totalBoostedStakeCheckpoints,
-        mapping(address => EnumerableSetLib.Uint256Set) storage positionsByOwner,
-        mapping(uint256 => Position) storage positions,
-        mapping(address => bool) storage isLendingContract,
-        address restakingContract
-    ) internal returns (RewardState memory) {
-        if (p.boostedAmount > 0 && p.lockEnd > 0 && block.timestamp >= p.lockEnd) {
-            rs.totalBoostedStake -= p.boostedAmount;
-            p.boostedAmount = 0;
-            _writeCheckpoint(owner, checkpoints, positionsByOwner, positions, isLendingContract, restakingContract);
-            _writeTotalBoostedStakeCheckpoint(rs.totalBoostedStake, totalBoostedStakeCheckpoints); // AUDIT REV-M-01
-        }
-        return rs;
-    }
+    // AUDIT CLEANUP 2026-05-31 [INFO-8]: removed the dead `_decayIfExpired` mirror.
+    // It was never invoked — decay runs entirely through the host's own live copy
+    // (`TegridyStaking._decayIfExpired`, called from kick/_getReward). Keeping a second
+    // copy here was a latent footgun (if ever wired alongside the host it would
+    // double-decrement `totalBoostedStake`). The host function is the single source of truth.
 
     /// @dev Mirror of `TegridyStaking._settleUnsettled` (AUDIT FIX L-06 cap; M-3
     ///      forfeit-to-treasury redirect removed). Returns updated state + the actual
