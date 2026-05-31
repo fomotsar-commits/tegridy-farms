@@ -73,6 +73,13 @@ library WETHFallbackLib {
     ///         would inherit the inconsistency without any on-chain breadcrumb.
     event ETHToWETHFallback(address indexed weth, address indexed to, uint256 amount);
 
+    /// @notice Reintroduced 2026-05-31 with safeTransferETHOrWrapNoRevert (see below).
+    ///         mode==2: deposit succeeded but the WETH transfer failed, so WETH is
+    ///         stranded in the caller and the caller MUST credit it (pull-pattern).
+    event WETHTransferStuck(address indexed weth, address indexed to, uint256 amount);
+    /// @notice Reintroduced 2026-05-31. mode==3: total failure, ETH untouched in caller.
+    event ETHWrapFailed(address indexed weth, address indexed to, uint256 amount);
+
     /// @notice Transfer ETH to `to`. If the raw ETH send fails, wraps as WETH and sends that.
     /// @param weth The canonical WETH contract address for this chain (must be set immutably at deploy time)
     /// @param to   Recipient address
@@ -147,26 +154,78 @@ library WETHFallbackLib {
         emit ETHTransferred(to, amount);
     }
 
-    // AUDIT FIX FRESH-2026 [H-WFL-NOREVERT-DELETE]: deleted dead-code
-    // `safeTransferETHOrWrapNoRevert(weth, to, amount)` + its supporting
-    // `WETHTransferStuck` / `ETHWrapFailed` events.
-    //
-    // Rationale: function had ZERO in-tree consumers (verified by grep
-    // across src/, script/, test/). The mode==2 "stranded-WETH-in-caller"
-    // path obligated callers to credit/sweep stranded WETH; future
-    // consumers reaching for the no-revert variant would inherit a
-    // documented-but-unenforced caller-discipline trap. Per the minimal-
-    // surface mandate (DELETE before ADD, custom code IS the exploit
-    // source), the safer path is to remove the unused function entirely.
-    //
-    // If a future BATCHED-PAYEE callsite needs the no-revert semantic, it
-    // can be reintroduced from a battle-tested pattern (Aave V3
-    // PoolAddressesProvider treasury sweep / Seaport's WETH wrap fallback)
-    // with consumer-local tests proving the caller credits the stranded
-    // path correctly — rather than reviving dead code lulled by sunk-cost
-    // comment archaeology.
-    //
-    // Surviving callers use `safeTransferETHOrWrap` (reverting; widely
-    // adopted across RevenueDistributor / SwapFeeRouter / POLAccumulator /
-    // ReferralSplitter / etc) or `safeTransferETH` (EOA refund variant).
+    /// @notice No-revert ETH transfer with WETH fallback, for BATCHED-PAYEE
+    ///         callsites (the NFT-AMM pool's swap/refund/sweep paths) where one
+    ///         bad recipient must NOT brick the whole batch.
+    /// @dev    REINTRODUCED 2026-05-31 for TegridyNFTPool, exactly per the
+    ///         prior [H-WFL-NOREVERT-DELETE] note's carve-out ("if a future
+    ///         BATCHED-PAYEE callsite needs the no-revert semantic, it can be
+    ///         reintroduced ... with consumer-local tests proving the caller
+    ///         credits the stranded path"). Restored verbatim from the pre-cut
+    ///         revision (10e1dcc^); the consumer credits stranded WETH on
+    ///         mode==2, proven by the TegridyNFTPool reentrancy / sandwich /
+    ///         invariant suites that ship alongside it.
+    /// @return success true if `to` ended up with ETH (mode 0) or WETH (mode 1).
+    /// @return mode 0=ETH delivered, 1=wrapped to WETH, 2=deposit ok but WETH
+    ///         transfer failed (WETH now stranded in caller — caller MUST
+    ///         credit it), 3=total failure (ETH untouched in caller).
+    function safeTransferETHOrWrapNoRevert(address weth, address to, uint256 amount)
+        internal
+        returns (bool success, uint8 mode)
+    {
+        if (amount == 0) return (true, 0);
+        // Defense-in-depth: even the no-revert variant rejects zero-recipient. Sending to
+        // 0x0 would silently burn ETH; we surface that to the caller as a hard failure
+        // so they can route the amount to credit instead of accidentally accepting a
+        // burn as "success".
+        // AUDIT FIX FRESH-2026: H-12 — return mode==3 (total failure, ETH
+        // untouched) instead of overloaded mode==2 for the guard rejections.
+        if (to == address(0)) return (false, 3);
+        if (weth == address(0)) return (false, 3);
+
+        // AUDIT FIX FRESH-2026: M-36 [F-40-WFL-1] — 30k stipend (was 10k).
+        (bool okEth,) = to.call{value: amount, gas: ETH_TRANSFER_GAS_STIPEND}("");
+        if (okEth) {
+            emit ETHTransferred(to, amount);
+            return (true, 0);
+        }
+
+        // Try-catch the WETH leg too. `IWETH.deposit` is payable; if the canonical
+        // WETH ever pauses or the recipient's WETH-transfer hook reverts, we MUST NOT
+        // bubble — that's the whole point of this variant. Use a low-level call so
+        // we can capture failure without unwinding the caller's tx.
+        (bool okDeposit,) = weth.call{value: amount}(abi.encodeWithSelector(IWETH.deposit.selector));
+        if (!okDeposit) {
+            // AUDIT FIX FRESH-2026: H-12 [F-80-01, F-40-WFL-2] — deposit
+            // itself failed; ETH is still in caller's balance. Return
+            // mode==3 (total failure) and emit `ETHWrapFailed` so monitors
+            // can branch without inspecting return modes.
+            emit ETHWrapFailed(weth, to, amount);
+            return (false, 3);
+        }
+
+        (bool okTransfer, bytes memory data) =
+            weth.call(abi.encodeWithSelector(IWETH.transfer.selector, to, amount));
+        // Standard ERC20 returns bool; a few quirky tokens return nothing. Treat empty
+        // returndata as success only if the call itself didn't revert (parity with
+        // OZ SafeERC20's `_callOptionalReturn`).
+        bool wethOk = okTransfer && (data.length == 0 || abi.decode(data, (bool)));
+        if (!wethOk) {
+            // AUDIT FIX FRESH-2026: H-12 [F-80-01, F-40-WFL-2] — deposit
+            // SUCCEEDED but transfer FAILED. ETH is no longer in the
+            // caller's balance — it has been converted to WETH that now
+            // sits in the caller's runtime (the lib is internal so
+            // `address(this)` resolves to the caller). The caller MUST
+            // either sweep `IWETH(weth).balanceOf(address(this))` into a
+            // per-recipient pull-pattern slot OR credit `pendingStrandedWETH`
+            // / equivalent. Mode==2 now ONLY signals this physical state
+            // (was previously overloaded with deposit-fail). Distinct event
+            // `WETHTransferStuck` lets monitors auto-detect the stranded
+            // WETH without parsing return modes.
+            emit WETHTransferStuck(weth, to, amount);
+            return (false, 2);
+        }
+        emit ETHToWETHFallback(weth, to, amount);
+        return (true, 1);
+    }
 }
