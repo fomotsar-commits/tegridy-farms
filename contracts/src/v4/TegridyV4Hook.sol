@@ -314,6 +314,10 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         uint256 id = currency.toId();
         uint256 bal = poolManager.balanceOf(address(this), id);
         if (bal == 0) return;
+        // AUDIT 2026-05-31 [slither unused-return FP]: Uniswap V4 PoolManager.transfer reverts
+        // on failure (it does not return a falsifiable success bool to act on); the ERC-6909
+        // claim transfer either moves the balance or reverts the whole call.
+        // slither-disable-next-line unused-return
         poolManager.transfer(polRecipient, id, bal);
         emit PolSwept(currency, polRecipient, bal);
     }
@@ -331,6 +335,10 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         uint256 polAmt = bal - stakerAmt - treasuryAmt;
         address sTo = stakerSink == address(0) ? polRecipient : stakerSink;
         address tTo = treasury == address(0) ? polRecipient : treasury;
+        // AUDIT 2026-05-31 [slither unused-return FP]: PoolManager.unlock returns the
+        // unlockCallback's encoded return data, which this flow has no use for — the side
+        // effects (settle/take to staker/treasury/POL) happen inside the callback.
+        // slither-disable-next-line unused-return
         poolManager.unlock(abi.encode(currency, stakerAmt, sTo, treasuryAmt, tTo, polAmt, polRecipient));
     }
 

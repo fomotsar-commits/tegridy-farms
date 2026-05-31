@@ -206,6 +206,11 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
             rewardRate = (leftover + actual) / duration;
         }
         // H-2: canonical Synthetix solvency bound — never schedule more than is held.
+        // AUDIT 2026-05-31 [slither divide-before-multiply FP]: verbatim Synthetix
+        // StakingRewards pattern — rewardRate is intentionally floored by the `/ duration`
+        // division, and this `rewardRate * duration <= balance` check deliberately validates
+        // the FLOORED rate against the balance (the rounding is in the protocol's favour).
+        // slither-disable-next-line divide-before-multiply
         if (rewardRate * duration > rewardToken.balanceOf(address(this))) revert RewardTooHigh();
         rewardsDuration = duration;
         lastUpdateTime = block.timestamp;

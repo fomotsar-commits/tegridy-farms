@@ -87,6 +87,10 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
         int128 a1 = delta.amount1();
 
         // Settle what the router owes, pulling from the user; track input for slippage.
+        // AUDIT 2026-05-31 [slither uninitialized-local FP]: default-0 is the intended value —
+        // if neither currency is owed, `inAmt` stays 0 and the `inAmt > maxIn` ceiling passes
+        // correctly (0 spent never exceeds the cap).
+        // slither-disable-next-line uninitialized-local
         uint256 inAmt;
         if (a0 < 0) {
             d.key.currency0.settle(poolManager, d.user, uint256(uint128(-a0)), false);
@@ -98,6 +102,10 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
         }
 
         // Take what the router is owed, to the recipient; track output for slippage.
+        // AUDIT 2026-05-31 [slither uninitialized-local FP]: default-0 is the intended value —
+        // if no output is owed, `outAmt` stays 0 and the `outAmt < minOut` floor correctly
+        // reverts (received nothing → fails the slippage check).
+        // slither-disable-next-line uninitialized-local
         uint256 outAmt;
         if (a0 > 0) {
             d.key.currency0.take(poolManager, d.recipient, uint256(uint128(a0)), false);
