@@ -2,66 +2,78 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
+import {TegridyV4Hook} from "../src/v4/TegridyV4Hook.sol";
+import {TegridyV4HookAdmin} from "../src/v4/TegridyV4HookAdmin.sol";
 
-/// @title  DeployV4 — Phase 7.x V4 migration deploy script (SKELETON)
-/// @notice Lives on `next-wave/v4-migration` branch.
-///         Awaiting Phase 7.x trigger gate (see V4_MIGRATION_PLAN.md).
+/// @title  DeployV4 — Phase 7.x V4 migration deploy script
+/// @notice Deploys TegridyV4HookAdmin, mines + CREATE2-deploys TegridyV4Hook at a
+///         permission-matching address, wires them, and hands admin ownership to
+///         the multisig.
 ///
-/// @dev    Will deploy:
-///           1. TegridyV4Hook via CREATE2 with mined salt (7 permission flags)
-///           2. TegridyV4HookAdmin
-///           3. Initialize TOWELI/WETH V4 pool with dynamic-fee flag on
-///              canonical PoolManager
-///           4. Wire pauseGuardian on hook (same address as V2 PAUSE_GUARDIAN)
-///           5. Transfer ownership to MULTISIG (same as V2)
-///           6. Seed initial POL position from treasury
+/// @dev    Env: POOL_MANAGER, MULTISIG, TREASURY (POL recipient). Fee/skim params
+///         below are deploy-time policy — review before mainnet.
 ///
-/// @dev    Same 3-multisig discipline as DeployMVP.s.sol:
-///           - TREASURY env var (signs POL seed)
-///           - MULTISIG env var (becomes hook + admin owner)
-///           - PAUSE_GUARDIAN env var (hot multisig)
-///           - Disjoint check enforced at deploy
+/// @dev    Forge routes salted `new{salt}` through the canonical CREATE2 deployer
+///         (0x4e59…) during broadcast, so HookMiner.find uses that same deployer.
+///
+/// @dev    OPERATIONAL STEPS NOT IN THIS SCRIPT (done by the multisig, post-deploy,
+///         with treasury keys — kept out of an automated script intentionally):
+///           1. allowlist the TOWELI/WETH dynamic-fee pool key (admin.proposePoolAllowed)
+///           2. manager.initialize(key, sqrtPrice) with LPFeeLibrary.DYNAMIC_FEE_FLAG
+///           3. seed full-range POL via PositionManager from the treasury
+///           4. wire PauseGuardian (still deferred in the hook — see plan Batch 4)
+///           5. MULTISIG.acceptOwnership() on the admin (Ownable2Step)
 contract DeployV4Script is Script {
+    address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-    /// @notice Implementation status: skeleton only. Reverts on run().
-    bool public constant IMPLEMENTATION_ACTIVE = false;
+    // ─── Deploy-time policy params (REVIEW before mainnet) ────────────
+    uint48 internal constant BLOCK_OFFSET = 10; // JIT window (LiquidityPenaltyHook)
+    uint24 internal constant MIN_FEE = 500; // 0.05%
+    uint24 internal constant MAX_FEE = 30_000; // 3%
+    uint24 internal constant BASE_FEE = 3_000; // 0.30%
+    uint16 internal constant MAX_POL_BPS = 1_000; // 10% ceiling
+    uint16 internal constant POL_BPS = 100; // 1% initial
 
-    error NotYetImplemented();
+    function run() external {
+        address poolManager = vm.envAddress("POOL_MANAGER");
+        address multisig = vm.envAddress("MULTISIG");
+        address treasury = vm.envAddress("TREASURY");
+        require(poolManager != address(0) && multisig != address(0) && treasury != address(0), "zero env");
+        require(multisig != treasury, "multisig==treasury"); // minimal disjoint check
 
-    function run() external pure {
-        // Implementation outline (executed at Phase 7.x kickoff):
-        //
-        // 1. Read env: TREASURY, MULTISIG, PAUSE_GUARDIAN, POOL_MANAGER,
-        //              POSITION_MANAGER, UNIVERSAL_ROUTER (canonical Uniswap addresses per chain)
-        //
-        // 2. Assert 3-multisig disjoint (same as DeployMVP.s.sol)
-        //
-        // 3. Mine TegridyV4Hook address via HookMiner.find(...) with expected flags:
-        //      AFTER_INITIALIZE | BEFORE_ADD_LIQUIDITY | BEFORE_REMOVE_LIQUIDITY
-        //      | BEFORE_SWAP | AFTER_SWAP
-        //      | BEFORE_SWAP_RETURNS_DELTA | AFTER_SWAP_RETURNS_DELTA
-        //
-        // 4. Deploy TegridyV4Hook via CREATE2 with mined salt
-        //
-        // 5. Validate Hooks.validateHookPermissions(hook, expectedFlags) — fail-loud
-        //
-        // 6. Deploy TegridyV4HookAdmin and wire onto hook (one-shot, pre-handover)
-        //
-        // 7. Set pauseGuardian on hook (one-shot, pre-handover)
-        //
-        // 8. Initialize TOWELI/WETH V4 pool:
-        //      - currency0 = address(0) (native ETH) if WETH is currency1, else swap
-        //      - dynamic-fee flag (LPFeeLibrary.DYNAMIC_FEE_FLAG) at pool init
-        //      - hooks = address(hook)
-        //      - tickSpacing = 60 (canonical for 0.3% pools)
-        //
-        // 9. Seed initial POL position from treasury via PositionManager
-        //      - Full-range LP
-        //      - Send PositionManager NFT to TREASURY multisig
-        //
-        // 10. Transfer ownership of hook + admin to MULTISIG (Ownable2Step)
-        //
-        // 11. Log deployment summary + next steps (acceptOwnership, V2 migration window)
-        revert NotYetImplemented();
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG | Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG
+                | Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG
+        );
+
+        vm.startBroadcast();
+
+        // 1. Admin first (hook.paramAdmin is immutable, so the admin must precede it).
+        TegridyV4HookAdmin admin = new TegridyV4HookAdmin();
+
+        // 2. Mine an address whose low bits match the permission flags, then CREATE2-deploy.
+        bytes memory ctorArgs = abi.encode(
+            IPoolManager(poolManager), BLOCK_OFFSET, address(admin), MIN_FEE, MAX_FEE, BASE_FEE, MAX_POL_BPS, POL_BPS, treasury
+        );
+        (address hookAddr, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(TegridyV4Hook).creationCode, ctorArgs);
+        TegridyV4Hook hook = new TegridyV4Hook{salt: salt}(
+            IPoolManager(poolManager), BLOCK_OFFSET, address(admin), MIN_FEE, MAX_FEE, BASE_FEE, MAX_POL_BPS, POL_BPS, treasury
+        );
+        require(address(hook) == hookAddr, "hook addr mismatch");
+
+        // 3. Wire admin -> hook (one-time) and hand admin ownership to the multisig.
+        admin.setHook(address(hook));
+        admin.transferOwnership(multisig); // Ownable2Step: multisig must acceptOwnership()
+
+        vm.stopBroadcast();
+
+        console2.log("TegridyV4HookAdmin:", address(admin));
+        console2.log("TegridyV4Hook:     ", address(hook));
+        console2.log("paramAdmin (hook): ", hook.paramAdmin());
+        console2.log("next: multisig.acceptOwnership(), allowlist pool, initialize, seed POL");
     }
 }

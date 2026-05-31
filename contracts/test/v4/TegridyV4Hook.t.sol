@@ -147,6 +147,56 @@ contract TegridyV4HookTest is Test, Deployers {
         assertEq(manager.balanceOf(address(hook), currency1.toId()), 0, "no skim when polSkimBps == 0");
     }
 
+    /// @dev exactOutput zeroForOne: the unspecified currency is the INPUT (currency0),
+    ///      so the skim must accrue there.
+    function test_pol_exactOutputAccruesInputCurrency() public {
+        uint256 id0 = currency0.toId();
+        assertEq(manager.balanceOf(address(hook), id0), 0);
+        swapRouter.swap(
+            poolKey,
+            SwapParams({zeroForOne: true, amountSpecified: 0.5 ether, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        assertGt(manager.balanceOf(address(hook), id0), 0, "exactOutput skims the unspecified (input) currency");
+    }
+
+    function test_pol_multiSwapAccumulates() public {
+        _swapOnceZeroForOne();
+        uint256 a1 = manager.balanceOf(address(hook), currency1.toId());
+        _swapOnceZeroForOne();
+        uint256 a2 = manager.balanceOf(address(hook), currency1.toId());
+        assertGt(a1, 0);
+        assertGt(a2, a1, "POL claims accumulate across multiple swaps");
+    }
+
+    /// @dev Fuzz the core conservation invariant across any skim rate / swap size:
+    ///      whatever the hook accrues, redeemPOL moves EXACTLY that to the treasury
+    ///      as real tokens — nothing created, nothing stuck.
+    function testFuzz_polRedeemConservation(uint16 bps, uint96 swapAmt) public {
+        bps = uint16(bound(bps, 1, MAX_POL_BPS));
+        swapAmt = uint96(bound(swapAmt, 0.001 ether, 5 ether));
+        hook.setPolSkimBps(bps);
+
+        swapRouter.swap(
+            poolKey,
+            SwapParams({
+                zeroForOne: true,
+                amountSpecified: -int256(uint256(swapAmt)),
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+
+        uint256 id1 = currency1.toId();
+        uint256 accrued = manager.balanceOf(address(hook), id1);
+        uint256 tBefore = currency1.balanceOf(treasury);
+        hook.redeemPOL(currency1);
+        assertEq(manager.balanceOf(address(hook), id1), 0, "no stuck claims");
+        assertEq(currency1.balanceOf(treasury), tBefore + accrued, "treasury credited exactly the accrued amount");
+    }
+
     // ─── TegridyV4HookAdmin timelock ──────────────────────────────────
 
     function test_admin_baseFeeTimelockFlow() public {

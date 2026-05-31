@@ -37,6 +37,14 @@ remappings = [
     "lib/v4-periphery/:solmate/=lib/solmate/",
 ]
 
+[lint]
+# The forge linter does not honor the context-scoped solmate remapping above, so
+# during build-lint it fails to RESOLVE v4-core's internal `solmate/src/...` imports
+# (which the compiler resolves fine). That turned a green compile into "Lint failed".
+# Disable lint-on-build to keep `forge build` exit-0; lint our own code on demand
+# with `forge lint src/v4`. Compilation + tests are unaffected.
+lint_on_build = false
+
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1" }
 sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=11155111" }

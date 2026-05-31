@@ -2,51 +2,41 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {TegridyV4Hook} from "../src/v4/TegridyV4Hook.sol";
+import {TegridyV4HookAdmin} from "../src/v4/TegridyV4HookAdmin.sol";
 
-/// @title  VerifyV4 — Phase 7.x V4 migration post-deploy verifier (SKELETON)
-/// @notice Lives on `next-wave/v4-migration` branch. Awaiting Phase 7.x kickoff.
-///
-/// @dev    Mirrors VerifyMVP.s.sol pattern: must report ALL invariants green
-///         before V4 pool is announced live + before V2 migration begins.
+/// @title  VerifyV4 — post-deploy invariant checks for the V4 hook + admin
+/// @notice Run after DeployV4 (and after MULTISIG.acceptOwnership). Reverts loudly
+///         on any broken invariant. Env: HOOK, ADMIN, MULTISIG.
+/// @dev    Covers the modules that actually shipped. Oracle (INV-V4-9/10) was
+///         dropped; PauseGuardian (INV-V4-5) is still deferred — both noted in
+///         V4_MIGRATION_PLAN.md and intentionally absent here.
 contract VerifyV4Script is Script {
+    function run() external view {
+        TegridyV4Hook hook = TegridyV4Hook(vm.envAddress("HOOK"));
+        TegridyV4HookAdmin admin = TegridyV4HookAdmin(vm.envAddress("ADMIN"));
+        address multisig = vm.envAddress("MULTISIG");
 
-    bool public constant IMPLEMENTATION_ACTIVE = false;
+        // INV-V4-2: the mined address actually encodes the declared permission flags.
+        Hooks.validateHookPermissions(IHooks(address(hook)), hook.getHookPermissions());
 
-    error NotYetImplemented();
+        // INV-V4-4: admin wiring is bidirectional and exclusive.
+        require(hook.paramAdmin() == address(admin), "hook.paramAdmin != admin");
+        require(address(admin.hook()) == address(hook), "admin.hook != hook");
 
-    function run() external pure {
-        // Implementation outline:
-        //
-        // INV-V4-1: Three-multisig disjoint (same as V2 INV-1)
-        //
-        // INV-V4-2: Hook address bits match expected permission flags
-        //           require(Hooks.validateHookPermissions(hook, flags));
-        //
-        // INV-V4-3: Hook owner is MULTISIG (Ownable2Step accepted)
-        //
-        // INV-V4-4: Hook admin is wired and owned by MULTISIG
-        //
-        // INV-V4-5: pauseGuardian wired on hook (same address as V2)
-        //
-        // INV-V4-6: V4 pool initialized with:
-        //           - currency0 = address(0) (native ETH)
-        //           - currency1 = TOWELI
-        //           - dynamic-fee flag set
-        //           - hooks = TegridyV4Hook
-        //
-        // INV-V4-7: POL seed minted to treasury
-        //           PositionManager.ownerOf(seedPositionId) == TREASURY
-        //
-        // INV-V4-8: Pool-key allowlist contains exactly the deployed pool
-        //
-        // INV-V4-9: Oracle observations array initialized
-        //
-        // INV-V4-10: V3-compat adapter readable (for Lending downstream consumer)
-        //
-        // INV-V4-11: No upgrade authority on hook (verify no proxy slot set)
-        //
-        // INV-V4-12: Compiler + OZ uniswap-hooks version match pinned values
-        //            in foundry.toml (defense against version drift — Cork lesson)
-        revert NotYetImplemented();
+        // Fee bounds are ordered and the live base fee sits within them.
+        require(hook.minFeePips() <= hook.baseFeePips(), "baseFee < min");
+        require(hook.baseFeePips() <= hook.maxFeePips(), "baseFee > max");
+
+        // POL skim is within its immutable ceiling, and the recipient is set.
+        require(hook.polSkimBps() <= hook.maxPolSkimBps(), "polSkim > ceiling");
+        require(hook.polRecipient() != address(0), "polRecipient unset");
+
+        // INV-V4-3/4: governance has moved to the multisig (Ownable2Step accepted).
+        require(admin.owner() == multisig, "admin owner != multisig (accept pending?)");
+
+        console2.log("VerifyV4: all shipped-module invariants hold");
     }
 }
