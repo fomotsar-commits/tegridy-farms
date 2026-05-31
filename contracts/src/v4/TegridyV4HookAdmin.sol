@@ -13,6 +13,9 @@ interface ITegridyV4HookApply {
     function setPoolAllowed(PoolKey calldata key, bool allowed) external;
     function setPaused(bool p) external;
     function setPauseGuardian(address newGuardian) external;
+    function setDiscountConfig(address premiumAccess, address trustedRouter, uint16 discountBps) external;
+    function setFeeSplit(uint16 stakerShareBps, uint16 treasuryShareBps) external;
+    function setFeeSinks(address stakerSink, address treasury) external;
     function minFeePips() external view returns (uint24);
     function maxFeePips() external view returns (uint24);
     function maxPolSkimBps() external view returns (uint16);
@@ -45,12 +48,18 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     bytes32 public constant POL_SKIM_CHANGE = keccak256("V4_POL_SKIM_CHANGE");
     bytes32 public constant POL_RECIPIENT_CHANGE = keccak256("V4_POL_RECIPIENT_CHANGE");
     bytes32 public constant POOL_ALLOW_CHANGE = keccak256("V4_POOL_ALLOW_CHANGE");
+    bytes32 public constant DISCOUNT_CONFIG_CHANGE = keccak256("V4_DISCOUNT_CONFIG_CHANGE");
+    bytes32 public constant FEE_SPLIT_CHANGE = keccak256("V4_FEE_SPLIT_CHANGE");
+    bytes32 public constant FEE_SINKS_CHANGE = keccak256("V4_FEE_SINKS_CHANGE");
 
     // ─── Delays ───────────────────────────────────────────────────────
     uint256 public constant BASE_FEE_DELAY = 24 hours;
     uint256 public constant POL_SKIM_DELAY = 24 hours;
     uint256 public constant POL_RECIPIENT_DELAY = 48 hours;
     uint256 public constant POOL_ALLOW_DELAY = 48 hours;
+    uint256 public constant DISCOUNT_CONFIG_DELAY = 24 hours;
+    uint256 public constant FEE_SPLIT_DELAY = 48 hours; // economic routing
+    uint256 public constant FEE_SINKS_DELAY = 48 hours; // changes where money flows
 
     // ─── Wired hook (set once; hook.paramAdmin is immutable so admin precedes hook) ──
     ITegridyV4HookApply public hook;
@@ -62,6 +71,13 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     address public pendingPolRecipient;
     PoolKey public pendingPoolKey;
     bool public pendingPoolAllowed;
+    address public pendingPremiumAccess;
+    address public pendingTrustedRouter;
+    uint16 public pendingDiscountBps;
+    uint16 public pendingStakerShareBps;
+    uint16 public pendingTreasuryShareBps;
+    address public pendingStakerSink;
+    address public pendingTreasuryAddr;
 
     // ─── Events ───────────────────────────────────────────────────────
     event HookSet(address indexed hook);
@@ -73,6 +89,12 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     event PolRecipientChangeCancelled(address indexed cancelledRecipient);
     event PoolAllowChangeProposed(bool allowed, uint256 executeAfter);
     event PoolAllowChangeCancelled();
+    event DiscountConfigChangeProposed(address premiumAccess, address trustedRouter, uint16 discountBps, uint256 executeAfter);
+    event DiscountConfigChangeCancelled();
+    event FeeSplitChangeProposed(uint16 stakerShareBps, uint16 treasuryShareBps, uint256 executeAfter);
+    event FeeSplitChangeCancelled();
+    event FeeSinksChangeProposed(address stakerSink, address treasury, uint256 executeAfter);
+    event FeeSinksChangeCancelled();
 
     constructor() OwnableNoRenounce(msg.sender) {}
 
@@ -175,6 +197,84 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
         delete pendingPoolKey;
         pendingPoolAllowed = false;
         emit PoolAllowChangeCancelled();
+    }
+
+    // ─── Premium discount config ──────────────────────────────────────
+    function proposeDiscountConfig(address premiumAccess_, address trustedRouter_, uint16 discountBps_)
+        external
+        onlyOwner
+        hookWired
+    {
+        pendingPremiumAccess = premiumAccess_;
+        pendingTrustedRouter = trustedRouter_;
+        pendingDiscountBps = discountBps_;
+        _propose(DISCOUNT_CONFIG_CHANGE, DISCOUNT_CONFIG_DELAY);
+        emit DiscountConfigChangeProposed(
+            premiumAccess_, trustedRouter_, discountBps_, _executeAfter[DISCOUNT_CONFIG_CHANGE]
+        );
+    }
+
+    function executeDiscountConfig() external onlyOwner hookWired {
+        _execute(DISCOUNT_CONFIG_CHANGE);
+        (address pa, address tr, uint16 d) = (pendingPremiumAccess, pendingTrustedRouter, pendingDiscountBps);
+        pendingPremiumAccess = address(0);
+        pendingTrustedRouter = address(0);
+        pendingDiscountBps = 0;
+        hook.setDiscountConfig(pa, tr, d); // hook re-validates discountBps <= MAX_DISCOUNT_BPS
+    }
+
+    function cancelDiscountConfig() external onlyOwner {
+        _cancel(DISCOUNT_CONFIG_CHANGE);
+        pendingPremiumAccess = address(0);
+        pendingTrustedRouter = address(0);
+        pendingDiscountBps = 0;
+        emit DiscountConfigChangeCancelled();
+    }
+
+    // ─── Fee split (staker / treasury / POL shares) ───────────────────
+    function proposeFeeSplit(uint16 stakerShareBps_, uint16 treasuryShareBps_) external onlyOwner hookWired {
+        pendingStakerShareBps = stakerShareBps_;
+        pendingTreasuryShareBps = treasuryShareBps_;
+        _propose(FEE_SPLIT_CHANGE, FEE_SPLIT_DELAY);
+        emit FeeSplitChangeProposed(stakerShareBps_, treasuryShareBps_, _executeAfter[FEE_SPLIT_CHANGE]);
+    }
+
+    function executeFeeSplit() external onlyOwner hookWired {
+        _execute(FEE_SPLIT_CHANGE);
+        (uint16 s, uint16 t) = (pendingStakerShareBps, pendingTreasuryShareBps);
+        pendingStakerShareBps = 0;
+        pendingTreasuryShareBps = 0;
+        hook.setFeeSplit(s, t); // hook re-validates s + t <= BPS
+    }
+
+    function cancelFeeSplit() external onlyOwner {
+        _cancel(FEE_SPLIT_CHANGE);
+        pendingStakerShareBps = 0;
+        pendingTreasuryShareBps = 0;
+        emit FeeSplitChangeCancelled();
+    }
+
+    // ─── Fee sinks (where the split is routed) ────────────────────────
+    function proposeFeeSinks(address stakerSink_, address treasury_) external onlyOwner hookWired {
+        pendingStakerSink = stakerSink_;
+        pendingTreasuryAddr = treasury_;
+        _propose(FEE_SINKS_CHANGE, FEE_SINKS_DELAY);
+        emit FeeSinksChangeProposed(stakerSink_, treasury_, _executeAfter[FEE_SINKS_CHANGE]);
+    }
+
+    function executeFeeSinks() external onlyOwner hookWired {
+        _execute(FEE_SINKS_CHANGE);
+        (address s, address t) = (pendingStakerSink, pendingTreasuryAddr);
+        pendingStakerSink = address(0);
+        pendingTreasuryAddr = address(0);
+        hook.setFeeSinks(s, t);
+    }
+
+    function cancelFeeSinks() external onlyOwner {
+        _cancel(FEE_SINKS_CHANGE);
+        pendingStakerSink = address(0);
+        pendingTreasuryAddr = address(0);
+        emit FeeSinksChangeCancelled();
     }
 
     // ─── Emergency pause pass-throughs (INSTANT — not timelocked) ──────

@@ -232,6 +232,38 @@ contract TegridyV4HookTest is Test, Deployers {
         admin.setHook(address(ahook));
     }
 
+    function test_admin_discountConfigTimelockFlow() public {
+        TegridyV4HookAdmin admin = new TegridyV4HookAdmin();
+        TegridyV4Hook ahook = _mineAndDeployHook(address(admin));
+        admin.setHook(address(ahook));
+
+        address pa = makeAddr("premiumAccess");
+        address router = makeAddr("router");
+        admin.proposeDiscountConfig(pa, router, 3000);
+        vm.warp(block.timestamp + 24 hours + 1);
+        admin.executeDiscountConfig();
+
+        assertEq(ahook.premiumAccess(), pa);
+        assertEq(ahook.trustedRouter(), router);
+        assertEq(ahook.discountBps(), 3000);
+    }
+
+    function test_admin_feeSplitTimelockFlow() public {
+        TegridyV4HookAdmin admin = new TegridyV4HookAdmin();
+        TegridyV4Hook ahook = _mineAndDeployHook(address(admin));
+        admin.setHook(address(ahook));
+
+        admin.proposeFeeSplit(6000, 1000);
+        admin.proposeFeeSinks(makeAddr("sSink"), makeAddr("tSink"));
+        vm.warp(block.timestamp + 48 hours + 1);
+        admin.executeFeeSplit();
+        admin.executeFeeSinks();
+
+        assertEq(ahook.stakerShareBps(), 6000);
+        assertEq(ahook.treasuryShareBps(), 1000);
+        assertEq(ahook.stakerSink(), makeAddr("sSink"));
+    }
+
     // ─── Emergency pause ──────────────────────────────────────────────
 
     function test_pause_guardianHaltsSwapsThenAdminUnpauses() public {
