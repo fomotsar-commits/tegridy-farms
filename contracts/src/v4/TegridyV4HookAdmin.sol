@@ -11,7 +11,7 @@ pragma solidity ^0.8.26;
 ///         - protocol fee bps
 ///         - POL skim fraction
 ///         - POL mint threshold
-///         - JIT MIN_HOLD_BLOCKS
+///         - JIT `blockNumberOffset` (OZ LiquidityPenaltyHook param)
 ///         - TWAP truncation cap
 ///         - oracle observation cardinality
 ///
@@ -36,7 +36,7 @@ contract TegridyV4HookAdmin {
     // 2. POL parameters
     //    - proposePOLSkimBps / execute / cancel
     //    - proposePOLMintThreshold / execute / cancel
-    //    - proposeJITMinHoldBlocks / execute / cancel
+    //    - proposeJITBlockNumberOffset / execute / cancel (OZ LiquidityPenaltyHook)
     //
     // 3. Oracle parameters
     //    - proposeTruncationCapBps / execute / cancel
