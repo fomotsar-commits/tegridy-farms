@@ -17,6 +17,7 @@ import {TegridyV4Hook} from "../../src/v4/TegridyV4Hook.sol";
 import {TegridyV4HookAdmin} from "../../src/v4/TegridyV4HookAdmin.sol";
 import {TegridyBoostedLP} from "../../src/v4/TegridyBoostedLP.sol";
 import {TegridyV4SwapRouter} from "../../src/v4/TegridyV4SwapRouter.sol";
+import {TegridyBoostedLPStaker} from "../../src/v4/TegridyBoostedLPStaker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
@@ -543,6 +544,71 @@ contract TegridyV4HookTest is Test, Deployers {
             address(this)
         );
         assertGt(currency1.balanceOf(address(this)), before, "premium swap via trusted router succeeds end-to-end");
+    }
+
+    // ─── #3 NFT-staker (Part B — canonical boosted-LP) ────────────────
+
+    function test_boostedStaker_depositEarnsBoostedAndWithdraws() public {
+        MockStaking ms = new MockStaking();
+        MockERC20 rt = new MockERC20("Reward", "RWD", 18);
+        MockPositionManager pm = new MockPositionManager();
+        TegridyBoostedLPStaker s =
+            new TegridyBoostedLPStaker(IERC20(address(rt)), address(ms), address(pm), address(this));
+
+        ms.setBoost(address(this), 20000); // 2x
+        pm.mint(address(this), 1, 100);
+        s.deposit(1);
+        assertEq(s.liquidityOf(address(this)), 100, "raw liquidity escrowed");
+        assertEq(s.effectiveBalanceOf(address(this)), 200, "2x boost applied");
+        assertEq(pm.ownerOf(1), address(s), "NFT held by staker");
+
+        rt.mint(address(this), 1000 ether);
+        rt.approve(address(s), type(uint256).max);
+        s.notifyRewardAmount(700 ether, 7 days);
+        vm.warp(block.timestamp + 7 days);
+        assertGt(s.earned(address(this)), 0, "rewards accrue");
+        s.getReward();
+
+        s.withdraw(1);
+        assertEq(pm.ownerOf(1), address(this), "NFT returned on withdraw");
+        assertEq(s.liquidityOf(address(this)), 0, "balance cleared");
+    }
+
+    function test_boostedStaker_onlyDepositorWithdraws() public {
+        MockStaking ms = new MockStaking();
+        MockPositionManager pm = new MockPositionManager();
+        TegridyBoostedLPStaker s = new TegridyBoostedLPStaker(
+            IERC20(address(new MockERC20("R", "R", 18))), address(ms), address(pm), address(this)
+        );
+        pm.mint(address(this), 7, 50);
+        s.deposit(7);
+        vm.prank(makeAddr("thief"));
+        vm.expectRevert(TegridyBoostedLPStaker.NotDepositor.selector);
+        s.withdraw(7);
+    }
+}
+
+/// @dev Minimal V4 PositionManager stand-in (ERC721 ownership + liquidity reader).
+contract MockPositionManager {
+    mapping(uint256 => address) public ownerOf;
+    mapping(uint256 => uint128) internal _liq;
+
+    function mint(address to, uint256 id, uint128 liquidity) external {
+        ownerOf[id] = to;
+        _liq[id] = liquidity;
+    }
+
+    function getPositionLiquidity(uint256 id) external view returns (uint128) {
+        return _liq[id];
+    }
+
+    function transferFrom(address from, address to, uint256 id) public {
+        require(ownerOf[id] == from, "not owner");
+        ownerOf[id] = to;
+    }
+
+    function safeTransferFrom(address from, address to, uint256 id) external {
+        transferFrom(from, to, id);
     }
 }
 

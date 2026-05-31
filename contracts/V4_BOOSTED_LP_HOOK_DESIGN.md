@@ -1,5 +1,12 @@
 # Design Doc — Boosted LP-Incentive Hook (#3)
 
+> **CANONICAL PATH UPDATE (2026-05-31):** the production model is now the NFT-staker
+> `contracts/src/v4/TegridyBoostedLPStaker.sol` (escrow the V4 position NFT, attribute
+> to the depositor) — it reaches PM-routed LPs, which the hook-callback model below
+> cannot. The hook-callback `TegridyBoostedLP` remains the optional direct-EOA path
+> (`hook.boostedLP` stays 0 in prod so a position is never counted twice). See
+> `V4_TRUSTED_ROUTER_DESIGN.md` Part B.
+>
 > Status: **IMPLEMENTED v1 (2026-05-31) at owner direction — UNAUDITED.** Built ahead
 > of the audit gate. Code: `contracts/src/v4/TegridyBoostedLP.sol` (isolated module) +
 > `TegridyV4Hook` liquidity-callback notify + `TegridyV4HookAdmin` timelock wiring.
