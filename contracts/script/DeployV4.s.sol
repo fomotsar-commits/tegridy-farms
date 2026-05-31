@@ -8,7 +8,7 @@ import {HookMiner} from "@uniswap/v4-periphery/src/utils/HookMiner.sol";
 import {TegridyV4Hook} from "../src/v4/TegridyV4Hook.sol";
 import {TegridyV4HookAdmin} from "../src/v4/TegridyV4HookAdmin.sol";
 
-/// @title  DeployV4 — Phase 7.x V4 migration deploy script
+/// @title  DeployV4 — V4 migration deploy script (V4 goes live at the V2 relaunch)
 /// @notice Deploys TegridyV4HookAdmin, mines + CREATE2-deploys TegridyV4Hook at a
 ///         permission-matching address, wires them, and hands admin ownership to
 ///         the multisig.
@@ -24,7 +24,7 @@ import {TegridyV4HookAdmin} from "../src/v4/TegridyV4HookAdmin.sol";
 ///           1. allowlist the TOWELI/WETH dynamic-fee pool key (admin.proposePoolAllowed)
 ///           2. manager.initialize(key, sqrtPrice) with LPFeeLibrary.DYNAMIC_FEE_FLAG
 ///           3. seed full-range POL via PositionManager from the treasury
-///           4. wire PauseGuardian (still deferred in the hook — see plan Batch 4)
+///           4. set the PauseGuardian via hook.setPauseGuardian (the hook supports it — Batch 6)
 ///           5. MULTISIG.acceptOwnership() on the admin (Ownable2Step)
 contract DeployV4Script is Script {
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;

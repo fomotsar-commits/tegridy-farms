@@ -10,9 +10,11 @@ import {TegridyV4HookAdmin} from "../src/v4/TegridyV4HookAdmin.sol";
 /// @title  VerifyV4 — post-deploy invariant checks for the V4 hook + admin
 /// @notice Run after DeployV4 (and after MULTISIG.acceptOwnership). Reverts loudly
 ///         on any broken invariant. Env: HOOK, ADMIN, MULTISIG.
-/// @dev    Covers the modules that actually shipped. Oracle (INV-V4-9/10) was
-///         dropped; PauseGuardian (INV-V4-5) is still deferred — both noted in
-///         V4_MIGRATION_PLAN.md and intentionally absent here.
+/// @dev    Covers core wiring/bounds invariants. Oracle (INV-V4-9/10) was dropped
+///         (no oracle shipped). PauseGuardian (INV-V4-5) IS wired in the hook
+///         (`hook.setPauseGuardian`) but is NOT yet asserted here — a known gap to
+///         fill when VerifyV4 is expanded to the full runbook checklist (trustedRouter
+///         / premiumAccess / boostedLP==0 / pauseGuardian / pool-initialized / POL).
 contract VerifyV4Script is Script {
     function run() external view {
         TegridyV4Hook hook = TegridyV4Hook(vm.envAddress("HOOK"));

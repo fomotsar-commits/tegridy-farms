@@ -1,6 +1,6 @@
 # V4 Migration — Auditor Handoff Package
 
-> Project: Tegriddy Farms (token: TOWELI). Branch: `next-wave/v4-migration`.
+> Project: Tegriddy Farms (token: TOWELI). Branch: `mvp-launch` (V4 work merged in).
 > Status: **behaviorally tested, UNAUDITED, not deployed.** Built ahead of the project's
 > own trigger gate (V2 mainnet live + audit + $100M TVL + 30 clean days) at owner
 > direction. This package is the scope + trust model + open-items list for an external
@@ -16,15 +16,14 @@ postmortems (Cork, Bunni, z0r0z) the design is built against.
 
 ## 2. Scope
 
-**In scope (custom code — ~1,205 LoC):**
+**In scope (custom code — ~1,012 LoC, 4 contracts):**
 
 | Contract | LoC | Role |
 |---|---|---|
-| `src/v4/TegridyV4Hook.sol` | 426 | Bundled hook: fee override + premium discount + JIT + pool-key allowlist + POL skim/fee-split + emergency pause |
-| `src/v4/TegridyV4HookAdmin.sol` | 317 | Timelock (24h/48h) governance for every mutable hook param |
-| `src/v4/TegridyBoostedLPStaker.sol` | 190 | **Canonical** #3 boosted-LP rewards (escrow V4 position NFT, attribute to depositor) |
-| `src/v4/TegridyBoostedLP.sol` | 171 | Optional direct-EOA #3 path (hook-callback). **Off by default** (`hook.boostedLP == 0`) |
-| `src/v4/TegridyV4SwapRouter.sol` | 101 | Trusted router that authenticates the user for the premium discount |
+| `src/v4/TegridyV4Hook.sol` | 375 | Bundled hook: fee override + premium discount + JIT + pool-key allowlist + POL skim/fee-split + emergency pause |
+| `src/v4/TegridyV4HookAdmin.sol` | 291 | Timelock (24h/48h) governance for every mutable hook param |
+| `src/v4/TegridyBoostedLPStaker.sol` | 229 | **Sole** #3 boosted-LP path (escrow V4 position NFT, attribute to depositor); pool-id + full-range deposit gate (C-1) |
+| `src/v4/TegridyV4SwapRouter.sol` | 117 | Trusted router that authenticates the user for the premium discount; `maxIn` slippage ceiling (M-1) |
 | `script/DeployV4.s.sol`, `script/VerifyV4.s.sol` | — | Deploy (HookMiner CREATE2) + post-deploy invariant checks |
 
 **Out of scope (treated as trusted / audited upstream):**
@@ -40,7 +39,7 @@ postmortems (Cork, Bunni, z0r0z) the design is built against.
 ```
 cd contracts
 forge build                                   # exit 0 (lint_on_build=false — see below)
-forge test --match-contract TegridyV4HookTest # 35 tests
+forge test --match-contract TegridyV4HookTest # 34 tests
 ```
 
 Environment quirks the auditor should know:
@@ -82,7 +81,8 @@ Environment quirks the auditor should know:
 (2) HookMiner-mine + CREATE2-deploy `TegridyV4Hook` with `paramAdmin = admin`;
 (3) `admin.setHook(hook)`; (4) `admin.transferOwnership(multisig)`; (5) post-deploy:
 allowlist the pool key, initialize (dynamic-fee flag), seed POL, wire `trustedRouter` /
-`premiumAccess` / `boostedLP` (or leave 0), set `pauseGuardian`, `multisig.acceptOwnership`.
+`premiumAccess` (or leave 0), set `pauseGuardian`, `multisig.acceptOwnership`; deploy +
+wire `TegridyV4SwapRouter` and `TegridyBoostedLPStaker` separately (not hook-coupled).
 
 ## 6. Highest-priority audit focus
 
@@ -93,13 +93,16 @@ allowlist the pool key, initialize (dynamic-fee flag), seed POL, wire `trustedRo
 2. **`TegridyV4SwapRouter` settlement** — copied from `PoolSwapTest`; verify settle/take
    correctness, native-ETH refund, slippage, and that `hookData = msg.sender` is captured
    pre-`unlock` (z0r0z calldata-trust class). No assembly used.
-3. **Cross-module non-interference** (Bunni) — fee/POL/discount/JIT/boosted-LP must not
-   corrupt each other's state under multi-op sequencing. Needs property/invariant fuzzing
+3. **Cross-module non-interference** (Bunni) — fee/POL/discount/JIT must not corrupt
+   each other's state under multi-op sequencing (the boosted-LP staker is now a fully
+   separate contract that never touches hook state). Needs property/invariant fuzzing
    (we have unit + a few fuzz tests only — see §8).
 4. **Premium discount auth** — confirm the discount is unreachable except via
    `trustedRouter`, and that a misbehaving `PremiumAccess` cannot brick swaps (try/catch).
 5. **Boosted-LP reward math** (`TegridyBoostedLPStaker`) — Synthetix `rewardPerToken`
-   adaptation, reward-token solvency vs `rewardRate`, boost re-snapshot, escrow safety.
+   adaptation, reward-token solvency vs `rewardRate` (H-2 guard), boost re-snapshot,
+   escrow safety, and the pool-id + full-range deposit gate (C-1 — rejects foreign-pool
+   and out-of-range positions).
 6. **HookMiner permission-bit correctness** — `getHookPermissions()` must match the mined
    address bits (VerifyV4 asserts `Hooks.validateHookPermissions`).
 
@@ -118,36 +121,45 @@ allowlist the pool key, initialize (dynamic-fee flag), seed POL, wire `trustedRo
   until wired. Document in the deploy runbook.
 - **Premium discount reach**: only swaps via `TegridyV4SwapRouter` get it; aggregator-
   routed swaps (1inch/0x) do not (acceptable, documented). Disabled until wired.
-- **Boosted-LP double-count risk**: `TegridyBoostedLP` (hook-callback) and
-  `TegridyBoostedLPStaker` (NFT-staker) are two paths. **Production uses the NFT-staker
-  only; `hook.boostedLP` MUST stay 0.** Auditor: flag if both are ever active.
+- **Boosted-LP single path** (was M-3 double-count risk): the hook-callback
+  `TegridyBoostedLP` and the hook's boosted-LP wiring were **DELETED** (M-3). The
+  NFT-staker `TegridyBoostedLPStaker` is the sole #3 path — double-counting is now
+  structurally impossible.
 - **Boosted-LP v1 scope**: per-LP *aggregate* liquidity (not per-position); full-range
-  assumed (no in-range tick attribution, unlike Aerodrome Slipstream); emissions-funded.
-- **`notifyRewardAmount` (both reward contracts) omits** LPFarming's extra guards
-  (notify-cooldown, forfeit-residue capture). Port before mainnet.
-- **Exact-output swaps** through the router use a `minOut`-on-output check (exact-input
-  semantics); an exact-output maxIn guard is not implemented.
-- **Reward-token = TOWELI assumption** for the boosted-LP modules (transfer-tax-free; it
+  **enforced** at deposit (C-1; no in-range tick attribution, unlike Aerodrome
+  Slipstream); emissions-funded.
+- **`notifyRewardAmount` (the staker)** has the Synthetix solvency guard
+  (`rewardRate*duration ≤ balance`, H-2) plus amount-floor (`MIN_NOTIFY_AMOUNT`) and
+  duration bounds (`[1d, 365d]`). Remaining vs LPFarming: confirm notify-cooldown /
+  forfeit-residue-capture parity before mainnet. (Slither FPs annotated inline:
+  `reentrancy-no-eth` on `deposit`, `divide-before-multiply` on the solvency check.)
+- **Exact-output swaps** through the router are bounded by a `maxIn` slippage ceiling
+  (M-1 FIXED — `unlockCallback` reverts `TooMuchSpent` when the input leg exceeds
+  `maxIn`), alongside the `minOut`-on-output floor for exact-input.
+- **Reward-token = TOWELI assumption** for the boosted-LP staker (transfer-tax-free; it
   is, but confirm).
-- **TegridyV4HookAdmin**: new triplets (discount/split/sinks/boostedLP) mirror the audited
-  base `TimelockAdmin` pattern; verify the value-binding is sufficient (no execute-time
-  bounds bypass — hook re-validates on execute).
+- **TegridyV4HookAdmin**: the triplets (discount/split/sinks) mirror the audited base
+  `TimelockAdmin` pattern; verify the value-binding is sufficient (no execute-time
+  bounds bypass — hook re-validates on execute). (The boostedLP triplet was removed with M-3.)
 
 ## 8. Test coverage & gaps
 
-- **35 tests** (`test/v4/TegridyV4Hook.t.sol`), via v4-core `Deployers` + `HookMiner`.
+- **34 tests** (`test/v4/TegridyV4Hook.t.sol`), via v4-core `Deployers` + `HookMiner`.
   Covers: allowlist rejection, dynamic-fee gate, admin gating + timelock flows, POL
   accrual/sweep/redeem + native-ETH + exactOutput + multi-swap, POL conservation fuzz
   (256 runs), fee-bounds fuzz, premium discount (incl. anti-spoof + floor), fee-split
   routing + conservation, pause (halt swaps / exit open / guardian-pause-only), trusted
-  router (output/slippage/deadline/discount-path), boosted-LP + NFT-staker.
+  router (output/slippage/deadline/exact-output-maxIn/discount-path), NFT-staker
+  (deposit/withdraw + C-1 foreign-pool & non-full-range rejection).
 - **Gaps for the audit/Certora**: no broad invariant suite (cross-module
-  non-interference, POL-never-exceeds-output), no mainnet-fork tests, exact-output
-  router path, reward-rounding edge cases, multi-position NFT-staker accounting,
-  boost-decay timing. Recommend Certora FV on the §6 invariants.
+  non-interference, POL-never-exceeds-output), no mainnet-fork tests, reward-rounding
+  edge cases, multi-position NFT-staker accounting, boost-decay timing. Recommend
+  Certora FV on the §6 invariants.
 
 ## 9. References
 - `V4_MIGRATION_PLAN.md` — full scope, batch log, risk register, audit budget.
 - `V4_BOOSTED_LP_HOOK_DESIGN.md` — #3 design + the NFT-staker canonical-path note.
 - `V4_TRUSTED_ROUTER_DESIGN.md` — user-identity problem + router/staker resolution.
-- Commit range: `1d20006..HEAD` on `next-wave/v4-migration` (14 commits).
+- V4 work merged into `mvp-launch`; security fixes in `89b5785` (C-1/H-1/H-2) and
+  `8afb9a4` (M-1/L-1 fixed, M-3 removed, M-2/L-2/L-3/L-4 accepted). See
+  `V4_SECURITY_FINDINGS.md` for the full per-finding status.
