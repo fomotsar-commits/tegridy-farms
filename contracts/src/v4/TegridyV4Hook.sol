@@ -9,32 +9,39 @@ import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
-// Battle-tested verbatim base (OpenZeppelin/uniswap-hooks v1.1.1, pinned)
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+// Battle-tested verbatim bases / utils (OpenZeppelin/uniswap-hooks v1.1.1, pinned)
 import {LiquidityPenaltyHook} from "@openzeppelin/uniswap-hooks/src/general/LiquidityPenaltyHook.sol";
+import {CurrencySettler} from "@openzeppelin/uniswap-hooks/src/utils/CurrencySettler.sol";
 
 /// @title  TegridyV4Hook — bundled Uniswap V4 hook for the TOWELI pool
-/// @notice **BATCHES 1-2 of the V4 implementation** (gate overridden 2026-05-30).
+/// @notice **BATCHES 1-3c of the V4 implementation** (gate overridden 2026-05-30).
 ///
 ///         ARCHITECTURE (see V4_MIGRATION_PLAN.md "Architecture correction"):
 ///         OZ hooks cannot be bundled by multiple inheritance — every one derives
 ///         from `BaseHook(poolManager)`, so two of them collide (Solc 3364 + 6480).
 ///         Resolution: inherit the ONE heavy hook verbatim (`LiquidityPenaltyHook`,
 ///         the JIT fee-withholding accounting) and hand-write the lightweight
-///         concerns as overrides in this contract.
+///         concerns as overrides, copying OZ patterns verbatim where they exist.
 ///
 ///         Modules present:
-///           • JIT          — OZ `LiquidityPenaltyHook` (VERBATIM, inherited)
-///           • FeeModule    — 6-line verbatim copy of OZ `BaseOverrideFee`
-///                            (Batch 1) + admin-configurable bounded fee (Batch 2)
-///           • Allowlist    — pool-key allowlist in `_beforeInitialize` (Batch 2,
-///                            Cork defense: only pre-registered pool keys may use
-///                            this hook)
+///           • JIT        — OZ `LiquidityPenaltyHook` (VERBATIM, inherited)
+///           • FeeModule  — 6-line verbatim copy of OZ `BaseOverrideFee` +
+///                          admin-configurable bounded fee
+///           • Allowlist  — pool-key allowlist in `_beforeInitialize` (Cork defense)
+///           • POL        — `_afterSwap` skim of the unspecified currency, accrued
+///                          as ERC-6909 claims (custody stays in the PoolManager);
+///                          swept to the treasury. take/delta mechanics copied
+///                          verbatim from OZ `BaseDynamicAfterFee`.
 ///
-/// @dev    NOT YET DEPLOYABLE. Deferred to later batches:
-///           - Batch 3: volatility-aware fee + custom POL `_afterSwap` + oracle
-///                      (the volatility curve needs the oracle's price history;
-///                       `_getFee` is the seam it plugs into)
-///           - Batch 4: TegridyV4HookAdmin timelock becomes `paramAdmin`
+///         DROPPED (no verbatim source; too much custom surface): internal oracle
+///         + volatility fee. The admin-bounded base fee stands.
+///
+/// @dev    NOT YET DEPLOYABLE. Deferred:
+///           - Batch 4: TegridyV4HookAdmin timelock becomes `paramAdmin`;
+///                      redeem swept ERC-6909 claims → native ETH → RevenueDistributor
 ///           - Batch 5: HookMiner CREATE2 mining + DeployV4/VerifyV4 + tests
 ///         BaseHook validates the hook-address permission bits AT CONSTRUCTION,
 ///         so this only deploys from a HookMiner-mined CREATE2 address.
@@ -44,40 +51,51 @@ import {LiquidityPenaltyHook} from "@openzeppelin/uniswap-hooks/src/general/Liqu
 contract TegridyV4Hook is LiquidityPenaltyHook {
     using LPFeeLibrary for uint24;
     using PoolIdLibrary for PoolKey;
+    using CurrencyLibrary for Currency;
+    using CurrencySettler for Currency;
+    using SafeCast for uint256;
+    using SafeCast for int256;
+
+    /// @dev Basis-points denominator.
+    uint16 private constant BPS = 10_000;
 
     // ─── Errors ───────────────────────────────────────────────────────
-    /// @dev The pool was initialized without the dynamic-fee flag.
     error NotDynamicFee();
-    /// @dev The pool key is not on the allowlist (Cork defense).
     error PoolNotAllowed();
-    /// @dev Caller is not the parameter admin.
     error NotParamAdmin();
-    /// @dev Fee outside the immutable [min,max] bounds.
     error FeeOutOfBounds();
-    /// @dev Constructor bounds are inconsistent.
     error InvalidFeeBounds();
+    error SkimOutOfBounds();
+    error ZeroAddress();
 
     // ─── Events ───────────────────────────────────────────────────────
     event PoolAllowed(PoolId indexed id, bool allowed);
     event BaseFeeSet(uint24 oldFeePips, uint24 newFeePips);
+    event PolSkimSet(uint16 oldBps, uint16 newBps);
+    event PolRecipientSet(address indexed recipient);
+    event PolAccrued(Currency indexed currency, uint256 amount);
+    event PolSwept(Currency indexed currency, address indexed to, uint256 amount);
 
     // ─── Params (mutated only by paramAdmin; hook code itself is immutable) ──
-    /// @notice Address allowed to change parameters. In Batch 4 this becomes the
-    ///         TegridyV4HookAdmin timelock contract. Set once at construction.
+    /// @notice Becomes the TegridyV4HookAdmin timelock in Batch 4. Set at construction.
     address public immutable paramAdmin;
 
-    /// @notice Hard fee bounds (hundredths of a bip). Immutable — even a
-    ///         compromised paramAdmin cannot push the fee outside these.
+    /// @notice Immutable fee bounds (hundredths of a bip). Even a compromised
+    ///         paramAdmin cannot push the fee outside these.
     uint24 public immutable minFeePips;
     uint24 public immutable maxFeePips;
+    /// @notice Immutable POL skim ceiling (bps of swap output). Hard upper bound.
+    uint16 public immutable maxPolSkimBps;
 
     /// @notice Current base LP fee (hundredths of a bip; 3000 = 0.30%).
-    ///         Batch 3 adds a volatility surge on top via the `_getFee` seam.
     uint24 public baseFeePips;
+    /// @notice POL skim, in bps of the swap's unspecified (output) amount.
+    uint16 public polSkimBps;
+    /// @notice Destination for swept POL (treasury / RevenueDistributor).
+    address public polRecipient;
 
-    /// @notice Pool-key allowlist by PoolId. `_beforeInitialize` rejects any pool
-    ///         not pre-registered here, defeating the Cork "attacker spins up a
-    ///         pool with our hook + their malicious token" class.
+    /// @notice Pool-key allowlist by PoolId — `_beforeInitialize` rejects any pool
+    ///         not pre-registered here (Cork defense).
     mapping(PoolId => bool) public allowedPools;
 
     modifier onlyParamAdmin() {
@@ -85,43 +103,39 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
         _;
     }
 
-    /// @param poolManager_       canonical V4 PoolManager singleton
-    /// @param blockNumberOffset_ JIT window for LiquidityPenaltyHook (larger for
-    ///                           low-liquidity / long-tail pools)
-    /// @param paramAdmin_        parameter admin (TegridyV4HookAdmin in Batch 4)
-    /// @param minFeePips_        immutable lower fee bound
-    /// @param maxFeePips_        immutable upper fee bound
-    /// @param baseFeePips_       initial base fee (must sit within the bounds)
     constructor(
         IPoolManager poolManager_,
         uint48 blockNumberOffset_,
         address paramAdmin_,
         uint24 minFeePips_,
         uint24 maxFeePips_,
-        uint24 baseFeePips_
+        uint24 baseFeePips_,
+        uint16 maxPolSkimBps_,
+        uint16 polSkimBps_,
+        address polRecipient_
     ) LiquidityPenaltyHook(poolManager_, blockNumberOffset_) {
-        if (paramAdmin_ == address(0)) revert NotParamAdmin();
-        // Bounds must be ordered and within the V4 ceiling (MAX_LP_FEE = 1e6 = 100%).
+        if (paramAdmin_ == address(0) || polRecipient_ == address(0)) revert ZeroAddress();
         if (minFeePips_ > maxFeePips_ || maxFeePips_ > LPFeeLibrary.MAX_LP_FEE) revert InvalidFeeBounds();
         if (baseFeePips_ < minFeePips_ || baseFeePips_ > maxFeePips_) revert FeeOutOfBounds();
+        if (maxPolSkimBps_ > BPS || polSkimBps_ > maxPolSkimBps_) revert SkimOutOfBounds();
         paramAdmin = paramAdmin_;
         minFeePips = minFeePips_;
         maxFeePips = maxFeePips_;
         baseFeePips = baseFeePips_;
+        maxPolSkimBps = maxPolSkimBps_;
+        polSkimBps = polSkimBps_;
+        polRecipient = polRecipient_;
     }
 
     // ─── Allowlist (Cork defense) ─────────────────────────────────────
 
     /// @notice Pre-register (or revoke) a pool key permitted to use this hook.
-    ///         The admin registers the exact intended key (currencies, fee,
-    ///         tickSpacing, hooks == this), whose PoolId is then allowlisted.
     function setPoolAllowed(PoolKey calldata key, bool allowed) external onlyParamAdmin {
         PoolId id = key.toId();
         allowedPools[id] = allowed;
         emit PoolAllowed(id, allowed);
     }
 
-    /// @dev Reject initialization of any pool not on the allowlist.
     function _beforeInitialize(address, PoolKey calldata key, uint160)
         internal
         virtual
@@ -132,17 +146,14 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
         return this.beforeInitialize.selector;
     }
 
-    // ─── FeeModule ────────────────────────────────────────────────────
+    // ─── FeeModule (verbatim copy of OZ BaseOverrideFee) ──────────────
 
-    /// @notice Update the base fee within the immutable bounds.
     function setBaseFee(uint24 newFeePips) external onlyParamAdmin {
         if (newFeePips < minFeePips || newFeePips > maxFeePips) revert FeeOutOfBounds();
         emit BaseFeeSet(baseFeePips, newFeePips);
         baseFeePips = newFeePips;
     }
 
-    /// @dev Fee-override module — verbatim copy of OZ `BaseOverrideFee` behavior.
-    ///      Require a dynamic-fee pool so the override flag is honored.
     function _afterInitialize(address, PoolKey calldata key, uint160, int24)
         internal
         virtual
@@ -153,7 +164,6 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
         return this.afterInitialize.selector;
     }
 
-    /// @dev Fee-override module — return the LP fee with the OVERRIDE flag set.
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
         internal
         virtual
@@ -164,9 +174,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
 
-    /// @dev The fee seam. Batch 2 returns the bounded base fee. Batch 3 replaces
-    ///      the body with `base + volatilitySurge` read from the oracle module,
-    ///      clamped to `maxFeePips`. Signature stays identical.
+    /// @dev Fee seam (kept for forward-compat: a future surge plugs in here).
     function _getFee(address, PoolKey calldata, SwapParams calldata, bytes calldata)
         internal
         view
@@ -176,10 +184,62 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
         return baseFeePips;
     }
 
+    // ─── POLModule (afterSwap skim) ───────────────────────────────────
+
+    function setPolSkimBps(uint16 newBps) external onlyParamAdmin {
+        if (newBps > maxPolSkimBps) revert SkimOutOfBounds();
+        emit PolSkimSet(polSkimBps, newBps);
+        polSkimBps = newBps;
+    }
+
+    function setPolRecipient(address newRecipient) external onlyParamAdmin {
+        if (newRecipient == address(0)) revert ZeroAddress();
+        polRecipient = newRecipient;
+        emit PolRecipientSet(newRecipient);
+    }
+
+    /// @dev Skim `polSkimBps` of the swap's unspecified (output) currency as a
+    ///      protocol fee, accrued to this hook as ERC-6909 claims (custody stays
+    ///      in the PoolManager). take/delta mechanics are copied verbatim from OZ
+    ///      `BaseDynamicAfterFee._afterSwap`.
+    function _afterSwap(address, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata)
+        internal
+        virtual
+        override
+        returns (bytes4, int128)
+    {
+        uint16 bps = polSkimBps;
+        if (bps == 0) return (this.afterSwap.selector, 0);
+
+        // Fee taken on the unspecified currency of the swap (OZ pattern).
+        (Currency unspecified, int128 unspecifiedAmount) = (params.amountSpecified < 0 == params.zeroForOne)
+            ? (key.currency1, delta.amount1())
+            : (key.currency0, delta.amount0());
+        if (unspecifiedAmount < 0) unspecifiedAmount = -unspecifiedAmount;
+
+        uint256 feeAmount = (uint256(uint128(unspecifiedAmount)) * bps) / BPS;
+        if (feeAmount == 0) return (this.afterSwap.selector, 0);
+
+        // Mint ERC-6909 claims of `unspecified` to this hook (claims = true).
+        unspecified.take(poolManager, address(this), feeAmount, true);
+        emit PolAccrued(unspecified, feeAmount);
+
+        return (this.afterSwap.selector, feeAmount.toInt256().toInt128());
+    }
+
+    /// @notice Sweep accrued POL claims of `currency` to the fixed `polRecipient`.
+    ///         Permissionless — destination is admin-set, so anyone may trigger.
+    ///         (Redeeming claims → native ETH for RevenueDistributor lands in Batch 4.)
+    function sweepPOL(Currency currency) external {
+        uint256 id = currency.toId();
+        uint256 bal = poolManager.balanceOf(address(this), id);
+        if (bal == 0) return;
+        poolManager.transfer(polRecipient, id, bal);
+        emit PolSwept(currency, polRecipient, bal);
+    }
+
     // ─── Permissions ──────────────────────────────────────────────────
 
-    /// @dev Merge permissions: LiquidityPenaltyHook's add/remove set + the
-    ///      beforeInitialize (allowlist), afterInitialize + beforeSwap (fee) flags.
     function getHookPermissions()
         public
         pure
@@ -190,6 +250,8 @@ contract TegridyV4Hook is LiquidityPenaltyHook {
         permissions.beforeInitialize = true; // pool-key allowlist (Cork defense)
         permissions.afterInitialize = true; // fee override: dynamic-fee assertion
         permissions.beforeSwap = true; // fee override
+        permissions.afterSwap = true; // POL skim
+        permissions.afterSwapReturnDelta = true; // POL skim takes a delta
         permissions.afterAddLiquidity = true; // LiquidityPenaltyHook (verbatim)
         permissions.afterRemoveLiquidity = true; // LiquidityPenaltyHook (verbatim)
         permissions.afterAddLiquidityReturnDelta = true; // LiquidityPenaltyHook (verbatim)
