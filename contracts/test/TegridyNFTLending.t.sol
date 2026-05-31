@@ -1,0 +1,1117 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import "forge-std/Test.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import "../src/TegridyNFTLending.sol";
+
+// ─── Mock Contracts ─────────────────────────────────────────────────
+
+contract MockERC721 is ERC721 {
+    uint256 private _nextId = 1;
+
+    constructor(string memory name, string memory symbol) ERC721(name, symbol) {}
+
+    function mint(address to) external returns (uint256) {
+        uint256 id = _nextId++;
+        _mint(to, id);
+        return id;
+    }
+
+    /// @dev Test-only burn helper for AUDIT NFT-CL-L3 regression test.
+    function burn(uint256 tokenId) external {
+        _burn(tokenId);
+    }
+}
+
+/// @dev Minimal WETH mock for testing WETHFallbackLib
+contract MockWETHNFTLending {
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function transfer(address to, uint256 value) external returns (bool) {
+        require(balanceOf[msg.sender] >= value, "insufficient");
+        balanceOf[msg.sender] -= value;
+        balanceOf[to] += value;
+        return true;
+    }
+    receive() external payable {}
+}
+
+/// @dev Contract that rejects ETH — used to test failed ETH transfers
+contract ETHRejecterNFTLending {
+    receive() external payable {
+        revert("no ETH");
+    }
+}
+
+/// @dev AUDIT FIX L-2 regression mock: an ERC721 whose `transferFrom` reverts
+/// when the `frozen` flag is set. Covers hostile/buggy collections that
+/// brick repayLoan / claimDefault by reverting on the NFT-return leg.
+contract HostileNFT is ERC721 {
+    uint256 private _nextId = 1;
+    bool public frozen;
+
+    constructor() ERC721("Hostile", "HOST") {}
+
+    function mint(address to) external returns (uint256) {
+        uint256 id = _nextId++;
+        _mint(to, id);
+        return id;
+    }
+
+    function setFrozen(bool _f) external {
+        frozen = _f;
+    }
+
+    function transferFrom(address from, address to, uint256 id) public override {
+        if (frozen) revert("HOSTILE_FROZEN");
+        super.transferFrom(from, to, id);
+    }
+}
+
+// ─── Test Suite ─────────────────────────────────────────────────────
+
+contract TegridyNFTLendingTest is Test {
+    MockERC721 public nft;
+    MockERC721 public nft2;        // second whitelisted collection
+    MockERC721 public nftBad;      // not whitelisted
+    MockWETHNFTLending public weth;
+    TegridyNFTLending public lending;
+
+    address public treasury = makeAddr("treasury");
+    address public alice = makeAddr("alice");   // lender — has ETH
+    address public bob = makeAddr("bob");       // borrower — has NFT
+    address public carol = makeAddr("carol");   // unauthorized third party
+
+    uint256 public bobTokenId; // bob's NFT token
+
+    function setUp() public {
+        // FRESH-2026 TEST REALIGN: TegridyNFTLending now requires chainid==1 OR
+        // a non-zero sequencer feed at construction (L2_SEQUENCER_FEED_REQUIRED).
+        // Set mainnet for the address(0) feed path used by the test fixture.
+        vm.chainId(1);
+        // Start at a realistic timestamp to avoid edge cases
+        vm.warp(1_700_000_000);
+
+        // 1. Deploy mock NFTs
+        nft = new MockERC721("TestNFT", "TNFT");
+        nft2 = new MockERC721("TestNFT2", "TNFT2");
+        nftBad = new MockERC721("BadNFT", "BNFT");
+
+        // 2. Deploy MockWETH and TegridyNFTLending
+        weth = new MockWETHNFTLending();
+        lending = new TegridyNFTLending(treasury, 500, address(weth), address(0)); // 5% protocol fee
+
+        // 3. Whitelist our test NFT collections (via timelock)
+        lending.proposeWhitelistCollection(address(nft));
+        vm.warp(1_700_000_000 + 25 hours);
+        lending.executeWhitelistCollection();
+
+        lending.proposeWhitelistCollection(address(nft2));
+        vm.warp(1_700_000_000 + 50 hours);
+        lending.executeWhitelistCollection();
+
+        // 4. Mint an NFT to bob
+        bobTokenId = nft.mint(bob);
+
+        // 5. Approve lending contract to transfer bob's NFT
+        vm.prank(bob);
+        nft.approve(address(lending), bobTokenId);
+
+        // 6. Fund alice with ETH for lending
+        vm.deal(alice, 100 ether);
+
+        // Fund carol with some ETH
+        vm.deal(carol, 10 ether);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // OFFER CREATION
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_createOffer_success() public {
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether,
+            1000,                   // 10% APR
+            30 days,                // duration
+            address(nft),           // collateral contract
+            bobTokenId,             // specific tokenId
+            uint64(block.timestamp + 30 days)
+        );
+
+        assertEq(offerId, 0);
+        (
+            address lender,
+            uint256 principal,
+            uint256 aprBps,
+            uint256 duration,
+            address collateralContract,
+            uint256 tokenId,
+            bool active
+        ) = lending.getOffer(0);
+
+        assertEq(lender, alice);
+        assertEq(principal, 1 ether);
+        assertEq(aprBps, 1000);
+        assertEq(duration, 30 days);
+        assertEq(collateralContract, address(nft));
+        assertEq(tokenId, bobTokenId);
+        assertTrue(active);
+        assertEq(lending.offerCount(), 1);
+    }
+
+    function test_createOffer_revert_zeroAmount() public {
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.ZeroPrincipal.selector);
+        lending.createOffer{value: 0}(
+            0, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_createOffer_revert_msgValueMismatch() public {
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.MsgValueMismatch.selector);
+        lending.createOffer{value: 1 ether}(
+            2 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_createOffer_revert_principalTooLarge() public {
+        vm.deal(alice, 1001 ether);
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.PrincipalTooLarge.selector);
+        lending.createOffer{value: 1001 ether}(
+            1001 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_createOffer_revert_aprTooHigh() public {
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.AprTooHigh.selector);
+        lending.createOffer{value: 1 ether}(
+            1 ether,
+            50001,                  // exceeds MAX_APR_BPS (50000)
+            30 days,
+            address(nft),
+            bobTokenId,
+            uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_createOffer_revert_durationTooShort() public {
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.DurationTooShort.selector);
+        lending.createOffer{value: 1 ether}(
+            1 ether,
+            1000,
+            12 hours,               // below MIN_DURATION (1 day)
+            address(nft),
+            bobTokenId,
+            uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_createOffer_revert_durationTooLong() public {
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.DurationTooLong.selector);
+        lending.createOffer{value: 1 ether}(
+            1 ether,
+            1000,
+            366 days,               // exceeds MAX_DURATION (365 days)
+            address(nft),
+            bobTokenId,
+            uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_createOffer_revert_zeroCollateralAddress() public {
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.ZeroAddress.selector);
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(0), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_createOffer_revert_collectionNotWhitelisted() public {
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.CollectionNotWhitelisted.selector);
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nftBad), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // OFFER CANCELLATION
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_cancelOffer_success() public {
+        vm.prank(alice);
+        lending.createOffer{value: 5 ether}(
+            5 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+
+        uint256 aliceBalanceBefore = alice.balance;
+        vm.prank(alice);
+        lending.cancelOffer(0);
+
+        // ETH refunded
+        assertEq(alice.balance, aliceBalanceBefore + 5 ether);
+
+        // Offer is no longer active
+        (,,,,,, bool active) = lending.getOffer(0);
+        assertFalse(active);
+    }
+
+    function test_cancelOffer_revert_notLender() public {
+        vm.prank(alice);
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NotOfferLender.selector);
+        lending.cancelOffer(0);
+    }
+
+    function test_cancelOffer_revert_alreadyCancelled() public {
+        vm.prank(alice);
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(alice);
+        lending.cancelOffer(0);
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.OfferNotActive.selector);
+        lending.cancelOffer(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // LOAN ACCEPTANCE
+    // ═══════════════════════════════════════════════════════════════════
+
+    function _createDefaultOffer() internal returns (uint256) {
+        vm.prank(alice);
+        return lending.createOffer{value: 1 ether}(
+            1 ether,
+            1000,                   // 10% APR
+            30 days,
+            address(nft),
+            bobTokenId,
+            uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_acceptOffer_success() public {
+        uint256 offerId = _createDefaultOffer();
+
+        uint256 bobBalanceBefore = bob.balance;
+
+        vm.prank(bob);
+        uint256 loanId = lending.acceptOffer(offerId);
+
+        assertEq(loanId, 0);
+
+        // ETH sent to borrower
+        assertEq(bob.balance, bobBalanceBefore + 1 ether);
+
+        // NFT escrowed by lending contract
+        assertEq(nft.ownerOf(bobTokenId), address(lending));
+
+        // Offer deactivated
+        (,,,,,, bool active) = lending.getOffer(offerId);
+        assertFalse(active);
+
+        // Loan fields populated
+        (
+            address borrower,
+            address lender,
+            uint256 loanOfferId,
+            uint256 tokenId,
+            address collateralContract,
+            uint256 principal,
+            uint256 aprBps,
+            uint256 startTime,
+            uint256 deadline,
+            bool repaid,
+            bool defaultClaimed
+        ) = lending.getLoan(loanId);
+
+        assertEq(borrower, bob);
+        assertEq(lender, alice);
+        assertEq(loanOfferId, offerId);
+        assertEq(tokenId, bobTokenId);
+        assertEq(collateralContract, address(nft));
+        assertEq(principal, 1 ether);
+        assertEq(aprBps, 1000);
+        assertEq(startTime, block.timestamp);
+        assertEq(deadline, block.timestamp + 30 days);
+        assertFalse(repaid);
+        assertFalse(defaultClaimed);
+        assertEq(lending.loanCount(), 1);
+    }
+
+    function test_acceptOffer_revert_notNFTOwner() public {
+        // Offer stores bobTokenId. Carol (who doesn't own it) tries to accept.
+        uint256 offerId = _createDefaultOffer();
+
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NotNFTOwner.selector);
+        lending.acceptOffer(offerId);
+    }
+
+    function test_acceptOffer_revert_offerNotActive() public {
+        uint256 offerId = _createDefaultOffer();
+
+        // Cancel offer first
+        vm.prank(alice);
+        lending.cancelOffer(offerId);
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.OfferNotActive.selector);
+        lending.acceptOffer(offerId);
+    }
+
+    function test_acceptOffer_revert_collectionNotWhitelisted() public {
+        // Mint an NFT from the non-whitelisted collection
+        uint256 badTokenId = nftBad.mint(bob);
+        vm.prank(bob);
+        nftBad.approve(address(lending), badTokenId);
+
+        // Create offer for the bad collection — this should revert at createOffer
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.CollectionNotWhitelisted.selector);
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nftBad), badTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_acceptOffer_revert_wrongCollection() public {
+        // Try to create an offer for nft2 with a tokenId that doesn't exist there.
+        // ERC721.ownerOf reverts with ERC721NonexistentToken — the existence check
+        // now fires at createOffer rather than acceptOffer.
+        vm.prank(alice);
+        vm.expectRevert();
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft2), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    /// @notice Proves the 7c fix: a borrower cannot swap in a different (worse) tokenId
+    /// at acceptance time. The contract escrows the tokenId that was fixed in the
+    /// offer storage, regardless of which NFT the borrower may also own.
+    function test_acceptOffer_revert_borrowerCannotPickDifferentTokenId() public {
+        // Offer locked to bobTokenId (minted in setUp)
+        uint256 offerId = _createDefaultOffer();
+
+        // Bob acquires a second token (simulating a worse-valued NFT)
+        uint256 bobTokenId2 = nft.mint(bob);
+        vm.prank(bob);
+        nft.approve(address(lending), bobTokenId2);
+
+        // Bob accepts — no tokenId arg, contract must use offer.tokenId
+        vm.prank(bob);
+        uint256 loanId = lending.acceptOffer(offerId);
+
+        // Verify the ESCROWED token is bobTokenId (the one Alice chose), NOT bobTokenId2
+        assertEq(nft.ownerOf(bobTokenId), address(lending));
+        assertEq(nft.ownerOf(bobTokenId2), bob);
+
+        // Loan stores the offer's tokenId, not bobTokenId2
+        (,,, uint256 loanTokenId,,,,,,,) = lending.getLoan(loanId);
+        assertEq(loanTokenId, bobTokenId);
+        assertTrue(loanTokenId != bobTokenId2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REPAYMENT
+    // ═══════════════════════════════════════════════════════════════════
+
+    function _createAndAcceptLoan() internal returns (uint256 loanId) {
+        uint256 offerId = _createDefaultOffer();
+        vm.prank(bob);
+        loanId = lending.acceptOffer(offerId);
+    }
+
+    function test_repayLoan_interestMath() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Warp forward 30 days (full duration)
+        vm.warp(block.timestamp + 30 days);
+
+        // Calculate expected interest: principal * aprBps * elapsed / BPS / SECONDS_PER_YEAR
+        uint256 expectedInterest = lending.calculateInterest(1 ether, 1000, block.timestamp - 30 days, block.timestamp);
+        uint256 totalRepayment = 1 ether + expectedInterest;
+
+        // Fund bob for repayment
+        vm.deal(bob, totalRepayment + 1 ether);
+
+        uint256 aliceBalanceBefore = alice.balance;
+        uint256 treasuryBalanceBefore = treasury.balance;
+
+        vm.prank(bob);
+        lending.repayLoan{value: totalRepayment}(loanId);
+
+        // Protocol fee = interest * 500 / 10000 = 5% of interest
+        uint256 expectedFee = (expectedInterest * 500) / 10000;
+        uint256 expectedLenderAmount = 1 ether + expectedInterest - expectedFee;
+
+        // Lender received principal + interest - fee
+        assertEq(alice.balance - aliceBalanceBefore, expectedLenderAmount);
+
+        // Treasury received fee
+        assertEq(treasury.balance - treasuryBalanceBefore, expectedFee);
+
+        // NFT returned to borrower
+        assertEq(nft.ownerOf(bobTokenId), bob);
+
+        // Loan marked repaid
+        (,,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid);
+    }
+
+    function test_repayLoan_excessRefund() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 15 days);
+
+        uint256 interest = lending.calculateInterest(1 ether, 1000, block.timestamp - 15 days, block.timestamp);
+        uint256 totalDue = 1 ether + interest;
+        uint256 overpayment = 0.5 ether;
+
+        vm.deal(bob, totalDue + overpayment);
+
+        uint256 bobBalanceBefore = bob.balance;
+
+        vm.prank(bob);
+        lending.repayLoan{value: totalDue + overpayment}(loanId);
+
+        // Bob should get the overpayment refunded (balance drops by only totalDue)
+        assertEq(bobBalanceBefore - bob.balance, totalDue);
+    }
+
+    function test_repayLoan_revert_insufficientPayment() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 15 days);
+
+        // Send less than required
+        vm.deal(bob, 0.5 ether);
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.InsufficientRepayment.selector);
+        lending.repayLoan{value: 0.5 ether}(loanId);
+    }
+
+    function test_repayLoan_revert_notBorrower() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.deal(carol, 2 ether);
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NotBorrower.selector);
+        lending.repayLoan{value: 2 ether}(loanId);
+    }
+
+    function test_repayLoan_revert_alreadyRepaid() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 1 days);
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+
+        vm.deal(bob, repaymentAmount * 2);
+        vm.prank(bob);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        // Try to repay again
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.LoanAlreadyRepaid.selector);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+    }
+
+    function test_repayLoan_revert_pastDeadline() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Warp past deadline
+        vm.warp(block.timestamp + 31 days);
+
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repaymentAmount);
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.LoanNotDefaulted.selector);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // DEFAULT
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_claimDefault_success() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Warp past the deadline
+        vm.warp(block.timestamp + 31 days);
+
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+
+        // Lender received the NFT
+        assertEq(nft.ownerOf(bobTokenId), alice);
+
+        // Loan marked as default claimed
+        (,,,,,,,,,,bool defaultClaimed) = lending.getLoan(loanId);
+        assertTrue(defaultClaimed);
+
+        // isDefaulted returns false now (it was claimed)
+        assertFalse(lending.isDefaulted(loanId));
+    }
+
+    function test_claimDefault_revert_deadlineNotReached() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Still within the loan period
+        vm.warp(block.timestamp + 15 days);
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.LoanNotDefaulted.selector);
+        lending.claimDefault(loanId);
+    }
+
+    function test_claimDefault_revert_notLender() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 31 days);
+
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NotLoanLender.selector);
+        lending.claimDefault(loanId);
+    }
+
+    function test_claimDefault_revert_alreadyClaimed() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 31 days);
+
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.LoanAlreadyDefaultClaimed.selector);
+        lending.claimDefault(loanId);
+    }
+
+    function test_claimDefault_revert_alreadyRepaid() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 1 days);
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repaymentAmount);
+        vm.prank(bob);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        // Warp past deadline and try to claim
+        vm.warp(block.timestamp + 31 days);
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.LoanAlreadyRepaid.selector);
+        lending.claimDefault(loanId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT FIX L-2: stuck-collateral recovery
+    // ═══════════════════════════════════════════════════════════════════
+    // A hostile or buggy whitelisted collection that reverts on
+    // `transferFrom` previously bricked repayLoan / claimDefault — borrower
+    // had paid (or default-window had elapsed) but the NFT-return leg's
+    // revert rolled the entire settlement back. The fix wraps the NFT
+    // transfer in try/catch, lets the money flow, and reserves the NFT
+    // for later recovery via `claimStuckCollateral`.
+
+    HostileNFT internal hostile;
+
+    /// @dev Whitelist a fresh HostileNFT and put a loan against it on the
+    ///      books. Returns the loanId. Hostile starts un-frozen so accept
+    ///      succeeds; tests flip `setFrozen(true)` before repay/default.
+    function _setupHostileLoan() internal returns (uint256 loanId, uint256 hostileTokenId) {
+        hostile = new HostileNFT();
+        lending.proposeWhitelistCollection(address(hostile));
+        vm.warp(block.timestamp + 25 hours);
+        lending.executeWhitelistCollection();
+
+        hostileTokenId = hostile.mint(bob);
+
+        vm.prank(bob);
+        hostile.approve(address(lending), hostileTokenId);
+
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(hostile), hostileTokenId, uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(bob);
+        loanId = lending.acceptOffer(offerId);
+    }
+
+    function test_L2_repayLoan_collateralStuckThenClaimed() public {
+        (uint256 loanId, uint256 tokenId) = _setupHostileLoan();
+
+        vm.warp(block.timestamp + 15 days);
+        uint256 repayment = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repayment);
+
+        // Collection turns hostile right before repay — NFT-return leg will revert.
+        hostile.setFrozen(true);
+
+        uint256 aliceBefore = alice.balance;
+        vm.prank(bob);
+        lending.repayLoan{value: repayment}(loanId);
+
+        // Money still flowed to lender (minus protocol fee).
+        assertGt(alice.balance, aliceBefore, "lender paid even when NFT stuck");
+
+        // Loan flipped to repaid, NFT still in escrow, recipient = borrower.
+        (,,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid, "loan marked repaid");
+        assertEq(hostile.ownerOf(tokenId), address(lending), "NFT still escrowed");
+        assertEq(lending.stuckCollateralRecipient(loanId), bob, "borrower is recipient");
+
+        // Collection becomes healthy → borrower recovers via claimStuckCollateral.
+        hostile.setFrozen(false);
+        vm.prank(bob);
+        lending.claimStuckCollateral(loanId);
+        assertEq(hostile.ownerOf(tokenId), bob, "NFT returned to borrower");
+        assertEq(lending.stuckCollateralRecipient(loanId), address(0), "recipient cleared");
+    }
+
+    function test_L2_claimDefault_collateralStuckThenClaimed() public {
+        (uint256 loanId, uint256 tokenId) = _setupHostileLoan();
+
+        // Default window elapses.
+        vm.warp(block.timestamp + 31 days);
+        // Collection becomes hostile.
+        hostile.setFrozen(true);
+
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+
+        // Default-claimed flag set, NFT still escrowed, recipient = lender.
+        (,,,,,,,,,,bool defaultClaimed) = lending.getLoan(loanId);
+        assertTrue(defaultClaimed, "default-claimed flipped");
+        assertEq(hostile.ownerOf(tokenId), address(lending));
+        assertEq(lending.stuckCollateralRecipient(loanId), alice);
+
+        // Collection unfreezes — lender recovers.
+        hostile.setFrozen(false);
+        vm.prank(alice);
+        lending.claimStuckCollateral(loanId);
+        assertEq(hostile.ownerOf(tokenId), alice);
+        assertEq(lending.stuckCollateralRecipient(loanId), address(0));
+    }
+
+    function test_L2_claimStuckCollateral_revertNotRecipient() public {
+        (uint256 loanId,) = _setupHostileLoan();
+        vm.warp(block.timestamp + 15 days);
+        uint256 repayment = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repayment);
+        hostile.setFrozen(true);
+        vm.prank(bob);
+        lending.repayLoan{value: repayment}(loanId);
+
+        hostile.setFrozen(false);
+        // carol is not the recipient (bob is).
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NotStuckCollateralRecipient.selector);
+        lending.claimStuckCollateral(loanId);
+    }
+
+    function test_L2_claimStuckCollateral_revertNoStuck() public {
+        // A normal happy-path repay leaves no stuck-collateral entry.
+        uint256 loanId = _createAndAcceptLoan();
+        vm.warp(block.timestamp + 15 days);
+        uint256 repayment = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repayment);
+        vm.prank(bob);
+        lending.repayLoan{value: repayment}(loanId);
+
+        // No stuck collateral → revert.
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.NoStuckCollateral.selector);
+        lending.claimStuckCollateral(loanId);
+    }
+
+    function test_cannotRepayAfterDefaultClaim() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 31 days);
+
+        // Lender claims default
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+
+        // Borrower tries to repay — should fail
+        vm.deal(bob, 2 ether);
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.LoanAlreadyDefaultClaimed.selector);
+        lending.repayLoan{value: 2 ether}(loanId);
+    }
+
+    function test_isDefaulted_view() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        // Not defaulted yet
+        assertFalse(lending.isDefaulted(loanId));
+
+        // Still not defaulted at deadline edge
+        vm.warp(block.timestamp + 30 days);
+        assertFalse(lending.isDefaulted(loanId));
+
+        // AUDIT FIX: DEEP-LD-M3 — isDefaulted now mirrors the claimDefault
+        // gate: `block.timestamp > effectiveDeadline + GRACE_PERIOD`.
+        // Pre-fix the view fired at deadline + 1; post-fix it requires the
+        // additional grace window to elapse.
+        vm.warp(block.timestamp + 1);
+        assertFalse(lending.isDefaulted(loanId));
+
+        // Defaulted after deadline + grace
+        vm.warp(block.timestamp + lending.GRACE_PERIOD());
+        assertTrue(lending.isDefaulted(loanId));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // INTEREST CALCULATION ACCURACY
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_interestCalculation_30days() public view {
+        // 1 ETH at 10% APR for 30 days
+        // Expected: 1e18 * 1000 * 2592000 / 10000 / 31536000 = ~8219178082191780
+        uint256 interest = lending.calculateInterest(1 ether, 1000, 0, 30 days);
+        // Ceil div rounds up, so check approximate value
+        assertGt(interest, 0);
+        // Exact: ceil(1e18 * 1000 * 2592000 / (10000 * 31536000))
+        uint256 numerator = 1 ether * 1000 * uint256(30 days);
+        uint256 denominator = 10000 * uint256(365 days);
+        uint256 expected = (numerator + denominator - 1) / denominator;
+        assertEq(interest, expected);
+    }
+
+    function test_interestCalculation_zeroElapsed() public view {
+        uint256 interest = lending.calculateInterest(1 ether, 1000, 100, 100);
+        assertEq(interest, 0);
+    }
+
+    function test_interestCalculation_fullYear() public view {
+        // 1 ETH at 10% APR for 365 days should be ~0.1 ETH
+        uint256 interest = lending.calculateInterest(1 ether, 1000, 0, 365 days);
+        // ceil(1e18 * 1000 * 31536000 / (10000 * 31536000)) = ceil(1e18 / 10) = 1e17
+        assertEq(interest, 0.1 ether);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PROTOCOL FEE CORRECTNESS
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_protocolFee_calculatedCorrectly() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        vm.warp(block.timestamp + 10 days);
+
+        uint256 interest = lending.calculateInterest(1 ether, 1000, block.timestamp - 10 days, block.timestamp);
+        uint256 expectedFee = (interest * 500) / 10000;
+
+        // Ensure fee is nonzero
+        assertGt(expectedFee, 0);
+
+        uint256 totalDue = 1 ether + interest;
+        vm.deal(bob, totalDue);
+
+        uint256 treasuryBefore = treasury.balance;
+
+        vm.prank(bob);
+        lending.repayLoan{value: totalDue}(loanId);
+
+        assertEq(treasury.balance - treasuryBefore, expectedFee);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // WHITELIST ADD / REMOVE
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_whitelistCollection_timelocked() public {
+        MockERC721 newNft = new MockERC721("New", "NEW");
+
+        // Propose
+        lending.proposeWhitelistCollection(address(newNft));
+
+        // Cannot execute before timelock
+        vm.expectRevert();
+        lending.executeWhitelistCollection();
+
+        // Warp past 24h timelock
+        vm.warp(block.timestamp + 24 hours);
+        lending.executeWhitelistCollection();
+
+        assertTrue(lending.whitelistedCollections(address(newNft)));
+    }
+
+    function test_removeCollection_timelocked() public {
+        // nft is already whitelisted
+        assertTrue(lending.whitelistedCollections(address(nft)));
+
+        // Propose removal
+        lending.proposeRemoveCollection(address(nft));
+
+        // Cannot execute before timelock
+        vm.expectRevert();
+        lending.executeRemoveCollection();
+
+        // Warp past 24h timelock
+        vm.warp(block.timestamp + 24 hours);
+        lending.executeRemoveCollection();
+
+        assertFalse(lending.whitelistedCollections(address(nft)));
+    }
+
+    function test_whitelist_revert_alreadyWhitelisted() public {
+        vm.expectRevert(TegridyNFTLending.CollectionAlreadyWhitelisted.selector);
+        lending.proposeWhitelistCollection(address(nft));
+    }
+
+    function test_removeCollection_revert_notWhitelisted() public {
+        vm.expectRevert(TegridyNFTLending.CollectionNotCurrentlyWhitelisted.selector);
+        lending.proposeRemoveCollection(address(nftBad));
+    }
+
+    function test_whitelist_revert_notOwner() public {
+        MockERC721 newNft = new MockERC721("New", "NEW");
+        vm.prank(carol);
+        vm.expectRevert();
+        lending.proposeWhitelistCollection(address(newNft));
+    }
+
+    function test_cancelWhitelist() public {
+        MockERC721 newNft = new MockERC721("New", "NEW");
+        lending.proposeWhitelistCollection(address(newNft));
+
+        lending.cancelWhitelistCollection();
+
+        assertFalse(lending.whitelistedCollections(address(newNft)));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ADMIN: TIMELOCKED FEE CHANGE
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_proposeAndExecuteFeeChange() public {
+        lending.proposeProtocolFeeChange(800); // 8%
+
+        assertEq(lending.pendingProtocolFeeBps(), 800);
+
+        // Cannot execute before timelock
+        vm.expectRevert();
+        lending.executeProtocolFeeChange();
+
+        // Warp past 48h timelock
+        vm.warp(block.timestamp + 48 hours);
+
+        lending.executeProtocolFeeChange();
+
+        assertEq(lending.protocolFeeBps(), 800);
+        assertEq(lending.pendingProtocolFeeBps(), 0);
+    }
+
+    function test_proposeFeeChange_revert_tooHigh() public {
+        vm.expectRevert(TegridyNFTLending.FeeTooHigh.selector);
+        lending.proposeProtocolFeeChange(1001); // exceeds MAX_PROTOCOL_FEE_BPS (1000)
+    }
+
+    function test_cancelFeeChange() public {
+        lending.proposeProtocolFeeChange(800);
+
+        lending.cancelProtocolFeeChange();
+
+        assertEq(lending.pendingProtocolFeeBps(), 0);
+
+        // Original fee unchanged
+        assertEq(lending.protocolFeeBps(), 500);
+    }
+
+    function test_feeChange_revert_notOwner() public {
+        vm.prank(carol);
+        vm.expectRevert();
+        lending.proposeProtocolFeeChange(800);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ADMIN: PAUSE
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_pause_blocksNewOffers() public {
+        lending.pause();
+
+        vm.prank(alice);
+        vm.expectRevert();
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    function test_repayLoan_worksWhilePaused() public {
+        uint256 loanId = _createAndAcceptLoan();
+
+        lending.pause();
+
+        vm.warp(block.timestamp + 1 days);
+        uint256 repaymentAmount = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, repaymentAmount);
+
+        vm.prank(bob);
+        lending.repayLoan{value: repaymentAmount}(loanId);
+
+        (,,,,,,,,,bool repaid,) = lending.getLoan(loanId);
+        assertTrue(repaid);
+    }
+
+    // ─── AUDIT NEW-L3: whitelist removal blocked by active loans ────────
+
+    /// @notice AUDIT NEW-L3: while an active loan has a collection as its
+    ///         collateral, `executeRemoveCollection` must revert. The proposal
+    ///         stays queued; once the loan concludes (repay or default), the
+    ///         owner can execute.
+    function test_NEWL3_removeCollectionBlockedByActiveLoan() public {
+        // Alice creates offer, bob accepts — active loan created against nft.
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+        vm.prank(bob);
+        lending.acceptOffer(offerId);
+
+        assertEq(lending.activeLoansOfCollection(address(nft)), 1);
+
+        // Propose removal — OK; execute must REVERT while loan is active.
+        // AUDIT FIX LD3-L2: typed error replaces the legacy string revert.
+        lending.proposeRemoveCollection(address(nft));
+        vm.warp(block.timestamp + 25 hours);
+        vm.expectRevert(abi.encodeWithSelector(TegridyNFTLending.ActiveLoansPresent.selector, address(nft), 1));
+        lending.executeRemoveCollection();
+
+        // Borrower repays the loan — now removal can proceed.
+        // NFT lives in the lending contract during the loan; repayLoan moves
+        // it back to bob, no approve needed.
+        uint256 repayAmount = 1.01 ether; // approx principal + a bit of interest
+        vm.deal(bob, repayAmount);
+        vm.warp(block.timestamp + 1); // avoid LoanTooRecent (same-block repay)
+        vm.prank(bob);
+        lending.repayLoan{value: repayAmount}(0);
+        assertEq(lending.activeLoansOfCollection(address(nft)), 0);
+
+        lending.executeRemoveCollection();
+        assertFalse(lending.whitelistedCollections(address(nft)));
+    }
+
+    /// @notice AUDIT NEW-L3: active-loan counter decrements on defaulted claim
+    ///         too (not only repay), so whitelist removal unblocks after either
+    ///         terminal state.
+    function test_NEWL3_defaultAlsoDecrementsActiveLoans() public {
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+        vm.prank(bob);
+        lending.acceptOffer(offerId);
+        assertEq(lending.activeLoansOfCollection(address(nft)), 1);
+
+        // Warp past deadline + GRACE_PERIOD so default is claimable.
+        vm.warp(block.timestamp + 30 days + 2 hours);
+        vm.prank(alice);
+        lending.claimDefault(0);
+
+        assertEq(lending.activeLoansOfCollection(address(nft)), 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT NFT-CL-M2: calculateInterest uses overflow-safe mulDiv
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice Pre-fix `calculateInterest` used `_principal * _aprBps * elapsed`
+    ///         which had no 512-bit headroom — at upper-bound inputs the triple
+    ///         product flirted with overflow. The fix swaps to OZ
+    ///         `Math.mulDiv` with `Math.Rounding.Ceil`, mirroring
+    ///         TegridyLending's safer pattern at lines 889-894.
+    ///
+    ///         This test asserts the NFT-lending `calculateInterest` output
+    ///         matches the canonical Math.mulDiv(...,Ceil) computation for the
+    ///         same inputs across a spread of representative scenarios — small
+    ///         loan / short duration, mid-cap, and the upper-bound corner that
+    ///         would have come closest to the old overflow risk.
+    function test_NFT_CL_M2_calculateInterest_matchesMulDivCeil() public view {
+        uint256 BPS = lending.BPS();
+        uint256 SECONDS_PER_YEAR = lending.SECONDS_PER_YEAR();
+
+        // Case A: 1 ETH @ 10% APR for 30 days.
+        _assertMulDivCeil(1 ether, 1000, 30 days, BPS, SECONDS_PER_YEAR);
+
+        // Case B: 100 ETH @ 25% APR for 90 days.
+        _assertMulDivCeil(100 ether, 2500, 90 days, BPS, SECONDS_PER_YEAR);
+
+        // Case C: 1 ETH @ 100% APR for 1 second — exercises ceil rounding on
+        // a sub-1-wei pro-rata fraction (interest must round up to >=1 wei).
+        _assertMulDivCeil(1 ether, 10000, 1, BPS, SECONDS_PER_YEAR);
+
+        // Case D: max-cap corner — 1000 ETH @ 500% APR (50000 bps) for 365 days.
+        // Pre-fix triple product = 1e21 * 5e4 * ~3.15e7 ~= 1.58e33 — within uint256
+        // but uncomfortably close to anything that might compose with it. Math.mulDiv
+        // performs the multiplication in 512-bit so the cap is irrelevant.
+        _assertMulDivCeil(1000 ether, 50000, 365 days, BPS, SECONDS_PER_YEAR);
+    }
+
+    function _assertMulDivCeil(
+        uint256 principal,
+        uint256 aprBps,
+        uint256 elapsed,
+        uint256 BPS,
+        uint256 SECONDS_PER_YEAR
+    ) internal view {
+        uint256 expected = Math.mulDiv(
+            principal * aprBps,
+            elapsed,
+            BPS * SECONDS_PER_YEAR,
+            Math.Rounding.Ceil
+        );
+        // calculateInterest takes (principal, aprBps, startTime, currentTime).
+        // Pass startTime=0 and currentTime=elapsed so the internal `_currentTime - _startTime`
+        // resolves to `elapsed`.
+        uint256 actual = lending.calculateInterest(principal, aprBps, 0, elapsed);
+        assertEq(actual, expected, "calculateInterest must equal Math.mulDiv(_,_,_,Ceil)");
+    }
+
+    // ─── AUDIT NFT-CL-L3: burn-during-flight typed-error regression ──────
+
+    /// @notice If the collateral NFT is burned between offer creation and
+    ///         acceptOffer, the borrower must see the typed
+    ///         `CollateralBurnedSinceOffer` error rather than an opaque
+    ///         underlying-ERC721 revert.
+    function test_acceptOffer_revertsWithTypedError_whenCollateralBurned() public {
+        // Lender creates an offer for bob's specific tokenId.
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether,
+            1000,
+            30 days,
+            address(nft),
+            bobTokenId,
+            uint64(block.timestamp + 30 days)
+        );
+
+        // Burn the NFT (e.g., bob exercises a burn flow on the underlying
+        // collection, perhaps for an unrelated game mechanic).
+        vm.prank(bob);
+        nft.burn(bobTokenId);
+
+        // Bob (or anyone) tries to accept — must hit the typed error.
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.CollateralBurnedSinceOffer.selector);
+        lending.acceptOffer(offerId);
+    }
+}

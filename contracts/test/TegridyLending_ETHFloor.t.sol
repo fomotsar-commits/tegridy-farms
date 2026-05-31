@@ -1,0 +1,483 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import "forge-std/Test.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "../src/TegridyStaking.sol";
+import "../src/TegridyLending.sol";
+import "../src/TegridyLendingAdmin.sol"; // AUDIT FIX (pass-8): EIP170-01 split
+import {TegridyTWAP} from "../src/TegridyTWAP.sol";
+
+// ─── Mock Contracts ─────────────────────────────────────────────────
+
+contract MockToweliETHFloor is ERC20 {
+    constructor() ERC20("Towelie", "TOWELI") {
+        _mint(msg.sender, 1_000_000_000 ether);
+    }
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
+contract MockJBACETHFloor is ERC721 {
+    uint256 private _nextId = 1;
+    constructor() ERC721("JBAC", "JBAC") {}
+    function mint(address to) external returns (uint256) {
+        uint256 id = _nextId++;
+        _mint(to, id);
+        return id;
+    }
+}
+
+contract MockWETHETHFloor {
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable { balanceOf[msg.sender] += msg.value; }
+    function transfer(address to, uint256 value) external returns (bool) {
+        require(balanceOf[msg.sender] >= value, "insufficient");
+        balanceOf[msg.sender] -= value;
+        balanceOf[to] += value;
+        return true;
+    }
+    receive() external payable {}
+}
+
+/// @dev Mutable TegridyPair mock. Tests seed reserves so the spot price is
+///      deterministic, then can shift reserves to simulate a price drop.
+/// @dev AUDIT R014: extended with `price0CumulativeLast` / `price1CumulativeLast`
+///      and a real `blockTimestampLast` that only advances on setReserves().
+///      Mirrors TegridyPair._update() — pre-update reserves are integrated over
+///      the elapsed seconds, then the new reserves and timestamp are written.
+///      Without a sticky `blockTimestampLast`, every TWAP read would compute
+///      `elapsedSinceLastPairTouch == 0` and the cumulatives would never grow.
+contract MockTegridyPairETHFloor {
+    uint256 private constant Q112 = 2 ** 112;
+
+    address public immutable token0;
+    address public immutable token1;
+    uint112 public reserve0;
+    uint112 public reserve1;
+    uint32 public blockTimestampLast;
+    uint256 public price0CumulativeLast;
+    uint256 public price1CumulativeLast;
+
+    constructor(address _token0, address _token1, uint112 _r0, uint112 _r1) {
+        token0 = _token0;
+        token1 = _token1;
+        reserve0 = _r0;
+        reserve1 = _r1;
+        blockTimestampLast = uint32(block.timestamp);
+    }
+
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (reserve0, reserve1, blockTimestampLast);
+    }
+
+    /// @dev FRESH-2026 TEST REALIGN: pair touch helper so TegridyTWAP's F-24-1
+    ///      bridging-gap (2h) defense doesn't fire on idle pairs in test setUps.
+    function sync() external {
+        uint32 nowTs = uint32(block.timestamp);
+        uint32 elapsed;
+        unchecked { elapsed = nowTs - blockTimestampLast; }
+        if (elapsed > 0 && reserve0 != 0 && reserve1 != 0) {
+            unchecked {
+                price0CumulativeLast += (uint256(reserve1) * Q112 / reserve0) * uint256(elapsed);
+                price1CumulativeLast += (uint256(reserve0) * Q112 / reserve1) * uint256(elapsed);
+            }
+        }
+        blockTimestampLast = nowTs;
+    }
+
+    function setReserves(uint112 _r0, uint112 _r1) external {
+        // Integrate the pre-update reserves over the elapsed window — same
+        // canonical V2 pattern as TegridyPair._update().
+        uint32 nowTs = uint32(block.timestamp);
+        uint32 elapsed;
+        unchecked { elapsed = nowTs - blockTimestampLast; }
+        if (elapsed > 0 && reserve0 != 0 && reserve1 != 0) {
+            unchecked {
+                price0CumulativeLast += (uint256(reserve1) * Q112 / reserve0) * uint256(elapsed);
+                price1CumulativeLast += (uint256(reserve0) * Q112 / reserve1) * uint256(elapsed);
+            }
+        }
+        reserve0 = _r0;
+        reserve1 = _r1;
+        blockTimestampLast = nowTs;
+    }
+}
+
+/// @dev AUDIT R014: minimal factory stub for tests that bypass TegridyFactory.
+///      Returns isPair=true for any pair the test owner has explicitly tagged.
+contract MockFactoryForTWAP {
+    mapping(address => bool) public isPair;
+    // FRESH-EYES H-2: TegridyTWAP.update reads `factory.disabledPairs(pair)` to
+    // refuse observations during a frozen-reserve disable window. Mock surfaces
+    // the same mapping (default false) so test pairs are always "live".
+    mapping(address => bool) public disabledPairs;
+    function tagPair(address _pair) external {
+        isPair[_pair] = true;
+    }
+    function setDisabled(address _pair, bool _disabled) external {
+        disabledPairs[_pair] = _disabled;
+    }
+}
+
+// ─── Test Suite ─────────────────────────────────────────────────────
+
+/// @title TegridyLending_ETHFloorTest — AUDIT critique 5.4 coverage
+/// @notice Exercises the optional ETH-denominated collateral floor added to
+///         TegridyLending.createLoanOffer / acceptOffer. Floor is gated on the
+///         lender opting in (non-zero minPositionETHValue); zero is a no-op.
+contract TegridyLending_ETHFloorTest is Test {
+    MockToweliETHFloor public toweli;
+    MockJBACETHFloor public jbac;
+    MockWETHETHFloor public weth;
+    MockTegridyPairETHFloor public pair;
+    TegridyStaking public staking;
+    TegridyLending public lending;
+    TegridyLendingAdmin public lendingAdmin; // AUDIT FIX (pass-8): EIP170-01 split
+    TegridyTWAP public twap;
+
+    address public treasury = makeAddr("treasury");
+    address public alice = makeAddr("alice");   // borrower
+    address public bob = makeAddr("bob");       // lender
+
+    uint256 public aliceTokenId;
+    uint256 public constant STAKE_AMOUNT = 10_000 ether;
+
+    // Seed reserves: 1_000_000 TOWELI vs 1_000 WETH ⇒ spot price = 1 TOWELI = 0.001 ETH.
+    //   => 10_000 TOWELI ≈ 10 ETH.
+    uint112 public constant INITIAL_TOWELI_RESERVE = 1_000_000 ether;
+    uint112 public constant INITIAL_WETH_RESERVE = 1_000 ether;
+
+    function setUp() public {
+        // FRESH-2026 TEST REALIGN: SequencerCheck reverts when feed=address(0) on chainid != 1.
+        vm.chainId(1);
+        toweli = new MockToweliETHFloor();
+        jbac = new MockJBACETHFloor();
+        weth = new MockWETHETHFloor();
+
+        // Seed pair so `10_000 TOWELI` values at ~10 ETH.
+        pair = new MockTegridyPairETHFloor(
+            address(toweli),
+            address(weth),
+            INITIAL_TOWELI_RESERVE,
+            INITIAL_WETH_RESERVE
+        );
+
+        staking = new TegridyStaking(
+            address(toweli),
+            address(jbac),
+            treasury,
+            1e18
+        );
+
+        // R003: deploy + bootstrap the TWAP oracle backing the ETH-floor.
+        // Bootstrap = at least two observations spaced by MIN_PERIOD (15 min)
+        // so consult() has a usable averaging window. NOTE: we use forge-std's
+        // `skip()` instead of `vm.warp(block.timestamp + …)` because the via_ir
+        // pipeline (foundry.toml) hoists `block.timestamp` reads, producing
+        // wrong cumulative warps when multiple `vm.warp` calls are chained in
+        // a single function. `skip()` calls `vm.getBlockTimestamp()` cheatcode
+        // each invocation, which is opaque to the optimizer.
+        // AUDIT R014: TegridyTWAP now requires a factory whose isPair() vouches
+        // for the pair address. Use a stub factory that whitelists our mock pair.
+        MockFactoryForTWAP fac = new MockFactoryForTWAP();
+        fac.tagPair(address(pair));
+        twap = new TegridyTWAP(address(fac), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default. Disable so legacy update() calls without {value:} still work.
+        twap.setUpdateFee(0);
+        twap.update(address(pair));
+        skip(16 minutes);
+        twap.update(address(pair));
+        // Skip again so consult() over a 30-min window has data on both sides.
+        skip(30 minutes);
+        twap.update(address(pair));
+
+        lending = new TegridyLending(treasury, 500, address(weth), address(pair), address(twap), address(0));
+
+        // AUDIT FIX (pass-8): EIP170-01 split — wire admin sister.
+        lendingAdmin = new TegridyLendingAdmin(address(lending));
+        lending.setLendingAdmin(address(lendingAdmin));
+
+        // AUDIT R014: whitelist the staking contract so createLoanOffer accepts it as
+        // collateral. 48h timelock is rolled forward inline. We chunk the warp into
+        // sub-DEVIATION_BYPASS_AFTER (1 day) windows and refresh the TWAP between
+        // each so `lastBypassUsed` stays zero — the new TWAP-bypass cooldown gate in
+        // `_positionETHValue` (TWAP_PERIOD * 2) would otherwise fire.
+        // FRESH-2026 TEST REALIGN: F-24-1 — `update()` now flags `bypassed = true`
+        // when `elapsedSinceLastPairTouch > MAX_BRIDGING_GAP` (2h). We pair `sync()`
+        // each TWAP update with a fresh pair touch so the bridging-gap path stays
+        // dormant; otherwise every post-22h update would stamp `lastBypassUsed` and
+        // the TWAP_PERIOD*2 cooldown in lending._positionETHValue would fire.
+        lendingAdmin.proposeAcceptedCollateral(address(staking), true);
+        // Span 48h + 1s in two ~22h hops so neither hop trips the dormancy bypass.
+        skip(22 hours); pair.sync(); twap.update(address(pair));
+        skip(22 hours); pair.sync(); twap.update(address(pair));
+        skip(4 hours + 1); pair.sync(); twap.update(address(pair));
+        lendingAdmin.executeAcceptedCollateral();
+
+        // Fund alice and have her stake for a collateral position.
+        toweli.transfer(alice, 100_000 ether);
+        vm.startPrank(alice);
+        toweli.approve(address(staking), type(uint256).max);
+        staking.stake(STAKE_AMOUNT, 365 days);
+        aliceTokenId = staking.userTokenId(alice);
+        vm.stopPrank();
+
+        // Skip past the staking NFT transfer cooldown. Chunk again so bypass stays unset.
+        skip(22 hours); pair.sync(); twap.update(address(pair));
+        skip(3 hours); pair.sync(); twap.update(address(pair));
+        skip(16 minutes); pair.sync(); twap.update(address(pair));
+
+        // FRESH-2026 TEST REALIGN: skip past TWAP_PERIOD*2 (60 min) so the
+        // self-bootstrap-grace lastBypassUsed stamp from the first 3 obs has elapsed.
+        // Then refresh once more (with sync so bridging-gap doesn't re-stamp).
+        skip(61 minutes); pair.sync(); twap.update(address(pair));
+
+        vm.prank(alice);
+        staking.approve(address(lending), aliceTokenId);
+
+        vm.deal(bob, 100 ether);
+    }
+
+    /// @dev Helper: re-record an observation after a `setReserves` so the TWAP
+    ///      eventually picks up the new spot price. A single same-block update
+    ///      is rejected by `canUpdate` (MIN_PERIOD), and even after a 15-min
+    ///      gap, one new observation only marginally moves the 30-min average —
+    ///      that asymmetry is exactly the manipulation resistance we want.
+    function _recordObservation() internal {
+        skip(16 minutes);
+        twap.update(address(pair));
+    }
+
+    // ─── zero-floor backward compatibility ─────────────────────────
+
+    /// @notice minPositionETHValue = 0 disables the ETH-floor check. Borrower
+    ///         accepts regardless of the pair's current spot price. This is the
+    ///         pre-batch-7d behaviour — confirms lender opt-in default stays cheap.
+    function test_zeroFloor_isNoOp() public {
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 0
+        );
+
+        // Tank the ETH value of TOWELI by 99% — floor is off, so this is irrelevant.
+        pair.setReserves(INITIAL_TOWELI_RESERVE, INITIAL_WETH_RESERVE / 100);
+
+        uint256 aliceBalBefore = alice.balance;
+        vm.prank(alice);
+        uint256 loanId = lending.acceptOffer(offerId, aliceTokenId);
+
+        assertEq(alice.balance - aliceBalBefore, 1 ether);
+        (,,,,,,,, bool repaid,,) = lending.getLoan(loanId);
+        assertFalse(repaid);
+        assertEq(staking.ownerOf(aliceTokenId), address(lending));
+    }
+
+    // ─── floor met ────────────────────────────────────────────────
+
+    /// @notice Standard happy path: floor is set, reserves value the position
+    ///         above the floor, acceptOffer succeeds.
+    function test_floorMet() public {
+        // Floor: 5 ETH. Alice's position values at ~10 ETH per setUp reserves.
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 5 ether
+        );
+
+        uint256 aliceBalBefore = alice.balance;
+        vm.prank(alice);
+        lending.acceptOffer(offerId, aliceTokenId);
+
+        assertEq(alice.balance - aliceBalBefore, 1 ether);
+        assertEq(staking.ownerOf(aliceTokenId), address(lending));
+
+        // Sanity: the offer persists the floor and getOffer surfaces the 7th field.
+        (,,,,,, uint256 minPositionETHValue,,,) = lending.getOffer(offerId);
+        assertEq(minPositionETHValue, 5 ether);
+    }
+
+    // ─── floor breached ───────────────────────────────────────────
+
+    /// @notice R003: when the WETH-side reserve drops *and the price drop is
+    ///         sustained long enough for the TWAP to absorb it*, acceptOffer
+    ///         reverts InsufficientCollateralValue. We sustain the lower price
+    ///         across many MIN_PERIOD observations so the 30-min TWAP average
+    ///         catches up. This is exactly the property the fix is meant to
+    ///         deliver: real price movement is reflected; transient single-block
+    ///         spikes are not (see test_NoSpotManipulation_AfterTWAP).
+    function test_floorBreached_reverts() public {
+        // Create offer at a 9.5 ETH floor (5% safety buffer above the current ~10 ETH value).
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 9.5 ether
+        );
+
+        // Drop WETH-side reserve 10% and let the TWAP absorb the new price for
+        // > 30 minutes (the consult window) so the average converges to ~9 ETH.
+        pair.setReserves(INITIAL_TOWELI_RESERVE, (INITIAL_WETH_RESERVE * 90) / 100);
+        // Push observations every 16 minutes for ~ TWAP_PERIOD * 2 so consult()
+        // sees the new reserves dominating the averaging window.
+        for (uint256 i = 0; i < 5; i++) {
+            _recordObservation();
+        }
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyLending.InsufficientCollateralValue.selector);
+        lending.acceptOffer(offerId, aliceTokenId);
+    }
+
+    // ─── R003 regression: TWAP defeats single-block manipulation ──
+
+    /// @notice R003 REGRESSION. The previous implementation read raw
+    ///         `getReserves()` and was provably manipulable in the same block
+    ///         (the original `test_sandwich_sameBlockManipulation_succeeds`
+    ///         test passed with the manipulation succeeding). After the fix,
+    ///         `_positionETHValue` consults a 30-minute TWAP. A single same-
+    ///         block reserve pump cannot move the time-weighted average enough
+    ///         to flip the floor check, so acceptOffer must revert.
+    function test_NoSpotManipulation_AfterTWAP() public {
+        // Floor that WOULD reject the position at current TWAP price (~10 ETH).
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 50 ether
+        );
+
+        // Attempt the same-block sandwich: pump the WETH-side reserve 10×.
+        // Under the OLD code this satisfied the spot check; under TWAP it
+        // does not — the 30-min average is dominated by the bootstrapped
+        // observations recorded at the original reserves.
+        pair.setReserves(INITIAL_TOWELI_RESERVE, INITIAL_WETH_RESERVE * 10);
+
+        // Note: we deliberately do NOT call _recordObservation() here. Even
+        // if the attacker tried to push an observation immediately, MIN_PERIOD
+        // (15 min) gates further updates; and even one new observation does
+        // not move a 30-min average enough to clear the 50 ETH floor.
+        vm.prank(alice);
+        vm.expectRevert(TegridyLending.InsufficientCollateralValue.selector);
+        lending.acceptOffer(offerId, aliceTokenId);
+    }
+
+    /// @notice R003: if the TWAP keeper stops pushing observations, the most-
+    ///         recent observation will eventually exceed `TWAP_MAX_STALENESS`
+    ///         (2h). Once stale, any non-zero ETH-floor acceptOffer reverts
+    ///         with `OracleStale` rather than silently using out-of-date data.
+    function test_OracleStale_revertsAfterMaxStaleness() public {
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 5 ether
+        );
+
+        // Skip ahead past TWAP_MAX_STALENESS (2h) without pushing any new
+        // observation. The most-recent observation is now > 2h old.
+        skip(3 hours);
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyLending.OracleStale.selector);
+        lending.acceptOffer(offerId, aliceTokenId);
+    }
+
+    // ─── getOffer roundtrip ──────────────────────────────────────
+
+    /// @notice Non-zero minPositionETHValue roundtrips through storage and the
+    ///         getOffer view. Guards against silent ABI drift in later refactors.
+    function test_getOffer_returnsMinPositionETHValue() public {
+        vm.prank(bob);
+        uint256 offerId = lending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 3.14 ether
+        );
+
+        (
+            address lender,
+            uint256 principal,
+            uint256 aprBps,
+            uint256 duration,
+            address collateralContract,
+            uint256 minPositionValue,
+            uint256 minPositionETHValue,
+            bool active
+        ,,) = lending.getOffer(offerId);
+
+        assertEq(lender, bob);
+        assertEq(principal, 1 ether);
+        assertEq(aprBps, 1000);
+        assertEq(duration, 30 days);
+        assertEq(collateralContract, address(staking));
+        assertEq(minPositionValue, 1000 ether);
+        assertEq(minPositionETHValue, 3.14 ether);
+        assertTrue(active);
+    }
+
+    // ─── orientation — TOWELI on token1 slot ─────────────────────
+
+    /// @notice Independent fixture where the pair stores TOWELI on `token1()`
+    ///         instead of `token0()`. Exercises the inverse branch of the
+    ///         orientation resolver in `_positionETHValue`. R003: also
+    ///         exercises that `consult(pair, toweli, …)` resolves the correct
+    ///         price direction regardless of which reserve slot TOWELI lives in.
+    function test_reserveOrientation_token1Side() public {
+        // Deploy a second pair with TOWELI on the token1 slot.
+        MockTegridyPairETHFloor inversePair = new MockTegridyPairETHFloor(
+            address(weth),
+            address(toweli),
+            INITIAL_WETH_RESERVE,        // reserve0 = WETH
+            INITIAL_TOWELI_RESERVE       // reserve1 = TOWELI
+        );
+
+        // Bootstrap a fresh TWAP for the inverse pair — same pattern as setUp.
+        // AUDIT R014: stub factory whitelist for the new isPair() check.
+        MockFactoryForTWAP inverseFac = new MockFactoryForTWAP();
+        inverseFac.tagPair(address(inversePair));
+        TegridyTWAP inverseTwap = new TegridyTWAP(address(inverseFac), address(0));
+        // FRESH-2026 TEST REALIGN: TegridyTWAP.update() now enforces MIN_UPDATE_FEE (1e14)
+        // by default; disable so legacy update() calls without {value:} still work.
+        inverseTwap.setUpdateFee(0);
+        inversePair.sync(); inverseTwap.update(address(inversePair));
+        skip(16 minutes);
+        inversePair.sync(); inverseTwap.update(address(inversePair));
+        skip(30 minutes);
+        inversePair.sync(); inverseTwap.update(address(inversePair));
+
+        TegridyLending inverseLending = new TegridyLending(
+            treasury,
+            500,
+            address(weth),
+            address(inversePair),
+            address(inverseTwap),
+            address(0)
+        );
+        // AUDIT FIX (pass-8): EIP170-01 split — local admin sister.
+        TegridyLendingAdmin inverseLendingAdmin = new TegridyLendingAdmin(address(inverseLending));
+        inverseLending.setLendingAdmin(address(inverseLendingAdmin));
+
+        // AUDIT R014: whitelist the staking contract on the new lending instance and
+        // refresh the inverse-pair TWAP through the 48h timelock so neither the
+        // dormancy-bypass cooldown nor the staleness gate trip in `_positionETHValue`.
+        inverseLendingAdmin.proposeAcceptedCollateral(address(staking), true);
+        // FRESH-2026 TEST REALIGN: F-24-1 — sync() so MAX_BRIDGING_GAP doesn't trip.
+        skip(22 hours); inversePair.sync(); inverseTwap.update(address(inversePair));
+        skip(22 hours); inversePair.sync(); inverseTwap.update(address(inversePair));
+        skip(4 hours + 1); inversePair.sync(); inverseTwap.update(address(inversePair));
+        // Skip past TWAP_PERIOD*2 (60 min) so any earlier self-bootstrap-grace
+        // lastBypassUsed stamps have elapsed before the test runs.
+        skip(61 minutes); inversePair.sync(); inverseTwap.update(address(inversePair));
+        inverseLendingAdmin.executeAcceptedCollateral();
+
+        // Re-approve alice's NFT onto the new lending contract.
+        vm.prank(alice);
+        staking.approve(address(inverseLending), aliceTokenId);
+
+        vm.deal(bob, 5 ether);
+        vm.prank(bob);
+        uint256 offerId = inverseLending.createLoanOffer{value: 1 ether}(
+            1000, 30 days, address(staking), 1000 ether, 5 ether
+        );
+
+        // Alice's 10_000 TOWELI ≈ 10 ETH via the same reserves, just rotated.
+        vm.prank(alice);
+        inverseLending.acceptOffer(offerId, aliceTokenId);
+        assertEq(staking.ownerOf(aliceTokenId), address(inverseLending));
+    }
+}
