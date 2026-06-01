@@ -43,7 +43,7 @@ uptime feed).
 | Gauge Controller | `DeployGaugeController.s.sol` | `STAKING` | `EMISSION_BUDGET` (1,000,000e18) | `GAUGE_CONTROLLER_ADDRESS` |
 | Vote Incentives (+Admin) | `DeployVoteIncentives.s.sol` | `STAKING`, `TREASURY`, `WETH`, `FACTORY`, `TOWELI` | `BRIBE_FEE_BPS` (300) | `VOTE_INCENTIVES_ADDRESS` |
 | NFT AMM (pool factory) | `DeployNFTPoolFactory.s.sol` | `TREASURY`, `WETH` | `PROTOCOL_FEE_BPS` (50) | `TEGRIDY_NFT_POOL_FACTORY_ADDRESS` |
-| NFT Lending | `DeployNFTLending.s.sol` | `TREASURY`, `WETH` | `PROTOCOL_FEE_BPS` (500), `SEQUENCER_FEED` (0x0) | `TEGRIDY_NFT_LENDING_ADDRESS` |
+| NFT Lending (+Admin) | `DeployNFTLending.s.sol` | `TREASURY`, `WETH` | `PROTOCOL_FEE_BPS` (500), `SEQUENCER_FEED` (0x0) | `TEGRIDY_NFT_LENDING_ADDRESS` |
 | Token Lending (+Admin) | `DeployTegridyLending.s.sol` | `TREASURY`, `WETH`, `PAIR`, `TWAP` | `PROTOCOL_FEE_BPS` (500), `SEQUENCER_FEED` (0x0) | `TEGRIDY_LENDING_ADDRESS` |
 
 REVIEW the optional economic params before mainnet — defaults are the last-known live
@@ -52,8 +52,10 @@ values, logged by each script at deploy time.
 ## Per-feature post-deploy steps
 
 1. **`MULTISIG.acceptOwnership()`** on the deployed contract (OwnableNoRenounce is 2-step).
-   For Vote Incentives and Token Lending, accept on BOTH the main contract AND its Admin
-   sister. (NFT Pool Factory sets `owner = MULTISIG` in the constructor — no acceptance.)
+   For Vote Incentives, Token Lending, and NFT Lending, accept on BOTH the main contract
+   AND its Admin sister (the Admin holds ALL governance entrypoints — fee/treasury/
+   whitelist/origination/min-APR/sweep — so a missed acceptance leaves it owned by the
+   deployer EOA). (NFT Pool Factory sets `owner = MULTISIG` in the constructor — no acceptance.)
 2. Set the address in `frontend/src/lib/constants.ts` (table above). The frontend
    auto-un-gates that feature the moment the address is non-zero (`isDeployed()`); no
    component change needed.
