@@ -241,6 +241,12 @@ contract TegridyNFTLendingAdmin is OwnableNoRenounce, TimelockAdmin {
                 if (lending.removalRetryCount(cancelled) >= lending.REMOVAL_MAX_CANCELLATIONS()) {
                     revert RemovalCancelLimitReached();
                 }
+                // SLITHER: reentrancy-no-eth FP — onlyOwner timelock-admin fn; the only
+                // external call is to the trusted `lending` contract, and the state
+                // written after (`_cancel` clears `_executeAfter`/`pendingWhitelistRemove`)
+                // is only readable by other onlyOwner timelock fns. No theft vector.
+                // Mirrors the canonical TegridyLendingAdmin.cancelAcceptedCollateral.
+                // slither-disable-next-line reentrancy-no-eth
                 lending.bumpRemovalRetryCount(cancelled);
             }
         }
@@ -395,6 +401,11 @@ contract TegridyNFTLendingAdmin is OwnableNoRenounce, TimelockAdmin {
         // Refuse to seize active collateral / stuck-collateral. The lending
         // contract performs the bounded loans[] scan and reverts
         // NFTIsActiveCollateral if the (collection, tokenId) pair is in use.
+        // SLITHER: reentrancy-no-eth FP — onlyOwner timelock-admin fn; the only
+        // external call is the trusted `lending` pre-check (address(0) recipient =
+        // validate-only, no state write), and the pendingSweep*/_propose writes after
+        // are only readable by other onlyOwner timelock fns. No theft vector.
+        // slither-disable-next-line reentrancy-no-eth
         lending.applySweepUnsolicitedNFT(_collection, _tokenId, address(0));
 
         pendingSweepCollection = _collection;
