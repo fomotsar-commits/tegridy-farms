@@ -1139,10 +1139,13 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // Validate collateral: check position value meets minimum
         ITegridyStaking staking = ITegridyStaking(collateralContract);
-        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
-        // slither-disable-next-line unused-return
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed.
         // positions tuple: (amount, boostedAmount, rewardDebt, lockEnd, ...) — take
         // amount (1st) and lockEnd (4th); lockEnd widens uint64 -> uint256 implicitly.
+        // AUDIT 2026-05-31: the disable directive MUST be the line immediately above the
+        // flagged statement — an intervening comment broke the prior suppression, so the
+        // unused-return MED resurfaced on the CI gate. Moved directly above the call.
+        // slither-disable-next-line unused-return
         (uint256 positionAmount,,, uint256 lockEnd,,,,,,,) = staking.positions(_tokenId);
         if (positionAmount < minPositionValue) revert InsufficientCollateralValue();
 
