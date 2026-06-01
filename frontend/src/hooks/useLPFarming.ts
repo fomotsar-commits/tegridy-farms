@@ -39,13 +39,13 @@ export function useLPFarming() {
   // (was 30s — TVL/rewards don't move per-block), gate on onMainnet.
   const { data, refetch, isLoading: isReadLoading } = useReadContracts({
     contracts: [
-      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalSupply', chainId: CHAIN_ID },
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRawSupply', chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'periodFinish', chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardsDuration', chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
       // User-specific
-      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rawBalanceOf', args: [userAddr], chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'earned', args: [userAddr], chainId: CHAIN_ID },
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, LP_FARMING_ADDRESS], chainId: CHAIN_ID },

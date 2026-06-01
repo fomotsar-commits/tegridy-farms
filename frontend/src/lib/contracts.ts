@@ -269,7 +269,7 @@ export const VOTE_INCENTIVES_ABI = [
     { name: 'power', type: 'uint256' },
     { name: 'salt', type: 'bytes32' },
   ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
-  { type: 'function', name: 'commitVote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'commitHash', type: 'bytes32' }], outputs: [{ name: 'commitIndex', type: 'uint256' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'commitVote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'commitHash', type: 'bytes32' }, { name: 'power', type: 'uint256' }], outputs: [{ name: 'commitIndex', type: 'uint256' }], stateMutability: 'nonpayable' },
   { type: 'function', name: 'revealVote', inputs: [
     { name: 'epoch', type: 'uint256' },
     { name: 'commitIndex', type: 'uint256' },
@@ -329,7 +329,7 @@ export const LP_FARMING_ABI = [
   { type: 'function', name: 'notifyRewardAmount', inputs: [{ name: 'reward', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'earned', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalRawSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardRate', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },

@@ -201,15 +201,17 @@ export function useBribes() {
     });
   }
 
-  function commitVote(epoch: number, commitHash: Hex) {
+  function commitVote(epoch: number, commitHash: Hex, power: bigint) {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
+    // De-drift 2026-05-31: contract commitVote now takes (epoch, commitHash, power);
+    // power = the committed voting weight, capped at the snapshot power on-chain.
     writeContract({
       chainId: CHAIN_ID,
       address: VOTE_INCENTIVES_ADDRESS,
       abi: VOTE_INCENTIVES_ABI,
       functionName: 'commitVote',
-      args: [BigInt(epoch), commitHash],
+      args: [BigInt(epoch), commitHash, power],
     });
   }
 
