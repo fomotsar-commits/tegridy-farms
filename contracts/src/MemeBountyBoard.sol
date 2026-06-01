@@ -865,4 +865,31 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function submissionCount(uint256 _bountyId) external view returns (uint256) {
         return submissions[_bountyId].length;
     }
+
+    /// @notice AUDIT FIX 2026-06-01 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending global-timelock proposal seeded by the OUTGOING owner
+    ///         (treasury change, min-reward change) is CANCELLED atomically when the
+    ///         new owner accepts. Without it, a compromised/outgoing owner could
+    ///         queue a hostile `proposeTreasuryChange` / `proposeMinBountyReward`
+    ///         just before `transferOwnership`; the `_executeAfter` timer keeps
+    ///         running and the new owner inherits an executable booby-trap. Mirrors
+    ///         the canonical pattern on ReferralSplitter / RevenueDistributor.
+    /// @dev    `super.acceptOwnership()` first (Ownable2Step promotion), then guard
+    ///         each `_cancel` on non-zero `_executeAfter` (`_cancel` reverts on
+    ///         no-pending). MIN_REWARD_CHANGE has no dedicated `cancelX()` on this
+    ///         contract, but a pending min-reward proposal is exactly the M19 risk,
+    ///         so it is flushed here (clear `pendingMinBountyReward` + `_cancel`).
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[MIN_REWARD_CHANGE] != 0) {
+            _cancel(MIN_REWARD_CHANGE);
+            pendingMinBountyReward = 0;
+        }
+    }
 }
