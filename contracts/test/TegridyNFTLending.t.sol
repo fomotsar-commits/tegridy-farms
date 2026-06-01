@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "../src/TegridyNFTLending.sol";
+import "../src/TegridyNFTLendingAdmin.sol"; // AUDIT FIX: EIP170-01 split
 
 // ─── Mock Contracts ─────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ contract TegridyNFTLendingTest is Test {
     MockERC721 public nftBad;      // not whitelisted
     MockWETHNFTLending public weth;
     TegridyNFTLending public lending;
+    TegridyNFTLendingAdmin public nftLendingAdmin; // AUDIT FIX: EIP170-01 split
 
     address public treasury = makeAddr("treasury");
     address public alice = makeAddr("alice");   // lender — has ETH
@@ -102,15 +104,18 @@ contract TegridyNFTLendingTest is Test {
         // 2. Deploy MockWETH and TegridyNFTLending
         weth = new MockWETHNFTLending();
         lending = new TegridyNFTLending(treasury, 500, address(weth), address(0)); // 5% protocol fee
+        // AUDIT FIX: EIP170-01 split — deploy + wire the timelock admin sister.
+        nftLendingAdmin = new TegridyNFTLendingAdmin(address(lending));
+        lending.setNftLendingAdmin(address(nftLendingAdmin));
 
-        // 3. Whitelist our test NFT collections (via timelock)
-        lending.proposeWhitelistCollection(address(nft));
+        // 3. Whitelist our test NFT collections (via timelock on the admin)
+        nftLendingAdmin.proposeWhitelistCollection(address(nft));
         vm.warp(1_700_000_000 + 25 hours);
-        lending.executeWhitelistCollection();
+        nftLendingAdmin.executeWhitelistCollection();
 
-        lending.proposeWhitelistCollection(address(nft2));
+        nftLendingAdmin.proposeWhitelistCollection(address(nft2));
         vm.warp(1_700_000_000 + 50 hours);
-        lending.executeWhitelistCollection();
+        nftLendingAdmin.executeWhitelistCollection();
 
         // 4. Mint an NFT to bob
         bobTokenId = nft.mint(bob);
@@ -635,9 +640,9 @@ contract TegridyNFTLendingTest is Test {
     ///      succeeds; tests flip `setFrozen(true)` before repay/default.
     function _setupHostileLoan() internal returns (uint256 loanId, uint256 hostileTokenId) {
         hostile = new HostileNFT();
-        lending.proposeWhitelistCollection(address(hostile));
+        nftLendingAdmin.proposeWhitelistCollection(address(hostile));
         vm.warp(block.timestamp + 25 hours);
-        lending.executeWhitelistCollection();
+        nftLendingAdmin.executeWhitelistCollection();
 
         hostileTokenId = hostile.mint(bob);
 
@@ -841,15 +846,15 @@ contract TegridyNFTLendingTest is Test {
         MockERC721 newNft = new MockERC721("New", "NEW");
 
         // Propose
-        lending.proposeWhitelistCollection(address(newNft));
+        nftLendingAdmin.proposeWhitelistCollection(address(newNft));
 
         // Cannot execute before timelock
         vm.expectRevert();
-        lending.executeWhitelistCollection();
+        nftLendingAdmin.executeWhitelistCollection();
 
         // Warp past 24h timelock
         vm.warp(block.timestamp + 24 hours);
-        lending.executeWhitelistCollection();
+        nftLendingAdmin.executeWhitelistCollection();
 
         assertTrue(lending.whitelistedCollections(address(newNft)));
     }
@@ -859,41 +864,41 @@ contract TegridyNFTLendingTest is Test {
         assertTrue(lending.whitelistedCollections(address(nft)));
 
         // Propose removal
-        lending.proposeRemoveCollection(address(nft));
+        nftLendingAdmin.proposeRemoveCollection(address(nft));
 
         // Cannot execute before timelock
         vm.expectRevert();
-        lending.executeRemoveCollection();
+        nftLendingAdmin.executeRemoveCollection();
 
         // Warp past 24h timelock
         vm.warp(block.timestamp + 24 hours);
-        lending.executeRemoveCollection();
+        nftLendingAdmin.executeRemoveCollection();
 
         assertFalse(lending.whitelistedCollections(address(nft)));
     }
 
     function test_whitelist_revert_alreadyWhitelisted() public {
-        vm.expectRevert(TegridyNFTLending.CollectionAlreadyWhitelisted.selector);
-        lending.proposeWhitelistCollection(address(nft));
+        vm.expectRevert(TegridyNFTLendingAdmin.CollectionAlreadyWhitelisted.selector);
+        nftLendingAdmin.proposeWhitelistCollection(address(nft));
     }
 
     function test_removeCollection_revert_notWhitelisted() public {
-        vm.expectRevert(TegridyNFTLending.CollectionNotCurrentlyWhitelisted.selector);
-        lending.proposeRemoveCollection(address(nftBad));
+        vm.expectRevert(TegridyNFTLendingAdmin.CollectionNotCurrentlyWhitelisted.selector);
+        nftLendingAdmin.proposeRemoveCollection(address(nftBad));
     }
 
     function test_whitelist_revert_notOwner() public {
         MockERC721 newNft = new MockERC721("New", "NEW");
         vm.prank(carol);
         vm.expectRevert();
-        lending.proposeWhitelistCollection(address(newNft));
+        nftLendingAdmin.proposeWhitelistCollection(address(newNft));
     }
 
     function test_cancelWhitelist() public {
         MockERC721 newNft = new MockERC721("New", "NEW");
-        lending.proposeWhitelistCollection(address(newNft));
+        nftLendingAdmin.proposeWhitelistCollection(address(newNft));
 
-        lending.cancelWhitelistCollection();
+        nftLendingAdmin.cancelWhitelistCollection();
 
         assertFalse(lending.whitelistedCollections(address(newNft)));
     }
@@ -903,34 +908,34 @@ contract TegridyNFTLendingTest is Test {
     // ═══════════════════════════════════════════════════════════════════
 
     function test_proposeAndExecuteFeeChange() public {
-        lending.proposeProtocolFeeChange(800); // 8%
+        nftLendingAdmin.proposeProtocolFeeChange(800); // 8%
 
-        assertEq(lending.pendingProtocolFeeBps(), 800);
+        assertEq(nftLendingAdmin.pendingProtocolFeeBps(), 800);
 
         // Cannot execute before timelock
         vm.expectRevert();
-        lending.executeProtocolFeeChange();
+        nftLendingAdmin.executeProtocolFeeChange();
 
         // Warp past 48h timelock
         vm.warp(block.timestamp + 48 hours);
 
-        lending.executeProtocolFeeChange();
+        nftLendingAdmin.executeProtocolFeeChange();
 
         assertEq(lending.protocolFeeBps(), 800);
-        assertEq(lending.pendingProtocolFeeBps(), 0);
+        assertEq(nftLendingAdmin.pendingProtocolFeeBps(), 0);
     }
 
     function test_proposeFeeChange_revert_tooHigh() public {
-        vm.expectRevert(TegridyNFTLending.FeeTooHigh.selector);
-        lending.proposeProtocolFeeChange(1001); // exceeds MAX_PROTOCOL_FEE_BPS (1000)
+        vm.expectRevert(TegridyNFTLendingAdmin.FeeTooHigh.selector);
+        nftLendingAdmin.proposeProtocolFeeChange(1001); // exceeds MAX_PROTOCOL_FEE_BPS (1000)
     }
 
     function test_cancelFeeChange() public {
-        lending.proposeProtocolFeeChange(800);
+        nftLendingAdmin.proposeProtocolFeeChange(800);
 
-        lending.cancelProtocolFeeChange();
+        nftLendingAdmin.cancelProtocolFeeChange();
 
-        assertEq(lending.pendingProtocolFeeBps(), 0);
+        assertEq(nftLendingAdmin.pendingProtocolFeeBps(), 0);
 
         // Original fee unchanged
         assertEq(lending.protocolFeeBps(), 500);
@@ -939,7 +944,7 @@ contract TegridyNFTLendingTest is Test {
     function test_feeChange_revert_notOwner() public {
         vm.prank(carol);
         vm.expectRevert();
-        lending.proposeProtocolFeeChange(800);
+        nftLendingAdmin.proposeProtocolFeeChange(800);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -991,10 +996,10 @@ contract TegridyNFTLendingTest is Test {
 
         // Propose removal — OK; execute must REVERT while loan is active.
         // AUDIT FIX LD3-L2: typed error replaces the legacy string revert.
-        lending.proposeRemoveCollection(address(nft));
+        nftLendingAdmin.proposeRemoveCollection(address(nft));
         vm.warp(block.timestamp + 25 hours);
-        vm.expectRevert(abi.encodeWithSelector(TegridyNFTLending.ActiveLoansPresent.selector, address(nft), 1));
-        lending.executeRemoveCollection();
+        vm.expectRevert(abi.encodeWithSelector(TegridyNFTLendingAdmin.ActiveLoansPresent.selector, address(nft), 1));
+        nftLendingAdmin.executeRemoveCollection();
 
         // Borrower repays the loan — now removal can proceed.
         // NFT lives in the lending contract during the loan; repayLoan moves
@@ -1006,7 +1011,7 @@ contract TegridyNFTLendingTest is Test {
         lending.repayLoan{value: repayAmount}(0);
         assertEq(lending.activeLoansOfCollection(address(nft)), 0);
 
-        lending.executeRemoveCollection();
+        nftLendingAdmin.executeRemoveCollection();
         assertFalse(lending.whitelistedCollections(address(nft)));
     }
 
