@@ -11,6 +11,7 @@ import { formatTokenAmount } from '../lib/formatting';
 import { DCATab } from '../components/swap/DCATab';
 import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
+import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
@@ -350,6 +351,10 @@ export default function TradePage() {
                     Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
                   </p>
                 </div>
+
+                {/* MEV protection — one-time, user-confirmed opt-in to MEV Blocker's
+                    protected RPC. Additive; does not touch the audited swap path. */}
+                <MevProtectionPanel />
 
                 {/* Route Info — dark panel with Stan blue edge for trading-trust signal.
                     Always renders; shows placeholder text when no amount entered so the
