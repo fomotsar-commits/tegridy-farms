@@ -79,7 +79,7 @@ export default function CommunityPage() {
 
         {/* Section Toggle — always visible so users can see what's available */}
         <m.div
-          className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
+          className="grid grid-cols-2 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           initial={{ opacity: 0, y: 8 }}
