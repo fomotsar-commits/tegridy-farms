@@ -106,8 +106,8 @@ export default function GalleryPage() {
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedIndex(i); } }}
               className="w-full block relative group cursor-pointer break-inside-avoid rounded-xl overflow-hidden glass-card-animated card-hover"
               style={{ border: '1px solid var(--color-purple-75)' }}
-              initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }} transition={{ duration: 0.35, delay: (i % 3) * 0.06 }}>
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: (i % 3) * 0.06 }}>
               {/* Fix #7: loading="lazy" on gallery images.
                   R041 + R072: piece.src is a trusted local path from
                   artConfig; onError swaps to PLACEHOLDER_NFT if the file
