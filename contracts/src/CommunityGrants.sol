@@ -1256,4 +1256,28 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             }
         }
     }
+
+    /// @notice AUDIT FIX 2026-06-01 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending global-timelock proposal seeded by the OUTGOING owner is
+    ///         CANCELLED atomically when the new owner accepts the seat. Without it,
+    ///         a compromised/outgoing owner could queue a hostile
+    ///         `proposeFeeReceiverChange` just before `transferOwnership`; its
+    ///         `_executeAfter` timer keeps running and the new owner inherits an
+    ///         executable booby-trap. Mirrors the canonical pattern already on
+    ///         ReferralSplitter / RevenueDistributor / the *Admin sisters.
+    /// @dev    `super.acceptOwnership()` first (Ownable2Step pendingOwner→owner
+    ///         promotion), then guard each `_cancel` on non-zero `_executeAfter`
+    ///         because `_cancel` reverts on no-pending. The per-proposalId
+    ///         CANCEL_APPROVED keys are intentionally NOT flushed — they are keyed
+    ///         by a separate hash per proposal and cannot be enumerated on-chain;
+    ///         the new owner clears any inherited one via `cancelCancelApproved`.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[FEE_RECEIVER_CHANGE] != 0) {
+            address cancelled = pendingFeeReceiver;
+            _cancel(FEE_RECEIVER_CHANGE);
+            pendingFeeReceiver = address(0);
+            emit FeeReceiverChangeCancelled(cancelled);
+        }
+    }
 }

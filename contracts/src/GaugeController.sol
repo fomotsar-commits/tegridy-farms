@@ -1184,4 +1184,40 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function restakingChangeReadyAt() external view returns (uint256) {
         return _proposalReadyAt(RESTAKING_CHANGE);
     }
+
+    /// @notice AUDIT FIX 2026-06-01 M19-CLUSTER: override `acceptOwnership` so any
+    ///         pending governance-timelock proposals seeded by the OUTGOING owner
+    ///         (gauge add/remove, emission-budget change, restaking-contract
+    ///         rotation) are CANCELLED atomically when the new owner accepts. Without
+    ///         it, a compromised/outgoing owner could queue hostile proposals just
+    ///         before `transferOwnership`; their `_executeAfter` timers keep running
+    ///         and the new owner inherits executable booby-traps. Mirrors the
+    ///         canonical pattern already on ReferralSplitter / RevenueDistributor.
+    /// @dev    `super.acceptOwnership()` first (Ownable2Step promotion), then guard
+    ///         each `_cancel` on non-zero `_executeAfter` (`_cancel` reverts on
+    ///         no-pending). The cancel clears mirror each `cancelX()` exactly:
+    ///         GAUGE_ADD clears both pendingGaugeAdd + pendingPairForAdd (GOV-INT-01);
+    ///         only RESTAKING_CHANGE has a supplemental cancellation event.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[GAUGE_ADD] != 0) {
+            _cancel(GAUGE_ADD);
+            pendingGaugeAdd = address(0);
+            pendingPairForAdd = address(0); // AUDIT FIX (pass-8): GOV-INT-01
+        }
+        if (_executeAfter[GAUGE_REMOVE] != 0) {
+            _cancel(GAUGE_REMOVE);
+            pendingGaugeRemove = address(0);
+        }
+        if (_executeAfter[EMISSION_BUDGET_CHANGE] != 0) {
+            _cancel(EMISSION_BUDGET_CHANGE);
+            pendingEmissionBudget = 0;
+        }
+        if (_executeAfter[RESTAKING_CHANGE] != 0) {
+            address pending = pendingRestakingContract;
+            pendingRestakingContract = address(0);
+            _cancel(RESTAKING_CHANGE);
+            emit RestakingContractProposalCancelled(pending);
+        }
+    }
 }
