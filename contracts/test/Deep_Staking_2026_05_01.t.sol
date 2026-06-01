@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 
 contract MockTokenDeep is ERC20 {
@@ -30,6 +31,7 @@ contract MockJBACDeep is ERC721 {
 ///         `.audit_101/DEEP_2026_05_01/03_staking_core.md`.
 contract Deep_Staking_2026_05_01_Test is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin public admin;
     MockTokenDeep public token;
     MockJBACDeep public nft;
@@ -46,6 +48,7 @@ contract Deep_Staking_2026_05_01_Test is Test {
         // (100k ether). Drop reward rate from 1 ether/sec → 1e14/sec so
         // 5-7d accrual stays well under the cap regardless of stake size.
         staking = new TegridyStaking(address(token), address(nft), treasury, 1e14);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -83,13 +86,13 @@ contract Deep_Staking_2026_05_01_Test is Test {
         vm.warp(block.timestamp + 5 days);
 
         // earned() reports pre-expiry pending rewards.
-        uint256 earnedBeforeExpiry = staking.earned(bobTid);
+        uint256 earnedBeforeExpiry = monitor.earned(bobTid);
         assertGt(earnedBeforeExpiry, 0, "earned() reports non-zero pre-expiry");
 
         // Advance past lockEnd. `earned()` should still report pre-expiry rewards
         // because _getReward in _accumulateRewards path captures pre-decay accrual.
         vm.warp(1000 + 7 days + 1);
-        uint256 earnedAfterExpiry = staking.earned(bobTid);
+        uint256 earnedAfterExpiry = monitor.earned(bobTid);
         // earned() should still be > 0 — at least the pre-expiry accrual is reachable.
         assertGt(earnedAfterExpiry, 0, "earned() still reports pre-expiry rewards post-expiry");
 
@@ -129,7 +132,7 @@ contract Deep_Staking_2026_05_01_Test is Test {
 
         // Some pre-expiry reward accrual.
         vm.warp(block.timestamp + 5 days);
-        uint256 earnedBeforeKick = staking.earned(aliceTid);
+        uint256 earnedBeforeKick = monitor.earned(aliceTid);
         assertGt(earnedBeforeKick, 0, "alice has pending pre-expiry rewards");
 
         // Advance past lockEnd.

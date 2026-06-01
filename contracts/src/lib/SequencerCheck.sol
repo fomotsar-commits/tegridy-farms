@@ -65,6 +65,23 @@ library SequencerCheck {
     ///      sequencer concept). Mainnet keeps the no-op fast path.
     error SequencerFeedNotConfigured();
 
+    /// @dev AUDIT FIX 2026-05-26 [M-23] — reverted when a consumer passes a
+    ///      `gracePeriod` below `MIN_GRACE_PERIOD` (60s). Pre-fix, callers
+    ///      could pass `gracePeriod = 0` and the post-resume window check
+    ///      collapsed to `block.timestamp - startedAt < 0` which is always
+    ///      false → silent bypass of the entire post-resume buffer. Mirrors
+    ///      TimelockAdmin's MIN_DELAY floor pattern (loud failure > silent
+    ///      acceptance — single revert, no inline clamping).
+    error GraceTooShort();
+
+    /// @notice AUDIT FIX 2026-05-26 [M-23] — protocol-wide minimum on the
+    ///         post-resume grace window passed to `checkSequencerUp`. 1 minute
+    ///         is the floor below which the gate is effectively inert (a single
+    ///         block can elapse on most L2s). Honest consumers use 1h+ (Aave
+    ///         V3 stable-asset default); the floor only catches misconfigured
+    ///         deploys and `gracePeriod = 0` bypass attempts.
+    uint256 internal constant MIN_GRACE_PERIOD = 60;
+
     /// @notice AUDIT MICROSCOPE_2026_04_30 M-Lib2 / DEEP-LIB-M3: max acceptable
     ///         staleness on the uptime feed itself. Chainlink's L2 uptime feed is
     ///         keeper-updated; if the keeper lapses, `latestRoundData` returns a
@@ -127,6 +144,12 @@ library SequencerCheck {
     /// @param  gracePeriod  Seconds after sequencer resume during which reads still revert.
     /// @param  staleness    Max acceptable `block.timestamp - updatedAt` on the feed.
     function checkSequencerUp(address feed, uint256 gracePeriod, uint256 staleness) internal view {
+        // AUDIT FIX 2026-05-26 [M-23] — Reject sub-minimum grace at function
+        // top. Pass-thru `gracePeriod = 0` would otherwise silently bypass
+        // the post-resume buffer (block.timestamp - startedAt < 0 is always
+        // false). Loud failure beats silent acceptance; mirrors
+        // TimelockAdmin's MIN_DELAY floor at line 167.
+        if (gracePeriod < MIN_GRACE_PERIOD) revert GraceTooShort();
         // Mainnet / non-L2 deployments: feed = address(0) → skip entirely.
         // AUDIT FIX FRESH-2026: H-9 [F-74-1, F-74-2] — but ONLY if we're
         // actually on mainnet. Pre-fix every L2 chain that shipped without

@@ -287,14 +287,20 @@ contract TegridyFactoryTest is Test {
 
     /// @notice AUDIT NEW-A2 / F-30-9 / H-16: setGuardian is callable only while
     ///         guardian == address(0) AND requires a multisig-class contract.
+    /// @dev    AUDIT FIX 2026-05-26 [L-26]: rotation to address(0) is now
+    ///         forbidden in proposeGuardianChange (constructor likewise
+    ///         requires non-zero), so the recovery path's prerequisite —
+    ///         guardian == address(0) — is no longer reachable from any
+    ///         production code path. We use vm.store to forcibly zero the
+    ///         guardian slot for this test so the recovery-path's auth +
+    ///         multisig-class guards remain covered. See
+    ///         test_NEWA2_proposeGuardian_zeroNowForbidden below for the
+    ///         L-26 tightening itself.
     function test_NEWA2_setGuardian_recoveryPath() public {
-        // Rotate guardian to address(0) (the documented "disable role" path).
-        vm.prank(admin);
-        factory.proposeGuardianChange(address(0));
-        vm.warp(block.timestamp + factory.GUARDIAN_CHANGE_DELAY());
-        vm.prank(admin);
-        factory.executeGuardianChange();
-        assertEq(factory.guardian(), address(0));
+        // Forcibly zero the guardian slot (slot 4, per `forge inspect` storage layout)
+        // since the production path that previously reached this state has been removed.
+        vm.store(address(factory), bytes32(uint256(4)), bytes32(0));
+        assertEq(factory.guardian(), address(0), "vm.store should zero guardian");
 
         // Random cannot call setGuardian.
         DummyMultisig newGuardian = new DummyMultisig();
@@ -311,6 +317,16 @@ contract TegridyFactoryTest is Test {
         vm.prank(admin);
         factory.setGuardian(address(newGuardian));
         assertEq(factory.guardian(), address(newGuardian));
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [L-26]: proposeGuardianChange(address(0))
+    ///         is now explicitly rejected. The prior "rotate to zero, then
+    ///         setGuardian" recovery path is closed by design — non-zero
+    ///         multisig is the only supported guardian state.
+    function test_NEWA2_proposeGuardian_zeroNowForbidden() public {
+        vm.prank(admin);
+        vm.expectRevert(bytes("ZERO_GUARDIAN"));
+        factory.proposeGuardianChange(address(0));
     }
 
     /// @notice AUDIT NEW-A2: guardian can INSTANTLY disable a pair, no timelock.

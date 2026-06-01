@@ -293,14 +293,18 @@ contract FRESH2026_F1_RevDistExRestakerRecoveryTest is Test {
             dist.distribute();
         }
 
-        // Carol claims. Loop sees userPower == 0 for every epoch, so:
-        // POST-FIX: `claimedAtEpoch[carol][i]` STAYS FALSE (no seal).
-        // PRE-FIX: `claimedAtEpoch[carol][i] = true` was written at the top
-        //          of the loop unconditionally.
-        // The claim itself reverts `NothingToClaim()` either way.
+        // Carol claims. Loop sees userPower == 0 for every epoch.
+        // H1 FIX (cursor-advance): claim() now COMMITS the cursor past the all-zero
+        // window and returns — previously it wrote the cursor then reverted
+        // NothingToClaim() in the same branch, so the revert rolled the write back
+        // and the cursor stayed parked at 0 forever (permanent lock once the zero
+        // run reached MAX_CLAIM_EPOCHS). `claimedAtEpoch[carol][i]` STILL stays
+        // FALSE (no seal), so admin recovery remains available even though the
+        // cursor advanced — recovery is keyed on claimedAtEpoch, not the cursor
+        // (DEEP-DR-M-04).
         vm.prank(carol);
-        vm.expectRevert(RevenueDistributor.NothingToClaim.selector);
         dist.claim();
+        assertEq(dist.lastClaimedEpoch(carol), 2, "H1: cursor advances past the all-zero window");
 
         // ── POST-FIX VALIDATION: owner can still propose a recovery for
         //    any epoch — the seal was suppressed so the propose-time
@@ -318,5 +322,72 @@ contract FRESH2026_F1_RevDistExRestakerRecoveryTest is Test {
         assertGt(pExecuteAfter, block.timestamp, "FIX: recovery is timelocked");
 
         emit log_string("F1 FIX VALIDATED: zero-power epochs no longer sealed; proposeClaimRecovery unblocked");
+    }
+
+    /// @notice H1 REGRESSION (cursor-advance): a staker who only becomes eligible
+    ///         AFTER a run of zero-power epochs must be able to walk the cursor
+    ///         forward through them and then claim the later positive-power epoch.
+    ///         Pre-fix, claim()/claimUpTo() wrote the cursor then reverted in the
+    ///         same branch (the revert rolled the write back), so the cursor stayed
+    ///         parked; once the leading zero run reached MAX_CLAIM_EPOCHS the user
+    ///         was PERMANENTLY unable to claim any revenue.
+    function test_H1_cursorAdvancesPastZeroWindow_thenClaimsLateEpoch() public {
+        address dave = makeAddr("dave");
+        ve.setLock(dave, ALICE_POWER, block.timestamp + 365 days);
+        ve.setVotingPowerNow(dave, ALICE_POWER);
+
+        // 3 epochs where dave's historical power is 0 (default).
+        for (uint256 i; i < 3; i++) {
+            if (i > 0) vm.warp(block.timestamp + 4 hours + 1);
+            uint256 ts = block.timestamp - 1;
+            ve.setVotingPowerAt(bob, ts, BOB_POWER);
+            _fund(1 ether);
+            dist.distribute();
+        }
+        assertEq(dist.lastClaimedEpoch(dave), 0, "cursor starts parked at 0");
+
+        // claimUpTo over the all-zero window: POST-FIX advances the cursor and
+        // returns; PRE-FIX reverted NothingToClaim and left the cursor at 0.
+        vm.prank(dave);
+        dist.claimUpTo(250);
+        assertEq(dist.lastClaimedEpoch(dave), 3, "H1: cursor walked past the 3 zero-power epochs");
+
+        // dave now earns real power in a 4th epoch (index 3). Set the power at the
+        // ACTUAL snapshot timestamp distribute() recorded — read it back via
+        // getEpoch() (the robust pattern this harness uses for the alice test).
+        vm.warp(block.timestamp + 4 hours + 1);
+        _fund(3 ether);
+        dist.distribute();
+        (, , uint256 epochTs) = dist.getEpoch(3);
+        ve.setVotingPowerAt(bob, epochTs, BOB_POWER);
+        ve.setVotingPowerAt(dave, epochTs, ALICE_POWER);
+
+        // Pre-fund dave so the account already exists: the claim uses a 10k-gas
+        // stipend transfer, which would otherwise hit the 25k new-account cost and
+        // fall back to pendingWithdrawals (still credited, just harder to assert).
+        vm.deal(dave, 1 ether);
+        uint256 balBefore = dave.balance;
+        vm.prank(dave);
+        dist.claim();
+        assertGt(dave.balance - balBefore, 0, "H1: dave finally receives revenue from the positive epoch");
+        assertEq(dist.lastClaimedEpoch(dave), 4, "H1: cursor at end after the positive claim");
+    }
+
+    /// @notice H1 REGRESSION (claim() path): claim() on an all-zero window now
+    ///         commits the cursor and returns instead of reverting.
+    function test_H1_claim_commitsCursorOnAllZeroWindow() public {
+        address erin = makeAddr("erin");
+        ve.setLock(erin, ALICE_POWER, block.timestamp + 365 days);
+        ve.setVotingPowerNow(erin, ALICE_POWER);
+        for (uint256 i; i < 2; i++) {
+            if (i > 0) vm.warp(block.timestamp + 4 hours + 1);
+            uint256 ts = block.timestamp - 1;
+            ve.setVotingPowerAt(bob, ts, BOB_POWER);
+            _fund(1 ether);
+            dist.distribute();
+        }
+        vm.prank(erin);
+        dist.claim(); // must NOT revert post-fix
+        assertEq(dist.lastClaimedEpoch(erin), 2, "H1: claim() advances the cursor on an all-zero window");
     }
 }

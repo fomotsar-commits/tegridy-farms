@@ -104,6 +104,13 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     mapping(address => uint256) public lastBelowStakeTime; // Timestamp when referrer was marked below MIN_REFERRAL_STAKE_POWER
     uint256 public constant BELOW_STAKE_GRACE_PERIOD = 7 days; // Grace period before forfeiture allowed
 
+    /// @notice AUDIT FIX 2026-05-31 [LOW-4]: owner-set, current-episode below-threshold
+    ///         anchor. The BELOW_STAKE_GRACE_PERIOD runs from THIS (set via
+    ///         armForfeiture — onlyOwner + below-now) rather than the permissionless,
+    ///         monotonic, pre-armable `lastBelowStakeTime`. Cleared on claim and forfeit
+    ///         so each forfeiture cycle requires a fresh, current-episode confirmation.
+    mapping(address => uint256) public forfeitureArmedAt;
+
     mapping(address => uint256) public referrerRegisteredAt; // When a referrer first gained a referral
     uint256 public constant MIN_REFERRAL_AGE = 7 days; // Referrer must wait 7 days before claiming
 
@@ -119,17 +126,37 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     bytes32 public constant BAN_REFERRER = keccak256("BAN_REFERRER");
     uint256 public constant BAN_REFERRER_DELAY = 24 hours;
     address public pendingBanReferrer;
+    /// @notice AUDIT FIX 2026-05-26 [L-52]: timestamp at which `executeBanReferrer`
+    ///         landed. Used by `forfeitUnclaimedRewards` to enforce a 7-day grace
+    ///         window AFTER the ban (in addition to the 24h propose timelock).
+    mapping(address => uint256) public banExecutedAt;
+    uint256 public constant BAN_FORFEIT_GRACE = 7 days;
+    /// @notice AUDIT FIX 2026-05-26 [L-51]: per-referrer lifetime forfeited counter
+    ///         so `getReferralInfo`-style consumers can disambiguate "earned" (gross
+    ///         lifetime credits) from "forfeited" (post-ban / inactivity routed to
+    ///         treasury) without inferring from `totalEarned - totalClaimed`.
+    mapping(address => uint256) public totalForfeited;
 
     // ─── Timelock Constants ──────────────────────────────────────────
     uint256 public constant TREASURY_CHANGE_DELAY = 48 hours;
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
     uint256 public constant CALLER_GRANT_DELAY = 24 hours;
 
+    // [M6] Owner-gated below-stake mark clear (Aave V3 2-step pattern).
+    // The permissionless reset path is removed from markBelowStake to prevent the
+    // double-stamp attack where an attacker flash-loans stake ≥ threshold → resets
+    // clock → drops stake → re-marks → repeats indefinitely, blocking forfeiture.
+    // Recovery path: owner proposes clear (verifying above threshold at both propose
+    // AND execute time), waits 24 h, then executes.
+    bytes32 public constant CLEAR_BELOW_STAKE_MARK  = keccak256("CLEAR_BELOW_STAKE_MARK");
+    uint256 public constant CLEAR_BELOW_STAKE_DELAY = 24 hours;
+
     // ─── Pending Values (for timelocked changes) ─────────────────────
     address public pendingTreasury;
     uint256 public pendingReferralFee;
     // For caller grants, we use a per-address pending mapping
     mapping(address => bool) public pendingCallerGrant; // tracks which address has a pending grant
+    address public pendingClearMarkReferrer;             // [M6] pending referrer for owner-gated mark clear
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -154,6 +181,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     event CallerGrantProposed(address indexed caller, uint256 executeAfter);
     event CallerGrantCancelled(address indexed caller);
     event BelowStakeMarked(address indexed referrer, uint256 timestamp);
+    event ForfeitureArmed(address indexed referrer, uint256 armedAt); // [LOW-4] fresh owner-set grace anchor
     event CallerCreditPaidWETH(address indexed caller, uint256 amount);
     event UnclaimedSweptWETH(address indexed treasury, uint256 amount);
     event BanReferrerProposed(address indexed referrer, uint256 executeAfter); // DEEP-DR-L-04
@@ -161,6 +189,10 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     event BanReferrerCancelled(address indexed referrer);                      // DEEP-DR-L-04
     event ReferrerUnbanned(address indexed referrer);                          // DEEP-DR-L-04
     event RestakingContractSet(address indexed restaking);                     // pass-8 GOV-ECON-01
+    // [M6] owner-gated mark-clear events
+    event BelowStakeMarkCleared(address indexed referrer);
+    event ClearBelowStakeMarkProposed(address indexed referrer, uint256 executeAfter);
+    event ClearBelowStakeMarkCancelled(address indexed referrer);
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -179,6 +211,11 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error SetupAlreadyComplete(); // AUDIT FIX M-17
     error ReferralAgeTooRecent();
     error ReferrerBannedError(); // AUDIT FIX: DEEP-DR-L-04 — referrer is on the ban list
+    /// @notice AUDIT FIX 2026-05-26 [L-28]: invalid setApprovedCaller target.
+    error InvalidCaller();
+    /// @notice AUDIT FIX 2026-05-26 [L-52]: forfeit attempted within the 7-day
+    ///         post-ban grace window.
+    error ForfeitGracePending();
     /// @notice AUDIT FIX: V2-DR-L-01 — replaces the misleading `ZeroAddress()` revert
     ///         in `unbanReferrer` for callers passing a non-banned (but non-zero)
     ///         address. Off-chain monitoring can now distinguish input-validation
@@ -193,6 +230,10 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error AlreadyBanned();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
+    // [M6] mark-clear errors
+    error NotMarked();         // referrer has no active below-stake mark
+    error StillBelowThreshold(); // referrer is still below MIN_REFERRAL_STAKE_POWER at clear time
+    error NotBelowThreshold();   // [LOW-4] referrer is at/above threshold — cannot arm forfeiture
 
     // ─── Legacy View Helpers (for test compatibility) ──────────────
     function referralFeeChangeTime() external view returns (uint256) { return _executeAfter[REFERRAL_FEE_CHANGE]; }
@@ -358,6 +399,15 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         address referrer = referrerOf[_user];
         uint256 referrerShare = (msg.value * referralFeeBps) / BPS;
         if (referrerShare == 0) {
+            // AUDIT FIX 2026-05-26 [L-50]: if a referrer IS set but the share rounded
+            // to zero (`msg.value * referralFeeBps < BPS`), route the dust to treasury
+            // instead of crediting the caller. Pre-fix, repeated tiny-amount calls
+            // could siphon the caller's "no referrer" credit indefinitely. Treasury
+            // is the legitimate destination for un-attributable dust.
+            if (referrer != address(0)) {
+                accumulatedTreasuryETH += msg.value;
+                return;
+            }
             // SECURITY FIX H-04: Use pull pattern — credit caller instead of pushing ETH back
             callerCredit[msg.sender] += msg.value;
             totalCallerCredit += msg.value; // S2-H-01: Track total
@@ -471,6 +521,7 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         pendingETH[msg.sender] = 0;
         totalPendingETH -= amount;
         lastClaimTime[msg.sender] = block.timestamp;
+        forfeitureArmedAt[msg.sender] = 0; // [LOW-4] re-engaged referrer forces a fresh owner arm
 
         // AUDIT FIX L-11: Use WETHFallbackLib directly — avoids redundant raw .call before WETH fallback
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, amount);
@@ -524,6 +575,15 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     function setApprovedCaller(address _caller, bool _approved) external onlyOwner {
         if (setupComplete) revert SetupAlreadyComplete();
         if (_caller == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-26 [L-28]: when granting (not revoking), enforce
+        // type-filter against EOAs and EIP-7702 delegated EOAs. Pre-fix, a
+        // captured deployer EOA could whitelist an attacker EOA pre-setup;
+        // post-completeSetup the whitelist is frozen (the timelocked
+        // `proposeApprovedCaller` path is the only way to add more).
+        // Type-filter only; operator still verifies the contract behaves.
+        if (_approved && (_caller.code.length == 0 || _caller.code.length == 23)) {
+            revert InvalidCaller();
+        }
         approvedCallers[_caller] = _approved;
         emit ApprovedCallerSet(_caller, _approved);
     }
@@ -636,39 +696,82 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         emit TreasuryChangeCancelled(cancelled);
     }
 
-    /// @notice Mark a referrer as below MIN_REFERRAL_STAKE_POWER, starting the grace period clock.
-    ///         Anyone can call this. Resets if the referrer is actually above threshold.
+    /// @notice Mark a referrer as below MIN_REFERRAL_STAKE_POWER, starting the 7-day grace period.
+    ///         Permissionless — anyone can call. Idempotent: no-op if already marked or above threshold.
+    /// @dev    [M6 FIX] The permissionless reset-on-above-threshold path has been REMOVED.
+    ///         Pre-fix, an attacker could call this when power ≥ threshold (via flash loan) to reset
+    ///         `lastBelowStakeTime` to 0, then immediately re-mark — restarting the 7-day clock
+    ///         indefinitely (double-stamp attack). Post-fix: this function can only START the
+    ///         clock, never clear it. To clear a stale mark for a referrer who has genuinely
+    ///         recovered above threshold, the owner must call proposeClearBelowStakeMark →
+    ///         executeClearBelowStakeMark (24-hour Aave V3 2-step, re-verifies power at both steps).
     /// @param _referrer The referrer to mark
     function markBelowStake(address _referrer) external {
         // AUDIT FIX: DEEP-DR-M-07 — gate on setupComplete (L-R02 NatSpec contract).
         require(setupComplete, "SETUP_NOT_COMPLETE");
-        // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 power;
-        try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
-            power = p;
-        } catch {
-            power = 0;
-        }
-        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additively include restaked
-        // voting power. Without this, a referrer with all power restaked would
-        // be erroneously below threshold and the markBelowStake clock would tick.
-        if (restakingContract != address(0)) {
-            try IRestakingForReferral(restakingContract).votingPowerOf(_referrer) returns (uint256 r) {
-                power += r;
-            } catch {}
-        }
-        if (power >= MIN_REFERRAL_STAKE_POWER) {
-            // Referrer is above threshold — reset the timer
-            lastBelowStakeTime[_referrer] = 0;
-            return;
-        }
-        // Only set if not already marked
-        if (lastBelowStakeTime[_referrer] == 0) {
+        // Only start the clock if not already marked AND below threshold.
+        // [M6]: removed "if (power >= MIN_REFERRAL_STAKE_POWER) { lastBelowStakeTime = 0; return; }"
+        // that was the double-stamp attack vector.
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: zero-sentinel check — `0`
+        // means not-yet-marked (the M6 invariant: lastBelowStakeTime is monotonic).
+        // slither-disable-next-line incorrect-equality
+        if (lastBelowStakeTime[_referrer] == 0 && _votingPowerOf(_referrer) < MIN_REFERRAL_STAKE_POWER) {
             lastBelowStakeTime[_referrer] = block.timestamp;
             emit BelowStakeMarked(_referrer, block.timestamp);
         }
+    }
+
+    /// @notice AUDIT FIX 2026-05-31 [LOW-4]: owner arms the forfeiture grace with a
+    ///         FRESH, current-episode below-threshold confirmation. The 7-day
+    ///         BELOW_STAKE_GRACE_PERIOD then runs from this owner-set anchor instead of
+    ///         the permissionless, monotonic `lastBelowStakeTime` — closing the pre-arm
+    ///         vector where a third party stamped `lastBelowStakeTime` during a transient
+    ///         power dip (e.g. the block a lock expires) to collapse the grace to zero.
+    /// @dev    onlyOwner + below-now, so it cannot be pre-armed by an attacker, and it
+    ///         does NOT touch the M6 monotonic-mark invariant (lastBelowStakeTime is
+    ///         untouched). A fresh arm is required after any claim or recovery above
+    ///         threshold (the anchor is cleared on claim and on forfeit).
+    function armForfeiture(address _referrer) external onlyOwner {
+        require(setupComplete, "SETUP_NOT_COMPLETE");
+        if (_referrer == address(0)) revert ZeroAddress();
+        if (_votingPowerOf(_referrer) >= MIN_REFERRAL_STAKE_POWER) revert NotBelowThreshold();
+        forfeitureArmedAt[_referrer] = block.timestamp;
+        emit ForfeitureArmed(_referrer, block.timestamp);
+    }
+
+    /// @notice [M6 FIX] Owner proposes clearing a below-stake mark for a referrer who has
+    ///         genuinely recovered above MIN_REFERRAL_STAKE_POWER. Requires power ≥ threshold
+    ///         at BOTH propose time and execute time to block flash-loan gaming.
+    ///         24-hour Aave V3 2-step — execute via executeClearBelowStakeMark.
+    function proposeClearBelowStakeMark(address _referrer) external onlyOwner {
+        if (_referrer == address(0)) revert ZeroAddress();
+        if (lastBelowStakeTime[_referrer] == 0) revert NotMarked();
+        // Require above threshold at propose time — prevents no-op clears
+        if (_votingPowerOf(_referrer) < MIN_REFERRAL_STAKE_POWER) revert StillBelowThreshold();
+        pendingClearMarkReferrer = _referrer;
+        _propose(CLEAR_BELOW_STAKE_MARK, CLEAR_BELOW_STAKE_DELAY);
+        emit ClearBelowStakeMarkProposed(_referrer, _executeAfter[CLEAR_BELOW_STAKE_MARK]);
+    }
+
+    /// @notice [M6 FIX] Execute a pending mark-clear after the 24-hour delay.
+    ///         Re-verifies power at execute time — a flash-loan that boosted power at propose
+    ///         time cannot also be active 24 hours later, so this gate is flash-loan-proof.
+    function executeClearBelowStakeMark() external onlyOwner {
+        _execute(CLEAR_BELOW_STAKE_MARK);
+        address referrer = pendingClearMarkReferrer;
+        // Re-check power at execute time
+        if (_votingPowerOf(referrer) < MIN_REFERRAL_STAKE_POWER) revert StillBelowThreshold();
+        lastBelowStakeTime[referrer] = 0;
+        pendingClearMarkReferrer = address(0);
+        emit BelowStakeMarkCleared(referrer);
+    }
+
+    /// @notice Cancel a pending below-stake mark-clear proposal.
+    function cancelClearBelowStakeMark() external onlyOwner {
+        _cancel(CLEAR_BELOW_STAKE_MARK);
+        address cancelled = pendingClearMarkReferrer;
+        pendingClearMarkReferrer = address(0);
+        emit ClearBelowStakeMarkCancelled(cancelled);
     }
 
     /// @notice Forfeit unclaimed rewards for a referrer who has been below stake threshold
@@ -682,34 +785,50 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         uint256 amount = pendingETH[_referrer];
         if (amount == 0) revert NothingToClaim();
         // Must be below min stake for at least grace period AND inactive for 90 days
-        // A4-C-01: Wrap in try/catch — if staking reverts, treat as below threshold (allow forfeiture)
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 referrerPower;
-        try stakingContract.votingPowerOf(_referrer) returns (uint256 p) {
-            referrerPower = p;
-        } catch {
-            referrerPower = 0;
+        // [M6]: unified into _votingPowerOf helper (same try/catch + restaking logic).
+        uint256 referrerPower = _votingPowerOf(_referrer);
+        // AUDIT FIX (banned-referrer forfeit): a banned referrer is a lifecycle-
+        // ended account that can never claim (claimReferralRewards reverts
+        // ReferrerBannedError), so the anti-griefing stake/inactivity gate that
+        // protects LEGITIMATE referrers must NOT apply to them — otherwise their
+        // pre-ban pendingETH is frozen forever (un-claimable, un-forfeitable, and
+        // reserved out of sweepUnclaimable). The 24h-timelocked ban ceremony is the
+        // authorization; this routes their balance to treasury exactly as the ban
+        // NatSpec already promises. Non-banned referrers are unaffected.
+        if (!bannedReferrers[_referrer]) {
+            if (
+                // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+                // slither-disable-next-line incorrect-equality
+                referrerPower >= MIN_REFERRAL_STAKE_POWER ||
+                lastBelowStakeTime[_referrer] == 0 ||
+                // AUDIT FIX 2026-05-31 [LOW-4]: the 7-day grace runs from the FRESH
+                // owner-set anchor (armForfeiture, below-now), NOT the permissionless,
+                // pre-armable monotonic mark — so a stale pre-armed lastBelowStakeTime
+                // can no longer collapse a legitimate current-episode grace window.
+                // slither-disable-next-line incorrect-equality
+                forfeitureArmedAt[_referrer] == 0 ||
+                block.timestamp < forfeitureArmedAt[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
+                block.timestamp < lastClaimTime[_referrer] + FORFEITURE_PERIOD
+            ) revert ForfeitureConditionsNotMet();
+        } else {
+            // AUDIT FIX 2026-05-26 [L-52]: 7-day grace after ban execute. Pre-fix,
+            // captured-owner could 24h-ban + INSTANTLY forfeit, end-to-end ~24h.
+            // Post-fix: 24h ban timelock + 7d post-ban grace = ~8 days monitoring
+            // window total. New `banExecutedAt` mapping stamped in executeBanReferrer;
+            // legacy banned referrers (none on mvp-launch) have `banExecutedAt == 0`
+            // → grace effectively expired at unix-epoch + 7d (same as pre-fix).
+            if (block.timestamp < banExecutedAt[_referrer] + BAN_FORFEIT_GRACE) {
+                revert ForfeitGracePending();
+            }
         }
-        // AUDIT FIX (pass-8): GOV-ECON-01 / C10 — additively include restaked
-        // voting power so a referrer who restakes is not erroneously eligible
-        // for forfeiture (the forfeit gate is "below threshold AND inactive").
-        if (restakingContract != address(0)) {
-            try IRestakingForReferral(restakingContract).votingPowerOf(_referrer) returns (uint256 r) {
-                referrerPower += r;
-            } catch {}
-        }
-        if (
-            // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-            // slither-disable-next-line incorrect-equality
-            referrerPower >= MIN_REFERRAL_STAKE_POWER ||
-            lastBelowStakeTime[_referrer] == 0 ||
-            block.timestamp < lastBelowStakeTime[_referrer] + BELOW_STAKE_GRACE_PERIOD ||
-            block.timestamp < lastClaimTime[_referrer] + FORFEITURE_PERIOD
-        ) revert ForfeitureConditionsNotMet();
 
         pendingETH[_referrer] = 0;
         totalPendingETH -= amount;
+        forfeitureArmedAt[_referrer] = 0; // [LOW-4] next forfeiture cycle must re-arm fresh
+        // AUDIT FIX 2026-05-26 [L-51]: track lifetime forfeited per-referrer
+        // separate from `totalEarned`. Pre-fix `getReferralInfo` returned
+        // `earned` that included forfeited amounts, overstating lifetime payout.
+        totalForfeited[_referrer] += amount;
 
         // A3-M-01: Accumulate instead of push — withdraw via withdrawTreasuryFees()
         accumulatedTreasuryETH += amount;
@@ -755,6 +874,13 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         address banned = pendingBanReferrer;
         pendingBanReferrer = address(0);
         bannedReferrers[banned] = true;
+        // AUDIT FIX 2026-05-26 [L-52]: stamp ban-execution time so forfeit on a
+        // banned referrer has a 7-day grace window AFTER the ban executes.
+        // Pre-fix, a captured owner could 24h-timelock-ban then INSTANTLY
+        // forfeit (the bannedReferrers gate bypassed all stake/grace/inactivity
+        // checks at the forfeit). The 7-day grace adds a second monitoring
+        // window matching the Aave Safety Module cooldown pattern.
+        banExecutedAt[banned] = block.timestamp;
         emit ReferrerBanned(banned);
     }
 
@@ -809,6 +935,21 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         return (totalReferred[_referrer], totalEarned[_referrer], pendingETH[_referrer]);
     }
 
+    // ─── Internal helpers ─────────────────────────────────────────────
+
+    /// @notice Unified voting-power reader used by markBelowStake, forfeitUnclaimedRewards,
+    ///         and the M6 clear-mark path. Includes restaking-side power (GOV-ECON-01 / C10).
+    ///         Wraps both calls in try/catch — staking revert → 0 (conservative: treats as
+    ///         below threshold so marks/forfeits are not silently blocked by a bad oracle).
+    function _votingPowerOf(address _account) internal view returns (uint256 power) {
+        try stakingContract.votingPowerOf(_account) returns (uint256 p) { power = p; } catch {}
+        if (restakingContract != address(0)) {
+            try IRestakingForReferral(restakingContract).votingPowerOf(_account) returns (uint256 r) {
+                power += r;
+            } catch {}
+        }
+    }
+
     /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
     ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
     ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
@@ -838,6 +979,14 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
             _cancel(BAN_REFERRER);
             pendingBanReferrer = address(0);
             emit BanReferrerCancelled(cancelled);
+        }
+        // [M6]: flush pending mark-clear on owner rotation so incoming owner
+        // is not bound by an outgoing-owner clear proposal.
+        if (_executeAfter[CLEAR_BELOW_STAKE_MARK] != 0) {
+            address cancelled = pendingClearMarkReferrer;
+            _cancel(CLEAR_BELOW_STAKE_MARK);
+            pendingClearMarkReferrer = address(0);
+            emit ClearBelowStakeMarkCancelled(cancelled);
         }
     }
 }

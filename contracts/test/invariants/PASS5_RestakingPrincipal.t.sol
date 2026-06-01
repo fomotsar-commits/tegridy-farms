@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../../src/StakingMonitorView.sol";
 import "../../src/TegridyStakingAdmin.sol";
 import "../../src/TegridyRestaking.sol";
 
@@ -39,6 +40,7 @@ contract InvR_WETH is ERC20 {
 
 contract InvR_Handler is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyRestaking public restaking;
     InvR_Toweli public toweli;
     InvR_WETH public weth;
@@ -125,6 +127,7 @@ contract InvR_Handler is Test {
 
 contract PASS5_INV_A_RestakingPrincipal is Test {
     TegridyStaking public staking;
+    StakingMonitorView public monitor;
     TegridyStakingAdmin public stakingAdmin;
     TegridyRestaking public restaking;
     InvR_Toweli public toweli;
@@ -142,11 +145,13 @@ contract PASS5_INV_A_RestakingPrincipal is Test {
         weth = new InvR_WETH();
 
         staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1 ether);
+        monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             0.1 ether

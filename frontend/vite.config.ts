@@ -217,7 +217,10 @@ export default defineConfig(({ mode }) => {
             const endpoint = url.searchParams.get('endpoint') || '';
             const params = new URLSearchParams(url.searchParams);
             params.delete('endpoint');
-            const key = env.ALCHEMY_API_KEY || env.VITE_ALCHEMY_API_KEY || '';
+            // AUDIT FIX 2026-05-26 [H-35]: dropped `env.VITE_ALCHEMY_API_KEY` fallback —
+            // anything VITE_-prefixed is inlined into the public client bundle. Use the
+            // server-only `ALCHEMY_API_KEY` (this is a vite dev proxy, runs in the dev server).
+            const key = env.ALCHEMY_API_KEY || '';
             if (!key) console.warn('[vite proxy] ALCHEMY_API_KEY is not set — Alchemy requests will fail.');
             if (endpoint === 'rpc') {
               return `/v2/${key}`;
@@ -244,7 +247,9 @@ export default defineConfig(({ mode }) => {
           },
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
-              const key = env.OPENSEA_API_KEY || env.VITE_OPENSEA_API_KEY || '';
+              // AUDIT FIX 2026-05-26 [H-35]: same — dropped `env.VITE_OPENSEA_API_KEY`
+              // fallback to keep paid keys out of the public client bundle.
+              const key = env.OPENSEA_API_KEY || '';
               if (key) proxyReq.setHeader('x-api-key', key);
               proxyReq.setHeader('Accept', 'application/json');
             });

@@ -1290,7 +1290,8 @@ export function VoteIncentivesSection() {
   const handleCommitVote = (_pair: Address, _power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'commitIndex' | 'committedAt'>) => {
     if (!address) return;
     // Capture hash + record; persist after we learn the commitIndex on success.
-    bribes.commitVote(prevEpoch, commitHash);
+    // De-drift 2026-05-31: forward _power — contract commitVote now requires it.
+    bribes.commitVote(prevEpoch, commitHash, _power);
     // We don't know the commitIndex yet — we'll reconcile by reading voterCommits.length on next refetch.
     // Stash a pending record keyed by commitHash so we can assign commitIndex when we see it.
     const key = COMMIT_KEY(chainId, address, prevEpoch);

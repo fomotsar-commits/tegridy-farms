@@ -4,8 +4,13 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+// AUDIT FIX 2026-05-26 [H-07] — EnumerableSet for tracking pending per-pair
+// PAIR_RESET timelock keys so `acceptOwnership` can flush them when a new
+// owner takes the seat (closes the cross-owner replay vector).
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 
 /// @title ITegridyPair — Minimal interface for TegridyPair reserve + cumulative queries
 /// @dev   AUDIT R014 (oracle layer, Wave-014): extended with `price0CumulativeLast` and
@@ -43,45 +48,27 @@ interface ITegridyFactoryForTWAP {
 ///   - MAX_STALENESS of 2 hours ensures consult() rejects stale data.
 ///   - Price deviation check rejects observations that deviate >=MAX_DEVIATION_BPS from
 ///     the previous, mitigating flash-loan manipulation of reserves.
-/// @dev Minimal Ownable2Step + timelock-style admin for the optional update fee.
-abstract contract TWAPAdmin {
-    address public owner;
-    address public pendingOwner;
-    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    error NotOwner();
-    error TWAPZeroAddress();
-    constructor() {
-        owner = msg.sender;
-        emit OwnershipTransferred(address(0), msg.sender);
-    }
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert TWAPZeroAddress();
-        pendingOwner = newOwner;
-        emit OwnershipTransferStarted(owner, newOwner);
-    }
-    function acceptOwnership() external {
-        if (msg.sender != pendingOwner) revert NotOwner();
-        address prev = owner;
-        owner = pendingOwner;
-        pendingOwner = address(0);
-        emit OwnershipTransferred(prev, owner);
-    }
-    function renounceOwnership() external pure {
-        revert("RENOUNCE_DISABLED");
-    }
-}
+// AUDIT FIX (2026-05-25 2nd pass): the bespoke `TWAPAdmin` (a minimal Ownable2Step that
+// LACKED the protocol-standard 14-day transfer expiry, `cancelOwnershipTransfer`, and
+// EIP-7702 reject) was removed in favour of the shared `OwnableNoRenounce` base used by
+// every other admin contract. `TegridyTWAP` now inherits it directly (see below), bringing
+// the oracle's ownership-transfer surface in line with the rest of the protocol.
+//
+// AUDIT FIX 2026-05-26 [H-07]: per-pair `PAIR_RESET` timelock keys are now tracked via the
+// `_pendingResetPairs` enumerable set, and `acceptOwnership` is overridden to flush every
+// pending reset on owner rotation. Previous behaviour (manual `cancelAdminResetPair` per
+// pair after handoff) was vulnerable to a captured outgoing owner queueing dozens of
+// resets that the incoming owner had no on-chain enumeration of — a missed cancel meant
+// the outgoing owner's reset would execute under the new owner's timelock.
 
 /// @dev AUDIT FIX D-AMM-L3: inherit ReentrancyGuard for defense-in-depth on
 ///      `update()` (refunds excess ETH) and `withdrawFees()` (sends fees to
 ///      recipient). CEI is preserved; nonReentrant is belt-and-suspenders.
 /// @dev AUDIT FIX D-AMM-H3: inherit TimelockAdmin for the new
 ///      `adminResetPair(pair)` recovery primitive (24h timelocked).
-contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
+contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     // ─── Types ───────────────────────────────────────────────────────
 
     /// @notice AUDIT R014 (oracle layer, Wave-014): widened cumulative slots from
@@ -148,7 +135,34 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     bytes32 public constant PAIR_RESET = keccak256("PAIR_RESET");
     uint256 public constant PAIR_RESET_DELAY = 24 hours;
 
+    // AUDIT FIX 2026-05-26 [M-10] — per-pair reserve-floor timelock keys.
+    // Mirrors PAIR_RESET shape (per-pair, propose/execute/cancel). 24h delay.
+    bytes32 public constant MIN_RESERVE_FLOOR_0 = keccak256("MIN_RESERVE_FLOOR_0");
+    bytes32 public constant MIN_RESERVE_FLOOR_1 = keccak256("MIN_RESERVE_FLOOR_1");
+    uint256 public constant MIN_RESERVE_FLOOR_DELAY = 24 hours;
+
+    // AUDIT FIX 2026-05-26 [M-11] — fee-recipient change timelock. 24h matches
+    // the protocol-standard delay used across all other admin-rotation paths.
+    bytes32 public constant FEE_RECIPIENT_CHANGE = keccak256("FEE_RECIPIENT_CHANGE");
+    uint256 public constant FEE_RECIPIENT_CHANGE_DELAY = 24 hours;
+
     // ─── Storage ─────────────────────────────────────────────────────
+
+    // AUDIT FIX 2026-05-26 [H-07] — enumerable set of pairs with a pending
+    // PAIR_RESET timelock proposal. `proposeAdminResetPair` adds; execute /
+    // cancel / acceptOwnership-flush remove. Lets a newly-accepted owner
+    // atomically purge every pending reset the outgoing owner queued.
+    EnumerableSet.AddressSet private _pendingResetPairs;
+
+    // AUDIT FIX 2026-05-26 [M-10] — pending values for the per-pair floor
+    // timelocks. Stored at propose time, applied at execute time, cleared on
+    // execute/cancel so a stale slot can never silently replay.
+    mapping(address => uint256) public pendingMinReserveFloor0;
+    mapping(address => uint256) public pendingMinReserveFloor1;
+
+    // AUDIT FIX 2026-05-26 [M-11] — pending value for the global fee-recipient
+    // timelock. Cleared on execute/cancel.
+    address public pendingFeeRecipient;
 
     mapping(address => Observation[MAX_OBSERVATIONS]) public observations;
     mapping(address => uint8) public observationIndex;
@@ -192,20 +206,101 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///      off-chain monitoring sees per-side configuration changes.
     event MinReserveFloor1Set(address indexed pair, uint256 floor);
 
-    function setMinReserveFloor(address pair, uint256 floor) external onlyOwner {
+    // AUDIT FIX 2026-05-26 [M-10] — lifecycle events for the per-pair floor
+    // timelocks. Mirrors PAIR_RESET propose/execute/cancel shape.
+    event MinReserveFloor0Proposed(address indexed pair, uint256 floor, uint256 executeAfter);
+    event MinReserveFloor0Cancelled(address indexed pair);
+    event MinReserveFloor1Proposed(address indexed pair, uint256 floor, uint256 executeAfter);
+    event MinReserveFloor1Cancelled(address indexed pair);
+
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — DEPRECATED. Use
+    ///         `proposeAdminMinReserveFloor` / `executeAdminMinReserveFloor`.
+    /// @dev    Pre-fix the immediate setter gave a captured owner an instant
+    ///         primitive to disable the reserve-floor gate on a pair they
+    ///         intended to grind via low-TVL TWAP manipulation. The 24h
+    ///         timelock window restores observability/contestability.
+    ///         Deprecation pattern mirrors TegridyFactory.setTokenBlocked.
+    function setMinReserveFloor(address, uint256) external pure {
+        revert("Use proposeAdminMinReserveFloor()");
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — DEPRECATED. Use
+    ///         `proposeAdminMinReserveFloor1` / `executeAdminMinReserveFloor1`.
+    function setMinReserveFloor1(address, uint256) external pure {
+        revert("Use proposeAdminMinReserveFloor1()");
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — propose a 24h-timelocked change
+    ///         to the per-pair side-0 reserve floor.
+    function proposeAdminMinReserveFloor(address pair, uint256 floor) external onlyOwner {
         if (!factory.isPair(pair)) revert UnknownPair();
+        // AUDIT FIX FRESH-2026 [M-TWAP-FLOOR-MIN]: enforce a hard minimum on
+        // the override so a captured-key (or honest mis-typed) owner cannot
+        // set per-pair `minReserveFloor[pair] = 1` (1 wei). For 6-decimal
+        // pairs (USDC), 1 wei means reserve0 can drop to 1 USDC-base-unit
+        // while spotPrice0 = reserve1 * 2^112 — the deviation-gate's BPS
+        // math becomes meaningless when the denominator is dominated by a
+        // 2^112 factor. UniV2's MINIMUM_LIQUIDITY = 1000 is the natural
+        // floor here; reject anything below that for both decimal-6 and
+        // decimal-18 pairs. Floor must be either explicitly 0 (use default)
+        // or >= 1000.
+        if (floor != 0 && floor < 1000) revert FloorTooLow();
+        bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_0, pair));
+        pendingMinReserveFloor0[pair] = floor;
+        _propose(key, MIN_RESERVE_FLOOR_DELAY);
+        emit MinReserveFloor0Proposed(pair, floor, _proposalReadyAt(key));
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — execute a previously proposed
+    ///         side-0 reserve-floor change after the 24h timelock.
+    function executeAdminMinReserveFloor(address pair) external onlyOwner {
+        bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_0, pair));
+        _execute(key);
+        uint256 floor = pendingMinReserveFloor0[pair];
         minReserveFloor[pair] = floor;
+        delete pendingMinReserveFloor0[pair];
         emit MinReserveFloorSet(pair, floor);
     }
 
-    /// @notice AUDIT FIX F-24-2 (2026-05): per-side override for the reserve-1
-    ///         floor. Owner-only. A non-zero value here unbinds reserve-1 from
-    ///         the side-0 floor, which is the correct behaviour on any
-    ///         cross-decimal pair. Setting back to 0 restores fallback.
-    function setMinReserveFloor1(address pair, uint256 floor) external onlyOwner {
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — cancel a pending side-0 floor proposal.
+    function cancelAdminMinReserveFloor(address pair) external onlyOwner {
+        bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_0, pair));
+        _cancel(key);
+        delete pendingMinReserveFloor0[pair];
+        emit MinReserveFloor0Cancelled(pair);
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — propose a 24h-timelocked change
+    ///         to the per-pair side-1 reserve floor. A non-zero value unbinds
+    ///         reserve-1 from the side-0 floor (F-24-2). Setting back to 0
+    ///         restores side-0 fallback.
+    function proposeAdminMinReserveFloor1(address pair, uint256 floor) external onlyOwner {
         if (!factory.isPair(pair)) revert UnknownPair();
+        // AUDIT FIX FRESH-2026 [M-TWAP-FLOOR-MIN]: sibling-port of side-0 floor minimum.
+        if (floor != 0 && floor < 1000) revert FloorTooLow();
+        bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_1, pair));
+        pendingMinReserveFloor1[pair] = floor;
+        _propose(key, MIN_RESERVE_FLOOR_DELAY);
+        emit MinReserveFloor1Proposed(pair, floor, _proposalReadyAt(key));
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — execute a previously proposed
+    ///         side-1 reserve-floor change after the 24h timelock.
+    function executeAdminMinReserveFloor1(address pair) external onlyOwner {
+        bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_1, pair));
+        _execute(key);
+        uint256 floor = pendingMinReserveFloor1[pair];
         minReserveFloor1[pair] = floor;
+        delete pendingMinReserveFloor1[pair];
         emit MinReserveFloor1Set(pair, floor);
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-10] — cancel a pending side-1 floor proposal.
+    function cancelAdminMinReserveFloor1(address pair) external onlyOwner {
+        bytes32 key = keccak256(abi.encodePacked(MIN_RESERVE_FLOOR_1, pair));
+        _cancel(key);
+        delete pendingMinReserveFloor1[pair];
+        emit MinReserveFloor1Cancelled(pair);
     }
 
     /// @notice AUDIT FIX F-31-C / M-24 (FRESH-EYES 2026-05): effective floor used
@@ -298,7 +393,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     /// @param _sequencerFeed AUDIT R062 — Chainlink L2 Sequencer Uptime feed; pass
     ///                       `address(0)` for mainnet / non-L2 deployments to disable
     ///                       gating (no-op).
-    constructor(address _factory, address _sequencerFeed) {
+    constructor(address _factory, address _sequencerFeed) OwnableNoRenounce(msg.sender) {
         if (_factory == address(0)) revert TWAPZeroAddress();
         factory = ITegridyFactoryForTWAP(_factory);
         // R062: zero permitted (mainnet / non-L2 = gating disabled).
@@ -326,6 +421,8 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
 
     // ─── Errors ──────────────────────────────────────────────────────
 
+    /// @notice AUDIT FIX (2026-05-25 2nd pass): relocated here from the removed TWAPAdmin.
+    error TWAPZeroAddress();
     error PeriodNotElapsed();
     error NoReserves();
     error InsufficientObservations();
@@ -340,6 +437,10 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     /// @notice AUDIT R014: caller passed a `pair` that the bound TegridyFactory does
     ///         not recognise. Prevents oracle poisoning from forged "pair-shaped" contracts.
     error UnknownPair();
+    /// @dev AUDIT FIX FRESH-2026 [M-TWAP-FLOOR-MIN]: floor < 1000 wei rejected.
+    ///      Mirrors UniV2's MINIMUM_LIQUIDITY so a captured-key cannot set
+    ///      a 1-wei floor that effectively disables the deviation gate.
+    error FloorTooLow();
     /// @notice FRESH-EYES H-2: factory has disabled this pair. Refusing observations during
     ///         the disabled window prevents manipulated frozen-reserve poisoning of the buffer.
     error PairDisabled();
@@ -350,6 +451,9 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     error OracleRebootstrapping();
     /// @notice AUDIT FIX D-AMM-H3: zero-address parameter on `proposeAdminResetPair`.
     error PairResetZeroAddress();
+    // AUDIT FIX 2026-05-26 [M-13] — typed revert for the no-op `setUpdateFee`
+    // call (caller submitted the same value already in storage).
+    error SameValue();
 
     // ─── External ────────────────────────────────────────────────────
 
@@ -557,7 +661,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             //         Owner-only bootstrap forces an honest baseline at the
             //         single inflection point where there is no prior
             //         `lastSpot` to gate against.
-            if (msg.sender != owner) revert BypassObservationOwnerOnly();
+            if (msg.sender != owner()) revert BypassObservationOwnerOnly();
             bypassed = true;
             lastBypassUsed[pair] = block.timestamp;
             emit DeviationBypassed(pair, 0, spotPrice0, spotPrice1);
@@ -623,13 +727,31 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 //         all the way through the bootstrap-to-enforcement
                 //         transition. Once count > 2 the path is
                 //         permissionless again.
-                if (msg.sender != owner) revert BypassObservationOwnerOnly();
+                if (msg.sender != owner()) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
             } else if (uint256(elapsed) <= DEVIATION_BYPASS_AFTER) {
                 uint256 prev0 = lastSpot0[pair];
                 uint256 prev1 = lastSpot1[pair];
+                // AUDIT FIX FRESH-2026 [H-TWAP-OBS4-UNGATED]: when the lastSpot
+                // baseline has never been seeded (count<=2 bypass paths under
+                // the H-Z `count > 2` write-gate did NOT write lastSpot, so
+                // prev0/prev1 are zero through observation #3), the `if (prev0
+                // > 0)` checks below SKIP — leaving obs #4 (the first
+                // permissionless observation) with NO deviation enforcement.
+                // An attacker who races the first permissionless update at
+                // the MIN_PERIOD boundary post-bootstrap with flash-loan
+                // distorted reserves pins lastSpot at their value; subsequent
+                // honest obs #5+ either fit within a 20% bend of the lie or
+                // trip PriceDeviationTooLarge — bricking the buffer for 24h
+                // until proposeAdminResetPair. Restrict the unseeded transition
+                // to owner-only so the baseline is anchored under owner
+                // verification, the same trust assumption as count<=2 grace.
+                // Once prev0 > 0 (i.e. obs #5+), the path is permissionless
+                // again and the 20%-per-step deviation gate provides the
+                // ongoing manipulation cap.
+                if ((prev0 == 0 || prev1 == 0) && msg.sender != owner()) revert BypassObservationOwnerOnly();
                 if (prev0 > 0) {
                     uint256 deviation0 = spotPrice0 > prev0
                         ? ((spotPrice0 - prev0) * BPS) / prev0
@@ -677,7 +799,7 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
                 // post-dormancy rebootstrap on tokens whose real price has
                 // drifted past the deviation cap during dormancy — see
                 // DEVIATION_BYPASS_AFTER.
-                if (msg.sender != owner) revert BypassObservationOwnerOnly();
+                if (msg.sender != owner()) revert BypassObservationOwnerOnly();
                 bypassed = true;
                 lastBypassUsed[pair] = block.timestamp;
                 emit DeviationBypassed(pair, elapsed, spotPrice0, spotPrice1);
@@ -695,7 +817,27 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         // when the underlying conditions for that honest cumulative are
         // not met (frozen disable interval / unrefreshed reserves during
         // a sequencer outage).
-        if (!bypassed && (bridgingGapTrip || sequencerOutage)) {
+        // AUDIT FIX L5: track whether THIS observation's bypass was FORCED by an
+        // outage / bridging-gap trip (the permissionless path) so the honest
+        // deviation baseline can be preserved below.
+        //
+        // AUDIT FIX FRESH-2026 [H-TWAP-COMBINED-DORMANCY-OUTAGE]: compute
+        // `forcedBypass` UNCONDITIONALLY (decoupled from `bypassed`). The
+        // prior `if (!bypassed && ...)` guard meant the flag was only set
+        // when no other branch had already raised `bypassed` — but the
+        // dormancy-bypass branch (count>2 + elapsed>DEVIATION_BYPASS_AFTER)
+        // pre-empts that condition. In the combined case (dormancy + outage
+        // or dormancy + multi-MAX_BRIDGING_GAP idle), `forcedBypass` stayed
+        // false, and the L5 lastSpot-write gate at L863 (`!forcedBypass &&
+        // count > 2`) silently admitted writes from frozen/unrefreshed
+        // reserves — violating the L5 invariant comment immediately below.
+        // Decoupled computation closes the combined-event case while
+        // preserving all single-event semantics: bypassed is OR'd from
+        // both sources; forcedBypass is a pure function of the
+        // outage/bridging trips and reflects the physical untrustworthiness
+        // of the spot regardless of which branch raised bypassed.
+        bool forcedBypass = (bridgingGapTrip || sequencerOutage);
+        if (forcedBypass && !bypassed) {
             bypassed = true;
             lastBypassUsed[pair] = block.timestamp;
             uint32 elapsedForEvent;
@@ -706,8 +848,45 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         }
 
         // R012: capture the spot prices for the next deviation gate (H-1/H-2).
-        lastSpot0[pair] = spotPrice0;
-        lastSpot1[pair] = spotPrice1;
+        // AUDIT FIX L5: do NOT overwrite the baseline when the bypass was FORCED by a
+        // sequencer outage / bridging-gap trip. During an outage the spot is derived
+        // from frozen/unrefreshed reserves; writing it would let a post-resume attacker
+        // (first in the queue) pin a manipulated baseline and brick honest updates via
+        // the deviation gate until the dormancy/admin-reset path heals.
+        //
+        // AUDIT FIX FRESH-2026 [H-TWAP-BYPASS-LASTSPOT] (REVISED): the
+        // earlier `!bypassed` gate over-restricted writes — closing the
+        // bootstrap-sandwich attack at count<=2 but ALSO blocking the
+        // dormancy-bypass branch (count>2 + elapsed>DEVIATION_BYPASS_AFTER)
+        // from reseeding `lastSpot`. After a legitimate dormancy-bypass, the
+        // pre-dormancy `lastSpot` is by definition stale (real market price
+        // has drifted >20% during the dormant window — that's exactly why
+        // owner invoked the bypass), so the next deviation-gated observation
+        // would compare current honest spot to stale lastSpot, trip
+        // `PriceDeviationTooLarge`, and require the 24h `proposeAdminResetPair`
+        // path to recover. Revised gate: refuse the write only on the
+        // bootstrap-and-grace paths (count<=2) AND on the forced-bypass
+        // (outage/bridging-gap) path; ALLOW the write on the dormancy-bypass
+        // and honest paths (both count>2). Justifications by branch:
+        //   - count<=2 (bootstrap + grace): owner-only, but sandwichable
+        //     across multi-block grind; refusing the write closes that surface.
+        //   - count>2 + dormancy-bypass: owner-only, fires only after >1day
+        //     of dormancy; reseeding is REQUIRED for recovery (this is the
+        //     branch's entire purpose). Manipulation cost is the inventory
+        //     carry across 1+ day of dormancy, far higher than the bootstrap
+        //     case. The bypass observation itself is consult-side rejected
+        //     via `best.bypassed`, so a manipulated reseed only affects the
+        //     deviation-gate baseline (bounded next-step bend at 20%).
+        //   - forcedBypass: spot is from frozen/unrefreshed reserves under
+        //     outage/long-bridging; refusing the write is the L5 invariant.
+        //   - count>2 honest: unchanged write-through.
+        // Pattern of record: Uniswap V3's observation.tick is sourced from
+        // the last accepted swap in the block — symmetric here for the honest
+        // and dormancy-recovery paths.
+        if (!forcedBypass && count > 2) {
+            lastSpot0[pair] = spotPrice0;
+            lastSpot1[pair] = spotPrice1;
+        }
 
         uint8 idx = observationIndex[pair];
         observations[pair][idx] = Observation({
@@ -737,6 +916,15 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///         pair creation) does `consult(period=30 min)` first return a
     ///         non-revert price. Integrators bootstrapping new pairs MUST
     ///         account for this ~6-observation warm-up window.
+    ///
+    /// @notice AUDIT FIX 2026-05-26 [L-22] — Fresh pair warm-up window is
+    ///         ~105 min (45 min owner-bootstrap of obs #1/#2/#3/#4 at the
+    ///         15-min MIN_PERIOD cadence + 60 min consumer cooldown). Consumer
+    ///         harvest reverts during this window — by design (fail-closed).
+    ///         The 60-min cooldown is the lender's / POL's `lastBypassUsed`
+    ///         gate (TegridyLending._positionETHValue, POL._twapMinOut);
+    ///         the 45-min on-chain part is the four sequential owner
+    ///         observations at MIN_PERIOD apart.
     ///
     /// @notice AUDIT R016 M-1 (MEDIUM, DOCUMENTATION): post-bypass observations participate
     ///         in the cumulative immediately. When the deviation gate is skipped because the
@@ -768,6 +956,23 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///         integrations or under-protect cautious ones. Both signals (`bypassed` flag +
     ///         `lastBypassUsed`) are surfaced verbatim so any consumer can implement its own
     ///         policy.
+    ///
+    /// @notice CONSUMER REQUIREMENT (idle-pair bridging — 2026-05-25 audit): the
+    ///         per-observation cumulative includes a `spot * elapsedSinceLastPairTouch`
+    ///         bridge term (R014 stale-pair freshness fix), bounded by MAX_BRIDGING_GAP
+    ///         and the per-step MAX_DEVIATION_BPS gate. On a pair that is idle between
+    ///         observations, a single gate-passing endpoint can weight the consult average
+    ///         toward a recently-manipulated spot. The manipulation must PERSIST across the
+    ///         idle gap (arbitrage-resisted) and the pair must clear the per-pair reserve
+    ///         floor, but `consult()` ALONE is NOT a manipulation-proof price. Every
+    ///         consumer MUST therefore (a) reject pairs below a meaningful reserve floor
+    ///         (see `effectiveMinReserveFloor`) AND (b) gate the read against live spot with
+    ///         a deviation bound — exactly the `_assertSpotNearTWAP` pattern POLAccumulator
+    ///         already applies (50 bps; the only in-tree consult() consumer). Do NOT consume
+    ///         `consult()` as a sole price oracle (e.g. lending valuation / liquidation)
+    ///         without that spot-vs-TWAP sanity gate. The bridge is intentionally NOT
+    ///         removed here: dropping it reintroduces the R014 stale-pair drift, and the
+    ///         spot-gate is the correct, battle-tested place to bound the residual.
     function consult(address pair, address tokenIn, uint256 amountIn, uint256 period)
         external
         view
@@ -940,18 +1145,61 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///         permissionless `update()` cheap-grief-spammable.
     function setUpdateFee(uint256 _newFee) external onlyOwner {
         if (_newFee > MAX_UPDATE_FEE) revert FeeTooHigh();
+        // AUDIT FIX 2026-05-26 [M-13] — no-op guard. Owner-trust surface is
+        // bounded by MAX_UPDATE_FEE so we use a SameValue revert rather than
+        // a 24h timelock. The guard requires BOTH `_newFee == updateFee`
+        // AND `updateFeeConfigured == true` so the first ever call to
+        // `setUpdateFee(0)` (test/deploy path that explicitly opts out of
+        // fees) still succeeds — pre-call `updateFee == 0` but
+        // `updateFeeConfigured == false`, so the configuration flip is
+        // necessary.
+        if (_newFee == updateFee && updateFeeConfigured) revert SameValue();
         uint256 old = updateFee;
         updateFee = _newFee;
         updateFeeConfigured = true;
         emit UpdateFeeChanged(old, _newFee);
     }
 
-    /// @notice Set the fee recipient. Defaults to owner if unset.
-    function setFeeRecipient(address _recipient) external onlyOwner {
+    /// @notice AUDIT FIX 2026-05-26 [M-11] — DEPRECATED. Use
+    ///         `proposeFeeRecipient` / `executeFeeRecipient`.
+    /// @dev    Per user decision 2026-05-26 ("fix conservatively where
+    ///         battle-tested patterns exist") the immediate setter is
+    ///         replaced with the 24h propose/execute/cancel shape.
+    function setFeeRecipient(address) external pure {
+        revert("Use proposeFeeRecipient()");
+    }
+
+    // AUDIT FIX 2026-05-26 [M-11] — lifecycle events for the fee-recipient
+    // timelock. Mirrors PAIR_RESET propose/execute/cancel shape.
+    event FeeRecipientProposed(address indexed newRecipient, uint256 executeAfter);
+    event FeeRecipientCancelled(address indexed previousPending);
+
+    /// @notice AUDIT FIX 2026-05-26 [M-11] — propose a 24h-timelocked change
+    ///         to the fee recipient.
+    function proposeFeeRecipient(address _recipient) external onlyOwner {
         if (_recipient == address(0)) revert TWAPZeroAddress();
+        pendingFeeRecipient = _recipient;
+        _propose(FEE_RECIPIENT_CHANGE, FEE_RECIPIENT_CHANGE_DELAY);
+        emit FeeRecipientProposed(_recipient, _proposalReadyAt(FEE_RECIPIENT_CHANGE));
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-11] — execute the proposed fee-recipient
+    ///         change after the 24h timelock.
+    function executeFeeRecipient() external onlyOwner {
+        _execute(FEE_RECIPIENT_CHANGE);
+        address newRecipient = pendingFeeRecipient;
         address old = feeRecipient;
-        feeRecipient = _recipient;
-        emit FeeRecipientChanged(old, _recipient);
+        feeRecipient = newRecipient;
+        delete pendingFeeRecipient;
+        emit FeeRecipientChanged(old, newRecipient);
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-11] — cancel a pending fee-recipient proposal.
+    function cancelFeeRecipient() external onlyOwner {
+        address prev = pendingFeeRecipient;
+        _cancel(FEE_RECIPIENT_CHANGE);
+        delete pendingFeeRecipient;
+        emit FeeRecipientCancelled(prev);
     }
 
     /// @notice Withdraw accumulated update fees to feeRecipient (or owner if unset).
@@ -962,12 +1210,47 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///      caller could force the recipient (typically a multisig) to
     ///      handle many small inbound transfers, burning their gas budget.
     ///      Sweep timing should be admin-controlled.
+    /// @dev AUDIT FIX 2026-05-26 [L-47] — feeRecipient must accept raw ETH
+    ///      with >30k gas headroom; use a treasury contract not an
+    ///      EOA-with-revert. The raw `.call{value: amount}("")` here is
+    ///      retained instead of `WETHFallbackLib.safeTransferETHOrWrap`
+    ///      because wiring `address public immutable weth;` requires a
+    ///      constructor-signature change that would break the deploy
+    ///      script. Mitigation: deployers MUST configure `feeRecipient`
+    ///      to a multisig / treasury whose receive() is gas-cheap (Safe,
+    ///      Sablier-style escrow) — never an EOA whose forwarder reverts
+    ///      above 30k. A misconfigured recipient just makes the call fail
+    ///      loudly until the recipient is fixed; no funds can be stuck
+    ///      because the timelocked `proposeFeeRecipient` path (M-11) lets
+    ///      the owner rotate to a working recipient.
     function withdrawFees() external nonReentrant onlyOwner {
-        uint256 amount = accumulatedFees;
+        // [L11] Use address(this).balance rather than accumulatedFees so any
+        //       ETH stranded by direct sends or update() refunds is included
+        //       in the sweep and cannot accumulate indefinitely. accumulatedFees
+        //       is still zeroed for accounting consistency.
+        uint256 amount = address(this).balance;
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: zero-sentinel check — `0`
+        // balance means nothing to withdraw. Standard sentinel pattern.
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NoFees();
         accumulatedFees = 0;
-        address to = feeRecipient == address(0) ? owner : feeRecipient;
-        (bool ok,) = to.call{value: amount}("");
+        address to = feeRecipient == address(0) ? owner() : feeRecipient;
+        // AUDIT FIX FRESH-2026 [H-TWAP-WITHDRAW-GAS]: bound the gas stipend on
+        // the recipient call to 50_000. Pre-fix, the unbounded `to.call{value:
+        // amount}("")` forwarded ALL gas (millions) to the fee recipient. The
+        // recipient is settable via the 24h-timelocked `proposeFeeRecipient`
+        // path; a captured owner key could install a malicious recipient
+        // whose receive() executes arbitrary code with `amount` ETH and full
+        // gas in the call frame — most importantly enabling cross-contract
+        // reentry into OTHER protocol contracts (TWAP itself is nonReentrant-
+        // protected here, but the recipient's frame can call out to
+        // RevenueDistributor, POLAccumulator, etc.). 50k is sufficient for
+        // a Gnosis Safe v1.4 receive() with one or two modules running on the
+        // ingress path (Safe's bare receive() is ~6k; a module-running variant
+        // ~30k-45k) and is the same envelope Aave V3's PoolAddressesProvider
+        // uses for treasury sweeps. Legitimate recipients fit comfortably;
+        // hostile recipients cannot execute arbitrary downstream calls.
+        (bool ok,) = to.call{value: amount, gas: 50_000}("");
         require(ok, "WITHDRAW_FAILED");
         emit FeesWithdrawn(to, amount);
     }
@@ -982,6 +1265,13 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
         if (pair == address(0)) revert PairResetZeroAddress();
         bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
         _propose(key, PAIR_RESET_DELAY);
+        // AUDIT FIX 2026-05-26 [H-07] — track pair in pending-reset set so
+        // acceptOwnership() can flush it on owner rotation.
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.add returns a
+        // was-added bool; idempotent add — propose key uniqueness makes
+        // in-set invariant deterministic. Matches repo convention.
+        // slither-disable-next-line unused-return
+        _pendingResetPairs.add(pair);
         emit PairResetProposed(pair, _proposalReadyAt(key));
     }
 
@@ -989,9 +1279,22 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     ///         the 24h timelock. Clears `observationIndex`, `observationCount`,
     ///         `lastSpot{0,1}`, `lastBypassUsed` for the pair. The next observation
     ///         goes through the deviation gate against a freshly-zeroed baseline.
+    /// @dev    AUDIT FIX 2026-05-26 [L-21] — WARN: Calling reset on a pair
+    ///         POLAccumulator depends on requires the owner to immediately
+    ///         re-bootstrap 4 observations or harvest will revert for 45+
+    ///         minutes (the count==0 fail-closed bootstrap, the count<=2
+    ///         self-bootstrap grace, and the consumer-side
+    ///         `_assertSpotNearTWAP` cooldown all sit in front of the first
+    ///         usable consult).
     function executeAdminResetPair(address pair) external onlyOwner {
         bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
         _execute(key);
+        // AUDIT FIX 2026-05-26 [H-07] — clear pending-reset tracking slot.
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — proposeAdminResetPair added it; matching pair, presence
+        // implied. Matches repo convention.
+        // slither-disable-next-line unused-return
+        _pendingResetPairs.remove(pair);
         delete observationIndex[pair];
         delete observationCount[pair];
         delete lastSpot0[pair];
@@ -1005,6 +1308,12 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     function cancelAdminResetPair(address pair) external onlyOwner {
         bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
         _cancel(key);
+        // AUDIT FIX 2026-05-26 [H-07] — clear pending-reset tracking slot.
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — cancel path mirrors execute; presence implied by prior
+        // propose. Matches repo convention.
+        // slither-disable-next-line unused-return
+        _pendingResetPairs.remove(pair);
         emit PairResetCancelled(pair);
     }
 
@@ -1012,6 +1321,49 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
     function pairResetTime(address pair) external view returns (uint256) {
         bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
         return _proposalReadyAt(key);
+    }
+
+    // AUDIT FIX 2026-05-26 [H-07] — pending-reset flush event.
+    event AdminResetPairCancelled(address indexed pair);
+
+    /// @notice AUDIT FIX 2026-05-26 [H-07] — override `acceptOwnership` to
+    ///         flush every pending per-pair PAIR_RESET timelock queued by
+    ///         the outgoing owner. Pre-fix, an outgoing-or-compromised owner
+    ///         could queue dozens of `proposeAdminResetPair` calls and rely
+    ///         on the incoming owner to manually `cancelAdminResetPair` each
+    ///         one within the 7-day proposal validity window. The new owner
+    ///         had no on-chain enumeration of which pairs were pending — a
+    ///         missed cancel meant the outgoing owner's reset would execute
+    ///         under the new owner's timelock. Flushing on acceptance
+    ///         closes that cross-owner replay vector atomically.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        // Drain in reverse so each `remove` swaps the tail into the just-
+        // processed slot — O(n) total instead of O(n^2) from forward-iterating.
+        uint256 len = _pendingResetPairs.length();
+        for (uint256 i = len; i > 0; --i) {
+            address p = _pendingResetPairs.at(i - 1);
+            _forceCancel(keccak256(abi.encodePacked(PAIR_RESET, p)));
+            // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove
+            // return ignored — `.at(i-1)` above guarantees the element exists.
+            // Matches repo convention.
+            // slither-disable-next-line unused-return
+            _pendingResetPairs.remove(p);
+            emit AdminResetPairCancelled(p);
+        }
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [H-07] — number of pairs with a pending
+    ///         `PAIR_RESET` proposal. Off-chain monitors / multisig signers
+    ///         can read this before accepting a pending ownership transfer.
+    function pendingResetPairsLength() external view returns (uint256) {
+        return _pendingResetPairs.length();
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [H-07] — view accessor for the
+    ///         enumerable pending-reset set.
+    function pendingResetPairAt(uint256 i) external view returns (address) {
+        return _pendingResetPairs.at(i);
     }
 
     /// @dev AUDIT R014 (oracle layer, Wave-014): widened cumulative returns from uint224 → uint256
@@ -1157,6 +1509,20 @@ contract TegridyTWAP is TWAPAdmin, ReentrancyGuard, TimelockAdmin {
             //         off-chain decoders branch on. Aave V3 PriceOracleSentinel
             //         uses the same short-circuit pattern.
             if (resumeAt == type(uint256).max) revert OracleRebootstrapping();
+            // AUDIT FIX 2026-05-26 [M-12] — Year-2106 wrap concern; current
+            //   arithmetic safe until then because resumeAt is bounded by
+            //   Unix timestamps (~1.8e9, well under uint32 wrap horizon of
+            //   4.29e9). At year-2106 `best.timestamp` wraps modulo 2^32
+            //   while `resumeAt` continues to grow linearly, breaking the
+            //   comparison. A correct fix requires either widening
+            //   `Observation.timestamp` (storage-layout change) or
+            //   rewriting the gate in uint32 modular semantics like the
+            //   `targetTimestamp` pattern at lines ~1093-1099 (which would
+            //   require narrowing `resumeAt + GRACE` to uint32 and losing
+            //   the ability to distinguish pre/post-wrap resume timestamps).
+            //   Both need coordinated work with the SequencerCheck lib.
+            //   Documented as a known limitation rather than papered over
+            //   with a partial fix (see project_2026_05_26_swarm doc).
             if (resumeAt != 0 && uint256(best.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
                 revert OracleRebootstrapping();
             }

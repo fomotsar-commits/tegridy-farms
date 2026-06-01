@@ -11,7 +11,11 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
+// EIP-170 split (2026-05-30): pendingBase delegates to StakingMonitorView since
+// `earned(uint256)` moved off TegridyStaking into the read-only sister.
+import {StakingMonitorView} from "./StakingMonitorView.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 
 interface ITegridyStaking {
     function getReward(uint256 tokenId) external returns (uint256 claimed);
@@ -85,7 +89,7 @@ interface ITegridyStaking {
 ///         Think of it like:
 ///         - Base staking = earning interest on a savings account
 ///         - Restaking = lending your savings certificate for extra yield
-contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver, TimelockAdmin {
+contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver, TimelockAdmin, PauseGuardian {
     using SafeERC20 for IERC20;
 
     // ─── Constants ──────────────────────────────────────────────────
@@ -104,6 +108,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     IERC20 public immutable bonusRewardToken;  // ETH (WETH) or any ERC20 for bonus
     ITegridyStaking public immutable staking;  // TegridyStaking contract
     IERC721 public immutable stakingNFT;       // tsTOWELI NFT (same address as staking)
+    StakingMonitorView public immutable monitor; // EIP-170 sister: earned(tokenId), etc.
 
     uint256 public bonusRewardPerSecond;
     uint256 public lastBonusRewardTime;
@@ -213,6 +218,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice AUDIT FIX FRESH-2026: F-04-3 — owner-only timelocked clear of
     ///         an abandoned residual claimant (e.g. lost-keys restaker).
     uint256 public constant CLEAR_RESIDUAL_TIMELOCK = 7 days;
+    /// @notice AUDIT FIX (2026-05-25 2nd pass): validity window after the timelock
+    ///         elapses, so an abandoned residual-clear proposal self-expires instead of
+    ///         staying executable forever (parity with sibling inline timelocks).
+    uint256 public constant CLEAR_RESIDUAL_VALIDITY = 7 days;
     struct PendingResidualClear {
         address newClaimant;
         uint256 executeAfter;
@@ -378,21 +387,36 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         residual-clear admin path.
     error NoPendingResidualClear();
     error ResidualClearTimelockNotElapsed();
+    /// @notice AUDIT FIX (2026-05-25 2nd pass): residual-clear proposal expired (past validity).
+    error ResidualClearExpired();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
         address _staking,
+        address _monitor,
         address _rewardToken,
         address _bonusRewardToken,
         uint256 _bonusRewardPerSecond
     ) OwnableNoRenounce(msg.sender) {
         // L-01: Zero-address validation for all constructor params
         if (_staking == address(0)) revert ZeroAddress();
+        if (_monitor == address(0)) revert ZeroAddress();
         if (_rewardToken == address(0)) revert ZeroAddress();
         if (_bonusRewardToken == address(0)) revert ZeroAddress();
         if (_rewardToken == _bonusRewardToken) revert RewardTokenMatchesBonusToken();
+        // AUDIT NOTE (2026-05-25 2nd pass): `_bonusRewardToken` MUST be a standard,
+        // non-callback ERC-20 (no ERC-777 `tokensReceived` / transfer hook). Reentrancy
+        // safety of every bonus payout already holds via the `nonReentrant` guards + CEI
+        // ordering (bonusDebt anchored BEFORE each transfer; `_safeBonusTransferExt` is a
+        // self-call inside a nonReentrant parent), so a hook token still cannot re-enter
+        // — but a non-hook bonus token is the intended deploy invariant. On-chain ERC-777
+        // detection is intentionally NOT added: best-effort ERC-1820/165 probing is
+        // bypassable and adds attack surface for a value the deployer fully controls at
+        // construction. Enforce via the deploy checklist (mirrors TegridyFactory's
+        // documented "standard ERC-20 only" envelope).
         staking = ITegridyStaking(_staking);
         stakingNFT = IERC721(_staking); // TegridyStaking IS the ERC721
+        monitor = StakingMonitorView(_monitor);
         rewardToken = IERC20(_rewardToken);
         bonusRewardToken = IERC20(_bonusRewardToken);
 
@@ -429,13 +453,35 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     // ─── Modifiers ──────────────────────────────────────────────────
+    /// @dev AUDIT FIX 2026-05-26 [L-02]: this modifier reads
+    ///      `bonusRewardToken.balanceOf(address(this))` and distributes the
+    ///      delta as bonus. Anyone direct-transferring bonus tokens to the
+    ///      contract (bypassing `fundBonus`) will have those tokens silently
+    ///      distributed at the next `updateBonus` invocation. This is the
+    ///      intended "donations welcome" semantic but means `totalBonusFunded`
+    ///      does NOT track direct sends — operators MUST use `fundBonus` for
+    ///      observable accounting. No code fix; ABI is correct.
     modifier updateBonus() {
         if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
             uint256 elapsed = block.timestamp - lastBonusRewardTime;
             uint256 reward = elapsed * bonusRewardPerSecond;
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                available = bal;
+                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: subtract the
+                // already-committed `totalUnforwardedBonus` (deferred-payout
+                // debt sitting in `unforwardedBonusRewards[user]` queues from
+                // prior failed bonus-token transfers) BEFORE using the on-hand
+                // balance as the accrual cap. Pre-fix the cap conflated
+                // uncommitted pool liquidity with already-owed debt, letting
+                // fresh emission shares be minted into `accBonusPerShare`
+                // backed by funds already promised to deferred-payout users.
+                // Pattern of record: SushiSwap MasterChefV2 / Curve gauge
+                // factories track "queued debt" separately from "claimable
+                // pool" — emission flows against the uncommitted slice only.
+                // Honest restakers' bonus values then stay claimable in full
+                // and deferred-payout users (Carol after blacklist lift) are
+                // not silently shortchanged by Bob's normal claim runs.
+                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
             } catch {
                 available = 0;
             }
@@ -492,7 +538,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // slither-disable-next-line uninitialized-local
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                available = bal;
+                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: view-side
+                // mirror of the updateBonus cap fix — subtract deferred-payout
+                // debt from the cap so the view shows the same number a
+                // mutator-side accrual would actually credit. Avoids
+                // frontend/indexer drift relative to on-chain accrual.
+                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
             } catch {
                 available = 0;
             }
@@ -516,7 +567,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (info.tokenId == 0) return 0;
-        return staking.earned(info.tokenId);
+        return monitor.earned(info.tokenId);
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [L-03]: sum of accruing bonus + deferred
+    ///         payout sitting in `unforwardedBonusRewards`. The standalone
+    ///         `pendingBonus(user)` view returns 0 when the user has no
+    ///         active restake — but a previously-deferred bonus payout (e.g.
+    ///         caught by a blacklist arm in claimAll/unrestake) still owes
+    ///         them ETH/tokens via `claimPendingBonusPayout`. This combined
+    ///         view lets UIs surface the full claimable in one read.
+    function totalBonusClaimable(address user) external view returns (uint256) {
+        return pendingBonus(user) + unforwardedBonusRewards[user];
     }
 
     /// @notice Total pending rewards (base + bonus) for display
@@ -563,9 +625,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         against `kick()` / autoMaxLock non-monotonic restoration
     ///         (existing DEEP-DR-04 / DR2-02 hardening preserved).
     ///
-    ///         Consumed by `lib/VotePowerOracle.sol::powerOf` which sums this
-    ///         with `staking.votingPowerOf(user)`. Safe to call at any time;
-    ///         returns 0 when user has no restake or it has expired.
+    ///         Consumed by `lib/VotePowerOracle.sol::powerOfLiveUnsafe` which
+    ///         sums this with `staking.votingPowerOf(user)`. Safe to call at any
+    ///         time; returns 0 when user has no restake or it has expired.
     function votingPowerOf(address _user) external view returns (uint256) {
         return _boostedAmountAt(_user, block.timestamp);
     }
@@ -780,6 +842,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             depositTime: block.timestamp,
             unsettledSnapshot: 0
         });
+        // AUDIT FIX 2026-05-26 [M-02]: reset the per-user one-shot recovery flag
+        // when entering a NEW position. Pre-fix, a user who used
+        // `recoverStuckPrincipal()` once for a force-closed position could never
+        // use it again for any FUTURE position — the per-user flag was sticky.
+        // Reset here ties the flag's lifecycle to the position's lifecycle.
+        _hasRecoveredPrincipal[msg.sender] = false;
 
         tokenIdToRestaker[_tokenId] = msg.sender;
         totalRestaked += boostedAmount;
@@ -985,7 +1053,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
-                totalRestaked = totalRestaked - oldBoosted + currentBoosted;
+                // AUDIT FIX 2026-05-26 [L-38] defensive underflow guard on totalRestaked
+                // See refreshPosition stale path for full rationale.
+                totalRestaked = (totalRestaked >= oldBoosted ? totalRestaked - oldBoosted : 0) + currentBoosted;
 
                 // R014 RETRY step 3 — accrue against the corrected (smaller)
                 // denominator. The micro-period elapsed since
@@ -1045,7 +1115,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 uint256 oldB = info.boostedAmount;
                 info.boostedAmount = postClaimBoosted;
                 _writeBoostCheckpoint(msg.sender, postClaimBoosted);
-                totalRestaked = totalRestaked - oldB + postClaimBoosted;
+                // AUDIT FIX 2026-05-26 [L-38] defensive underflow guard on totalRestaked
+                // See refreshPosition stale path for full rationale.
+                totalRestaked = (totalRestaked >= oldB ? totalRestaked - oldB : 0) + postClaimBoosted;
                 // Re-anchor bonusDebt at current accBonusPerShare on the new
                 // boost so the restaker doesn't immediately accrue against
                 // emission they haven't earned (the upcoming bonus claim
@@ -1184,7 +1256,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
-                totalRestaked = totalRestaked - oldBoosted + currentBoosted;
+                // AUDIT FIX 2026-05-26 [L-38] defensive underflow guard on totalRestaked
+                // See refreshPosition stale path for full rationale.
+                totalRestaked = (totalRestaked >= oldBoosted ? totalRestaked - oldBoosted : 0) + currentBoosted;
 
                 // R014 RETRY step 3 — accrue against the corrected (smaller)
                 // denominator.
@@ -1479,7 +1553,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         at exit time, now un-blacklisted). Reads from
     ///         `unforwardedBonusRewards` — the redemption-currency match
     ///         closes the H-3 wrong-token bug at the user-claim leg.
-    function claimPendingBonusPayout() external nonReentrant {
+    // AUDIT FIX 2026-05-26 [M-05]: add `whenNotPaused` so deferred bonus payouts cannot
+    // continue mid-incident. Closes the asymmetric-pause gap noted in the swarm audit —
+    // sibling state-mutating paths (`claimResidualForTokenId` at line 1543) already gate
+    // on pause. `emergencyWithdrawNFT` remains pause-free (true-emergency exit path).
+    function claimPendingBonusPayout() external nonReentrant whenNotPaused {
         uint256 paid = _sweepUnforwardedBonus(msg.sender);
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
@@ -1500,12 +1578,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function _reserveResidual(uint256 tokenId, address claimant) internal {
         uint256 residue = staking.unsettledRewardsByTokenId(tokenId);
         if (residue == 0) return;
-        // If a prior residual claim already exists for this tokenId from a
-        // DIFFERENT claimant, leave it intact — the prior claimant's right
-        // takes precedence. (This shouldn't happen in normal flow because
-        // restake() blocks foreign re-restake, but defensively ignore.)
-        address prior = _residualClaimant[tokenId];
-        if (prior != address(0) && prior != claimant) return;
+        // AUDIT FIX 2026-05-26 [H-04]: ALWAYS overwrite `_residualClaimant` when
+        // residue is non-zero. Pre-fix, the "preserve prior claimant" branch
+        // was a hijack vector: Alice self-re-restakes (M28 carve-out admits
+        // her because residue == 0 at that instant), exits during a later
+        // pool-short event leaving residue R, and the function returned
+        // without writing because `prior == alice` and `claimant == alice`
+        // would have matched anyway — BUT if Alice sold the NFT to Bob and
+        // Bob restaked + exited with residue, this function's old logic
+        // would have left `_residualClaimant[tokenId] = alice` because
+        // `prior == alice && prior != bob`, locking Bob's residue to Alice
+        // (cross-holder gate blocks Alice from pulling). The residue
+        // physically belongs to the current exit caller; preserving a
+        // stale prior is incorrect. The audit doc cites this as the
+        // "residual claim hijack" class — closes that surface.
         _residualClaimant[tokenId] = claimant;
         emit ResidualReserved(tokenId, claimant, residue);
     }
@@ -1589,7 +1675,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         attributable per `unsettledRewardsByTokenId[tokenId]` and is
     ///         claimable by the next legitimate restaker.
     /// @param tokenId The tsTOWELI NFT token ID whose residual claim to waive.
-    function waiveResidualClaim(uint256 tokenId) external nonReentrant {
+    // AUDIT FIX 2026-05-26 [M-05]: `whenNotPaused` mirrors claimPendingBonusPayout +
+    // claimResidualForTokenId. Waiving is irreversible — must not be triggerable
+    // during pause when owner is investigating compromised keys.
+    function waiveResidualClaim(uint256 tokenId) external nonReentrant whenNotPaused {
         if (_residualClaimant[tokenId] != msg.sender) revert NotResidualClaimant();
         delete _residualClaimant[tokenId];
         emit ResidualClaimWaived(tokenId, msg.sender);
@@ -1609,6 +1698,31 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         address (e.g. the new NFT owner) to retarget the claim.
     function proposeClearResidualClaimant(uint256 tokenId, address newClaimant) external onlyOwner {
         if (_residualClaimant[tokenId] == address(0)) revert BadParam();
+        // AUDIT FIX FRESH-2026 [H-RESTAKE-CLEAR-ABANDONS-RESIDUE]: reject the
+        // `newClaimant == address(0)` "fully abandon" path. Pre-fix, executing
+        // with newClaimant=0 would `delete _residualClaimant[tokenId]` while
+        // leaving the staking-side `unsettledRewardsByTokenId[tokenId]`
+        // residue UNCLAIMED. The next restaker of that NFT would then trigger
+        // `claimUnsettledForTokenId(tokenId, newRestaker)` on the next
+        // unrestake, silently inheriting the abandoned lost-key user's
+        // residue. Owner intent ("clear the local claim") quietly leaked
+        // those funds to a third party.
+        //
+        // Fix (option b from finding): force owner to nominate a successor.
+        // If no clear successor exists, the original `_residualClaimant`
+        // stays in place; the lost-key user's residue remains stuck (no
+        // worse than the pre-fix state) but no one else can siphon it. The
+        // legitimate claimant retains the self-help path via
+        // `waiveResidualClaim` (L1681-1685) if they ever recover their key.
+        if (newClaimant == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-26 [M-03]: reject when a proposal is already pending.
+        // Pre-fix, a captured-key owner could spam re-proposals to keep resetting
+        // the 7-day executeAfter clock; multisig would have to cancel each one.
+        // Mirrors sibling timelocked setters' `ExistingProposalPending` shape from
+        // TimelockAdmin (uses tokenId as the disambiguator key).
+        if (pendingResidualClears[tokenId].executeAfter != 0) {
+            revert ExistingProposalPending(bytes32(tokenId));
+        }
         pendingResidualClears[tokenId] = PendingResidualClear({
             newClaimant: newClaimant,
             executeAfter: block.timestamp + CLEAR_RESIDUAL_TIMELOCK
@@ -1620,6 +1734,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         PendingResidualClear memory p = pendingResidualClears[tokenId];
         if (p.executeAfter == 0) revert NoPendingResidualClear();
         if (block.timestamp < p.executeAfter) revert ResidualClearTimelockNotElapsed();
+        // AUDIT FIX (2026-05-25 2nd pass): stale-proposal expiry — matches the 7-day
+        // validity every sibling inline timelock enforces, so a proposal from a since-
+        // rotated/compromised owner key cannot be executed an arbitrary time later.
+        if (block.timestamp > p.executeAfter + CLEAR_RESIDUAL_VALIDITY) revert ResidualClearExpired();
         address oldClaimant = _residualClaimant[tokenId];
         if (p.newClaimant == address(0)) {
             delete _residualClaimant[tokenId];
@@ -1647,7 +1765,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      claimers saw their `safeTransfer` revert when the on-hand
     ///      balance ran out before `totalBonusFunded` exhausted. Mirrors
     ///      `TegridyStaking.notifyRewardAmount` pattern.
-    function fundBonus(uint256 _amount) external nonReentrant updateBonus {
+    function fundBonus(uint256 _amount) external nonReentrant {
+        // AUDIT FIX FRESH-2026 [M-RESTAKE-FUNDBONUS-ORDER]: drop the
+        // `updateBonus` MODIFIER and inline the accrual AFTER the deposit.
+        // Pre-fix the modifier ran first — capping `reward = elapsed * rate`
+        // against the OLD (pre-deposit) balance. The elapsed window was
+        // consumed against the pre-fund pool, then `lastBonusRewardTime`
+        // advanced to now — the just-deposited funds never retroactively
+        // backfilled the missed accrual slice (operator topping up "now"
+        // observed pendingBonus didn't move, double-funded thinking the
+        // first call failed). Post-fix: run safeTransferFrom first so the
+        // post-deposit balance is visible to the accrual cap; then call
+        // `_accrueBonusChecked` (the monotonicity-checked accrual wrapper,
+        // R014 RETRY) which uses the bumped balance for its cap. Matches
+        // Curve gauge factory's "fund then accrue" topology.
         if (_amount == 0) revert ZeroAmount();
         uint256 balBefore = bonusRewardToken.balanceOf(address(this));
         bonusRewardToken.safeTransferFrom(msg.sender, address(this), _amount);
@@ -1656,6 +1787,8 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // slither-disable-next-line incorrect-equality
         if (received == 0) revert ZeroAmount();
         totalBonusFunded += received;
+        // Now accrue against the post-deposit balance.
+        _accrueBonusChecked();
         emit BonusFunded(received);
     }
 
@@ -1728,30 +1861,61 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     /// @notice AUDIT FIX H-02: Sweep stuck reward tokens (from revalidateBoost or other external calls).
-    ///         Base reward tokens (rewardToken) may arrive outside of claimAll flows and become stuck.
-    ///         Cannot sweep bonusRewardToken to protect the bonus reward pool.
-    /// @dev AUDIT FIX (BATCH-J1 H17): route to TegridyStaking.treasury() instead
-    ///      of `owner()`. Pre-fix, captured owner key could instantly drain ANY
-    ///      whitelisted-stuck token to attacker EOA. Now sweeps go to the
-    ///      staking-side treasury (timelocked-rotation via TegridyStakingAdmin
-    ///      48h propose/execute), so a captured Restaking owner must additionally
-    ///      compromise the Staking admin AND wait 48h to extract — chained
-    ///      defense effectively requires multi-key coordination + visible
-    ///      48h window. Pattern: Aave V3 rescueTokens routes to ACL-governed
-    ///      recipient, not function caller.
-    function sweepStuckRewards(address _token) external onlyOwner {
+    /// @dev AUDIT FIX 2026-05-26 [M-09]: split into propose/execute behind a 24h
+    ///      timelock. Pre-fix, the function was instant-onlyOwner. The chained
+    ///      defense via `address(staking)` + Staking's own 24h timelocked sweep
+    ///      already mitigated drain (BATCH-J1 H17), but the visible 24h propose
+    ///      window here gives off-chain monitoring an extra signal AND aligns
+    ///      with every other captured-owner-residual-surface fix in this batch.
+    ///      DELETE > ADD principle: kept the original receiver invariants
+    ///      (address(staking), bonus/reward token rejects); only added the
+    ///      timelock wrapper using existing TimelockAdmin base.
+    bytes32 public constant SWEEP_STUCK_CHANGE = keccak256("RESTAKING_SWEEP_STUCK_REWARDS");
+    uint256 public constant SWEEP_STUCK_TIMELOCK = 24 hours;
+    address public pendingSweepStuckToken;
+
+    event SweepStuckProposed(address indexed token, uint256 executeAfter);
+    event SweepStuckCancelled(address indexed token);
+    event SweepStuckExecuted(address indexed token, uint256 amount);
+
+    function proposeSweepStuckRewards(address _token) external onlyOwner {
         if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
-        // AUDIT FIX v2: Block sweeping base reward token to protect user rewards in transit
+        if (_token == address(rewardToken)) revert CannotSweepRewardToken();
+        if (_token == address(0)) revert ZeroAddress();
+        pendingSweepStuckToken = _token;
+        _propose(SWEEP_STUCK_CHANGE, SWEEP_STUCK_TIMELOCK);
+        emit SweepStuckProposed(_token, _executeAfter[SWEEP_STUCK_CHANGE]);
+    }
+
+    function executeSweepStuckRewards() external onlyOwner {
+        _execute(SWEEP_STUCK_CHANGE);
+        address _token = pendingSweepStuckToken;
+        pendingSweepStuckToken = address(0);
+        // Re-check guards at execute time — defends against a token classification
+        // changing during the 24h window (e.g., rewardToken rotated on staking side
+        // via that contract's 48h timelock).
+        if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
         if (_token == address(rewardToken)) revert CannotSweepRewardToken();
         uint256 balance = IERC20(_token).balanceOf(address(this));
         if (balance > 0) {
-            // AUDIT FIX (BATCH-J1 H17): route to address(staking) (immutable)
-            // instead of `owner()`. Pre-fix, captured Restaking owner could
-            // instantly drain. Now stuck tokens land in TegridyStaking which has
-            // its own 24h-timelocked sweepToken to treasury — chained delay,
-            // multi-key coordination required for extraction.
+            // Route to address(staking) (immutable) — see BATCH-J1 H17 rationale.
             IERC20(_token).safeTransfer(address(staking), balance);
+            emit SweepStuckExecuted(_token, balance);
         }
+    }
+
+    function cancelSweepStuckRewards() external onlyOwner {
+        address cancelled = pendingSweepStuckToken;
+        pendingSweepStuckToken = address(0);
+        _cancel(SWEEP_STUCK_CHANGE);
+        emit SweepStuckCancelled(cancelled);
+    }
+
+    /// @notice DEPRECATED — pre-2026-05-26 instant sweep. Use the
+    ///         propose/execute pair above. Reverts to flag to callers
+    ///         that migration is required.
+    function sweepStuckRewards(address) external view onlyOwner {
+        revert("AUDIT 2026-05-26 [M-09]: use proposeSweepStuckRewards/executeSweepStuckRewards");
     }
 
     /// @notice AUDIT FIX H-06: Recover stuck principal TOWELI when the underlying staking
@@ -1887,7 +2051,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // be retro-attributed.
         uint256 balance = rewardToken.balanceOf(address(this));
         uint256 reserved = totalUnforwardedBase + totalActivePrincipal + totalPendingUnsettled;
+        // AUDIT 2026-05-30 [slither timestamp FP]: detector misfires on these two
+        // comparisons — both are token-balance/amount comparisons, no block.timestamp
+        // involved. The `timestamp` detector over-flags any non-trivial > comparison.
+        // slither-disable-next-line timestamp
         uint256 unattributed = balance > reserved ? balance - reserved : 0;
+        // slither-disable-next-line timestamp
         if (p.amount > unattributed) revert BadParam();
         unforwardedBaseRewards[p.restaker] += p.amount;
         totalUnforwardedBase += p.amount;
@@ -2054,6 +2223,15 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice mvp-launch Phase 0.4 — pause-only emergency guardian role.
+    ///         See base/PauseGuardian.sol. setPauseGuardian rotates instantly
+    ///         (owner-gated); guardianPause freezes (no unpause authority).
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    function guardianPause() external onlyPauseGuardian { _pause(); }
+
     // ─── Rescue ──────────────────────────────────────────────────────
 
     /// @notice AUDIT FIX FRESH-2026: M-3 [F-03-K3] + M-4 [F-04-2] — converted
@@ -2076,6 +2254,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // stranded claim is live; user's `claimStrandedRestakeNFT` takes
         // precedence over owner rescue.
         if (strandedRestakeRecipient[_tokenId] != address(0)) revert BadParam();
+        // AUDIT FIX 2026-05-26 [M-06]: refuse rescue while a residual claim is live.
+        // Pre-fix, rescue would extract the NFT to `_to`, leaving the residue
+        // permanently unreachable (the cross-holder gate at claimResidualForTokenId
+        // line 1568 then blocks recovery because ownerOf is now `_to`). Owner can
+        // still clear via the 7-day `proposeClearResidualClaimant` path first.
+        if (_residualClaimant[_tokenId] != address(0)) revert BadParam();
         if (_to == address(0)) revert ZeroAddress();
         pendingRescueNFT = PendingRescueNFT({tokenId: _tokenId, to: _to});
         _propose(RESCUE_NFT_CHANGE, RESCUE_NFT_TIMELOCK);
@@ -2089,6 +2273,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // tokenId re-restaked, user filed stranded claim, etc).
         if (tokenIdToRestaker[p.tokenId] != address(0)) revert BadParam();
         if (strandedRestakeRecipient[p.tokenId] != address(0)) revert BadParam();
+        // SELF-AUDIT FIX 2026-05-26 [M-06 SYMMETRIC RECHECK]: also re-check
+        // residual claimant at execute time. Pre-fix the propose-time check
+        // (M-06) was asymmetric — a residue claim materializing during the 48h
+        // window (currently unreachable but defense-in-depth) would let rescue
+        // strand the residue. Mirrors the propose-time guard at line ~2199.
+        if (_residualClaimant[p.tokenId] != address(0)) revert BadParam();
         delete pendingRescueNFT;
         stakingNFT.safeTransferFrom(address(this), p.to, p.tokenId); // M-16
         emit RescueNFTExecuted(p.tokenId, p.to);
@@ -2213,7 +2403,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Pre-fix sequence: stakingNFT.safeTransferFrom → staking-side _afterTokenTransfer
         // adds tokenId to _positionsByOwner[restaker] and writes a vote checkpoint at T,
         // so staking.votingPowerOf(restaker) returns boostedAmount. The recipient's
-        // onERC721Received callback can then read VotePowerOracle.powerOf(restaker)
+        // onERC721Received callback can then read VotePowerOracle.powerOfLiveUnsafe(restaker)
         // which sums staking + restaking. Because restakers[restaker].boostedAmount
         // was STILL set at this moment (deletion was after the transfer), the read
         // returned 2X — letting a malicious-recipient contract vote with double
@@ -2462,9 +2652,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      immediately before this call still used the stale denominator (that
     ///      part of the past is sunk), but every future elapsed unit from now on
     ///      accrues fairly.
+    // AUDIT 2026-05-31: reentrancy-no-eth FP — function is `nonReentrant`, the cited
+    // cross-fn `restakers` reads are all views, post-staking.kick() bonusDebt write
+    // cannot be re-entered.
+    // slither-disable-next-line reentrancy-no-eth
     function decayExpiredRestaker(address _restaker) external nonReentrant {
         RestakeInfo storage info = restakers[_restaker];
         if (info.tokenId == 0) revert NotRestaked();
+
+        // AUDIT FIX 2026-05-26 [M-01]: trigger staking-side lazy decay BEFORE reading
+        // the cached boosted amount. Without this, the staking position's
+        // `boostedAmount` is still inflated (lazy-decay model — only updates on
+        // touch), so the equality check below trips `NoDecay` even though
+        // decay IS due. Mirrors the pattern at claimAll / unrestake / refreshPosition.
+        // try/catch absorbs any future revert from staking-side kick.
+        try staking.kick(info.tokenId) {} catch { /* fall through with stale cache */ }
 
         // Read current position from staking contract (where decay has been applied)
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
@@ -2607,7 +2809,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // slither-disable-next-line uninitialized-local
             uint256 available;
             try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                available = bal;
+                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: sibling-port
+                // of the updateBonus modifier cap fix — see L468-489 for full
+                // rationale. _accrueBonus is the stale-path settlement helper
+                // called by claimAll / unrestake / refreshPosition / etc; it
+                // must apply the same uncommitted-pool cap as the modifier.
+                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
             } catch {
                 available = 0;
             }
@@ -2654,6 +2861,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     /// @notice M-27: Safe cast from uint256 to int256, reverts on overflow
     function _safeInt256(uint256 value) internal pure returns (int256) {
+        // AUDIT 2026-05-30 [slither timestamp FP]: comparison is against the compile-time
+        // constant `type(int256).max`, NOT block.timestamp. The function is `pure` so it
+        // cannot even read block context — the detector over-flags any relational > here.
+        // slither-disable-next-line timestamp
         if (value > uint256(type(int256).max)) revert Int256Overflow();
         return int256(value);
     }
@@ -2713,6 +2924,22 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             _cancel(RESCUE_NFT_CHANGE);
             delete pendingRescueNFT;
             emit RescueNFTCancelled(tid);
+        }
+        // AUDIT FIX FRESH-2026 [H-RESTAKE-ACCEPT-OWNERSHIP-SWEEP-STUCK]: cancel
+        // any pending `SWEEP_STUCK_CHANGE` proposal on owner handoff. Pre-fix
+        // the override only swept 3 of the 4 TimelockAdmin keys; an outgoing
+        // owner could pre-queue `proposeSweepStuckRewards(arbitraryToken)`
+        // immediately before transferOwnership, and the new owner would
+        // inherit a live timelock. The execute destination IS hard-pinned to
+        // `address(staking)` (L1870), but the new owner's first inadvertent
+        // execute would still move tokens out of the restaking contract that
+        // the new owner may have NOT intended to relocate. Sweep here for
+        // parity with the BONUS_RATE / ATTRIBUTION / RESCUE_NFT clears.
+        if (_executeAfter[SWEEP_STUCK_CHANGE] != 0) {
+            address cancelledToken = pendingSweepStuckToken;
+            pendingSweepStuckToken = address(0);
+            _cancel(SWEEP_STUCK_CHANGE);
+            emit SweepStuckCancelled(cancelledToken);
         }
     }
 }

@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ contract Audit195StakingCoreTest is Test {
     MockTOWELI token;
     MockJBAC nft;
     TegridyStaking staking;
+    StakingMonitorView monitor;
 
     address treasury = makeAddr("treasury");
     address alice = makeAddr("alice");
@@ -44,6 +46,7 @@ contract Audit195StakingCoreTest is Test {
         token = new MockTOWELI();
         nft = new MockJBAC();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        monitor = new StakingMonitorView(address(staking));
         // AUDIT FIX (pass-8 batch-14): JBAC vault sister.
         TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(nft), address(staking));
         staking.setJbacVault(address(vault));
@@ -77,7 +80,7 @@ contract Audit195StakingCoreTest is Test {
         staking.stake(STAKE_AMT, MAX_LOCK);
 
         uint256 tokenId = staking.userTokenId(alice);
-        (,,, uint256 lockDuration,,) = staking.getPosition(tokenId);
+        (,,, uint256 lockDuration,,) = monitor.getPosition(tokenId);
         assertEq(lockDuration, MAX_LOCK, "lockDuration should equal MAX_LOCK after uint32 cast");
     }
 
@@ -87,7 +90,7 @@ contract Audit195StakingCoreTest is Test {
         staking.stake(STAKE_AMT, MAX_LOCK);
 
         uint256 tokenId = staking.userTokenId(alice);
-        (, uint256 boostBps,,,,) = staking.getPosition(tokenId);
+        (, uint256 boostBps,,,,) = monitor.getPosition(tokenId);
         assertEq(boostBps, 40000, "MAX boost should be 40000 bps at max lock");
     }
 
@@ -101,7 +104,7 @@ contract Audit195StakingCoreTest is Test {
         vm.stopPrank();
 
         uint256 tokenId = staking.userTokenId(bob);
-        (, uint256 boostBps,,,,) = staking.getPosition(tokenId);
+        (, uint256 boostBps,,,,) = monitor.getPosition(tokenId);
         assertEq(boostBps, 45000, "MAX boost + JBAC should be 45000, fits in uint16");
     }
 
@@ -109,19 +112,19 @@ contract Audit195StakingCoreTest is Test {
     function test_stake_globalStateConsistency() public {
         uint256 prevTotalStaked = staking.totalStaked();
         uint256 prevTotalBoosted = staking.totalBoostedStake();
-        uint256 prevTotalLocked = staking.totalLocked();
+        uint256 prevTotalLocked = staking.totalStaked();
 
         vm.prank(alice);
         staking.stake(STAKE_AMT, 365 days);
 
         uint256 tokenId = staking.userTokenId(alice);
-        (uint256 amount, uint256 boostBps,,,,) = staking.getPosition(tokenId);
+        (uint256 amount, uint256 boostBps,,,,) = monitor.getPosition(tokenId);
         uint256 expectedBoosted = (amount * boostBps) / 10000;
 
         assertEq(staking.totalStaked(), prevTotalStaked + STAKE_AMT, "totalStaked mismatch");
         assertEq(staking.totalBoostedStake(), prevTotalBoosted + expectedBoosted, "totalBoostedStake mismatch");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), staking.totalStaked(), "V2: totalLocked always 0");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "V2: totalLocked always 0");
     }
 
     /// @dev NFT minted to staker and checkpoint written
@@ -160,7 +163,7 @@ contract Audit195StakingCoreTest is Test {
         staking.stake(STAKE_AMT, MAX_LOCK);
 
         uint256 tokenId = staking.userTokenId(alice);
-        (, , uint256 lockEnd,,,) = staking.getPosition(tokenId);
+        (, , uint256 lockEnd,,,) = monitor.getPosition(tokenId);
         assertEq(lockEnd, 1_800_000_000 + MAX_LOCK, "lockEnd should be timestamp + MAX_LOCK");
     }
 
@@ -184,7 +187,7 @@ contract Audit195StakingCoreTest is Test {
         assertGt(token.balanceOf(bob), balBefore + STAKE_AMT - 1, "should receive principal + rewards");
         assertEq(staking.userTokenId(bob), 0, "userTokenId should be cleared");
         assertEq(staking.totalStaked(), 0, "totalStaked should be 0");
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked should be 0");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "totalLocked should be 0");
         assertEq(staking.totalBoostedStake(), 0, "totalBoostedStake should be 0");
     }
 
@@ -302,7 +305,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), totalStakedBefore - STAKE_AMT, "totalStaked should decrease by amount");
         // V2: totalLocked writes removed (redundant with totalStaked per audit L-22)
-        assertEq(staking.totalLocked(), staking.totalStaked(), "V2: totalLocked always 0");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "V2: totalLocked always 0");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -315,12 +318,12 @@ contract Audit195StakingCoreTest is Test {
         staking.stake(STAKE_AMT, 30 days);
         uint256 tokenId = staking.userTokenId(bob);
 
-        (, uint256 boostBefore,,,,) = staking.getPosition(tokenId);
+        (, uint256 boostBefore,,,,) = monitor.getPosition(tokenId);
 
         vm.prank(bob);
         staking.extendLock(tokenId, 365 days);
 
-        (, uint256 boostAfter,,,,) = staking.getPosition(tokenId);
+        (, uint256 boostAfter,,,,) = monitor.getPosition(tokenId);
         assertGt(boostAfter, boostBefore, "boost should increase with longer lock");
     }
 
@@ -335,7 +338,7 @@ contract Audit195StakingCoreTest is Test {
         vm.prank(bob);
         staking.extendLock(tokenId, 60 days);
 
-        (,, uint256 lockEnd,,,) = staking.getPosition(tokenId);
+        (,, uint256 lockEnd,,,) = monitor.getPosition(tokenId);
         assertEq(lockEnd, block.timestamp + 60 days, "lockEnd should reset to now + newDuration");
     }
 
@@ -370,7 +373,7 @@ contract Audit195StakingCoreTest is Test {
         vm.prank(bob);
         staking.extendLock(tokenId, MAX_LOCK);
 
-        (,,, uint256 lockDuration,,) = staking.getPosition(tokenId);
+        (,,, uint256 lockDuration,,) = monitor.getPosition(tokenId);
         assertEq(lockDuration, MAX_LOCK, "lockDuration should be MAX_LOCK after uint32 cast");
     }
 
@@ -387,7 +390,7 @@ contract Audit195StakingCoreTest is Test {
         staking.extendLock(tokenId, 365 days);
         vm.stopPrank();
 
-        (, uint256 boostAfterExtend,,,,) = staking.getPosition(tokenId);
+        (, uint256 boostAfterExtend,,,,) = monitor.getPosition(tokenId);
         // Should have base boost for 365 days + JBAC bonus
         uint256 expectedBase = staking.calculateBoost(365 days);
         assertEq(boostAfterExtend, expectedBase + 5000, "JBAC bonus should be preserved after extendLock");
@@ -405,13 +408,13 @@ contract Audit195StakingCoreTest is Test {
         uint256 totalBoostedBefore = staking.totalBoostedStake();
 
         // Get bob's old boosted amount
-        (uint256 bobAmt, uint256 bobBoostOld,,,,) = staking.getPosition(bobToken);
+        (uint256 bobAmt, uint256 bobBoostOld,,,,) = monitor.getPosition(bobToken);
         uint256 oldBoosted = (bobAmt * bobBoostOld) / 10000;
 
         vm.prank(bob);
         staking.extendLock(bobToken, 365 days);
 
-        (, uint256 bobBoostNew,,,,) = staking.getPosition(bobToken);
+        (, uint256 bobBoostNew,,,,) = monitor.getPosition(bobToken);
         uint256 newBoosted = (bobAmt * bobBoostNew) / 10000;
 
         assertEq(
@@ -434,7 +437,7 @@ contract Audit195StakingCoreTest is Test {
         vm.prank(bob);
         staking.toggleAutoMaxLock(tokenId);
 
-        (, uint256 boostBps,, uint256 lockDuration, bool autoMax,) = staking.getPosition(tokenId);
+        (, uint256 boostBps,, uint256 lockDuration, bool autoMax,) = monitor.getPosition(tokenId);
         assertTrue(autoMax, "autoMaxLock should be true");
         assertEq(boostBps, 40000, "boost should be MAX_BOOST_BPS");
         assertEq(lockDuration, MAX_LOCK, "lockDuration should be MAX_LOCK");
@@ -454,7 +457,7 @@ contract Audit195StakingCoreTest is Test {
         vm.prank(bob);
         staking.toggleAutoMaxLock(tokenId);
 
-        (, uint256 boostBps,, uint256 lockDuration, bool autoMax,) = staking.getPosition(tokenId);
+        (, uint256 boostBps,, uint256 lockDuration, bool autoMax,) = monitor.getPosition(tokenId);
         assertFalse(autoMax, "autoMaxLock should be false");
         // Boost remains at max — this is the "finding": disabling auto-max doesn't reduce boost
         assertEq(boostBps, 40000, "boost REMAINS at max after disabling autoMaxLock");
@@ -474,7 +477,7 @@ contract Audit195StakingCoreTest is Test {
         staking.toggleAutoMaxLock(tokenId);
         vm.stopPrank();
 
-        (, uint256 boostBps,,,,) = staking.getPosition(tokenId);
+        (, uint256 boostBps,,,,) = monitor.getPosition(tokenId);
         assertEq(boostBps, 45000, "boost should be MAX_BOOST + JBAC_BONUS");
     }
 
@@ -488,13 +491,13 @@ contract Audit195StakingCoreTest is Test {
         uint256 bobToken = staking.userTokenId(bob);
 
         uint256 totalBoostedBefore = staking.totalBoostedStake();
-        (uint256 bobAmt, uint256 bobBoostOld,,,,) = staking.getPosition(bobToken);
+        (uint256 bobAmt, uint256 bobBoostOld,,,,) = monitor.getPosition(bobToken);
         uint256 oldBoosted = (bobAmt * bobBoostOld) / 10000;
 
         vm.prank(bob);
         staking.toggleAutoMaxLock(bobToken);
 
-        (, uint256 bobBoostNew,,,,) = staking.getPosition(bobToken);
+        (, uint256 bobBoostNew,,,,) = monitor.getPosition(bobToken);
         uint256 newBoosted = (bobAmt * bobBoostNew) / 10000;
 
         assertEq(
@@ -644,7 +647,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), totalStakedBefore - STAKE_AMT, "totalStaked decreased");
         // V2: totalLocked writes removed (redundant with totalStaked per audit L-22)
-        assertEq(staking.totalLocked(), staking.totalStaked(), "V2: totalLocked always 0");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "V2: totalLocked always 0");
         assertEq(staking.userTokenId(bob), 0, "userTokenId cleared");
     }
 
@@ -690,7 +693,7 @@ contract Audit195StakingCoreTest is Test {
         // Emergency exit now calls _getReward() so user receives principal + accrued rewards
         assertGe(token.balanceOf(bob) - bobBefore, STAKE_AMT, "should receive at least full principal");
         assertEq(staking.totalStaked(), 0, "totalStaked zeroed");
-        assertEq(staking.totalLocked(), staking.totalStaked(), "totalLocked zeroed");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "totalLocked zeroed");
     }
 
     /// @dev emergencyExitPosition reverts if lock still active
@@ -845,7 +848,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), STAKE_AMT * 3, "3 stakers");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), staking.totalStaked(), "3 locked: V2 totalLocked always 0");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "3 locked: V2 totalLocked always 0");
 
         // Bob withdraws after lock
         vm.warp(block.timestamp + 31 days);
@@ -854,7 +857,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), STAKE_AMT * 2, "2 stakers after bob withdraw");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), staking.totalStaked(), "2 locked after bob withdraw: V2 totalLocked always 0");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "2 locked after bob withdraw: V2 totalLocked always 0");
 
         // Carol early withdraws
         vm.prank(carol);
@@ -862,7 +865,7 @@ contract Audit195StakingCoreTest is Test {
 
         assertEq(staking.totalStaked(), STAKE_AMT, "1 staker after carol early withdraw");
         // V2: totalLocked tracking removed, always returns 0
-        assertEq(staking.totalLocked(), staking.totalStaked(), "1 locked after carol early withdraw: V2 totalLocked always 0");
+        assertEq(staking.totalStaked(), staking.totalStaked(), "1 locked after carol early withdraw: V2 totalLocked always 0");
 
         // Alice still active
         assertGt(staking.totalBoostedStake(), 0, "totalBoostedStake > 0 with alice still staking");
@@ -904,7 +907,7 @@ contract Audit195StakingCoreTest is Test {
         vm.prank(bob);
         staking.transferFrom(bob, carol, tokenId);
 
-        (,,,, bool autoMax,) = staking.getPosition(tokenId);
+        (,,,, bool autoMax,) = monitor.getPosition(tokenId);
         assertFalse(autoMax, "autoMaxLock should be reset on transfer");
     }
 

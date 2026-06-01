@@ -35,6 +35,10 @@ interface ISwapFeeRouterApply {
     function polShareBps() external view returns (uint256);
     function polAccumulator() external view returns (address);
     function revenueDistributor() external view returns (address);
+    /// @dev AUDIT FIX 2026-05-26 [L-09]: lookup whether a per-input-token override
+    ///      is currently set on the router. Lets the admin pre-validate the
+    ///      `removal=true` shape without wasting a 24h timelock cycle.
+    function hasInputTokenFeeOverride(address inputToken) external view returns (bool);
 }
 
 /// @title SwapFeeRouterAdmin — Sister contract holding timelocked admin flow
@@ -57,6 +61,10 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     ///         the canonical `proposeInputTokenFeeChange` / `executeInputTokenFeeChange`
     ///         / `cancelInputTokenFeeChange` flow. Selectors preserved on the ABI.
     error DeprecatedUseInputTokenFee();
+    /// @notice AUDIT FIX 2026-05-26 [L-07]: no-op fee change rejected on execute.
+    error FeeUnchanged();
+    /// @notice AUDIT FIX 2026-05-26 [L-09]: removal of non-existent override rejected.
+    error NoOverrideToRemove();
 
     // ─── Timelock keys ────────────────────────────────────────────────
     bytes32 public constant FEE_CHANGE = keccak256("FEE_CHANGE");
@@ -142,6 +150,13 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
         _execute(FEE_CHANGE);
         uint256 v = pendingFeeBps;
         pendingFeeBps = 0;
+        // AUDIT FIX 2026-05-26 [L-07]: no-op guard. Pre-fix, executing a propose
+        // where pendingFeeBps == current would emit `FeeUpdated(old, new)` with
+        // `old == new`, polluting indexers/alert systems with false-positive
+        // change signals. The check at execute time (vs propose) also catches
+        // a race where the fee was updated through some other path between
+        // propose and execute.
+        if (v == router.feeBps()) revert FeeUnchanged();
         router.applyFee(v);
     }
 
@@ -218,6 +233,19 @@ contract SwapFeeRouterAdmin is OwnableNoRenounce, TimelockAdmin {
     function proposeInputTokenFeeChange(address inputToken, uint256 newFeeBps, bool removal) public onlyOwner {
         if (inputToken == address(0)) revert ZeroAddress();
         if (!removal && newFeeBps > router.MAX_FEE_BPS()) revert FeeTooHigh();
+        // AUDIT FIX 2026-05-26 [L-05]: reject the semantically-broken
+        // `(removal=false, newFeeBps=0)` shape. Pre-fix, owners could install a
+        // zero-fee override (use `removal=true` to revert to the global default
+        // instead). The override is a positive-fee override; zero must go via
+        // the removal path so on-chain accounting reflects "no override" not
+        // "override of 0".
+        if (!removal && newFeeBps == 0) revert FeeTooHigh();
+        // AUDIT FIX 2026-05-26 [L-09]: reject removal where no override exists.
+        // Pre-fix, owners could `propose(removal=true)` on a token that already
+        // had no override, wasting the 24h timelock cycle and emitting a
+        // misleading `PairFeeUpdated(_, _, true)` event that indexers misread
+        // as "override was active and removed."
+        if (removal && !router.hasInputTokenFeeOverride(inputToken)) revert NoOverrideToRemove();
         pendingPairFeeAddress = inputToken;
         pendingPairFeeBps = newFeeBps;
         pendingPairFeeRemoval = removal;

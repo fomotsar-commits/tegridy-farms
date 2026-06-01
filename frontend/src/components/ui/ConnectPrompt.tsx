@@ -65,7 +65,20 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="max-w-[560px] mx-auto px-4 py-16 md:py-20 text-center"
+      className="max-w-[560px] mx-auto my-12 md:my-16 px-6 py-12 md:py-16 text-center rounded-2xl"
+      style={{
+        // AUDIT 2026-05-30 (mobile + iPad re-pass + original "dead page" finding): the
+        // wallet-gate previously sat directly on each page's full-bleed background art on
+        // every transactional surface (/farm, /swap, /liquidity, /lending, /dashboard,
+        // /history). Text was barely readable on busy bg art AND the unframed prompt
+        // visually disappeared into the page ("dead page" pattern). A backdrop card
+        // gives the prompt clear visual anchorage + WCAG-passing contrast everywhere.
+        background: 'rgba(6, 12, 26, 0.82)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        border: '1px solid rgba(245, 228, 184, 0.12)',
+        boxShadow: '0 8px 30px rgba(0,0,0,0.45)',
+      }}
       role="region"
       aria-label="Wallet connection required"
     >

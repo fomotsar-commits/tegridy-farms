@@ -85,6 +85,11 @@ contract Toweli is ERC20, ERC20Permit {
     ///                  Expected to be a multisig treasury that then distributes to
     ///                  LP seed, staking rewards, team, and community per the
     ///                  allocation in TOKENOMICS.md.
+    /// @dev AUDIT FIX 2026-05-26 [L-34]: EIP-712 name + version MUST stay <= 31 bytes
+    ///      to use the OZ ShortString fast path (no SSTORE to _nameFallback/
+    ///      _versionFallback, which inflates domain-separator rebuild cost on fork).
+    ///      Current values "Toweli" (6 bytes) + "1" (1 byte) are well under. Future
+    ///      Toweli variants MUST preserve this invariant.
     constructor(address recipient)
         ERC20("Toweli", "TOWELI")
         ERC20Permit("Toweli")

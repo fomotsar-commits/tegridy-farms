@@ -3,6 +3,11 @@ pragma solidity ^0.8.26;
 
 import "./TegridyPair.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {TegridyFactoryLib} from "./lib/TegridyFactoryLib.sol";
+// AUDIT FIX 2026-05-26 [H-08] — EnumerableSet tracks per-token TOKEN_BLOCK_CHANGE
+// and per-pair PAIR_DISABLE_CHANGE pending proposals so acceptFeeToSetter can
+// flush every queued proposal the OLD setter left behind on rotation.
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 /// @title TegridyFactory — Creates and manages AMM liquidity pools
 /// @notice Fork of Uniswap V2 Factory. Creates TegridyPair pools for any token pair.
@@ -13,6 +18,7 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 ///         - Unlimited pools — add any pair anytime
 ///         - Each pool is a TegridyPair contract with its own LP token
 contract TegridyFactory is TimelockAdmin {
+    using EnumerableSet for EnumerableSet.AddressSet; // AUDIT FIX 2026-05-26 [H-08]
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
     bytes32 public constant FEE_TO_CHANGE = keccak256("FEE_TO_CHANGE");
@@ -137,6 +143,11 @@ contract TegridyFactory is TimelockAdmin {
     uint256 public constant MAX_SETTER_PROPOSAL_VALIDITY = 7 days;
     uint256 public constant TOKEN_BLOCK_DELAY = 24 hours;
 
+    // [M1 FIX] Max entries flushed per flushStaleProposals call. Bounds the per-tx
+    // gas cost so a griefing setter who queued many proposals cannot OOG the flush.
+    // 50 entries × ~5 000 gas each ≈ 250 000 gas — comfortably within any block limit.
+    uint256 public constant MAX_FLUSH_BATCH = 50;
+
     // ─── AUDIT R028 H-01 — appended to preserve original storage layout ───
     /// @dev Pending value for the timelocked guardian rotation flow. Placed at
     ///      the end of storage so existing test cheats and any external slot-
@@ -154,6 +165,20 @@ contract TegridyFactory is TimelockAdmin {
     ///         `emergencyDisablesToday` was last reset. Used to detect day
     ///         rollover before incrementing the counter.
     uint64 public lastDisableDay;
+
+    // ─── AUDIT FIX 2026-05-26 [H-08] — pending-proposal enumeration ─────
+    /// @notice Set of tokens with a currently-pending TOKEN_BLOCK_CHANGE proposal.
+    ///         Maintained by `proposeTokenBlocked` (add) and
+    ///         `executeTokenBlocked` / `cancelTokenBlocked` (remove).
+    ///         [M1 FIX]: drained via flushStaleProposals() after acceptFeeToSetter
+    ///         (not inside it — unbounded iteration caused OOG on setter rotation).
+    /// @dev    Appended at the end of storage to preserve the existing slot layout.
+    EnumerableSet.AddressSet private _pendingTokenBlocks;
+    /// @notice Set of pairs with a currently-pending PAIR_DISABLE_CHANGE proposal.
+    ///         Maintained by `proposePairDisabled` (add) and
+    ///         `executePairDisabled` / `cancelPairDisabled` / `emergencyDisablePair`
+    ///         (remove). [M1 FIX]: drained via flushStaleProposals() after acceptFeeToSetter.
+    EnumerableSet.AddressSet private _pendingPairDisables;
 
     /// @param _feeToSetter The administrative key (multisig recommended) that controls
     ///                     fee redirection and pair-disable timelocks.
@@ -239,8 +264,7 @@ contract TegridyFactory is TimelockAdmin {
         _rejectERC777(token1);
         require(getPair[token0][token1] == address(0), "PAIR_EXISTS");
 
-        // Deploy new pair contract
-        bytes memory bytecode = type(TegridyPair).creationCode;
+        // Deploy new pair contract.
         // AUDIT FIX (BATCH-L4 M2, mirrors NFTPoolFactory + LaunchpadV2 M3):
         // include chainid + factory so cross-chain CREATE2 collisions and
         // pre-deployed-elsewhere squatting are structurally impossible.
@@ -249,10 +273,11 @@ contract TegridyFactory is TimelockAdmin {
         // produce different addresses. Acceptable for the Wave-0 relaunch
         // (no cross-version address compatibility required).
         bytes32 salt = keccak256(abi.encode(block.chainid, address(this), token0, token1));
-        assembly {
-            pair := create2(0, add(bytecode, 32), mload(bytecode), salt)
-        }
-        require(pair != address(0), "CREATE2_FAILED");
+        // EIP-170 split: the CREATE2 deploy (which embeds the ~11KB TegridyPair creationCode)
+        // is relocated to TegridyFactoryLib.deployPair via delegatecall. The executor is
+        // still this Factory, so the deterministic pair address and the pair's
+        // `factory = msg.sender` are byte-identical to the prior in-line create2.
+        pair = TegridyFactoryLib.deployPair(salt);
 
         // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
         // slither-disable-next-line reentrancy-no-eth
@@ -374,11 +399,30 @@ contract TegridyFactory is TimelockAdmin {
             _forceCancel(GUARDIAN_CHANGE); // emits ProposalCancelled(GUARDIAN_CHANGE)
             emit GuardianChangeCancelled(cancelledGuardian); // legacy supplemental event
         }
+
+        // [M1 FIX] Per-token TOKEN_BLOCK_CHANGE and per-pair PAIR_DISABLE_CHANGE
+        // proposals queued by the OLD setter are NOT flushed here.
+        // Pre-fix, unbounded loops caused acceptFeeToSetter to OOG when a
+        // griefing setter queued many proposals, permanently bricking rotation.
+        // Post-fix: the new setter calls flushStaleProposals(tokenCount, pairCount)
+        // in up to MAX_FLUSH_BATCH-sized batches AFTER accepting. The old setter's
+        // proposals cannot be executed by anyone other than the current feeToSetter
+        // (see executeTokenBlocked / executePairDisabled require guards), so the new
+        // setter will not accidentally trigger hostile proposals while draining the queues.
+        // Pending proposals expire naturally after PROPOSAL_VALIDITY (7 days) regardless.
+
         emit FeeToSetterAccepted(oldSetter, feeToSetter);
     }
 
     /// @notice AUDIT FIX: Cancel a pending feeToSetter proposal.
     ///         Consistent with cancelFeeToChange() pattern.
+    /// @dev    AUDIT FIX 2026-05-26 [L-24] — the legacy FeeToSetterProposalCancelled
+    ///         event is the CANONICAL cancellation signal for this key. It does NOT
+    ///         use the TimelockAdmin._cancel(KEY) pattern (and so does NOT emit
+    ///         ProposalCancelled) because this rotation runs on its own pre-TimelockAdmin
+    ///         storage slot (pendingFeeToSetter + feeToSetterChangeTime) rather than
+    ///         through _executeAfter. Off-chain indexers must subscribe to
+    ///         FeeToSetterProposalCancelled (NOT ProposalCancelled) for this flow.
     function cancelFeeToSetterProposal() external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(pendingFeeToSetter != address(0), "NO_PENDING_PROPOSAL");
@@ -386,6 +430,69 @@ contract TegridyFactory is TimelockAdmin {
         pendingFeeToSetter = address(0);
         feeToSetterChangeTime = 0;
         emit FeeToSetterProposalCancelled(cancelled);
+    }
+
+    /// @notice [M1 FIX] Paginated flush of stale per-token and per-pair proposals.
+    ///         MUST be called by the new feeToSetter after acceptFeeToSetter() until
+    ///         both sets are empty. Each call drains at most `tokenCount` token-block
+    ///         proposals and `pairCount` pair-disable proposals.
+    ///         Calling with tokenCount=0 and pairCount=0 is a no-op.
+    ///         Sets are empty when pendingTokenBlockCount() / pendingPairDisableCount() == 0.
+    ///         Old setter's proposals expire automatically after 7 days (PROPOSAL_VALIDITY)
+    ///         even if flush is never called — the flush just provides an explicit
+    ///         canonical path with on-chain events.
+    /// @dev    Pattern: OZ Governor batched execute (page-by-page with per-call limit).
+    function flushStaleProposals(uint256 tokenCount, uint256 pairCount) external {
+        require(msg.sender == feeToSetter, "FORBIDDEN");
+        // Cap each leg to MAX_FLUSH_BATCH for predictable per-tx gas
+        if (tokenCount > MAX_FLUSH_BATCH) tokenCount = MAX_FLUSH_BATCH;
+        if (pairCount  > MAX_FLUSH_BATCH) pairCount  = MAX_FLUSH_BATCH;
+        _flushTokenBlocks(tokenCount);
+        _flushPairDisables(pairCount);
+    }
+
+    /// @notice Pending token-block proposal count (for off-chain flush scheduling).
+    function pendingTokenBlockCount() external view returns (uint256) {
+        return _pendingTokenBlocks.length();
+    }
+
+    /// @notice Pending pair-disable proposal count (for off-chain flush scheduling).
+    function pendingPairDisableCount() external view returns (uint256) {
+        return _pendingPairDisables.length();
+    }
+
+    function _flushTokenBlocks(uint256 count) internal {
+        uint256 n = _pendingTokenBlocks.length();
+        if (n < count) count = n;
+        for (uint256 i = 0; i < count; i++) {
+            // Always pop the last element (swap-and-pop safe iteration)
+            address token = _pendingTokenBlocks.at(n - 1 - i);
+            bytes32 tKey = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
+            _forceCancel(tKey);
+            delete pendingTokenBlockValue[token];
+            // AUDIT 2026-05-30 [slither unused-return]: EnumerableSet.remove returns a
+            // was-present bool; ignoring it is intentional and standard (the .at(...) above
+            // guarantees the element exists). Matches repo convention at TWAP L611/941.
+            // slither-disable-next-line unused-return
+            _pendingTokenBlocks.remove(token);
+            emit TokenBlockCancelled(token);
+        }
+    }
+
+    function _flushPairDisables(uint256 count) internal {
+        uint256 n = _pendingPairDisables.length();
+        if (n < count) count = n;
+        for (uint256 i = 0; i < count; i++) {
+            address pair = _pendingPairDisables.at(n - 1 - i);
+            bytes32 pKey = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
+            _forceCancel(pKey);
+            delete pendingPairDisableValue[pair];
+            // AUDIT 2026-05-30 [slither unused-return]: same as _flushTokenBlocks above —
+            // EnumerableSet.remove return ignored intentionally, .at(...) guarantees presence.
+            // slither-disable-next-line unused-return
+            _pendingPairDisables.remove(pair);
+            emit PairDisableCancelled(pair);
+        }
     }
 
     /// @dev A4-M-10: Best-effort ERC-777 detection. Checks ERC-165 supportsInterface for
@@ -402,59 +509,28 @@ contract TegridyFactory is TimelockAdmin {
     ///      OOG-griefing legitimate `createPair` callers.
     function _rejectERC777(address token) internal view {
         require(!blockedTokens[token], "TOKEN_BLOCKED");
-
-        // ERC-777 token interface ID = 0xe58e113c
-        // AUDIT FIX D-AMM-INFO2: 30k gas cap (see function-level NatSpec).
-        (bool ok, bytes memory result) = token.staticcall{gas: 30_000}(
-            abi.encodeWithSelector(0x01ffc9a7, bytes4(0xe58e113c)) // supportsInterface(0xe58e113c)
-        );
-        if (ok && result.length >= 32) {
-            bool supported = abi.decode(result, (bool));
-            require(!supported, "ERC777_NOT_SUPPORTED");
-        }
-
-        // Check for granularity() — mandatory ERC-777 function not found in standard ERC-20.
-        // If the token implements granularity(), it is likely an ERC-777 token.
-        // AUDIT FIX D-AMM-INFO2: 30k gas cap.
-        (bool grOk, bytes memory grResult) = token.staticcall{gas: 30_000}(
-            abi.encodeWithSelector(bytes4(keccak256("granularity()")))
-        );
-        if (grOk && grResult.length >= 32) {
-            revert("ERC777_NOT_SUPPORTED");
-        }
-
-        // AUDIT NEW-A9 (MEDIUM): ERC-1820 has MULTIPLE hook interfaces — `ERC777Token`,
-        // `ERC777TokensRecipient`, and `ERC777TokensSender`. The prior check covered
-        // only the first. A token could register `ERC777TokensSender` alone (which
-        // fires on outgoing transfers from holders — including pairs transferring
-        // output tokens) without registering the full `ERC777Token` interface. Check
-        // all three to close the gap.
-        address ERC1820_REGISTRY = 0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24;
-        if (ERC1820_REGISTRY.code.length > 0) {
-            bytes32[3] memory hashes = [
-                keccak256("ERC777Token"),
-                keccak256("ERC777TokensRecipient"),
-                keccak256("ERC777TokensSender")
-            ];
-            for (uint256 i = 0; i < 3; i++) {
-                // AUDIT FIX D-AMM-INFO2: 30k gas cap.
-                (bool regOk, bytes memory regResult) = ERC1820_REGISTRY.staticcall{gas: 30_000}(
-                    abi.encodeWithSelector(0xaabbb8ca, token, hashes[i])
-                );
-                if (regOk && regResult.length >= 32) {
-                    address implementer = abi.decode(regResult, (address));
-                    require(implementer == address(0), "ERC777_NOT_SUPPORTED");
-                }
-            }
-        }
+        // EIP-170 split: the ERC-777 detection probing (ERC-165 supportsInterface /
+        // granularity() / all three ERC-1820 hook interfaces, every staticcall 30k-gas-
+        // capped) is relocated VERBATIM to TegridyFactoryLib.assertNotERC777 (delegatecall
+        // lib). The `blockedTokens` gate stays here because it touches host storage; the
+        // detection tail is storage-free + view-only, so it moves cleanly. Behaviour
+        // byte-identical — same probes, same revert reason, same ordering.
+        TegridyFactoryLib.assertNotERC777(token);
     }
 
     /// @notice AUDIT FIX L-29: Block or unblock a token (timelocked for consistency)
+    /// @dev    AUDIT FIX 2026-05-26 [H-08]: track in _pendingTokenBlocks for flush on rotation.
     function proposeTokenBlocked(address token, bool blocked) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         bytes32 key = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
         pendingTokenBlockValue[token] = blocked;
         _propose(key, TOKEN_BLOCK_DELAY);
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.add returns a
+        // was-added bool; idempotent add — surrounding _propose timelock and
+        // pendingTokenBlockValue write make the in-set invariant deterministic.
+        // Matches repo convention at _flushTokenBlocks L473.
+        // slither-disable-next-line unused-return
+        _pendingTokenBlocks.add(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlockProposed(token, blocked, _executeAfter[key]);
     }
 
@@ -464,6 +540,11 @@ contract TegridyFactory is TimelockAdmin {
         _execute(key);
         blockedTokens[token] = pendingTokenBlockValue[token];
         delete pendingTokenBlockValue[token];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored intentionally — proposeTokenBlocked added it; matching pair.
+        // Same convention as _flushTokenBlocks L473.
+        // slither-disable-next-line unused-return
+        _pendingTokenBlocks.remove(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlocked(token, blockedTokens[token]);
     }
 
@@ -472,6 +553,11 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(TOKEN_BLOCK_CHANGE, token));
         _cancel(key);
         delete pendingTokenBlockValue[token];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — cancel path mirrors execute; presence implied by prior propose.
+        // Same convention as _flushTokenBlocks L473.
+        // slither-disable-next-line unused-return
+        _pendingTokenBlocks.remove(token); // AUDIT FIX 2026-05-26 [H-08]
         emit TokenBlockCancelled(token);
     }
 
@@ -520,6 +606,7 @@ contract TegridyFactory is TimelockAdmin {
     ///         the same gate in `emergencyDisablePair`. Off-chain consumers
     ///         (TWAP / VoteIncentives) defend in depth, but the registry should
     ///         not carry semantically-meaningless entries.
+    /// @dev AUDIT FIX 2026-05-26 [H-08]: track in _pendingPairDisables for flush on rotation.
     function proposePairDisabled(address pair, bool disabled) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
         require(pair != address(0), "ZERO_ADDRESS");
@@ -527,6 +614,12 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         pendingPairDisableValue[pair] = disabled;
         _propose(key, PAIR_DISABLE_DELAY);
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.add returns a
+        // was-added bool; idempotent add — propose key uniqueness and the
+        // pendingPairDisableValue write make in-set invariant deterministic.
+        // Matches repo convention at _flushPairDisables L486.
+        // slither-disable-next-line unused-return
+        _pendingPairDisables.add(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableProposed(pair, disabled, _executeAfter[key]);
     }
 
@@ -537,6 +630,11 @@ contract TegridyFactory is TimelockAdmin {
         _execute(key);
         disabledPairs[pair] = pendingPairDisableValue[pair];
         delete pendingPairDisableValue[pair];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — proposePairDisabled added it; matching pair, presence implied.
+        // Same convention as _flushPairDisables L486.
+        // slither-disable-next-line unused-return
+        _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableExecuted(pair, disabledPairs[pair]);
     }
 
@@ -549,6 +647,11 @@ contract TegridyFactory is TimelockAdmin {
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         _cancel(key);
         delete pendingPairDisableValue[pair];
+        // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+        // ignored — cancel path mirrors execute; presence implied by prior propose.
+        // Same convention as _flushPairDisables L486.
+        // slither-disable-next-line unused-return
+        _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         emit PairDisableCancelled(pair);
     }
 
@@ -587,23 +690,25 @@ contract TegridyFactory is TimelockAdmin {
     }
 
     /// @notice AUDIT R028 H-01: propose a guardian change (takes effect after 48h).
-    ///         _newGuardian == address(0) is allowed and disables emergency powers.
+    /// @dev    AUDIT FIX 2026-05-26 [L-26] — guardian rotation to address(0) is now
+    ///         REJECTED. Per user decision 2026-05-26 the emergency role must ALWAYS
+    ///         exist (a zero guardian leaves the protocol with no instant-disable
+    ///         capability, defeating the NEW-A2 design rationale). Rotation to a fresh
+    ///         non-zero multisig is the supported path; disabling the role outright is not.
     /// @dev    AUDIT FIX D-AMM-L2: reject same-guardian no-op proposals so a captured
     ///         feeToSetter cannot occupy the GUARDIAN_CHANGE proposal slot for 48h
     ///         and block legitimate rotation. Mirrors the SAME_SETTER guard in
     ///         `proposeFeeToSetter` and the SAME_VALUE pattern across audit fixes.
     function proposeGuardianChange(address _newGuardian) external {
         require(msg.sender == feeToSetter, "FORBIDDEN");
+        // AUDIT FIX 2026-05-26 [L-26] — explicit zero-address reject.
+        require(_newGuardian != address(0), "ZERO_GUARDIAN");
         require(_newGuardian != guardian, "SAME_GUARDIAN");
-        // AUDIT FIX H-16 / F-94-02 (HIGH): require multisig-class guardian on
-        // rotation (skip the gate when _newGuardian == address(0) — that's the
-        // explicit "disable emergency role" path). Mirrors `setGuardian` so a
-        // captured feeToSetter cannot rotate the guardian to a single-key EOA
-        // they control, even after the 48h delay.
-        if (_newGuardian != address(0)) {
-            uint256 codeLen = _newGuardian.code.length;
-            require(codeLen > 0 && codeLen != 23, "GUARDIAN_NOT_MULTISIG");
-        }
+        // AUDIT FIX H-16 / F-94-02 (HIGH): require multisig-class guardian on rotation.
+        // The prior `if (_newGuardian != address(0))` carve-out is removed (per L-26 above)
+        // so the check is now unconditional.
+        uint256 codeLen = _newGuardian.code.length;
+        require(codeLen > 0 && codeLen != 23, "GUARDIAN_NOT_MULTISIG");
         pendingGuardian = _newGuardian;
         _propose(GUARDIAN_CHANGE, GUARDIAN_CHANGE_DELAY);
         emit GuardianChangeProposed(guardian, _newGuardian, _executeAfter[GUARDIAN_CHANGE]);
@@ -667,6 +772,9 @@ contract TegridyFactory is TimelockAdmin {
             emergencyDisablesToday = 1;
         } else {
             // Same day — enforce cap before incrementing.
+            // AUDIT FIX 2026-05-26 [L-33] — uint8 overflow path is impossible: cap
+            // MAX_EMERGENCY_DISABLES_PER_DAY=3 trips at 4, well below uint8 max 255.
+            // Solidity 0.8 checked arith would revert if ever reached.
             uint8 nextCount = emergencyDisablesToday + 1;
             if (nextCount > MAX_EMERGENCY_DISABLES_PER_DAY) {
                 revert EmergencyDisableRateLimited();
@@ -681,6 +789,12 @@ contract TegridyFactory is TimelockAdmin {
         if (_executeAfter[key] != 0 && pendingPairDisableValue[pair] == false) {
             _cancel(key);
             delete pendingPairDisableValue[pair];
+            // AUDIT 2026-05-31 [slither unused-return]: EnumerableSet.remove return
+            // ignored — entered the branch only because _executeAfter[key]!=0, which
+            // means proposePairDisabled previously added `pair`; presence guaranteed.
+            // Same convention as _flushPairDisables L486.
+            // slither-disable-next-line unused-return
+            _pendingPairDisables.remove(pair); // AUDIT FIX 2026-05-26 [H-08]
         }
         emit PairEmergencyDisabled(pair, msg.sender);
     }

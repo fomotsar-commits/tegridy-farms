@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
@@ -31,6 +32,7 @@ contract MockNFTAudit is ERC721 {
 
 contract AuditFixesStakingTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin public admin;
     TegridyStakingJbacVault public vault; // AUDIT FIX (pass-8 batch-14)
     MockTokenAudit public token;
@@ -44,6 +46,7 @@ contract AuditFixesStakingTest is Test {
         token = new MockTokenAudit();
         nft = new MockNFTAudit();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister.
@@ -274,7 +277,7 @@ contract AuditFixesStakingTest is Test {
 
         uint256 bobTokenId = staking.userTokenId(bob);
         assertGt(bobTokenId, 0, "Should have minted a position NFT");
-        (uint256 amount,,,,,) = staking.getPosition(bobTokenId);
+        (uint256 amount,,,,,) = monitor.getPosition(bobTokenId);
         assertEq(amount, 100 ether, "Staked amount should be 100e18");
     }
 
@@ -291,7 +294,7 @@ contract AuditFixesStakingTest is Test {
         staking.stakeWithBoost(100_000 ether, 365 days, 1);
         uint256 aliceTokenId = staking.userTokenId(alice);
 
-        (,uint256 boostBefore,,,,) = staking.getPosition(aliceTokenId);
+        (,uint256 boostBefore,,,,) = monitor.getPosition(aliceTokenId);
         uint256 baseBoost = staking.calculateBoost(365 days);
         assertEq(boostBefore, baseBoost + 5000, "Should have JBAC bonus from deposit");
         // AUDIT FIX (pass-8 batch-14): JBAC custody moved to the vault sister.

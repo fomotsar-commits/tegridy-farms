@@ -171,8 +171,11 @@ export default function ChangelogPage() {
                     <img src={CARD_ART[idx % CARD_ART.length]!.src} alt="" loading="lazy" className="w-full h-full object-cover" />
                   </div>
                   {/* Translucent black content panel — art still bleeds through the border,
-                      text stays readable against the dimmed backdrop. */}
-                  <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      text stays readable against the dimmed backdrop.
+                      AUDIT 2026-05-30 (mobile+iPad re-pass, CRIT): bumped scrim 0.55 → 0.85
+                      because the bright orange/yellow jungle-ape art (idx > 0 cards) made body
+                      copy essentially invisible at iPad portrait. Higher backdrop-blur too. */}
+                  <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     {/* Date badge */}
                     <span className="inline-block text-xs font-semibold text-purple-300 bg-purple-500/20 px-3 py-1 rounded-full mb-3" style={{ backdropFilter: 'blur(4px)' }}>
                       {entry.date}

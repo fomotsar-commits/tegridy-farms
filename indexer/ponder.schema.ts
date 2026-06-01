@@ -42,45 +42,10 @@ export const stakingAction = onchainTable(
 
 // ─── Restaking ───────────────────────────────────────────────────────────────
 
-// AUDIT R054 (Agent 084 IDX-M1): nullable `positionAmount` column so
-// `Restaked` rows persist the restake size for emergency reconciliation
-// (Agent 039 H-EVT-03). Field is nullable to keep migration painless.
-export const restakingPosition = onchainTable(
-  "restaking_position",
-  (t) => ({
-    tokenId: t.bigint().primaryKey(),
-    user: t.hex().notNull(),
-    depositTime: t.bigint().notNull(),
-    positionAmount: t.bigint(), // nullable — null until first Restaked row writes it
-  }),
-  (table) => ({
-    userIdx: index().on(table.user),
-  }),
-);
-
-// AUDIT R054 (Agent 084 finding): per agent 084, `PositionRefreshed`,
-// `BoostRevalidated`, `EmergencyForceReturn` were silent. New table
-// unifies all three via a `type` discriminator so the dashboard can
-// render the admin-action timeline.
-export const restakingAdminAction = onchainTable(
-  "restaking_admin_action",
-  (t) => ({
-    id: t.text().primaryKey(),
-    type: t.text().notNull(), // positionRefreshed | boostRevalidated | emergencyForceReturn
-    restaker: t.hex().notNull(),
-    tokenId: t.bigint().notNull(),
-    oldValue: t.bigint(),
-    newValue: t.bigint(),
-    nftReturned: t.boolean(),
-    timestamp: t.bigint().notNull(),
-    txHash: t.hex().notNull(),
-  }),
-  (table) => ({
-    restakerIdx: index().on(table.restaker),
-    tokenIdx: index().on(table.tokenId),
-    typeIdx: index().on(table.type),
-  }),
-);
+// AUDIT M5 (2026-05-24): restakingPosition / restakingAdminAction (and
+// restakingClaim, defined further below) removed — TegridyRestaking is
+// DEFERRED to Phase 7 and out of the MVP set. No kept handler references
+// these tables.
 
 // ─── Revenue Distribution ────────────────────────────────────────────────────
 
@@ -108,165 +73,12 @@ export const revenueClaim = onchainTable(
 
 // ─── Vote Incentives ─────────────────────────────────────────────────────────
 
-export const gaugeVote = onchainTable(
-  "gauge_vote",
-  (t) => ({
-    id: t.text().primaryKey(),
-    user: t.hex().notNull(),
-    epoch: t.bigint().notNull(),
-    pair: t.hex().notNull(),
-    power: t.bigint().notNull(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    userIdx: index().on(table.user),
-    epochIdx: index().on(table.epoch),
-  }),
-);
-
-// AUDIT R054: includes the ETH-bribe path. `token` is null when the
-// underlying deposit was native ETH (BribeDepositedETH).
-export const bribeDeposit = onchainTable(
-  "bribe_deposit",
-  (t) => ({
-    id: t.text().primaryKey(),
-    epoch: t.bigint().notNull(),
-    pair: t.hex().notNull(),
-    token: t.hex(), // nullable — null for ETH bribes
-    depositor: t.hex().notNull(),
-    amount: t.bigint().notNull(),
-    fee: t.bigint(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    epochIdx: index().on(table.epoch),
-    pairIdx: index().on(table.pair),
-    depositorIdx: index().on(table.depositor),
-  }),
-);
-
-// AUDIT INDEXER-M2: bribe claim tracking so frontend can reconcile per-user
-// claim history, not just deposit flow.
-export const bribeClaim = onchainTable(
-  "bribe_claim",
-  (t) => ({
-    id: t.text().primaryKey(),
-    user: t.hex().notNull(),
-    epoch: t.bigint().notNull(),
-    pair: t.hex().notNull(),
-    token: t.hex().notNull(),
-    amount: t.bigint().notNull(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    userIdx: index().on(table.user),
-    epochIdx: index().on(table.epoch),
-  }),
-);
-
-// AUDIT R054 (R020/R021): VoteIncentives commit-reveal vote history.
-// `pair`/`power` are populated only on reveal; commit rows have them null.
-export const voteIncentivesCommit = onchainTable(
-  "vote_incentives_commit",
-  (t) => ({
-    id: t.text().primaryKey(),
-    user: t.hex().notNull(),
-    epoch: t.bigint().notNull(),
-    commitIndex: t.bigint().notNull(),
-    commitHash: t.hex(),
-    revealedAt: t.bigint(),
-    revealedPair: t.hex(),
-    revealedPower: t.bigint(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    userIdx: index().on(table.user),
-    epochIdx: index().on(table.epoch),
-  }),
-);
-
-// AUDIT R054: VoteIncentives epoch boundary events.
-export const voteIncentivesEpoch = onchainTable("vote_incentives_epoch", (t) => ({
-  epochId: t.bigint().primaryKey(),
-  totalPower: t.bigint().notNull(),
-  timestamp: t.bigint().notNull(),
-}));
-
-// AUDIT R054 (NEW-G2): refund table. Originally only `orphaned` was emitted
-// by the contract; Batch B (commit 1b7ad2f) added `unvoted` for snapshotted
-// zero-vote epochs. The `type` discriminator covers both.
-export const voteIncentivesRefund = onchainTable(
-  "vote_incentives_refund",
-  (t) => ({
-    id: t.text().primaryKey(),
-    type: t.text().notNull(), // "orphaned" | "unvoted"
-    epoch: t.bigint().notNull(),
-    pair: t.hex().notNull(),
-    token: t.hex().notNull(),
-    depositor: t.hex().notNull(),
-    amount: t.bigint().notNull(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    depositorIdx: index().on(table.depositor),
-    epochIdx: index().on(table.epoch),
-  }),
-);
-
-// AUDIT R020 H-3 (Batch B, commit 1b7ad2f): per-token min-bribe governance
-// lifecycle. Records propose/execute/cancel events so the frontend timelock
-// UI can show the active queue and history without re-scanning logs.
-export const voteIncentivesMinBribeChange = onchainTable(
-  "vote_incentives_min_bribe_change",
-  (t) => ({
-    id: t.text().primaryKey(),
-    action: t.text().notNull(), // "proposed" | "executed" | "cancelled"
-    token: t.hex().notNull(),
-    amount: t.bigint().notNull(),
-    previousAmount: t.bigint(), // only set on "executed"
-    executeAfter: t.bigint().notNull(),
-    timestamp: t.bigint().notNull(),
-    txHash: t.hex().notNull(),
-  }),
-  (table) => ({
-    tokenIdx: index().on(table.token),
-    actionIdx: index().on(table.action),
-  }),
-);
-
-// AUDIT INDEXER-M2: proposal vote tracking so governance UI can show per-user
-// voting patterns, not just final proposal outcomes.
-export const proposalVote = onchainTable(
-  "proposal_vote",
-  (t) => ({
-    id: t.text().primaryKey(),
-    proposalId: t.bigint().notNull(),
-    voter: t.hex().notNull(),
-    support: t.boolean().notNull(),
-    power: t.bigint().notNull(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    proposalIdx: index().on(table.proposalId),
-    voterIdx: index().on(table.voter),
-  }),
-);
-
-// AUDIT INDEXER-M2: restaking claim tracking — base + bonus reward streams
-// need per-user records for the dashboard to show total claimed.
-export const restakingClaim = onchainTable(
-  "restaking_claim",
-  (t) => ({
-    id: t.text().primaryKey(),
-    user: t.hex().notNull(),
-    type: t.text().notNull(), // "base" | "bonus"
-    amount: t.bigint().notNull(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    userIdx: index().on(table.user),
-  }),
-);
+// AUDIT M5 (2026-05-24): all VoteIncentives tables removed (non-MVP):
+// gaugeVote, bribeDeposit, bribeClaim, voteIncentivesCommit,
+// voteIncentivesEpoch, voteIncentivesRefund, voteIncentivesMinBribeChange.
+// Also removed from this section: proposalVote (CommunityGrants — non-MVP)
+// and restakingClaim (TegridyRestaking — DEFERRED to Phase 7). None of these
+// are referenced by any kept handler.
 
 // ─── Swaps ───────────────────────────────────────────────────────────────────
 
@@ -315,152 +127,31 @@ export const pairEvent = onchainTable(
   }),
 );
 
-// ─── LP Farming ──────────────────────────────────────────────────────────────
-
-export const lpFarmAction = onchainTable(
-  "lp_farm_action",
+// AUDIT M4 (2026-05-24): pair-event poisoning allowlist cache.
+// TegridyPair is subscribed via the factory(TegridyFactory.PairCreated)
+// pattern, so the indexer auto-tracks EVERY pair the factory creates. If pair
+// creation is permissionless, an attacker can spin up junk pairs to poison the
+// indexed Swap/Mint/Burn data. We only index pairs whose token0 or token1 is a
+// canonical protocol token (TOWELI/WETH). This table caches the one-time
+// token0()/token1() lookup per pair plus the allow/deny verdict so we do at
+// most one RPC round-trip per pair (not per event). See src/index.ts.
+export const indexedPair = onchainTable(
+  "indexed_pair",
   (t) => ({
-    id: t.text().primaryKey(),
-    user: t.hex().notNull(),
-    type: t.text().notNull(), // stake | withdraw | claim
-    amount: t.bigint().notNull(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    userIdx: index().on(table.user),
+    id: t.hex().primaryKey(), // pair address (lowercased)
+    token0: t.hex().notNull(),
+    token1: t.hex().notNull(),
+    allowed: t.boolean().notNull(),
   }),
 );
 
-// ─── Lending ─────────────────────────────────────────────────────────────────
-
-export const loanOffer = onchainTable(
-  "loan_offer",
-  (t) => ({
-    offerId: t.bigint().primaryKey(),
-    lender: t.hex().notNull(),
-    principal: t.bigint().notNull(),
-    aprBps: t.bigint().notNull(),
-    duration: t.bigint().notNull(),
-  }),
-  (table) => ({
-    lenderIdx: index().on(table.lender),
-  }),
-);
-
-export const loan = onchainTable(
-  "loan",
-  (t) => ({
-    loanId: t.bigint().primaryKey(),
-    offerId: t.bigint().notNull(),
-    borrower: t.hex().notNull(),
-    lender: t.hex().notNull(),
-    tokenId: t.bigint().notNull(),
-    principal: t.bigint().notNull(),
-    deadline: t.bigint().notNull(),
-    repaid: t.boolean().notNull(),
-    defaulted: t.boolean().notNull(),
-  }),
-  (table) => ({
-    borrowerIdx: index().on(table.borrower),
-    lenderIdx: index().on(table.lender),
-  }),
-);
-
-// ─── Community Grants ────────────────────────────────────────────────────────
-
-export const proposal = onchainTable("proposal", (t) => ({
-  id: t.bigint().primaryKey(),
-  proposer: t.hex().notNull(),
-  recipient: t.hex().notNull(),
-  amount: t.bigint().notNull(),
-  description: t.text().notNull(),
-  executed: t.boolean().notNull(),
-  cancelled: t.boolean().notNull().default(false),
-}));
-
-// ─── Meme Bounty Board ──────────────────────────────────────────────────────
-
-export const bounty = onchainTable("bounty", (t) => ({
-  id: t.bigint().primaryKey(),
-  creator: t.hex().notNull(),
-  reward: t.bigint().notNull(),
-  description: t.text().notNull(),
-  completed: t.boolean().notNull(),
-  winner: t.hex(),
-}));
-
-// ─── Gauge Controller (R054 / Agent 084 IDX-H1) ──────────────────────────────
-
-// Lifecycle state for each gauge (current).
-export const gauge = onchainTable(
-  "gauge",
-  (t) => ({
-    address: t.hex().primaryKey(),
-    status: t.text().notNull(), // proposedAdd | active | proposedRemove | removed
-    proposedAt: t.bigint(),
-    addedAt: t.bigint(),
-    removeProposedAt: t.bigint(),
-    removedAt: t.bigint(),
-    updatedAt: t.bigint().notNull(),
-  }),
-  (table) => ({
-    statusIdx: index().on(table.status),
-  }),
-);
-
-// Audit trail of every gauge lifecycle event for forensic queries.
-export const gaugeEvent = onchainTable(
-  "gauge_event",
-  (t) => ({
-    id: t.text().primaryKey(),
-    type: t.text().notNull(), // proposed | added | removeProposed | removed | budgetProposed | budgetUpdated
-    gauge: t.hex(),
-    valueA: t.bigint(),
-    valueB: t.bigint(),
-    timestamp: t.bigint().notNull(),
-    txHash: t.hex().notNull(),
-  }),
-  (table) => ({
-    typeIdx: index().on(table.type),
-    gaugeIdx: index().on(table.gauge),
-  }),
-);
-
-// GaugeController commit-reveal vote tracking.
-// `gauges`/`weights` are stored as JSON-encoded strings for pglite
-// portability (pglite arrays of decoded bigints don't round-trip cleanly).
-export const gaugeVoteCommit = onchainTable(
-  "gauge_vote_commit",
-  (t) => ({
-    id: t.text().primaryKey(),
-    voter: t.hex().notNull(),
-    tokenId: t.bigint().notNull(),
-    epoch: t.bigint().notNull(),
-    commitmentHash: t.hex().notNull(),
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    voterIdx: index().on(table.voter),
-    epochIdx: index().on(table.epoch),
-  }),
-);
-
-export const gaugeVoteRevealed = onchainTable(
-  "gauge_vote_revealed",
-  (t) => ({
-    id: t.text().primaryKey(),
-    voter: t.hex().notNull(),
-    tokenId: t.bigint().notNull(),
-    epoch: t.bigint().notNull(),
-    gauges: t.text().notNull(), // JSON: address[]
-    weights: t.text().notNull(), // JSON: string[] (bigints)
-    timestamp: t.bigint().notNull(),
-  }),
-  (table) => ({
-    voterIdx: index().on(table.voter),
-    epochIdx: index().on(table.epoch),
-  }),
-);
+// AUDIT M5 (2026-05-24): the following sections were removed as non-MVP, with
+// no kept handler referencing any of these tables:
+//   LP Farming      → lpFarmAction
+//   Lending         → loanOffer, loan
+//   Community Grants → proposal
+//   Meme Bounty Board → bounty
+//   Gauge Controller → gauge, gaugeEvent, gaugeVoteCommit, gaugeVoteRevealed
 
 // ─── Pause State (R054 / Agent 084 IDX-H4) ───────────────────────────────────
 

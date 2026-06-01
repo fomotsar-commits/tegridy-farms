@@ -194,6 +194,16 @@ contract TegridyTokenURIReader {
         );
     }
 
+    /// @dev AUDIT FIX 2026-05-26 [L-35]: SECURITY INVARIANT — every field interpolated
+    ///      below MUST be numeric-derived OR a hard-coded literal. NO attacker-
+    ///      controllable string field may reach this builder without an inline
+    ///      `_jsonEscape` helper (the helper was deleted DEEP-URI-01 because no
+    ///      attacker-controllable input reached it). CI lint recommendation: grep for
+    ///      any `string memory` arg to `_buildJSON` / `_buildSVG` / `_buildSVGBody`
+    ///      that is not derived from an in-file pure formatter — block PR if found
+    ///      without `_jsonEscape` re-added in the same diff. Verified clean as of
+    ///      the 2026-05-26 swarm audit (tokenId, amount, boostBps, lockEnd, etc.
+    ///      are all integer-derived; svg is pre-base64-encoded by _buildSVG).
     function _buildJSON(
         uint256 tokenId, uint256 amount, uint16 boostBps,
         uint64 lockEnd, uint32 lockDuration, bool autoMaxLock, bool hasJbacBoost,

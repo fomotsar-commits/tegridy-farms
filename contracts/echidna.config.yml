@@ -1,0 +1,46 @@
+# Echidna campaign config for the mvp-launch AMM core invariants.
+#
+# Phase 1.5 of the battle plan. Auditor handoff config. Designed to run
+# Echidna against TegridyPair k-invariant + LP supply conservation + skim/sync.
+#
+# How to run:
+#   cd contracts
+#   echidna test/echidna/MVPLaunch_AMMEchidna.t.sol --contract MVPLaunch_AMMEchidna --config echidna.config.yml
+#
+# Auditor instructions:
+#   - 24h+ campaign recommended for the audit handoff
+#   - Coverage-guided mode on (slower but finds deeper bugs)
+#   - Corpus persisted to `echidna-corpus/` so subsequent runs accelerate
+#   - failOnFail=true so CI/log immediately surfaces broken invariants
+
+format: "text"
+checkAsserts: true
+coverage: true
+
+# Test the harness's `echidna_*` properties (default prefix) — also picks up
+# Foundry-style `invariant_*` if any are exposed.
+prefix: "echidna_"
+
+# Long campaigns to catch deep bugs. Audit firms typically run 100k-1M.
+testLimit: 100000
+
+# Stop early on first violation so corpus reproduces the failure quickly.
+stopOnFail: false
+
+# Sequence length — longer sequences expose multi-op rounding bugs (Bunni-class).
+seqLen: 200
+
+# Shrink the failing sequence so the reproduction is minimal for triage.
+shrinkLimit: 5000
+
+# Persisted corpus directory. Commit corpus snapshots to git so CI runs
+# warm-start from prior progress.
+corpusDir: "echidna-corpus"
+
+# 100 ETH ceiling for payable functions (covers all realistic AMM amounts).
+maxValue: 100000000000000000000
+
+# Compiler args via crytic — Echidna calls forge for compilation, picks up
+# foundry.toml (solc 0.8.26, via_ir, optimizer_runs=200, evm_version=cancun).
+cryticArgs:
+  - "--foundry-compile-all"

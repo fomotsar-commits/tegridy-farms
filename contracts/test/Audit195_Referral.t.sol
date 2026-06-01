@@ -708,12 +708,27 @@ contract Audit195Referral is Test {
         // Deploy a fresh splitter to exercise pre-completeSetup behaviour
         // (setUp() finalises setup on the shared `ref`).
         ReferralSplitter freshRef = new ReferralSplitter(REFERRAL_FEE_BPS, address(staking), treasuryAddr, address(weth));
-        address newCaller = makeAddr("newCaller");
+        // AUDIT FIX 2026-05-26 [L-28]: setApprovedCaller now rejects EOAs.
+        // Use a contract address (`caller` is the MockApprovedCaller deployed
+        // in setUp() — has bytecode, satisfies the type-filter).
+        address newCaller = address(caller);
         freshRef.setApprovedCaller(newCaller, true);
         assertTrue(freshRef.approvedCallers(newCaller));
 
         freshRef.setApprovedCaller(newCaller, false);
         assertFalse(freshRef.approvedCallers(newCaller));
+    }
+
+    /// @dev AUDIT FIX 2026-05-26 [L-28]: confirm the new type-filter
+    ///      rejects raw EOAs on the grant path.
+    function test_setApprovedCaller_rejectsEOA() public {
+        ReferralSplitter freshRef = new ReferralSplitter(REFERRAL_FEE_BPS, address(staking), treasuryAddr, address(weth));
+        address eoaCaller = makeAddr("eoaCaller");
+        vm.expectRevert(ReferralSplitter.InvalidCaller.selector);
+        freshRef.setApprovedCaller(eoaCaller, true);
+        // Revoke path (approved=false) should still accept any address since
+        // there's no security risk in revoking a non-existent approval.
+        freshRef.setApprovedCaller(eoaCaller, false);
     }
 
     function test_setApprovedCaller_revert_afterSetupComplete() public {
@@ -808,6 +823,9 @@ contract Audit195Referral is Test {
         ref.markBelowStake(bob);
         assertGt(ref.lastBelowStakeTime(bob), 0);
 
+        // [LOW-4] owner arms the forfeiture grace with a fresh below-threshold anchor
+        ref.armForfeiture(bob);
+
         // Warp past both grace period (7d) AND forfeiture period (90d)
         vm.warp(block.timestamp + 90 days + 1);
 
@@ -830,6 +848,60 @@ contract Audit195Referral is Test {
 
         vm.expectRevert(ReferralSplitter.ForfeitureConditionsNotMet.selector);
         ref.forfeitUnclaimedRewards(bob);
+    }
+
+    /// @notice M1 REGRESSION: a BANNED referrer's pre-ban pendingETH must be
+    ///         forfeitable to treasury even while they remain staked above
+    ///         MIN_REFERRAL_STAKE_POWER. Pre-fix, claimReferralRewards reverted
+    ///         (banned) AND forfeitUnclaimedRewards reverted (still staked), so
+    ///         the funds were permanently frozen — un-claimable, un-forfeitable,
+    ///         and reserved out of sweepUnclaimable.
+    function test_M1_bannedReferrer_forfeitableEvenWhileStaked() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+        uint256 bobPending = ref.pendingETH(bob);
+        assertGt(bobPending, 0, "bob accrued referral pendingETH");
+
+        // bob stays staked >= MIN_STAKE (set in setUp). Ban bob (24h timelock).
+        ref.proposeBanReferrer(bob);
+        vm.warp(block.timestamp + 2 days);
+        ref.executeBanReferrer();
+
+        // Banned bob cannot claim his pre-ban accrual.
+        vm.prank(bob);
+        vm.expectRevert(ReferralSplitter.ReferrerBannedError.selector);
+        ref.claimReferralRewards();
+
+        // M1 FIX: owner can now forfeit the banned referrer's frozen pendingETH to
+        // treasury despite the active stake (pre-fix: ForfeitureConditionsNotMet).
+        // AUDIT FIX 2026-05-26 [L-52]: 7-day post-ban grace window added. The
+        // ban was executed above; warp past the grace before forfeit.
+        vm.warp(block.timestamp + 8 days);
+        uint256 treasuryBefore = ref.accumulatedTreasuryETH();
+        ref.forfeitUnclaimedRewards(bob);
+        assertEq(ref.pendingETH(bob), 0, "M1: banned referrer's pendingETH cleared");
+        assertEq(ref.accumulatedTreasuryETH(), treasuryBefore + bobPending, "M1: frozen funds routed to treasury");
+    }
+
+    /// @dev AUDIT FIX 2026-05-26 [L-52]: confirm forfeit reverts during the
+    ///      7-day post-ban grace window.
+    function test_L52_bannedForfeitGracePending() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+        ref.proposeBanReferrer(bob);
+        vm.warp(block.timestamp + 2 days);
+        ref.executeBanReferrer();
+
+        // Immediately attempt forfeit — should revert ForfeitGracePending.
+        vm.expectRevert(ReferralSplitter.ForfeitGracePending.selector);
+        ref.forfeitUnclaimedRewards(bob);
+
+        // After grace, forfeit succeeds.
+        vm.warp(block.timestamp + 8 days);
+        ref.forfeitUnclaimedRewards(bob);
+        assertEq(ref.pendingETH(bob), 0);
     }
 
     function test_forfeitRewards_revert_graceNotElapsed() public {
@@ -889,6 +961,79 @@ contract Audit195Referral is Test {
     }
 
     // ════════════════════════════════════════════════════════════════════
+    // 10b. [LOW-4 2026-05-31] armForfeiture — fresh current-episode grace anchor
+    // ════════════════════════════════════════════════════════════════════
+
+    /// @dev Core fix: a pre-armed (ancient, monotonic) lastBelowStakeTime can no longer
+    ///      collapse the grace. Forfeiture requires a FRESH owner arm + a full 7-day
+    ///      grace from that arm — and the M6 monotonic mark is left untouched.
+    function test_LOW4_preArmCannotCollapseGrace() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+
+        // Attacker pre-arms the permissionless monotonic mark during a transient dip.
+        staking.setPower(bob, 0);
+        ref.markBelowStake(bob);
+        uint256 ancientMark = ref.lastBelowStakeTime(bob);
+
+        // Long time passes: mark is "ancient" and the 90d inactivity is satisfied.
+        vm.warp(block.timestamp + 90 days + 1);
+
+        // Pre-fix this forfeited immediately (grace collapsed). Post-fix: not armed → revert.
+        vm.expectRevert(ReferralSplitter.ForfeitureConditionsNotMet.selector);
+        ref.forfeitUnclaimedRewards(bob);
+
+        // Owner arms fresh; M6 monotonic mark must be untouched.
+        ref.armForfeiture(bob);
+        assertEq(ref.lastBelowStakeTime(bob), ancientMark, "[LOW-4] M6 monotonic mark untouched");
+
+        // Grace runs a FULL 7 days from the arm, not the ancient mark.
+        vm.warp(block.timestamp + 6 days);
+        vm.expectRevert(ReferralSplitter.ForfeitureConditionsNotMet.selector);
+        ref.forfeitUnclaimedRewards(bob);
+
+        // Past 7 days from the fresh arm → forfeiture finally allowed.
+        vm.warp(block.timestamp + 2 days);
+        uint256 pending = ref.pendingETH(bob);
+        uint256 tBefore = ref.accumulatedTreasuryETH();
+        ref.forfeitUnclaimedRewards(bob);
+        assertEq(ref.pendingETH(bob), 0, "[LOW-4] forfeit succeeds after a fresh 7d grace");
+        assertEq(ref.accumulatedTreasuryETH(), tBefore + pending);
+    }
+
+    function test_LOW4_armForfeiture_revertsIfAboveThreshold() public {
+        staking.setPower(bob, MIN_STAKE); // qualified — cannot arm
+        vm.expectRevert(ReferralSplitter.NotBelowThreshold.selector);
+        ref.armForfeiture(bob);
+    }
+
+    function test_LOW4_armForfeiture_onlyOwner() public {
+        staking.setPower(bob, 0);
+        vm.prank(alice);
+        vm.expectRevert();
+        ref.armForfeiture(bob);
+    }
+
+    /// @dev A re-engaged referrer who claims must force a fresh owner arm (anchor cleared).
+    function test_LOW4_claimResetsForfeitureArm() public {
+        vm.prank(alice);
+        ref.setReferrer(bob);
+        caller.recordFee{value: 1 ether}(alice);
+
+        staking.setPower(bob, 0);
+        ref.markBelowStake(bob);
+        ref.armForfeiture(bob);
+        assertGt(ref.forfeitureArmedAt(bob), 0, "armed");
+
+        // bob re-engages: after MIN_REFERRAL_AGE he claims, which clears the arm.
+        vm.warp(block.timestamp + 7 days + 1);
+        vm.prank(bob);
+        ref.claimReferralRewards();
+        assertEq(ref.forfeitureArmedAt(bob), 0, "[LOW-4] claim clears the forfeiture arm");
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     // 11. markBelowStake
     // ════════════════════════════════════════════════════════════════════
 
@@ -898,15 +1043,62 @@ contract Audit195Referral is Test {
         assertEq(ref.lastBelowStakeTime(bob), block.timestamp);
     }
 
-    function test_markBelowStake_resetsWhenAboveThreshold() public {
+    /// @dev [M6 FIX] markBelowStake no longer resets the clock when power ≥ threshold.
+    ///      The permissionless reset was the double-stamp attack vector: flash-loan stake above
+    ///      threshold → call markBelowStake (resets clock to 0) → drop stake → re-mark →
+    ///      repeat forever, preventing forfeiture. Post-fix, the mark STAYS once set; clearing
+    ///      requires the owner 2-step: proposeClearBelowStakeMark + executeClearBelowStakeMark.
+    function test_markBelowStake_noLongerResetsWhenAboveThreshold() public {
         staking.setPower(bob, 0);
         ref.markBelowStake(bob);
-        assertGt(ref.lastBelowStakeTime(bob), 0);
+        uint256 marked = ref.lastBelowStakeTime(bob);
+        assertGt(marked, 0, "mark should be set when below threshold");
 
-        // Bob restakes
+        // Bob restakes to above threshold — permissionless markBelowStake is now a no-op
         staking.setPower(bob, MIN_STAKE);
+        ref.markBelowStake(bob); // [M6]: no longer resets clock
+        assertEq(ref.lastBelowStakeTime(bob), marked, "[M6] mark must NOT be reset by permissionless call when above threshold");
+    }
+
+    /// @dev [M6 FIX] Owner can clear a mark via the 24h 2-step path once referrer is above threshold.
+    function test_M6_ownerCanClearMarkAfterRecovery() public {
+        staking.setPower(bob, 0);
         ref.markBelowStake(bob);
-        assertEq(ref.lastBelowStakeTime(bob), 0, "timer reset when above threshold");
+        assertGt(ref.lastBelowStakeTime(bob), 0, "mark set");
+
+        // Bob recovers
+        staking.setPower(bob, MIN_STAKE);
+
+        // Owner proposes clear
+        ref.proposeClearBelowStakeMark(bob);
+        assertTrue(ref.hasPendingProposal(ref.CLEAR_BELOW_STAKE_MARK()), "proposal must be pending");
+
+        // Warp 24h + 1s
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // Execute clear
+        ref.executeClearBelowStakeMark();
+        assertEq(ref.lastBelowStakeTime(bob), 0, "mark cleared after 2-step");
+    }
+
+    /// @dev [M6 FIX] Owner cannot clear mark if referrer is still below threshold at execute time.
+    function test_M6_clearMarkReverts_ifStillBelowAtExecute() public {
+        staking.setPower(bob, 0);
+        ref.markBelowStake(bob);
+
+        // Bob temporarily above at propose time
+        staking.setPower(bob, MIN_STAKE);
+        ref.proposeClearBelowStakeMark(bob);
+
+        vm.warp(block.timestamp + 1 days + 1);
+
+        // Bob drops back below by execute time
+        staking.setPower(bob, 0);
+        vm.expectRevert(ReferralSplitter.StillBelowThreshold.selector);
+        ref.executeClearBelowStakeMark();
+
+        // Mark must still be active
+        assertGt(ref.lastBelowStakeTime(bob), 0, "mark must persist after failed clear");
     }
 
     function test_markBelowStake_doesNotResetIfAlreadyMarked() public {
@@ -1235,6 +1427,7 @@ contract Audit195Referral is Test {
 
         staking.setPower(bob, 0);
         ref.markBelowStake(bob);
+        ref.armForfeiture(bob); // [LOW-4] owner arms fresh below-threshold anchor
         vm.warp(block.timestamp + 90 days + 1);
 
         uint256 bobPending = ref.pendingETH(bob);

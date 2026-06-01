@@ -12,12 +12,16 @@
 //   - Configured via two env vars set in Vercel:
 //       UPSTASH_REDIS_REST_URL
 //       UPSTASH_REDIS_REST_TOKEN
-//     AUDIT API-SEC (2026-04): fail-closed in production, fail-open in dev.
-//     Earlier revisions always failed open on missing env or Upstash errors
-//     — a configuration mistake silently left the API unthrottled. Now:
-//       NODE_ENV === 'production' AND no env vars  → 503 Service Unavailable
-//       NODE_ENV === 'production' AND Upstash error → 503 Service Unavailable
-//       else (dev / preview without Upstash)        → allow with console.warn
+//     AUDIT API-SEC (2026-04) + F1 (2026-05): fail-closed on prod-like
+//     (production + Vercel preview), fail-open only in genuine dev. Earlier
+//     revisions always failed open on missing env or Upstash errors — a
+//     configuration mistake silently left the API unthrottled. Now:
+//       prod-like AND no env vars   → 503 Service Unavailable
+//       prod-like AND Upstash error → 503 Service Unavailable
+//       dev (no Upstash)            → allow with console.warn
+//     "prod-like" = NODE_ENV==='production' OR VERCEL_ENV in {preview,production};
+//     Vercel preview inherits prod secrets but NOT NODE_ENV=production, so the
+//     old `=== 'production'` gate left preview URLs unthrottled.
 //     This shifts the failure mode toward visibility: a 503 gets noticed,
 //     a silent unthrottled API does not.
 //
@@ -143,7 +147,15 @@ export function buildRateLimitKey(req, walletAddress) {
   return `ip:${extractIp(req)}`;
 }
 
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+// AUDIT FIX F1 (2026-05-25): fail-closed on prod-like (production + Vercel
+// preview), not just NODE_ENV==="production". Vercel preview deploys inherit
+// the production env (incl. secrets) but DO NOT set NODE_ENV=production, so the
+// old `=== 'production'` check left preview URLs failing OPEN (unthrottled) on
+// missing Upstash config or an Upstash error. Mirrors supabase-proxy.js:172-174.
+const IS_PROD_LIKE =
+  process.env.NODE_ENV === 'production' ||
+  process.env.VERCEL_ENV === 'preview' ||
+  process.env.VERCEL_ENV === 'production';
 
 /**
  * Consume one rate-limit token.
@@ -152,11 +164,11 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
  *
  * Failure modes:
  *   - Upstash env vars missing:
- *     - production → 503 + false    (fail closed)
- *     - non-prod   → true           (fail open, warn once)
+ *     - prod-like (production / preview) → 503 + false    (fail closed)
+ *     - dev                              → true           (fail open, warn once)
  *   - Upstash request error:
- *     - production → 503 + false    (fail closed)
- *     - non-prod   → true           (fail open, warn)
+ *     - prod-like (production / preview) → 503 + false    (fail closed)
+ *     - dev                              → true           (fail open, warn)
  *
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
@@ -167,11 +179,11 @@ export async function checkRateLimit(req, res, opts) {
   const limiter = getLimiter(opts);
   if (!limiter) {
     // No Upstash configured.
-    if (IS_PRODUCTION) {
+    if (IS_PROD_LIKE) {
       res.status(503).json({ error: 'Rate limiter unavailable' });
       return false;
     }
-    return true; // dev / preview without Upstash — allowed
+    return true; // dev without Upstash — allowed
   }
 
   const key = buildRateLimitKey(req, opts.walletAddress);
@@ -190,11 +202,11 @@ export async function checkRateLimit(req, res, opts) {
     return true;
   } catch (err) {
     console.error('[ratelimit] upstash error:', err?.message ?? err);
-    if (IS_PRODUCTION) {
+    if (IS_PROD_LIKE) {
       res.status(503).json({ error: 'Rate limiter unavailable' });
       return false;
     }
-    // Dev / preview — fail open, but loud in logs.
+    // Dev — fail open, but loud in logs.
     return true;
   }
 }

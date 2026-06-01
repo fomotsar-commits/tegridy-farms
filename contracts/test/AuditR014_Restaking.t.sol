@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -46,10 +47,11 @@ contract R014_MockWETH is ERC20 {
 contract MaliciousRestaking is TegridyRestaking {
     constructor(
         address _staking,
+        address _monitor,
         address _rewardToken,
         address _bonusRewardToken,
         uint256 _bonusRewardPerSecond
-    ) TegridyRestaking(_staking, _rewardToken, _bonusRewardToken, _bonusRewardPerSecond) {}
+    ) TegridyRestaking(_staking, _monitor, _rewardToken, _bonusRewardToken, _bonusRewardPerSecond) {}
 
     /// @dev Hostile override: monotonicity wrapper must trap any decrement.
     function _accrueBonus() internal override {
@@ -72,6 +74,7 @@ contract AuditR014_Restaking is Test {
     R014_MockJBAC jbac;
     R014_MockWETH weth;
     TegridyStaking staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
@@ -95,11 +98,13 @@ contract AuditR014_Restaking is Test {
             treasury,
             REWARD_RATE
         );
+        monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             BONUS_RATE
@@ -392,6 +397,7 @@ contract AuditR014_Restaking is Test {
     {
         malRestake = new MaliciousRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             BONUS_RATE
@@ -619,6 +625,7 @@ contract AuditR014_RestakingInvariant is StdInvariant, Test {
     R014_MockJBAC jbac;
     R014_MockWETH weth;
     TegridyStaking staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
     R014_RestakingInvariantHandler handler;
@@ -644,11 +651,13 @@ contract AuditR014_RestakingInvariant is StdInvariant, Test {
             treasury,
             REWARD_RATE
         );
+        monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             BONUS_RATE

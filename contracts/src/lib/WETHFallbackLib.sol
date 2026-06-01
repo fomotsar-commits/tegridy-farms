@@ -37,8 +37,7 @@ library WETHFallbackLib {
 
     // ─── AUDIT FIX FRESH-2026: M-36 [F-40-WFL-1] — stipend constant ────────
     /// @notice AUDIT FIX FRESH-2026: M-36 [F-40-WFL-1] — gas stipend for the
-    ///         raw ETH `.call` leg of `safeTransferETHOrWrap` /
-    ///         `safeTransferETHOrWrapNoRevert` / `safeTransferETH`.
+    ///         raw ETH `.call` leg of `safeTransferETHOrWrap` / `safeTransferETH`.
     ///         Bumped from 10_000 → 30_000 to accommodate the cold-storage
     ///         SSTORE pattern at first-ingress sites (RevenueDistributor /
     ///         SwapFeeRouter / POLAccumulator `receive()` updates a cumulative
@@ -74,21 +73,11 @@ library WETHFallbackLib {
     ///         would inherit the inconsistency without any on-chain breadcrumb.
     event ETHToWETHFallback(address indexed weth, address indexed to, uint256 amount);
 
-    /// @notice AUDIT FIX FRESH-2026: H-12 [F-80-01, F-40-WFL-2] — emitted on
-    ///         the disambiguated "deposit-succeeded but transfer-failed" path
-    ///         of `safeTransferETHOrWrapNoRevert`. Distinguishes mode==2
-    ///         (caller has stranded WETH and MUST sweep) from mode==3
-    ///         (deposit itself failed — caller's ETH untouched). Off-chain
-    ///         monitors can subscribe by topic to drive automatic per-receiver
-    ///         pull-queue credits without needing to inspect the mode byte
-    ///         post-tx.
+    /// @notice Reintroduced 2026-05-31 with safeTransferETHOrWrapNoRevert (see below).
+    ///         mode==2: deposit succeeded but the WETH transfer failed, so WETH is
+    ///         stranded in the caller and the caller MUST credit it (pull-pattern).
     event WETHTransferStuck(address indexed weth, address indexed to, uint256 amount);
-
-    /// @notice AUDIT FIX FRESH-2026: H-12 [F-80-01, F-40-WFL-2] — emitted on
-    ///         the "deposit failed entirely" path. ETH is still in the
-    ///         caller's runtime; no sweep needed. Distinct from
-    ///         `WETHTransferStuck` so callers can branch their tombstone
-    ///         logic without parsing return modes.
+    /// @notice Reintroduced 2026-05-31. mode==3: total failure, ETH untouched in caller.
     event ETHWrapFailed(address indexed weth, address indexed to, uint256 amount);
 
     /// @notice Transfer ETH to `to`. If the raw ETH send fails, wraps as WETH and sends that.
@@ -165,35 +154,21 @@ library WETHFallbackLib {
         emit ETHTransferred(to, amount);
     }
 
-    /// @notice FRESH-EYES M-6: non-reverting variant for BATCHED-PAYEE callers
-    ///         (RevenueDistributor, SwapFeeRouter._distribute, etc.). Returns
-    ///         a success/mode pair instead of reverting on a bad recipient,
-    ///         so a single hostile payee cannot DoS the entire distribution
-    ///         loop. Callers that receive `success == false` should bank the
-    ///         amount in their internal `callerCredit`/pull-pattern state and
-    ///         emit a recognised tombstone event for off-chain monitoring.
-    /// @dev    AUDIT FIX FRESH-2026: H-12 [F-80-01, F-40-WFL-2] — mode==2
-    ///         was previously overloaded with two physically distinct
-    ///         failure states ("deposit failed, ETH still in caller" vs
-    ///         "deposit succeeded but transfer failed, caller now holds
-    ///         stranded WETH"). Callers that didn't sweep on the latter
-    ///         silently accumulated WETH in their runtime, breaking
-    ///         `address(this).balance`-based accounting. The lib now emits
-    ///         distinguishing events AND returns a fourth mode (3) so
-    ///         callers can branch correctly:
-    ///           - mode 0 = ETH delivered (success)
-    ///           - mode 1 = WETH delivered to recipient (success, fallback)
-    ///           - mode 2 = stranded-WETH-in-caller (deposit succeeded,
-    ///                      transfer failed; caller MUST sweep
-    ///                      `IWETH(weth).balanceOf(address(this))` into a
-    ///                      per-recipient pull-pattern slot)
-    ///           - mode 3 = total failure (deposit failed; ETH untouched in
-    ///                      caller; OR zero-recipient / zero-weth guard)
-    /// @dev    AUDIT FIX FRESH-2026: M-36 [F-40-WFL-1] — stipend bumped to
-    ///         ETH_TRANSFER_GAS_STIPEND (30k) for parity with the reverting
-    ///         variant.
-    /// @return success true if either ETH or WETH leg delivered the funds.
-    /// @return mode    delivery mode (0=ETH, 1=WETH, 2=stranded-WETH-in-caller, 3=total-fail).
+    /// @notice No-revert ETH transfer with WETH fallback, for BATCHED-PAYEE
+    ///         callsites (the NFT-AMM pool's swap/refund/sweep paths) where one
+    ///         bad recipient must NOT brick the whole batch.
+    /// @dev    REINTRODUCED 2026-05-31 for TegridyNFTPool, exactly per the
+    ///         prior [H-WFL-NOREVERT-DELETE] note's carve-out ("if a future
+    ///         BATCHED-PAYEE callsite needs the no-revert semantic, it can be
+    ///         reintroduced ... with consumer-local tests proving the caller
+    ///         credits the stranded path"). Restored verbatim from the pre-cut
+    ///         revision (10e1dcc^); the consumer credits stranded WETH on
+    ///         mode==2, proven by the TegridyNFTPool reentrancy / sandwich /
+    ///         invariant suites that ship alongside it.
+    /// @return success true if `to` ended up with ETH (mode 0) or WETH (mode 1).
+    /// @return mode 0=ETH delivered, 1=wrapped to WETH, 2=deposit ok but WETH
+    ///         transfer failed (WETH now stranded in caller — caller MUST
+    ///         credit it), 3=total failure (ETH untouched in caller).
     function safeTransferETHOrWrapNoRevert(address weth, address to, uint256 amount)
         internal
         returns (bool success, uint8 mode)

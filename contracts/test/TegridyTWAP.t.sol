@@ -371,8 +371,16 @@ contract TegridyTWAPTest is Test {
     // â”€â”€â”€ Price deviation protection test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_update_revertsOnLargePriceDeviation() public {
-        // Seed 3 observations at normal 1:2 price ratio
-        _seedObservations(3, 15 minutes);
+        // FRESH-2026 TEST REALIGN [H-TWAP-BYPASS-LASTSPOT]: bumped seed count
+        // from 3 to 4. Under the fresh-review fix, `lastSpot{0,1}` is no longer
+        // written during bypass observations (count<=2 grace + count==0
+        // bootstrap + dormancy-bypass). The first non-bypass observation
+        // (count=3 / iter 4) establishes the deviation baseline. The attack
+        // observation then runs the deviation gate against that organic
+        // baseline. Pre-fix the test relied on the bootstrap immediately
+        // pinning lastSpot from owner-call reserves — a property that was
+        // itself the bootstrap-sandwich attack surface this fix closes.
+        _seedObservations(4, 15 minutes);
 
         // Warp forward, then do a massive swap to distort price >50%
         vm.warp(block.timestamp + 15 minutes);
@@ -381,5 +389,58 @@ contract TegridyTWAPTest is Test {
         // update should revert because the spot price deviates >50% from previous
         vm.expectRevert(TegridyTWAP.PriceDeviationTooLarge.selector);
         twap.update(address(pair));
+    }
+
+    // ─── L11: withdrawFees uses address(this).balance ──────────────────
+
+    /// @notice Baseline: withdrawFees sends accumulated fees to feeRecipient.
+    function test_L11_withdrawFees_sendsAccumulatedFees() public {
+        // Seed one observation while the fee is still 0 (setUp sets fee to 0).
+        _seedObservations(1, 15 minutes);
+        // Now enable a non-zero fee and collect one paid update.
+        twap.setUpdateFee(0.01 ether);
+        vm.warp(block.timestamp + 15 minutes);
+        vm.deal(address(this), 1 ether);
+        twap.update{value: 0.01 ether}(address(pair));
+        assertEq(twap.accumulatedFees(), 0.01 ether);
+
+        address recipient = makeAddr("recipient");
+        twap.proposeFeeRecipient(recipient);
+        vm.warp(block.timestamp + 48 hours + 1);
+        twap.executeFeeRecipient();
+
+        uint256 before = recipient.balance;
+        twap.withdrawFees();
+        assertEq(recipient.balance - before, 0.01 ether, "fee not sent");
+        assertEq(twap.accumulatedFees(), 0, "accumulatedFees not zeroed");
+    }
+
+    /// @notice [L11] withdrawFees also sweeps ETH that arrived via direct send
+    ///         (stranded ETH beyond accumulatedFees tracking).
+    function test_L11_withdrawFees_sweepsStrandedETH() public {
+        // Wire fee recipient.
+        address recipient = makeAddr("recipient");
+        twap.proposeFeeRecipient(recipient);
+        vm.warp(block.timestamp + 48 hours + 1);
+        twap.executeFeeRecipient();
+
+        // Force 0.5 ETH of "stranded" ETH into the TWAP contract.
+        // vm.deal directly sets the balance, simulating force-ETH scenarios.
+        vm.deal(address(twap), 0.5 ether);
+        // accumulatedFees is 0 (no update() was called).
+        assertEq(twap.accumulatedFees(), 0);
+        assertEq(address(twap).balance, 0.5 ether);
+
+        uint256 before = recipient.balance;
+        twap.withdrawFees();
+        // Must sweep the full balance, not just accumulatedFees.
+        assertEq(recipient.balance - before, 0.5 ether, "stranded ETH not swept");
+        assertEq(address(twap).balance, 0, "balance not zero after sweep");
+    }
+
+    /// @notice withdrawFees reverts NoFees when balance is zero.
+    function test_L11_withdrawFees_revertsWhenZeroBalance() public {
+        vm.expectRevert(TegridyTWAP.NoFees.selector);
+        twap.withdrawFees();
     }
 }

@@ -9,27 +9,122 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
-import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 import {SafeERC721Call} from "./lib/SafeERC721Call.sol";
 
+/// @notice Minimal admin interface for the cross-contract reads TegridyNFTLending
+///         performs against TegridyNFTLendingAdmin. Just the view needed by the
+///         createOffer / acceptOffer pre-acceptance gate.
+/// @dev    AUDIT FIX: EIP170-01 — the propose/execute/cancel admin surface (and
+///         its TimelockAdmin wiring + pending storage) moved to
+///         TegridyNFTLendingAdmin during the EIP-170 size-reduction split.
+interface ITegridyNFTLendingAdminView {
+    function collectionPendingRemoval(address collection) external view returns (bool);
+}
+
 /// @title TegridyNFTLending — P2P Generic NFT-Collateralized Lending Protocol
 /// @notice Peer-to-peer lending where lenders create ETH loan offers
 ///         and borrowers accept by escrowing any whitelisted ERC-721 NFT.
-contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // ─── Timelock Operation Keys ─────────────────────────────────────
-    bytes32 public constant PROTOCOL_FEE_CHANGE = keccak256("PROTOCOL_FEE_CHANGE");
-    bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
-    bytes32 public constant WHITELIST_ADD = keccak256("WHITELIST_ADD");
-    bytes32 public constant WHITELIST_REMOVE = keccak256("WHITELIST_REMOVE");
-    bytes32 public constant ORIGINATION_FEE_CHANGE = keccak256("NFT_LENDING_ORIGINATION_FEE_CHANGE"); // AUDIT C7
-    bytes32 public constant MIN_APR_CHANGE = keccak256("NFT_LENDING_MIN_APR_CHANGE"); // AUDIT H5
-    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — timelock key for the
-    ///         owner-only `sweepUnsolicitedNFT` (24h delay).
-    bytes32 public constant SWEEP_UNSOLICITED_NFT = keccak256("NFT_LENDING_SWEEP_UNSOLICITED");
+    /// @notice Sister contract holding the propose/execute/cancel timelock
+    ///         admin surface. Wired once via `setNftLendingAdmin`. All `apply*`
+    ///         setters on this contract are gated on
+    ///         `msg.sender == nftLendingAdmin`.
+    /// @dev    AUDIT FIX: EIP170-01 — split into sister contract to bring this
+    ///         contract under the 24,576-byte EIP-170 limit. Mirrors the
+    ///         `TegridyLendingAdmin` / `SwapFeeRouterAdmin` pattern. One-shot
+    ///         setter + 48h-timelocked replacement flow (held inline so a broken
+    ///         or compromised admin contract cannot block its own removal).
+    address public nftLendingAdmin;
+
+    error LendingAdminNotSet();
+    error LendingAdminAlreadySet();
+    error NotLendingAdmin();
+    /// @dev AUDIT FIX (F-60-2 / F-43-B-class): admin pointer must be a genuine
+    ///      contract — not an EOA, and not an EIP-7702 (Pectra) delegated EOA
+    ///      whose runtime length is exactly 23 bytes (`0xef0100 ‖ addr`).
+    error NotAContract();
+    /// @dev AUDIT FIX (H-15): admin replacement lifecycle errors.
+    error AdminReplacementNoProposal();
+    error AdminReplacementNotReady();
+    error AdminReplacementExpired();
+    error AdminReplacementProposalPending();
+
+    event LendingAdminSet(address indexed admin);
+    /// @dev AUDIT FIX (H-15): rotation lifecycle events.
+    event LendingAdminReplacementProposed(address indexed newAdmin, uint256 executeAfter);
+    event LendingAdminReplaced(address indexed oldAdmin, address indexed newAdmin);
+    event LendingAdminReplacementCancelled(address indexed proposed);
+
+    modifier onlyAdmin() {
+        if (msg.sender != nftLendingAdmin) revert NotLendingAdmin();
+        _;
+    }
+
+    /// @notice One-shot wire of the TegridyNFTLendingAdmin sister contract.
+    /// @dev    AUDIT FIX (F-60-2): reject EOA AND EIP-7702 delegated EOA
+    ///         (length 23 = `0xef0100 ‖ addr` delegation pointer).
+    function setNftLendingAdmin(address _admin) external onlyOwner {
+        if (_admin == address(0)) revert ZeroAddress();
+        if (nftLendingAdmin != address(0)) revert LendingAdminAlreadySet();
+        uint256 codeLen = _admin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        nftLendingAdmin = _admin;
+        emit LendingAdminSet(_admin);
+    }
+
+    // ─── AUDIT FIX (H-15 / F-43-D / F-75-2): Admin replacement flow ──
+    // Pre-fix, `setNftLendingAdmin` was permanently one-shot — a compromised
+    // or buggy admin contract could only be replaced by redeploying
+    // TegridyNFTLending and migrating every active loan + offer. The flow
+    // below mirrors TegridyLending's `proposeLendingAdminReplacement` /
+    // `executeLendingAdminReplacement` pattern with 48h timelock + 7-day
+    // proposal validity expiry — held inline here (rather than on the admin
+    // sister) so a broken or compromised admin contract cannot block its own
+    // removal.
+    uint256 internal constant ADMIN_REPLACEMENT_TIMELOCK = 48 hours;
+    uint256 internal constant ADMIN_REPLACEMENT_VALIDITY = 7 days;
+
+    /// @notice Pending replacement admin address. Zero when no proposal pending.
+    address public pendingLendingAdmin;
+    /// @notice block.timestamp after which `executeLendingAdminReplacement` is callable.
+    uint256 public lendingAdminReplacementReadyAt;
+
+    function proposeLendingAdminReplacement(address _newAdmin) external onlyOwner {
+        if (_newAdmin == address(0)) revert ZeroAddress();
+        if (nftLendingAdmin == address(0)) revert LendingAdminNotSet(); // use setNftLendingAdmin first
+        if (lendingAdminReplacementReadyAt != 0) revert AdminReplacementProposalPending();
+        uint256 codeLen = _newAdmin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        pendingLendingAdmin = _newAdmin;
+        lendingAdminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
+        emit LendingAdminReplacementProposed(_newAdmin, lendingAdminReplacementReadyAt);
+    }
+
+    function executeLendingAdminReplacement() external onlyOwner {
+        uint256 readyAt = lendingAdminReplacementReadyAt;
+        if (readyAt == 0) revert AdminReplacementNoProposal();
+        if (block.timestamp < readyAt) revert AdminReplacementNotReady();
+        if (block.timestamp > readyAt + ADMIN_REPLACEMENT_VALIDITY) revert AdminReplacementExpired();
+        address newAdmin = pendingLendingAdmin;
+        if (newAdmin == address(0)) revert ZeroAddress(); // defensive
+        address oldAdmin = nftLendingAdmin;
+        nftLendingAdmin = newAdmin;
+        pendingLendingAdmin = address(0);
+        lendingAdminReplacementReadyAt = 0;
+        emit LendingAdminReplaced(oldAdmin, newAdmin);
+    }
+
+    function cancelLendingAdminReplacement() external onlyOwner {
+        if (lendingAdminReplacementReadyAt == 0) revert AdminReplacementNoProposal();
+        address proposed = pendingLendingAdmin;
+        pendingLendingAdmin = address(0);
+        lendingAdminReplacementReadyAt = 0;
+        emit LendingAdminReplacementCancelled(proposed);
+    }
 
     // ─── Safety Caps ─────────────────────────────────────────────────
     /// @notice AUDIT FIX FRESH-2026: H-8 [F-71-1, F-78-C, F-74-10] —
@@ -103,20 +198,17 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
     // ─── Timelock Delays ─────────────────────────────────────────────
-    uint256 public constant PROTOCOL_FEE_TIMELOCK = 48 hours;
-    uint256 public constant TREASURY_TIMELOCK = 48 hours;
-    uint256 public constant WHITELIST_TIMELOCK = 24 hours;
-    uint256 public constant ECONOMICS_TIMELOCK = 48 hours;       // AUDIT C7 / H5
+    // AUDIT FIX: EIP170-01 — the timelock delay constants (PROTOCOL_FEE_TIMELOCK,
+    // TREASURY_TIMELOCK, WHITELIST_TIMELOCK, ECONOMICS_TIMELOCK) moved to
+    // TegridyNFTLendingAdmin alongside the propose/execute/cancel surface.
 
     // ─── AUDIT C7: origination fee charged on createOffer ────────────
     uint256 public originationFeeBps;
     uint256 public constant MAX_ORIGINATION_FEE_BPS = 200;
-    uint256 public pendingOriginationFeeBps;
 
     // ─── AUDIT H5: minimum APR enforced on createOffer ───────────────
     uint256 public minAprBps;
     uint256 public constant MAX_MIN_APR_BPS = 1000;
-    uint256 public pendingMinAprBps;
 
     // ─── AUDIT FIX: DEEP-LD-L2 — removal cancel-rate-limit ───────────
     /// @notice Tracks how many times an admin has cancelled a removal proposal
@@ -208,10 +300,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     mapping(address => uint256) public activeLoansOfCollection;
 
     // ─── Pending Values (for timelocked changes) ─────────────────────
-    uint256 public pendingProtocolFeeBps;
-    address public pendingTreasury;
-    address public pendingWhitelistAdd;
-    address public pendingWhitelistRemove;
+    // AUDIT FIX: EIP170-01 — pendingProtocolFeeBps / pendingTreasury /
+    // pendingWhitelistAdd / pendingWhitelistRemove moved to
+    // TegridyNFTLendingAdmin alongside the propose/execute/cancel surface.
 
     // ─── AUDIT R014: Pause-aware deadlines ───────────────────────────
     uint256 public pauseStartTime;
@@ -240,9 +331,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     mapping(bytes32 => address) public strandedNFTRecipient;
 
     // ─── AUDIT FIX FRESH-2026: F-95-K-7 — pending sweep proposal ─────
-    address public pendingSweepCollection;
-    uint256 public pendingSweepTokenId;
-    address public pendingSweepRecipient;
+    // AUDIT FIX: EIP170-01 — pendingSweepCollection / pendingSweepTokenId /
+    // pendingSweepRecipient moved to TegridyNFTLendingAdmin alongside the
+    // propose/execute/cancel surface.
 
     /// @notice AUDIT FIX L-2: per-loanId recipient for collateral whose
     ///         transferFrom() reverted during repayLoan / claimDefault.
@@ -417,13 +508,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     ///      not the recorded recipient (or no entry).
     error NotStrandedRecipient();
     error NoStrandedNFT();
-    // ─── Legacy View Helpers (for test compatibility) ────────────────
-    function protocolFeeChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[PROTOCOL_FEE_CHANGE];
-    }
-    function treasuryChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[TREASURY_CHANGE];
-    }
+    // ─── Legacy View Helpers ─────────────────────────────────────────
+    // AUDIT FIX: EIP170-01 — protocolFeeChangeReadyAt / treasuryChangeReadyAt
+    // (and the origination/min-APR readyAt helpers) moved to
+    // TegridyNFTLendingAdmin alongside the propose/execute/cancel surface.
 
     // ─── Constructor ─────────────────────────────────────────────────
 
@@ -1248,217 +1336,87 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         return loans.length;
     }
 
-    // ─── Admin: Collection Whitelist Timelock ────────────────────────
+    // ─── Admin: apply* setters (called by TegridyNFTLendingAdmin) ────
+    // AUDIT FIX: EIP170-01 — the propose/execute/cancel triplets and their
+    // pending storage + TimelockAdmin wiring moved to TegridyNFTLendingAdmin
+    // during the EIP-170 contract split. Validation rules (ceilings, the
+    // ERC165 preflight, active-loan gates, cancel-rate-limits) run on the
+    // admin side BEFORE the call lands here; this contract additionally
+    // re-validates against its own constants as defense in depth. Every
+    // `applyXxx` is `onlyAdmin` (msg.sender == nftLendingAdmin).
 
-    function proposeWhitelistCollection(address _collection) external onlyOwner {
-        if (_collection == address(0)) revert ZeroAddress();
-        if (whitelistedCollections[_collection]) revert CollectionAlreadyWhitelisted();
-        // AUDIT FIX (pass-8): NFTLEND-WL-1 — ERC165 preflight. Reject EOAs and
-        // contracts that don't claim ERC721 support so a typo / malicious-paste
-        // can't whitelist a non-ERC721 contract that would silently no-op
-        // `transferFrom` (collateral never escrowed) or trap the lender's
-        // principal in a contract that can't release the NFT. Pattern matches
-        // OZ's standard ERC165 detection. Wrapped in try/catch because some
-        // legitimate ERC721s (e.g. CryptoPunks v1, Sandbox v1) predate ERC165
-        // — if the call reverts we conservatively fall through and let the
-        // 24h timelock + execute-side check block obvious mistakes.
-        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23
-        //         carve-out — sibling-canonical of TegridyNFTPoolFactory.createPool.
-        //         A 7702-delegated EOA (canonical `0xef0100‖addr` pointer, code.length
-        //         == 23) whose delegate REVERTS on `supportsInterface` would fall
-        //         through the catch below and pass the gate as a "pre-ERC165 ERC721".
-        uint256 codeLen = _collection.code.length;
-        require(codeLen > 0 && codeLen != 23, "NOT_CONTRACT");
-        try IERC165(_collection).supportsInterface(0x80ac58cd) returns (bool ok) {
-            require(ok, "NOT_ERC721");
-        } catch {
-            // Pre-ERC165 ERC721 — allow but operator should know.
-        }
-
-        pendingWhitelistAdd = _collection;
-        _propose(WHITELIST_ADD, WHITELIST_TIMELOCK);
-
-        emit CollectionWhitelistProposed(_collection, _executeAfter[WHITELIST_ADD]);
-    }
-
-    function executeWhitelistCollection() external onlyOwner {
-        _execute(WHITELIST_ADD);
-
-        address collection = pendingWhitelistAdd;
+    function applyWhitelistCollection(address collection) external onlyAdmin {
+        if (collection == address(0)) revert ZeroAddress();
         whitelistedCollections[collection] = true;
-        pendingWhitelistAdd = address(0);
-
         emit CollectionWhitelisted(collection);
     }
 
-    function cancelWhitelistCollection() external onlyOwner {
-        _cancel(WHITELIST_ADD);
-
-        address cancelled = pendingWhitelistAdd;
-        pendingWhitelistAdd = address(0);
-
-        emit CollectionWhitelistCancelled(cancelled);
-    }
-
-    function proposeRemoveCollection(address _collection) external onlyOwner {
-        if (_collection == address(0)) revert ZeroAddress();
-        if (!whitelistedCollections[_collection]) revert CollectionNotCurrentlyWhitelisted();
-
-        pendingWhitelistRemove = _collection;
-        _propose(WHITELIST_REMOVE, WHITELIST_TIMELOCK);
-
-        emit CollectionRemovalProposed(_collection, _executeAfter[WHITELIST_REMOVE]);
-    }
-
-    /// @dev AUDIT FIX: LD3-M5 — pre-flight active-loan gate BEFORE `_execute`.
-    ///      Pre-fix: `_execute` cleared `_executeAfter[KEY] = 0`, then the
-    ///      ACTIVE_LOANS_PRESENT revert rolled the entire tx back. Combined
-    ///      with the LD3-M1 cancel-rate-limit, this could permanently brick
-    ///      the WHITELIST_REMOVE slot. Now: gate before `_execute` so admin
-    ///      can retry the moment loans clear.
-    /// @dev AUDIT FIX: LD3-L2 — typed `ActiveLoansPresent` error.
-    function executeRemoveCollection() external onlyOwner {
-        address collection = pendingWhitelistRemove;
-        // AUDIT FIX: LD3-M5 — gate BEFORE `_execute` consumes the proposal slot.
+    /// @dev AUDIT FIX preserved: DEEP-LD-M1 / LD3-M5 — refuse removal while loans
+    ///      in flight, mirrored on the admin side as a pre-_execute gate. Re-checked
+    ///      here as defense in depth; should never trip if admin path runs first.
+    /// @dev AUDIT FIX preserved: DEEP-LD-L2 — reset the cancel-counter on a
+    ///      successful removal so a future legitimate removal cycle can use the
+    ///      full budget again.
+    function applyRemoveCollection(address collection) external onlyAdmin {
+        if (collection == address(0)) revert ZeroAddress();
         if (activeLoansOfCollection[collection] > 0) {
-            // AUDIT FIX: LD3-L2 — typed error replaces string revert.
             revert ActiveLoansPresent(collection, activeLoansOfCollection[collection]);
         }
-        _execute(WHITELIST_REMOVE);
         whitelistedCollections[collection] = false;
-        pendingWhitelistRemove = address(0);
-        // AUDIT FIX: DEEP-LD-L2 — reset the cancel-counter on a successful
-        // execution so a future legitimate removal cycle can use the full
-        // budget again.
         removalRetryCount[collection] = 0;
-
         emit CollectionRemoved(collection);
     }
 
-    /// @notice Cancel a pending whitelist removal.
-    /// @dev    AUDIT FIX: DEEP-LD-L2 — rate-limited at REMOVAL_MAX_CANCELLATIONS
-    ///         consecutive cancels per collection so a captured-owner cannot
-    ///         loop cancel-and-re-propose to keep a flagged collection alive
-    ///         indefinitely. Counter resets on a successful execution.
-    /// @dev    AUDIT FIX: LD3-M1 — gate-then-cancel order: pre-fix the cancel
-    ///         was executed first, then the post-bump revert rolled BACK the
-    ///         _cancel via tx revert, so `_executeAfter[WHITELIST_REMOVE]`
-    ///         stayed non-zero AND the proposal stayed pending forever (since
-    ///         `_propose` rejects an existing pending). Now we check the gate
-    ///         BEFORE _cancel — over-budget cancels revert without leaving
-    ///         the slot in a stuck state.
-    function cancelRemoveCollection() external onlyOwner {
-        address cancelled = pendingWhitelistRemove;
-        // AUDIT FIX: LD3-M1 — gate first, THEN cancel; over-limit revert no
-        // longer rolls back a cancel that already cleared the slot.
-        // PASS7-NFTLENDING-02 FIX: mirror TegridyLending FRESH-EYES L still-live
-        // carve-out (TegridyLending.sol:1817-1826). Without this, a captured (or
-        // honest-but-slow) admin can `propose → wait for expiry → cancel` 3 times
-        // to consume the REMOVAL_MAX_CANCELLATIONS budget on a flagged collection
-        // without ever cancelling a live removal — bricking legitimate future
-        // removals of that collection. Only count cancels of STILL-LIVE proposals.
-        if (cancelled != address(0)) {
-            uint256 readyAt = _executeAfter[WHITELIST_REMOVE];
-            bool stillLive = readyAt != 0 && block.timestamp <= readyAt + _proposalValidity();
-            if (stillLive) {
-                if (removalRetryCount[cancelled] >= REMOVAL_MAX_CANCELLATIONS) {
-                    revert RemovalCancelLimitReached();
-                }
-                removalRetryCount[cancelled] += 1;
-            }
-        }
+    function applyProtocolFeeChange(uint256 newFee) external onlyAdmin {
+        if (newFee > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        uint256 oldBps = protocolFeeBps;
+        protocolFeeBps = newFee;
+        emit ProtocolFeeChanged(oldBps, newFee);
+    }
 
-        _cancel(WHITELIST_REMOVE);
-        pendingWhitelistRemove = address(0);
+    function applyTreasuryChange(address newTreasury) external onlyAdmin {
+        if (newTreasury == address(0)) revert ZeroAddress();
+        address oldTreasury = treasury;
+        treasury = newTreasury;
+        emit TreasuryChanged(oldTreasury, newTreasury);
+    }
 
-        emit CollectionRemovalCancelled(cancelled);
+    function applyOriginationFeeChange(uint256 newBps) external onlyAdmin {
+        if (newBps > MAX_ORIGINATION_FEE_BPS) revert OriginationFeeTooHigh();
+        uint256 old = originationFeeBps;
+        originationFeeBps = newBps;
+        emit OriginationFeeChanged(old, newBps);
+    }
+
+    function applyMinAprChange(uint256 newBps) external onlyAdmin {
+        if (newBps > MAX_MIN_APR_BPS) revert MinAprTooHigh();
+        require(newBps <= MAX_APR_BPS, "MIN_EXCEEDS_MAX");
+        uint256 old = minAprBps;
+        minAprBps = newBps;
+        emit MinAprChanged(old, newBps);
+    }
+
+    /// @notice AUDIT FIX preserved: DEEP-LD-L2 / LD3-M3 — admin contract calls
+    ///         this on each live cancellation of a removal proposal so the
+    ///         rate-limit counter increments. Restricted to admin to prevent
+    ///         direct manipulation.
+    function bumpRemovalRetryCount(address collection) external onlyAdmin {
+        removalRetryCount[collection] += 1;
     }
 
     /// @notice Returns true iff `_collection` has a STILL-LIVE pending
-    ///         WHITELIST_REMOVE proposal (i.e., proposed AND not past its
-    ///         24h delay + 7d validity window).
-    /// @dev    AUDIT FIX 2026-05-21 M7-REVISED: consolidated gate. Pre-fix
-    ///         (M7 batch-1, commit 0a08bff), `createOffer` got the auto-
-    ///         expiry short-circuit but `acceptOffer` was left with the
-    ///         legacy `_executeAfter[WHITELIST_REMOVE] != 0` raw check.
-    ///         The commit message claimed both paths were patched but the
-    ///         diff only modified createOffer — so a captured/forgetful
-    ///         owner could propose WHITELIST_REMOVE, let the 8-day window
-    ///         elapse without execute or cancel, and brick acceptOffer on
-    ///         that collection permanently (lender principal locked until
-    ///         owner calls cancelRemoveCollection). Centralizing the gate
-    ///         here means both call sites consult one source of truth;
-    ///         future changes can't drift again. Discovered by the Family-3
-    ///         defensive scan of PR #28 (same pass that caught M10, M16,
-    ///         and M4 follow-ons).
+    ///         WHITELIST_REMOVE proposal on the admin sister. Consulted by
+    ///         createOffer / acceptOffer to block offers against a
+    ///         pending-removal collection.
+    /// @dev    AUDIT FIX 2026-05-21 M7-REVISED: consolidated gate — both call
+    ///         sites consult one source of truth (the admin's
+    ///         `collectionPendingRemoval`) so the createOffer/acceptOffer drift
+    ///         surface (M7 batch-1) cannot reopen. Pre-admin-wiring (admin
+    ///         unset), no removal proposal can exist, so the gate returns false.
     function _collectionPendingRemoval(address _collection) internal view returns (bool) {
-        if (pendingWhitelistRemove != _collection) return false;
-        uint256 _ra = _executeAfter[WHITELIST_REMOVE];
-        if (_ra == 0) return false;
-        // Past validity window → TimelockAdmin._execute would revert
-        // ProposalExpired, so treat as already-cancelled.
-        if (block.timestamp > _ra + _proposalValidity()) return false;
-        return true;
-    }
-
-    // ─── Admin: Protocol Fee Timelock ────────────────────────────────
-
-    function proposeProtocolFeeChange(uint256 _newFeeBps) external onlyOwner {
-        if (_newFeeBps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
-
-        pendingProtocolFeeBps = _newFeeBps;
-        _propose(PROTOCOL_FEE_CHANGE, PROTOCOL_FEE_TIMELOCK);
-
-        emit ProtocolFeeChangeProposed(protocolFeeBps, _newFeeBps, _executeAfter[PROTOCOL_FEE_CHANGE]);
-    }
-
-    function executeProtocolFeeChange() external onlyOwner {
-        _execute(PROTOCOL_FEE_CHANGE);
-
-        uint256 oldBps = protocolFeeBps;
-        protocolFeeBps = pendingProtocolFeeBps;
-        pendingProtocolFeeBps = 0;
-
-        emit ProtocolFeeChanged(oldBps, protocolFeeBps);
-    }
-
-    function cancelProtocolFeeChange() external onlyOwner {
-        _cancel(PROTOCOL_FEE_CHANGE);
-
-        uint256 cancelled = pendingProtocolFeeBps;
-        pendingProtocolFeeBps = 0;
-
-        emit ProtocolFeeChangeCancelled(cancelled);
-    }
-
-    // ─── Admin: Treasury Timelock ────────────────────────────────────
-
-    function proposeTreasuryChange(address _newTreasury) external onlyOwner {
-        if (_newTreasury == address(0)) revert ZeroAddress();
-
-        pendingTreasury = _newTreasury;
-        _propose(TREASURY_CHANGE, TREASURY_TIMELOCK);
-
-        emit TreasuryChangeProposed(treasury, _newTreasury, _executeAfter[TREASURY_CHANGE]);
-    }
-
-    function executeTreasuryChange() external onlyOwner {
-        _execute(TREASURY_CHANGE);
-
-        address oldTreasury = treasury;
-        treasury = pendingTreasury;
-        pendingTreasury = address(0);
-
-        emit TreasuryChanged(oldTreasury, treasury);
-    }
-
-    function cancelTreasuryChange() external onlyOwner {
-        _cancel(TREASURY_CHANGE);
-
-        address cancelled = pendingTreasury;
-        pendingTreasury = address(0);
-
-        emit TreasuryChangeCancelled(cancelled);
+        address admin = nftLendingAdmin;
+        if (admin == address(0)) return false;
+        return ITegridyNFTLendingAdminView(admin).collectionPendingRemoval(_collection);
     }
 
     // ─── Pausable ────────────────────────────────────────────────────
@@ -1589,56 +1547,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
         }
     }
 
-    // ─── AUDIT C7: Timelocked Origination Fee ────────────────────────
-    function proposeOriginationFee(uint256 _newBps) external onlyOwner {
-        if (_newBps > MAX_ORIGINATION_FEE_BPS) revert OriginationFeeTooHigh();
-        pendingOriginationFeeBps = _newBps;
-        _propose(ORIGINATION_FEE_CHANGE, ECONOMICS_TIMELOCK);
-        emit OriginationFeeProposed(_newBps, _executeAfter[ORIGINATION_FEE_CHANGE]);
-    }
-
-    function executeOriginationFeeChange() external onlyOwner {
-        _execute(ORIGINATION_FEE_CHANGE);
-        uint256 old = originationFeeBps;
-        originationFeeBps = pendingOriginationFeeBps;
-        pendingOriginationFeeBps = 0;
-        emit OriginationFeeChanged(old, originationFeeBps);
-    }
-
-    function cancelOriginationFeeChange() external onlyOwner {
-        _cancel(ORIGINATION_FEE_CHANGE);
-        pendingOriginationFeeBps = 0;
-    }
-
-    function originationFeeChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[ORIGINATION_FEE_CHANGE];
-    }
-
-    // ─── AUDIT H5: Timelocked Min APR ────────────────────────────────
-    function proposeMinApr(uint256 _newBps) external onlyOwner {
-        if (_newBps > MAX_MIN_APR_BPS) revert MinAprTooHigh();
-        require(_newBps <= MAX_APR_BPS, "MIN_EXCEEDS_MAX");
-        pendingMinAprBps = _newBps;
-        _propose(MIN_APR_CHANGE, ECONOMICS_TIMELOCK);
-        emit MinAprProposed(_newBps, _executeAfter[MIN_APR_CHANGE]);
-    }
-
-    function executeMinAprChange() external onlyOwner {
-        _execute(MIN_APR_CHANGE);
-        uint256 old = minAprBps;
-        minAprBps = pendingMinAprBps;
-        pendingMinAprBps = 0;
-        emit MinAprChanged(old, minAprBps);
-    }
-
-    function cancelMinAprChange() external onlyOwner {
-        _cancel(MIN_APR_CHANGE);
-        pendingMinAprBps = 0;
-    }
-
-    function minAprChangeReadyAt() external view returns (uint256) {
-        return _executeAfter[MIN_APR_CHANGE];
-    }
+    // ─── AUDIT C7 / H5: origination-fee + min-APR timelock ───────────
+    // AUDIT FIX: EIP170-01 — the propose/execute/cancel triplets + readyAt
+    // helpers for origination fee and min APR moved to TegridyNFTLendingAdmin.
+    // The `applyOriginationFeeChange` / `applyMinAprChange` onlyAdmin setters
+    // live above with the other apply* hooks.
 
     // ─── AUDIT FIX FRESH-2026: F-95-K-7 — stranded-NFT sweep ────────
     //
@@ -1651,66 +1564,26 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
     // escrows the token under a stranded-recipient queue for the rightful
     // owner to claim via `claimStrandedNFT`.
 
-    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — propose owner-only sweep
-    ///         of an unsolicited NFT into the stranded-recipient queue.
-    ///         24h timelock matches WHITELIST_TIMELOCK.
-    /// @dev    Reverts if the (collection, tokenId) pair is recorded as
-    ///         active collateral via any non-settled loan or via the
-    ///         `stuckCollateralRecipient` mapping.
-    function proposeSweepUnsolicitedNFT(
-        address _collection,
-        uint256 _tokenId,
-        address _recipient
-    ) external onlyOwner {
-        if (_collection == address(0)) revert ZeroAddress();
-        if (_recipient == address(0)) revert ZeroAddress();
+    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — apply hook for the owner-only,
+    ///         24h-timelocked unsolicited-NFT sweep. Called by
+    ///         TegridyNFTLendingAdmin both at PROPOSE time (with
+    ///         `recipient == address(0)` — runs the active-collateral guard
+    ///         only, no state write) and at EXECUTE time (with a non-zero
+    ///         `recipient` — re-runs the guard since loans may have been created
+    ///         during the timelock window, then records the stranded-recipient
+    ///         queue entry). Pull-based: actual ERC721 transfer is deferred to
+    ///         `claimStrandedNFT` to neutralize hostile collection re-entry.
+    /// @dev    AUDIT FIX: EIP170-01 — the active-collateral scan reads this
+    ///         contract's `loans[]` + `stuckCollateralRecipient` state, so it is
+    ///         kept here; the propose/execute/cancel timelock surface lives on
+    ///         the admin sister. `onlyAdmin` (msg.sender == nftLendingAdmin).
+    function applySweepUnsolicitedNFT(
+        address collection,
+        uint256 tokenId,
+        address recipient
+    ) external onlyAdmin {
+        if (collection == address(0)) revert ZeroAddress();
         // Refuse to seize active collateral.
-        uint256 lenLoans = loans.length;
-        for (uint256 i = 0; i < lenLoans; i++) {
-            Loan storage l = loans[i];
-            if (
-                l.collateralContract == _collection &&
-                l.tokenId == _tokenId &&
-                !l.repaid &&
-                !l.defaultClaimed
-            ) revert NFTIsActiveCollateral();
-        }
-        // Refuse if a stuck-collateral entry references this NFT —
-        // claimStuckCollateral is the right path for that case.
-        for (uint256 i = 0; i < lenLoans; i++) {
-            if (stuckCollateralRecipient[i] != address(0)) {
-                Loan storage l = loans[i];
-                if (l.collateralContract == _collection && l.tokenId == _tokenId) {
-                    revert NFTIsActiveCollateral();
-                }
-            }
-        }
-
-        pendingSweepCollection = _collection;
-        pendingSweepTokenId = _tokenId;
-        pendingSweepRecipient = _recipient;
-        _propose(SWEEP_UNSOLICITED_NFT, WHITELIST_TIMELOCK);
-
-        emit SweepUnsolicitedNFTProposed(
-            _collection,
-            _tokenId,
-            _recipient,
-            _executeAfter[SWEEP_UNSOLICITED_NFT]
-        );
-    }
-
-    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — execute the proposed sweep
-    ///         after the 24h timelock has elapsed. Re-runs the
-    ///         active-collateral guard since loans may have been created
-    ///         during the timelock window. Pull-based: actual ERC721
-    ///         transfer is deferred to `claimStrandedNFT` to neutralize
-    ///         hostile collection re-entry.
-    function executeSweepUnsolicitedNFT() external onlyOwner {
-        address collection = pendingSweepCollection;
-        uint256 tokenId = pendingSweepTokenId;
-        address recipient = pendingSweepRecipient;
-
-        // Re-check active-collateral state.
         uint256 lenLoans = loans.length;
         for (uint256 i = 0; i < lenLoans; i++) {
             Loan storage l = loans[i];
@@ -1721,14 +1594,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
                 !l.defaultClaimed
             ) revert NFTIsActiveCollateral();
         }
-        // AUDIT FIX 2026-05-16 M9: also re-check stuck-collateral mapping. Pre-fix,
-        // propose ran TWO loops (active-collateral + stuck-mapping at line 1628-1634)
-        // but execute only re-ran the active-collateral loop. During the 24h timelock
-        // window, a loan against the same (collection, tokenId) could settle with a
-        // transfer-failure that creates a `stuckCollateralRecipient[loanId]` entry —
-        // the admin sweep would then race to record `strandedNFTRecipient[hash]` and
-        // an admin-controlled claim path could front-run the legitimate stuck-recipient.
-        // Mirroring the propose-side loop closes the propose/execute asymmetry.
+        // AUDIT FIX 2026-05-16 M9: also re-check stuck-collateral mapping.
+        // claimStuckCollateral is the right path for that case. Mirroring the
+        // propose-side loop closes the propose/execute asymmetry: during the
+        // 24h timelock a loan against the same (collection, tokenId) could
+        // settle with a transfer-failure that creates a stuck entry, and an
+        // admin-controlled claim path must not front-run the stuck-recipient.
         for (uint256 i = 0; i < lenLoans; i++) {
             if (stuckCollateralRecipient[i] != address(0)) {
                 Loan storage l = loans[i];
@@ -1738,24 +1609,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
             }
         }
 
-        _execute(SWEEP_UNSOLICITED_NFT);
+        // Propose-time pre-check: guard only, no state write.
+        if (recipient == address(0)) return;
 
         bytes32 key = keccak256(abi.encode(collection, tokenId));
         strandedNFTRecipient[key] = recipient;
-
-        pendingSweepCollection = address(0);
-        pendingSweepTokenId = 0;
-        pendingSweepRecipient = address(0);
-
         emit SweepUnsolicitedNFTExecuted(collection, tokenId, recipient);
-    }
-
-    /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — cancel a pending sweep.
-    function cancelSweepUnsolicitedNFT() external onlyOwner {
-        _cancel(SWEEP_UNSOLICITED_NFT);
-        pendingSweepCollection = address(0);
-        pendingSweepTokenId = 0;
-        pendingSweepRecipient = address(0);
     }
 
     /// @notice AUDIT FIX FRESH-2026: F-95-K-7 — pull-based claim of a
@@ -1774,36 +1633,5 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable, Time
 
         delete strandedNFTRecipient[key];
         emit StrandedNFTClaimed(_collection, _tokenId, recipient);
-    }
-
-    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
-    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
-    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
-    ///         Without this override, an outgoing/compromised owner could queue hostile
-    ///         proposals immediately before `transferOwnership`; the timelock would silently
-    ///         keep running and the new owner inherits an executable booby-trap.
-    /// @dev    DELIBERATE compact form: per-key `_forceCancel(KEY)` via a loop over a
-    ///         memory array. This contract sits at the EIP-170 floor (24,000B budget)
-    ///         and an inline 7-key block (LaunchpadV2-style) overshoots. The security
-    ///         boundary is `_executeAfter[KEY] = 0` (handled by `_forceCancel`), which
-    ///         blocks every `execute*` path. The base `ProposalCancelled(KEY)` event from
-    ///         `_forceCancel` is the canonical off-chain signal (F-75-15). Stale `pending*`
-    ///         slots are HARMLESS because every `execute*` calls `_execute(KEY)` first
-    ///         (reverts `NoPendingProposal` on cleared slot) AND re-proposing overwrites
-    ///         the slot.
-    function acceptOwnership() public override {
-        super.acceptOwnership();
-        bytes32[7] memory keys = [
-            PROTOCOL_FEE_CHANGE,
-            TREASURY_CHANGE,
-            WHITELIST_ADD,
-            WHITELIST_REMOVE,
-            ORIGINATION_FEE_CHANGE,
-            MIN_APR_CHANGE,
-            SWEEP_UNSOLICITED_NFT
-        ];
-        for (uint256 i; i < keys.length; ++i) {
-            _forceCancel(keys[i]);
-        }
     }
 }

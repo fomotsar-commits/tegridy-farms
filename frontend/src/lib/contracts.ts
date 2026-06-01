@@ -117,7 +117,7 @@ export const COMMUNITY_GRANTS_ABI = [
   { type: 'function', name: 'voteOnProposal', inputs: [{ name: '_proposalId', type: 'uint256' }, { name: '_support', type: 'bool' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'finalizeProposal', inputs: [{ name: '_proposalId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'proposalCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getProposal', inputs: [{ name: '_id', type: 'uint256' }], outputs: [{ name: 'proposer', type: 'address' }, { name: 'recipient', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'description', type: 'string' }, { name: 'votesFor', type: 'uint256' }, { name: 'votesAgainst', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'status', type: 'uint8' }], stateMutability: 'view' },
+  { type: 'function', name: 'getProposal', inputs: [{ name: '_id', type: 'uint256' }], outputs: [{ name: 'proposer', type: 'address' }, { name: 'recipient', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'description', type: 'string' }, { name: 'votesFor', type: 'uint256' }, { name: 'votesAgainst', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'status', type: 'uint8' }, { name: 'snapshotTimestamp', type: 'uint256' }, { name: 'snapshotTotalStake', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'hasVotedOnProposal', inputs: [{ name: '', type: 'uint256' }, { name: '', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
   { type: 'function', name: 'totalGranted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'executeProposal', inputs: [{ name: '_proposalId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
@@ -133,7 +133,7 @@ export const MEME_BOUNTY_BOARD_ABI = [
   { type: 'function', name: 'completeBounty', inputs: [{ name: '_bountyId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'cancelBounty', inputs: [{ name: '_bountyId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'bountyCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getBounty', inputs: [{ name: '_id', type: 'uint256' }], outputs: [{ name: 'creator', type: 'address' }, { name: 'description', type: 'string' }, { name: 'reward', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'winner', type: 'address' }, { name: 'submCount', type: 'uint256' }, { name: 'status', type: 'uint8' }, { name: 'dummy', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'getBounty', inputs: [{ name: '_id', type: 'uint256' }], outputs: [{ name: 'creator', type: 'address' }, { name: 'description', type: 'string' }, { name: 'reward', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'winner', type: 'address' }, { name: 'submCount', type: 'uint256' }, { name: 'status', type: 'uint8' }], stateMutability: 'view' },
   { type: 'function', name: 'getSubmission', inputs: [{ name: '_bountyId', type: 'uint256' }, { name: '_submissionId', type: 'uint256' }], outputs: [{ name: 'submitter', type: 'address' }, { name: 'contentURI', type: 'string' }, { name: 'votes', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'submissionCount', inputs: [{ name: '_bountyId', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalBountiesPosted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
@@ -269,7 +269,7 @@ export const VOTE_INCENTIVES_ABI = [
     { name: 'power', type: 'uint256' },
     { name: 'salt', type: 'bytes32' },
   ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
-  { type: 'function', name: 'commitVote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'commitHash', type: 'bytes32' }], outputs: [{ name: 'commitIndex', type: 'uint256' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'commitVote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'commitHash', type: 'bytes32' }, { name: 'power', type: 'uint256' }], outputs: [{ name: 'commitIndex', type: 'uint256' }], stateMutability: 'nonpayable' },
   { type: 'function', name: 'revealVote', inputs: [
     { name: 'epoch', type: 'uint256' },
     { name: 'commitIndex', type: 'uint256' },
@@ -329,7 +329,7 @@ export const LP_FARMING_ABI = [
   { type: 'function', name: 'notifyRewardAmount', inputs: [{ name: 'reward', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'earned', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalRawSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardRate', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
@@ -467,8 +467,8 @@ export const TEGRIDY_DROP_V2_ABI = [
 // ─── TegridyNFTPool (Sudoswap-style NFT AMM Pool) ─────────────
 export const TEGRIDY_NFT_POOL_ABI = [
   // ─── Trading (public) ──────────────────────────────────────────
-  { type: 'function', name: 'swapETHForNFTs', inputs: [{ name: 'tokenIds', type: 'uint256[]' }], outputs: [], stateMutability: 'payable' },
-  { type: 'function', name: 'swapNFTsForETH', inputs: [{ name: 'tokenIds', type: 'uint256[]' }, { name: 'minOutput', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'swapETHForNFTs', inputs: [{ name: 'tokenIds', type: 'uint256[]' }, { name: 'maxTotalCost', type: 'uint256' }, { name: 'deadline', type: 'uint256' }], outputs: [], stateMutability: 'payable' },
+  { type: 'function', name: 'swapNFTsForETH', inputs: [{ name: 'tokenIds', type: 'uint256[]' }, { name: 'minOutput', type: 'uint256' }, { name: 'deadline', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'getBuyQuote', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'inputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getSellQuote', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'outputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getHeldTokenIds', inputs: [], outputs: [{ name: '', type: 'uint256[]' }], stateMutability: 'view' },
@@ -495,6 +495,9 @@ export const TEGRIDY_NFT_POOL_ABI = [
   { type: 'function', name: 'PARAMETER_TIMELOCK', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   // ─── Immediate owner actions ───────────────────────────────────
   { type: 'function', name: 'changeFee', inputs: [{ name: 'newFee', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'proposeFeeChange', inputs: [{ name: 'newFee', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'executeFeeChange', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'cancelFeeChange', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'withdrawETH', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'withdrawNFTs', inputs: [{ name: 'tokenIds', type: 'uint256[]' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'pause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
@@ -550,7 +553,7 @@ export const toweliConfig = {
 
 // ─── TegridyNFTLending (P2P NFT Lending) ─────────────────────
 export const TEGRIDY_NFT_LENDING_ABI = [
-  { type: 'function', name: 'createOffer', inputs: [{ name: '_principal', type: 'uint256' }, { name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_tokenId', type: 'uint256' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
+  { type: 'function', name: 'createOffer', inputs: [{ name: '_principal', type: 'uint256' }, { name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_tokenId', type: 'uint256' }, { name: '_expiry', type: 'uint64' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
   { type: 'function', name: 'cancelOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'acceptOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [{ name: 'loanId', type: 'uint256' }], stateMutability: 'nonpayable' },
   { type: 'function', name: 'repayLoan', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [], stateMutability: 'payable' },

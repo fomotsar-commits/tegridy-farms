@@ -43,7 +43,18 @@ export async function readBoundedText(response, maxBytes = DEFAULT_MAX_BYTES) {
   if (!body || typeof body.getReader !== "function") {
     // Fallback for environments without streaming bodies. We still cap by
     // length after reading; callers in production hit the streaming path.
-    const text = await response.text();
+    //
+    // AUDIT FIX 2026-05-26: prefer .text() when available, fall back to .json()
+    // re-stringification for mock environments that only expose .json(). Real
+    // fetch Response always has .text(), so this branch is mock-only in prod.
+    let text;
+    if (typeof response.text === "function") {
+      text = await response.text();
+    } else if (typeof response.json === "function") {
+      text = JSON.stringify(await response.json());
+    } else {
+      return { text: "", truncated: false, bytes: 0 };
+    }
     if (text.length > maxBytes) {
       return { text: "", truncated: true, bytes: text.length };
     }

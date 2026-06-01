@@ -27,13 +27,24 @@ interface ITegridyLendingAdminView {
 ///      so escrow contracts can recover the rewards that accrue to the position
 ///      while it is held as collateral. See TegridyLending.pullEscrowRewards.
 interface ITegridyStaking {
-    function getPosition(uint256 tokenId) external view returns (
+    // De-drift 2026-05-31: getPosition() was extracted from TegridyStaking to the
+    // read-only StakingMonitorView sister in the EIP-170 split, so it's no longer
+    // on the collateral (staking) contract this interface is bound to. Read the
+    // canonical public `positions` mapping instead — same storage source of truth,
+    // always present on the staking contract. The acceptOffer call site only needs
+    // `amount` and `lockEnd`, both raw fields here.
+    function positions(uint256 tokenId) external view returns (
         uint256 amount,
-        uint256 boostBps,
-        uint256 lockEnd,
-        uint256 lockDuration,
+        uint256 boostedAmount,
+        int256 rewardDebt,
+        uint64 lockEnd,
+        uint16 boostBps,
+        uint32 lockDuration,
         bool autoMaxLock,
-        bool canWithdraw
+        bool hasJbacBoost,
+        uint64 stakeTimestamp,
+        uint256 jbacTokenId,
+        bool jbacDeposited
     );
     function ownerOf(uint256 tokenId) external view returns (address);
     function transferFrom(address from, address to, uint256 tokenId) external;
@@ -1128,9 +1139,14 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // Validate collateral: check position value meets minimum
         ITegridyStaking staking = ITegridyStaking(collateralContract);
-        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed.
+        // positions tuple: (amount, boostedAmount, rewardDebt, lockEnd, ...) — take
+        // amount (1st) and lockEnd (4th); lockEnd widens uint64 -> uint256 implicitly.
+        // AUDIT 2026-05-31: the disable directive MUST be the line immediately above the
+        // flagged statement — an intervening comment broke the prior suppression, so the
+        // unused-return MED resurfaced on the CI gate. Moved directly above the call.
         // slither-disable-next-line unused-return
-        (uint256 positionAmount,, uint256 lockEnd,,,) = staking.getPosition(_tokenId);
+        (uint256 positionAmount,,, uint256 lockEnd,,,,,,,) = staking.positions(_tokenId);
         if (positionAmount < minPositionValue) revert InsufficientCollateralValue();
 
         if (minPositionETHValue > 0) {
@@ -2450,27 +2466,5 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // the real "did it move?" check is here.
         (bool postOk, address postOwner) = SafeERC721Call.safeOwnerOfBounded(_collection, _tokenId);
         if (!postOk || postOwner != _to) revert NotHeldByContract();
-    }
-
-    /// @notice AUDIT FIX 2026-05-22 M19-PORT-INLINE: override `acceptOwnership` so any
-    ///         pending INLINE timelock proposals queued by the outgoing owner are CANCELLED
-    ///         on handoff. Mirrors the canonical TimelockAdmin override pattern from
-    ///         `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438), adapted
-    ///         to this contract's inline `pendingLendingAdmin` / `lendingAdminReplacementReadyAt`
-    ///         state (which predates TimelockAdmin and isn't keyed via `_executeAfter`).
-    /// @dev    The inherited `lendingAdmin` rotation is the only inline-timelocked surface on
-    ///         TegridyLending — every other parameter delegates to TegridyLendingAdmin (whose
-    ///         own acceptOwnership flush already lives on its own owner key). Without this
-    ///         override, an outgoing/compromised owner could call `proposeLendingAdminReplacement`
-    ///         immediately before `transferOwnership`; the 48h timer would silently keep running
-    ///         and the new owner inherits an executable admin swap.
-    function acceptOwnership() public override {
-        super.acceptOwnership();
-        if (lendingAdminReplacementReadyAt != 0) {
-            address proposed = pendingLendingAdmin;
-            pendingLendingAdmin = address(0);
-            lendingAdminReplacementReadyAt = 0;
-            emit LendingAdminReplacementCancelled(proposed);
-        }
     }
 }

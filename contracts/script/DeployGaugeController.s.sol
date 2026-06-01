@@ -2,31 +2,34 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
-import "../src/GaugeController.sol";
+import {GaugeController} from "../src/GaugeController.sol";
 
+/// @title  DeployGaugeController — per-wave deploy for the restored gauge voting
+/// @notice ve-style gauge voting with H-2 commit-reveal. Hands ownership to the
+///         multisig (2-step). EMISSION_BUDGET is deploy-time policy — REVIEW.
+/// @dev    Env: STAKING (vote power source), EMISSION_BUDGET (TOWELI/epoch, default
+///         1,000,000e18 = last-known), MULTISIG.
 contract DeployGaugeControllerScript is Script {
-    address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
-    uint256 constant EMISSION_BUDGET = 1_000_000e18;
-
     function run() external {
-        require(block.chainid == 1, "MAINNET_ONLY");
-        console.log("=== Deploying GaugeController ===");
+        address staking = vm.envAddress("STAKING");
+        // REVIEW before mainnet — default is the last-known live value (1M TOWELI/epoch).
+        uint256 emissionBudget = vm.envOr("EMISSION_BUDGET", uint256(1_000_000 ether));
+        address multisig = vm.envAddress("MULTISIG");
+        require(staking != address(0), "zero env");
+        require(multisig != address(0), "set MULTISIG");
+
         vm.startBroadcast();
-        GaugeController gauge = new GaugeController(TEGRIDY_STAKING, EMISSION_BUDGET);
-        console.log("GaugeController deployed:", address(gauge));
-        // Transfer ownership
-        address multisig = vm.envAddress("MULTISIG"); // FRESH-2026 (post-fix scan3 F-DI-31): require non-empty MULTISIG env so deployer EOA never silently retains ownership
-        if (multisig != address(0)) {
-            gauge.transferOwnership(multisig);
-            console.log("Ownership transfer initiated to:", multisig);
-        }
+        console2.log("Deployer:", msg.sender);
+        console2.log("Emission budget (TOWELI/epoch):", emissionBudget);
+        GaugeController gauge = new GaugeController(staking, emissionBudget);
+        console2.log("GaugeController deployed:", address(gauge));
+        gauge.transferOwnership(multisig); // 2-step; multisig must acceptOwnership()
+        console2.log("Ownership transfer initiated to multisig:", multisig);
         vm.stopBroadcast();
-        // Next steps
-        console.log("=== NEXT STEPS ===");
-        // AUDIT FIX (pass-8) GOV-INT-01: proposeAddGauge now takes (gauge, pair).
-        console.log("1. Add gauges: gauge.proposeAddGauge(lpFarmAddress, pairAddress)");
-        console.log("2. Wait 24h, then: gauge.executeAddGauge()");
-        console.log("3. Update GAUGE_CONTROLLER_ADDRESS in frontend constants.ts");
-        console.log("4. On VoteIncentives: voteIncentives.setGaugeController(<gauge controller>)");
+
+        console2.log("");
+        console2.log("=== NEXT (multisig / operator) ===");
+        console2.log("1. MULTISIG.acceptOwnership()");
+        console2.log("2. Set GAUGE_CONTROLLER_ADDRESS in frontend/src/lib/constants.ts ->", address(gauge));
     }
 }

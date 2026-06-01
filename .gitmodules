@@ -1,12 +1,23 @@
+# AUDIT FIX 2026-05-26 [H-37]: pin every submodule branch so `git submodule update --remote`
+# (used in CI and by some contributors) does not silently fast-forward to upstream HEAD
+# between audit-snapshot and deploy. The actual SHA we built/audited against is recorded
+# in the parent repo's tree object; the `branch =` lock here only constrains what `--remote`
+# can roll forward to, but combined with branch protection on these upstreams it bounds the
+# blast radius to that branch's owner. Reviewers: bump these only via deliberate
+# `git submodule update --remote` then re-run forge build + the full test suite.
 [submodule "contracts/lib/v4-core"]
 	path = contracts/lib/v4-core
 	url = https://github.com/Uniswap/v4-core
+	branch = main
 [submodule "contracts/lib/v4-periphery"]
 	path = contracts/lib/v4-periphery
 	url = https://github.com/Uniswap/v4-periphery
+	branch = main
 [submodule "contracts/lib/solmate"]
 	path = contracts/lib/solmate
 	url = https://github.com/transmissions11/solmate
+	branch = main
 [submodule "contracts/lib/solady"]
 	path = contracts/lib/solady
 	url = https://github.com/Vectorized/solady
+	branch = main

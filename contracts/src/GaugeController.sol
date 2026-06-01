@@ -418,7 +418,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             address(tegridyStaking),
             restakingContract
         );
-        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
+        uint256 currentPower = VotePowerOracle.powerOfLiveUnsafe(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentPower ? historicalPower : currentPower;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
@@ -712,7 +712,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             address(tegridyStaking),
             restakingContract
         );
-        uint256 currentVP = VotePowerOracle.powerOf(msg.sender, address(tegridyStaking), restakingContract);
+        uint256 currentVP = VotePowerOracle.powerOfLiveUnsafe(msg.sender, address(tegridyStaking), restakingContract);
         uint256 votingPower = historicalPower < currentVP ? historicalPower : currentVP;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
@@ -1183,38 +1183,5 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     ///         restaking-contract rotation's execute-after timestamp.
     function restakingChangeReadyAt() external view returns (uint256) {
         return _proposalReadyAt(RESTAKING_CHANGE);
-    }
-
-    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
-    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
-    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
-    ///         Without this override, an outgoing/compromised owner could queue hostile
-    ///         proposals (e.g. `proposeAddGauge(hostileGauge, hostilePair)` or
-    ///         `proposeRestakingContract(attacker)`) immediately before `transferOwnership`;
-    ///         the timelock would silently keep running and the new owner inherits an
-    ///         executable booby-trap.
-    /// @dev    Calls `super.acceptOwnership()` first so the Ownable2Step pendingOwner→owner
-    ///         promotion happens before the cancellations.
-    function acceptOwnership() public override {
-        super.acceptOwnership();
-        if (_executeAfter[GAUGE_ADD] != 0) {
-            _cancel(GAUGE_ADD);
-            pendingGaugeAdd = address(0);
-            pendingPairForAdd = address(0);
-        }
-        if (_executeAfter[GAUGE_REMOVE] != 0) {
-            _cancel(GAUGE_REMOVE);
-            pendingGaugeRemove = address(0);
-        }
-        if (_executeAfter[EMISSION_BUDGET_CHANGE] != 0) {
-            _cancel(EMISSION_BUDGET_CHANGE);
-            pendingEmissionBudget = 0;
-        }
-        if (_executeAfter[RESTAKING_CHANGE] != 0) {
-            address cancelled = pendingRestakingContract;
-            _cancel(RESTAKING_CHANGE);
-            pendingRestakingContract = address(0);
-            emit RestakingContractProposalCancelled(cancelled);
-        }
     }
 }

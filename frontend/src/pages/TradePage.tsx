@@ -21,11 +21,15 @@ type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
 // Limit Order features are not on-chain — they persist in browser localStorage and
 // run only while the tab is open. Renaming to "Recurring Swap" / "Price Alert" makes
 // the actual behaviour legible without falsely implying automated execution.
+// AUDIT 2026-05-30 (mobile re-pass): shortened "Recurring Swap"→"DCA" and
+// "Price Alert"→"Alerts" — the longer labels overflowed their tab button widths
+// at 390 px and visually collided ("Recurring Swa**P**rice Alert"). The
+// titleByTab descriptions below keep the full names for clarity on the page.
 const TAB_LABELS: Record<Tab, string> = {
   swap: 'Swap',
   liquidity: 'Liquidity',
-  dca: 'Recurring Swap',
-  limit: 'Price Alert',
+  dca: 'DCA',
+  limit: 'Alerts',
 };
 
 const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit'];

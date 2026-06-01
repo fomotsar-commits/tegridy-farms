@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 
 contract MockTOWELI is ERC20 {
     constructor() ERC20("Towelie", "TOWELI") {
@@ -31,6 +32,7 @@ contract MockJBAC is ERC721 {
 ///         revalidateBoost debt reset, totalUnsettledRewards accounting
 contract Audit195StakingRewards is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     MockTOWELI public token;
     MockJBAC public nft;
 
@@ -52,6 +54,7 @@ contract Audit195StakingRewards is Test {
         token = new MockTOWELI();
         nft = new MockJBAC();
         staking = new TegridyStaking(address(token), address(nft), treasury, REWARD_RATE);
+        monitor = new StakingMonitorView(address(staking));
 
         // Mint JBAC NFT to alice
         nft.mint(alice);
@@ -84,14 +87,14 @@ contract Audit195StakingRewards is Test {
         staking.stake(1000 ether, MIN_LOCK);
 
         uint256 tokenId = staking.userTokenId(bob);
-        (, uint256 boostBps,,,,) = staking.getPosition(tokenId);
+        (, uint256 boostBps,,,,) = monitor.getPosition(tokenId);
         uint256 boostedAmount = (1000 ether * boostBps) / BOOST_PRECISION;
 
         // Advance 100 seconds
         vm.warp(block.timestamp + 100);
 
         // pendingReward should be ~100 tokens (100s * 1 TOWELI/s)
-        uint256 pending = staking.earned(tokenId);
+        uint256 pending = monitor.earned(tokenId);
         assertApproxEqAbs(pending, 100 ether, 1e15, "Pending should be ~100 TOWELI");
     }
 
@@ -107,7 +110,7 @@ contract Audit195StakingRewards is Test {
         vm.warp(block.timestamp + 1000);
 
         // Even small stake should capture all rewards when sole staker
-        uint256 pending = staking.earned(tokenId);
+        uint256 pending = monitor.earned(tokenId);
         assertApproxEqAbs(pending, 1000 ether, 1e15, "Small staker should get all rewards");
     }
 
@@ -122,7 +125,7 @@ contract Audit195StakingRewards is Test {
 
         // Should not revert — large accumulated rewards
         uint256 tokenId = staking.userTokenId(alice);
-        uint256 pending = staking.earned(tokenId);
+        uint256 pending = monitor.earned(tokenId);
         assertGt(pending, 0, "Should have pending rewards");
     }
 
@@ -411,7 +414,7 @@ contract Audit195StakingRewards is Test {
         assertEq(token.balanceOf(bob) - bobBefore, claimed, "Balance change should match claimed");
 
         // Lock should be extended to max
-        (,,uint256 lockEnd, uint256 lockDuration,,) = staking.getPosition(tokenId);
+        (,,uint256 lockEnd, uint256 lockDuration,,) = monitor.getPosition(tokenId);
         assertEq(lockDuration, MAX_LOCK, "Lock duration should be MAX_LOCK");
         assertEq(lockEnd, block.timestamp + MAX_LOCK, "Lock end should be now + MAX_LOCK");
     }
@@ -693,7 +696,7 @@ contract Audit195StakingRewards is Test {
 
         vm.warp(block.timestamp + 500);
 
-        uint256 pending = staking.earned(tokenId);
+        uint256 pending = monitor.earned(tokenId);
 
         uint256 bobBefore = token.balanceOf(bob);
         vm.prank(bob); staking.getReward(tokenId);
@@ -838,7 +841,7 @@ contract Audit195StakingRewards is Test {
 
         vm.warp(block.timestamp + 365 days + 1);
 
-        uint256 pending = staking.earned(tokenId);
+        uint256 pending = monitor.earned(tokenId);
         // V2: With boost decay, expired locks may earn 0 rewards at the moment of query,
         // but rewards were accumulated during the lock period
         // assertGt(pending, 0, "Should have pending rewards"); // V2: may be 0 after expiry

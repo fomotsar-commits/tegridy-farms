@@ -516,7 +516,10 @@ export default memo(function Header({
                 <span style={{ fontFamily: "var(--mono)", letterSpacing: "0.03em" }}>{shortenAddress(wallet)}</span>
               </span>
             ) : (
-              "Connect Wallet"
+              // AUDIT 2026-05-30 (mobile re-pass): shortened "Connect Wallet" -> "Connect"
+              // — the full label overflowed the Nakamigos custom header by 43px at 390px
+              // (custom header doesn't responsive-shrink). Matches the main TopNav convention.
+              "Connect"
             )}
           </button>
         </div>

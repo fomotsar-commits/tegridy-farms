@@ -76,18 +76,24 @@ jobs:
           set -e
           BUDGET=24000
           FAIL=0
-          # CI FIX 2026-05-17 (audit-PR-28): TegridyRestaking + TegridyStaking
-          # both exceed EIP-170 (24,576) on main. Phase 0.5 split is the real
-          # fix; until then, this allowlist keeps CI signal reflecting PR-
-          # introduced regressions only. The Verify.s.sol deploy-gate is the
-          # real EIP-170 enforcement before any address goes live.
-          # CI FIX 2026-05-20 (PR #50): VoteIncentives bumped to 24,013B by the
-          # fresh-2026 fix for HIGH "trapped commit bonds on invalid pair"
-          # (forfeitCommitOnInvalidPair, 115 LoC). Still 563B UNDER EIP-170
-          # (24,576), so deploys fine; only over the conservative 24,000 floor.
-          # Joins Staking/Restaking on the Phase-0-split allowlist until we
-          # split admin functions into VoteIncentivesAdmin (pass-8 already
-          # extracted the change-time view helpers; payouts/forfeits are next).
+          # Allowlist semantics: these contracts are over the conservative 24,000
+          # BUDGET floor but the distinction below matters —
+          #
+          # TegridyStaking — C1 SPLIT DONE (2026-05-24 re-audit). Now 24,505 B,
+          #   UNDER the EIP-170 24,576 limit (deploys to mainnet fine) with ~71 B
+          #   headroom, so it is over the 24,000 floor ONLY (same status as
+          #   VoteIncentives). The view + reward clusters were extracted to
+          #   src/lib/StakingViewLib.sol + src/lib/StakingRewardLib.sol. Kept on
+          #   the allowlist as a FLOOR WARNING (not a split-pending item); the tight
+          #   headroom means any further growth should extract more to the libraries.
+          # TegridyRestaking — still ~29.5 KB, genuinely OVER EIP-170. DEFERRED to
+          #   Phase 7 (removed from DeployMVP/VerifyMVP), so it cannot be deployed on
+          #   the MVP path. Stays allowlisted until its Phase-7 library split.
+          # VoteIncentives — 24,013 B: 563 B UNDER EIP-170, over the 24,000 floor
+          #   only (fresh-2026 forfeitCommitOnInvalidPair fix). Admin-function split
+          #   into VoteIncentivesAdmin is the eventual fix.
+          #
+          # The VerifyMVP.s.sol deploy-gate is the real pre-launch EIP-170 enforcement.
           EXCEPTIONS="TegridyStaking TegridyRestaking VoteIncentives"
           for f in out/*.sol/*.json; do
             name=$(basename "$f" .json)

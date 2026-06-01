@@ -314,24 +314,6 @@ contract Audit195POL is Test {
         assertEq(pol.totalAccumulations(), 1);
     }
 
-    // ─── 6. BACKSTOP PERCENTAGE ─────────────────────────────────────
-
-    function test_backstopBps_defaultIs9000() public view {
-        assertEq(pol.backstopBps(), 9000);
-    }
-
-    function test_backstop_enforcedInAccumulate() public {
-        vm.deal(address(pol), 2 ether);
-        _accumulateDefault();
-        assertEq(pol.totalAccumulations(), 1);
-    }
-
-    // ─── 7. SLIPPAGE PROTECTION ─────────────────────────────────────
-
-    function test_accumulate_slippageProtection_maxBps() public view {
-        assertEq(pol.maxSlippageBps(), 500);
-    }
-
     // ─── 8. SWEEP ETH (48h timelock + treasury-only) ────────────────
 
     function test_sweepETH_proposeLocksAmount() public {
@@ -492,173 +474,6 @@ contract Audit195POL is Test {
         pol.sweepTokens(address(toweli));
     }
 
-    // ─── 10. PROPOSE / EXECUTE / CANCEL: maxSlippage ────────────────
-
-    function test_maxSlippage_proposeExecuteCancel_fullCycle() public {
-        pol.proposeMaxSlippage(200);
-        assertEq(pol.pendingMaxSlippage(), 200);
-
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, pol.SLIPPAGE_CHANGE()));
-        pol.executeMaxSlippage();
-
-        vm.warp(block.timestamp + 24 hours + 1);
-        pol.executeMaxSlippage();
-        assertEq(pol.maxSlippageBps(), 200);
-        assertEq(pol.pendingMaxSlippage(), 0);
-        assertEq(pol.maxSlippageProposedAt(), 0);
-    }
-
-    function test_maxSlippage_cancel() public {
-        pol.proposeMaxSlippage(300);
-        pol.cancelMaxSlippageChange();
-        assertEq(pol.pendingMaxSlippage(), 0);
-        assertEq(pol.maxSlippageProposedAt(), 0);
-        assertEq(pol.maxSlippageBps(), 500);
-    }
-
-    function test_maxSlippage_revertOutOfRange_low() public {
-        vm.expectRevert(POLAccumulator.SlippageBpsOutOfRange.selector);
-        pol.proposeMaxSlippage(99);
-    }
-
-    function test_maxSlippage_revertOutOfRange_high() public {
-        vm.expectRevert(POLAccumulator.SlippageBpsOutOfRange.selector);
-        pol.proposeMaxSlippage(1001);
-    }
-
-    function test_maxSlippage_boundsAccepted() public {
-        pol.proposeMaxSlippage(100);
-        pol.cancelMaxSlippageChange();
-        pol.proposeMaxSlippage(1000);
-        assertEq(pol.pendingMaxSlippage(), 1000);
-    }
-
-    function test_maxSlippage_revertExistingPending() public {
-        pol.proposeMaxSlippage(300);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, pol.SLIPPAGE_CHANGE()));
-        pol.proposeMaxSlippage(400);
-    }
-
-    function test_maxSlippage_revertExpired() public {
-        pol.proposeMaxSlippage(300);
-        vm.warp(block.timestamp + 24 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, pol.SLIPPAGE_CHANGE()));
-        pol.executeMaxSlippage();
-    }
-
-    function test_maxSlippage_executeAtExactBoundary() public {
-        pol.proposeMaxSlippage(300);
-        uint256 readyAt = pol.maxSlippageProposedAt();
-        vm.warp(readyAt);
-        pol.executeMaxSlippage();
-        assertEq(pol.maxSlippageBps(), 300);
-    }
-
-    function test_maxSlippage_executeLastSecondBeforeExpiry() public {
-        pol.proposeMaxSlippage(300);
-        uint256 readyAt = pol.maxSlippageProposedAt();
-        vm.warp(readyAt + 7 days);
-        pol.executeMaxSlippage();
-        assertEq(pol.maxSlippageBps(), 300);
-    }
-
-    function test_maxSlippage_onlyOwner() public {
-        vm.prank(alice);
-        vm.expectRevert();
-        pol.proposeMaxSlippage(300);
-
-        pol.proposeMaxSlippage(300);
-        vm.prank(alice);
-        vm.expectRevert();
-        pol.executeMaxSlippage();
-
-        vm.prank(alice);
-        vm.expectRevert();
-        pol.cancelMaxSlippageChange();
-    }
-
-    // ─── 11. PROPOSE / EXECUTE / CANCEL: backstop ────────────────────
-    // M-7 audit: MIN_BACKSTOP_BPS = 9000; MAX = 9900.
-
-    function test_backstop_proposeExecuteCancel_fullCycle() public {
-        pol.proposeBackstopChange(9500);
-        assertEq(pol.pendingBackstopBps(), 9500);
-        vm.warp(block.timestamp + 24 hours + 1);
-        pol.executeBackstopChange();
-        assertEq(pol.backstopBps(), 9500);
-        assertEq(pol.pendingBackstopBps(), 0);
-        assertEq(pol.backstopChangeTime(), 0);
-    }
-
-    function test_backstop_cancel() public {
-        pol.proposeBackstopChange(9500);
-        pol.cancelBackstopChange();
-        assertEq(pol.backstopBps(), 9000);
-        assertEq(pol.pendingBackstopBps(), 0);
-        assertEq(pol.backstopChangeTime(), 0);
-    }
-
-    function test_backstop_revertTooHigh() public {
-        vm.expectRevert(POLAccumulator.BackstopTooHigh.selector);
-        pol.proposeBackstopChange(9901);
-    }
-
-    function test_backstop_maxAccepted() public {
-        pol.proposeBackstopChange(9900);
-        assertEq(pol.pendingBackstopBps(), 9900);
-    }
-
-    function test_backstop_zeroRejected() public {
-        vm.expectRevert("BACKSTOP_TOO_LOW");
-        pol.proposeBackstopChange(0);
-    }
-
-    function test_backstop_belowMinRejected() public {
-        vm.expectRevert("BACKSTOP_TOO_LOW");
-        pol.proposeBackstopChange(8999);
-    }
-
-    function test_backstop_revertExistingPending() public {
-        pol.proposeBackstopChange(9500);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, pol.BACKSTOP_CHANGE()));
-        pol.proposeBackstopChange(9600);
-    }
-
-    function test_backstop_revertBeforeTimelock() public {
-        pol.proposeBackstopChange(9500);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, pol.BACKSTOP_CHANGE()));
-        pol.executeBackstopChange();
-    }
-
-    function test_backstop_revertExpired() public {
-        pol.proposeBackstopChange(9500);
-        vm.warp(block.timestamp + 24 hours + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, pol.BACKSTOP_CHANGE()));
-        pol.executeBackstopChange();
-    }
-
-    function test_backstop_revertNoPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, pol.BACKSTOP_CHANGE()));
-        pol.executeBackstopChange();
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, pol.BACKSTOP_CHANGE()));
-        pol.cancelBackstopChange();
-    }
-
-    function test_backstop_onlyOwner() public {
-        vm.prank(alice);
-        vm.expectRevert();
-        pol.proposeBackstopChange(9500);
-
-        pol.proposeBackstopChange(9500);
-        vm.prank(alice);
-        vm.expectRevert();
-        pol.executeBackstopChange();
-
-        vm.prank(alice);
-        vm.expectRevert();
-        pol.cancelBackstopChange();
-    }
-
     // ─── 12. PROPOSE / EXECUTE / CANCEL: maxAccumulateAmount ────────
 
     function test_maxAccumCap_proposeExecuteCancel_fullCycle() public {
@@ -742,12 +557,6 @@ contract Audit195POL is Test {
 
     function test_onlyOwner_allAdminFunctions() public {
         vm.startPrank(alice);
-        vm.expectRevert(); pol.proposeMaxSlippage(300);
-        vm.expectRevert(); pol.executeMaxSlippage();
-        vm.expectRevert(); pol.cancelMaxSlippageChange();
-        vm.expectRevert(); pol.proposeBackstopChange(9500);
-        vm.expectRevert(); pol.executeBackstopChange();
-        vm.expectRevert(); pol.cancelBackstopChange();
         vm.expectRevert(); pol.proposeMaxAccumulateAmount(5 ether);
         vm.expectRevert(); pol.executeMaxAccumulateAmount();
         vm.expectRevert(); pol.cancelMaxAccumulateAmountChange();
@@ -942,5 +751,112 @@ contract Audit195POL is Test {
         pol.proposeMaxAccumulateAmount(101 ether);
         pol.proposeMaxAccumulateAmount(100 ether);
         assertEq(pol.pendingMaxAccumulateAmount(), 100 ether);
+    }
+
+    // ─── 23. M7: DAILY ROLLING ETH CAP ──────────────────────────────
+
+    /// @notice Default dailyETHCap is 50 ETH; single call well under cap succeeds.
+    function test_M7_accumulate_underDailyCap_succeeds() public {
+        vm.deal(address(pol), 10 ether);
+        _accumulateDefault();
+        assertEq(pol.dailyETHAccumulated(), 10 ether);
+    }
+
+    /// @notice Once dailyETHCap is consumed, further calls in the same window revert.
+    function test_M7_accumulate_reverts_whenDailyCapExhausted() public {
+        // Set a tiny daily cap so we can exhaust it with a single call.
+        pol.proposeDailyETHCap(5 ether);
+        vm.warp(block.timestamp + pol.DAILY_ETH_CAP_CHANGE_DELAY() + 1);
+        twap.setLatestTimestamp(uint32(block.timestamp));
+        pol.executeDailyETHCap();
+        assertEq(pol.dailyETHCap(), 5 ether);
+
+        // First accumulate uses 5 ETH → window exhausted.
+        vm.deal(address(pol), 10 ether);
+        _accumulateDefault();
+        assertEq(pol.dailyETHAccumulated(), 5 ether);
+
+        // Second call in same window must revert.
+        vm.deal(address(pol), 5 ether);
+        vm.warp(block.timestamp + pol.ACCUMULATE_COOLDOWN());
+        twap.setLatestTimestamp(uint32(block.timestamp));
+        vm.prank(owner);
+        vm.expectRevert(POLAccumulator.DailyCapExceeded.selector);
+        pol.accumulate(1, 1, 1, block.timestamp + 30 seconds);
+    }
+
+    /// @notice After 24 h the window resets and accumulation is allowed again.
+    function test_M7_accumulate_resetsAfter24h() public {
+        // Compute ALL timestamps up front from setUp's baseline (block.timestamp == T0)
+        // to avoid Foundry test-frame block.timestamp caching after vm.warp calls.
+        uint256 T0  = block.timestamp;                              // 2,599,200
+        uint256 ts1 = T0 + pol.DAILY_ETH_CAP_CHANGE_DELAY() + 1;   // T0 + 24h + 1
+        uint256 ts2 = ts1 + pol.DAILY_WINDOW() + 1;                 // ts1 + 24h + 1 — past next window
+
+        // --- propose + execute a 10 ETH daily cap ---
+        pol.proposeDailyETHCap(10 ether);
+        vm.warp(ts1);
+        twap.setLatestTimestamp(uint32(ts1));
+        pol.executeDailyETHCap();
+
+        // First accumulate: exhausts the 10 ETH window.
+        vm.deal(address(pol), 10 ether);
+        vm.prank(owner);
+        pol.accumulate(1, 1, 1, ts1 + 30 seconds);
+        assertEq(pol.dailyETHAccumulated(), 10 ether);
+
+        // Jump past DAILY_WINDOW; the window counter should reset.
+        vm.warp(ts2);
+        twap.setLatestTimestamp(uint32(ts2));
+        vm.deal(address(pol), 10 ether);
+        vm.prank(owner);
+        pol.accumulate(1, 1, 1, ts2 + 30 seconds);
+        // After reset: counter restarted and this call consumed 10 ETH.
+        assertEq(pol.dailyETHAccumulated(), 10 ether);
+        assertEq(pol.totalAccumulations(), 2);
+    }
+
+    /// @notice The cap clips `ethBalance` — excess stays in contract, not lost.
+    function test_M7_accumulate_clipsToRemainingDailyAllowance() public {
+        // Set daily cap to 6 ETH; contract has 10 ETH; only 6 should be used.
+        pol.proposeDailyETHCap(6 ether);
+        vm.warp(block.timestamp + pol.DAILY_ETH_CAP_CHANGE_DELAY() + 1);
+        twap.setLatestTimestamp(uint32(block.timestamp));
+        pol.executeDailyETHCap();
+
+        vm.deal(address(pol), 10 ether);
+        _accumulateDefault();
+        // 6 ETH used, 4 ETH remains.
+        assertEq(pol.dailyETHAccumulated(), 6 ether);
+        assertEq(address(pol).balance, 4 ether);
+    }
+
+    /// @notice proposeDailyETHCap rejects a cap above MAX_DAILY_ETH_CAP.
+    function test_M7_proposeDailyETHCap_rejectsAboveHardCap() public {
+        vm.expectRevert("EXCEEDS_DAILY_HARD_CAP");
+        pol.proposeDailyETHCap(501 ether);
+    }
+
+    /// @notice proposeDailyETHCap rejects a cap below 0.01 ETH.
+    function test_M7_proposeDailyETHCap_rejectsTooLow() public {
+        vm.expectRevert("DAILY_CAP_TOO_LOW");
+        pol.proposeDailyETHCap(0.009 ether);
+    }
+
+    /// @notice cancelDailyETHCap clears pending state.
+    function test_M7_cancelDailyETHCap() public {
+        pol.proposeDailyETHCap(20 ether);
+        assertEq(pol.pendingDailyETHCap(), 20 ether);
+        pol.cancelDailyETHCap();
+        assertEq(pol.pendingDailyETHCap(), 0);
+    }
+
+    /// @notice executeDailyETHCap before delay reverts.
+    function test_M7_executeDailyETHCap_reverts_beforeTimelock() public {
+        pol.proposeDailyETHCap(20 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, pol.DAILY_ETH_CAP_CHANGE())
+        );
+        pol.executeDailyETHCap();
     }
 }

@@ -203,7 +203,7 @@ export default function AdminPage() {
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'paused' },
       // LP Farming
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate' },
-      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalSupply' },
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRawSupply' },
     ],
     query: { enabled: isOwner && onCorrectChain },
   });

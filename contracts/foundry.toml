@@ -4,26 +4,77 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.26"
 optimizer = true
-optimizer_runs = 1 # AUDIT FIX (pass-8 batch-14): minimized to fit TegridyStaking under EIP-170 24,576-byte limit. Was 10; lower runs prioritize deploy-size over runtime-gas, which is exactly what we need to land Phase 0.2.
-# AUDIT #91: via_ir required for SwapFeeRouter (stack too deep without it)
+# mvp-launch: runs = 200 (the canonical OpenZeppelin / Solady / Solmate value).
+# This is the correct runtime-gas optimum; it is NOT a size lever. EIP-170
+# compliance for the heavy contracts is achieved by CONTRACT SPLITTING, not by
+# dropping runs (dropping runs to 1 only saved ~1.2KB and never brought
+# TegridyStaking under 24,576 — confirmed during the 2026-05-24 re-audit).
+#
+# MVP-path EIP-170 status (2026-05-30 re-split — the May 26-28 fix waves
+# re-inflated all three of TegridyStaking / TegridyFactory / SwapFeeRouter past the
+# 24,576-byte ceiling). Battle-tested approach: ZERO new custom marshalling code;
+# only (1) DRY refactors that DELETE duplicated patterns, (2) verbatim Solady
+# primitive swaps from billion-dollar protocols, (3) read-only sister contracts.
+#
+# TegridyStaking: 24,537 B (~39 B headroom — RAZOR-THIN, FROZEN for launch).
+#   ANY further growth must extract more to a lib or sister; do NOT consume buffer.
+#   - src/lib/StakingViewLib.sol: read-only views (votingPowerOf / aggregateActive
+#     BoostBps / earned / earnedFromMem) + resolveJbac JBAC-revalidation helper
+#     (2026-05-30 DRY split: was inline in 3 callsites). All `internal` so they
+#     inline rather than paying the per-callsite delegatecall wrapper.
+#   - src/lib/StakingRewardLib.sol: live reward-accounting cluster (May-24 C1).
+#   - src/StakingMonitorView.sol: read-only SISTER contract exposing the heaviest
+#     off-chain views (earned, getPosition, totalLocked, stakeCapUtilizationBps,
+#     stakeCapHeadroom). Forta / Defender / dashboards / indexers point at the
+#     sister address — zero off-chain breakage, zero protocol state.
+#   - Verbatim Solady swaps: SafeTransferLib (was OZ SafeERC20), EnumerableSetLib
+#     (was OZ EnumerableSet), SafeCastLib (was OZ SafeCast). All assembly-tight
+#     drop-ins used in production by Aerodrome, Uniswap V4 hooks, many others.
+# TegridyFactory: 12,133 B (~12,443 B headroom).
+#   - src/lib/TegridyFactoryLib.sol: ERC-777 detection + CREATE2 pair deployment
+#     (carries the ~11 KB type(TegridyPair).creationCode blob into the lib).
+# SwapFeeRouter: 21,392 B (~3,184 B headroom).
+#   - src/lib/SwapFeeRouterConvertLib.sol: TWAP-floor conversion cluster.
+#
+# TegridyRestaking: still ~31.3 KB — DEFERRED to Phase 7 (removed from the MVP
+#   DeployMVP/VerifyMVP path). MUST be split + deployed + wired before restaking
+#   opens; it is the only LIVE-on-mainnet candidate currently over EIP-170.
+#
+# If a future change pushes any LIVE-on-mainnet contract back over 24,576, the
+# right answer is to split that contract (extract to a linked library), NOT to
+# drop runs.
+optimizer_runs = 200
+# via_ir kept on: SwapFeeRouter still has paths deep enough to need IR scheduling.
 via_ir = true
 # NOTE: cancun is required by OpenZeppelin v5.6.1 (uses mcopy opcode).
 # For L2 deployment (Arbitrum, Optimism), compile with cancun but verify L2 opcode support.
-# PUSH0 (shanghai+) is now supported on major L2s as of 2025.
 evm_version = "cancun"
-# WARNING: EIP-170 mainnet limit is 24576 bytes. This override MASKS deployment failures.
-# If TegridyStaking exceeds 24KB, it will compile but FAIL to deploy on mainnet.
-# TODO: Split TegridyStaking or reduce size to fit within 24576 bytes.
+# EIP-170 mainnet bytecode limit. Surfaced explicitly so deploy-size regressions
+# fail at compile-time rather than at mainnet broadcast.
 code_size_limit = 24576
 
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/uniswap-hooks/=lib/uniswap-hooks/",
     "forge-std/=lib/forge-std/src/",
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
     "solmate/=lib/solmate/src/",
     "solady/=lib/solady/src/",
+    # Context-scoped: inside the V4 libs, solmate is imported as `solmate/src/...`
+    # (vs. our V2 convention `solmate/...`). Scoping the override leaves the V2 build
+    # untouched. Needed for the V4 test harness (Deployers pulls in solmate mocks).
+    "lib/v4-core/:solmate/=lib/solmate/",
+    "lib/v4-periphery/:solmate/=lib/solmate/",
 ]
+
+[lint]
+# The forge linter does not honor the context-scoped solmate remapping above, so
+# during build-lint it fails to RESOLVE v4-core's internal `solmate/src/...` imports
+# (which the compiler resolves fine). That turned a green compile into "Lint failed".
+# Disable lint-on-build to keep `forge build` exit-0; lint our own code on demand
+# with `forge lint src/v4`. Compilation + tests are unaffected.
+lint_on_build = false
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1" }

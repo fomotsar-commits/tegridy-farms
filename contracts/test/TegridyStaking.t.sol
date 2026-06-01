@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
@@ -27,6 +28,7 @@ contract MockNFT is ERC721 {
 
 contract TegridyStakingTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin public admin;
     TegridyStakingJbacVault public vault; // AUDIT FIX (pass-8 batch-14)
     MockToken public token;
@@ -40,6 +42,7 @@ contract TegridyStakingTest is Test {
         token = new MockToken();
         nft = new MockNFT();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister.
@@ -80,7 +83,7 @@ contract TegridyStakingTest is Test {
         staking.stake(500_000 ether, 365 days);
 
         uint256 tokenId = staking.userTokenId(bob);
-        (uint256 amount, uint256 boostBps,,,,) = staking.getPosition(tokenId);
+        (uint256 amount, uint256 boostBps,,,,) = monitor.getPosition(tokenId);
         assertEq(amount, 500_000 ether);
         assertGt(boostBps, 12000); // ~1.29x for 1yr
     }
@@ -91,7 +94,7 @@ contract TegridyStakingTest is Test {
 
         assertEq(staking.totalStaked(), 200_000 ether);
         // V2: totalLocked writes removed (redundant with totalStaked per audit L-22)
-        // assertEq(staking.totalLocked(), 200_000 ether);
+        // assertEq(staking.totalStaked(), 200_000 ether);
         assertGt(staking.totalBoostedStake(), 0);
     }
 
@@ -118,8 +121,8 @@ contract TegridyStakingTest is Test {
         staking.stake(500_000 ether, 365 days);
 
         uint256 bobId = staking.userTokenId(bob);
-        (,uint256 aliceBoost,,,,) = staking.getPosition(aliceId);
-        (,uint256 bobBoost,,,,) = staking.getPosition(bobId);
+        (,uint256 aliceBoost,,,,) = monitor.getPosition(aliceId);
+        (,uint256 bobBoost,,,,) = monitor.getPosition(bobId);
 
         assertEq(aliceBoost - bobBoost, 5000); // +0.5x JBAC bonus
     }
@@ -168,7 +171,7 @@ contract TegridyStakingTest is Test {
         vm.prank(bob);
         staking.stake(100 ether, 30 days);
         uint256 tokenId = staking.userTokenId(bob);
-        (uint256 amount,,,,,) = staking.getPosition(tokenId);
+        (uint256 amount,,,,,) = monitor.getPosition(tokenId);
         assertEq(amount, 100 ether);
     }
 
@@ -196,7 +199,7 @@ contract TegridyStakingTest is Test {
         vm.prank(bob);
         staking.stake(1000 ether, 7 days);
         uint256 tokenId = staking.userTokenId(bob);
-        (,uint256 boost,,,,) = staking.getPosition(tokenId);
+        (,uint256 boost,,,,) = monitor.getPosition(tokenId);
         assertEq(boost, staking.MIN_BOOST_BPS()); // 0.4x at min lock
     }
 
@@ -204,7 +207,7 @@ contract TegridyStakingTest is Test {
         vm.prank(bob);
         staking.stake(1000 ether, 4 * 365 days);
         uint256 tokenId = staking.userTokenId(bob);
-        (,uint256 boost,,,,) = staking.getPosition(tokenId);
+        (,uint256 boost,,,,) = monitor.getPosition(tokenId);
         assertEq(boost, staking.MAX_BOOST_BPS()); // 4.0x at max lock
     }
 
@@ -267,7 +270,7 @@ contract TegridyStakingTest is Test {
         staking.withdraw(tokenId);
 
         assertEq(staking.totalStaked(), 0);
-        assertEq(staking.totalLocked(), 0);
+        assertEq(staking.totalStaked(), 0);
         assertEq(staking.totalBoostedStake(), 0);
     }
 
@@ -515,12 +518,12 @@ contract TegridyStakingTest is Test {
         staking.stake(100_000 ether, 365 days);
         uint256 tokenId = staking.userTokenId(bob);
 
-        (,uint256 boostBefore,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostBefore,,,,) = monitor.getPosition(tokenId);
 
         vm.prank(bob);
         staking.revalidateBoost(tokenId);
 
-        (,uint256 boostAfter,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostAfter,,,,) = monitor.getPosition(tokenId);
         assertEq(boostAfter, boostBefore, "revalidate must be a no-op when hasJbacBoost=false");
     }
 
@@ -531,14 +534,14 @@ contract TegridyStakingTest is Test {
         staking.stake(100_000 ether, 365 days);
         uint256 tokenId = staking.userTokenId(bob);
 
-        (,uint256 boostBefore,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostBefore,,,,) = monitor.getPosition(tokenId);
 
         nft.mint(bob);
 
         vm.prank(bob);
         staking.revalidateBoost(tokenId);
 
-        (,uint256 boostAfter,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostAfter,,,,) = monitor.getPosition(tokenId);
         assertEq(boostAfter, boostBefore, "H-1: revalidate cannot upgrade a non-deposit position");
     }
 
@@ -547,13 +550,13 @@ contract TegridyStakingTest is Test {
         staking.stake(100_000 ether, 365 days);
         uint256 tokenId = staking.userTokenId(alice);
 
-        (,uint256 boostBefore,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostBefore,,,,) = monitor.getPosition(tokenId);
 
         // Revalidate — should be a no-op (no JBAC boost cached)
         vm.prank(alice);
         staking.revalidateBoost(tokenId);
 
-        (,uint256 boostAfter,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostAfter,,,,) = monitor.getPosition(tokenId);
         assertEq(boostBefore, boostAfter);
     }
 
@@ -575,7 +578,7 @@ contract TegridyStakingTest is Test {
         vm.prank(alice);
         staking.revalidateBoost(tokenId);
 
-        (,uint256 boostAfter,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostAfter,,,,) = monitor.getPosition(tokenId);
         assertGt(boostAfter, 0, "boost stays the same after no-op revalidate");
     }
 
@@ -586,12 +589,12 @@ contract TegridyStakingTest is Test {
         staking.stake(100_000 ether, 30 days);
         uint256 tokenId = staking.userTokenId(bob);
 
-        (,uint256 boostBefore,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostBefore,,,,) = monitor.getPosition(tokenId);
 
         vm.prank(bob);
         staking.extendLock(tokenId, 365 days);
 
-        (,uint256 boostAfter,,,,) = staking.getPosition(tokenId);
+        (,uint256 boostAfter,,,,) = monitor.getPosition(tokenId);
         assertGt(boostAfter, boostBefore);
     }
 
@@ -614,7 +617,7 @@ contract TegridyStakingTest is Test {
         // Accrue rewards
         vm.warp(block.timestamp + 1000);
 
-        uint256 pendingBefore = staking.earned(tokenId);
+        uint256 pendingBefore = monitor.earned(tokenId);
         assertGt(pendingBefore, 0, "Should have pending rewards");
 
         uint256 bobBalBefore = token.balanceOf(bob);
@@ -802,7 +805,7 @@ contract TegridyStakingTest is Test {
         vm.warp(block.timestamp + 100);
 
         uint256 tokenId = staking.userTokenId(bob);
-        uint256 pending = staking.earned(tokenId);
+        uint256 pending = monitor.earned(tokenId);
         assertApproxEqAbs(pending, 100 ether, 1 ether);
     }
 
@@ -825,12 +828,12 @@ contract TegridyStakingTest is Test {
         staking.stake(100_000 ether, 30 days);
 
         uint256 tokenId = staking.userTokenId(bob);
-        (,,uint256 lockEndBefore,,,) = staking.getPosition(tokenId);
+        (,,uint256 lockEndBefore,,,) = monitor.getPosition(tokenId);
 
         vm.prank(bob);
         staking.toggleAutoMaxLock(tokenId);
 
-        (,uint256 newBoost, uint256 lockEndAfter,, bool autoMax,) = staking.getPosition(tokenId);
+        (,uint256 newBoost, uint256 lockEndAfter,, bool autoMax,) = monitor.getPosition(tokenId);
         assertTrue(autoMax);
         assertGt(lockEndAfter, lockEndBefore);
         assertEq(newBoost, 40000); // 4.0x max boost (no JBAC)
@@ -844,7 +847,7 @@ contract TegridyStakingTest is Test {
 
         vm.warp(block.timestamp + 1000);
 
-        uint256 pendingBefore = staking.earned(tokenId);
+        uint256 pendingBefore = monitor.earned(tokenId);
         assertGt(pendingBefore, 0, "Should have pending rewards");
 
         uint256 bobBalBefore = token.balanceOf(bob);
@@ -873,7 +876,7 @@ contract TegridyStakingTest is Test {
         staking.toggleAutoMaxLock(tokenId);
 
         // Sanity: position is at MAX boost, locked ~4 years out.
-        (, uint256 boostBefore, uint256 lockEndBefore,, bool autoMax,) = staking.getPosition(tokenId);
+        (, uint256 boostBefore, uint256 lockEndBefore,, bool autoMax,) = monitor.getPosition(tokenId);
         assertEq(boostBefore, 40000, "should be 4.0x max boost");
         assertTrue(autoMax, "autoMaxLock should be on");
         uint256 max = staking.MAX_LOCK_DURATION();
@@ -884,7 +887,7 @@ contract TegridyStakingTest is Test {
         vm.warp(block.timestamp + max + 1 days);
 
         // Sanity: lock is now expired in storage (no one called decay yet).
-        (, , uint256 lockEndExpired,,,) = staking.getPosition(tokenId);
+        (, , uint256 lockEndExpired,,,) = monitor.getPosition(tokenId);
         assertLt(lockEndExpired, block.timestamp, "lock must be expired pre-getReward");
 
         // 3. Bob finally calls getReward.
@@ -896,7 +899,7 @@ contract TegridyStakingTest is Test {
         //    b) Boost is restored to MAX — position is earning again.
         //    c) totalBoostedStake reflects the restored boost.
         //    d) Voting power is non-zero — position contributes to governance.
-        (uint256 amt, uint256 boostAfter, uint256 lockEndAfter,, bool stillAuto,) = staking.getPosition(tokenId);
+        (uint256 amt, uint256 boostAfter, uint256 lockEndAfter,, bool stillAuto,) = monitor.getPosition(tokenId);
         assertEq(amt, 100_000 ether, "principal preserved");
         assertEq(boostAfter, 40000, "boost restored to 4.0x after decay+autoMax");
         assertApproxEqAbs(lockEndAfter, block.timestamp + max, 5, "lockEnd extended by MAX");
@@ -906,8 +909,13 @@ contract TegridyStakingTest is Test {
 
         // 5. Bob earns rewards again going forward — the pre-fix bug left him
         //    locked-forward at zero boost, so this would have been 0.
+        //    NOTE (earned() pool-cap fix): the 4-year getReward above drained the entire
+        //    funded reward pool to Bob, so earned() now correctly reads 0 from an empty
+        //    pool (it mirrors what getReward would actually pay). Re-fund so the "earns
+        //    again going forward" property is actually exercisable.
+        staking.notifyRewardAmount(1_000_000 ether);
         vm.warp(block.timestamp + 1000);
-        assertGt(staking.earned(tokenId), 0, "position must earn after the fix");
+        assertGt(monitor.earned(tokenId), 0, "position must earn after the fix");
     }
 
     // ===== PAUSE / UNPAUSE =====
@@ -1060,14 +1068,14 @@ contract TegridyStakingTest is Test {
         // AUDIT FIX M-01: Expired positions now show accrued-but-unclaimed rewards in earned().
         // Bob's position accrued rewards while the lock was active; those are now visible.
         uint256 bobId = staking.userTokenId(bob);
-        uint256 pendingRightAfter = staking.earned(bobId);
+        uint256 pendingRightAfter = monitor.earned(bobId);
         assertTrue(pendingRightAfter > 0, "M-01 FIX: Expired position shows accrued rewards");
 
         // Advance 1 second — expired position should NOT accrue additional rewards
         // (rewards continue at same rate since boostedAmount hasn't been zeroed yet in storage,
         // but the position doesn't compound — it just reflects the global accumulator)
         vm.warp(block.timestamp + 1);
-        uint256 pendingAfter1s = staking.earned(bobId);
+        uint256 pendingAfter1s = monitor.earned(bobId);
         // Rewards may still increase slightly because global rewardPerTokenStored grows,
         // but once _getReward is called (via withdraw), decay zeros the boostedAmount.
     }
@@ -1094,13 +1102,13 @@ contract TegridyStakingTest is Test {
         staking.stake(100_000 ether, 365 days);
 
         uint256 aliceId = staking.userTokenId(alice);
-        uint256 alicePendingBefore = staking.earned(aliceId);
+        uint256 alicePendingBefore = monitor.earned(aliceId);
 
         uint256 bobId = staking.userTokenId(bob);
         vm.prank(bob);
         staking.earlyWithdraw(bobId);
 
-        uint256 alicePendingAfter = staking.earned(aliceId);
+        uint256 alicePendingAfter = monitor.earned(aliceId);
         assertEq(alicePendingAfter, alicePendingBefore, "penalty should not increase other stakers rewards");
     }
 
@@ -1137,7 +1145,7 @@ contract TegridyStakingTest is Test {
         staking.stake(500_000 ether, 365 days);
 
         uint256 aliceId = staking.userTokenId(alice);
-        (,uint256 boostBps,,,,) = staking.getPosition(aliceId);
+        (,uint256 boostBps,,,,) = monitor.getPosition(aliceId);
         uint256 baseBoost = staking.calculateBoost(365 days);
         assertEq(boostBps, baseBoost, "stake() should not grant JBAC boost");
     }
@@ -1150,7 +1158,7 @@ contract TegridyStakingTest is Test {
         vm.stopPrank();
 
         uint256 aliceId = staking.userTokenId(alice);
-        (,uint256 boostBps,,,,) = staking.getPosition(aliceId);
+        (,uint256 boostBps,,,,) = monitor.getPosition(aliceId);
         uint256 baseBoost = staking.calculateBoost(365 days);
         assertEq(boostBps, baseBoost + 5000, "stakeWithBoost should grant JBAC boost");
     }

@@ -2,87 +2,49 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
-import "../src/VoteIncentives.sol";
-// AUDIT FIX (pass-8): EIP170-03 split — propose/execute/cancel surface lives on
-// VoteIncentivesAdmin. Wired post-deploy via setVoteIncentivesAdmin.
-import "../src/VoteIncentivesAdmin.sol";
+import {VoteIncentives} from "../src/VoteIncentives.sol";
+import {VoteIncentivesAdmin} from "../src/VoteIncentivesAdmin.sol";
 
-/// @title DeployVoteIncentives - Deploy the bribe market contract
-/// @dev Deploys VoteIncentives and proposes initial token whitelisting.
-///      SwapFeeRouter is NOT redeployed — the existing one was upgraded in-place
-///      with dynamic fee tiers and premium discount support.
+/// @title  DeployVoteIncentives — per-wave deploy for the restored bribe market (+ Admin)
+/// @notice Cartman's Market: epoch-pinned vote-power bribes, commit-reveal, WETH-fallback
+///         claims. Deploys VoteIncentives + its EIP-170 Admin split, wires them (one-time
+///         setVoteIncentivesAdmin while the deployer still owns), then hands BOTH to the
+///         multisig (2-step). BRIBE_FEE_BPS is deploy-time policy — REVIEW.
+/// @dev    Env: STAKING (votingEscrow), TREASURY, WETH, FACTORY (TegridyFactory),
+///         TOWELI, BRIBE_FEE_BPS (default 300 = 3% last-known), MULTISIG.
 contract DeployVoteIncentivesScript is Script {
-    // ─── Mainnet Constants ───────────────────────────────────────────
-    // Updated to new audit-fixed staking contract (April 2026 deployment)
-    address constant TEGRIDY_STAKING = 0x626644523d34B84818df602c991B4a06789C4819;
-    address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
-    address constant TOWELI = 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D;
-    address constant TEGRIDY_FACTORY = 0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6;
-
-    uint256 constant BRIBE_FEE_BPS = 300; // 3%
-
     function run() external {
-        require(block.chainid == 1, "MAINNET_ONLY");
-
-        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
-        console.log("=== Deploying VoteIncentives ===");
-        console.log("Chain ID:", block.chainid);
+        address votingEscrow = vm.envAddress("STAKING");
+        address treasury = vm.envAddress("TREASURY");
+        address weth = vm.envAddress("WETH");
+        address factory = vm.envAddress("FACTORY");
+        address toweli = vm.envAddress("TOWELI");
+        uint256 bribeFeeBps = vm.envOr("BRIBE_FEE_BPS", uint256(300)); // REVIEW — 3% last-known live value
+        address multisig = vm.envAddress("MULTISIG");
+        require(votingEscrow != address(0) && treasury != address(0) && weth != address(0) && factory != address(0) && toweli != address(0), "zero env");
+        require(multisig != address(0), "set MULTISIG");
 
         vm.startBroadcast();
-        console.log("Deployer:", msg.sender);
+        console2.log("Deployer:", msg.sender);
+        console2.log("Bribe fee (bps):", bribeFeeBps);
 
-        // 1. Deploy VoteIncentives
-        VoteIncentives vi = new VoteIncentives(
-            TEGRIDY_STAKING,
-            TREASURY,
-            WETH,
-            TEGRIDY_FACTORY,
-            TOWELI,            // AUDIT H-2: commit-reveal bond token
-            BRIBE_FEE_BPS
-        );
-        console.log("1. VoteIncentives deployed:", address(vi));
-        console.log("   Fee:", BRIBE_FEE_BPS, "bps");
+        VoteIncentives vi = new VoteIncentives(votingEscrow, treasury, weth, factory, toweli, bribeFeeBps);
+        console2.log("VoteIncentives deployed:", address(vi));
 
-        // 1b. AUDIT FIX (pass-8): EIP170-03 split — wire VoteIncentivesAdmin sister.
-        VoteIncentivesAdmin viAdmin = new VoteIncentivesAdmin(address(vi));
-        vi.setVoteIncentivesAdmin(address(viAdmin));
-        console.log("1b. VoteIncentivesAdmin deployed:", address(viAdmin));
+        VoteIncentivesAdmin admin = new VoteIncentivesAdmin(address(vi));
+        console2.log("VoteIncentivesAdmin deployed:", address(admin));
 
-        // 2. Propose TOWELI whitelist (24h timelock) — via admin sister contract
-        viAdmin.proposeWhitelistChange(TOWELI, true);
-        console.log("2. TOWELI whitelist proposed (24h timelock)");
+        vi.setVoteIncentivesAdmin(address(admin)); // onlyOwner — wire BEFORE handing off ownership
+        console2.log("Wired vi.setVoteIncentivesAdmin ->", address(admin));
 
-        // 3. Propose WETH whitelist (must cancel+repropose after TOWELI executes,
-        //    since only 1 pending whitelist at a time)
-        //    Skip for now — do after TOWELI whitelist is executed.
-        console.log("   NOTE: Whitelist WETH after executing TOWELI whitelist in 24h");
-
-        // 4. Transfer ownership to multisig (Ownable2Step — multisig must acceptOwnership)
-        //    Both contracts must hand off — admin owns the timelocked surface, vi owns
-        //    `setVoteIncentivesAdmin` (idempotently locked once wired) and pause/unpause.
-        address multisig = vm.envAddress("MULTISIG");
-        require(multisig != address(0), "MULTISIG env var required");
-        {
-            vi.transferOwnership(multisig);
-            viAdmin.transferOwnership(multisig);
-            console.log("3. Ownership transfer initiated to:", multisig);
-            console.log("   Multisig must call acceptOwnership() on BOTH vi and viAdmin");
-        }
-
+        vi.transferOwnership(multisig);
+        admin.transferOwnership(multisig);
+        console2.log("Ownership of both transferred to multisig (2-step):", multisig);
         vm.stopBroadcast();
 
-        console.log("");
-        console.log("=== DEPLOYMENT COMPLETE ===");
-        console.log("VoteIncentives:", address(vi));
-        console.log("");
-        console.log("=== NEXT STEPS ===");
-        console.log("1. Wait 24h, then call executeWhitelistChange(pendingWhitelistToken(), pendingWhitelistAction(), whitelistChangeTime()) to whitelist TOWELI");
-        console.log("   (Wave-2: executor binds the pending value+ETA captured at sign time.)");
-        console.log("2. Propose + execute WETH whitelist");
-        console.log("3. Update frontend VOTE_INCENTIVES_ADDRESS in constants.ts");
-        console.log("4. If multisig set: call acceptOwnership() from multisig");
-        console.log("5. On SwapFeeRouter (existing): call proposePremiumAccessChange(PremiumAccess)");
-        console.log("6. On SwapFeeRouter: call proposePremiumDiscountChange(5000) for 50% discount");
+        console2.log("");
+        console2.log("=== NEXT (multisig / operator) ===");
+        console2.log("1. MULTISIG.acceptOwnership() on BOTH VoteIncentives and VoteIncentivesAdmin");
+        console2.log("2. Set VOTE_INCENTIVES_ADDRESS in frontend/src/lib/constants.ts ->", address(vi));
     }
 }

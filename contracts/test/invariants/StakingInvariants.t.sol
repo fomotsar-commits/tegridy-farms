@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "../../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../../src/StakingMonitorView.sol";
 
 /// @title Staking invariant suite (R061)
 /// @notice Stateful invariants for `TegridyStaking` complementing the unit
@@ -30,11 +31,13 @@ contract StakingR061NFT is ERC721 {
 ///         can pin "accrued <= funded".
 contract StakingR061Handler is Test {
     TegridyStaking public staking;
+    StakingMonitorView monitor;
     StakingR061Token public token;
     address public actor;
 
-    constructor(TegridyStaking _staking, StakingR061Token _token, address _actor) {
+    constructor(TegridyStaking _staking, StakingMonitorView _monitor, StakingR061Token _token, address _actor) {
         staking = _staking;
+        monitor = _monitor;
         token = _token;
         actor = _actor;
     }
@@ -62,6 +65,7 @@ contract StakingR061Handler is Test {
 
 contract StakingInvariantsTest is Test {
     TegridyStaking public staking;
+    StakingMonitorView public monitor;
     StakingR061Token public token;
     StakingR061NFT public nft;
     StakingR061Handler public handler;
@@ -75,6 +79,7 @@ contract StakingInvariantsTest is Test {
         token = new StakingR061Token();
         nft = new StakingR061NFT();
         staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        monitor = new StakingMonitorView(address(staking));
 
         // Seed actor with stakeable tokens.
         token.transfer(actor, 50_000_000 ether);
@@ -86,7 +91,7 @@ contract StakingInvariantsTest is Test {
         token.approve(address(staking), type(uint256).max);
         staking.notifyRewardAmount(FUND);
 
-        handler = new StakingR061Handler(staking, token, actor);
+        handler = new StakingR061Handler(staking, monitor, token, actor);
         targetContract(address(handler));
     }
 
@@ -135,7 +140,7 @@ contract StakingInvariantsTest is Test {
             assertEq(staking.totalStaked(), 0, "R061 totalStaked drift (no position)");
             return;
         }
-        (uint256 amount, , , , , ) = staking.getPosition(tokenId);
+        (uint256 amount, , , , , ) = monitor.getPosition(tokenId);
         assertEq(staking.totalStaked(), amount, "R061 totalStaked != position sum");
     }
 }

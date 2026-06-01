@@ -642,7 +642,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 historicalPower = VotePowerOracle.powerAt(
             msg.sender, ep.timestamp, address(votingEscrow), restakingContract
         );
-        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(votingEscrow), restakingContract);
+        uint256 currentPower = VotePowerOracle.powerOfLiveUnsafe(msg.sender, address(votingEscrow), restakingContract);
         uint256 userPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (userPower == 0) revert NothingToClaim();
 
@@ -1556,7 +1556,7 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 historical = VotePowerOracle.powerAt(
             msg.sender, ep.timestamp, address(votingEscrow), restakingContract
         );
-        uint256 current = VotePowerOracle.powerOf(msg.sender, address(votingEscrow), restakingContract);
+        uint256 current = VotePowerOracle.powerOfLiveUnsafe(msg.sender, address(votingEscrow), restakingContract);
         uint256 userPower = historical < current ? historical : current;
         if (userPower == 0) revert NothingToClaim();
         require(committedPower[msg.sender][epoch] + power <= userPower, "EXCEEDS_POWER");

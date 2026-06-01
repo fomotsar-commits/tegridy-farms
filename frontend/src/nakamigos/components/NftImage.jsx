@@ -164,7 +164,7 @@ export default memo(function NftImage({ nft, style, className, large, priority }
       width={300}
       height={300}
       loading={priority ? "eager" : "lazy"}
-      fetchpriority={priority ? "high" : undefined}
+      fetchPriority={priority ? "high" : undefined}
       decoding={priority ? "sync" : "async"}
       onError={handleError}
       className={className || ""}

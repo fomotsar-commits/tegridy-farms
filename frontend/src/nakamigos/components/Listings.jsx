@@ -433,8 +433,16 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         )}
       </div>
 
-      {/* Two-column layout: listings left, orderbook/offers right */}
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+      {/* Two-column layout: listings left, orderbook/offers right.
+          BUGFIX 2026-05-27: switched from `display:flex` + `order:1/2` to CSS
+          Grid `grid-template-areas`. iOS Safari has known bugs reflowing
+          flex-wrap children with `order` properties when flex-basis is a
+          percentage — listings would visually disappear or overlap on iPhone.
+          Grid `grid-template-areas` handles desktop AND mobile row order
+          deterministically across all browsers. Pattern: OpenSea / Blur use
+          the same `display:grid; grid-template-areas` layout on their
+          listings pages. CSS defined in App.css `.listings-wrapper`. */}
+      <div className="listings-wrapper">
 
       {/* RIGHT COLUMN — Order Book, Offers (collapsible) */}
       <div className="listings-sidebar">
@@ -541,7 +549,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       </div>{/* end sidebar */}
 
       {/* LEFT COLUMN — Listings grid */}
-      <div className="listings-content" style={{ flex: "1 1 0", minWidth: 0, order: 1 }}>
+      <div className="listings-content" style={{ minWidth: 0 }}>
 
       {/* Loading state with skeleton cards — show while listings load,
           or while activities load when listings are empty (so we don't flash

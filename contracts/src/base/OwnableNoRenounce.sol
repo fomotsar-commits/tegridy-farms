@@ -31,6 +31,13 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     /// @dev AUDIT FIX FRESH-2026: F-40-ONR-1 — caller of
     ///      `cancelOwnershipTransfer` must be the current owner.
     error NoPendingOwnershipTransfer();
+    /// @dev AUDIT FIX FRESH-2026 [M-OWN-TRANSFER-ZERO-DESYNC]: reject zero in
+    ///      `transferOwnership` so the OZ-zero "cancel" shortcut can't leave
+    ///      `_pendingOwner == 0` + `expiry > 0` desynced. Use
+    ///      `cancelOwnershipTransfer(reason)` as the canonical cancel path.
+    ///      Distinct from child contracts' own `ZeroAddress` errors to avoid
+    ///      inheritance-chain identifier collisions.
+    error PendingOwnerZeroAddress();
 
     /// @notice AUDIT FIX FRESH-2026: F-40-ONR-1 — emitted when the owner
     ///         cancels a pending ownership transfer before acceptance.
@@ -146,6 +153,21 @@ abstract contract OwnableNoRenounce is Ownable2Step {
     /// @dev    Calls super to preserve OZ Ownable2Step semantics
     ///         (`_pendingOwner = newOwner`, `OwnershipTransferStarted`).
     function transferOwnership(address newOwner) public virtual override onlyOwner {
+        // AUDIT FIX FRESH-2026 [M-OWN-TRANSFER-ZERO-DESYNC]: reject the
+        // `transferOwnership(0)` "cancel via OZ semantics" path. OZ
+        // Ownable2Step documents `newOwner = address(0)` as the cancel
+        // primitive, but our override unconditionally stamps
+        // `ownershipTransferExpiresAt = now + 14d` regardless of newOwner.
+        // Post-cancel the state pair `_pendingOwner == 0 + expiry > 0` is
+        // inconsistent: `acceptOwnership` reverts on OZ pending-owner check
+        // (correct), but `pokeOwnershipExpiryWarning` would emit
+        // `OwnershipTransferExpiringIn(address(0), remaining)` during the
+        // final 24h window — polluting indexers / on-chain alerting with
+        // malformed pendingOwner == 0 events. The new
+        // `cancelOwnershipTransfer` is the canonical cancel path; reject the
+        // OZ-zero shortcut for clarity. ZeroAddress mirrors the existing
+        // typed-error pattern.
+        if (newOwner == address(0)) revert PendingOwnerZeroAddress();
         super.transferOwnership(newOwner);
         ownershipTransferExpiresAt = block.timestamp + OWNERSHIP_TRANSFER_EXPIRY;
     }
@@ -197,5 +219,41 @@ abstract contract OwnableNoRenounce is Ownable2Step {
         // We emit the cancellation event AFTER the clear for canonical
         // ordering (state → event).
         emit OwnershipTransferCancelled(prev, reason);
+    }
+
+    /// @notice AUDIT FIX 2026-05-26 [M-20]: too-early-to-warn typed revert.
+    error PokeTooEarly();
+    /// @notice [L1] Poke called before the global cooldown window has elapsed.
+    error PokeRateLimited();
+    /// @notice AUDIT FIX 2026-05-26 [M-20]: poke event for off-chain monitors.
+    event OwnershipTransferExpiringIn(address indexed pendingOwner, uint256 secondsRemaining);
+
+    /// @notice [L1] Global cooldown between successive poke events — 1 hour.
+    ///         Prevents spammers from flooding indexers / alert queues at zero cost.
+    ///         Pattern: Compound TimelockController rate-limited notification surface.
+    uint256 public constant POKE_COOLDOWN = 1 hours;
+    /// @notice Timestamp of the most recent successful poke (0 = never poked).
+    uint256 public lastPokeTime;
+
+    /// @notice AUDIT FIX 2026-05-26 [M-20]: permissionless poke for off-chain
+    ///         alerting on impending 14-day expiry. Fires only in the last
+    ///         24h of the window; allows monitors to subscribe to a single
+    ///         event rather than poll `ownershipTransferExpiresAt` per-contract.
+    ///         Pattern reference: Compound TimelockController surface for queue
+    ///         visibility. [L1] Rate-limited to POKE_COOLDOWN (1 h) to prevent
+    ///         event-log spam from permissionless callers.
+    function pokeOwnershipExpiryWarning() external {
+        uint256 expiry = ownershipTransferExpiresAt;
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: zero-sentinel check — `0`
+        // means no pending transfer. Standard sentinel pattern.
+        // slither-disable-next-line incorrect-equality
+        if (expiry == 0) revert NoPendingOwnershipTransfer();
+        if (block.timestamp >= expiry) revert OwnershipTransferExpired();
+        uint256 remaining = expiry - block.timestamp;
+        if (remaining > 1 days) revert PokeTooEarly();
+        // [L1] Rate-limit: one event per POKE_COOLDOWN regardless of caller.
+        if (block.timestamp < lastPokeTime + POKE_COOLDOWN) revert PokeRateLimited();
+        lastPokeTime = block.timestamp;
+        emit OwnershipTransferExpiringIn(pendingOwner(), remaining);
     }
 }

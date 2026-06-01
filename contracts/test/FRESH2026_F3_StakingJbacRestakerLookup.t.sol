@@ -142,7 +142,12 @@ contract FRESH2026_F3_StakingJbacRestakerLookupTest is Test {
     ///      contract is mature so this slot is stable. If the storage
     ///      layout drifts, the storage layout baseline (commit 88d33cc)
     ///      will catch it.
-    uint256 constant POSITIONS_SLOT = 15;
+    // mvp-launch: positions mapping slot history —
+    //   slot 15 (pre-MVP) → slot 17 (after PauseGuardian + stake caps)
+    //   → slot 18 (2026-05-30, after EIP-170 re-split inserted `_nextTokenId` at slot 17).
+    // Re-verified 2026-05-30 via `forge inspect TegridyStaking storage-layout`. If the
+    // storage layout drifts again, this constant MUST be updated to match.
+    uint256 constant POSITIONS_SLOT = 18;
     /// @dev Position.jbacDeposited is at struct slot offset 5.
     uint256 constant JBAC_DEPOSITED_OFFSET = 5;
 

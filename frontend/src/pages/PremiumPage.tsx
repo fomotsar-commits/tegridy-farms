@@ -5,10 +5,11 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { usePremiumAccess } from '../hooks/usePremiumAccess';
 import { useRevenueStats } from '../hooks/useRevenueStats';
-import { PREMIUM_ACCESS_ADDRESS } from '../lib/constants';
+import { PREMIUM_ACCESS_ADDRESS, isDeployed } from '../lib/constants';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
+import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 
 const PLANS = [
   { months: 1, label: '1 Month', discount: 0 },
@@ -70,6 +71,28 @@ export default function PremiumPage() {
   const hasError = premium.isDataError || revenue.isDataError;
   const errorMsg = premium.dataError?.message || revenue.dataError?.message || 'Failed to load contract data';
 
+  // PremiumAccess isn't part of the relaunch deployment (address zeroed in
+  // constants.ts). Render a clean placeholder rather than a live subscribe flow
+  // wired to an undeployed contract. Revenue-share stats remain available on
+  // the Dashboard. Restore the address post-redeploy to bring this page back.
+  if (!isDeployed(PREMIUM_ACCESS_ADDRESS)) {
+    return (
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <ArtImg pageId="premium" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-16">
+          <FeatureNotDeployed
+            pageId="premium"
+            idx={0}
+            title="Gold Card isn't live yet"
+            subtitle="Premium memberships and revenue-share perks return once the PremiumAccess contract is deployed for the relaunch."
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="-mt-14 relative min-h-screen">
       {/* Art background */}
@@ -81,11 +104,32 @@ export default function PremiumPage() {
         {/* Hero */}
         <m.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="inline-block mb-4">
-            <div className="w-20 h-20 mx-auto rounded-2xl overflow-hidden" style={{
+            {/* Gold Card brand glyph. Replaces a stray art-studio photo override
+                (premium:1 → IMG_0177) that rendered as a random photo here. */}
+            <div className="w-20 h-20 mx-auto rounded-2xl overflow-hidden flex items-center justify-center" style={{
               border: '2px solid #d4a017',
               boxShadow: '0 0 30px rgba(212,160,23,0.3), 0 0 60px rgba(212,160,23,0.1)',
+              background: 'linear-gradient(135deg, #1a1206 0%, #2a1d08 100%)',
             }}>
-              <ArtImg pageId="premium" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" role="img" aria-label="Gold Card" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="goldCardGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stopColor="#f4d27a" />
+                    <stop offset="0.5" stopColor="#d4a017" />
+                    <stop offset="1" stopColor="#b8892e" />
+                  </linearGradient>
+                </defs>
+                {/* card body */}
+                <rect x="2" y="5" width="20" height="14" rx="2.5" fill="url(#goldCardGrad)" />
+                {/* magstripe */}
+                <rect x="2" y="8" width="20" height="2.2" fill="#0a0a0f" opacity="0.55" />
+                {/* chip */}
+                <rect x="5" y="12.2" width="3.4" height="2.6" rx="0.6" fill="#0a0a0f" opacity="0.5" />
+                {/* number line */}
+                <rect x="10" y="13" width="8.5" height="1.1" rx="0.55" fill="#0a0a0f" opacity="0.35" />
+                {/* premium star */}
+                <path d="M18 3.2l.55 1.32 1.43.11-1.09.93.34 1.4L18 6.2l-1.23.76.34-1.4-1.09-.93 1.43-.11z" fill="#f4d27a" />
+              </svg>
             </div>
           </div>
           <h1 className="heading-luxury text-2xl md:text-4xl lg:text-5xl text-white tracking-tight mb-3">

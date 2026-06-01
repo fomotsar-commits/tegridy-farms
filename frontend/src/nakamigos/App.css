@@ -1833,12 +1833,29 @@
   position: relative; z-index: 1; max-width: 1440px;
   margin: 0 auto; padding: 40px 32px 80px;
 }
-.listings-sidebar {
-  flex: 0 0 380px; max-width: 420px; order: 2;
+/* BUGFIX 2026-05-27: replaced flex+order layout (broke on iOS Safari with
+   flex-wrap + percentage basis + order) with CSS Grid named areas.
+   Desktop: 2 columns — listings on the left, sidebar on the right.
+   Mobile (<=1024px): single column — listings first, sidebar second.
+   Grid named areas are deterministic across all browsers; OpenSea / Blur
+   use the same pattern on their collection-listing pages. */
+.listings-wrapper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-areas: "content sidebar";
+  gap: 24px;
+  align-items: start;
 }
+.listings-content { grid-area: content; min-width: 0; }
+.listings-sidebar { grid-area: sidebar; max-width: 420px; }
 @media (max-width: 1024px) {
-  .listings-sidebar { flex: 1 1 100% !important; max-width: 100% !important; order: 2 !important; }
-  .listings-content { flex: 1 1 100% !important; width: 100% !important; order: 1 !important; }
+  .listings-wrapper {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "content"
+      "sidebar";
+  }
+  .listings-sidebar { max-width: 100% !important; }
   .listings-main-grid { grid-template-columns: 1fr !important; }
 }
 /* Collapsible sidebar arrow rotation */

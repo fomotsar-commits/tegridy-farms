@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SwapFeeRouter.sol";
 import "../src/SwapFeeRouterAdmin.sol";
 
-/// @title AUDIT R-014 M-1 — Semantic rename of pairFeeBps → inputTokenFeeBps.
+/// @title AUDIT R-014 M-1 â€” Semantic rename of pairFeeBps â†’ inputTokenFeeBps.
 /// @notice Verifies the additive rename is fully ABI-compatible:
 ///         - both old (`pairFeeBps`) and new (`inputTokenFeeBps`) getters return
 ///           the same value after a write;
@@ -16,7 +16,7 @@ import "../src/SwapFeeRouterAdmin.sol";
 ///           on either the router (`ApplyPairFeeDeprecated`) or the admin
 ///           contract (`ProposePairFeeChangeDeprecated`).
 
-// ──────── Mocks (minimal — we don't exercise the swap path here) ─────
+// â”€â”€â”€â”€â”€â”€â”€â”€ Mocks (minimal â€” we don't exercise the swap path here) â”€â”€â”€â”€â”€
 
 contract MockERC20_R014 is ERC20 {
     constructor(string memory n, string memory s) ERC20(n, s) {
@@ -25,7 +25,7 @@ contract MockERC20_R014 is ERC20 {
     function mint(address to, uint256 amount) external { _mint(to, amount); }
 }
 
-/// @dev Stub Uniswap V2 router — only `WETH()` and `factory()` are consumed by the
+/// @dev Stub Uniswap V2 router â€” only `WETH()` and `factory()` are consumed by the
 ///      SwapFeeRouter constructor (the latter added by SFR-H-01 for the per-token
 ///      TWAP-floor minETHOut). Swap paths are unreachable in these unit tests.
 contract MockUniRouter_R014 {
@@ -62,20 +62,20 @@ contract AuditR014_SwapFeeRouter is Test {
         tokenA = new MockERC20_R014("TokenA", "TKA");
         uniRouter = new MockUniRouter_R014(address(weth));
 
-        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0));
+        sfr = new SwapFeeRouter(address(uniRouter), treasury, FEE_BPS, address(0), address(uint160(uint256(keccak256("MOCK_REV_DIST")))));
         sfrAdmin = new SwapFeeRouterAdmin(address(sfr));
         sfr.setSwapFeeRouterAdmin(address(sfrAdmin));
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  1. Storage parity — both getters reflect the same write
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  1. Storage parity â€” both getters reflect the same write
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// @dev After applyInputTokenFee, `inputTokenFeeBps(token)` and
     ///      `pairFeeBps(token)` return the same value. Same for the override flag.
     function test_M1_getters_parity_after_canonical_write() public {
         // Drive the canonical setter end-to-end through the admin timelock so
-        // we exercise the full propose → execute flow.
+        // we exercise the full propose â†’ execute flow.
         sfrAdmin.proposeInputTokenFeeChange(address(tokenA), OVERRIDE_FEE_BPS, false);
         skip(sfrAdmin.PAIR_FEE_CHANGE_DELAY());
         sfrAdmin.executeInputTokenFeeChange();
@@ -103,7 +103,7 @@ contract AuditR014_SwapFeeRouter is Test {
     ///      revert with `DeprecatedUseInputTokenFee`. Confirm propose/execute/cancel
     ///      all fail loudly so any in-flight automation breaks instead of silently
     ///      inheriting canonical behaviour. The view getters
-    ///      (pairFeeBps/hasPairFeeOverride) remain — they're harmless.
+    ///      (pairFeeBps/hasPairFeeOverride) remain â€” they're harmless.
     function test_SFRM03_legacy_propose_reverts() public {
         vm.expectRevert(SwapFeeRouterAdmin.DeprecatedUseInputTokenFee.selector);
         sfrAdmin.proposePairFeeChange(address(tokenA), OVERRIDE_FEE_BPS, false);
@@ -132,9 +132,9 @@ contract AuditR014_SwapFeeRouter is Test {
         sfr.applyPairFee(address(tokenA), OVERRIDE_FEE_BPS, false);
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  3. Deprecation events (now RETIRED — aliases revert hard)
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  3. Deprecation events (now RETIRED â€” aliases revert hard)
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //
     // SFR-M-03 (MEDIUM, 2026-04-28): the prior `test_M1_*_emits_deprecation_event`
     // tests are removed because the deprecated aliases now revert before any event
@@ -142,7 +142,7 @@ contract AuditR014_SwapFeeRouter is Test {
     // indexer compatibility, but they are no longer emit-reachable.
 
     /// @dev Conversely, the canonical entry-points must NOT emit the deprecation
-    ///      events — we use `vm.recordLogs` to capture every emission and assert
+    ///      events â€” we use `vm.recordLogs` to capture every emission and assert
     ///      neither deprecation topic appears.
     function test_M1_canonical_paths_do_not_emit_deprecation() public {
         bytes32 routerDepTopic = keccak256("ApplyPairFeeDeprecated()");
@@ -166,9 +166,9 @@ contract AuditR014_SwapFeeRouter is Test {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  4. Both events emit on a single write — ABI-compat indexer story
-    // ═══════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  4. Both events emit on a single write â€” ABI-compat indexer story
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// @dev `applyInputTokenFee` (or any path that ends up at it) must emit
     ///      BOTH `InputTokenFeeApplied` (canonical) and `PairFeeUpdated` (legacy)

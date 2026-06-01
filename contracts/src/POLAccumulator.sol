@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 
@@ -69,18 +70,18 @@ interface ITegridyTWAP {
 ///         Result: The protocol owns its own liquidity. Deeper pools,
 ///         less slippage, more volume, more fees. Self-reinforcing flywheel.
 /// AUDIT FIX M-14: Added Pausable so accumulations can be halted during emergencies.
-contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin {
+contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, TimelockAdmin, PauseGuardian {
     using SafeERC20 for IERC20;
 
     // ─── Timelock Operation Keys ─────────────────────────────────────
-    bytes32 public constant SLIPPAGE_CHANGE = keccak256("SLIPPAGE_CHANGE");
     bytes32 public constant ACCUMULATE_CAP_CHANGE = keccak256("ACCUMULATE_CAP_CHANGE");
-    bytes32 public constant BACKSTOP_CHANGE = keccak256("BACKSTOP_CHANGE");
     bytes32 public constant SWEEP_ETH_CHANGE = keccak256("SWEEP_ETH_CHANGE");
     /// @dev AUDIT M-P02: 48h-timelocked token sweep, symmetric with SWEEP_ETH_CHANGE.
     bytes32 public constant SWEEP_TOKENS = keccak256("SWEEP_TOKENS");
     bytes32 public constant TREASURY_CHANGE = keccak256("POL_TREASURY_CHANGE");
     bytes32 public constant POL_HARVEST = keccak256("POL_HARVEST"); // AUDIT M12
+    /// @dev [M7] Timelock key for daily ETH cap adjustments.
+    bytes32 public constant DAILY_ETH_CAP_CHANGE = keccak256("DAILY_ETH_CAP_CHANGE");
 
     // ─── State ────────────────────────────────────────────────────────
 
@@ -119,8 +120,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     /// @notice R015: TWAP-derived safety margin (50 bps = 0.5%). The internal minOut for both
     ///         the swap leg and the addLiquidity leg is `twapOut * (BPS - TWAP_SAFETY_BPS) / BPS`.
     ///         Caller cannot relax this floor; they can only tighten it via the existing minOut
-    ///         params. 50 bps is tighter than the configurable maxSlippageBps because it is keyed
-    ///         off TWAP not spot — TWAP-vs-actual divergence is bounded by TWAP_PERIOD volatility.
+    ///         params. This TWAP-anchored margin (plus the spot-vs-TWAP deviation gate in
+    ///         `_assertSpotNearTWAP`) is the sole source of slippage protection — it is keyed
+    ///         off TWAP not spot, so TWAP-vs-actual divergence is bounded by TWAP_PERIOD volatility.
     uint256 public constant TWAP_SAFETY_BPS = 50;
     /// @notice FRESH-EYES H-4: maximum allowed deviation between spot price and TWAP price
     ///         at the moment of `executeHarvestLP`. Was 200 bps (2%), narrowed to match
@@ -138,24 +140,6 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
     uint256 public constant MAX_DEADLINE = 1 minutes; // R015: Tightened from 2m → 1m — narrows MEV sandwich window further; Flashbots inclusion target is the next block (~12s) so 1m is comfortably forgiving for private-mempool relays.
 
-    // AUDIT FIX H-13: Configurable max slippage for sandwich protection (default 5%, range 1%-10%)
-    uint256 public maxSlippageBps = 500;
-
-    // AUDIT FIX: Configurable backstop percentage — hardcoded 90% caused reverts
-    // when pool ratio diverged from 50/50. Owner can lower to 0 if caller-provided
-    // slippage params are sufficient.
-    uint256 public backstopBps = 9000; // 90% default, in basis points (10000 = 100%)
-    uint256 public constant MAX_BACKSTOP_BPS = 9900; // Max 99%
-    /// @notice AUDIT M-16: raised from 5000 (50%) → 9000 (90%) to prevent sandwich
-    ///         attacks on the addLiquidityETH leg. The legacy 50% floor accepted
-    ///         arbitrary slippage on either leg of the LP-add (e.g. a 50%
-    ///         sandwich on a 10 ETH accumulate would leave the protocol with 5 ETH
-    ///         worth of LP). 90% caps slippage at 10% — well above realistic
-    ///         price moves on liquid pairs but enough to block extraction MEV.
-    ///         Owner can still tune within [9000, 9900] for per-pair latency
-    ///         needs; lower floors require code change.
-    uint256 public constant MIN_BACKSTOP_BPS = 9000;
-
     uint256 public maxAccumulateAmount = 10 ether;
     uint256 public constant MAX_ACCUMULATE_CAP = 100 ether; // AUDIT FIX M-06: Hard upper bound to prevent draining pool reserves
 
@@ -168,6 +152,22 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     uint256 public totalETHUsed;
     uint256 public lastAccumulateTime;
     uint256 public constant ACCUMULATE_COOLDOWN = 1 hours;
+
+    /// @notice [M7] Fixed-window 24h ETH accumulation cap — rate-limiter pattern
+    ///         (analog of Chainlink CCIP `RateLimiter.sol`; NOT Compound/Aave supplyCap,
+    ///         which is an absolute supply ceiling rather than a per-window throughput limit).
+    ///         Prevents a single compromise from draining the entire ETH balance in one day.
+    ///         Default 50 ETH = 5 × maxAccumulateAmount (10 ETH/call × max 5 calls visible
+    ///         in a 24h window given the 1h cooldown, with headroom for legitimate spikes).
+    ///         Hard ceiling MAX_DAILY_ETH_CAP prevents accidental misconfiguration.
+    uint256 public dailyETHCap        = 50 ether;
+    uint256 public dailyETHAccumulated;         // ETH used in the current DAILY_WINDOW
+    uint256 public currentDayStart;             // timestamp of the window that opened last
+    uint256 public pendingDailyETHCap;
+    uint256 public constant DAILY_WINDOW           = 1 days;
+    uint256 public constant MAX_DAILY_ETH_CAP      = 500 ether;
+    uint256 public constant DAILY_ETH_CAP_CHANGE_DELAY = 24 hours;
+
     uint256 public totalLPCreated;
     uint256 public totalAccumulations;
 
@@ -207,25 +207,18 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         staleness gap where an attacker watching the outage queue
     ///         could extract value the moment the gate opened.
     error OracleObservationPredatesResume();
-    error BackstopTooHigh();
-    error SlippageBpsOutOfRange();
     error AccumulateCapTooLow();
+    /// @notice [M7] All dailyETHCap has been consumed in the current 24h window.
+    error DailyCapExceeded();
 
-    event BackstopUpdated(uint256 oldBps, uint256 newBps);
-    event BackstopChangeProposed(uint256 newBps, uint256 executeAfter);
-    event BackstopChangeCancelled(uint256 cancelledBps);
-    event MaxSlippageUpdated(uint256 oldBps, uint256 newBps);
-    event MaxSlippageChangeProposed(uint256 newBps, uint256 executeAfter);
-    event MaxSlippageChangeCancelled(uint256 cancelledBps);
     event MaxAccumulateAmountUpdated(uint256 oldAmount, uint256 newAmount);
     event MaxAccumulateAmountChangeProposed(uint256 newAmount, uint256 executeAfter);
     event MaxAccumulateAmountChangeCancelled(uint256 cancelledAmount);
 
-    uint256 public constant BACKSTOP_CHANGE_DELAY = 24 hours;
-    uint256 public pendingBackstopBps;
-
-    uint256 public constant SLIPPAGE_CHANGE_DELAY = 24 hours;
-    uint256 public pendingMaxSlippage;
+    event DailyETHCapUpdated(uint256 oldCap, uint256 newCap);
+    event DailyETHCapChangeProposed(uint256 newCap, uint256 executeAfter);
+    event DailyETHCapChangeCancelled(uint256 cancelledCap);
+    event DailyWindowReset(uint256 newWindowStart);
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -298,37 +291,6 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         emit ETHReceived(msg.sender, msg.value);
     }
 
-    /// @notice Propose a new max slippage tolerance (timelocked 24h)
-    /// @param _bps Slippage in basis points (100 = 1%, 1000 = 10%)
-    function proposeMaxSlippage(uint256 _bps) external onlyOwner {
-        if (_bps < 100 || _bps > 1000) revert SlippageBpsOutOfRange();
-        pendingMaxSlippage = _bps;
-        _propose(SLIPPAGE_CHANGE, SLIPPAGE_CHANGE_DELAY);
-        emit MaxSlippageChangeProposed(_bps, _executeAfter[SLIPPAGE_CHANGE]);
-    }
-
-    /// @notice Execute the pending max slippage change after timelock
-    function executeMaxSlippage() external onlyOwner {
-        _execute(SLIPPAGE_CHANGE);
-        uint256 old = maxSlippageBps;
-        maxSlippageBps = pendingMaxSlippage;
-        pendingMaxSlippage = 0;
-        emit MaxSlippageUpdated(old, maxSlippageBps);
-    }
-
-    /// @notice Cancel a pending max slippage change
-    function cancelMaxSlippageChange() external onlyOwner {
-        uint256 cancelled = pendingMaxSlippage;
-        _cancel(SLIPPAGE_CHANGE);
-        pendingMaxSlippage = 0;
-        emit MaxSlippageChangeCancelled(cancelled);
-    }
-
-    /// @notice Legacy view helper for test compatibility
-    function maxSlippageProposedAt() external view returns (uint256) {
-        return _executeAfter[SLIPPAGE_CHANGE];
-    }
-
     /// @notice Propose a new max accumulate amount (timelocked 24h)
     function proposeMaxAccumulateAmount(uint256 _amount) external onlyOwner {
         if (_amount < 0.01 ether) revert AccumulateCapTooLow();
@@ -360,6 +322,35 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         return _executeAfter[ACCUMULATE_CAP_CHANGE];
     }
 
+    // ─── M7: Daily ETH cap governance ────────────────────────────────
+
+    /// @notice [M7] Propose a new rolling 24h ETH cap (timelocked 24h).
+    /// @param _cap New cap in wei; must be in [0.01 ether, MAX_DAILY_ETH_CAP].
+    function proposeDailyETHCap(uint256 _cap) external onlyOwner {
+        require(_cap >= 0.01 ether, "DAILY_CAP_TOO_LOW");
+        require(_cap <= MAX_DAILY_ETH_CAP, "EXCEEDS_DAILY_HARD_CAP");
+        pendingDailyETHCap = _cap;
+        _propose(DAILY_ETH_CAP_CHANGE, DAILY_ETH_CAP_CHANGE_DELAY);
+        emit DailyETHCapChangeProposed(_cap, _executeAfter[DAILY_ETH_CAP_CHANGE]);
+    }
+
+    /// @notice [M7] Execute a pending daily ETH cap change after the 24h timelock.
+    function executeDailyETHCap() external onlyOwner {
+        _execute(DAILY_ETH_CAP_CHANGE);
+        uint256 old = dailyETHCap;
+        dailyETHCap = pendingDailyETHCap;
+        pendingDailyETHCap = 0;
+        emit DailyETHCapUpdated(old, dailyETHCap);
+    }
+
+    /// @notice [M7] Cancel a pending daily ETH cap change.
+    function cancelDailyETHCap() external onlyOwner {
+        uint256 cancelled = pendingDailyETHCap;
+        _cancel(DAILY_ETH_CAP_CHANGE);
+        pendingDailyETHCap = 0;
+        emit DailyETHCapChangeCancelled(cancelled);
+    }
+
     // ─── Core ─────────────────────────────────────────────────────────
 
     /// @notice Use ETH balance to buy TOWELI and add permanent LP.
@@ -385,14 +376,39 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // the chain wakes up risks executing at stale spot price.
         // AUDIT FIX (BATCH-L3 M4): 4h staleness on price-sensitive path.
         SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD, 4 hours);
-        require(block.timestamp >= lastAccumulateTime + ACCUMULATE_COOLDOWN, "ACCUMULATE_COOLDOWN");
+        // AUDIT FIX 2026-05-26 [M-14]: validate deadline BEFORE stamping cooldown.
+        // Pre-fix ordering (stamp then validate) was safe via Solidity tx-rollback,
+        // but a future refactor extracting the cooldown stamp could break the
+        // rollback assumption. Single-line move — same gas, clearer invariant.
         require(_deadline >= block.timestamp, "EXPIRED");
-        // SECURITY FIX: Enforce tight deadline cap — accumulate() is high-value MEV target
         if (_deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
+        require(block.timestamp >= lastAccumulateTime + ACCUMULATE_COOLDOWN, "ACCUMULATE_COOLDOWN");
+        // AUDIT FIX (2026-05-25 2nd pass): stamp the cooldown BEFORE the external swap/add
+        // (CEI), matching SwapFeeRouter's conversion-cooldown ordering. Defense-in-depth on
+        // top of nonReentrant; if the swap path reverts, the whole tx (incl. this) rolls back.
+        lastAccumulateTime = block.timestamp;
 
         uint256 ethBalance = address(this).balance;
         if (ethBalance < 0.01 ether) revert InsufficientETH();
         if (ethBalance > maxAccumulateAmount) ethBalance = maxAccumulateAmount;
+
+        // [M7 FIX] Fixed-window 24h ETH cap — rate-limiter (CCIP RateLimiter analog).
+        // Resets the window counter on the first call after each 24h interval.
+        // Caps `ethBalance` to remaining daily allowance; reverts DailyCapExceeded
+        // if the window is already exhausted. Flash-loan proof: no loan survives 24h.
+        if (block.timestamp >= currentDayStart + DAILY_WINDOW) {
+            currentDayStart = block.timestamp;
+            dailyETHAccumulated = 0;
+            emit DailyWindowReset(block.timestamp);
+        }
+        // AUDIT FIX 2026-05-31 [LOW-2]: saturating subtraction. If the owner lowers
+        // `dailyETHCap` below the amount already consumed in the current window, the
+        // bare subtraction would underflow → Panic(0x11), bricking accumulate() until
+        // the 24h window rolls. Saturate to 0 so the typed DailyCapExceeded fires
+        // gracefully instead (rounds in the protocol's favour — caps harder, never less).
+        uint256 _dailyRemaining = dailyETHCap > dailyETHAccumulated ? dailyETHCap - dailyETHAccumulated : 0;
+        if (_dailyRemaining == 0) revert DailyCapExceeded();
+        if (ethBalance > _dailyRemaining) ethBalance = _dailyRemaining;
 
         uint256 halfETH = ethBalance / 2;
 
@@ -433,8 +449,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         // R015: LP-add minimums are now anchored to the TWAP-implied 50/50 ratio, not to
         // the post-swap attacked spot. We compute `twapImpliedToken = consult(weth → toweli, remainingETH)`
-        // and enforce a TWAP_SAFETY_BPS floor on it. The legacy `maxSlippageBps` and `backstopBps`
-        // floors continue to apply as additional belt-and-braces (whichever is tighter wins).
+        // and enforce a TWAP_SAFETY_BPS floor on it. This TWAP-derived floor (together with
+        // the spot-vs-TWAP deviation gate asserted above) is the sole slippage protection on
+        // the LP-add token leg; the caller-supplied `_minLPTokens` can only tighten it.
         uint256 remainingETH = ethBalance - halfETH;
         uint256 twapMinLPToken = _twapMinOut(weth, remainingETH);
 
@@ -465,12 +482,13 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // A4-M-17: Revoke residual approval after addLiquidity to prevent leftover approval exploit
         toweli.forceApprove(address(router), 0);
 
-        totalETHUsed += halfETH + ethUsed;
-        totalLPCreated += lpReceived;
+        uint256 ethConsumed = halfETH + ethUsed;
+        totalETHUsed          += ethConsumed;
+        dailyETHAccumulated   += ethConsumed; // [M7] track against rolling 24h cap
+        totalLPCreated        += lpReceived;
         totalAccumulations++;
 
-        lastAccumulateTime = block.timestamp;
-        emit Accumulated(halfETH + ethUsed, tokenUsed, lpReceived);
+        emit Accumulated(ethConsumed, tokenUsed, lpReceived);
     }
 
     // ─── Treasury Change (L-11) ────────────────────────────────────────
@@ -505,59 +523,15 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice mvp-launch Phase 0.4 — pause-only emergency guardian role.
+    ///         See base/PauseGuardian.sol.
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    function guardianPause() external onlyPauseGuardian { _pause(); }
+
     // ─── Admin ─────────────────────────────────────────────────────────
-
-    /// @notice AUDIT FIX: Propose a new backstop percentage (timelocked)
-    function proposeBackstopChange(uint256 _backstopBps) external onlyOwner {
-        require(_backstopBps >= MIN_BACKSTOP_BPS, "BACKSTOP_TOO_LOW"); // AUDIT FIX H-03: Enforce minimum floor
-        if (_backstopBps > MAX_BACKSTOP_BPS) revert BackstopTooHigh();
-        pendingBackstopBps = _backstopBps;
-        _propose(BACKSTOP_CHANGE, BACKSTOP_CHANGE_DELAY);
-        emit BackstopChangeProposed(_backstopBps, _executeAfter[BACKSTOP_CHANGE]);
-    }
-
-    /// @notice Execute the pending backstop change after timelock
-    /// @dev    AUDIT R014 M-7: routes through `_setBackstopBps` so the
-    ///         MIN_BACKSTOP_BPS invariant is re-asserted at the executor —
-    ///         not just at the proposer. Future refactors that bypass the
-    ///         proposer (e.g. an emergency setter) cannot violate the floor.
-    function executeBackstopChange() external onlyOwner {
-        _execute(BACKSTOP_CHANGE);
-        uint256 newBps = pendingBackstopBps;
-        pendingBackstopBps = 0;
-        _setBackstopBps(newBps);
-    }
-
-    /// @notice Cancel a pending backstop change
-    function cancelBackstopChange() external onlyOwner {
-        uint256 cancelled = pendingBackstopBps;
-        _cancel(BACKSTOP_CHANGE);
-        pendingBackstopBps = 0;
-        emit BackstopChangeCancelled(cancelled);
-    }
-
-    /// @notice Legacy view helper for test compatibility
-    function backstopChangeTime() external view returns (uint256) {
-        return _executeAfter[BACKSTOP_CHANGE];
-    }
-
-    /// @dev AUDIT R014 M-7: single chokepoint for ALL `backstopBps` mutations.
-    ///      Re-asserts the `MIN_BACKSTOP_BPS` floor and the `MAX_BACKSTOP_BPS`
-    ///      ceiling at the assignment site so a future setter (or refactor of
-    ///      the proposer) cannot drop the invariant. Emits `BackstopUpdated`
-    ///      with the old and new values for indexers / monitoring.
-    ///
-    ///      Battle-tested pattern: OpenZeppelin's internal `_setX(...)` style
-    ///      where every external mutator delegates to a single private
-    ///      function that owns the invariant. Removes the "did the proposer
-    ///      remember to check?" question from every future code review.
-    function _setBackstopBps(uint256 _newBps) private {
-        require(_newBps >= MIN_BACKSTOP_BPS, "BELOW_MIN_BACKSTOP");
-        require(_newBps <= MAX_BACKSTOP_BPS, "ABOVE_MAX_BACKSTOP");
-        uint256 old = backstopBps;
-        backstopBps = _newBps;
-        emit BackstopUpdated(old, _newBps);
-    }
 
     // AUDIT FIX H-14: Timelock for sweepETH to prevent instant owner drain
     uint256 public constant SWEEP_ETH_DELAY = 48 hours;
@@ -586,8 +560,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         require(amount > 0, "NO_ETH");
         address recipient = treasury;
         sweepETHProposedAmount = 0;
-        (bool success,) = recipient.call{value: amount}("");
-        require(success, "ETH_TRANSFER_FAILED");
+        // AUDIT FIX (L6): route through WETHFallbackLib for parity with
+        // executeHarvestLP. If treasury is later rotated to a contract whose
+        // receive() reverts, the WETH-wrap fallback keeps this sweep from bricking
+        // (the raw .call + require(success) would have needed another 48h treasury
+        // rotation to recover).
+        WETHFallbackLib.safeTransferETHOrWrap(weth, recipient, amount);
         emit SweepETHExecuted(recipient, amount);
     }
 
@@ -638,8 +616,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         (never relaxed) by TWAP-derived floors, mirroring `accumulate()` (R015).
     /// @dev    R015 BATTLE-TESTED PATTERN (asymmetric → symmetric): Previously this path
     ///         accepted caller-supplied `minToken`/`minETH` with no floor — fully asymmetric
-    ///         vs `accumulate()`. Now the same TWAP-derived floor (with a `maxSlippageBps`
-    ///         additive belt-and-braces) gates both legs.
+    ///         vs `accumulate()`. Now the same TWAP-derived floor (`_twapHarvestMinOut`,
+    ///         plus the spot-vs-TWAP deviation gate inside it) is the sole slippage
+    ///         protection and gates both legs; caller params can only tighten it.
     ///         Recovered TOWELI and ETH both go to treasury.
     /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
     ///      freezes owner-side mutators alongside accumulate (M-7 sibling-search).
@@ -662,8 +641,9 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // (lpAmount / lpTotalSupply * reserve_X), then enforce a TWAP-safety margin on
         // each side. This makes the harvest sandwich-resistant in the same way the
         // accumulate path is — an attacker pushing the pool ratio cannot trick us into
-        // accepting near-zero TOWELI or ETH on the burn. We additionally apply
-        // `maxSlippageBps` as a configurable belt-and-braces floor.
+        // accepting near-zero TOWELI or ETH on the burn. These TWAP-anchored floors
+        // (plus the spot-vs-TWAP deviation gate inside `_twapHarvestMinOut`) are the
+        // sole slippage protection on the burn; caller params can only tighten them.
         (uint256 floorToken, uint256 floorETH) = _twapHarvestMinOut(lpAmount);
         uint256 effMinToken = minToken > floorToken ? minToken : floorToken;
         uint256 effMinETH = minETH > floorETH ? minETH : floorETH;
@@ -826,6 +806,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         ITegridyTWAP.Observation memory latest = twap.getLatestObservation(lpToken);
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX (sentinel short-circuit): getResumeTimestamp returns
+        // type(uint256).max on a stale L2 feed; surface a typed OracleStale revert
+        // instead of letting `resumeAt + SEQUENCER_GRACE_PERIOD` overflow into a
+        // checked-math Panic(0x11). Matches TegridyTWAP's own short-circuit. No-op on
+        // mainnet (feed == address(0) → resumeAt == 0).
+        if (resumeAt == type(uint256).max) revert OracleStale();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }
@@ -857,7 +843,18 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
 
         uint256 twapEthPer1eToweli = twap.consult(lpToken, address(toweli), toweliUnit, TWAP_PERIOD);
         if (twapEthPer1eToweli == 0) revert OracleStale();
+        _assertSpotDeviationFromTWAP(toweliReserve, ethReserve, twapEthPer1eToweli);
+    }
 
+    /// @notice AUDIT FIX 2026-05-26 [M-15]: extracted the duplicated spot-vs-TWAP
+    ///         deviation check (was inline in both `_assertSpotNearTWAP` and
+    ///         `_twapHarvestMinOut`). Drift between the two copies was the M-15
+    ///         finding's concern; one source of truth now.
+    function _assertSpotDeviationFromTWAP(
+        uint256 toweliReserve,
+        uint256 ethReserve,
+        uint256 twapEthPer1eToweli
+    ) internal view {
         uint256 spotEthPer1eToweli = (ethReserve * toweliUnit) / toweliReserve;
         uint256 priceDelta = spotEthPer1eToweli > twapEthPer1eToweli
             ? spotEthPer1eToweli - twapEthPer1eToweli
@@ -873,6 +870,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // R014 H-6: post-resume observation freshness. See dev-note above for the
         // attack model. resumeAt == 0 → mainnet no-op (skip the comparison).
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX (sentinel short-circuit): getResumeTimestamp returns
+        // type(uint256).max on a stale L2 feed; surface a typed OracleStale revert
+        // instead of letting `resumeAt + SEQUENCER_GRACE_PERIOD` overflow into a
+        // checked-math Panic(0x11). Matches TegridyTWAP's own short-circuit. No-op on
+        // mainnet (feed == address(0) → resumeAt == 0).
+        if (resumeAt == type(uint256).max) revert OracleStale();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }
@@ -913,6 +916,12 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         if (block.timestamp - latest.timestamp > TWAP_MAX_STALENESS) revert OracleStale();
         // R014 H-6: same post-resume freshness gate as `_twapMinOut`.
         uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
+        // AUDIT FIX (sentinel short-circuit): getResumeTimestamp returns
+        // type(uint256).max on a stale L2 feed; surface a typed OracleStale revert
+        // instead of letting `resumeAt + SEQUENCER_GRACE_PERIOD` overflow into a
+        // checked-math Panic(0x11). Matches TegridyTWAP's own short-circuit. No-op on
+        // mainnet (feed == address(0) → resumeAt == 0).
+        if (resumeAt == type(uint256).max) revert OracleStale();
         if (resumeAt != 0 && uint256(latest.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
             revert OracleObservationPredatesResume();
         }
@@ -978,18 +987,22 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // same unit so the deviation comparison and fairToweli math line up.
         uint256 twapEthPer1eToweli = twap.consult(lpToken, address(toweli), toweliUnit, TWAP_PERIOD);
         if (twapEthPer1eToweli == 0) revert OracleStale();
-
-        uint256 spotEthPer1eToweli = (ethReserve * toweliUnit) / toweliReserve;
-        uint256 priceDelta = spotEthPer1eToweli > twapEthPer1eToweli
-            ? spotEthPer1eToweli - twapEthPer1eToweli
-            : twapEthPer1eToweli - spotEthPer1eToweli;
-        if ((priceDelta * BPS) / twapEthPer1eToweli > HARVEST_TWAP_DEVIATION_BPS) {
-            revert ReservesDeviateFromTWAP();
-        }
+        // AUDIT FIX 2026-05-26 [M-15]: shared helper — see `_assertSpotDeviationFromTWAP`.
+        _assertSpotDeviationFromTWAP(toweliReserve, ethReserve, twapEthPer1eToweli);
 
         uint256 K = toweliReserve * ethReserve;
         // AUDIT FIX D-POL-M1: use toweliUnit consistent with the consult quote.
-        uint256 fairToweli = Math.sqrt((K * toweliUnit) / twapEthPer1eToweli);
+        // AUDIT FIX FRESH-2026 [M-POL-MULDIV-OVERFLOW]: route through
+        // Math.mulDiv (512-bit intermediate) so `K * toweliUnit` cannot trip
+        // the Solidity-0.8 checked-math overflow on high-decimal token
+        // redeploys. With uint112 reserves at theoretical max (~5.19e33)
+        // and toweliUnit at 18-decimal default (1e18), `K * toweliUnit`
+        // reaches ~2.7e85 — over uint256.max (~1.16e77). At realistic
+        // mainnet reserves this never trips, but a forward-compat redeploy
+        // to >18-decimal token + deep pool would silently DoS executeHarvestLP
+        // with Panic(0x11). Pattern matches Uniswap V3 FullMath usage in
+        // OracleLibrary consumers.
+        uint256 fairToweli = Math.sqrt(Math.mulDiv(K, toweliUnit, twapEthPer1eToweli));
         if (fairToweli == 0) revert OracleStale();
         // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
         // slither-disable-next-line divide-before-multiply
@@ -1022,32 +1035,19 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
     ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
     ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
     ///         Without this override, an outgoing/compromised owner could queue hostile
-    ///         proposals (e.g. `proposeTreasuryChange(attacker)`, `proposeSweepETH(attackerAmount)`,
-    ///         `proposeBackstopChange(10000)`) immediately before `transferOwnership`; the
-    ///         timelock would silently keep running and the new owner inherits an
-    ///         executable booby-trap.
+    ///         proposals (e.g. `proposeTreasuryChange(attacker)`, `proposeSweepETH(attackerAmount)`)
+    ///         immediately before `transferOwnership`; the timelock would silently keep
+    ///         running and the new owner inherits an executable booby-trap.
     /// @dev    Calls `super.acceptOwnership()` first so the Ownable2Step pendingOwner→owner
     ///         promotion happens before the cancellations — typed events emit under the
     ///         NEW owner's authority for a clean audit trail.
     function acceptOwnership() public override {
         super.acceptOwnership();
-        if (_executeAfter[SLIPPAGE_CHANGE] != 0) {
-            uint256 cancelled = pendingMaxSlippage;
-            _cancel(SLIPPAGE_CHANGE);
-            pendingMaxSlippage = 0;
-            emit MaxSlippageChangeCancelled(cancelled);
-        }
         if (_executeAfter[ACCUMULATE_CAP_CHANGE] != 0) {
             uint256 cancelled = pendingMaxAccumulateAmount;
             _cancel(ACCUMULATE_CAP_CHANGE);
             pendingMaxAccumulateAmount = 0;
             emit MaxAccumulateAmountChangeCancelled(cancelled);
-        }
-        if (_executeAfter[BACKSTOP_CHANGE] != 0) {
-            uint256 cancelled = pendingBackstopBps;
-            _cancel(BACKSTOP_CHANGE);
-            pendingBackstopBps = 0;
-            emit BackstopChangeCancelled(cancelled);
         }
         if (_executeAfter[SWEEP_ETH_CHANGE] != 0) {
             _cancel(SWEEP_ETH_CHANGE);

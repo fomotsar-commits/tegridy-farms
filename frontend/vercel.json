@@ -14,7 +14,7 @@
         { "key": "X-DNS-Prefetch-Control", "value": "on" },
         { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-site" },
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-fs/Fksxr9J5Rwod3ET+U0AyQJosZ8lzM4DBNs4NuZfM=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://rpc.ankr.com https://*.publicnode.com https://*.llamarpc.com https://api.geckoterminal.com https://api.swapapi.dev https://api.etherscan.io https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://rpc.walletconnect.com https://explorer-api.walletconnect.com https://*.infura.io https://cloudflare-eth.com https://verify.walletconnect.com https://verify.walletconnect.org https://api.odos.xyz https://api.cow.fi https://li.quest https://aggregator-api.kyberswap.com https://open-api.openocean.finance https://api.paraswap.io https://*.alchemy.com https://api.opensea.io wss://*.alchemy.com https://nft-cdn.alchemy.com wss://eth-mainnet.g.alchemy.com https://pulse.walletconnect.org https://api.web3modal.org https://*.reown.com https://*.supabase.co wss://*.supabase.co; frame-src https://www.geckoterminal.com https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-fs/Fksxr9J5Rwod3ET+U0AyQJosZ8lzM4DBNs4NuZfM=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://nft-cdn.alchemy.com https://*.cloudinary.com https://res.cloudinary.com https://assets.mgxs.co https://*.coingecko.com https://assets.coingecko.com https://raw.githubusercontent.com https://i.seadn.io https://openseauserdata.com https://cloudflare-ipfs.com https://dweb.link https://ipfs.io https://nftstorage.link https://w3s.link https://gateway.pinata.cloud https://arweave.net https://*.arweave.net https://*.amazonaws.com https://geckoterminal-prod-staging.geckoterminal.com; font-src 'self' data:; connect-src 'self' https://rpc.ankr.com https://*.publicnode.com https://*.llamarpc.com https://api.geckoterminal.com https://api.swapapi.dev https://api.etherscan.io https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://rpc.walletconnect.com https://explorer-api.walletconnect.com https://*.infura.io https://cloudflare-eth.com https://verify.walletconnect.com https://verify.walletconnect.org https://api.odos.xyz https://api.cow.fi https://li.quest https://aggregator-api.kyberswap.com https://open-api.openocean.finance https://api.paraswap.io https://*.alchemy.com https://api.opensea.io wss://*.alchemy.com https://nft-cdn.alchemy.com wss://eth-mainnet.g.alchemy.com https://pulse.walletconnect.org https://api.web3modal.org https://*.reown.com https://*.supabase.co wss://*.supabase.co; frame-src https://www.geckoterminal.com https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
       ]
     },
     {
@@ -67,13 +67,13 @@
     { "source": "/api/alchemy", "destination": "/api/alchemy" },
     { "source": "/api/opensea", "destination": "/api/opensea" },
     { "source": "/api/orderbook", "destination": "/api/orderbook" },
-    { "source": "/api/odos/:path*", "destination": "/api/odos/:path*" },
-    { "source": "/api/cow/:path*", "destination": "/api/cow/:path*" },
-    { "source": "/api/lifi/:path*", "destination": "/api/lifi/:path*" },
-    { "source": "/api/kyber/:path*", "destination": "/api/kyber/:path*" },
-    { "source": "/api/openocean/:path*", "destination": "/api/openocean/:path*" },
-    { "source": "/api/paraswap/:path*", "destination": "/api/paraswap/:path*" },
-    { "source": "/api/swapapi/:path*", "destination": "/api/swapapi/:path*" },
+    { "source": "/api/odos/:path*", "destination": "/api/aggregator/odos/:path*" },
+    { "source": "/api/cow/:path*", "destination": "/api/aggregator/cow/:path*" },
+    { "source": "/api/lifi/:path*", "destination": "/api/aggregator/lifi/:path*" },
+    { "source": "/api/kyber/:path*", "destination": "/api/aggregator/kyber/:path*" },
+    { "source": "/api/openocean/:path*", "destination": "/api/aggregator/openocean/:path*" },
+    { "source": "/api/paraswap/:path*", "destination": "/api/aggregator/paraswap/:path*" },
+    { "source": "/api/swapapi/:path*", "destination": "/api/aggregator/swapapi/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

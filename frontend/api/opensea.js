@@ -1,5 +1,7 @@
 // Vercel Serverless Function — proxies OpenSea requests to hide API key
 import { checkRateLimit } from "./_lib/ratelimit.js";
+import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
+import { logSafe } from "./_lib/logSafe.js";
 
 const OPENSEA_KEY = process.env.OPENSEA_API_KEY || "";
 if (!process.env.OPENSEA_API_KEY) {
@@ -249,19 +251,34 @@ export default async function handler(req, res) {
 
     const response = await fetch(url.toString(), fetchOpts);
 
+    // AUDIT API-H3 (R049) parity: bound the upstream read so a hostile/compromised
+    // upstream can't OOM the lambda or rack up memory-time billing with a giant
+    // body or gzip-bomb. Mirrors the aggregator-proxy hardening.
+    let text;
+    try {
+      const { text: bodyText, truncated } = await readBoundedText(response, MAX_RESPONSE_BYTES);
+      if (truncated) {
+        console.error("OpenSea upstream over-cap");
+        return res.status(502).json({ error: "Upstream response too large" });
+      }
+      text = bodyText;
+    } catch (err) {
+      console.error("OpenSea read error:", logSafe(err));
+      return res.status(502).json({ error: "Upstream service error" });
+    }
+
     // Safe JSON parse — upstream may return HTML error pages
-    const text = await response.text();
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      console.error("OpenSea non-JSON response:", text.slice(0, 200));
+      console.error("OpenSea non-JSON response:", logSafe(text.slice(0, 200)));
       return res.status(502).json({ error: "Upstream returned invalid response" });
     }
 
     if (!response.ok) {
       // AUDIT API-M4: collapse upstream errors to opaque 502, log real status.
-      console.error("OpenSea upstream error:", response.status, text.slice(0, 500));
+      console.error("OpenSea upstream error:", response.status, logSafe(text.slice(0, 500)));
       return res.status(502).json({ error: "Upstream service error" });
     }
 
@@ -273,7 +290,7 @@ export default async function handler(req, res) {
     try {
       sanitizeOpenseaResponse(data);
     } catch (err) {
-      console.error("OpenSea schema mismatch:", err.message);
+      console.error("OpenSea schema mismatch:", logSafe(err));
       return res.status(502).json({ error: "Upstream returned data of unexpected shape" });
     }
 

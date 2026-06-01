@@ -6,64 +6,19 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
+import {
+    PriceSnapshot,
+    IUniswapV2Router02,
+    ISwapFeeRouterUniFactory,
+    SwapFeeRouterConvertLib
+} from "./lib/SwapFeeRouterConvertLib.sol";
 
-interface IUniswapV2Router02 {
-    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline)
-        external payable returns (uint256[] memory amounts);
-    function swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline)
-        external returns (uint256[] memory amounts);
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline)
-        external returns (uint256[] memory amounts);
-    // AUDIT M-6: Fee-on-transfer variants. Mirrors Uniswap V2 Router02 signatures exactly.
-    // These return no amounts array — the canonical Uniswap impl relies on balance deltas
-    // measured by the caller. We do the same in the wrapper below.
-    function swapExactETHForTokensSupportingFeeOnTransferTokens(
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external payable;
-    function swapExactTokensForETHSupportingFeeOnTransferTokens(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external;
-    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external;
-    function WETH() external pure returns (address);
-    /// @dev AUDIT SFR-H-01: read at construction so we can resolve the token/WETH pair
-    ///      and derive a TWAP-based minETHOut floor for `convertTokenFeesToETH{,FoT}`.
-    function factory() external view returns (address);
-}
-
-/// @dev AUDIT SFR-H-01: minimal Uniswap V2 factory surface — just `getPair`.
-///      Lets us look up the token/WETH pair address at conversion time without
-///      requiring the caller to supply it (and risk being lied to).
-///      Suffix `_SFR` to avoid name clashes with other UniV2 factory interfaces in the repo.
-interface ISwapFeeRouterUniFactory {
-    function getPair(address tokenA, address tokenB) external view returns (address);
-}
-
-/// @dev AUDIT SFR-H-01: minimal Uniswap V2 pair surface — token0/token1, reserves,
-///      and the cumulative-price accumulators used to derive a TWAP. Identical
-///      shape to Uniswap V2 mainnet pairs and TegridyPair, so the same code reads
-///      both. Suffix `_SFR` to avoid name clashes with other UniV2 pair interfaces.
-interface ISwapFeeRouterUniPair {
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
-    function price0CumulativeLast() external view returns (uint256);
-    function price1CumulativeLast() external view returns (uint256);
-}
+// EIP-170 split: IUniswapV2Router02, ISwapFeeRouterUniFactory, ISwapFeeRouterUniPair and
+// the PriceSnapshot struct were relocated to lib/SwapFeeRouterConvertLib.sol so the linked
+// conversion library can share them. The router/factory types are imported above.
 
 interface IReferralSplitter {
     function recordFee(address _user) external payable;
@@ -93,7 +48,7 @@ interface IPremiumAccess {
 ///  - Fee wrapper pattern: 1inch/Paraswap aggregator fee model
 ///  - Timelocked admin (propose/execute/cancel) lives on SwapFeeRouterAdmin sister
 ///    contract using the MakerDAO DSPause pattern.
-contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
+contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGuardian {
     using SafeERC20 for IERC20;
 
     // ─── Admin sister contract ───────────────────────────────────────
@@ -157,10 +112,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @dev    `timestamp == 0` flags an unset snapshot (first conversion). The first
     ///         conversion is restricted to the contract owner so the contract can establish
     ///         a baseline without relying on a permissionless caller picking minETHOut.
-    struct PriceSnapshot {
-        uint32 timestamp;
-        uint256 cumulative;
-    }
+    // PriceSnapshot struct relocated to lib/SwapFeeRouterConvertLib.sol (EIP-170 split) and
+    // imported above; the public-getter ABI of this mapping is unchanged.
     mapping(address => PriceSnapshot) public lastConversionSnapshot;
 
     /// @notice AUDIT SFR-H-01: minimum elapsed time between snapshots before a TWAP
@@ -491,11 +444,40 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         are restricted to non-Uniswap-pair tokens (genuine "exotic / non-swappable
     ///         token" escape hatches).
     error UseConvertTokenFeesToETH();
+    /// @notice AUDIT FIX 2026-05-26 [H-10 / L-06]: typed errors for setSwapFeeRouterAdmin
+    ///         — distinct from `Unauthorized()` (semantic: caller lacks permission) and
+    ///         `ZeroAddress()` (semantic: input is zero). Lets off-chain monitors
+    ///         decode the exact reject branch.
+    error InvalidAdmin();
+    /// @notice AUDIT FIX 2026-05-26 [L-08]: typed error — was `Unauthorized()` pre-fix.
+    error AdminAlreadySet();
+    /// @notice [L5] Non-zero splitter address has no deployed code (EOA or EIP-7702 delegated EOA).
+    error SplitterNotAContract();
 
-    constructor(address _router, address _treasury, uint256 _feeBps, address _referralSplitter)
+    /// @dev AUDIT FIX 2026-05-26 [DEPLOY-H1]: `_revenueDistributor` added to the
+    ///      constructor so the SFR ships wired from block 1. Pre-fix the only
+    ///      writepath was `applyRevenueDistributor` (onlyAdmin) reached through
+    ///      48 h `proposeRevenueDistributor` on `SwapFeeRouterAdmin`, AND the
+    ///      admin's `acceptOwnership` flushes any pending REV_DIST_CHANGE on
+    ///      handoff — so the deployer literally could NOT pre-queue this. The
+    ///      result was a ≥96 h post-deploy window where `distributeFeesToStakers`
+    ///      reverts `ZeroAddress()` while `accumulatedETHFees` keeps growing.
+    ///
+    /// Pattern of record: Aave V3 `LendingPoolAddressesProvider` and Compound III
+    /// `Configurator` both fix critical addresses at construction and reserve
+    /// governance setters for FUTURE rotations only. `applyRevenueDistributor`
+    /// remains the post-deploy rotation path; this constructor arg is the genesis.
+    constructor(
+        address _router,
+        address _treasury,
+        uint256 _feeBps,
+        address _referralSplitter,
+        address _revenueDistributor
+    )
         OwnableNoRenounce(msg.sender)
     {
         if (_router == address(0) || _treasury == address(0)) revert ZeroAddress();
+        if (_revenueDistributor == address(0)) revert ZeroAddress();
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
         router = IUniswapV2Router02(_router);
         WETH = IUniswapV2Router02(_router).WETH();
@@ -511,6 +493,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (_referralSplitter != address(0)) {
             referralSplitter = IReferralSplitter(_referralSplitter);
         }
+        revenueDistributor = _revenueDistributor;
+        emit RevenueDistributorUpdated(address(0), _revenueDistributor);
         // PASS7-SFR-05 FIX: `sequencerFeed` defaults to address(0) (mainnet
         // semantics — SequencerCheck helpers no-op). On an L2 deploy, owner
         // must call `setSequencerFeed(feed)` once before the first conversion.
@@ -1087,7 +1071,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         cannot block its own removal.
     function setSwapFeeRouterAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
-        if (swapFeeRouterAdmin != address(0)) revert Unauthorized();
+        // AUDIT FIX 2026-05-26 [H-10 / L-06]: reject EOAs and EIP-7702 delegated EOAs
+        // (code.length == 23 → `0xef0100‖addr` magic). Type-filter — not a capability
+        // check; operator MUST verify the admin contract implements `applyXxx` methods.
+        // Mirrors the sister setter `setSequencerFeed` (line 537).
+        if (_admin.code.length == 0 || _admin.code.length == 23) revert InvalidAdmin();
+        // AUDIT FIX 2026-05-26 [L-08]: typed error — "AlreadySet" is the semantic, not
+        // "Unauthorized". Existing one-shot semantics preserved; recovery from a missed
+        // wire still goes through `proposeAdminReplacement` (7d timelock, line 1110+).
+        if (swapFeeRouterAdmin != address(0)) revert AdminAlreadySet();
         swapFeeRouterAdmin = _admin;
         emit SwapFeeRouterAdminSet(_admin);
         emit SwapFeeRouterAdminReplaced(address(0), _admin);
@@ -1238,6 +1230,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         `applyPolAccumulator`.
     function applyReferralSplitter(address _newSplitter) external onlyAdmin {
         address old = address(referralSplitter);
+        // [L5] Reject EOAs and EIP-7702 delegated EOAs (code.length == 23 → `0xef0100‖addr`
+        //      magic). Mirrors the admin-validation check at line 1120-1124. Setting an EOA
+        //      as the splitter would silently break all referral payouts.
+        if (_newSplitter != address(0)) {
+            uint256 clen = _newSplitter.code.length;
+            if (clen == 0 || clen == 23) revert SplitterNotAContract();
+        }
         // AUDIT FIX: DEEP-R3-M02 — sibling-miss closure for the DEEP-R-M04 pattern.
         // Only check when transitioning a live splitter to address(0). The current splitter
         // must already be set (otherwise there is no `referralFeeBps()` to read) AND the
@@ -1310,7 +1309,23 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     /// @notice Apply a premium-access registry change. address(0) disables the discount.
+    /// @dev AUDIT FIX FRESH-2026 [M-SFR-PREMIUM-ACCESS-CODELEN]: validate the new
+    ///      registry is a CONTRACT (codeLen > 0 && codeLen != 23) — mirror of
+    ///      sister setters `setSwapFeeRouterAdmin` (L1078), `applyReferralSplitter`
+    ///      (L1238), `setSequencerFeed` (L519). Pre-fix `applyPremiumAccess`
+    ///      accepted arbitrary addresses with no check; after Pectra, an EOA
+    ///      with a 7702 delegation could return ANY value from
+    ///      `hasPremiumSecure(user)` — including conditioning the return on
+    ///      caller identity, granting up to MAX_PREMIUM_DISCOUNT_BPS fee
+    ///      discount to attacker-controlled addresses while honest users still
+    ///      pay full fees (silent metric-positive griefing). Length-23 carve-
+    ///      out rejects 7702-delegated EOAs (`0xef0100‖addr`); address(0)
+    ///      remains the explicit disable path.
     function applyPremiumAccess(address _newAccess) external onlyAdmin {
+        if (_newAccess != address(0)) {
+            uint256 codeLen = _newAccess.code.length;
+            require(codeLen > 0 && codeLen != 23, "PREMIUM_ACCESS_NOT_CONTRACT");
+        }
         address old = address(premiumAccess);
         premiumAccess = IPremiumAccess(_newAccess);
         emit PremiumAccessUpdated(old, _newAccess);
@@ -1434,6 +1449,14 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice mvp-launch Phase 0.4 — pause-only emergency guardian role.
+    ///         See base/PauseGuardian.sol.
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        _setPauseGuardian(_newGuardian);
+    }
+
+    function guardianPause() external onlyPauseGuardian { _pause(); }
 
     // ─── Admin: Fee Withdrawal ───────────────────────────────────────
 
@@ -1651,142 +1674,21 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     )
         external nonReentrant whenNotPaused
     {
-        if (token == address(0)) revert ZeroAddress();
-        // AUDIT FIX 2026-05-20 M4-REVISED: WETH unwrap path. `accumulatedTokenFees[WETH]`
-        // populates from WETH-input swaps (input-side fee accumulation at line 837 in
-        // `swapExactTokensForTokens` and variants). The pre-fix path was: the M4
-        // `getPair` gate in `withdrawTokenFees` passed for WETH (UniV2 rejects same-token
-        // pairs so `getPair(WETH, WETH) == address(0)`), so the only exit was
-        // 100%-to-treasury via `withdrawTokenFees(WETH)`, bypassing the 50/30/20
-        // staker/POL/treasury split. This branch unwraps the WETH balance directly
-        // into `accumulatedETHFees` so it flows through the standard
-        // `distributeFeesToStakers` split. No swap (1:1 unwrap), no TWAP (no price
-        // discovery needed), no cooldown (no MEV/sandwich vector on a fixed 1:1).
-        // The `MIN_TOKEN_FEE_FOR_CONVERSION` floor is preserved for consistency with
-        // the swap-path branch below (dust-grief defense). Discovered by the
-        // defensive scan of PR #28 (same pass that caught M10 over-credit).
-        if (token == WETH) {
-            uint256 wethAmount = accumulatedTokenFees[WETH];
-            if (wethAmount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
-            // CEI: zero accounting BEFORE the external withdraw call (which triggers
-            // our `receive()` via the WETH contract's `address(this).call`). The
-            // outer `nonReentrant` blocks re-entry, but CEI is belt-and-suspenders.
-            accumulatedTokenFees[WETH] = 0;
-            IWETH(WETH).withdraw(wethAmount);
-            accumulatedETHFees += wethAmount;
-            emit TokenFeesConverted(WETH, wethAmount, wethAmount);
-            return;
-        }
-        // AUDIT NEW-A4 (HIGH): the inner Uniswap router catches expired deadlines,
-        // but only AFTER our fee accumulation state writes have already happened for
-        // the transaction. Add the explicit lower-bound check so the whole call reverts
-        // cleanly at the boundary instead of relying on the inner router's revert to
-        // propagate. Defence-in-depth against any future path where fee write lands
-        // before the inner call (e.g., alternate router integrations).
-        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
-        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
-        // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
-        _validateConversionPath(token, path);
-        // AUDIT SFR-M-02 (MEDIUM, 2026-04-28): refuse conversions on dust accumulation
-        // BEFORE the cooldown stamp is updated. Without this gate, an attacker could
-        // trigger the 1h cooldown timer with 1-wei worth of accumulated fees, bricking
-        // the keeper bot's legitimate-sized conversion until the cooldown lapses.
-        uint256 amount = accumulatedTokenFees[token];
-        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
-        // AUDIT NEW-A5 (HIGH): rate-limit per-token conversions so a sandwich attacker
-        // cannot repeatedly manipulate the pool, call convertTokenFeesToETH with a
-        // MEV-favorable minETHOut, and unwind. With CONVERSION_COOLDOWN per token,
-        // each sandwich costs the cooldown-window delay — economically unfavorable
-        // against an attacker who can only profit on a small accumulated balance.
-        // Keeper bots still get a wide window (1h is long enough for most fills).
-        _enforceConversionCooldown(token);
-
-        // CEI: zero accounting BEFORE the swap so a malicious token's transfer hook can't
-        // re-enter and double-spend the same accumulated balance.
-        accumulatedTokenFees[token] = 0;
-
-        // AUDIT FIX: DEEP-R-H01 — Multi-hop conversion paths (length > 2) bypass the
-        // direct-pair TWAP floor because `_readCurrentCumulative(token)` requires the
-        // token/WETH direct pair to exist (NoPairForToken otherwise), which defeats
-        // the entire purpose of the multi-hop feature for tokens that lack a direct
-        // pair. Multi-hop is already gated to `msg.sender == owner()` in
-        // `_validateConversionPath`, so the trust assumption justifies falling back
-        // to the caller-supplied `minETHOut` only (no on-chain TWAP anchor) for those
-        // paths. The 2-hop direct path retains the full SFR-H-01 TWAP enforcement.
-        uint256 effectiveMin;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 currentCum;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint32 currentTs;
-        if (path.length > 2) {
-            // Owner-only branch: no direct-pair TWAP anchor; trust the operator's minETHOut.
-            // AUDIT FIX: DEEP-R2-M01 — require a non-zero minETHOut floor on the multi-hop
-            // path. The owner-only gate is a TRUST boundary, not a substitute for defence
-            // in depth. A `0` floor admits a full-balance drain under owner-key compromise
-            // OR honest operator-script error (stale quote pasted as `0`). This single
-            // check turns a silent drain into a revert that off-chain monitoring catches.
-            // AUDIT FIX: DEEP-R3-M01 — `> 0` was a trivial bypass: `minETHOut = 1` satisfied
-            // the check but admitted the same drain because `ethReceived >= 1` is always
-            // true for any non-degenerate swap. Anchor against the absolute floor
-            // `MIN_MULTIHOP_ETH_OUT_WEI` (1e14 wei = 0.0001 ETH) so the floor is
-            // parameter-meaningful. Realistic conversions accumulate ≥1e18 of token first
-            // (`MIN_TOKEN_FEE_FOR_CONVERSION`) and produce orders of magnitude more ETH
-            // on any liquid path, so legitimate flows are unaffected.
-            if (minETHOut < MIN_MULTIHOP_ETH_OUT_WEI) revert ZeroMinOut();
-            effectiveMin = minETHOut;
-            // currentCum/currentTs left zero — we only update the snapshot on direct
-            // 2-hop conversions (otherwise we'd seed a meaningless zero baseline).
-            emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
-        } else {
-            // AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut and pick the tighter of
-            // (callerMinETHOut, twapMinETHOut). Bootstrap path is owner-only (see helper).
-            (effectiveMin, currentCum, currentTs) =
-                _enforceTWAPMinETHOut(token, amount, minETHOut);
-        }
-
-        IERC20(token).forceApprove(address(router), amount);
-
-        uint256 ethBefore = address(this).balance;
-        // SFR-H-01: forward `effectiveMin` (NOT the raw `minETHOut`) to the inner router so
-        // the swap reverts at the Uniswap K-check boundary if the post-attack price would
-        // produce less than the TWAP floor.
-        // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft; intentional tuple destructure; external interface tuple shape is fixed
-        // slither-disable-next-line reentrancy-no-eth,unused-return
-        router.swapExactTokensForETH(amount, effectiveMin, path, address(this), deadline);
-        uint256 ethReceived = address(this).balance - ethBefore;
-        if (ethReceived < effectiveMin) revert InsufficientOutput();
-
-        IERC20(token).forceApprove(address(router), 0);
-
-        // AUDIT FIX: DEEP-R-H01 — only snapshot for direct 2-hop swaps; multi-hop has
-        // no direct-pair anchor so we leave any prior snapshot untouched.
-        //
-        // AUDIT FIX HIGH-4 (multi-hop snapshot drift): on multi-hop branches, INVALIDATE
-        // any existing snapshot rather than silently leaving it stale. Pre-fix, repeated
-        // owner multi-hop calls bumped `lastConvertedAt[token]` (cooldown) but left
-        // `lastConversionSnapshot[token]` frozen. Days later, the next permissionless
-        // 2-hop call's `_enforceTWAPMinETHOut` computed `elapsed = currentTs - prev.timestamp`
-        // over weeks of price drift — the time-averaged TWAP price between the stale
-        // anchor and now diverges sharply from current spot, producing a `twapMin` that
-        // admits sandwich at near-current spot. Setting timestamp=0 forces the next
-        // direct 2-hop call into the bootstrap branch (owner-only with explicit
-        // off-chain minETHOut policy).
-        if (path.length == 2) {
-            // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
-            // computes the TWAP across the full intervening period.
-            lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
-        } else {
-            // HIGH-4: invalidate any prior snapshot to force bootstrap on next 2-hop.
-            if (lastConversionSnapshot[token].timestamp != 0) {
-                lastConversionSnapshot[token] = PriceSnapshot({timestamp: 0, cumulative: 0});
-            }
-        }
-
-        // Fold the converted ETH into the staker/POL/treasury fee pool.
-        accumulatedETHFees += ethReceived;
-        emit TokenFeesConverted(token, amount, ethReceived);
+        // EIP-170 split: body relocated to SwapFeeRouterConvertLib (delegatecall). Mappings
+        // pass by storage ref; the scalar `accumulatedETHFees` is marshalled in and written
+        // back through this single choke-point. `nonReentrant`/`whenNotPaused` stay here and
+        // `msg.sender` is preserved through delegatecall, so all guards behave identically.
+        accumulatedETHFees = SwapFeeRouterConvertLib.convertTokenFeesToETH(
+            accumulatedTokenFees,
+            lastConvertedAt,
+            lastConversionSnapshot,
+            _convertCfg(),
+            accumulatedETHFees,
+            token,
+            path,
+            minETHOut,
+            deadline
+        );
     }
 
     /// @notice AUDIT C1: fee-on-transfer variant of convertTokenFeesToETH.
@@ -1810,87 +1712,19 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     )
         external nonReentrant whenNotPaused
     {
-        if (token == address(0) || token == WETH) revert ZeroAddress();
-        // AUDIT NEW-A4 (HIGH): see convertTokenFeesToETH above for rationale.
-        if (deadline < block.timestamp) revert("DEADLINE_EXPIRED");
-        if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
-        // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
-        _validateConversionPath(token, path);
-        // AUDIT SFR-M-02 (MEDIUM, 2026-04-28): see convertTokenFeesToETH above. Note we
-        // gate against accumulated bookkeeping rather than balanceOf to keep the rule
-        // consistent across both variants — a dust-laden balance triggered by a malicious
-        // direct transfer is NOT enough to enter the cooldown either way.
-        uint256 amount = accumulatedTokenFees[token];
-        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
-        // AUDIT NEW-A5 (HIGH): shared cooldown across both variants so switching
-        // between them doesn't bypass the rate limit.
-        _enforceConversionCooldown(token);
-
-        accumulatedTokenFees[token] = 0;
-
-        // For FoT tokens we approve the actual on-hand balance because the contract may
-        // hold less than `amount` after the input-side FoT haircut on prior accumulation.
-        uint256 actualOnHand = IERC20(token).balanceOf(address(this));
-        uint256 swapAmount = amount > actualOnHand ? actualOnHand : amount;
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (swapAmount == 0) revert ZeroAmount();
-
-        // AUDIT FIX: DEEP-R-H01 — same multi-hop bypass as the non-FoT variant above.
-        // Multi-hop is owner-only via `_validateConversionPath`, so we trust the
-        // caller-supplied `minETHOut` for those paths. Direct 2-hop retains TWAP.
-        uint256 effectiveMin;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 currentCum;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint32 currentTs;
-        if (path.length > 2) {
-            // AUDIT FIX: DEEP-R2-M01 — same non-zero floor as the standard variant. See
-            // convertTokenFeesToETH above for the full rationale; both entry points must
-            // enforce identical multi-hop guards or an attacker can pick the unlocked door.
-            // AUDIT FIX: DEEP-R3-M01 — anchor against `MIN_MULTIHOP_ETH_OUT_WEI` to close
-            // the `minETHOut = 1` bypass (mirrors convertTokenFeesToETH above).
-            if (minETHOut < MIN_MULTIHOP_ETH_OUT_WEI) revert ZeroMinOut();
-            effectiveMin = minETHOut;
-            emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
-        } else {
-            // AUDIT SFR-H-01: TWAP-floor minETHOut sized against the actual swap input. Caller
-            // can only TIGHTEN the floor; bootstrap is owner-only (see helper).
-            (effectiveMin, currentCum, currentTs) =
-                _enforceTWAPMinETHOut(token, swapAmount, minETHOut);
-        }
-
-        IERC20(token).forceApprove(address(router), swapAmount);
-
-        uint256 ethBefore = address(this).balance;
-        // SLITHER 2026-05-18: FoT balance-delta pattern; nonReentrant on entrypoint; nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
-        // slither-disable-next-line reentrancy-balance,reentrancy-no-eth
-        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
-            swapAmount, effectiveMin, path, address(this), deadline
+        // EIP-170 split: body relocated to SwapFeeRouterConvertLib (delegatecall). Same
+        // storage-ptr + scalar-marshalling contract as convertTokenFeesToETH above.
+        accumulatedETHFees = SwapFeeRouterConvertLib.convertTokenFeesToETHFoT(
+            accumulatedTokenFees,
+            lastConvertedAt,
+            lastConversionSnapshot,
+            _convertCfg(),
+            accumulatedETHFees,
+            token,
+            path,
+            minETHOut,
+            deadline
         );
-        uint256 ethReceived = address(this).balance - ethBefore;
-        if (ethReceived < effectiveMin) revert InsufficientOutput();
-
-        IERC20(token).forceApprove(address(router), 0);
-
-        // AUDIT FIX: DEEP-R-H01 — only snapshot for direct 2-hop swaps; multi-hop
-        // has no direct-pair anchor so leave any prior snapshot untouched.
-        // AUDIT FIX HIGH-4: see convertTokenFeesToETH above for the multi-hop drift
-        // rationale. Mirroring the same invalidation here keeps both variants in lockstep.
-        if (path.length == 2) {
-            // SFR-H-01: snapshot the current cumulative AFTER the swap so the next conversion
-            // (either variant) computes the TWAP across the full intervening period.
-            lastConversionSnapshot[token] = PriceSnapshot({timestamp: currentTs, cumulative: currentCum});
-        } else {
-            if (lastConversionSnapshot[token].timestamp != 0) {
-                lastConversionSnapshot[token] = PriceSnapshot({timestamp: 0, cumulative: 0});
-            }
-        }
-
-        accumulatedETHFees += ethReceived;
-        emit TokenFeesConverted(token, swapAmount, ethReceived);
     }
 
     /// @notice Sweep any stuck ERC20 tokens to treasury (non-fee dust, exotic tokens only).
@@ -1903,6 +1737,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         treasury at 100% — bypassing the split for accidental-deposit value.
     function sweepTokens(address token) external onlyOwner nonReentrant {
         if (token == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-26 [H-01]: explicit WETH reject. `getPair(WETH, WETH)` returns
+        // `address(0)` (UniV2 same-token reject) so the line below cannot catch the WETH
+        // case — without this gate, captured-owner could drain donated/fallback WETH past
+        // the staker/POL split. Mirrors the line-1581 reject in `withdrawTokenFees`.
+        if (token == WETH) revert UseConvertTokenFeesToETH();
         // AUDIT FIX 2026-05-16 M3: refuse if token has a Uniswap V2 pair against WETH.
         if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
         uint256 balance = IERC20(token).balanceOf(address(this));
@@ -2038,194 +1877,19 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
         }
     }
 
-    /// @dev AUDIT SFR-M-01 (MEDIUM, 2026-04-28): validate the caller-supplied conversion
-    ///      path used by `convertTokenFeesToETH{,FoT}`. Rules:
-    ///        - Length in [2, MAX_CONVERSION_PATH_LENGTH] (caller can pass at most 4 hops)
-    ///        - path[0] must equal the input `token` (no spoofing the input)
-    ///        - path[length-1] must equal WETH (we ALWAYS exit to WETH so the proceeds
-    ///          flow into accumulatedETHFees)
-    ///        - No duplicate hops (rejects cycles, e.g., `[A, B, A, WETH]`)
-    ///      Multi-hop paths (length > 2) are restricted to the contract owner because
-    ///      the SFR-H-01 TWAP anchor is against the direct token/WETH pair only — a
-    ///      permissionless multi-hop call could route through an attacker-controlled
-    ///      pool whose price the TWAP cannot bound.
-    function _validateConversionPath(address token, address[] calldata path) internal view {
-        uint256 len = path.length;
-        if (len < 2 || len > MAX_CONVERSION_PATH_LENGTH) revert InvalidConversionPath();
-        if (path[0] != token) revert InvalidConversionPath();
-        if (path[len - 1] != WETH) revert InvalidConversionPath();
-        // AUDIT FIX: DEEP-R-M02 — reject zero-address intermediate hops. A path like
-        // `[token, address(0), WETH]` would otherwise pass duplicate checks; the
-        // inner Uniswap router would compute `pairFor(token, address(0))` which
-        // resolves to a deterministic empty address. For the FoT variant the
-        // resulting zero output would silently zero the accumulated fee balance.
-        // Owner-only multi-hop already implies trust, but this defends against
-        // owner script errors / off-chain interpolation bugs.
-        // AUDIT FIX: DEEP-R2-L01 — fold the zero-address-hop check into the same
-        // outer loop as the duplicate check so 4-hop owner-only paths walk the
-        // index range once instead of twice. Equivalent semantics, ~600 gas saved
-        // per call (twice per `convertTokenFeesToETH{,FoT}` workflow).
-        for (uint256 i = 0; i < len; i++) {
-            if (i > 0 && i < len - 1 && path[i] == address(0)) revert InvalidConversionPath();
-            // Reject duplicates (also catches `[token, WETH, WETH]` and similar shapes).
-            for (uint256 j = i + 1; j < len; j++) {
-                if (path[i] == path[j]) revert InvalidConversionPath();
-            }
-        }
-        if (len > 2 && msg.sender != owner()) revert MultiHopOwnerOnly();
-    }
-
-    /// @dev AUDIT NEW-A5: per-token conversion cooldown to price out sandwich MEV.
-    function _enforceConversionCooldown(address token) internal {
-        uint256 last = lastConvertedAt[token];
-        if (last != 0 && block.timestamp < last + CONVERSION_COOLDOWN) {
-            revert("CONVERSION_COOLDOWN_ACTIVE");
-        }
-        lastConvertedAt[token] = block.timestamp;
-    }
-
-    /// @dev AUDIT SFR-H-01: read the Uniswap V2 pair's cumulative price (token → WETH
-    ///      direction) and bridge with `spotPrice * elapsedSinceLastPairTouch` so the
-    ///      cumulative is correct even when the pair has been idle since its last
-    ///      swap/mint/burn. Mirrors the Uniswap V2 OracleLibrary `currentCumulativePrices`
-    ///      pattern (also used inside TegridyTWAP.update at R014).
-    /// @return pair       The Uniswap V2 pair address. Reverts `NoPairForToken` if absent.
-    /// @return currentCum The token→WETH cumulative at the current block (UQ112x112 * sec).
-    /// @return currentTs  uint32 block.timestamp (modular, Uniswap V2 convention).
-    function _readCurrentCumulative(address token)
-        internal
-        view
-        returns (address pair, uint256 currentCum, uint32 currentTs)
-    {
-        pair = uniFactory.getPair(token, WETH);
-        if (pair == address(0)) revert NoPairForToken();
-
-        ISwapFeeRouterUniPair p = ISwapFeeRouterUniPair(pair);
-        (uint112 reserve0, uint112 reserve1, uint32 pairTs) = p.getReserves();
-        // No-reserves pair would mean no swap is possible — let the inner router revert
-        // there with a clearer reason. Defensive: if both are zero return zeros.
-        if (reserve0 == 0 || reserve1 == 0) revert NoPairForToken();
-
-        // SLITHER 2026-05-18: Uniswap V2 oracle-timestamp truncation; not used as randomness source
-        // slither-disable-next-line weak-prng
-        currentTs = uint32(block.timestamp % 2 ** 32);
-        // Spot price token→WETH = reserveWETH / reserveToken (in UQ112x112).
-        // Determine which side `token` is on.
-        bool tokenIsToken0 = p.token0() == token;
-        uint256 cumBase = tokenIsToken0 ? p.price0CumulativeLast() : p.price1CumulativeLast();
-
-        // Bridge the integral across the idle window. spot is `reserveOther / reserveThis`
-        // where `this` is the token side and `other` is the WETH side.
-        uint256 spot;
-        if (tokenIsToken0) {
-            spot = (uint256(reserve1) * Q112_SFR) / reserve0;
-        } else {
-            // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
-            // slither-disable-next-line divide-before-multiply
-            spot = (uint256(reserve0) * Q112_SFR) / reserve1;
-        }
-        uint32 bridgeElapsed;
-        unchecked {
-            // uint32 modular subtraction — safe across the year-2106 rollover.
-            bridgeElapsed = currentTs - pairTs;
-        }
-        unchecked {
-            // Modular addition matches Uniswap V2 wrapping accumulator semantics.
-            currentCum = cumBase + (spot * uint256(bridgeElapsed));
-        }
-    }
-
-    /// @dev AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut from the snapshot
-    ///      taken at the previous successful conversion, apply a 1.5% safety margin, then
-    ///      pick `effectiveMin = max(callerMinETHOut, twapMin)`. Bootstrap path (no prior
-    ///      snapshot OR snapshot too recent) is owner-only — see TWAPBootstrapRequired.
-    /// @param token             Token being converted (path[0])
-    /// @param amountIn          Token amount fed into the swap (post any FoT haircut)
-    /// @param callerMinETHOut   The minETHOut the caller passed in (additive tightening)
-    /// @return effectiveMin     The minETHOut that will be enforced against the swap.
-    /// @return currentCum       The token→WETH cumulative at the current block (for snapshot).
-    /// @return currentTs        uint32 block.timestamp (for snapshot).
-    function _enforceTWAPMinETHOut(address token, uint256 amountIn, uint256 callerMinETHOut)
-        internal
-        returns (uint256 effectiveMin, uint256 currentCum, uint32 currentTs)
-    {
-        // PASS7-SFR-05 FIX: refuse to compute a TWAP floor while an L2
-        // sequencer outage is in progress OR within the post-resume grace
-        // window. The 1h CONVERSION_COOLDOWN is NOT sufficient on its own —
-        // the per-token TWAP integrates `prev.timestamp → currentTs` which
-        // can straddle an outage even if both endpoints are post-resume.
-        // Without this gate, the first post-resume conversion call would
-        // anchor `effectiveMin` against pre-outage manipulated reserves.
-        // address(0) sequencerFeed (mainnet) = no-op. Mirrors the gate at
-        // POLAccumulator._twapMinOut.
-        SequencerCheck.checkSequencerUp(sequencerFeed, SEQUENCER_GRACE_PERIOD);
-
-        // Resolve the pair + read the current cumulative (with idle-window bridge).
-        (, currentCum, currentTs) = _readCurrentCumulative(token);
-
-        PriceSnapshot memory prev = lastConversionSnapshot[token];
-
-        // PASS7-SFR-05 FIX: even if the sequencer is currently up, refuse if
-        // the prior snapshot's timestamp predates the resume + grace — the
-        // TWAP integral would still cross the outage window. resumeAt == 0
-        // (mainnet, address(0) feed) short-circuits this comparison.
-        if (sequencerFeed != address(0)) {
-            uint256 resumeAt = SequencerCheck.getResumeTimestamp(sequencerFeed);
-            if (resumeAt != 0 && prev.timestamp != 0 && uint256(prev.timestamp) < resumeAt + SEQUENCER_GRACE_PERIOD) {
-                revert TWAPBootstrapRequired();
-            }
-        }
-        // Note: only the direct token/WETH 2-hop path reaches this function
-        // (multi-hop paths are diverted in the callsites — see DEEP-R-H01).
-        // So the TWAP anchor against `uniFactory.getPair(token, WETH)` matches
-        // exactly what the swap will trade through.
-        if (prev.timestamp == 0) {
-            // Bootstrap: no prior snapshot. Owner-only so the first call can't be sandwiched.
-            // The owner is expected to set a sane minETHOut off-chain (treasury policy);
-            // subsequent permissionless calls inherit the on-chain TWAP floor.
-            if (msg.sender != owner()) revert TWAPBootstrapRequired();
-            // First call still respects the caller's floor.
-            effectiveMin = callerMinETHOut;
-            emit ConversionTWAPFloor(token, effectiveMin, callerMinETHOut, true);
-            return (effectiveMin, currentCum, currentTs);
-        }
-
-        // Compute elapsed using uint32 modular subtraction (Uniswap V2 wrap-safe).
-        uint32 elapsed;
-        unchecked {
-            elapsed = currentTs - prev.timestamp;
-        }
-        if (uint256(elapsed) < MIN_TWAP_PERIOD) {
-            // Snapshot exists but the integral is too short to trust as a slippage floor.
-            // This should normally be unreachable because the 1h CONVERSION_COOLDOWN
-            // guarantees ≥1h between calls, but governance could lower CONVERSION_COOLDOWN
-            // in a future patch — the explicit check guards against that and against any
-            // edge where lastConvertedAt was zeroed independently of the snapshot.
-            if (msg.sender != owner()) revert TWAPBootstrapRequired();
-            effectiveMin = callerMinETHOut;
-            emit ConversionTWAPFloor(token, effectiveMin, callerMinETHOut, true);
-            return (effectiveMin, currentCum, currentTs);
-        }
-
-        // TWAP price = (currentCum - prev.cum) / elapsed, in UQ112x112 (token→WETH).
-        // ETH amount = amountIn * twapPrice / Q112.
-        uint256 priceDiff;
-        unchecked {
-            priceDiff = currentCum - prev.cumulative;
-        }
-        // amountIn * priceDiff fits comfortably for any reasonable token amount + sane Q112
-        // values. Solidity 0.8 reverts on overflow which is the safe fail-mode here.
-        // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
-        // slither-disable-next-line divide-before-multiply
-        uint256 twapEthOut = (amountIn * priceDiff) / (uint256(elapsed) * Q112_SFR);
-        // Apply 1.5% safety margin — caller cannot relax below this floor.
-        uint256 twapMin = (twapEthOut * (BPS - TWAP_SAFETY_BPS)) / BPS;
-
-        // Caller can only TIGHTEN the floor (raise it). If they pass a lower minETHOut we
-        // ignore their value and enforce the TWAP floor; if they pass a higher value we
-        // enforce theirs (more conservative slippage policy).
-        effectiveMin = callerMinETHOut > twapMin ? callerMinETHOut : twapMin;
-        emit ConversionTWAPFloor(token, effectiveMin, callerMinETHOut, false);
+    /// @dev EIP-170 split: build the read-only `Cfg` the conversion library needs — the
+    ///      router/WETH/factory immutables, the one-shot `sequencerFeed`, and the current
+    ///      `owner()` — none of which are reachable from a delegatecall library context.
+    ///      `_validateConversionPath`, `_enforceConversionCooldown`, `_readCurrentCumulative`
+    ///      and `_enforceTWAPMinETHOut` were relocated verbatim to SwapFeeRouterConvertLib.
+    function _convertCfg() private view returns (SwapFeeRouterConvertLib.Cfg memory) {
+        return SwapFeeRouterConvertLib.Cfg({
+            weth: WETH,
+            router: router,
+            uniFactory: uniFactory,
+            sequencerFeed: sequencerFeed,
+            owner: owner()
+        });
     }
 
     /// @dev AUDIT SFR-L-01 (2026-04-28): bare `receive()` accepts ETH from any
@@ -2239,20 +1903,12 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      next `distribute()` along with the legitimate fee balance. The
     ///      forward-distribute flow itself is `nonReentrant` and only callable
     ///      after a 24-hour cooldown, which is the actual safety bound.
-    /// @dev AUDIT FIX (pass-8 batch-18): track cumulative ETH ingress so
-    ///      off-chain monitoring can reconcile `address(this).balance`
-    ///      against `accumulatedETHFees`. Any drift between
-    ///      `totalETHReceived` and the sum of accounted fee categories is
-    ///      "donated" / accidental ETH that the next `distribute()` will
-    ///      sweep proportionally. Counter is monotonic and never decremented
-    ///      — distribution outflows are tracked separately on the receiving
-    ///      contracts (RevenueDistributor / ReferralSplitter / POLAccumulator).
-    uint256 public totalETHReceived;
-    event ETHReceived(address indexed sender, uint256 amount);
-    receive() external payable {
-        totalETHReceived += msg.value;
-        emit ETHReceived(msg.sender, msg.value);
-    }
+    /// @dev AUDIT FIX C-01 (2026-05-26 swarm): `receive()` MUST stay empty to fit
+    ///      canonical WETH9.withdraw()'s `.transfer(2300)` stipend. The prior body
+    ///      (SSTORE + LOG2 ≈ 6.5k gas) bricked `convertTokenFeesToETH(WETH)` and
+    ///      stranded every WETH-input swap's fees permanently. Diagnostics counter
+    ///      removed — drift reconcilable from existing fee-recording events.
+    receive() external payable {}
 
     /// @notice AUDIT FIX 2026-05-22 M19-PORT-INLINE: override `acceptOwnership` so any
     ///         pending INLINE timelock proposals queued by the outgoing owner are CANCELLED

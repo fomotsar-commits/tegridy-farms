@@ -227,7 +227,7 @@ export function BountiesSection() {
             {bountyResults?.map((result, i) => {
               if (!result?.result) return null;
               const [creator, description, reward, deadline, , submCount, status] =
-                result.result as [Address, string, bigint, bigint, Address, bigint, number, bigint];
+                result.result as [Address, string, bigint, bigint, Address, bigint, number];
               const bountyId = count - 1 - i;
               const isOpen = status === 0;
               const deadlineNum = Number(deadline);

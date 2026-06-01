@@ -37,11 +37,15 @@ CREATE POLICY "Service role only" ON revoked_jwts
 -- Cleanup helper — remove rows whose underlying token has already
 -- expired and therefore can't be used anyway. Safe to call from the
 -- logout handler opportunistically, or from a scheduled cron.
+-- AUDIT FIX 2026-05-26 [H-30]: drop the broken `RETURNING 1 INTO deleted` —
+-- INTO can only receive a SINGLE row, so multi-row deletes raised TOO_MANY_ROWS
+-- and the cleanup silently failed forever after the first 2+ expired rows
+-- piled up. `GET DIAGNOSTICS ROW_COUNT` already gives us the count cleanly.
 CREATE OR REPLACE FUNCTION prune_revoked_jwts() RETURNS int AS $$
 DECLARE
   deleted int;
 BEGIN
-  DELETE FROM revoked_jwts WHERE exp < now() RETURNING 1 INTO deleted;
+  DELETE FROM revoked_jwts WHERE exp < now();
   GET DIAGNOSTICS deleted = ROW_COUNT;
   RETURN deleted;
 END;

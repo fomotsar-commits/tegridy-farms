@@ -2,57 +2,61 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Script.sol";
-import "../src/TegridyNFTLending.sol";
+import {TegridyNFTLending} from "../src/TegridyNFTLending.sol";
+import {TegridyNFTLendingAdmin} from "../src/TegridyNFTLendingAdmin.sol";
 
-/// @title DeployNFTLending - Deploy the generic NFT P2P Lending contract
-/// @dev Deploys TegridyNFTLending with mainnet constants from DeployFinal.s.sol
+/// @title  DeployNFTLending — per-wave deploy for the restored NFT P2P lending
+/// @notice Gondi-style P2P loans against generic NFTs (JBAC/Nakamigos/GNSS). No oracle,
+///         fixed-term, WETH-fallback payouts. Hands ownership to the multisig (2-step).
+///         PROTOCOL_FEE_BPS is deploy-time policy — REVIEW.
+/// @dev    Env: TREASURY, PROTOCOL_FEE_BPS (default 500 = 5% last-known), WETH,
+///         SEQUENCER_FEED (optional — address(0) on mainnet), MULTISIG.
+/// @dev    AUDIT FIX EIP170-01: TegridyNFTLending was split into a sister
+///         TegridyNFTLendingAdmin (timelocked governance) to fit under EIP-170.
+///         This script now deploys BOTH and wires them. CRITICAL ORDER:
+///         `setNftLendingAdmin` is `onlyOwner` + one-shot, so it MUST run while the
+///         deployer still owns the lending contract — i.e. BEFORE `transferOwnership`.
+///         Both contracts' ownership is then handed to the multisig (2-step each).
 contract DeployNFTLendingScript is Script {
-    // ─── Mainnet Constants (from DeployFinal.s.sol) ─────────────────
-    address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
-
-    // ─── Default Fees ───────────────────────────────────────────────
-    uint256 constant NFT_LENDING_FEE_BPS = 500; // 5% of interest earned
-
     function run() external {
-        require(block.chainid == 1, "MAINNET_ONLY");
-
-        // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
+        address treasury = vm.envAddress("TREASURY");
+        uint256 protocolFeeBps = vm.envOr("PROTOCOL_FEE_BPS", uint256(500)); // REVIEW — 5% last-known live value
+        address weth = vm.envAddress("WETH");
+        address sequencerFeed = vm.envOr("SEQUENCER_FEED", address(0)); // L2 sequencer uptime feed; address(0) on mainnet
         address multisig = vm.envAddress("MULTISIG");
-        require(multisig != address(0), "MULTISIG env var required");
-
-        console.log("Multisig:", multisig);
-        console.log("");
+        require(treasury != address(0) && weth != address(0), "zero env");
+        require(multisig != address(0), "set MULTISIG");
 
         vm.startBroadcast();
-        console.log("Deployer:", msg.sender);
+        console2.log("Deployer:", msg.sender);
+        console2.log("Protocol fee (bps):", protocolFeeBps);
 
-        // 1. Deploy TegridyNFTLending - P2P generic NFT-collateralized lending
-        // AUDIT FIX FRESH-2026: F-14-1 — sequencer feed is constructor-arg.
-        // Mainnet (chainid 1) passes address(0) since the L2 sequencer
-        // uptime feed is no-op there.
-        TegridyNFTLending nftLending = new TegridyNFTLending(TREASURY, NFT_LENDING_FEE_BPS, WETH, address(0));
-        console.log("1. TegridyNFTLending:", address(nftLending));
+        // 1. Deploy the core lending contract.
+        TegridyNFTLending lending = new TegridyNFTLending(treasury, protocolFeeBps, weth, sequencerFeed);
+        console2.log("TegridyNFTLending deployed:", address(lending));
 
-        // 2. Transfer ownership to multisig
-        nftLending.transferOwnership(multisig);
-        console.log("2. Ownership transfer initiated to:", multisig);
+        // 2. Deploy the timelock-admin sister, bound to the lending contract.
+        TegridyNFTLendingAdmin admin = new TegridyNFTLendingAdmin(address(lending));
+        console2.log("TegridyNFTLendingAdmin deployed:", address(admin));
+
+        // 3. Wire the admin into the lending contract. MUST happen before the
+        //    ownership transfer below — setNftLendingAdmin is onlyOwner + one-shot.
+        lending.setNftLendingAdmin(address(admin));
+        console2.log("Admin wired into lending via setNftLendingAdmin");
+
+        // 4. Hand both contracts to the multisig (2-step; multisig must acceptOwnership() on each).
+        lending.transferOwnership(multisig);
+        console2.log("Lending ownership transfer initiated to multisig:", multisig);
+        admin.transferOwnership(multisig);
+        console2.log("Admin ownership transfer initiated to multisig:", multisig);
 
         vm.stopBroadcast();
 
-        // ─── Summary ────────────────────────────────────────────────
-        console.log("");
-        console.log("=== NFT LENDING DEPLOYMENT COMPLETE ===");
-        console.log("TegridyNFTLending:", address(nftLending));
-        console.log("");
-        console.log("Whitelisted collections (set in constructor):");
-        console.log("  - JBAC:      0xd37264c71e9af940e49795F0d3a8336afAaFDdA9");
-        console.log("  - Nakamigos: 0xd774557b647330C91Bf44cfEAB205095f7E6c367");
-        console.log("  - GNSS Art:  0xa1De9f93c56C290C48849B1393b09eB616D55dbb");
-        console.log("");
-        console.log("NEXT STEPS:");
-        console.log("  1. Multisig: acceptOwnership() on TegridyNFTLending");
-        console.log("  2. Update frontend constants with deployed address");
-        console.log("  3. Verify contract on Etherscan");
+        console2.log("");
+        console2.log("=== NEXT (multisig / operator) ===");
+        console2.log("1. MULTISIG.acceptOwnership() on TegridyNFTLending ->", address(lending));
+        console2.log("2. MULTISIG.acceptOwnership() on TegridyNFTLendingAdmin ->", address(admin));
+        console2.log("3. Set TEGRIDY_NFT_LENDING_ADDRESS in frontend/src/lib/constants.ts ->", address(lending));
+        console2.log("   (governance entrypoints - fee/treasury/whitelist/originationFee/minApr/sweep - live on the admin)");
     }
 }

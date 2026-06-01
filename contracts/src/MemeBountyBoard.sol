@@ -477,7 +477,9 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 historicalPower = VotePowerOracle.powerAt(
             msg.sender, bounties[_bountyId].snapshotTimestamp, address(stakingContract), restakingContract
         );
-        uint256 currentPower = VotePowerOracle.powerOf(msg.sender, address(stakingContract), restakingContract);
+        // De-drift 2026-05-31: powerOf was a deprecated alias removed in the H-10
+        // refactor; powerOfLiveUnsafe is the identical live read it forwarded to.
+        uint256 currentPower = VotePowerOracle.powerOfLiveUnsafe(msg.sender, address(stakingContract), restakingContract);
         uint256 voterPower = historicalPower < currentPower ? historicalPower : currentPower;
         if (voterPower < MIN_VOTE_BALANCE) revert InsufficientVoteBalance();
 
@@ -862,27 +864,5 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @return The number of submissions
     function submissionCount(uint256 _bountyId) external view returns (uint256) {
         return submissions[_bountyId].length;
-    }
-
-    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
-    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
-    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
-    ///         Without this override, an outgoing/compromised owner could queue hostile
-    ///         proposals immediately before `transferOwnership`; the timelock would silently
-    ///         keep running and the new owner inherits an executable booby-trap.
-    /// @dev    `MIN_REWARD_CHANGE` has no typed cancel event in the existing surface — the
-    ///         base `ProposalCancelled(KEY)` emitted by `_cancel` is the sole audit signal.
-    function acceptOwnership() public override {
-        super.acceptOwnership();
-        if (_executeAfter[MIN_REWARD_CHANGE] != 0) {
-            _cancel(MIN_REWARD_CHANGE);
-            pendingMinBountyReward = 0;
-        }
-        if (_executeAfter[TREASURY_CHANGE] != 0) {
-            address cancelled = pendingTreasury;
-            _cancel(TREASURY_CHANGE);
-            pendingTreasury = address(0);
-            emit TreasuryChangeCancelled(cancelled);
-        }
     }
 }

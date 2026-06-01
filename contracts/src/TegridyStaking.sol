@@ -2,7 +2,11 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+// AUDIT EIP-170 split (2026-05-30): OZ SafeERC20 swapped for Solady SafeTransferLib.
+// Verbatim battle-tested code (Aerodrome, Uniswap V4 hooks ecosystem, many others);
+// assembly-tight implementation is meaningfully smaller than OZ's Solidity version,
+// with identical safety semantics (gracefully handles missing return values).
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 // AUDIT FIX (pass-8): EIP170-02 — replaced OpenZeppelin ERC721 with Solmate's
 // minimal ERC721 implementation to bring TegridyStaking under the EIP-170
 // 24,576-byte runtime limit. Solmate ERC721 is ~3-4 KB smaller than OZ's
@@ -43,9 +47,23 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 // Strings import removed — tokenURI simplified to reduce contract size
 // Base64 import removed — SVG on-chain generation moved out to reduce contract size
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+// AUDIT EIP-170 split (2026-05-30): OZ EnumerableSet swapped for Solady EnumerableSetLib.
+// API-identical for UintSet → Uint256Set (length / contains / add / remove / at / values);
+// Solady's assembly-tight storage layout is meaningfully smaller. Verbatim battle-tested
+// (Aerodrome, Velodrome, many others). Fresh-deploy contract → storage layout change OK.
+import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
+// AUDIT EIP-170 split (2026-05-30): OZ SafeCast → Solady SafeCastLib. Verbatim
+// battle-tested (Aerodrome, V4 hooks, many); assembly-tight checks vs OZ's Solidity
+// implementation. API-compatible (toUint48 / toUint208 are byte-identical semantics).
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
+import {PauseGuardian} from "./base/PauseGuardian.sol";
+// AUDIT FIX (C1 EIP-170 split): Position struct + read-only view/math extracted to a
+// linked (delegatecall) library to bring runtime bytecode under the 24,576-byte limit.
+import {Position, StakingViewLib} from "./lib/StakingViewLib.sol";
+// AUDIT FIX (C1 EIP-170 split): the LIVE reward-accounting cluster extracted to a
+// linked (delegatecall) library to bring runtime bytecode under the 24,576-byte limit.
+import {StakingRewardLib} from "./lib/StakingRewardLib.sol";
 
 /// @dev AUDIT FIX H8: Minimal interface for restaking-aware view functions
 interface ITegridyRestakingView {
@@ -79,10 +97,10 @@ interface ITegridyStakingJbacVault {
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
-contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable {
-    using SafeERC20 for IERC20;
+contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGuardian {
+    using SafeTransferLib for address;
     using Checkpoints for Checkpoints.Trace208;
-    using EnumerableSet for EnumerableSet.UintSet;
+    using EnumerableSetLib for EnumerableSetLib.Uint256Set;
 
     // ─── Constants ────────────────────────────────────────────────────
 
@@ -168,31 +186,41 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     uint256 public rewardPerTokenStored;
     uint256 public totalBoostedStake;
     uint256 public totalStaked;
-    // AUDIT H-4 (battle-tested fix): totalLocked is a view proxy for totalStaked (they are
-    // always equal). The prior state-variable design permanently returned 0, causing
-    // third-party integrators (allocators, dashboards, indexers) to read zero TVL.
-    function totalLocked() external view returns (uint256) {
-        return totalStaked;
-    }
+
+    // ─── mvp-launch Phase 0.7 — Stake Caps (Aave V3 / EigenLayer pattern) ──
+    //
+    // Caps gate every stake/increase entry-point to bound blast radius during
+    // the TVL ramp. Per the battle plan:
+    //   - Phase 6 (launch):  per-user 50_000 TOWELI,  global   5_000_000 TOWELI
+    //   - Phase 7.1 ramp:    raise as 2-week clean windows clear, owner-only
+    //                        propose/execute via TegridyStakingAdmin timelock.
+    //
+    // Initial defaults set in the constructor (NOT zero — zero is "no cap"
+    // semantics in Aave; we use explicit conservative starting values).
+    //
+    // Reference: Aave V3 `supplyCap` + `borrowCap`, EigenLayer's per-token
+    // deposit cap. Both shipped with caps in PRODUCTION on day 1 and lifted
+    // only after monitored TVL stability windows.
+    uint256 public maxStakePerUser;
+    uint256 public maxTotalStaked;
+
+    event MaxStakePerUserChanged(uint256 oldCap, uint256 newCap);
+    event MaxTotalStakedChanged(uint256 oldCap, uint256 newCap);
+
+    error PerUserStakeCapExceeded();
+    error TotalStakeCapExceeded();
+    error CapCannotBeZero();
+    // EIP-170 golf 2026-05-30: `totalLocked()` removed. It was a 1-line alias for
+    // `totalStaked` (the AUDIT H-4 fix for the old state-var-zero bug). `totalStaked` is
+    // already public — integrators read it directly via the auto-getter. ABI rename only.
 
     uint256 private _nextTokenId = 1;
 
-    struct Position {
-        uint256 amount;
-        uint256 boostedAmount;
-        int256 rewardDebt;
-        uint64 lockEnd;
-        uint16 boostBps;
-        uint32 lockDuration;
-        bool autoMaxLock;  // If true, lock auto-extends to max on every interaction
-        bool hasJbacBoost;
-        uint64 stakeTimestamp;
-        // AUDIT H-1 (2026-04-20): Deposit-based JBAC boost (ApeCoin-Staking pattern).
-        // Replaces flash-loan-able `jbacNFT.balanceOf(msg.sender) > 0` cache with a
-        // physical deposit that stays locked for the position's lifetime.
-        uint256 jbacTokenId;   // 0 = none / legacy-grandfathered
-        bool jbacDeposited;    // true = physical deposit (new pattern); false = legacy-grandfathered
-    }
+    // `Position` struct relocated to ./lib/StakingViewLib.sol (C1 EIP-170 split) so the
+    // linked view library can operate on `positions` storage. Layout unchanged; the
+    // `positions` public-getter ABI is identical. Field semantics preserved:
+    //   amount, boostedAmount, rewardDebt, lockEnd, boostBps, lockDuration, autoMaxLock,
+    //   hasJbacBoost, stakeTimestamp, jbacTokenId (0=none/legacy), jbacDeposited.
 
     mapping(uint256 => Position) public positions; // tokenId => position
     mapping(address => uint256) public userTokenId; // user => their tokenId (0 = no position)
@@ -203,7 +231,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // Now votingPowerOf iterates the full set, summing active voting power across all positions.
     // Cap at MAX_POSITIONS_PER_HOLDER bounds checkpoint-write gas and votingPowerOf read gas;
     // also protects against push-grief (attacker flooding a target address with stale NFTs).
-    mapping(address => EnumerableSet.UintSet) private _positionsByOwner;
+    mapping(address => EnumerableSetLib.Uint256Set) private _positionsByOwner;
     // AUDIT C-2 (HIGH): cap restored to 50 from the prior 100. Every external integrator
     // that reads votingPowerOf — ReferralSplitter on each fee credit, RevenueDistributor's
     // checkpoint-fallback path, governance/voting consumers — pays the O(n) cost. Doubling
@@ -304,8 +332,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         failures; this record handles VAULT-side failures. JBAC stays
     ///         physically at the vault; the user retries via
     ///         `retryReturnJbacFromVault` when the vault path heals.
-    mapping(uint256 => address) public strandedJbacAtVaultOwner;
-    mapping(uint256 => uint256) public strandedJbacAtVaultId;
+    // AUDIT FIX (C1 EIP-170 split): visibility lowered public→internal to reclaim the
+    // auto-getter bytecode (the final ~52B under the 24,576 limit). Zero off-chain
+    // readers exist (verified repo-wide); the stranded record is observable via the
+    // JbacReturnDeferred / JbacReturnRetried events, and recovery goes through
+    // retryReturnJbacFromVault. Same de-getter pattern used across batch-14.
+    mapping(uint256 => address) internal strandedJbacAtVaultOwner;
+    mapping(uint256 => uint256) internal strandedJbacAtVaultId;
 
     // AUDIT FIX (pass-8): test/off-chain ABI compatibility shim. Internal
     // mapping uses `_` prefix to free the public name; this view surfaces
@@ -313,48 +346,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // auto-getter at minimal bytecode cost (~30B).
     function emergencyExitRequests(uint256 tokenId) external view returns (uint256) { return _emergencyExitRequests[tokenId]; }
 
-    // ─── AUDIT C5: extend-lock / autoMaxLock-enable fee ──────────────────
-    /// @notice Fee in BPS charged on extendLock and on toggleAutoMaxLock when enabling.
-    ///         Default 0 — governance must propose/execute a non-zero value via 48h
-    ///         timelock (on TegridyStakingAdmin) to activate. Capped at
-    ///         EXTEND_FEE_BPS_CEILING (200 = 2%). Pulled from the caller via TOWELI
-    ///         safeTransferFrom (caller must approve); routed to treasury so the
-    ///         protocol captures value when boost is increased.
-    uint256 public extendFeeBps;
-    /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal` —
-    ///      one external reader (TegridyStakingAdmin's bound check) hardcodes
-    ///      `200` directly.
-    uint256 internal constant EXTEND_FEE_BPS_CEILING = 200;
-
-    // ─── AUDIT C6: penalty recycle to active stakers ─────────────────────
-    /// @notice BPS of early-withdrawal penalty that is recycled into the staker reward
-    ///         pool (rewardPerTokenStored is credited immediately). Remainder goes to
-    ///         treasury (current behaviour). Default 0 — backward-compatible. Capped at
-    ///         BPS (10000 = 100%). Governance can shift via 48h timelock on
-    ///         TegridyStakingAdmin.
-    uint256 public penaltyRecycleBps;
-
-    // ─── AUDIT M-AUDIT-2026-1: extend-fee recycle to active stakers ─────
-    /// @notice AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): BPS of the `extendLock` /
-    ///         `toggleAutoMaxLock` fee that is recycled into the staker reward pool
-    ///         (rewardPerTokenStored is credited immediately). Remainder goes to
-    ///         treasury — that's the original AUDIT C5 behaviour preserved when this
-    ///         value is 0 (default).
-    ///
-    ///         Pre-fix, EVERY extend-lock / max-lock-enable fee landed at treasury
-    ///         while the boost it bought DILUTED every existing staker's share of
-    ///         the same epoch's rewards. The dilution accrued to the extender;
-    ///         the fee that was supposed to compensate for it accrued to treasury.
-    ///         Stakers got nothing for absorbing the dilution.
-    ///
-    ///         By splitting the extend fee between treasury and the existing-staker
-    ///         reward pool, the diluted parties capture some of the fee in proportion
-    ///         to their pre-extend share. Governance picks the split via 48h timelock
-    ///         on TegridyStakingAdmin (`proposeExtendFeeRecycle` →
-    ///         `executeExtendFeeRecycle`). Capped at `BPS` (100% recycle).
-    ///
-    ///         Storage layout: APPENDED — does not reshuffle existing slots.
-    uint256 public extendFeeRecycleBps;
+    // ─── REMOVED for EIP-170 size (deferred to a later version) ──────────
+    // The extend-lock fee (AUDIT C5: `extendFeeBps` + `EXTEND_FEE_BPS_CEILING`),
+    // the penalty-recycle split (AUDIT C6: `penaltyRecycleBps`), and the extend-fee
+    // recycle split (AUDIT M-AUDIT-2026-1: `extendFeeRecycleBps`) were all removed
+    // to bring this contract under the 24,576-byte limit. Every one of those bps
+    // defaulted to 0, so at the launch config they were dormant: extendLock /
+    // toggleAutoMaxLock charged no fee, and the entire early-withdrawal penalty
+    // already went to treasury. Removal is therefore behaviour-identical to the
+    // launch config. The matching propose/execute/cancel flows were removed from
+    // TegridyStakingAdmin.sol in the same change.
 
 
     // ─── Events ───────────────────────────────────────────────────────
@@ -414,14 +415,18 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         JBAC itself may now be stranded INSIDE the vault (claimable via
     ///         `vault.claimStrandedJbac`) if the inner JBAC transfer failed.
     event JbacReturnRetried(uint256 indexed stakingTokenId, address indexed to, uint256 jbacTokenId);
-    /// @notice AUDIT C5: emitted when an extend-lock / autoMaxLock fee is collected to treasury.
-    event ExtendFeeCollected(uint256 indexed tokenId, address indexed payer, uint256 amount);
-    /// @notice AUDIT M-AUDIT-2026-1: emitted on every extend-fee charge with the split
-    ///         between treasury and the recycled-to-stakers slice. `recycled == 0` when
-    ///         `extendFeeRecycleBps == 0`, preserving the AUDIT C5 NatSpec story.
-    event ExtendFeeSplit(uint256 indexed tokenId, address indexed payer, uint256 toTreasury, uint256 recycledToStakers);
-    /// @notice AUDIT C6: emitted on early-withdrawal penalty distribution.
-    event PenaltySplit(uint256 indexed tokenId, uint256 toTreasury, uint256 recycledToStakers);
+    /// @notice AUDIT FIX 2026-05-26 [M-07] — observability for restaking-contract rotation
+    ///         emitted directly on the staking contract (admin sister already emits
+    ///         RestakingContractChanged on the admin path).
+    event RestakingContractApplied(address indexed oldR, address indexed newR);
+    /// @notice AUDIT FIX 2026-05-26 [M-08] — observability for lending-whitelist toggles
+    ///         emitted directly on the staking contract (admin sister already emits
+    ///         LendingContractUpdated on the admin path).
+    event LendingContractApplied(address indexed lending, bool approved);
+    // NOTE: ExtendFeeCollected / ExtendFeeSplit (AUDIT C5 / M-AUDIT-2026-1) and
+    // PenaltySplit (AUDIT C6) were removed with the extend-fee + penalty-recycle
+    // machinery (EIP-170 size). The full-penalty-to-treasury path emits the
+    // existing `PenaltySentToTreasury` event instead.
 
     // ─── Errors ───────────────────────────────────────────────────────
 
@@ -455,9 +460,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error CapTooLow();
     error TooManyPositions(); // AUDIT FIX M-5: per-holder position cap (MAX_POSITIONS_PER_HOLDER)
     error JbacDeposited(); // AUDIT H-1: revalidateBoost not allowed on deposit-based positions
-    error ExtendFeeTooHigh(); // AUDIT C5
-    error PenaltyRecycleTooHigh(); // AUDIT C6
-    error ExtendFeeRecycleTooHigh(); // AUDIT M-AUDIT-2026-1
+    // NOTE: ExtendFeeTooHigh / PenaltyRecycleTooHigh / ExtendFeeRecycleTooHigh
+    // removed with the extend-fee + penalty-recycle machinery (EIP-170 size).
     // AUDIT FIX (pass-8 batch-14): OnlyJbacNFT moved to TegridyStakingJbacVault
     // (the vault is now the JBAC-receive surface).
     /// @dev AUDIT FIX (pass-8 batch-14): JBAC vault one-shot wiring guard.
@@ -483,6 +487,19 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     error NoStrandedJbacAtVault();
     /// @notice AUDIT FIX FRESH-2026: STAKING-JBAC-VAULT-BRICK-DEFENSE [HIGH].
     error NotStrandedOwner();
+    /// @notice AUDIT FIX 2026-05-26 [H-11] — claimUnsettledForTokenId caller must be
+    ///         the current escrow holder of the staking NFT. Prevents one whitelisted
+    ///         lending contract from draining per-tokenId rewards attributed to a
+    ///         position physically held by a different lending/restaking contract.
+    error NotEscrowedHere();
+    /// @notice AUDIT FIX 2026-05-26 [L-27] — pause guardian must not equal owner
+    ///         (enforce role separation on-chain).
+    error PauseGuardianEqualsOwner();
+    /// @notice AUDIT FIX 2026-05-26 [M-07] — applyRestakingContract no-op rotation guard.
+    error SameValue();
+    /// @notice AUDIT FIX 2026-05-26 [H-09] — clearer error than Unauthorized when the
+    ///         one-shot setStakingAdmin is called a second time.
+    error AdminAlreadySet();
 
     // ─── Constructor ──────────────────────────────────────────────────
 
@@ -502,6 +519,62 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         treasury = _treasury;
         rewardRate = _rewardRate;
         lastUpdateTime = block.timestamp;
+
+        // mvp-launch Phase 0.7: caps default uncapped at construction. The
+        // operator sets them DOWN to launch values (50k/5M per battle plan)
+        // via setMaxStakePerUser / setMaxTotalStaked BEFORE transferOwnership.
+        // Aave V3 follows the same "constructor uncapped, ops sets at deploy"
+        // pattern via setSupplyCap on the PoolConfigurator. This keeps test
+        // fixtures simple — unit tests that don't exercise caps don't need to
+        // override the default.
+        maxStakePerUser = type(uint256).max;
+        maxTotalStaked  = type(uint256).max;
+    }
+
+    /// @notice Owner-only setter for the per-user stake cap. Initial value
+    ///         50k TOWELI; raise as Phase 7 TVL ramp clears stability windows.
+    /// @dev    Zero is forbidden — use pause()/guardianPause() to halt new
+    ///         stakes, not zero-cap, so the semantic stays explicit. Cap can
+    ///         be raised OR lowered; lowering does not retroactively shrink
+    ///         existing positions (those keep their full stake).
+    function setMaxStakePerUser(uint256 _newCap) external onlyOwner {
+        if (_newCap == 0) revert CapCannotBeZero();
+        uint256 old = maxStakePerUser;
+        maxStakePerUser = _newCap;
+        emit MaxStakePerUserChanged(old, _newCap);
+    }
+
+    /// @notice Owner-only setter for the global stake cap. Initial value
+    ///         5M TOWELI; raise per Phase 7 schedule.
+    function setMaxTotalStaked(uint256 _newCap) external onlyOwner {
+        if (_newCap == 0) revert CapCannotBeZero();
+        uint256 old = maxTotalStaked;
+        maxTotalStaked = _newCap;
+        emit MaxTotalStakedChanged(old, _newCap);
+    }
+
+    /// @notice Current global-stake-cap utilization in basis points.
+    /// @dev    mvp-launch Phase 0.7 monitoring helper. Forta + Defender
+    ///         alert at 8000 bps (80%) to trigger Phase 7 cap-raise review.
+    ///         Returns 10000 (100%) if the cap is fully consumed; 0 if no
+    ///         stakes yet; saturates at 10000 (cannot exceed because
+    ///         stake() reverts above cap).
+    function stakeCapUtilizationBps() external view returns (uint256) {
+        uint256 cap = maxTotalStaked;
+        if (cap == 0 || cap == type(uint256).max) return 0;
+        uint256 staked = totalStaked;
+        if (staked >= cap) return 10000;
+        return (staked * 10000) / cap;
+    }
+
+    /// @notice Remaining headroom under the global stake cap, in TOWELI wei.
+    /// @dev    Front-end consumes this to gate the "stake max" affordance.
+    ///         Returns 0 if cap is reached or unset-as-max sentinel.
+    function stakeCapHeadroom() external view returns (uint256) {
+        uint256 cap = maxTotalStaked;
+        if (cap == type(uint256).max) return type(uint256).max;
+        uint256 staked = totalStaked;
+        return staked >= cap ? 0 : cap - staked;
     }
 
     /// @notice One-shot wire of the JBAC vault sister contract.
@@ -514,8 +587,25 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_vault == address(0)) revert ZeroAddress();
         if (jbacVault != address(0)) revert JbacVaultAlreadySet();
         // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
+        // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
+        // EOAs); NOT a capability check.
         uint256 codeLen = _vault.code.length;
         if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        // AUDIT FIX FRESH-2026 [H-STAKING-JBAC-VAULT-VERIFY]: vault wire-back
+        // verification (`vault.staking() == address(this)`) is enforced
+        // OFF-CHAIN by script/VerifyMVP.s.sol:113 (INV-7 invariant). The
+        // on-chain check was evaluated and rejected as a deploy-time
+        // operator-discipline matter; adding the cross-check here would
+        // push TegridyStaking over the EIP-170 24,576-byte runtime limit
+        // (~+90 bytes for the external call + conditional revert vs ~39 B
+        // current headroom). Critically: the vault's `onlyStaking` modifier
+        // reverts BEFORE `returnJbac`'s safeTransferFrom-catch branch when
+        // msg.sender != staking, so a mis-wired vault would NEVER record
+        // `strandedJbacOwner` — leaving users with no on-chain recovery
+        // path. Operator MUST run VerifyMVP.s.sol after `setJbacVault` to
+        // catch misconfiguration before users deposit JBACs. setJbacVault
+        // is one-shot (locked once set) so a captured-key owner cannot
+        // rotate to a hostile vault.
         jbacVault = _vault;
         emit JbacVaultSet(_vault);
     }
@@ -549,11 +639,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit JbacReturnRetried(stakingTokenId, to, jId);
     }
 
-    // V2: Simplified — dead penalty variables removed
-    function _reserved() internal view returns (uint256) {
-        return totalStaked + totalUnsettledRewards;
-    }
-
+    // C1 EIP-170 split: `_reserved()` and `_settleUnsettled()` moved into
+    // StakingRewardLib (their only callers — the reward cluster — now delegate there).
+    // `_decayIfExpired` is kept here (and called by the host wrappers AFTER the
+    // library settles): the library functions cannot also take the checkpoint/voting
+    // storage refs without exceeding the via-IR stack depth, so the decay tail runs
+    // host-side. This pattern applies to BOTH `kick` AND `getReward` post-M5 fix.
     /// @notice V2: Lazy boost decay — zero out boostedAmount for expired locks on interaction.
     ///         Prevents expired positions from diluting active stakers' rewards.
     ///         Pattern: Curve veCRV uses linear decay; we use cliff decay (zero on expiry).
@@ -587,7 +678,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      with multiple staking NFTs (contract wallets, Safes, aggregating vaults) had
     ///      their voting power silently undercounted — only the most recently received
     ///      position was visible. We now iterate `_positionsByOwner[user]` (an
-    ///      EnumerableSet.UintSet maintained in `_update`) and sum the active voting
+    ///      EnumerableSetLib.Uint256Set maintained in `_update`) and sum the active voting
     ///      power of every position owned. The per-holder cap of MAX_POSITIONS_PER_HOLDER
     ///      bounds the O(n) iteration; in practice checkpoint writes on the push side cost
     ///      ~130k at the cap vs ~100k for a single-position holder.
@@ -603,34 +694,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param user The address to query voting power for
     /// @return total Aggregated voting power (sum of amount * boostBps / BOOST_PRECISION)
     ///         across all active, non-expired positions held by `user`.
-    function votingPowerOf(address user) public view returns (uint256 total) {
-        // AUDIT FIX M-5: the restaking contract exposes per-restaker voting power via
-        // its own aggregation; a raw sum here would double-count. Force 0 for the
-        // restaking contract so governance consumers route through the restaking path.
-        // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
-        //         lending contracts are escrow addresses that legitimately hold
-        //         many borrower NFTs. Borrowers vote via their own checkpoints
-        //         (positions remain credited to the borrower's checkpoint via
-        //         _settleRewardsOnTransfer), not via the lending contract. Force
-        //         0 here to prevent O(n_loans) iteration once the per-holder cap
-        //         is lifted for these addresses, AND to prevent double-counting
-        //         any future governance consumer that mistakenly reads from the
-        //         escrow address.
+    function votingPowerOf(address user) public view returns (uint256) {
+        // Restaking/lending escrow carve-out (AUDIT FIX M-5 + FRESH-2026
+        // STAKING-MAX-POS-ESCROW-CARVE-OUT): these addresses expose power via their
+        // own per-holder aggregation; force 0 here to avoid double-count and O(n)
+        // iteration. The per-position summation is delegated to StakingViewLib (C1).
         if (user == restakingContract || isLendingContract[user]) return 0;
-
-        EnumerableSet.UintSet storage set = _positionsByOwner[user];
-        uint256 len = set.length();
-        uint256 nowTs = block.timestamp;
-        for (uint256 i; i < len; ++i) {
-            // Reach into storage per-field rather than copying the full Position struct —
-            // avoids loading `boostedAmount`, `rewardDebt`, `lockDuration`, `autoMaxLock`,
-            // `hasJbacBoost`, `stakeTimestamp` slots that voting power doesn't need.
-            Position storage p = positions[set.at(i)];
-            uint256 amount = p.amount;
-            if (amount == 0) continue;
-            if (nowTs >= p.lockEnd) continue;
-            total += (amount * p.boostBps) / BOOST_PRECISION;
-        }
+        return StakingViewLib.votingPowerOf(_positionsByOwner[user], positions);
     }
 
     // votingPowerAt() removed — use votingPowerAtTimestamp() instead
@@ -640,7 +710,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param ts The timestamp to look up
     /// @return Voting power at the given timestamp (0 if no checkpoint exists before that time)
     function votingPowerAtTimestamp(address user, uint256 ts) public view returns (uint256) {
-        return _checkpoints[user].upperLookup(SafeCast.toUint48(ts));
+        return _checkpoints[user].upperLookup(SafeCastLib.toUint48(ts));
     }
 
     /// @notice Number of checkpoints for a user
@@ -656,12 +726,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         pin the epoch denominator at T-1 and close the same-block dilution window
     ///         that REV C-01 left half-open.
     function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256) {
-        return _totalBoostedStakeCheckpoints.upperLookup(SafeCast.toUint48(ts));
+        return _totalBoostedStakeCheckpoints.upperLookup(SafeCastLib.toUint48(ts));
     }
 
     /// @notice AUDIT REV-M-01: number of `_totalBoostedStakeCheckpoints` entries.
     ///         Exposed for off-chain integrators / dashboards to size pagination.
-    function totalBoostedStakeNumCheckpoints() external view returns (uint256) {
+    // AUDIT EIP-170 golf: external → internal (verified zero on-chain/script/test
+    // callers via repo-wide grep 2026-05-29). _totalBoostedStakeCheckpoints itself
+    // remains public; reconstruct length from that getter if needed off-chain.
+    function totalBoostedStakeNumCheckpoints() internal view returns (uint256) {
         return _totalBoostedStakeCheckpoints.length();
     }
 
@@ -671,14 +744,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      bloat checkpoints when a delta nets to zero (e.g., `_applyNewBoost` that
     ///      decrements then increments the identical amount on a no-op boost rewrite).
     function _writeTotalBoostedStakeCheckpoint() internal {
-        uint208 newTotal = SafeCast.toUint208(totalBoostedStake);
+        uint208 newTotal = SafeCastLib.toUint208(totalBoostedStake);
         uint208 last = _totalBoostedStakeCheckpoints.latest();
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (last == newTotal) return;
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
         // slither-disable-next-line unused-return
-        _totalBoostedStakeCheckpoints.push(SafeCast.toUint48(block.timestamp), newTotal);
+        _totalBoostedStakeCheckpoints.push(SafeCastLib.toUint48(block.timestamp), newTotal);
     }
 
     /// @notice AUDIT H12: amount-weighted average active boost across all of `user`'s
@@ -686,31 +759,11 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         TegridyLPFarming) that need a single boost ratio per user — bypasses the
     ///         single-pointer `userTokenId` undercount for multi-NFT contract holders.
     /// @return weightedBps amount-weighted boostBps in [MIN_BOOST_BPS, MAX_BOOST_BPS+JBAC_BONUS_BPS]
-    function aggregateActiveBoostBps(address user) external view returns (uint256 weightedBps) {
-        // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
-        //         same rationale as votingPowerOf above. Prevent O(n_loans)
-        //         iteration on lending-contract addresses now that the per-holder
-        //         cap is lifted for escrow addresses.
+    function aggregateActiveBoostBps(address user) external view returns (uint256) {
+        // Same restaking/lending escrow carve-out as votingPowerOf; per-position
+        // weighting delegated to StakingViewLib (C1 EIP-170 split).
         if (user == restakingContract || isLendingContract[user]) return 0;
-        EnumerableSet.UintSet storage set = _positionsByOwner[user];
-        uint256 len = set.length();
-        uint256 nowTs = block.timestamp;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 totalAmount;
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 totalBoosted;
-        for (uint256 i; i < len; ++i) {
-            Position storage p = positions[set.at(i)];
-            uint256 amt = p.amount;
-            if (amt == 0) continue;
-            if (nowTs >= p.lockEnd) continue;
-            totalAmount += amt;
-            totalBoosted += amt * p.boostBps;
-        }
-        if (totalAmount == 0) return 0;
-        weightedBps = totalBoosted / totalAmount;
+        return StakingViewLib.aggregateActiveBoostBps(_positionsByOwner[user], positions);
     }
 
     /// @notice AUDIT M13: returns true iff `user` currently owns `tokenId` per the
@@ -723,41 +776,18 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice AUDIT H12 / M13: number of staking NFTs `user` currently holds.
-    function userPositionCount(address user) external view returns (uint256) {
+    // AUDIT EIP-170 golf: external → internal (verified zero on-chain/script/test
+    // callers via repo-wide grep 2026-05-29). EnumerableSet maintains cardinality;
+    // off-chain consumers can derive from _positionsByOwner events.
+    function userPositionCount(address user) internal view returns (uint256) {
         return _positionsByOwner[user].length();
     }
 
-    /// @notice Pending rewards for a position
-    /// @param tokenId The NFT token ID of the staking position
-    /// @return Claimable reward tokens for this position
-    function earned(uint256 tokenId) public view returns (uint256) {
-        Position memory p = positions[tokenId];
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (p.boostedAmount == 0) return 0;
-        // AUDIT FIX M-01: Expired positions still have claimable rewards accrued before expiry.
-        // _getReward() computes rewards BEFORE _decayIfExpired zeros boostedAmount, so earned()
-        // must mirror that by including expired positions. Removes the early return that was
-        // causing the frontend to show 0 pending rewards for expired locks.
-        uint256 currentAcc = rewardPerTokenStored;
-        if (block.timestamp > lastUpdateTime && totalBoostedStake > 0) {
-            currentAcc += ((block.timestamp - lastUpdateTime) * rewardRate * ACC_PRECISION) / totalBoostedStake;
-        }
-        int256 diff = int256((p.boostedAmount * currentAcc) / ACC_PRECISION) - p.rewardDebt;
-        return diff > 0 ? uint256(diff) : 0;
-    }
-
-    // earnedByAddress() removed — use earned(userTokenId[user]) directly
-
-    /// @notice Get position details
-    function getPosition(uint256 tokenId) external view returns (
-        uint256 amount, uint256 boostBps, uint256 lockEnd,
-        uint256 lockDuration, bool autoMaxLock, bool canWithdraw
-    ) {
-        Position memory p = positions[tokenId];
-        return (p.amount, p.boostBps, p.lockEnd, p.lockDuration, p.autoMaxLock,
-                p.amount > 0 && block.timestamp >= p.lockEnd);
-    }
+    // EIP-170 sibling: `earned(uint256)` and `getPosition(uint256)` moved verbatim to
+    // src/StakingMonitorView.sol, deployed alongside this contract. Off-chain consumers
+    // call those views on the sibling's address. ABI signatures are byte-identical.
+    // The on-host pure-storage `StakingViewLib.earned` remains for any future in-contract
+    // use; the sibling uses the memory variant `StakingViewLib.earnedFromMem`.
 
     // ─── Modifiers ────────────────────────────────────────────────────
 
@@ -770,27 +800,40 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      window's `elapsed * rewardRate` to whoever was first to act — letting the
     ///      front-running claimer capture pause-window emission that the protocol
     ///      explicitly froze. Mirrors Compound `Comptroller.setMintPaused` semantics.
+    // ─── C1 EIP-170 split: reward-state marshalling choke-points ─────────
+    // Standalone scalar state vars cannot be passed to a delegatecall library by
+    // storage reference, so the reward cluster is marshalled through these two
+    // helpers: load the four mutable scalars into a memory struct, let the library
+    // mutate them, then write ALL FOUR back in one place. Routing every cluster
+    // wrapper through the SAME store helper makes a dropped write-back impossible.
+    function _loadRewardState() private view returns (StakingRewardLib.RewardState memory rs) {
+        rs.rewardPerTokenStored = rewardPerTokenStored;
+        rs.lastUpdateTime = lastUpdateTime;
+        rs.totalBoostedStake = totalBoostedStake;
+        rs.totalUnsettledRewards = totalUnsettledRewards;
+    }
+
+    function _storeRewardState(StakingRewardLib.RewardState memory rs) private {
+        rewardPerTokenStored = rs.rewardPerTokenStored;
+        lastUpdateTime = rs.lastUpdateTime;
+        totalBoostedStake = rs.totalBoostedStake;
+        totalUnsettledRewards = rs.totalUnsettledRewards;
+    }
+
+    function _rewardCfg() private view returns (StakingRewardLib.Cfg memory cfg) {
+        cfg.totalStaked = totalStaked;
+        cfg.maxUnsettledRewards = maxUnsettledRewards;
+        cfg.rewardRate = rewardRate;
+        cfg.rewardToken = rewardToken;
+        cfg.restakingContract = restakingContract;
+        cfg.isPaused = paused();
+    }
+
     function _accumulateRewards() private {
-        uint256 _totalBoosted = totalBoostedStake;
-        if (block.timestamp > lastUpdateTime && _totalBoosted > 0 && !paused()) {
-            uint256 elapsed = block.timestamp - lastUpdateTime;
-            uint256 reward = elapsed * rewardRate;
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            if (available > reserved) {
-                uint256 rewardPool = available - reserved;
-                if (reward > rewardPool) reward = rewardPool;
-            } else {
-                reward = 0;
-            }
-            if (reward > 0) {
-                rewardPerTokenStored += (reward * ACC_PRECISION) / _totalBoosted;
-            }
-        }
-        // Advance even while paused so the next post-unpause call doesn't credit
-        // the pause window. This is the "skip pause-window emission" half of the
-        // Compound pattern.
-        lastUpdateTime = block.timestamp;
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        rs = StakingRewardLib.accumulateRewards(rs, _rewardCfg());
+        _storeRewardState(rs);
     }
 
     modifier updateReward() {
@@ -829,6 +872,35 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         _unpause();
     }
 
+    // ─── Pause-Guardian Emergency Surface (mvp-launch Phase 0.4) ──────
+
+    /// @notice Set the pause-only emergency multisig. Owner-gated, instant
+    ///         rotation. Aave V3 EMERGENCY_ADMIN_ROLE pattern.
+    /// @dev    Rotation is instant by design: if the hot guardian's keys are
+    ///         compromised, the slow cold owner needs to react faster than any
+    ///         timelock would allow. Compromising the guardian alone yields only
+    ///         nuisance-pause risk (recoverable via owner.unpause), so a fast
+    ///         rotation is the correct trade.
+    function setPauseGuardian(address _newGuardian) external onlyOwner {
+        // AUDIT FIX 2026-05-26 [L-27] — enforce role separation on-chain. If the
+        // pause guardian were the same address as the owner, the "guardian can
+        // freeze but cannot thaw" property documented above would silently
+        // collapse (the merged role can both freeze AND thaw, defeating the
+        // Aave/Lido GateSeal pattern this surface mimics). Reject the merge.
+        if (_newGuardian == owner()) revert PauseGuardianEqualsOwner();
+        _setPauseGuardian(_newGuardian);
+    }
+
+    /// @notice Emergency pause callable by the pause-only guardian multisig.
+    /// @dev    Same pre-pause `_accumulateRewards` semantics as `pause()` so
+    ///         the guardian-pause path does not lose the elapsed-segment
+    ///         emission window. Unpause stays owner-only — the guardian can
+    ///         freeze but cannot thaw, matching Aave / Lido GateSeal model.
+    function guardianPause() external onlyPauseGuardian {
+        _accumulateRewards();
+        _pause();
+    }
+
     // ─── User Functions ───────────────────────────────────────────────
 
     /// @notice Stake TOWELI. Mints an NFT representing the position. No JBAC boost.
@@ -844,12 +916,21 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_lockDuration < MIN_LOCK_DURATION) revert LockTooShort();
         if (_lockDuration > MAX_LOCK_DURATION) revert LockTooLong();
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
+        // mvp-launch Phase 0.7: stake caps. Aave V3 / EigenLayer pattern.
+        if (_amount > maxStakePerUser) revert PerUserStakeCapExceeded();
+        if (totalStaked + _amount > maxTotalStaked) revert TotalStakeCapExceeded();
 
         uint256 boost = calculateBoost(_lockDuration);
         // AUDIT H-1 (2026-04-20): No JBAC boost on stake(). Use stakeWithBoost() for that.
         // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
         // slither-disable-next-line divide-before-multiply
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;
+        // AUDIT FIX 2026-05-26 [L-39] — defensive bounds check before uint16 cast.
+        // Current MAX_BOOST_BPS (40000) is well below uint16 max (65535), so this
+        // is dormant at launch — but mirrors `_applyNewBoost`'s guard so any
+        // future raise of MAX_BOOST_BPS / JBAC_BONUS_BPS that breaches the
+        // uint16 ceiling reverts here rather than silently truncating boostBps.
+        if (boost > type(uint16).max) revert BoostOverflow();
 
         uint256 tokenId = _nextTokenId++;
         positions[tokenId] = Position({
@@ -872,7 +953,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT L-22 / Spartan TF-10: totalLocked tracking removed — was redundant with totalStaked.
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
-        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
 
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
@@ -891,6 +972,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param _amount Amount of TOWELI to stake (must be >= MIN_STAKE)
     /// @param _lockDuration Lock duration in seconds (MIN_LOCK_DURATION to MAX_LOCK_DURATION)
     /// @param _jbacTokenId The JBAC tokenId to deposit for the boost (must be owned by caller, approved to this contract)
+    // AUDIT 2026-05-31: reentrancy-no-eth FP — function is `nonReentrant`. The cross-fn
+    // cite is `lastActivityAt` written by `_touch(msg.sender)` after the
+    // `jbacNFT.safeTransferFrom` callback; the guard makes re-entry impossible, and
+    // even a hypothetical re-entry would only refresh a monotonic timestamp (no value
+    // theft / accounting drift). Same FP class as decayExpiredRestaker.
+    // slither-disable-next-line reentrancy-no-eth
     function stakeWithBoost(uint256 _amount, uint256 _lockDuration, uint256 _jbacTokenId)
         external nonReentrant whenNotPaused updateReward
     {
@@ -899,6 +986,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_lockDuration < MIN_LOCK_DURATION) revert LockTooShort();
         if (_lockDuration > MAX_LOCK_DURATION) revert LockTooLong();
         if (userTokenId[msg.sender] != 0) revert AlreadyStaked();
+        // mvp-launch Phase 0.7: stake caps. Aave V3 / EigenLayer pattern.
+        if (_amount > maxStakePerUser) revert PerUserStakeCapExceeded();
+        if (totalStaked + _amount > maxTotalStaked) revert TotalStakeCapExceeded();
         // AUDIT FIX FRESH-2026 M3: reject `_jbacTokenId == 0` at input. Both
         // `_clearPosition` (`if (jbacIdToReturn != 0)`) and the vault's
         // `returnJbac` (`if (jbacTokenId == 0) return`) use 0 as a "no JBAC"
@@ -915,6 +1005,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
         // slither-disable-next-line divide-before-multiply
         uint256 boosted = (_amount * boost) / BOOST_PRECISION;
+        // AUDIT FIX 2026-05-26 [L-39] — defensive bounds check before uint16 cast.
+        // Current MAX_BOOST_BPS (40000) + JBAC_BONUS_BPS (5000) = 45000, well
+        // under uint16 max (65535), so this is dormant at launch — but mirrors
+        // `_applyNewBoost`'s guard so any future raise of the boost ceilings
+        // reverts here rather than silently truncating boostBps.
+        if (boost > type(uint16).max) revert BoostOverflow();
 
         uint256 tokenId = _nextTokenId++;
         positions[tokenId] = Position({
@@ -936,7 +1032,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
 
         _mint(msg.sender, tokenId); // _update() sets userTokenId[msg.sender] = tokenId
-        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
         // AUDIT FIX (pass-8 batch-14): JBAC custody handed off to the vault.
         // User approves THIS contract for the JBAC (unchanged UX); `safeTransferFrom`
         // pulls from the user using the staking-side approval, and lands at the
@@ -952,8 +1048,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
-    /// @dev    AUDIT C5: enabling autoMaxLock charges the extendFeeBps fee (default 0)
-    ///         since it permanently maximises boost. Disabling is free.
+    /// @dev    NOTE: the extend-lock fee (AUDIT C5) that previously applied on enable
+    ///         was removed for EIP-170 size. Its bps defaulted to 0 (no fee at
+    ///         launch); deferred to a later version. Enabling still maximises boost.
     /// @dev    AUDIT NOTE FRESH-2026: F-02-K-06 [INFO] — enabling autoMaxLock
     ///         unconditionally rewrites `p.lockDuration = MAX_LOCK_DURATION`.
     ///         Future `revalidateBoost` JBAC-loss DOWNGRADE will compute boost
@@ -969,8 +1066,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX DS3-02: completes the LockExpired guard family (DS-06 on
         // extendLock, DS2-07 on revalidateBoost) — toggleAutoMaxLock's enable
         // path was the missed third sibling. The enable branch below extends
-        // `lockEnd` to MAX and pays an extend fee, which on an already-expired
-        // position is the equivalent of reviving a dead lock for free boost.
+        // `lockEnd` to MAX, which on an already-expired position is the
+        // equivalent of reviving a dead lock for free boost.
         // Reject the enable path on expired positions; users must `withdraw`
         // and re-stake fresh to restore boost.
         if (!wasOn && p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
@@ -978,15 +1075,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
         // If enabling, extend lock to max immediately
         if (p.autoMaxLock) {
-            // AUDIT C5: charge fee on enable (boost is being increased to max). No fee on
-            // disable (boost is being relinquished). Pulls TOWELI from caller; user must
-            // approve. Default extendFeeBps == 0 means no transfer attempted.
-            // AUDIT FIX 2026-05-17 M10-REVISED: pass `p` so the helper can pre-advance
-            // the caller's rewardDebt, cancelling their share of the recycled fee
-            // before the immediately-following `_getReward` claim runs. The original
-            // 2026-05-16 fix used a denominator-exclusion bump that over-credited
-            // the global accumulator — see `_chargeExtendFee` NatSpec.
-            _chargeExtendFee(tokenId, p.amount, p);
+            // NOTE: the extend-lock fee (AUDIT C5) was removed for EIP-170 size.
+            // Its bps defaulted to 0 (no fee charged at launch), so removal is
+            // behaviour-identical to the launch config; deferred to a later version.
             // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
             _getReward(tokenId, p);
             p.lockEnd = uint64(block.timestamp + MAX_LOCK_DURATION);
@@ -994,7 +1085,28 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             // SECURITY FIX #4: Only recalculate lock-duration boost, keep cached JBAC status
             // from stake time to prevent flash-loan JBAC boost manipulation
             uint256 newBoost = MAX_BOOST_BPS;
-            if (p.hasJbacBoost) newBoost += JBAC_BONUS_BPS;
+            // AUDIT FIX 2026-05-26 [L-11] — mirror the `getReward` JBAC re-validation
+            // pattern (sibling at lines 1244-1262). Legacy
+            // `hasJbacBoost && !jbacDeposited` positions can have their JBAC silently
+            // sold/transferred between stake-time and now; restoring the bonus
+            // unconditionally on enable perpetuates a stale flag. Deposited JBACs
+            // (`jbacDeposited==true`) sit in the vault and are always valid; legacy
+            // positions get a balanceOf re-check against the actual holder
+            // (resolved via the restaking lookup when the caller IS the restaking
+            // contract). On transient lookup failure the cached flag is preserved
+            // — same F3-PERMA-STRIP defense as `getReward`.
+            {
+                // EIP-170/DRY: JBAC re-validation moved to StakingViewLib.resolveJbac
+                // (behaviour-identical; F3-PERMA-STRIP preserved). Was inline here, in
+                // extendLock, and in getReward — three copies of security-critical code.
+                (bool jbacValid, bool clearStale) =
+                    StakingViewLib.resolveJbac(p, tokenId, msg.sender, restakingContract, jbacNFT);
+                if (jbacValid) {
+                    newBoost += JBAC_BONUS_BPS;
+                } else if (clearStale) {
+                    p.hasJbacBoost = false;
+                }
+            }
             _applyNewBoost(p, newBoost);
         }
 
@@ -1005,15 +1117,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Extend the lock duration of an existing position
-    /// @dev    AUDIT C5: charges extendFeeBps fee (default 0). Caller must approve TOWELI
-    ///         before calling. The fee covers the protocol's exposure to dilution that
-    ///         this extension creates for other stakers.
+    /// @dev    NOTE: the extend-lock fee (AUDIT C5) was removed for EIP-170 size.
+    ///         Its bps defaulted to 0 (no fee at launch); deferred to a later version.
     /// @param tokenId The NFT token ID of the staking position
     /// @param _newLockDuration New lock duration in seconds (must be longer than current)
     function extendLock(uint256 tokenId, uint256 _newLockDuration) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         // AUDIT FIX FRESH-2026: F-02-K-03 [LOW] — compare against the resulting
         // lockEnd, not the original duration. Without this, a user who staked
         // with a long original duration and is now mid-lock cannot extend even
@@ -1027,13 +1136,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // "use it or lose it" model. User must withdraw → re-stake to re-enter.
         if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
 
-        // AUDIT C5: charge extend fee before any state changes. No-op when extendFeeBps == 0.
-        // AUDIT FIX 2026-05-17 M10-REVISED: DEEP-DS-09 closed via debt-advance
-        // pattern. `_chargeExtendFee` bumps `rewardPerTokenStored` normally then
-        // pre-advances `p.rewardDebt` so the immediately-following `_getReward`
-        // cancels out the caller's own share of the bump — no over-credit (the
-        // 2026-05-16 fix using denominator-exclusion bumped > `recycled` total).
-        _chargeExtendFee(tokenId, p.amount, p);
+        // NOTE: the extend-lock fee (AUDIT C5) was removed for EIP-170 size. Its
+        // bps defaulted to 0 (no fee at launch), so removal is behaviour-identical
+        // to the launch config; deferred to a later version.
 
         // SECURITY FIX: Claim pending rewards BEFORE changing boost to avoid loss
         _getReward(tokenId, p);
@@ -1042,7 +1147,25 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         p.lockEnd = uint64(block.timestamp + _newLockDuration);
 
         uint256 newBoost = calculateBoost(_newLockDuration);
-        if (p.hasJbacBoost) newBoost += JBAC_BONUS_BPS;
+        // AUDIT FIX 2026-05-26 [L-11] — mirror the `getReward` JBAC re-validation
+        // pattern (sibling at lines 1244-1262). Extending a lock re-applies the
+        // cached `hasJbacBoost` flag to the new boost — for legacy
+        // `hasJbacBoost && !jbacDeposited` positions whose JBAC was sold/transferred
+        // since stake-time, this perpetuates a stale flag. Same gate shape as
+        // `getReward` / `toggleAutoMaxLock`: deposited JBACs are always valid;
+        // legacy positions get a balanceOf re-check; restaking-contract callers
+        // resolve to the depositor; transient lookup failure preserves the
+        // cached flag (F3-PERMA-STRIP defense).
+        {
+            // EIP-170/DRY: see toggleAutoMaxLock — same lib call, byte-identical semantics.
+            (bool jbacValid, bool clearStale) =
+                StakingViewLib.resolveJbac(p, tokenId, msg.sender, restakingContract, jbacNFT);
+            if (jbacValid) {
+                newBoost += JBAC_BONUS_BPS;
+            } else if (clearStale) {
+                p.hasJbacBoost = false;
+            }
+        }
         _applyNewBoost(p, newBoost);
 
         _writeCheckpoint(msg.sender); // AUDIT FIX #1
@@ -1055,15 +1178,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @param tokenId The NFT token ID of the staking position
     /// @param _additionalAmount Amount of TOWELI to add (must be >= MIN_STAKE)
     function increaseAmount(uint256 tokenId, uint256 _additionalAmount) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (_additionalAmount == 0) revert ZeroAmount();
         if (_additionalAmount < MIN_STAKE) revert StakeTooSmall(); // AUDIT FIX: prevent dust spam
         // AUDIT FIX: reject increase on expired positions — would create zombie boosted stake
         // that dilutes all active stakers' rewards without earning anything
         // L-01 FIX: Error name was semantically inverted — lock HAS expired, not "not expired"
         if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) revert LockExpired();
+        // mvp-launch Phase 0.7: stake caps applied to post-increase totals.
+        if (p.amount + _additionalAmount > maxStakePerUser) revert PerUserStakeCapExceeded();
+        if (totalStaked + _additionalAmount > maxTotalStaked) revert TotalStakeCapExceeded();
 
         // Claim pending rewards before changing position (_getReward handles decay internally)
         _getReward(tokenId, p);
@@ -1087,13 +1211,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         }
         // AUDIT FIX FRESH-2026: F-02-K-04 [LOW] — clamp boost on combined principal
         // to whatever the REMAINING lock time would justify. Previously the
-        // original `boostBps` was retro-applied to the new principal, fee-free,
-        // letting a whale dribble in additional stake at MAX boost in the final
-        // days of a long lock — bypassing `extendFeeBps` for top-ups. We use the
-        // SMALLER of cached `boostBps` and the boost derivable from current
-        // remaining lock time. Existing-principal earned its rate honestly so
-        // we never raise above cached; new principal earns only what the
-        // remaining lock supports.
+        // original `boostBps` was retro-applied to the new principal, letting a
+        // whale dribble in additional stake at MAX boost in the final days of a
+        // long lock. We use the SMALLER of cached `boostBps` and the boost
+        // derivable from current remaining lock time. Existing-principal earned
+        // its rate honestly so we never raise above cached; new principal earns
+        // only what the remaining lock supports.
         uint256 cachedBoost = uint256(p.boostBps);
         uint256 remaining = p.lockEnd > block.timestamp ? p.lockEnd - block.timestamp : 0;
         uint256 remainingBoost = calculateBoost(remaining);
@@ -1102,7 +1225,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         _applyNewBoost(p, effectiveBoost);
 
         // Transfer tokens
-        rewardToken.safeTransferFrom(msg.sender, address(this), _additionalAmount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _additionalAmount);
 
         // Update voting power
         _writeCheckpoint(msg.sender);
@@ -1113,10 +1236,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     /// @notice Withdraw after lock expires. No penalty. Burns the position NFT.
     /// @param tokenId The NFT token ID of the staking position to withdraw
+    // AUDIT 2026-05-31: reentrancy-no-eth FP — function is `nonReentrant`. The cross-fn
+    // cite is `lastActivityAt` written by `_touch(msg.sender)` after `_clearPosition`
+    // (whose external is the JBAC `returnJbac` callback); the guard makes re-entry
+    // impossible, and `lastActivityAt` is a monotonic dormancy stamp. Same FP class as
+    // decayExpiredRestaker. CCR-01 invariant additionally burns the NFT before the
+    // external call, so any reentrant transferFrom against this contract reverts.
+    // slither-disable-next-line reentrancy-no-eth
     function withdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (block.timestamp < p.lockEnd) revert LockNotExpired();
         // AUDIT FIX: DEEP-DS-01 — DO NOT pre-decay before _getReward. The pre-decay
         // call was a vestige from before AUDIT M-01 and defeated that fix on the
@@ -1130,7 +1258,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // slot. See `_clearPosition` natspec for the full invariant statement.
         uint256 amount = _clearPosition(tokenId, p);
 
-        rewardToken.safeTransfer(msg.sender, amount);
+        address(rewardToken).safeTransfer(msg.sender, amount);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
         emit Withdrawn(msg.sender, tokenId, amount);
     }
@@ -1139,9 +1267,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @dev AUDIT FIX L-23: Corrected comment — penalty goes to treasury, not redistributed to stakers.
     /// @param tokenId The NFT token ID of the staking position to early-withdraw
     function earlyWithdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         // SECURITY FIX H-3: Prevent accidental 25% penalty on already-unlockable positions.
         // Users with expired locks should use withdraw() (no penalty) instead.
         if (block.timestamp >= p.lockEnd) revert MustUseWithdraw();
@@ -1156,15 +1282,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         uint256 userReceives = amount - penalty;
         totalPenaltiesCollected += penalty;
 
-        // AUDIT C6: split penalty between treasury and active stakers per penaltyRecycleBps.
-        // Default 0 = full amount to treasury (status quo). Owner can shift via timelock.
-        (uint256 toTreasury, uint256 recycled) = _splitPenalty(penalty);
-        if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
-        if (recycled > 0) _creditRewardPool(recycled);
-        rewardToken.safeTransfer(msg.sender, userReceives);
+        // Entire penalty goes to treasury (AUDIT FIX L-23). The penalty-recycle
+        // split was removed for EIP-170 size (its bps defaulted to 0, so this is
+        // behaviour-identical to the launch config); deferred to a later version.
+        address(rewardToken).safeTransfer(treasury, penalty);
+        address(rewardToken).safeTransfer(msg.sender, userReceives);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
-        emit PenaltySplit(tokenId, toTreasury, recycled);
-        emit PenaltySentToTreasury(tokenId, toTreasury); // legacy event for compatibility
+        emit PenaltySentToTreasury(tokenId, penalty);
         emit EarlyWithdrawn(msg.sender, tokenId, userReceives, penalty);
     }
 
@@ -1181,9 +1305,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      perpetually" semantic. `_applyNewBoost` handles the (now-zero)
     ///      boostedAmount delta correctly via its `totalBoostedStake -= ...` line.
     function getReward(uint256 tokenId) external nonReentrant whenNotPaused updateReward returns (uint256 claimed) {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
 
         claimed = _getReward(tokenId, p);
 
@@ -1211,34 +1333,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
                 //         first decay-restore even though the original depositor
                 //         still held the JBAC NFT. Resolve to the actual depositor
                 //         when the caller is the restaking contract.
-                address jbacHolder = msg.sender;
-                bool lookupOk = true;
-                if (msg.sender == restakingContract && restakingContract != address(0)) {
-                    try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
-                        if (depositor != address(0)) jbacHolder = depositor;
-                    } catch {
-                        // AUDIT FIX FRESH-2026: F3-PERMA-STRIP — preserve cached
-                        //         `hasJbacBoost` on transient lookup failure
-                        //         (restaking upgrade, paused view, etc.).
-                        //         Pre-fix the catch fell through to msg.sender
-                        //         (= restaking contract, no JBAC) → jbacStillValid
-                        //         = false → `p.hasJbacBoost = false` permanently
-                        //         (no recovery path; revalidateBoost is one-way
-                        //         downgrade). Now: skip the strip-on-fail branch
-                        //         when we cannot prove holding/non-holding.
-                        lookupOk = false;
-                    }
-                }
-                bool jbacStillValid =
-                    p.jbacDeposited ||
-                    (p.hasJbacBoost && lookupOk && jbacNFT.balanceOf(jbacHolder) > 0);
+                // EIP-170/DRY: JBAC re-validation moved to StakingViewLib.resolveJbac.
+                // F3-PERMA-STRIP defence preserved inside the lib (transient restaking
+                // lookup failure leaves the cached flag intact — no permanent strip since
+                // revalidateBoost is one-way downgrade with no recovery path).
+                (bool jbacValid, bool clearStale) =
+                    StakingViewLib.resolveJbac(p, tokenId, msg.sender, restakingContract, jbacNFT);
                 uint256 newBoost = MAX_BOOST_BPS;
-                if (jbacStillValid) {
+                if (jbacValid) {
                     newBoost += JBAC_BONUS_BPS;
-                } else if (p.hasJbacBoost && lookupOk) {
-                    // Clear stale flag so future cycles agree with reality.
-                    // Only clear when we successfully proved non-holding —
-                    // otherwise leave the cached flag intact for next cycle.
+                } else if (clearStale) {
                     p.hasJbacBoost = false;
                 }
                 _applyNewBoost(p, newBoost);
@@ -1296,120 +1400,30 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.amount == 0) revert NoPosition(); // DEEP-DS-07
         uint256 prior = p.boostedAmount;
         if (prior == 0 || p.lockEnd == 0 || block.timestamp < p.lockEnd) revert NoOpKick(); // DEEP-DS-07
-        _accumulateRewards();
-        // DEEP-DS-02: capture and settle pre-expiry rewards BEFORE decay.
+        // C1 EIP-170 split: the settle/forfeit body is delegated to StakingRewardLib
+        // (behaviour-identical). Guards + `prior` capture stay here; `holder =
+        // ownerOf(tokenId)` is resolved here (ownership storage is not reachable from a
+        // delegatecall lib). The decay + post-decay checkpoint + PositionKicked emit run
+        // host-side AFTER the library settles — keeping the library `kick` under the
+        // via-IR stack-depth limit and preserving the exact original ordering
+        // (settle pre-expiry rewards, then decay boost, then write the post-state).
         address holder = ownerOf(tokenId);
-        int256 accumulated = _safeInt256((prior * rewardPerTokenStored) / ACC_PRECISION);
-        int256 diff = accumulated - p.rewardDebt;
-        // AUDIT FIX: DS2-01 — DO NOT advance p.rewardDebt yet; we need to know
-        // how much actually got credited before we can advance the anchor safely.
-        if (diff > 0) {
-            uint256 pending = uint256(diff);
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            uint256 rewardPool = available > reserved ? available - reserved : 0;
-            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
-            // AUDIT FIX: DS2-02 — emit rewardPool shortfall event so off-chain monitors
-            // detect under-funded reward pools at kick time (rather than silent drop).
-            if (pending > cappedPending) {
-                emit KickRewardPoolShortfall(holder, pending, cappedPending);
-            }
-            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-            // slither-disable-next-line uninitialized-local
-            uint256 totalSettled;
-            if (cappedPending > 0) {
-                uint256 actualSettled = _settleUnsettled(holder, cappedPending);
-                if (actualSettled > 0) {
-                    emit RewardPaid(holder, tokenId, actualSettled);
-                    totalSettled += actualSettled;
-                    // AUDIT FIX C-1: when the credited holder is the restaking
-                    // contract, also record per-tokenId attribution so the
-                    // restaker can later pull only their slice (instead of
-                    // racing the shared bucket via `claimUnsettled()`).
-                    // AUDIT FIX D-LD-H1: extended to lending contracts. Pre-fix,
-                    // a permissionless kick on one borrower's escrowed NFT
-                    // credited unsettledRewards[lending], which a DIFFERENT
-                    // repaying borrower's claimUnsettled() then drained — that
-                    // borrower's pre-kick reward slice landed in the lending
-                    // contract's "donated" pool instead of their owed bucket.
-                    // _isTrackedHolder() consolidates the gate so every future
-                    // bucket-tracking holder (e.g., new escrow contract) gets
-                    // attribution for free. Mirrors the restakingContract C-1 fix.
-                    if (_isTrackedHolder(holder)) {
-                        unsettledRewardsByTokenId[tokenId] += actualSettled;
-                    }
-                }
-            }
-            // AUDIT FIX: DS2-02 — route the rewardPool shortfall through
-            // `_settleUnsettled` too (parity with `_getReward` shortfall handling).
-            // Without this, an under-funded contract silently dropped the entire
-            // post-pool slice on every kick, with no event and no recovery.
-            uint256 shortfall = pending - cappedPending;
-            if (shortfall > 0) {
-                uint256 actualSettledShortfall = _settleUnsettled(holder, shortfall);
-                if (actualSettledShortfall > 0) {
-                    totalSettled += actualSettledShortfall;
-                    // AUDIT FIX C-1: same per-tokenId attribution for the
-                    // shortfall-path credits.
-                    // AUDIT FIX D-LD-H1: extended to lending contracts (see
-                    // primary kick-path attribution above for full rationale).
-                    if (_isTrackedHolder(holder)) {
-                        unsettledRewardsByTokenId[tokenId] += actualSettledShortfall;
-                    }
-                }
-            }
-            // AUDIT FIX (BATCH-J2 H8): revert kick when ANY portion of pending
-            // rewards would be forfeited. Pre-fix, the forfeited slice was
-            // emitted via RewardsForfeitedDuringKick + RewardsForfeited and
-            // PERMANENTLY DESTROYED for the kicked holder (the slice re-accrued
-            // to all active stakers via the next _accumulateRewards cycle —
-            // positive-sum protocol but zero-sum for the holder). Attacker
-            // could frontrun a whale's claim, kick the tokenId, saturate the
-            // 100k unsettled cap, and burn the whale's surplus.
-            // Curve LiquidityGaugeV4.kick NEVER forfeits — it credits the
-            // FULL pending slice into integrate_fraction unconditionally.
-            // Mirror that semantic here: if we cannot fully credit the
-            // pending amount (because reward-pool shortfall + unsettled cap
-            // collectively block it), abort the kick. The holder retains
-            // their boost (anti-dilution defense weakens when bucket is
-            // saturated), and a subsequent kick after the holder claims
-            // succeeds. NEVER destroy user value silently.
-            if (totalSettled < pending) revert KickWouldForfeit();
-            // AUDIT FIX: DS2-01 — advance p.rewardDebt by ONLY the actually-credited
-            // slice.
-            // AUDIT FIX DS3-04: previous NatSpec falsely claimed "forfeited
-            // portion stays claimable once room is freed" — that's NOT true.
-            // The forfeited slice (`forfeitedTotal`) is PERMANENTLY LOST. When
-            // we advance `p.rewardDebt` by `totalSettled` only, the next
-            // `_getReward` call will compute `accumulated - p.rewardDebt = 0`
-            // (since `accumulated` and `p.rewardDebt` only differ by the
-            // already-credited portion) and the forfeited slice never re-enters
-            // the calc. Implementing the true "claimable later" semantic would
-            // require a per-position forfeit-debt mapping plus reconciliation,
-            // which is out of scope. The honest contract is: holders who want
-            // ALL their rewards must call `getReward` BEFORE lock expiry; kick
-            // is an anti-dilution primitive with explicit forfeit semantics.
-            if (totalSettled > 0) {
-                p.rewardDebt = p.rewardDebt + _safeInt256(totalSettled);
-                // AUDIT FIX: DS2-03 — refresh holder's activity timestamp; we just
-                // credited unsettledRewards[holder] from a non-claim, holder-not-
-                // msg.sender path. Mirrors DS-04's _touch(from) in
-                // _settleRewardsOnTransfer so the R014 M-9 invariant ("every reward-
-                // touching path that materially affects unsettled rewards for `user`
-                // must `_touch(user)`") holds on the parallel kick code path.
-                _touch(holder);
-            }
-        }
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        rs = StakingRewardLib.kick(
+            rs,
+            p,
+            tokenId,
+            holder,
+            prior,
+            unsettledRewards,
+            unsettledRewardsByTokenId,
+            isLendingContract,
+            lastActivityAt,
+            _rewardCfg()
+        );
+        _storeRewardState(rs);
         _decayIfExpired(tokenId, p);
-        // AUDIT FIX DS3-06: write a checkpoint between settle and decay so the
-        // holder's voting power record correctly reflects the post-decay state.
-        // Without this, RevenueDistributor lookups in the same block could read
-        // a stale checkpoint until the next reward-touching path runs.
-        // _decayIfExpired internally calls _writeCheckpoint(ownerOf(tokenId)),
-        // but we re-call here defensively to ensure the post-state is the
-        // recorded one even if a future _decayIfExpired refactor skips the
-        // checkpoint write.
-        _writeCheckpoint(holder);
+        _writeCheckpoint(holder); // DS3-06: record the post-decay voting power
         emit PositionKicked(tokenId, msg.sender, prior - p.boostedAmount);
     }
 
@@ -1459,12 +1473,21 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (p.jbacDeposited) revert JbacDeposited();
 
         // When restaked, the NFT owner is the restaking contract — check the original depositor's JBAC balance
+        // AUDIT FIX 2026-05-26 [L-12] — wrap the external lookup in try/catch to
+        // mirror the `getReward` sibling at lines 1244-1259. Without this, a
+        // restaking-contract upgrade window (interface mismatch / paused view)
+        // would propagate the revert up to revalidateBoost callers, bricking the
+        // downgrade path for the legitimate case. On lookup failure we fall
+        // through with positionOwner — for the restaking-contract path that
+        // means the balanceOf check below evaluates against the restaking
+        // contract itself (which never holds JBAC), reading as "no JBAC" → the
+        // downgrade fires. Conservative outcome: legitimate restaked positions
+        // whose depositor still holds the JBAC can re-call after the lookup heals.
         address jbacHolder = positionOwner;
         if (positionOwner == restakingContract && restakingContract != address(0)) {
-            address depositor = ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId);
-            if (depositor != address(0)) {
-                jbacHolder = depositor;
-            }
+            try ITegridyRestakingView(restakingContract).tokenIdToRestaker(tokenId) returns (address depositor) {
+                if (depositor != address(0)) { jbacHolder = depositor; }
+            } catch { /* fall through with positionOwner */ }
         }
 
         // jbacNFT is the on-staking IERC721 reference; the actual custody lives
@@ -1543,92 +1566,28 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      position-tracking + checkpoint writes + autoMaxLock reset +
     ///      emergencyExit cleanup happen here.
     function _afterTokenTransfer(address from, address to, uint256 id) internal virtual override {
-        // AUDIT FIX M-5 (full aggregation) preserved: maintain the per-owner
-        // position set so votingPowerOf can correctly aggregate multi-NFT
-        // holders. The set is the source of truth for voting power.
-        if (from != address(0)) {
-            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
-            // slither-disable-next-line unused-return
-            _positionsByOwner[from].remove(id);
-        }
+        // C1 EIP-170 split: per-owner set / userTokenId / autoMaxLock / emergency-exit
+        // bookkeeping delegated to StakingRewardLib (behaviour-identical, no reward-scalar
+        // marshalling). The voting-power checkpoints + paused-conditional touch run here
+        // AFTER the library returns — they sit after BOTH set updates so the recorded
+        // values are identical, and host-side keeps the library under the via-IR stack limit.
+        StakingRewardLib.afterTokenTransfer(
+            from,
+            to,
+            id,
+            _positionsByOwner,
+            positions,
+            userTokenId,
+            _emergencyExitRequests,
+            isLendingContract,
+            restakingContract
+        );
+        if (from != address(0)) _writeCheckpoint(from);
         if (to != address(0)) {
-            // Enforce the per-holder cap BEFORE the EOA AlreadyHasPosition guard.
-            // AUDIT FIX FRESH-2026: STAKING-MAX-POS-ESCROW-CARVE-OUT [CRITICAL] —
-            //         the `MAX_POSITIONS_PER_HOLDER` cap exists to bound the O(n)
-            //         iteration in `votingPowerOf` / `aggregateActiveBoostBps`.
-            //         The restaking contract and whitelisted lending contracts
-            //         already short-circuit those views to 0 (see lines 550, 621
-            //         below — extended to lending contracts in the same fix), so
-            //         the cap protects nothing for them while structurally
-            //         capping the restaking module + lending market at 50 users
-            //         (pool TVL ceiling = 50 × MIN_STAKE). Mirrors the existing
-            //         `escrowHop` carve-outs at lines 1494/1501.
-            bool isEscrowTo = (to == restakingContract) || isLendingContract[to];
-            if (!isEscrowTo && _positionsByOwner[to].length() >= MAX_POSITIONS_PER_HOLDER) {
-                revert TooManyPositions();
-            }
-            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
-            // slither-disable-next-line unused-return
-            _positionsByOwner[to].add(id);
-        }
-
-        // AUDIT FIX #2 preserved: Prevent overwriting an existing position for EOAs.
-        // Contracts (e.g. TegridyRestaking) may hold multiple position NFTs,
-        // so the guard only applies to externally-owned accounts.
-        // AUDIT NEW-L2 (HIGH) preserved: when the NFT returns to its original
-        // owner from a whitelisted lending contract, the borrower may have
-        // re-staked in the meantime — relax the guard so the round-trip closes.
-        // AUDIT FIX FRESH-2026: F-60-3 [LOW] — also treat EIP-7702 delegated
-        // EOAs (code.length == 23) as EOAs so the safety rail still fires
-        // post-Pectra. Without this, a 7702 user with an existing position can
-        // silently receive a second NFT and lose `userTokenId` resolution to
-        // the older one.
-        uint256 toCodeLen = to.code.length;
-        if (
-            to != address(0) &&
-            userTokenId[to] != 0 &&
-            (toCodeLen == 0 || toCodeLen == 23) &&
-            !isLendingContract[from]
-        ) revert AlreadyHasPosition();
-
-        // AUDIT TF-07 (Spartan MEDIUM) preserved: only reset autoMaxLock on a
-        // genuine ownership change. Round-trips through whitelisted lending or
-        // the restaking contract preserve the user's autoMaxLock preference.
-        bool escrowHop =
-            isLendingContract[from] || isLendingContract[to] ||
-            from == restakingContract || to == restakingContract;
-        if (from != address(0)) {
-            if (!escrowHop) {
-                positions[id].autoMaxLock = false;
-            }
-            delete _emergencyExitRequests[id];
-            userTokenId[from] = 0;
-            _writeCheckpoint(from);
-        }
-        if (to != address(0)) {
-            // AUDIT FIX M-5 preserved: emit MultipleNFTsAtAddress when a non-restaking
-            // contract receives a second+ staking NFT.
-            if (to.code.length > 0 && to != restakingContract && userTokenId[to] != 0) {
-                emit MultipleNFTsAtAddress(to, id, userTokenId[to]);
-            }
-            userTokenId[to] = id;
             _writeCheckpoint(to);
-            // AUDIT FIX 2026-05-20 M16-REVISED: paused-conditional skip mirrors the
-            // request/cancelEmergencyExit patch from M16 batch 5 (2026-05-16). Pre-fix
-            // attack path: direct self-transfer is blocked by the M-5
-            // `AlreadyHasPosition` guard above, but the BOUNCE pattern slips it —
-            // attacker with a >24h-old NFT does `transferFrom(self, sock_puppet)`,
-            // waits the 1h `TRANSFER_RATE_LIMIT`, then `transferFrom(sock_puppet,
-            // self)`. The return leg lands here and refreshes `lastActivityAt[self]`,
-            // defeating the 90-day `USER_INACTIVITY_GATE` on `claimUnsettledFor`.
-            // SoladyERC721 `transferFrom` has no pause hook; the time gates above
-            // (TRANSFER_COOLDOWN / TRANSFER_RATE_LIMIT) don't check `paused()`.
-            // Skipping `_touch(to)` while paused closes the bounce. The batch-5
-            // patch closed request/cancelEmergencyExit but missed this transfer-hook
-            // path. Discovered by the defensive scan of PR #28 (same pass that
-            // caught M10 over-credit). Regression test in Audit195_StakingGov.t.sol:
-            // test_M16_revised_bounceTransferDuringPause_doesNotRefreshTouch.
-            if (!paused()) _touch(to); // AUDIT M-AUDIT-2026-3 (paused-conditional 2026-05-20)
+            // AUDIT FIX 2026-05-20 M16-REVISED: paused-conditional skip closes the
+            // bounce-transfer inactivity-gate bypass (SoladyERC721 has no pause hook).
+            if (!paused()) _touch(to);
         }
     }
 
@@ -1678,146 +1637,67 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         lastActivityAt[user] = block.timestamp;
     }
 
+    /// @dev EIP-170 dedup: the (ownerOf == caller, Position storage p, p.amount != 0)
+    ///      triplet appeared inline in 9 user-facing functions. Collapsing to one internal
+    ///      helper that returns the storage ref preserves byte-identical behaviour AND
+    ///      lets the optimizer keep one shared body instead of 9 copies.
+    function _ownedPosition(uint256 tokenId, address caller)
+        internal view returns (Position storage p)
+    {
+        if (ownerOf(tokenId) != caller) revert NotPositionOwner();
+        p = positions[tokenId];
+        if (p.amount == 0) revert NoPosition();
+    }
+
     // AUDIT FIX C-03: Safe int256 cast — only transfer if accumulated > rewardDebt
-    function _getReward(uint256 tokenId, Position storage p) internal returns (uint256) {
-        if (p.boostedAmount == 0) return 0;
-        // AUDIT FIX M-01: Compute rewards BEFORE decay zeroes boostedAmount.
-        // Previously, _decayIfExpired was called first, setting boostedAmount=0 and
-        // causing all pending rewards for expired positions to be permanently lost.
-        address recipient = ownerOf(tokenId);
-        int256 accumulated = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
-        int256 diff = accumulated - p.rewardDebt;
-        p.rewardDebt = accumulated;
-
-        // Now decay the expired position (zeroes boostedAmount, updates totalBoostedStake)
+    function _getReward(uint256 tokenId, Position storage p) internal returns (uint256 claimed) {
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        // `ownerOf(tokenId)` is resolved here (immutables / ownership storage are not
+        // reachable from a delegatecall lib) and passed as `recipient`.
+        // AUDIT FIX 2026-05-27 [M5]: decay now runs HOST-side AFTER the library
+        // credits rewards (mirrors the `kick` pattern — see kick() ~line 1448).
+        // Pre-M5, the library called _decayIfExpired mid-function before crediting,
+        // which could strand cap-blocked residual in the inert post-decay slot.
+        // The library's M5 force-settle handles expiry residual before returning;
+        // we decay here so checkpoints and totalBoostedStake are updated correctly.
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        (claimed, rs) = StakingRewardLib.getReward(
+            rs,
+            p,
+            tokenId,
+            ownerOf(tokenId),
+            unsettledRewards,
+            unsettledRewardsByTokenId,
+            _checkpoints,
+            _totalBoostedStakeCheckpoints,
+            _positionsByOwner,
+            positions,
+            isLendingContract,
+            _rewardCfg()
+        );
+        _storeRewardState(rs);
+        // [M5]: decay host-side AFTER crediting (same pattern as kick).
         _decayIfExpired(tokenId, p);
-
-        if (diff > 0) {
-            uint256 pending = uint256(diff);
-            // AUDIT FIX M-03: Cap reward to available balance excluding reserved tokens
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            uint256 rewardPool = available > reserved ? available - reserved : 0;
-            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
-
-            if (cappedPending > 0) {
-                rewardToken.safeTransfer(recipient, cappedPending);
-                emit RewardPaid(recipient, tokenId, cappedPending);
-            }
-
-            // AUDIT FIX (critique 5.1 / battle-tested): route shortfall through
-            // _settleUnsettled so the user can reclaim once the pool is refunded,
-            // mirroring _settleRewardsOnTransfer semantics. Prior behavior silently
-            // advanced rewardDebt to the full accumulated value while paying only
-            // `rewardPool`, permanently losing the difference.
-            uint256 shortfall = pending - cappedPending;
-            if (shortfall > 0) {
-                uint256 actualSettled = _settleUnsettled(recipient, shortfall);
-                uint256 forfeited = shortfall - actualSettled;
-                if (forfeited > 0) {
-                    emit RewardsForfeited(recipient, forfeited);
-                }
-            }
-
-            return cappedPending;
-        }
-        return 0;
     }
 
     /// @notice AUDIT FIX C-04: Settle rewards to the previous owner on NFT transfer.
     ///         Updates rewardPerTokenStored inline (same logic as updateReward modifier) and
     ///         sends pending rewards to `from`, then resets rewardDebt for the new owner.
     function _settleRewardsOnTransfer(uint256 tokenId, address from) private {
-        // Accumulate pending rewards (same logic as updateReward modifier)
-        _accumulateRewards();
-
-        // AUDIT FIX M-04: Accumulate rewards in mapping instead of inline transfer
-        // SECURITY FIX: Cap to available reward pool excluding all reserved tokens
-        Position storage p = positions[tokenId];
-        int256 accumulated = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
-        int256 diff = accumulated - p.rewardDebt;
-        if (diff > 0) {
-            uint256 pending = uint256(diff);
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 reserved = _reserved();
-            uint256 rewardPool = available > reserved ? available - reserved : 0;
-            // Cap pending to available reward pool
-            uint256 cappedPending = pending > rewardPool ? rewardPool : pending;
-            // AUDIT FIX DS3-01 / DS3-05: emit RewardPoolShortfall when the
-            // pool can't cover the full pending amount. DS2-02 added this
-            // event to kick(); the same code-shape exists here in
-            // _settleRewardsOnTransfer (every NFT transfer with under-funded
-            // pool silently strands the post-pool slice). Mirrors the kick()
-            // event so off-chain monitors see the loss on either path.
-            if (pending > rewardPool) {
-                emit TransferRewardPoolShortfall(from, pending, rewardPool);
-            }
-            uint256 actualSettled = _settleUnsettled(from, cappedPending);
-            // AUDIT FIX FRESH-2026: M-1 [F-02-K-02] — route the rewardPool
-            // shortfall (`pending - cappedPending`) through `_settleUnsettled`
-            // for later reclaim, mirroring `_getReward` and `kick()`. Previously
-            // this slice was silently destroyed because `p.rewardDebt = accumulated`
-            // (line below) advances the anchor by the full pending amount.
-            uint256 shortfall = pending - cappedPending;
-            uint256 shortfallSettled;
-            if (shortfall > 0) {
-                shortfallSettled = _settleUnsettled(from, shortfall);
-                if (shortfallSettled > 0) {
-                    emit RewardSettledToUnsettled(from, tokenId, shortfallSettled);
-                    if (_isTrackedHolder(from)) {
-                        unsettledRewardsByTokenId[tokenId] += shortfallSettled;
-                    }
-                }
-                uint256 shortfallForfeited = shortfall - shortfallSettled;
-                if (shortfallForfeited > 0) {
-                    emit RewardsForfeited(from, shortfallForfeited);
-                }
-            }
-            // AUDIT FIX C-02: Emit forfeiture event when cap blocks settlement
-            uint256 forfeited = cappedPending - actualSettled;
-            if (forfeited > 0) {
-                emit RewardsForfeited(from, forfeited);
-            }
-            // AUDIT FIX DS3-03: emit a distinct event for the
-            // settled-to-unsettled path. RewardPaid implies an actual wallet
-            // transfer; this path only credits the unsettled mapping. Off-chain
-            // tooling now has unambiguous semantics: RewardPaid = ETH/TOWELI
-            // moved; RewardSettledToUnsettled = booked, awaiting claim.
-            if (actualSettled > 0) {
-                emit RewardSettledToUnsettled(from, tokenId, actualSettled);
-                // AUDIT FIX C-1: when the prior holder is the restaking contract
-                // (i.e., NFT is being unrestaked back to the user), record
-                // per-tokenId attribution so the restaking contract can pull
-                // exactly this credit via `claimUnsettledForTokenId`. Same
-                // motivation as the kick() instrumentation: prevents one
-                // restaker from draining another's pre-existing kick credits
-                // in the shared `unsettledRewards[restakingContract]` bucket.
-                // AUDIT FIX D-LD-H1: extended to lending contracts. When the
-                // NFT exits the lending escrow (repay or default-claim), the
-                // final-period accrual is credited here; per-tokenId tracking
-                // lets the lending contract pull EXACTLY this loan's slice via
-                // claimUnsettledForTokenId — no bucket-drain race with other
-                // borrowers' deltas, no mis-attribution to the donated pool.
-                if (_isTrackedHolder(from)) {
-                    unsettledRewardsByTokenId[tokenId] += actualSettled;
-                }
-            }
-            // AUDIT FIX: DEEP-DS-04 — refresh `from`'s activity timestamp; we just
-            // credited unsettledRewards[from] from a non-claim path (NFT transfer).
-            // The R014 M-9 invariant requires every reward-touching path that
-            // materially affects unsettled rewards for `user` to `_touch(user)`.
-            // AUDIT FIX 2026-05-20 M16-REVISED: paired with the `_afterTokenTransfer`
-            // paused-skip (see that comment in `_afterTokenTransfer`). Pre-fix, the
-            // bounce attack relied on this DEEP-DS-04 touch firing on the outgoing
-            // leg (FROM-side) to refresh `lastActivityAt[attacker]` once accrued
-            // rewards landed in `unsettledRewards[attacker]`. Skipping during pause
-            // closes that half of the bounce; the `_afterTokenTransfer` skip closes
-            // the return-leg TO-side touch. Regression test in
-            // Audit195_StakingGov.t.sol: test_M16_revised_bounceTransferDuringPause_doesNotRefreshTouch.
-            if (!paused()) _touch(from);
-        }
-        // AUDIT FIX: Set rewardDebt AFTER the reward pool check to ensure correct accounting
-        p.rewardDebt = accumulated;
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        rs = StakingRewardLib.settleRewardsOnTransfer(
+            rs,
+            positions[tokenId],
+            tokenId,
+            from,
+            unsettledRewards,
+            unsettledRewardsByTokenId,
+            isLendingContract,
+            lastActivityAt,
+            _rewardCfg()
+        );
+        _storeRewardState(rs);
     }
 
     /// @notice Write a checkpoint for the user's current voting power (OZ Checkpoints.Trace208).
@@ -1828,12 +1708,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      against the latest checkpoint before pushing.
     function _writeCheckpoint(address user) internal {
         uint256 power = votingPowerOf(user);
-        uint208 newPower = SafeCast.toUint208(power);
+        uint208 newPower = SafeCastLib.toUint208(power);
         uint208 last = _checkpoints[user].latest();
+        // AUDIT 2026-05-31 [slither incorrect-equality FP]: intentional value-equality
+        // early-exit so a no-op transfer doesn't waste an SSTORE. Same `==` pattern as
+        // Compound / OZ Governor checkpoint writes.
+        // slither-disable-next-line incorrect-equality
         if (last == newPower) return;
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
         // slither-disable-next-line unused-return
-        _checkpoints[user].push(SafeCast.toUint48(block.timestamp), newPower);
+        _checkpoints[user].push(SafeCastLib.toUint48(block.timestamp), newPower);
     }
 
     event UnsettledClaimed(address indexed user, uint256 amount);
@@ -1842,6 +1726,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         Rewards are stored in a mapping during transfer to prevent reverts.
     /// @dev AUDIT FIX v2: Retains unsettled amount on partial payout instead of zeroing
     function claimUnsettled() external nonReentrant whenNotPaused {
+        // AUDIT FIX (guard symmetry): tracked holders (restakingContract + whitelisted
+        // lending contracts) MUST drain only via `claimUnsettledForTokenId` so the
+        // per-tokenId backing stays in lockstep with the holder bucket. Without this,
+        // a tracked-holder contract calling `claimUnsettled()` would zero its bucket
+        // while leaving `unsettledRewardsByTokenId[*]` dangling — permanently bricking
+        // every restaker/borrower's per-tokenId recovery. Mirrors the identical guard
+        // in `claimUnsettledFor`.
+        if (_isTrackedHolder(msg.sender)) revert Unauthorized();
         _claimUnsettledInternal(msg.sender);
         _touch(msg.sender); // AUDIT R014 M-9: refresh inactivity gate
     }
@@ -1924,34 +1816,34 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // atomic, and both holders ALWAYS drain on transfer-out via this same
         // function — see TegridyRestaking.unrestake / TegridyLending.repayLoan).
         if (!_isTrackedHolder(msg.sender)) revert Unauthorized();
+        // AUDIT FIX 2026-05-26 [H-11 REVERTED 2026-05-26 self-audit] — the
+        // ownership-at-drain-time check broke the documented C-1 POST-transfer
+        // residue pull pattern: TegridyRestaking.unrestake/emergencyWithdrawNFT/
+        // emergencyForceReturn pull per-tokenId residue AFTER transferring the
+        // NFT to the user, at which point `ownerOf(tokenId)` is the user (not
+        // the restakingContract that credited the residue). The H-11 check
+        // silently reverted (try/catch absorbed) and stranded user residue.
+        //
+        // The original H-11 threat ("cross-lending attribution theft") is
+        // bounded by `min(perTokenId, msg.sender's bucket, pool)` so a
+        // captured lending contract can only drain UP TO ITS OWN BUCKET. That
+        // is the existing _isTrackedHolder gate behavior. The full fix
+        // requires per-tokenId attribution tracking (new storage slot) — a
+        // larger surgery deferred to a dedicated PR. The `NotEscrowedHere`
+        // error declaration is preserved for that future fix.
         if (recipient == address(0)) revert ZeroAddress();
 
-        uint256 amount = unsettledRewardsByTokenId[tokenId];
-        if (amount == 0) return 0;
-
-        // Defensive cap: holder bucket must be at least `amount`. Under normal
-        // accounting the per-tokenId mapping is always <= holder bucket because
-        // every per-tokenId credit was paired with a holder-bucket credit via
-        // _settleUnsettled(holder, ...). The cap defends against any future
-        // refactor that decouples the two writes.
-        uint256 holderUnsettled = unsettledRewards[msg.sender];
-        if (amount > holderUnsettled) amount = holderUnsettled;
-
-        // Apply the same reward-pool cap as `_claimUnsettledInternal`: reserve
-        // totalStaked + other users' unsettled (everything except this claim).
-        uint256 available = rewardToken.balanceOf(address(this));
-        uint256 otherUnsettled = totalUnsettledRewards > amount ? totalUnsettledRewards - amount : 0;
-        uint256 otherReserved = totalStaked + otherUnsettled;
-        uint256 rewardPool = available > otherReserved ? available - otherReserved : 0;
-        paid = amount > rewardPool ? rewardPool : amount;
-
-        if (paid > 0) {
-            unsettledRewardsByTokenId[tokenId] -= paid;
-            unsettledRewards[msg.sender] = holderUnsettled - paid;
-            totalUnsettledRewards = totalUnsettledRewards > paid ? totalUnsettledRewards - paid : 0;
-            rewardToken.safeTransfer(recipient, paid);
-            emit UnsettledClaimedForTokenId(tokenId, recipient, paid);
-        }
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        (paid, totalUnsettledRewards) = StakingRewardLib.claimUnsettledForTokenId(
+            unsettledRewardsByTokenId,
+            unsettledRewards,
+            tokenId,
+            msg.sender,
+            recipient,
+            totalUnsettledRewards,
+            totalStaked,
+            rewardToken
+        );
     }
 
     /// @notice AUDIT FIX D-LD-H1: tracked-holder predicate. A "tracked holder"
@@ -1971,25 +1863,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     function _claimUnsettledInternal(address _user) private {
-        uint256 amount = unsettledRewards[_user];
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (amount == 0) revert ZeroAmount();
-        // Cap to available reward pool: reserve totalStaked + other users' unsettled rewards
-        // (this user's unsettled amount is being claimed, so exclude it from reserved)
-        uint256 available = rewardToken.balanceOf(address(this));
-        uint256 otherUnsettled = totalUnsettledRewards > amount ? totalUnsettledRewards - amount : 0;
-        uint256 otherReserved = totalStaked + otherUnsettled;
-        uint256 rewardPool = available > otherReserved ? available - otherReserved : 0;
-        uint256 payout = amount > rewardPool ? rewardPool : amount;
-        // AUDIT FIX v2: Only deduct what's actually paid; remainder stays claimable
-        unsettledRewards[_user] = amount - payout;
-        // SECURITY FIX: Decrease totalUnsettledRewards as rewards are claimed
-        totalUnsettledRewards = totalUnsettledRewards > payout ? totalUnsettledRewards - payout : 0;
-        if (payout > 0) {
-            rewardToken.safeTransfer(_user, payout);
-            emit UnsettledClaimed(_user, payout);
-        }
+        // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
+        totalUnsettledRewards = StakingRewardLib.claimUnsettledInternal(
+            unsettledRewards, _user, totalUnsettledRewards, totalStaked, rewardToken
+        );
     }
 
     // ─── Emergency ─────────────────────────────────────────────────────
@@ -1997,14 +1874,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @notice AUDIT FIX #11: Emergency withdraw — ONLY callable when contract is paused.
     ///         Forfeits all pending rewards.
     function emergencyWithdrawPosition(uint256 tokenId) external nonReentrant whenPaused {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
 
         // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
 
-        rewardToken.safeTransfer(msg.sender, amount);
+        address(rewardToken).safeTransfer(msg.sender, amount);
         emit EmergencyWithdraw(msg.sender, tokenId, amount);
     }
 
@@ -2014,9 +1889,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         Previously silently forfeited all accrued rewards.
     /// @param tokenId The NFT token ID of the staking position to exit
     function emergencyExitPosition(uint256 tokenId) external nonReentrant updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (block.timestamp < p.lockEnd) revert LockStillActive();
 
         // AUDIT FIX M-05: Attempt reward claim before exit. If reward transfer reverts
@@ -2026,7 +1899,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // CCR-01 (batch-9 / batch-14): JBAC capture + post-burn return inside `_clearPosition`.
         uint256 amount = _clearPosition(tokenId, p);
 
-        rewardToken.safeTransfer(msg.sender, amount);
+        address(rewardToken).safeTransfer(msg.sender, amount);
         emit EmergencyExitPosition(msg.sender, tokenId, amount);
     }
 
@@ -2037,9 +1910,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      the user is mid-emergency-exit. A user actively exiting is clearly active.
     /// @param tokenId The NFT token ID of the staking position
     function requestEmergencyExit(uint256 tokenId) external nonReentrant {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         if (_emergencyExitRequests[tokenId] != 0) revert EmergencyExitAlreadyRequested();
 
         _emergencyExitRequests[tokenId] = block.timestamp;
@@ -2072,9 +1943,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         AUDIT FIX M-06: Attempts reward claim before exit instead of silently forfeiting.
     /// @param tokenId The NFT token ID of the staking position
     function executeEmergencyExit(uint256 tokenId) external nonReentrant updateReward {
-        if (ownerOf(tokenId) != msg.sender) revert NotPositionOwner();
-        Position storage p = positions[tokenId];
-        if (p.amount == 0) revert NoPosition();
+        Position storage p = _ownedPosition(tokenId, msg.sender);
         uint256 requestTime = _emergencyExitRequests[tokenId];
         if (requestTime == 0) revert EmergencyExitNotRequested();
         if (block.timestamp < requestTime + EMERGENCY_EXIT_DELAY) revert EmergencyExitDelayNotElapsed();
@@ -2095,16 +1964,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             penalty = (amount * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS;
             userReceives = amount - penalty;
             totalPenaltiesCollected += penalty;
-            // AUDIT C6: same penalty split as earlyWithdraw.
-            (uint256 toTreasury, uint256 recycled) = _splitPenalty(penalty);
-            if (toTreasury > 0) rewardToken.safeTransfer(treasury, toTreasury);
-            if (recycled > 0) _creditRewardPool(recycled);
-            emit PenaltySplit(tokenId, toTreasury, recycled);
+            // Entire penalty goes to treasury — same path as earlyWithdraw. The
+            // penalty-recycle split was removed for EIP-170 size (bps defaulted
+            // to 0, so this is behaviour-identical); deferred to a later version.
+            address(rewardToken).safeTransfer(treasury, penalty);
+            emit PenaltySentToTreasury(tokenId, penalty);
         } else {
             userReceives = amount;
         }
 
-        rewardToken.safeTransfer(msg.sender, userReceives);
+        address(rewardToken).safeTransfer(msg.sender, userReceives);
         _touch(msg.sender); // AUDIT M-AUDIT-2026-3: refresh inactivity gate post-exit
         emit EmergencyExitPosition(msg.sender, tokenId, userReceives);
     }
@@ -2156,7 +2025,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (_amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall(); // AUDIT FIX #61
         // AUDIT FIX: DEEP-DS-08 — delta-measure pattern.
         uint256 balBefore = rewardToken.balanceOf(address(this));
-        rewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
         uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
         if (received < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall();
         totalRewardsFunded += received;
@@ -2175,7 +2044,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         admin parameter change.
     function setStakingAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
-        if (stakingAdmin != address(0)) revert Unauthorized();
+        // AUDIT FIX 2026-05-26 [H-09] — one-shot semantic preserved (only callable
+        // when current admin is zero) with a clearer typed error. The recovery
+        // path from a forgotten initial wire — re-set when current is zero — was
+        // ALREADY supported by this gate (`if (stakingAdmin != address(0)) revert ...`).
+        // Swapping Unauthorized → AdminAlreadySet improves caller diagnostics
+        // without changing behaviour. Post-deploy rotation continues to flow
+        // through proposeAdminReplacement / executeAdminReplacement (48h timelock).
+        if (stakingAdmin != address(0)) revert AdminAlreadySet();
         // AUDIT FIX: DEEP-DS-12 — reject EOA / non-contract addresses on first-time
         // wire-up. Catches the typo that points at a wallet instead of a deployed
         // TegridyStakingAdmin; recovery is otherwise gated by the 48h
@@ -2183,6 +2059,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX FRESH-2026: F-60-2 — also reject EIP-7702 delegated EOAs
         // (code.length == 23 is the canonical 0xef0100‖addr delegation pointer).
         // Pattern matches OwnableNoRenounce._transferOwnership.
+        // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
+        // EOAs); NOT a capability check. Operator MUST verify the admin contract
+        // implements ITegridyStakingApply.
         uint256 codeLen = _admin.code.length;
         if (codeLen == 0 || codeLen == 23) revert NotAContract();
         stakingAdmin = _admin;
@@ -2223,6 +2102,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // proposal that points at an EOA gets installed at the 48h mark and
         // bricks every onlyAdmin path because the EOA cannot construct external
         // `apply*` calls.
+        // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
+        // EOAs); NOT a capability check. Operator MUST verify the proposed admin
+        // contract implements ITegridyStakingApply.
         uint256 codeLen = _newAdmin.code.length;
         if (codeLen == 0 || codeLen == 23) revert NotAContract();
         pendingStakingAdmin = _newAdmin;
@@ -2290,8 +2172,27 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         `claimUnsettledForTokenId` for every escrowed position.
     function applyRestakingContract(address _restaking) external onlyAdmin {
         if (_restaking == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-05-26 [L-18]: execute-time code.length recheck.
+        // Pre-fix, the admin's `proposeRestakingContract` checked
+        // `code.length != 0 && != 23` at propose-time only. EIP-6780 closed
+        // SELFDESTRUCT-as-clear on mainnet post-Cancun, but pending checks
+        // remain useful as defense-in-depth against:
+        //   (a) EIP-7702 delegation revocation during the 48h propose→exec
+        //       window (a 7702-delegated EOA could un-delegate and end up
+        //       as raw code.length == 0),
+        //   (b) any future EVM upgrade that re-enables full SELFDESTRUCT,
+        //   (c) script bugs that pass an address that was a contract at
+        //       propose-time but is no longer at execute-time.
+        // Mirrors the propose-time check; cheap ~2k gas.
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert ZeroAddress();
         // AUDIT FIX FRESH-2026: M-28 — block rotation while old restaker still escrows NFTs.
         address oldRestaking = restakingContract;
+        // AUDIT FIX 2026-05-26 [M-07] — no-op rotation guard + observability event.
+        // Without this, an accidental same-address apply would silently consume the
+        // 48h timelock window and emit no on-chain signal (the prior body wrote the
+        // identical value without an event).
+        if (oldRestaking == _restaking) revert SameValue();
         if (oldRestaking != address(0) && balanceOf(oldRestaking) > 0) {
             revert PendingRestakingPositions();
         }
@@ -2305,6 +2206,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             revert PendingRestakingResidue();
         }
         restakingContract = _restaking;
+        // AUDIT FIX 2026-05-26 [M-07] — emit on the contract itself; previously only
+        // TegridyStakingAdmin emitted RestakingContractChanged, leaving direct-admin
+        // callers (e.g., timelock multisigs reading staking-only event streams) blind.
+        emit RestakingContractApplied(oldRestaking, _restaking);
     }
 
     /// @notice Apply a lending-contract whitelist toggle. Caller must be the wired admin contract.
@@ -2318,7 +2223,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      count and cannot be inflated by other ERC721 collections held at the
     ///      same address. Only staking NFTs decrement this balance via `_burn` in
     ///      `_clearPosition`, so the check is sound for actual escrow.
-    function applyLendingContract(address _lending, bool _approved) external onlyAdmin {
+    /// @dev AUDIT FIX 2026-05-26 [L-17] — `updateReward` modifier added for parity with
+    ///      every other admin path that mutates state visible to the reward
+    ///      accumulator. Defensive only: a stale `rewardPerTokenStored` could in
+    ///      principle let a toggling whitelist change land between the prior
+    ///      `_accumulateRewards` tick and the next user-action tick, allowing a
+    ///      whitelist flip to subtly re-shape the next accrual window. Mirrors
+    ///      applyRewardRate's `updateReward` decoration.
+    function applyLendingContract(address _lending, bool _approved) external onlyAdmin updateReward {
         if (_lending == address(0)) revert ZeroAddress();
         if (!_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();
         // AUDIT FIX 2026-05-16 M12: same residue-strand guard as applyRestakingContract.
@@ -2327,6 +2239,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // residual-claim flow before revoking the whitelist entry.
         if (!_approved && unsettledRewards[_lending] > 0) revert PendingLendingResidue();
         isLendingContract[_lending] = _approved;
+        // AUDIT FIX 2026-05-26 [M-08] — emit on the contract itself so direct-admin
+        // observability matches the staking-admin sister event (LendingContractUpdated).
+        emit LendingContractApplied(_lending, _approved);
     }
 
     /// @notice AUDIT FIX L-28: Rescue ERC-20 tokens accidentally sent to this contract.
@@ -2338,7 +2253,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
         if (balance == 0) revert ZeroBalance();
-        IERC20(token).safeTransfer(treasury, balance);
+        SafeTransferLib.safeTransfer(token, treasury, balance);
     }
 
     /// @dev AUDIT FIX (pass-8 batch-14): `_returnJbac` (private) and
@@ -2405,7 +2320,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX: DEEP-DS-13 — `_burn` ran `_update` which removed tokenId from
         // `_positionsByOwner[msg.sender]` and zeroed `userTokenId[msg.sender]`. If
         // any positions remain, re-point the legacy pointer at one of them.
-        EnumerableSet.UintSet storage set = _positionsByOwner[msg.sender];
+        EnumerableSetLib.Uint256Set storage set = _positionsByOwner[msg.sender];
         uint256 setLen = set.length();
         if (setLen > 0) {
             // AUDIT FIX: DS2-05 — pick latest surviving position (preserves M-5 semantic).
@@ -2440,37 +2355,19 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         }
     }
 
-    /// @dev Settle unsettled rewards for a user, respecting the global cap.
-    /// @return settled The actual amount settled (may be less than requested if cap hit)
-    function _settleUnsettled(address user, uint256 amount) private returns (uint256 settled) {
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (amount == 0) return 0;
-        // AUDIT FIX L-06: Cap totalUnsettledRewards to prevent unbounded growth
-        uint256 unsettledRoom = totalUnsettledRewards < maxUnsettledRewards
-            ? maxUnsettledRewards - totalUnsettledRewards : 0;
-        settled = amount > unsettledRoom ? unsettledRoom : amount;
-        if (settled > 0) {
-            unsettledRewards[user] += settled;
-            totalUnsettledRewards += settled;
-        }
-        // AUDIT FIX M-3 (battle-tested): forfeit-to-treasury redirect removed.
-        // Previously, overage above maxUnsettledRewards was credited to
-        // unsettledRewards[treasury] and counted against totalUnsettledRewards, letting the
-        // treasury cap-squeeze honest users' claims (owner could then claimUnsettledFor(treasury)
-        // to extract). Under the corrected semantics, the overage remains unreserved in the
-        // reward-pool balance and is re-accrued to all active stakers via the next
-        // _accumulateRewards cycle — the cap is now genuinely honored. Caller-site
-        // RewardsForfeited events remain as-is for off-chain observability.
-    }
+    // C1 EIP-170 split: `_settleUnsettled()` moved into StakingRewardLib (its only
+    // callers — the reward cluster — now delegate there). AUDIT FIX L-06 cap +
+    // M-3 (forfeit-to-treasury redirect removed) semantics preserved verbatim there.
 
     /// @dev AUDIT FIX: Safe uint256 -> int256 cast. Reverts if value exceeds int256 max,
     ///      preventing silent wrap-around that could allow reward theft via negative rewardDebt.
     ///      A4-C-05: Verified — this function is called for all rewardDebt assignments.
     ///      The product (boostedAmount * rewardPerTokenStored) / ACC_PRECISION is safe from uint256
     ///      overflow because: boostedAmount <= ~4.5x * totalSupply (capped by MAX_BOOST + JBAC),
-    ///      rewardPerTokenStored grows by (reward * 1e12) / totalBoostedStake per second.
-    ///      With realistic values (1B supply, 100/s rate), overflow would take >1000 years.
+    ///      and rewardPerTokenStored grows by (reward * ACC_PRECISION) / totalBoostedStake per
+    ///      second with `reward` bounded by MAX_REWARD_RATE. AUDIT CLEANUP 2026-05-31 [INFO-11]:
+    ///      figures corrected to the live constants (ACC_PRECISION = 1e18, MAX_REWARD_RATE = 1e18)
+    ///      — see the overflow-safety margin note at the ACC_PRECISION declaration.
     function _safeInt256(uint256 value) private pure returns (int256) {
         if (value > uint256(type(int256).max)) revert IntOverflow();
         return int256(value);
@@ -2479,163 +2376,16 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // tokenURI: uses base ERC721 (returns "" when no baseURI set).
     // Full SVG metadata available via TegridyTokenURIReader contract.
 
-    // ─── AUDIT C5: Extend-fee helper + timelocked setter ─────────────────
-
-    /// @dev Pull extendFeeBps × positionAmount of TOWELI from the caller, then split the
-    ///      fee between treasury and the staker reward pool per `extendFeeRecycleBps`.
-    ///      Caller must approve this contract for the fee amount. No-op when
-    ///      extendFeeBps == 0 (default), preserving backward-compatible behaviour.
-    /// @dev AUDIT M-AUDIT-2026-1 (MEDIUM, 2026-04-28): pre-fix the entire fee landed at
-    ///      treasury while the boost it bought DILUTED every existing staker's share.
-    ///      Now we split the fee per `extendFeeRecycleBps`: the recycled slice is
-    ///      pulled into THIS contract (not treasury), then immediately credited via
-    ///      `_creditRewardPool` so it bumps `rewardPerTokenStored` for the existing
-    ///      stakers — exactly the `AUDIT C6` penalty-recycle pattern. When
-    ///      `extendFeeRecycleBps == 0` (default), the entire fee still goes to
-    ///      treasury and behaviour is identical to the C5 baseline.
-    /// @dev AUDIT FIX 2026-05-16 M10 (REVISED 2026-05-17): debt-advance pattern
-    ///      (closes DEEP-DS-09 DEFERRED). Pre-fix used `_creditRewardPoolExcluding`
-    ///      which bumped `rewardPerTokenStored` by `recycled * ACC / (totalB -
-    ///      contributorBoost)` — but `rewardPerTokenStored` is GLOBAL, so every
-    ///      staker's pending grew, including the caller's. The over-credit equalled
-    ///      `totalB * recycled / (totalB - contributorBoost) > recycled`, paying
-    ///      out MORE than was deposited and silently draining the pool when both
-    ///      `extendFeeBps > 0` AND `extendFeeRecycleBps > 0` (both default 0, so
-    ///      latent in mainnet config until the operator enabled either).
-    ///
-    ///      New approach mirrors Yearn/Convex debt-advance ("checkpoint-only" cancel):
-    ///      (1) Bump `rewardPerTokenStored` normally via `_creditRewardPool(recycled)`
-    ///          → divides by full `totalBoostedStake`, so total pending growth =
-    ///          exactly `recycled` (no over-credit, conservation preserved).
-    ///      (2) Pre-advance the caller's `p.rewardDebt` by their proportional share
-    ///          `boostedAmount * recycled / totalBoostedStake`. The subsequent
-    ///          `_getReward` call (which always follows in `extendLock` /
-    ///          `toggleAutoMaxLock`) computes `diff = accumulated - rewardDebt` and
-    ///          the bump cancels exactly, paying the caller only their PRE-fee
-    ///          pending. Others get their full proportional share of `recycled`.
-    ///      (3) `_applyNewBoost` (called after `_getReward`) recomputes
-    ///          `p.rewardDebt` from scratch using the new boost, so the advance is
-    ///          naturally consumed and won't leak forward.
-    ///
-    ///      Slight conservatism: the caller's "would-have-been" share of the bump
-    ///      stays in the pool inventory (counted in `totalRewardsFunded` but not
-    ///      claimable by anyone via this single tx). It is absorbed naturally by
-    ///      the next `notifyRewardAmount` cycle (delta-measure pattern picks up
-    ///      contract balance) or by subsequent recycles bumping the global
-    ///      accumulator. This is conservative-safe: under-credit is acceptable,
-    ///      over-credit (the original bug) was the bank-run vector.
-    /// @param tokenId       Position token ID, for event emission.
-    /// @param positionAmount Position's principal in TOWELI, for fee computation.
-    /// @param p             Caller's position storage ref; used to read the pre-fee
-    ///                      `boostedAmount` and pre-advance `rewardDebt` so the
-    ///                      caller cannot claim any portion of their own fee in
-    ///                      the immediately-following `_getReward`.
-    function _chargeExtendFee(uint256 tokenId, uint256 positionAmount, Position storage p) internal {
-        uint256 bps = extendFeeBps;
-        if (bps == 0) return;
-        uint256 fee = (positionAmount * bps) / BPS;
-        if (fee == 0) return;
-        (uint256 toTreasury, uint256 recycled) = _splitExtendFee(fee);
-        if (toTreasury > 0) {
-            rewardToken.safeTransferFrom(msg.sender, treasury, toTreasury);
-        }
-        if (recycled > 0) {
-            // Pull the recycled slice into THIS contract so it sits in the reward pool.
-            rewardToken.safeTransferFrom(msg.sender, address(this), recycled);
-            // AUDIT FIX 2026-05-17 M10-REVISED: debt-advance pattern (see NatSpec).
-            // Snapshot caller's boost + system total BEFORE the bump so the
-            // advance uses the same denominator the bump will use.
-            uint256 totalB = totalBoostedStake;
-            uint256 callerBoost = p.boostedAmount;
-            _creditRewardPool(recycled); // bumps rewardPerTokenStored by recycled*ACC/totalB
-            if (totalB > 0 && callerBoost > 0) {
-                // Cancel the caller's share of the bump. The product
-                // (callerBoost * recycled) is bounded by (totalB * recycled) which
-                // is bounded by the same uint256 product checked inside
-                // _creditRewardPool — no separate overflow risk.
-                p.rewardDebt += _safeInt256((callerBoost * recycled) / totalB);
-            }
-        }
-        emit ExtendFeeCollected(tokenId, msg.sender, fee);
-        emit ExtendFeeSplit(tokenId, msg.sender, toTreasury, recycled);
-    }
-
-    /// @dev AUDIT M-AUDIT-2026-1: split an extend fee into (toTreasury, recycled) per
-    ///      `extendFeeRecycleBps`. If `totalBoostedStake == 0` there is no one to
-    ///      recycle to, so the recycled slice is rebated to treasury for safekeeping.
-    ///      Mirrors `_splitPenalty` (AUDIT C6) including the M-24 round-UP semantics
-    ///      so sub-wei dust on small extend fees favors stakers (the recycle pool)
-    ///      rather than treasury.
-    function _splitExtendFee(uint256 fee) internal view returns (uint256 toTreasury, uint256 recycled) {
-        if (fee == 0) return (0, 0);
-        uint256 numerator = fee * extendFeeRecycleBps;
-        recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
-        if (recycled > fee) recycled = fee; // defensive (should never fire)
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (recycled > 0 && totalBoostedStake == 0) {
-            // Nothing to credit — fall back to treasury so funds aren't stranded.
-            recycled = 0;
-        }
-        toTreasury = fee - recycled;
-    }
-
-    /// @notice Apply a new extendFeeBps. Caller must be the wired admin contract.
-    function applyExtendFee(uint256 _bps) external onlyAdmin {
-        if (_bps > EXTEND_FEE_BPS_CEILING) revert ExtendFeeTooHigh();
-        extendFeeBps = _bps;
-    }
-
-    /// @notice AUDIT M-AUDIT-2026-1: apply a new extendFeeRecycleBps. Caller must be the
-    ///         wired admin contract. Capped at `BPS` (100% recycle).
-    function applyExtendFeeRecycle(uint256 _bps) external onlyAdmin {
-        if (_bps > BPS) revert ExtendFeeRecycleTooHigh();
-        extendFeeRecycleBps = _bps;
-    }
-
-    // ─── AUDIT C6: Penalty-recycle helpers + timelocked setter ───────────
-
-    /// @dev Split a penalty into (toTreasury, recycled) per penaltyRecycleBps. If
-    ///      totalBoostedStake == 0 there is no one to recycle to, so the recycled
-    ///      portion is rebated to treasury for safekeeping.
-    ///
-    ///      AUDIT M-24: round-UP `recycled` so sub-wei dust on small penalties favors
-    ///      stakers (the recycle pool) rather than treasury. The legacy rounding bias
-    ///      (floor) cumulatively drained the recycle pool of 1-wei increments per
-    ///      small early-exit. Ceiling division here is bounded by `recycled <= penalty`
-    ///      because penaltyRecycleBps is gated to <= BPS at propose time.
-    function _splitPenalty(uint256 penalty) internal view returns (uint256 toTreasury, uint256 recycled) {
-        if (penalty == 0) return (0, 0);
-        // Ceiling: (a*b + d - 1) / d when a*b > 0; safe because penaltyRecycleBps <= BPS
-        uint256 numerator = penalty * penaltyRecycleBps;
-        recycled = numerator == 0 ? 0 : (numerator + BPS - 1) / BPS;
-        if (recycled > penalty) recycled = penalty; // defensive (should never fire)
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (recycled > 0 && totalBoostedStake == 0) {
-            // Nothing to credit — fall back to treasury so funds aren't stranded.
-            recycled = 0;
-        }
-        toTreasury = penalty - recycled;
-    }
-
-    /// @dev Credit `amount` of TOWELI directly into rewardPerTokenStored, distributing
-    ///      it pro-rata to all current stakers immediately. The TOWELI must already be
-    ///      in this contract's balance (i.e., not transferred elsewhere) — the recycled
-    ///      portion of a penalty is simply not transferred out, naturally satisfying this.
-    function _creditRewardPool(uint256 amount) internal {
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (amount == 0 || totalBoostedStake == 0) return;
-        rewardPerTokenStored += (amount * ACC_PRECISION) / totalBoostedStake;
-        totalRewardsFunded += amount;
-    }
-
-    /// @notice Apply a new penaltyRecycleBps. Caller must be the wired admin contract.
-    function applyPenaltyRecycle(uint256 _bps) external onlyAdmin {
-        if (_bps > BPS) revert PenaltyRecycleTooHigh();
-        penaltyRecycleBps = _bps;
-    }
+    // ─── REMOVED for EIP-170 size (deferred to a later version) ──────────
+    // The extend-fee helpers (_chargeExtendFee / _splitExtendFee), the
+    // penalty-recycle helpers (_splitPenalty / _creditRewardPool), and their
+    // apply* setters (applyExtendFee / applyExtendFeeRecycle / applyPenaltyRecycle)
+    // were removed to bring this contract under the 24,576-byte limit. All of the
+    // governing bps (extendFeeBps / extendFeeRecycleBps / penaltyRecycleBps)
+    // defaulted to 0, so at the launch config the extend-lock fee was never
+    // charged and the entire early-withdrawal penalty already went to treasury —
+    // making the removal behaviour-identical to the launch config. The matching
+    // propose/execute/cancel timelock flows were removed from TegridyStakingAdmin.sol.
 
     /// @notice Apply a new maxUnsettledRewards cap. Caller must be the wired admin contract.
     /// @dev    AUDIT FIX FRESH-2026: F-35-3 [INFO] — added a 10B TOWELI sanity ceiling

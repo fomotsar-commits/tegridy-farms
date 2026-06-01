@@ -138,6 +138,14 @@ abstract contract TimelockAdmin {
     ///         `_proposalReadyAt(KEY)` for reads to keep the surface
     ///         consistent. A future major version may demote this slot to
     ///         `private` once all callsites have migrated.
+    /// @dev AUDIT FIX 2026-05-26 [M-19]: SECURITY INVARIANT — child contracts MUST
+    ///      use `_forceCancel(KEY)` for cancellation paths to emit the canonical
+    ///      `ProposalCancelled(KEY)` event. Direct writes (`_executeAfter[KEY] = 0`)
+    ///      bypass observability for any indexer subscribed to that event. Verified
+    ///      safe in current consumers as of the 2026-05-26 swarm audit; future
+    ///      contributors MUST preserve this convention. CI lint recommendation:
+    ///      grep for direct writes outside `_propose`/`_execute`/`_cancel`/
+    ///      `_forceCancel` and block PRs that introduce them.
     mapping(bytes32 => uint256) internal _executeAfter;
 
     // ─── Internal API ────────────────────────────────────────────────

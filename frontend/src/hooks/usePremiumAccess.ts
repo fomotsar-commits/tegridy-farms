@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts, useReadContract, useChainId } from 'wagmi';
 import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
-import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
 
 export function usePremiumAccess() {
@@ -47,7 +47,9 @@ export function usePremiumAccess() {
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, PREMIUM_ACCESS_ADDRESS] },
     ],
-    query: { enabled: !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
+    // Gate on deployment too: PremiumAccess was zeroed for the relaunch, so
+    // without this the reads fire against 0x0 and trip the page error banner.
+    query: { enabled: !!address && isDeployed(PREMIUM_ACCESS_ADDRESS), refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   // Parse results

@@ -234,6 +234,28 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
     expect(statusSpy).toHaveBeenCalledWith(200);
   });
 
+  // AUDIT FIX F1 (2026-05-25): Vercel preview deploys inherit prod secrets but
+  // DO NOT set NODE_ENV=production. The pre-fix `NODE_ENV !== "production"`
+  // origin gate therefore failed OPEN on every preview URL. The gate must now
+  // treat VERCEL_ENV=preview as prod-like and reject non-allowlisted origins.
+  it("(c) rejects bad origin in Vercel preview env (VERCEL_ENV=preview) with 403", async () => {
+    vi.resetModules();
+    delete process.env.NODE_ENV; // preview is NOT NODE_ENV=production
+    process.env.VERCEL_ENV = "preview";
+    handler = (await import(mod)).default;
+    const req = makeReq({
+      method: okMethod,
+      query: { ...okQuery, path: okPath },
+      body: okBody,
+      headers: { origin: "https://attacker.example" },
+    });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(403);
+    expect(jsonSpy).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringMatching(/Origin/) }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns OPTIONS preflight as 200", async () => {
     const req = makeReq({ method: "OPTIONS", query: { path: okPath } });
     const { res, statusSpy } = makeRes();

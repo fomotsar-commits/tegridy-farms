@@ -10,6 +10,7 @@ import {
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+  isDeployed,
 } from '../lib/constants';
 
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
@@ -67,7 +68,7 @@ function ArtCard({
       </div>
       <div
         className={`relative z-10 m-2 md:m-3 rounded-lg ${padding}`}
-        style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}
+        style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.08)' }}
       >
         {children}
       </div>
@@ -244,6 +245,7 @@ export default function SecurityPage() {
           <div className="space-y-3">
             {CONTRACTS.map((c, i) => {
               const artPiece = pageArt('security', 9 + i);
+              const deployed = isDeployed(c.address);
               return (
                 <div key={c.name} className="rounded-xl relative overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
                   <div className="absolute inset-0">
@@ -252,15 +254,23 @@ export default function SecurityPage() {
                   <div className="relative z-10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
                       <div className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{c.name}</div>
-                      <div className="text-xs text-[#22c55e] font-mono break-all" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{c.address}</div>
+                      {deployed ? (
+                        <div className="text-xs text-[#22c55e] font-mono break-all" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{c.address}</div>
+                      ) : (
+                        <div className="text-xs text-amber-300/80 font-mono" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Not deployed — deferred from the relaunch</div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[10px] text-emerald-400 flex items-center gap-1">&#10003; Verified</span>
-                      <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-300 hover:text-purple-200 transition-colors">Etherscan</a>
-                      <button onClick={() => copyAddr(c.address)} className="text-[#22c55e] hover:text-white transition-colors p-2 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Copy address" aria-label="Copy address">
-                        {copied === c.address ? <span className="text-green-400 text-xs">Copied</span> : <CopyIcon />}
-                      </button>
-                    </div>
+                    {deployed ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] text-emerald-400 flex items-center gap-1">&#10003; Verified</span>
+                        <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-300 hover:text-purple-200 transition-colors">Etherscan</a>
+                        <button onClick={() => copyAddr(c.address)} className="text-[#22c55e] hover:text-white transition-colors p-2 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Copy address" aria-label="Copy address">
+                          {copied === c.address ? <span className="text-green-400 text-xs">Copied</span> : <CopyIcon />}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] uppercase tracking-wider text-amber-300/70 shrink-0 px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10">Soon</span>
+                    )}
                   </div>
                 </div>
               );

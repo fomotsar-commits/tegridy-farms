@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -45,6 +46,7 @@ contract FinalAuditRestaking is Test {
     MockJBAC_FA jbac;
     MockWETH_FA weth;
     TegridyStaking staking;
+    StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
 
@@ -71,11 +73,13 @@ contract FinalAuditRestaking is Test {
             treasury,
             REWARD_RATE
         );
+        monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 
         restaking = new TegridyRestaking(
             address(staking),
+            address(monitor),
             address(toweli),
             address(weth),
             BONUS_RATE
@@ -385,13 +389,15 @@ contract FinalAuditRestaking is Test {
     // =========================================================================
 
     function test_sweepStuckRewards_blocks_bonus_and_reward_tokens() public {
+        // AUDIT FIX 2026-05-26 [M-09]: now traverses proposeSweepStuckRewards;
+        // the typed-error guards moved to the propose side (and re-check on execute).
         // Should revert for bonusRewardToken
         vm.expectRevert(TegridyRestaking.CannotSweepBonusToken.selector);
-        restaking.sweepStuckRewards(address(weth));
+        restaking.proposeSweepStuckRewards(address(weth));
 
         // Should revert for rewardToken
         vm.expectRevert(TegridyRestaking.CannotSweepRewardToken.selector);
-        restaking.sweepStuckRewards(address(toweli));
+        restaking.proposeSweepStuckRewards(address(toweli));
     }
 
     // =========================================================================

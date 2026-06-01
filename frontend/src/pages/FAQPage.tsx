@@ -134,7 +134,7 @@ export default function FAQPage() {
         >
           <div
             className="rounded-xl px-4 py-3 flex items-center gap-3"
-            style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}
+            style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
           >
             <svg className="w-5 h-5 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -174,7 +174,7 @@ export default function FAQPage() {
             </h2>
             <div
               className="rounded-xl overflow-hidden divide-y divide-white/5"
-              style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}
+              style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
             >
               {section.items.map((item, qIdx) => {
                 const key = `${sIdx}-${qIdx}`;
