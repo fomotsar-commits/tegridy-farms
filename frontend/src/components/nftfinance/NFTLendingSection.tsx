@@ -295,7 +295,9 @@ function LendTab() {
         address: TEGRIDY_NFT_LENDING_ADDRESS,
         abi: TEGRIDY_NFT_LENDING_ABI,
         functionName: 'createOffer',
-        args: [parseEther(principal), BigInt(aprBps), BigInt(duration), selectedCollection, tokenIdBig],
+        // De-drift 2026-05-31: createOffer now takes a 6th `_expiry` (absolute unix ts,
+        // bounded on-chain to [now+1h, now+90d]). Default the offer to stay open 30 days.
+        args: [parseEther(principal), BigInt(aprBps), BigInt(duration), selectedCollection, tokenIdBig, BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60)],
         value: parseEther(principal),
       });
     } catch (err: unknown) {

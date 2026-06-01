@@ -673,14 +673,19 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         if (idsToSwap.length === 0) {
           return toast.error('No NFTs available to buy');
         }
+        // De-drift 2026-05-31: contract swapETHForNFTs now takes (tokenIds, maxTotalCost, deadline).
+        // maxTotalCost = quote + 5% slippage cap, sent as value (the pool refunds excess on-chain);
+        // deadline = 20 min out.
+        const maxTotalCost = (bestAmount! * 105n) / 100n;
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
         writeContract(
           {
             chainId: CHAIN_ID,
             address: bestPool as Address,
             abi: TEGRIDY_NFT_POOL_ABI,
             functionName: 'swapETHForNFTs',
-            args: [idsToSwap],
-            value: bestAmount!,
+            args: [idsToSwap, maxTotalCost, deadline],
+            value: maxTotalCost,
           },
           {
             onSuccess: () => toast.success('NFTs purchased successfully!'),
@@ -689,13 +694,14 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
         );
       } else {
         const minOutput = (bestAmount! * 95n) / 100n;
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200); // 20-min deadline (de-drift 2026-05-31)
         writeContract(
           {
             chainId: CHAIN_ID,
             address: bestPool as Address,
             abi: TEGRIDY_NFT_POOL_ABI,
             functionName: 'swapNFTsForETH',
-            args: [parsedSellIds, minOutput],
+            args: [parsedSellIds, minOutput, deadline],
           },
           {
             onSuccess: () => toast.success('NFTs sold successfully!'),
@@ -1107,10 +1113,12 @@ function PoolAdminPanel({
   const handleProposeDelta = () => {
     try { call('proposeDelta', [parseEther(proposedDelta)]); } catch { toast.error('Invalid delta'); }
   };
-  const handleChangeFee = () => {
+  // De-drift 2026-05-31: changeFee is now a revert stub; fee changes go through the
+  // timelocked propose -> (24h) -> execute path (or cancel). Mirrors spot/delta.
+  const handleProposeFee = () => {
     const n = parseInt(newFeeBps, 10);
     if (!Number.isFinite(n) || n < 0) return toast.error('Invalid fee');
-    call('changeFee', [BigInt(n)]);
+    call('proposeFeeChange', [BigInt(n)]);
   };
   const handleWithdrawETH = () => {
     try { call('withdrawETH', [parseEther(drainEth)]); } catch { toast.error('Invalid ETH amount'); }
@@ -1231,15 +1239,27 @@ function PoolAdminPanel({
               <p className="text-[10px] uppercase tracking-wider text-white/55">LP Fee (bps)</p>
               <p className="text-[13px] font-mono text-white">{Number(feeBps)} · {(Number(feeBps) / 100).toFixed(2)}%</p>
             </div>
-            <span className="text-[10px] text-white/45">Immediate (no timelock)</span>
+            <span className="text-[10px] text-white/45">24h timelock</span>
           </div>
           <div className="flex gap-2">
             <input type="number" step="1" value={newFeeBps} onChange={(e) => setNewFeeBps(e.target.value)}
               placeholder="bps"
               className="flex-1 bg-black/50 border border-white/15 rounded-lg px-3 py-1.5 text-white text-[12px] font-mono focus:border-emerald-500/60 outline-none" />
-            <button onClick={handleChangeFee} disabled={busy || newFeeBps === String(feeBps)}
+            <button onClick={handleProposeFee} disabled={busy || newFeeBps === String(feeBps)}
               className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold bg-emerald-500/15 text-emerald-200 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors disabled:opacity-40">
-              Change Fee
+              Propose (24h)
+            </button>
+          </div>
+          {/* Execute after the 24h timelock, or cancel a pending proposal. The contract
+              reverts NoPendingChange / TimelockNotElapsed if not yet executable. */}
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => call('executeFeeChange')} disabled={busy}
+              className="flex-1 py-2 rounded-lg text-[11.5px] font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
+              Execute
+            </button>
+            <button onClick={() => call('cancelFeeChange')} disabled={busy}
+              className="flex-1 py-2 rounded-lg text-[11.5px] font-semibold bg-white/10 text-white/70 border border-white/20 hover:bg-white/15 transition-colors disabled:opacity-40">
+              Cancel
             </button>
           </div>
         </div>

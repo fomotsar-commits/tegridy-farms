@@ -254,7 +254,7 @@ export function GrantsSection() {
             {proposalResults?.map((result, i) => {
               if (!result?.result) return null;
               const [proposer, recipient, amount, description, votesFor, votesAgainst, deadline, status] =
-                result.result as [Address, Address, bigint, string, bigint, bigint, bigint, number];
+                result.result as [Address, Address, bigint, string, bigint, bigint, bigint, number, bigint, bigint];
               const proposalId = count - 1 - i;
               const hasVoted = voteChecks?.[i]?.result as boolean | undefined;
               const isActive = status === 0;
