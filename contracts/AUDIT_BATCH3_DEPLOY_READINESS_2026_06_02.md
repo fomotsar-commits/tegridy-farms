@@ -25,11 +25,11 @@ Raw findings: 2 → survived verification: 2 (0 refuted). No Critical; no Medium
 | Token Lending (P2P) | `TegridyLending(+Admin)` | Gondi | ✅ DEPLOY-READY |
 | NFT AMM Pools | `TegridyNFTPool(+Factory)` | Sudoswap | ✅ DEPLOY-READY |
 | NFT Lending (P2P) | `TegridyNFTLending(+Admin)` | Gondi/NFTfi | ✅ DEPLOY-READY |
-| **Launchpad V2** | **— none —** | NFT-drop factory | ⛔ **BLOCKED: no contract exists** |
+| **Launchpad V2** | recovered from git | NFT-drop factory (OZ Clones) | ✅ **DEPLOY-READY** (re-audited 2026-06-02; 1 MEDIUM fixed) |
 
 **7 of 9 implemented features were deploy-ready with zero surviving exploits. The 2 with a
-confirmed HIGH have been remediated (this batch). Launchpad V2 has no on-chain contract and
-cannot be deployed until one is written.**
+confirmed HIGH have been remediated (this batch). Launchpad V2's contracts were recovered from
+git and re-audited 2026-06-02 (1 MEDIUM fixed) — now DEPLOY-READY (see §3).**
 
 Confirmed findings by severity: **Critical 0 · High 2 (both now fixed) · Medium 0 · Low 0.**
 Both HIGHs were *functional/solvency* blockers — **no external theft/drain/reentrancy/double-spend
@@ -108,9 +108,15 @@ exploit survived verification on any contract.**
 
 ---
 
-## ⛔ Launchpad V2 — NEEDS-WORK (cannot be audited or deployed)
+## Launchpad V2 — RESOLVED 2026-06-02 (recovered, re-audited, deploy-ready)
 
-**No on-chain contract exists.** The Launchpad V2 frontend (create-collection wizard,
+> **UPDATE 2026-06-02:** RESOLVED. `TegridyDropV2` + `TegridyLaunchpadV2` were recovered from
+> git (audited then cut from the MVP, not missing), re-audited fresh, and the one MEDIUM found
+> was fixed + regression-tested. **Launchpad V2 is now DEPLOY-READY** — see
+> [`AUDIT_LAUNCHPADV2_2026_06_02.md`](AUDIT_LAUNCHPADV2_2026_06_02.md). Original as-found
+> assessment preserved below.
+
+**No on-chain contract exists (as originally found).** The Launchpad V2 frontend (create-collection wizard,
 `TEGRIDY_LAUNCHPAD_V2_ABI` / `TEGRIDY_DROP_V2_ABI`) calls a contract that an exhaustive
 file + function-signature search of `contracts/src` confirms is **not present** — no
 `createCollection` / `mintPhase` / `MintPhase` anywhere. It was likely deleted as a "V1
