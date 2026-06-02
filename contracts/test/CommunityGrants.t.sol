@@ -64,8 +64,12 @@ contract MockVEGrants {
         return totalLocked;
     }
 
-    /// @dev BATCH-E H11: proposer-must-have-single-position rule — mock returns 1.
-    function userPositionCount(address) external pure returns (uint256) {
+    /// @dev BATCH-E H11: proposer-must-have-single-position rule. 2026-06-02: renamed
+    ///      userPositionCount -> balanceOf to mirror the REAL TegridyStaking surface
+    ///      (Solady ERC721). The old name was an external-only mock selector that does
+    ///      NOT exist on the real (internal) staking method — that divergence masked a
+    ///      feature-bricking revert in CI. Default 1 = single position.
+    function balanceOf(address) external pure returns (uint256) {
         return 1;
     }
 }

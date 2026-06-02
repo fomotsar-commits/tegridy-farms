@@ -22,7 +22,12 @@ interface IVotingEscrowGrants {
     // AUDIT M13: per-owner set membership check used to detect multi-NFT self-vote bypass.
     function holdsToken(address user, uint256 tokenId) external view returns (bool);
     /// AUDIT FIX (BATCH-E H11): position count for the proposer-must-have-single-position rule.
-    function userPositionCount(address user) external view returns (uint256);
+    /// AUDIT FIX (2026-06-02 pre-deploy, HIGH): was `userPositionCount`, which is
+    /// `internal` on the live, EIP-170-frozen TegridyStaking — so every createProposal
+    /// reverted (feature 100% bricked, masked by MockVEGrants). Each staking position
+    /// is an ERC721 (Solady), so the standard external `balanceOf` returns the exact
+    /// position count without touching the frozen staking contract.
+    function balanceOf(address user) external view returns (uint256);
 }
 
 /// @title CommunityGrants
@@ -332,7 +337,10 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // consolidate before they can propose. Pattern matches Compound /
         // OZ Governor's `proposalThreshold` philosophy: a proposer must
         // present a single auditable position rather than a fragmented set.
-        if (votingEscrow.userPositionCount(msg.sender) != 1) {
+        // AUDIT FIX (2026-06-02 pre-deploy, HIGH): balanceOf (ERC721 position count)
+        // replaces userPositionCount, which is internal on the frozen TegridyStaking
+        // and reverted every createProposal call. See the interface note above.
+        if (votingEscrow.balanceOf(msg.sender) != 1) {
             revert ProposerMustHaveSinglePosition();
         }
 

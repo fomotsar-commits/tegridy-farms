@@ -937,6 +937,20 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
             // but mirroring the single-epoch guard makes the invariant local).
             if (!epochBribesFinalized[e]) continue;
 
+            // AUDIT FIX (2026-06-02 pre-deploy, HIGH): mirror the single-epoch
+            // claimBribes ClaimWindowNotOpen gate (see L811-815) into the batch
+            // loop. Without it, an early batch-claimer over-shares against an
+            // in-flight `totalGaugeVotes` denominator that keeps growing through
+            // the vote window, drawing the excess from other pools' commingled
+            // balance and breaking the sum(shares) <= bribeAmount solvency
+            // invariant. `continue` (not revert) preserves batch skip semantics;
+            // epochs[e] is safely indexable here (e < epochEnd <= epochs.length).
+            EpochInfo memory _epWindow = epochs[e];
+            uint256 _voteEnd = _epWindow.usesCommitReveal
+                ? revealDeadline(e)
+                : _epWindow.timestamp + VOTE_DEADLINE;
+            if (block.timestamp <= _voteEnd) continue;
+
             // V2: Use gauge votes instead of raw voting power
             uint256 userVoteForPair = gaugeVotes[msg.sender][e][pair];
             if (userVoteForPair == 0) continue;
