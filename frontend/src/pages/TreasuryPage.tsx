@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { m } from 'framer-motion';
 import { useBalance, useBlockNumber, useChainId, useReadContract } from 'wagmi';
 import { formatEther } from 'viem';
@@ -12,8 +12,9 @@ import {
   TOWELI_WETH_LP_ADDRESS,
 } from '../lib/constants';
 import { SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
-import { shortenAddress } from '../lib/formatting';
-import { getAddressUrl } from '../lib/explorer';
+import { shortenAddress, formatTimeAgo } from '../lib/formatting';
+import { getAddressUrl, getTxUrl } from '../lib/explorer';
+import { fetchAddressTxList, type TxRecord } from '../lib/txHistory';
 import { CopyButton } from '../components/ui/CopyButton';
 import { ArtImg } from '../components/ArtImg';
 
@@ -327,29 +328,133 @@ export default function TreasuryPage() {
           </div>
         </div>
 
-        {/* Recent transactions placeholder */}
-        <div className="relative overflow-hidden rounded-xl p-6 md:p-8" style={glass}>
-          <div className="absolute inset-0 opacity-25">
-            <ArtImg pageId="treasury" idx={7} alt="" loading="lazy" className="w-full h-full object-cover" />
-          </div>
-          <div className="relative z-10">
-            <h2 className="heading-luxury text-xl text-white mb-3" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Recent Treasury Transactions</h2>
-            <p className="text-white/70 text-[13px] leading-relaxed">
-              Coming soon — an indexed feed of the latest 10 inflows and outflows will appear here once the
-              indexer is live. In the meantime, all activity is auditable on-chain:{' '}
-              <a
-                href={getAddressUrl(chainId, TREASURY_ADDRESS)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-white underline hover:text-white/80"
-                aria-label="View treasury on block explorer (opens in new tab)"
-              >
-                View on block explorer ↗
-              </a>
-            </p>
-          </div>
-        </div>
+        {/* Recent treasury transactions — real on-chain feed */}
+        <RecentTreasuryTransactions chainId={chainId} />
       </m.section>
+    </div>
+  );
+}
+
+// Real "Recent Treasury Transactions" feed. Reuses the hardened, schema-
+// validated Etherscan path (lib/txHistory) and merges normal + internal
+// transfers so contract-routed fee inflows show alongside direct in/outflows.
+// Scoped to ETH value flows; the full ledger (incl. token transfers) stays one
+// click away on the block explorer.
+function RecentTreasuryTransactions({ chainId }: { chainId: number }) {
+  const [rows, setRows] = useState<TxRecord[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.allSettled([
+      fetchAddressTxList(TREASURY_ADDRESS, controller.signal, 'txlist'),
+      fetchAddressTxList(TREASURY_ADDRESS, controller.signal, 'txlistinternal'),
+    ])
+      .then((results) => {
+        if (controller.signal.aborted) return;
+        const ok = results.filter(
+          (r): r is PromiseFulfilledResult<TxRecord[]> => r.status === 'fulfilled',
+        );
+        if (ok.length === 0) {
+          setError('Treasury activity is momentarily unavailable.');
+          setRows([]);
+          return;
+        }
+        const seen = new Set<string>();
+        const merged = ok
+          .flatMap((r) => r.value)
+          // Value-bearing ETH flows only; token transfers live on the explorer.
+          .filter((tx) => tx.value && tx.value !== '0')
+          .sort((a, b) => Number(b.timeStamp) - Number(a.timeStamp))
+          .filter((tx) => {
+            const k = `${tx.hash}-${tx.from ?? ''}-${tx.to}-${tx.value}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          })
+          .slice(0, 10);
+        setRows(merged);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const treasury = TREASURY_ADDRESS.toLowerCase();
+
+  return (
+    <div className="relative overflow-hidden rounded-xl p-6 md:p-8" style={glass}>
+      <div className="absolute inset-0 opacity-25">
+        <ArtImg pageId="treasury" idx={7} alt="" loading="lazy" className="w-full h-full object-cover" />
+      </div>
+      <div className="relative z-10">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="heading-luxury text-xl text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Recent Treasury Transactions</h2>
+          <a
+            href={getAddressUrl(chainId, TREASURY_ADDRESS)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-white/70 hover:text-white text-[12px] underline shrink-0"
+            aria-label="View full treasury ledger on block explorer (opens in new tab)"
+          >
+            Full ledger ↗
+          </a>
+        </div>
+
+        {loading ? (
+          <div className="space-y-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-10 rounded-lg bg-black/30 border border-white/10 animate-pulse" />
+            ))}
+          </div>
+        ) : error ? (
+          <p className="text-white/70 text-[13px] leading-relaxed">
+            {error} All activity remains auditable on the{' '}
+            <a href={getAddressUrl(chainId, TREASURY_ADDRESS)} target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-white/80">block explorer ↗</a>.
+          </p>
+        ) : rows && rows.length > 0 ? (
+          <div className="divide-y divide-white/10">
+            {rows.map((tx, i) => {
+              const inflow = tx.to.toLowerCase() === treasury;
+              const counterparty = inflow ? (tx.from ?? tx.to) : tx.to;
+              const eth = Number(formatEther(BigInt(tx.value)));
+              const ethShort = eth.toLocaleString(undefined, { maximumFractionDigits: 4 });
+              return (
+                <a
+                  key={`${tx.hash}-${i}`}
+                  href={getTxUrl(chainId, tx.hash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between gap-3 py-2.5 -mx-2 px-2 rounded hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${inflow ? 'text-emerald-300 bg-emerald-500/15' : 'text-amber-300 bg-amber-500/15'}`}>
+                      {inflow ? 'IN' : 'OUT'}
+                    </span>
+                    <span className="text-white/80 text-[12px] font-mono truncate">
+                      {inflow ? 'from' : 'to'} {shortenAddress(counterparty)}
+                    </span>
+                    {tx.isError !== '0' && <span className="text-danger text-[10px] shrink-0">failed</span>}
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className={`text-[12px] font-mono tabular-nums ${inflow ? 'text-emerald-300' : 'text-white'}`}>
+                      {inflow ? '+' : '−'}{ethShort} <span className="text-white/50">ETH</span>
+                    </span>
+                    <span className="text-white/45 text-[11px] tabular-nums w-16 text-right">{formatTimeAgo(Number(tx.timeStamp))}</span>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-white/70 text-[13px] leading-relaxed">
+            No ETH transfers recorded yet — inflows and outflows will appear here as they happen. The full ledger is on the{' '}
+            <a href={getAddressUrl(chainId, TREASURY_ADDRESS)} target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-white/80">block explorer ↗</a>.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

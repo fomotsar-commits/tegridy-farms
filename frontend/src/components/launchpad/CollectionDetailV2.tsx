@@ -462,13 +462,14 @@ export function CollectionDetailV2({
 
       {/* Live Mint Feed */}
       <div className="mt-6">
-        <LiveMintFeed />
+        <LiveMintFeed dropAddress={dropAddress} />
       </div>
 
       {/* Creator Revenue Dashboard (owner only) */}
       {drop.isOwner && (
         <CreatorRevenueDashboard
           drop={{ mintPrice: drop.mintPrice, totalMinted: drop.totalSupply }}
+          dropAddress={dropAddress}
         />
       )}
 

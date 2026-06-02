@@ -3,7 +3,7 @@ import { m, AnimatePresence } from 'framer-motion';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { formatEther, parseEther, type Address } from 'viem';
 import { toast } from 'sonner';
-import { TEGRIDY_NFT_LENDING_ADDRESS, CHAIN_ID } from '../../lib/constants';
+import { TEGRIDY_NFT_LENDING_ADDRESS, CHAIN_ID, isDeployed } from '../../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
@@ -107,16 +107,19 @@ export function NFTLendingSection() {
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'offerCount',
+    query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
   const { data: loanCountData } = useReadContract({
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'loanCount',
+    query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
   const { data: protocolFeeBpsData } = useReadContract({
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'protocolFeeBps',
+    query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
 
   const offerCount = offerCountData ? Number(offerCountData) : 0;
@@ -269,6 +272,7 @@ function LendTab() {
     // AUDIT FIX M-8: refuse on wrong chain — createOffer would burn the
     // principal value to a phantom address on Sepolia/Base/Arbitrum.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
     if (!principal || parseFloat(principal) <= 0) {
       toast.error('Enter a valid principal amount');
       return;
@@ -489,6 +493,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
 
   const { data: offersRaw, isLoading: offersLoading } = useReadContracts({
     contracts: offerContracts,
+    query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
 
   interface OfferData {
@@ -680,6 +685,7 @@ function OfferCard({
   const handleApprove = () => {
     // AUDIT FIX M-8: refuse on wrong chain.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
     approveNft({
       chainId: CHAIN_ID,
       address: offer.collateralContract,
@@ -691,6 +697,7 @@ function OfferCard({
 
   const handleAccept = () => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
     acceptOffer({
       chainId: CHAIN_ID,
       address: TEGRIDY_NFT_LENDING_ADDRESS,
@@ -843,6 +850,7 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
 
   const { data: loansRaw, isLoading: loansLoading } = useReadContracts({
     contracts: loanContracts,
+    query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
 
   interface ParsedLoan extends LoanData {
@@ -962,6 +970,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
     // AUDIT FIX M-8: refuse on wrong chain — repayLoan would burn the
     // repayment value into a phantom address on Sepolia/Base/Arbitrum.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
     if (!repaymentData) {
       toast.error('Could not read repayment amount');
       return;
@@ -978,6 +987,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
 
   const handleClaimDefault = () => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
     claimDefault({
       chainId: CHAIN_ID,
       address: TEGRIDY_NFT_LENDING_ADDRESS,
