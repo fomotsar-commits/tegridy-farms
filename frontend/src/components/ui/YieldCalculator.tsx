@@ -21,11 +21,13 @@ import { useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { LOCK_DURATIONS } from '../../lib/copy';
+import { usePoolData } from '../../hooks/usePoolData';
 
-// Conservative reference baseline. Real yield varies with TVL and volume.
-// Source: recent RevenueDistributor streams + LP farming emissions.
-// Update this quarterly or wire to a live stat when the indexer is in place.
-const BASELINE_APR_PCT = 12; // 12% as a starting reference
+// Fallback reference baseline, used only when the live on-chain base APR is
+// unavailable (pool not deployed, or a near-empty pool whose APR is capped).
+// The component prefers usePoolData()'s live base APR — the same value the
+// Farm page's StakingCard shows ("base APR × boost").
+const BASELINE_APR_PCT = 12; // fallback reference when live APR is unavailable
 
 interface Tier {
   days: number;
@@ -60,19 +62,29 @@ export function YieldCalculator() {
   const [selectedIdx, setSelectedIdx] = useState<number>(3); // default to "The Long Haul" (1yr)
   const [hasJbac, setHasJbac] = useState<boolean>(false);
 
+  // Prefer the live on-chain base APR (same value StakingCard shows). usePoolData
+  // returns it per boosted-stake unit, so user APR = base × their boost — exactly
+  // this calculator's model. Fall back to the static reference when the pool
+  // isn't deployed or its APR is capped (near-empty pool → astronomical rate).
+  const poolData = usePoolData();
+  const liveApr = Number(poolData.apr);
+  const aprIsLive =
+    poolData.isDeployed && !poolData.aprCapped && Number.isFinite(liveApr) && liveApr > 0;
+  const baselineAprPct = aprIsLive ? liveApr : BASELINE_APR_PCT;
+
   const amount = Math.max(0, parseFloat(amountStr) || 0);
   const tier = (TIERS[selectedIdx] ?? TIERS[0])!;
 
   const result = useMemo(() => {
     const jbacBonus = hasJbac ? 0.5 : 0;
     const effectiveBoost = Math.min(tier.boost + jbacBonus, 4.5);
-    // Reference-only: linear scaling of baseline APR by boost multiplier.
-    // Real math is share-of-pool weighted; this is deliberately conservative.
-    const apr = BASELINE_APR_PCT * effectiveBoost;
+    // user APR = base APR × effective boost (matches on-chain pro-rata-by-
+    // boosted-stake distribution and StakingCard's projection).
+    const apr = baselineAprPct * effectiveBoost;
     const annualUsd = amount * (apr / 100);
     const monthlyUsd = annualUsd / 12;
     return { effectiveBoost, apr, annualUsd, monthlyUsd };
-  }, [amount, tier, hasJbac]);
+  }, [amount, tier, hasJbac, baselineAprPct]);
 
   return (
     <m.section
@@ -95,7 +107,7 @@ export function YieldCalculator() {
           </p>
         </div>
         <span className="text-[10px] uppercase tracking-wider text-white/40 px-2 py-0.5 rounded-full border border-white/10">
-          Baseline {BASELINE_APR_PCT}% APR
+          {aprIsLive ? `Live ${baselineAprPct.toFixed(1)}% base APR` : `Baseline ${BASELINE_APR_PCT}% APR`}
         </span>
       </header>
 
@@ -195,7 +207,9 @@ export function YieldCalculator() {
         {/* CTA */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-white/50 text-[10px] max-w-[60%]">
-            Estimates assume baseline {BASELINE_APR_PCT}% APR scaled by boost. Real yield depends on live pool revenue.
+            {aprIsLive
+              ? `Based on the live ${baselineAprPct.toFixed(1)}% base APR scaled by boost. Rates change with total staked.`
+              : `Estimates assume a ${BASELINE_APR_PCT}% baseline APR scaled by boost. Real yield depends on live pool revenue.`}
           </p>
           <Link
             to="/farm"
