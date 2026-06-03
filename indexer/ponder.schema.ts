@@ -259,3 +259,42 @@ export const twapRebootstrap = onchainTable(
     pairIdx: index().on(table.pair),
   }),
 );
+
+// ─── POL Accumulator business events (Wave-3 IDX-1 follow-up, 2026-06-02) ─────
+//
+// The 6 POLAccumulator business events were previously log-only (no DB table),
+// so treasury / POL activity was visible in the indexer logs but not GraphQL-
+// queryable. One discriminated `pol_event` table (same pattern as pair_event)
+// backs a POL/treasury activity feed; columns are nullable and populated per
+// `type`.
+export const polEvent = onchainTable(
+  "pol_event",
+  (t) => ({
+    id: t.text().primaryKey(), // event.log.id (txHash + logIndex)
+    type: t.text().notNull(), // accumulated | ethReceived | sweepEth | polHarvest | sweepTokens | treasuryChanged
+    // Accumulated(ethUsed, toweliAdded, lpCreated)
+    ethUsed: t.bigint(),
+    toweliAdded: t.bigint(),
+    lpCreated: t.bigint(),
+    // ETHReceived(sender, amount)
+    sender: t.hex(),
+    // shared amount: ETHReceived / SweepETHExecuted / SweepTokensExecuted
+    amount: t.bigint(),
+    // SweepETHExecuted(recipient, amount) / SweepTokensExecuted(token, recipient, amount)
+    recipient: t.hex(),
+    token: t.hex(),
+    // POLHarvestExecuted(lpAmount, tokenOut, ethOut)
+    lpAmount: t.bigint(),
+    tokenOut: t.bigint(),
+    ethOut: t.bigint(),
+    // TreasuryChanged(oldTreasury, newTreasury)
+    oldTreasury: t.hex(),
+    newTreasury: t.hex(),
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    typeIdx: index().on(table.type),
+    timeIdx: index().on(table.timestamp),
+  }),
+);

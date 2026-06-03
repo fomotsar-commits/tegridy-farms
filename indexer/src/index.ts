@@ -17,6 +17,7 @@ import {
   pauseState,
   pauseEvent,
   timelockProposal,
+  polEvent,
 } from "ponder:schema";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -629,37 +630,75 @@ ponder.on("POLAccumulator_Pause:Unpaused", async ({ event, context }) => {
   await recordPauseState(context, event, "POLAccumulator", false);
 });
 
-// ─── Wave-3 IDX-1: business-event handlers for previously-orphaned contracts ─
+// ─── Wave-3 IDX-1 follow-up (2026-06-02): POLAccumulator business-event tables ─
 //
-// Ponder requires a handler for every registered event. These stubs emit a
-// `console.log` trace so operators can see the events flowing through the
-// indexer; a future PR should add typed DB tables (polAccumulatorActivity,
-// premiumAccessActivity, lendingLoanLifecycle, ...) and wire writes here.
-// Until then, orphan-event monitoring runs off the indexer logs.
+// Previously these 6 events were log-only (a `logEvent` console trace), so POL /
+// treasury activity wasn't GraphQL-queryable. Each now writes a discriminated
+// `pol_event` row. Ponder requires a handler for every registered event;
+// POLAccumulator is in the MVP set.
 
-function logEvent(scope: string, name: string, args: unknown, blockTimestamp: bigint, txHash: string): void {
-  // eslint-disable-next-line no-console -- audit trace only; future PR moves to DB rows
-  console.log(`[idx] ${scope}:${name} ts=${blockTimestamp} tx=${txHash}`, args);
-}
-
-// --- POLAccumulator business events ---------------------------------------
-ponder.on("POLAccumulator_Business:Accumulated", async ({ event }) => {
-  logEvent("POLAccumulator", "Accumulated", event.args, event.block.timestamp, event.transaction.hash);
+ponder.on("POLAccumulator_Business:Accumulated", async ({ event, context }) => {
+  await context.db.insert(polEvent).values({
+    id: event.log.id,
+    type: "accumulated",
+    ethUsed: event.args.ethUsed,
+    toweliAdded: event.args.toweliAdded,
+    lpCreated: event.args.lpCreated,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  });
 });
-ponder.on("POLAccumulator_Business:ETHReceived", async ({ event }) => {
-  logEvent("POLAccumulator", "ETHReceived", event.args, event.block.timestamp, event.transaction.hash);
+ponder.on("POLAccumulator_Business:ETHReceived", async ({ event, context }) => {
+  await context.db.insert(polEvent).values({
+    id: event.log.id,
+    type: "ethReceived",
+    sender: event.args.sender,
+    amount: event.args.amount,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  });
 });
-ponder.on("POLAccumulator_Business:SweepETHExecuted", async ({ event }) => {
-  logEvent("POLAccumulator", "SweepETHExecuted", event.args, event.block.timestamp, event.transaction.hash);
+ponder.on("POLAccumulator_Business:SweepETHExecuted", async ({ event, context }) => {
+  await context.db.insert(polEvent).values({
+    id: event.log.id,
+    type: "sweepEth",
+    recipient: event.args.recipient,
+    amount: event.args.amount,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  });
 });
-ponder.on("POLAccumulator_Business:POLHarvestExecuted", async ({ event }) => {
-  logEvent("POLAccumulator", "POLHarvestExecuted", event.args, event.block.timestamp, event.transaction.hash);
+ponder.on("POLAccumulator_Business:POLHarvestExecuted", async ({ event, context }) => {
+  await context.db.insert(polEvent).values({
+    id: event.log.id,
+    type: "polHarvest",
+    lpAmount: event.args.lpAmount,
+    tokenOut: event.args.tokenOut,
+    ethOut: event.args.ethOut,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  });
 });
-ponder.on("POLAccumulator_Business:SweepTokensExecuted", async ({ event }) => {
-  logEvent("POLAccumulator", "SweepTokensExecuted", event.args, event.block.timestamp, event.transaction.hash);
+ponder.on("POLAccumulator_Business:SweepTokensExecuted", async ({ event, context }) => {
+  await context.db.insert(polEvent).values({
+    id: event.log.id,
+    type: "sweepTokens",
+    token: event.args.token,
+    recipient: event.args.recipient,
+    amount: event.args.amount,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  });
 });
-ponder.on("POLAccumulator_Business:TreasuryChanged", async ({ event }) => {
-  logEvent("POLAccumulator", "TreasuryChanged", event.args, event.block.timestamp, event.transaction.hash);
+ponder.on("POLAccumulator_Business:TreasuryChanged", async ({ event, context }) => {
+  await context.db.insert(polEvent).values({
+    id: event.log.id,
+    type: "treasuryChanged",
+    oldTreasury: event.args.oldTreasury,
+    newTreasury: event.args.newTreasury,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  });
 });
 
 // AUDIT M5 (2026-05-24): PremiumAccess_Business stub handlers removed —
