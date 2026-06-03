@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
+import { parseUnits, formatUnits } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { toast } from 'sonner';
 import { useLimitOrders, type LimitOrder } from '../../hooks/useLimitOrders';
+import { useCowLimitOrder, type CowLimitRecord } from '../../hooks/useCowLimitOrder';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
+import { WETH_ADDRESS } from '../../lib/constants';
 import { formatTokenAmount } from '../../lib/formatting';
 
 const EXPIRY_OPTIONS = [
@@ -23,6 +26,7 @@ const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
 export function LimitOrderTab() {
   const { isConnected } = useAccount();
   const { activeOrders, pastOrders, createOrder, cancelOrder } = useLimitOrders();
+  const cow = useCowLimitOrder();
 
   const [amount, setAmount] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
@@ -58,6 +62,38 @@ export function LimitOrderTab() {
     setAmount('');
     setTargetPrice('');
     toast.success('Limit order created');
+  };
+
+  // CoW path: a real, decentralized limit order that settles on-chain when the
+  // price is met and survives closing the tab. CoW sells ERC-20s, so this sells
+  // WETH (the user wraps ETH first); the limit `buyAmount` = amount × targetPrice.
+  const handleCreateCow = async () => {
+    if (!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0) return;
+    const buyHuman = parseFloat(amount) * parseFloat(targetPrice);
+    if (!Number.isFinite(buyHuman) || buyHuman <= 0 || buyHuman >= 1e21) {
+      toast.error('Limit price out of range');
+      return;
+    }
+    let sellAmount: bigint;
+    let buyAmount: bigint;
+    try {
+      sellAmount = parseUnits(amount, 18); // WETH
+      buyAmount = parseUnits(buyHuman.toFixed(toToken.decimals), toToken.decimals);
+    } catch {
+      toast.error('Invalid amount');
+      return;
+    }
+    const uid = await cow.placeOrder({
+      sellToken: { symbol: 'WETH', address: WETH_ADDRESS, decimals: 18 },
+      buyToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals },
+      sellAmount,
+      buyAmount,
+      expirySeconds: Math.floor(EXPIRY_OPTIONS[expiryIdx]!.ms / 1000),
+    });
+    if (uid) {
+      setAmount('');
+      setTargetPrice('');
+    }
   };
 
   const visiblePastOrders = showAllPast ? pastOrders : pastOrders.slice(0, 3);
@@ -124,6 +160,32 @@ export function LimitOrderTab() {
             </div>
           )}
         </ConnectButton.Custom>
+      )}
+
+      {/* CoW Protocol — real on-chain limit order (survives tab close) */}
+      {isConnected && (
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
+          <p className="text-emerald-300 text-[10px] mb-2 rounded px-2 py-1.5 border border-emerald-500/40" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+            &#10003; Real on-chain order via CoW Protocol &mdash; settles when your price is met and <strong>survives closing the tab</strong> (no keeper; gasless to place). CoW sells ERC-20s, so this sells <strong>WETH</strong> &mdash; wrap your ETH first.
+          </p>
+          <button type="button" onClick={handleCreateCow}
+            disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
+            aria-disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
+            className="w-full py-3 min-h-[44px] text-[13px] rounded-lg font-medium text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.55)' }}>
+            {cow.isPlacing ? 'Placing on CoW…' : `Place CoW Order (WETH → ${toToken.symbol})`}
+          </button>
+        </div>
+      )}
+
+      {/* CoW Orders */}
+      {cow.records.length > 0 && (
+        <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
+          <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-2">CoW Orders</p>
+          {cow.records.slice(0, 6).map((r) => (
+            <CowOrderRow key={r.uid} rec={r} />
+          ))}
+        </div>
       )}
 
       {/* Active Orders */}
@@ -198,6 +260,30 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
             Cancel
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function CowOrderRow({ rec }: { rec: CowLimitRecord }) {
+  const sell = Number(formatUnits(BigInt(rec.sellAmount), rec.sellToken.decimals));
+  const buy = Number(formatUnits(BigInt(rec.buyAmount), rec.buyToken.decimals));
+  const filled = rec.status === 'fulfilled' || rec.status === 'traded';
+  const dead = rec.status === 'cancelled' || rec.status === 'expired';
+  const label = filled ? 'Filled' : rec.status === 'cancelled' ? 'Cancelled' : rec.status === 'expired' ? 'Expired' : 'Open';
+  const color = filled ? 'text-success' : dead ? 'text-danger' : 'text-white';
+  return (
+    <div className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-black/60"
+      style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
+      <div className="min-w-0">
+        <span className="text-white text-[12px] font-medium">{sell.toLocaleString(undefined, { maximumFractionDigits: 4 })} {rec.sellToken.symbol}</span>
+        <span className="text-white text-[11px] mx-1.5">&rarr;</span>
+        <span className="text-white text-[11px]">&ge; {buy.toLocaleString(undefined, { maximumFractionDigits: 2 })} {rec.buyToken.symbol}</span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className={`text-[10px] ${color}`}>{label}</span>
+        <a href={`https://explorer.cow.fi/orders/${rec.uid}`} target="_blank" rel="noopener noreferrer"
+          className="text-purple-400 hover:text-purple-300 text-[10px]">View &#8599;</a>
       </div>
     </div>
   );

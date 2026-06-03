@@ -23,17 +23,28 @@ import { runProxy } from "../../_lib/aggregator-proxy.js";
 // ─── Per-provider configs (verbatim from the prior individual files) ─────────
 
 const CONFIGS = {
-  // CoW Protocol — POST /mainnet/api/v1/quote
+  // CoW Protocol orderbook — POST /mainnet/api/v1/{quote,orders}, GET /mainnet/api/v1/orders/{uid}.
+  // 2026-06-02: extended from quote-only to add limit-order placement + status polling.
+  // (CoW's orderbook is a public, unauthenticated API; the proxy still enforces the
+  // origin allowlist + per-IP rate limit + body cap + cookie/auth stripping.)
   cow: {
     identifier: "cow",
     upstreamBase: "https://api.cow.fi",
-    matchPath: (segments) =>
-      segments.length === 4 &&
-      segments[0] === "mainnet" &&
-      segments[1] === "api" &&
-      segments[2] === "v1" &&
-      segments[3] === "quote",
-    allowedMethods: new Set(["POST", "OPTIONS"]),
+    matchPath: (segments) => {
+      if (segments[0] !== "mainnet" || segments[1] !== "api" || segments[2] !== "v1") return false;
+      // POST quote / POST orders (place)
+      if (segments.length === 4 && (segments[3] === "quote" || segments[3] === "orders")) return true;
+      // GET orders/{uid} (status) — uid is a 56-byte (112-hex-char) CoW order UID
+      if (
+        segments.length === 5 &&
+        segments[3] === "orders" &&
+        /^0x[0-9a-fA-F]{112}$/.test(segments[4])
+      ) {
+        return true;
+      }
+      return false;
+    },
+    allowedMethods: new Set(["GET", "POST", "OPTIONS"]),
     allowedQuery: [],
     rateLimit: 60,
     rateWindowSec: 60,
