@@ -487,7 +487,10 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
       address: TEGRIDY_NFT_LENDING_ADDRESS,
       abi: TEGRIDY_NFT_LENDING_ABI,
       functionName: 'getOffer' as const,
-      args: [BigInt(i + 1)] as const,
+      // AUDIT (mirror R011 M-049-7): getOffer is 0-indexed (offerId = offers.length
+      // at push), so query getOffer(i). The prior `i+1` hid offer #0 entirely and
+      // OOB-read getOffer(offerCount) on the last iteration (reverted, skipped).
+      args: [BigInt(i)] as const,
     }));
   }, [offerCount]);
 
@@ -515,7 +518,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
       if (r.status !== 'success' || !r.result) continue;
       const [lender, principal, aprBps, dur, collateral, tokenId, active] = r.result as [Address, bigint, bigint, bigint, Address, bigint, boolean];
       if (!active) continue;
-      result.push({ id: i + 1, lender, principal, aprBps, duration: dur, collateralContract: collateral, tokenId, active });
+      result.push({ id: i, lender, principal, aprBps, duration: dur, collateralContract: collateral, tokenId, active });
     }
     return result;
   }, [offersRaw]);

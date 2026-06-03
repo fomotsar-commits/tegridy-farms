@@ -237,8 +237,16 @@ function useDropMints(dropAddress?: string): DropMints {
       const fresh = groupMints(logs as unknown as RawTransferLog[]);
       if (fresh.length === 0) return;
       setMints((prev) => {
-        const seen = new Set((prev ?? []).map((mr) => mr.txHash));
-        return [...fresh.filter((mr) => !seen.has(mr.txHash)), ...(prev ?? [])];
+        const prevRows = prev ?? [];
+        const seen = new Set(prevRows.map((mr) => mr.txHash));
+        // If one tx's mints straddle two poll batches, fold the new qty into the
+        // existing row instead of dropping it (which would undercount qty).
+        const freshByTx = new Map(fresh.map((mr) => [mr.txHash, mr.qty] as const));
+        const merged = prevRows.map((mr) =>
+          freshByTx.has(mr.txHash) ? { ...mr, qty: mr.qty + freshByTx.get(mr.txHash)! } : mr,
+        );
+        const added = fresh.filter((mr) => !seen.has(mr.txHash));
+        return [...added, ...merged];
       });
       const newest = fresh[0]?.blockNumber ?? 0n;
       setTipBlock((t) => (t && t > newest ? t : newest));

@@ -646,7 +646,8 @@ ponder.on("POLAccumulator_Business:Accumulated", async ({ event, context }) => {
     lpCreated: event.args.lpCreated,
     timestamp: event.block.timestamp,
     txHash: event.transaction.hash,
-  });
+  })
+    .onConflictDoNothing();
 });
 ponder.on("POLAccumulator_Business:ETHReceived", async ({ event, context }) => {
   await context.db.insert(polEvent).values({
@@ -656,7 +657,8 @@ ponder.on("POLAccumulator_Business:ETHReceived", async ({ event, context }) => {
     amount: event.args.amount,
     timestamp: event.block.timestamp,
     txHash: event.transaction.hash,
-  });
+  })
+    .onConflictDoNothing();
 });
 ponder.on("POLAccumulator_Business:SweepETHExecuted", async ({ event, context }) => {
   await context.db.insert(polEvent).values({
@@ -666,7 +668,8 @@ ponder.on("POLAccumulator_Business:SweepETHExecuted", async ({ event, context })
     amount: event.args.amount,
     timestamp: event.block.timestamp,
     txHash: event.transaction.hash,
-  });
+  })
+    .onConflictDoNothing();
 });
 ponder.on("POLAccumulator_Business:POLHarvestExecuted", async ({ event, context }) => {
   await context.db.insert(polEvent).values({
@@ -677,7 +680,8 @@ ponder.on("POLAccumulator_Business:POLHarvestExecuted", async ({ event, context 
     ethOut: event.args.ethOut,
     timestamp: event.block.timestamp,
     txHash: event.transaction.hash,
-  });
+  })
+    .onConflictDoNothing();
 });
 ponder.on("POLAccumulator_Business:SweepTokensExecuted", async ({ event, context }) => {
   await context.db.insert(polEvent).values({
@@ -688,7 +692,8 @@ ponder.on("POLAccumulator_Business:SweepTokensExecuted", async ({ event, context
     amount: event.args.amount,
     timestamp: event.block.timestamp,
     txHash: event.transaction.hash,
-  });
+  })
+    .onConflictDoNothing();
 });
 ponder.on("POLAccumulator_Business:TreasuryChanged", async ({ event, context }) => {
   await context.db.insert(polEvent).values({
@@ -698,7 +703,8 @@ ponder.on("POLAccumulator_Business:TreasuryChanged", async ({ event, context }) 
     newTreasury: event.args.newTreasury,
     timestamp: event.block.timestamp,
     txHash: event.transaction.hash,
-  });
+  })
+    .onConflictDoNothing();
 });
 
 // AUDIT M5 (2026-05-24): PremiumAccess_Business stub handlers removed —

@@ -123,6 +123,18 @@ export function useCowLimitOrder() {
       const buyToken = params.buyToken.address as Address;
       setIsPlacing(true);
       try {
+        // 0. Must actually hold the sell token, else the signed order can never fill.
+        const balance = (await publicClient.readContract({
+          address: sellToken,
+          abi: ERC20_ABI,
+          functionName: 'balanceOf',
+          args: [address],
+        })) as bigint;
+        if (balance < params.sellAmount) {
+          toast.error(`Insufficient ${params.sellToken.symbol} balance`);
+          return null;
+        }
+
         // 1. Ensure the vault relayer can pull the sell token.
         const allowance = (await publicClient.readContract({
           address: sellToken,
@@ -144,6 +156,11 @@ export function useCowLimitOrder() {
 
         // 2. Build + EIP-712 sign the order.
         const validTo = Math.floor(Date.now() / 1000) + params.expirySeconds;
+        if (validTo > 0xffffffff) {
+          // validTo is a uint32 in the signed order; refuse rather than silently wrap.
+          toast.error('Expiry too far in the future');
+          return null;
+        }
         const order = buildLimitSellOrder({
           sellToken,
           buyToken,

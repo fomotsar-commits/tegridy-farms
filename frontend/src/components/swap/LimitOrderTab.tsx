@@ -69,18 +69,25 @@ export function LimitOrderTab() {
   // WETH (the user wraps ETH first); the limit `buyAmount` = amount × targetPrice.
   const handleCreateCow = async () => {
     if (!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0) return;
-    const buyHuman = parseFloat(amount) * parseFloat(targetPrice);
-    if (!Number.isFinite(buyHuman) || buyHuman <= 0 || buyHuman >= 1e21) {
-      toast.error('Limit price out of range');
+    if (parseFloat(amount) > MAX_AMOUNT_ETH) {
+      toast.error(`Max ${MAX_AMOUNT_ETH} ETH per order`);
       return;
     }
     let sellAmount: bigint;
     let buyAmount: bigint;
     try {
-      sellAmount = parseUnits(amount, 18); // WETH
-      buyAmount = parseUnits(buyHuman.toFixed(toToken.decimals), toToken.decimals);
+      // Integer fixed-point so the SIGNED limit floor can't drift below intent —
+      // no parseFloat/toFixed on a value that becomes a signed on-chain amount.
+      // targetPrice is TOWELI per 1 ETH → buyAmount = sellAmount × priceBase / 1e18.
+      sellAmount = parseUnits(amount, 18); // WETH (18 dp)
+      const priceBase = parseUnits(targetPrice, toToken.decimals); // TOWELI base units / ETH
+      buyAmount = (sellAmount * priceBase) / 10n ** 18n;
     } catch {
-      toast.error('Invalid amount');
+      toast.error('Invalid amount or price');
+      return;
+    }
+    if (sellAmount <= 0n || buyAmount <= 0n) {
+      toast.error('Amount or limit too small');
       return;
     }
     const uid = await cow.placeOrder({
