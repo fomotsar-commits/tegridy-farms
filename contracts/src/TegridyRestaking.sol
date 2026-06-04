@@ -194,6 +194,96 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         _boostCheckpoints[user].push(SafeCast.toUint48(block.timestamp), SafeCast.toUint208(newBoost));
     }
 
+    /// @dev EIP-170 split (2026-06-04): the `totalActivePrincipal` delta-sync
+    ///      (DR2-01 / DR2-08 / DR3-05 — reconcile the running active-principal
+    ///      total to a new cached `positionAmount` BEFORE the overwrite, with the
+    ///      clamp-to-zero underflow guard) was duplicated verbatim at every
+    ///      cache-overwrite site (refreshPosition / claimAll stale + post-claim /
+    ///      decayExpiredRestaker). Extracted byte-for-byte — same arithmetic, same
+    ///      clamp — so the four copies collapse to one. No behaviour change.
+    function _syncActivePrincipal(uint256 oldAmt, uint256 newAmt) internal {
+        if (oldAmt >= newAmt) {
+            uint256 principalDelta = oldAmt - newAmt;
+            if (principalDelta <= totalActivePrincipal) {
+                totalActivePrincipal -= principalDelta;
+            } else {
+                totalActivePrincipal = 0;
+            }
+        } else {
+            totalActivePrincipal += (newAmt - oldAmt);
+        }
+    }
+
+    /// @dev EIP-170 split (2026-06-04): forward a user's accrued
+    ///      `unforwardedBaseRewards` (base rewards that arrived outside claimAll,
+    ///      e.g. via revalidateBoost) in rewardToken, capped by on-hand balance,
+    ///      with the `totalUnforwardedBase` attribution-cap guard. Extracted verbatim
+    ///      from claimAll (H-02) / unrestake / emergencyWithdrawNFT (S2-05) /
+    ///      emergencyForceReturn. Behaviour-identical.
+    function _forwardUnforwardedBase(address recipient) internal {
+        uint256 userUnforwarded = unforwardedBaseRewards[recipient];
+        if (userUnforwarded > 0) {
+            uint256 remainingBase = rewardToken.balanceOf(address(this));
+            uint256 actual = userUnforwarded > remainingBase ? remainingBase : userUnforwarded;
+            unforwardedBaseRewards[recipient] -= actual;
+            if (totalUnforwardedBase >= actual) totalUnforwardedBase -= actual;
+            if (actual > 0) {
+                rewardToken.safeTransfer(recipient, actual);
+                emit BaseClaimed(recipient, actual);
+            }
+        }
+    }
+
+    /// @dev EIP-170 split (2026-06-04): recover a user's previously-deferred
+    ///      `pendingUnsettledRewards` share from this contract's own rewardToken
+    ///      balance (DEEP-DR-01 reservation semantics), re-queueing any shortfall.
+    ///      Returns the amount actually paid so the caller folds it into its
+    ///      `UnsettledRecovered` total. Extracted verbatim from unrestake /
+    ///      emergencyWithdrawNFT. Behaviour-identical.
+    function _recoverPriorPending(address recipient) internal returns (uint256 paid) {
+        uint256 priorPending = pendingUnsettledRewards[recipient];
+        if (priorPending > 0) {
+            pendingUnsettledRewards[recipient] = 0;
+            totalPendingUnsettled -= priorPending;
+            uint256 localBal = rewardToken.balanceOf(address(this));
+            paid = priorPending > localBal ? localBal : priorPending;
+            uint256 stillOwed = priorPending - paid;
+            if (stillOwed > 0) {
+                pendingUnsettledRewards[recipient] = stillOwed;
+                totalPendingUnsettled += stillOwed;
+            }
+            if (paid > 0) {
+                rewardToken.safeTransfer(recipient, paid);
+            }
+        }
+    }
+
+    /// @dev EIP-170 split (2026-06-04): settle a position's accrued bonus against
+    ///      the current `accBonusPerShare`, re-anchor `bonusDebt` (CEI: written
+    ///      BEFORE the transfer), and pay `recipient` via the `_safeBonusTransferExt`
+    ///      self-call so a blacklisted/bricked recipient cannot DoS the caller
+    ///      (F-04-5) — on failure the credit is deferred to `unforwardedBonusRewards`
+    ///      for self-claim via `claimPendingBonusPayout()`. Extracted verbatim from
+    ///      the claimAll / unrestake / emergencyForceReturn bonus-settle tails.
+    ///      Behaviour-identical; callers keep their own `info.boostedAmount > 0`
+    ///      guards where present.
+    function _claimBonusWithDefer(RestakeInfo storage info, address recipient) internal {
+        int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
+        int256 diff = accumulated - info.bonusDebt;
+        info.bonusDebt = accumulated;
+        uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
+        if (bonusPending > 0) {
+            try this._safeBonusTransferExt(recipient, bonusPending) {
+                totalBonusDistributed += bonusPending;
+                emit BonusClaimed(recipient, bonusPending);
+            } catch {
+                unforwardedBonusRewards[recipient] += bonusPending;
+                totalUnforwardedBonus += bonusPending;
+                emit BonusTransferDeferred(recipient, bonusPending);
+            }
+        }
+    }
+
     uint256 public totalBonusFunded;
     uint256 public totalBonusDistributed;
     mapping(address => uint256) public unforwardedBaseRewards; // AUDIT FIX H-02: Track base rewards arriving outside claimAll
@@ -462,48 +552,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      does NOT track direct sends — operators MUST use `fundBonus` for
     ///      observable accounting. No code fix; ABI is correct.
     modifier updateBonus() {
-        if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
-            uint256 elapsed = block.timestamp - lastBonusRewardTime;
-            uint256 reward = elapsed * bonusRewardPerSecond;
-            uint256 available;
-            try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: subtract the
-                // already-committed `totalUnforwardedBonus` (deferred-payout
-                // debt sitting in `unforwardedBonusRewards[user]` queues from
-                // prior failed bonus-token transfers) BEFORE using the on-hand
-                // balance as the accrual cap. Pre-fix the cap conflated
-                // uncommitted pool liquidity with already-owed debt, letting
-                // fresh emission shares be minted into `accBonusPerShare`
-                // backed by funds already promised to deferred-payout users.
-                // Pattern of record: SushiSwap MasterChefV2 / Curve gauge
-                // factories track "queued debt" separately from "claimable
-                // pool" — emission flows against the uncommitted slice only.
-                // Honest restakers' bonus values then stay claimable in full
-                // and deferred-payout users (Carol after blacklist lift) are
-                // not silently shortchanged by Bob's normal claim runs.
-                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
-            } catch {
-                available = 0;
-            }
-            // AUDIT H13: surface bonus-pool drought so off-chain monitors can refund the
-            // pool before restakers see APR drift. The truncation behavior itself is
-            // preserved (reward = available) — this only adds observability.
-            if (reward > available) {
-                emit BonusShortfall(elapsed, reward - available);
-                reward = available;
-            }
-            if (reward > 0) {
-                accBonusPerShare += (reward * ACC_PRECISION) / totalRestaked;
-            }
-            lastBonusRewardTime = block.timestamp;
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        } else if (totalRestaked == 0) {
-            // AUDIT FIX H-01: Always advance lastBonusRewardTime when totalRestaked == 0
-            // to prevent first-restaker reward dump after a gap period.
-            // Rewards during empty periods are forfeited (no one to distribute to).
-            lastBonusRewardTime = block.timestamp;
-        }
+        // EIP-170 split (2026-06-04): the accrual body previously inlined here is
+        // byte-identical to `_accrueBonus()` (defined below — same H-RESTAKE-BONUS-
+        // CAP-DEBT cap, same H13 shortfall emit, same H-01 empty-period advance).
+        // Calling it removes the three inlined copies (one per updateBonus site:
+        // restake / proposeBonusRate / executeBonusRateChange) from the runtime
+        // bytecode. Behaviour is identical in production (base `_accrueBonus` is the
+        // same monotonic accrual). The modifier intentionally calls the RAW
+        // (unchecked) accrual exactly as the inlined body did — the R017
+        // `_accrueBonusChecked` monotonicity tripwire stays on the claim/stale paths.
+        _accrueBonus();
         _;
     }
 
@@ -925,16 +983,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // force-closed positions (where `newAmount == 0`) leak `oldAmount`
             // worth of principal into the reservation pool — silently DOS'ing
             // `recoverStuckPrincipal` for honest force-closed users.
-            if (oldAmount >= newAmount) {
-                uint256 principalDelta = oldAmount - newAmount;
-                if (principalDelta <= totalActivePrincipal) {
-                    totalActivePrincipal -= principalDelta;
-                } else {
-                    totalActivePrincipal = 0;
-                }
-            } else {
-                totalActivePrincipal += (newAmount - oldAmount);
-            }
+            _syncActivePrincipal(oldAmount, newAmount);
             info.positionAmount = newAmount;
             info.boostedAmount = newBoostedAmount;
             _writeBoostCheckpoint(msg.sender, newBoostedAmount); // AUDIT H-8
@@ -1040,16 +1089,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // entrypoint's `othersPrincipal` reservation grows unbounded).
                 // DR-02 fixed this for `emergencyForceReturn`; DR2-01 ports the
                 // same pattern to all four sibling stale-paths.
-                if (oldAmt >= currentAmount) {
-                    uint256 principalDelta = oldAmt - currentAmount;
-                    if (principalDelta <= totalActivePrincipal) {
-                        totalActivePrincipal -= principalDelta;
-                    } else {
-                        totalActivePrincipal = 0;
-                    }
-                } else {
-                    totalActivePrincipal += (currentAmount - oldAmt);
-                }
+                _syncActivePrincipal(oldAmt, currentAmount);
                 info.positionAmount = currentAmount;
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
@@ -1131,16 +1171,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 (uint256 postClaimAmount,,,,,,,,, ,) = staking.positions(info.tokenId);
                 if (postClaimAmount != info.positionAmount) {
                     uint256 oldP = info.positionAmount;
-                    if (oldP >= postClaimAmount) {
-                        uint256 delta = oldP - postClaimAmount;
-                        if (delta <= totalActivePrincipal) {
-                            totalActivePrincipal -= delta;
-                        } else {
-                            totalActivePrincipal = 0;
-                        }
-                    } else {
-                        totalActivePrincipal += (postClaimAmount - oldP);
-                    }
+                    _syncActivePrincipal(oldP, postClaimAmount);
                     info.positionAmount = postClaimAmount;
                 }
             }
@@ -1150,19 +1181,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
 
         // AUDIT FIX H-02: Forward any unforwarded base rewards (from revalidateBoost or other external calls)
-        uint256 unforwarded = unforwardedBaseRewards[msg.sender];
-        if (unforwarded > 0) {
-            uint256 available = rewardToken.balanceOf(address(this));
-            uint256 actual = unforwarded > available ? available : unforwarded;
-            // AUDIT FIX v3: Only subtract the amount actually transferred to prevent silent reward loss
-            unforwardedBaseRewards[msg.sender] = unforwarded - actual;
-            // SECURITY FIX: Track total unforwarded for attribution cap
-            if (totalUnforwardedBase >= actual) totalUnforwardedBase -= actual;
-            if (actual > 0) {
-                rewardToken.safeTransfer(msg.sender, actual);
-                emit BaseClaimed(msg.sender, actual);
-            }
-        }
+        _forwardUnforwardedBase(msg.sender);
 
         // AUDIT FIX FRESH-2026: H-3 [F-04-1] — sweep deferred BONUS-token credits
         // (paid in bonusRewardToken via the self-call try/catch wrapper).
@@ -1171,28 +1190,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // 2. Claim bonus rewards (skip if auto-refresh above already settled and reset debt)
         // SECURITY FIX C4: Explicit guard — only claim if debt drift exists after refresh
         // M-27: Safe int256 cast via _safeInt256 helper
+        // SECURITY FIX C4: only settle bonus when a live boost exists. The helper
+        // re-anchors bonusDebt (CEI) and defers payout on transfer failure (F-04-5).
         if (info.boostedAmount > 0) {
-            int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-            int256 diff = accumulated - info.bonusDebt;
-            info.bonusDebt = accumulated;
-            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-
-            if (bonusPending > 0) {
-                // AUDIT FIX FRESH-2026: F-04-5 — wrap user-side bonus transfer
-                // in try/catch via the existing self-call. Pre-fix, a user
-                // blacklisted on the bonus token DoS'd their own claimAll.
-                // On failure: queue into the bonus bucket so the user can
-                // self-claim via `claimPendingBonusPayout()` after un-
-                // blacklisting. Mirrors decayExpiredRestaker pattern.
-                try this._safeBonusTransferExt(msg.sender, bonusPending) {
-                    totalBonusDistributed += bonusPending;
-                    emit BonusClaimed(msg.sender, bonusPending);
-                } catch {
-                    unforwardedBonusRewards[msg.sender] += bonusPending;
-                    totalUnforwardedBonus += bonusPending;
-                    emit BonusTransferDeferred(msg.sender, bonusPending);
-                }
-            }
+            _claimBonusWithDefer(info, msg.sender);
         }
     }
 
@@ -1313,27 +1314,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // before clearing state. Mirrors claimAll path (paid in bonusRewardToken).
         _sweepUnforwardedBonus(msg.sender);
 
-        // Claim bonus rewards
-        // M-27: Safe int256 cast via _safeInt256 helper
-        int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-        int256 diff = accumulated - info.bonusDebt;
-        info.bonusDebt = accumulated;
-        uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-        if (bonusPending > 0) {
-            // AUDIT FIX FRESH-2026: F-04-5 — wrap user-side bonus transfer in
-            // try/catch via the existing self-call. Pre-fix, a user blacklisted
-            // on the bonus token DoS'd their own unrestake, forcing them into
-            // emergencyWithdrawNFT and forfeiting bonus. Now: defer to the
-            // bonus bucket; user self-claims via `claimPendingBonusPayout`.
-            try this._safeBonusTransferExt(msg.sender, bonusPending) {
-                totalBonusDistributed += bonusPending;
-                emit BonusClaimed(msg.sender, bonusPending);
-            } catch {
-                unforwardedBonusRewards[msg.sender] += bonusPending;
-                totalUnforwardedBonus += bonusPending;
-                emit BonusTransferDeferred(msg.sender, bonusPending);
-            }
-        }
+        // Claim bonus rewards — helper re-anchors bonusDebt (CEI) and defers the
+        // payout to the bonus bucket if the recipient transfer reverts (F-04-5).
+        _claimBonusWithDefer(info, msg.sender);
 
         // Update state
         // AUDIT H-1: release this user's principal reservation before transferring the NFT.
@@ -1414,45 +1397,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // `claimResidualForTokenId(tokenId)` once the pool is replenished.
         _reserveResidual(tokenId, msg.sender);
 
-        // Recover any previously deferred share from a prior under-funded
-        // claim. `pendingUnsettledRewards` is preserved as a deferred-payment
-        // mechanism — orthogonal to the per-tokenId attribution fix. We pull
-        // from this contract's own balance (not from the staking bucket) since
-        // that balance was funded by an earlier per-tokenId pull that the
-        // staking pool couldn't fully service.
-        uint256 priorPending = pendingUnsettledRewards[msg.sender];
-        if (priorPending > 0) {
-            pendingUnsettledRewards[msg.sender] = 0;
-            totalPendingUnsettled -= priorPending;
-            uint256 localBal = rewardToken.balanceOf(address(this));
-            uint256 paid = priorPending > localBal ? localBal : priorPending;
-            uint256 stillOwed = priorPending - paid;
-            if (stillOwed > 0) {
-                pendingUnsettledRewards[msg.sender] = stillOwed;
-                totalPendingUnsettled += stillOwed;
-            }
-            if (paid > 0) {
-                rewardToken.safeTransfer(msg.sender, paid);
-                totalUnsettled += paid;
-            }
-        }
+        // Recover any previously deferred share from a prior under-funded claim
+        // (DEEP-DR-01 reservation semantics, extracted to `_recoverPriorPending`).
+        totalUnsettled += _recoverPriorPending(msg.sender);
 
         if (totalUnsettled > 0) {
             emit UnsettledRecovered(msg.sender, totalUnsettled);
         }
 
         // Forward any unforwarded base rewards for this user (from revalidateBoost or other external calls)
-        uint256 userUnforwarded = unforwardedBaseRewards[msg.sender];
-        if (userUnforwarded > 0) {
-            uint256 remainingBase = rewardToken.balanceOf(address(this));
-            uint256 actual = userUnforwarded > remainingBase ? remainingBase : userUnforwarded;
-            unforwardedBaseRewards[msg.sender] -= actual;
-            if (totalUnforwardedBase >= actual) totalUnforwardedBase -= actual;
-            if (actual > 0) {
-                rewardToken.safeTransfer(msg.sender, actual);
-                emit BaseClaimed(msg.sender, actual);
-            }
-        }
+        _forwardUnforwardedBase(msg.sender);
 
         emit Unrestaked(msg.sender, tokenId);
     }
@@ -2156,39 +2110,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         _reserveResidual(tokenId, msg.sender);
 
         // Recover any previously deferred share. Same logic as `unrestake()`.
-        uint256 priorPending = pendingUnsettledRewards[msg.sender];
-        if (priorPending > 0) {
-            pendingUnsettledRewards[msg.sender] = 0;
-            totalPendingUnsettled -= priorPending;
-            uint256 localBal = rewardToken.balanceOf(address(this));
-            uint256 paid = priorPending > localBal ? localBal : priorPending;
-            uint256 stillOwed = priorPending - paid;
-            if (stillOwed > 0) {
-                pendingUnsettledRewards[msg.sender] = stillOwed;
-                totalPendingUnsettled += stillOwed;
-            }
-            if (paid > 0) {
-                rewardToken.safeTransfer(msg.sender, paid);
-                totalUnsettled += paid;
-            }
-        }
+        totalUnsettled += _recoverPriorPending(msg.sender);
 
         if (totalUnsettled > 0) {
             emit UnsettledRecovered(msg.sender, totalUnsettled);
         }
 
         // S2-05: Forward any unforwarded base rewards before clearing state
-        uint256 userUnforwarded = unforwardedBaseRewards[msg.sender];
-        if (userUnforwarded > 0) {
-            uint256 remainingBase = rewardToken.balanceOf(address(this));
-            uint256 actual = userUnforwarded > remainingBase ? remainingBase : userUnforwarded;
-            unforwardedBaseRewards[msg.sender] -= actual;
-            if (totalUnforwardedBase >= actual) totalUnforwardedBase -= actual;
-            if (actual > 0) {
-                rewardToken.safeTransfer(msg.sender, actual);
-                emit BaseClaimed(msg.sender, actual);
-            }
-        }
+        _forwardUnforwardedBase(msg.sender);
 
         // AUDIT FIX FRESH-2026: H-3 [F-04-1] — also sweep deferred BONUS-token
         // credits even on emergency exit (paid in bonusRewardToken via the
@@ -2326,44 +2255,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         _sweepUnforwardedBonus(restaker);
 
         // Settle any pending bonus rewards for the restaker
+        // Settle the restaker's pending bonus — helper re-anchors bonusDebt (CEI)
+        // and defers payout to the bonus bucket on transfer failure (F-51-5).
         if (info.boostedAmount > 0) {
-            int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-            int256 diff = accumulated - info.bonusDebt;
-            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-            // AUDIT FIX FRESH-2026: anchor bonusDebt regardless of transfer
-            // success so post-recovery accounting stays consistent. Pre-fix
-            // this path never wrote bonusDebt — a re-fired emergencyForceReturn
-            // could re-credit the same emission slice.
-            info.bonusDebt = accumulated;
-            if (bonusPending > 0) {
-                // AUDIT FIX FRESH-2026: F-51-5 — wrap in try/catch via existing
-                // self-call so a blacklisted recipient does NOT brick the
-                // last-resort recovery path. Defer into the bonus bucket;
-                // restaker self-claims via `claimPendingBonusPayout()` after
-                // un-blacklisting.
-                try this._safeBonusTransferExt(restaker, bonusPending) {
-                    totalBonusDistributed += bonusPending;
-                    emit BonusClaimed(restaker, bonusPending);
-                } catch {
-                    unforwardedBonusRewards[restaker] += bonusPending;
-                    totalUnforwardedBonus += bonusPending;
-                    emit BonusTransferDeferred(restaker, bonusPending);
-                }
-            }
+            _claimBonusWithDefer(info, restaker);
         }
 
         // Forward any unforwarded base rewards
-        uint256 userUnforwarded = unforwardedBaseRewards[restaker];
-        if (userUnforwarded > 0) {
-            uint256 remainingBase = rewardToken.balanceOf(address(this));
-            uint256 actual = userUnforwarded > remainingBase ? remainingBase : userUnforwarded;
-            unforwardedBaseRewards[restaker] -= actual;
-            if (totalUnforwardedBase >= actual) totalUnforwardedBase -= actual;
-            if (actual > 0) {
-                rewardToken.safeTransfer(restaker, actual);
-                emit BaseClaimed(restaker, actual);
-            }
-        }
+        _forwardUnforwardedBase(restaker);
 
         // Clean up restaking state
         // AUDIT FIX FRESH-2026: RESTAKE-EMERGENCY-WITHDRAW-UNDERFLOW [MEDIUM] —
@@ -2494,28 +2393,26 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      `_accrueBonusChecked` against corrected denominator → re-anchor
     ///      `bonusDebt` on NEW boost POST-accrue.
     /// @param tokenId The tsTOWELI NFT token ID to revalidate
-    function revalidateBoostForRestaked(uint256 tokenId) external nonReentrant {
-        address restaker = tokenIdToRestaker[tokenId];
-        if (restaker == address(0)) revert NotRestakedToken();
-        if (msg.sender != restaker && msg.sender != owner()) revert Unauthorized();
-
+    /// @dev EIP-170 split (2026-06-04): shared core of the two public revalidate
+    ///      entrypoints. They differ ONLY in how they resolve (restaker, tokenId)
+    ///      and authorize the caller; the M-08 balance-delta capture around
+    ///      `staking.revalidateBoost` and the M11 R014-RETRY bonus re-settle
+    ///      (settle OLD boost at PRE-accrue → shrink totalRestaked → accrue against
+    ///      the corrected denominator → re-anchor bonusDebt POST-accrue) were
+    ///      byte-identical. Extracted verbatim; `info` is `restakers[restaker]`.
+    ///      No behaviour change.
+    function _revalidateBoostCore(address restaker, uint256 tokenId) internal {
         RestakeInfo storage info = restakers[restaker];
 
-        // AUDIT FIX M-08: Balance-delta tracking around revalidateBoost.
-        // SLITHER NOTE 2026-05-17: the `staking.revalidateBoost(tokenId)` external
-        // call MUST precede the bonus-settle below because the settle needs the
-        // NEW boostedAmount that only becomes readable after staking-side decay.
-        // Slither flags `info.bonusDebt`/`info.boostedAmount`/`totalRestaked`
-        // state-writes-after-external-call as reentrancy-no-eth. False positive:
-        //   (a) `nonReentrant` on this contract blocks re-entry from outside,
-        //   (b) `staking.revalidateBoost` is itself nonReentrant on the staking
-        //       side and only triggers `rewardToken.safeTransfer` to THIS
-        //       contract (standard ERC20, no callback) which lands in the
-        //       `unforwardedBaseRewards` mapping (unrelated to bonusDebt),
-        //   (c) cross-function reentrancy via `pendingBonus`/`pendingBase` is
-        //       view-only and cannot enable theft.
-        // Same structural pattern as `claimAll` lines 880-941; the ordering
-        // difference is forced by revalidate's "need post-decay boost" semantic.
+        // AUDIT FIX M-08: Balance-delta tracking around revalidateBoost. The
+        // external call MUST precede the bonus-settle (the settle needs the NEW
+        // post-decay boostedAmount). SLITHER NOTE 2026-05-17: state-writes-after-
+        // external-call flagged reentrancy-no-eth is a FALSE POSITIVE — (a) the
+        // public entrypoints are nonReentrant, (b) staking.revalidateBoost is
+        // nonReentrant staking-side and only does a callback-free
+        // rewardToken.safeTransfer into `unforwardedBaseRewards` (unrelated to
+        // bonusDebt), (c) cross-fn reentrancy via pendingBonus/pendingBase is
+        // view-only and cannot enable theft.
         uint256 balBefore = rewardToken.balanceOf(address(this));
         // slither-disable-next-line reentrancy-no-eth,reentrancy-benign,reentrancy-events
         staking.revalidateBoost(tokenId);
@@ -2529,8 +2426,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // OLD boost at PRE-accrue accBonusPerShare. Anchor bonusDebt BEFORE the
         // external bonus transfer (CEI).
         uint256 oldBoosted = info.boostedAmount;
-        // SLITHER NOTE 2026-05-17: explicit `= 0` silences uninitialized-local
-        // warning. Solidity defaults uint256 to 0 anyway; this is cosmetic.
         uint256 preBonus = 0;
         if (oldBoosted > 0) {
             int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
@@ -2543,11 +2438,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             totalBonusDistributed += preBonus;
         }
 
-        // Step 2 — shrink totalRestaked using the new boost from staking.
-        // SLITHER NOTE 2026-05-17: the 10 unused tuple-element destructures are
-        // intentional — only `boostedAmount` is needed here. Acknowledged false
-        // positive ("unused-return"); the staking-side tuple shape is fixed by
-        // the position struct and there's no cheaper read.
+        // Step 2 — shrink totalRestaked using the new post-decay boost from staking.
         // slither-disable-next-line unused-return
         (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
         info.boostedAmount = newBoostedAmount;
@@ -2569,6 +2460,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         emit BoostRevalidated(restaker, tokenId, oldBoosted, newBoostedAmount);
     }
 
+    function revalidateBoostForRestaked(uint256 tokenId) external nonReentrant {
+        address restaker = tokenIdToRestaker[tokenId];
+        if (restaker == address(0)) revert NotRestakedToken();
+        if (msg.sender != restaker && msg.sender != owner()) revert Unauthorized();
+        _revalidateBoostCore(restaker, tokenId);
+    }
+
     /// @notice #23/M-26 + AUDIT NEW-S2: Revalidate the JBAC boost for a restaked
     ///         position by user address.
     /// @dev AUDIT FIX 2026-05-16 M11: same `updateBonus` modifier drop + R014 RETRY
@@ -2579,53 +2477,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         RestakeInfo storage info = restakers[_user];
         if (info.tokenId == 0) revert NotRestaked();
         if (msg.sender != _user && msg.sender != owner()) revert Unauthorized();
-
-        uint256 tokenId = info.tokenId;
-
-        // AUDIT FIX M-08: Balance-delta tracking around revalidateBoost.
-        // SLITHER NOTE 2026-05-17: same false-positive rationale as the sister
-        // `revalidateBoostForRestaked` above — see that function's note.
-        uint256 balBefore = rewardToken.balanceOf(address(this));
-        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign,reentrancy-events
-        staking.revalidateBoost(tokenId);
-        uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
-        if (received > 0) {
-            unforwardedBaseRewards[_user] += received;
-            totalUnforwardedBase += received;
-        }
-
-        // AUDIT FIX 2026-05-16 M11: R014 RETRY pattern (see sister
-        // revalidateBoostForRestaked for full step-by-step rationale).
-        uint256 oldBoosted = info.boostedAmount;
-        // SLITHER NOTE 2026-05-17: explicit `= 0` for clarity (Solidity default).
-        uint256 preBonus = 0;
-        if (oldBoosted > 0) {
-            int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
-            int256 preDiff = preAccum - info.bonusDebt;
-            preBonus = preDiff > 0 ? uint256(preDiff) : 0;
-            info.bonusDebt = preAccum;
-        }
-        if (preBonus > 0) {
-            bonusRewardToken.safeTransfer(_user, preBonus);
-            totalBonusDistributed += preBonus;
-        }
-
-        // SLITHER NOTE 2026-05-17: intentional unused-tuple destructure.
-        // slither-disable-next-line unused-return
-        (, uint256 newBoostedAmount,,,,,,, , ,) = staking.positions(tokenId);
-        info.boostedAmount = newBoostedAmount;
-        _writeBoostCheckpoint(_user, newBoostedAmount);
-        totalRestaked = totalRestaked - oldBoosted + newBoostedAmount;
-
-        _accrueBonusChecked();
-
-        if (newBoostedAmount > 0) {
-            info.bonusDebt = _safeInt256((newBoostedAmount * accBonusPerShare) / ACC_PRECISION);
-        } else {
-            info.bonusDebt = 0;
-        }
-
-        emit BoostRevalidated(_user, tokenId, oldBoosted, newBoostedAmount);
+        _revalidateBoostCore(_user, info.tokenId);
     }
 
     // ─── SECURITY FIX: Decay Expired Restaker ─────────────────────
@@ -2768,16 +2620,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // when there's a non-zero principal to sync against.
         if (currentAmount > 0) {
             uint256 oldPositionAmount = info.positionAmount;
-            if (oldPositionAmount >= currentAmount) {
-                uint256 principalDelta = oldPositionAmount - currentAmount;
-                if (principalDelta <= totalActivePrincipal) {
-                    totalActivePrincipal -= principalDelta;
-                } else {
-                    totalActivePrincipal = 0;
-                }
-            } else {
-                totalActivePrincipal += (currentAmount - oldPositionAmount);
-            }
+            _syncActivePrincipal(oldPositionAmount, currentAmount);
             info.positionAmount = currentAmount;
         }
 
