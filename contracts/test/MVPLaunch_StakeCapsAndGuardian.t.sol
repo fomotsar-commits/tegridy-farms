@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {TegridyStaking} from "../src/TegridyStaking.sol";
 import {TegridyStakingJbacVault} from "../src/TegridyStakingJbacVault.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import {PauseGuardian} from "../src/base/PauseGuardian.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -23,6 +24,7 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
     MockTOWELI token;
     MockJBAC jbac;
     TegridyStakingJbacVault vault;
+    StakingMonitorView monitor; // sister contract that now hosts the stake-cap monitoring views
 
     address owner          = address(this);
     address pauseGuardian  = makeAddr("pauseGuardian");
@@ -41,6 +43,7 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
         staking = new TegridyStaking(address(token), address(jbac), treasury, 1e18);
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));
+        monitor = new StakingMonitorView(address(staking));
 
         // Seed stakers with TOWELI and reward pool with TOWELI.
         token.transfer(whale, 10_000_000e18);
@@ -253,7 +256,7 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
     function test_stakeCapUtilizationBps_unset() public view {
         // Constructor default = uncapped (type(uint256).max). Helper
         // reports 0 to avoid divide-by-very-large.
-        assertEq(staking.stakeCapUtilizationBps(), 0);
+        assertEq(monitor.stakeCapUtilizationBps(), 0);
     }
 
     function test_stakeCapUtilizationBps_setAndStake() public {
@@ -261,7 +264,7 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
         staking.setMaxTotalStaked(LAUNCH_GLOBAL);
 
         // No stakes yet — 0%.
-        assertEq(staking.stakeCapUtilizationBps(), 0);
+        assertEq(monitor.stakeCapUtilizationBps(), 0);
 
         // Half the cap consumed: should report 5000 bps (50%).
         uint256 half = LAUNCH_GLOBAL / 2;
@@ -289,21 +292,21 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
         }
 
         // At least one stake landed: utilization should be > 0.
-        assertGt(staking.stakeCapUtilizationBps(), 0);
+        assertGt(monitor.stakeCapUtilizationBps(), 0);
         // And it should match the formula exactly.
-        assertEq(staking.stakeCapUtilizationBps(), (staked * 10000) / LAUNCH_GLOBAL);
+        assertEq(monitor.stakeCapUtilizationBps(), (staked * 10000) / LAUNCH_GLOBAL);
     }
 
     function test_stakeCapHeadroom_match() public {
         staking.setMaxStakePerUser(LAUNCH_PER_USER);
         staking.setMaxTotalStaked(LAUNCH_GLOBAL);
 
-        assertEq(staking.stakeCapHeadroom(), LAUNCH_GLOBAL);
+        assertEq(monitor.stakeCapHeadroom(), LAUNCH_GLOBAL);
 
         vm.prank(whale);
         staking.stake(LAUNCH_PER_USER, 365 days);
 
-        assertEq(staking.stakeCapHeadroom(), LAUNCH_GLOBAL - LAUNCH_PER_USER);
+        assertEq(monitor.stakeCapHeadroom(), LAUNCH_GLOBAL - LAUNCH_PER_USER);
     }
 
     function test_stakeCapHeadroom_zeroAtCap() public {
@@ -313,8 +316,8 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
         vm.prank(whale);
         staking.stake(LAUNCH_PER_USER, 365 days);
 
-        assertEq(staking.stakeCapHeadroom(), 0);
-        assertEq(staking.stakeCapUtilizationBps(), 10000);
+        assertEq(monitor.stakeCapHeadroom(), 0);
+        assertEq(monitor.stakeCapUtilizationBps(), 10000);
     }
 
     function test_guardianRotation_instant() public {

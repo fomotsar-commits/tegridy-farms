@@ -30,6 +30,8 @@ interface ITegridyStakingMonitorRead {
     function totalUnsettledRewards() external view returns (uint256);
     // Reward token (the auto-getter for the public IERC20 immutable returns the address).
     function rewardToken() external view returns (address);
+    // Stake-cap scalar (public state var auto-getter) for the cap-utilization views.
+    function maxTotalStaked() external view returns (uint256);
 }
 
 interface IMonitorERC20Balance {
@@ -115,6 +117,27 @@ contract StakingMonitorView {
             autoMaxLockV,
             amt > 0 && block.timestamp >= uint256(lockEndV)
         );
+    }
+
+    /// @notice Global-stake-cap utilization in basis points. Byte-identical ABI to
+    ///         the removed `TegridyStaking.stakeCapUtilizationBps()` — recomputes
+    ///         from the host's public `maxTotalStaked` + `totalStaked`. Forta /
+    ///         Defender alert at 8000 bps (80%); saturates at 10000.
+    function stakeCapUtilizationBps() external view returns (uint256) {
+        uint256 cap = staking.maxTotalStaked();
+        if (cap == 0 || cap == type(uint256).max) return 0;
+        uint256 staked = staking.totalStaked();
+        if (staked >= cap) return 10000;
+        return (staked * 10000) / cap;
+    }
+
+    /// @notice Remaining headroom under the global stake cap, in TOWELI wei.
+    ///         Byte-identical ABI to the removed `TegridyStaking.stakeCapHeadroom()`.
+    function stakeCapHeadroom() external view returns (uint256) {
+        uint256 cap = staking.maxTotalStaked();
+        if (cap == type(uint256).max) return type(uint256).max;
+        uint256 staked = staking.totalStaked();
+        return staked >= cap ? 0 : cap - staked;
     }
 
     // ─── Internal helpers ─────────────────────────────────────────────────

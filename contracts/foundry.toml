@@ -16,7 +16,9 @@ optimizer = true
 # only (1) DRY refactors that DELETE duplicated patterns, (2) verbatim Solady
 # primitive swaps from billion-dollar protocols, (3) read-only sister contracts.
 #
-# TegridyStaking: 24,537 B (~39 B headroom — RAZOR-THIN, FROZEN for launch).
+# TegridyStaking: 24,337 B (~239 B headroom — FROZEN for launch). 2026-06-04: the
+#   M-1/M-2/H-E security-fix batches had eroded the prior +39 B down to +7 B; moving
+#   the two off-chain stakeCap monitoring views to the sister (below) reclaimed ~232 B.
 #   ANY further growth must extract more to a lib or sister; do NOT consume buffer.
 #   - src/lib/StakingViewLib.sol: read-only views (votingPowerOf / aggregateActive
 #     BoostBps / earned / earnedFromMem) + resolveJbac JBAC-revalidation helper
