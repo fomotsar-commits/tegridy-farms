@@ -288,6 +288,65 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
     }
 
+    /// @dev EIP-170 split (2026-06-04): the R014 step-1 "settle pending bonus on the
+    ///      OLD boost at the PRE-accrue accBonusPerShare, anchor bonusDebt BEFORE the
+    ///      external transfer (CEI)" block, duplicated verbatim in the refreshPosition
+    ///      / claimAll / unrestake stale paths. Uses a DIRECT safeTransfer (the
+    ///      pre-accrue settle has always paid directly here, distinct from the
+    ///      post-accrue F-04-5 deferred path) to `recipient`, with the BonusClaimed
+    ///      emit. Extracted byte-for-byte; `oldBoosted` is the caller's pre-refresh
+    ///      cached boost.
+    function _settlePreAccrueBonus(RestakeInfo storage info, address recipient, uint256 oldBoosted) internal {
+        uint256 preBonus;
+        if (oldBoosted > 0) {
+            int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
+            int256 preDiff = preAccum - info.bonusDebt;
+            preBonus = preDiff > 0 ? uint256(preDiff) : 0;
+            info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
+        }
+        if (preBonus > 0) {
+            bonusRewardToken.safeTransfer(recipient, preBonus);
+            totalBonusDistributed += preBonus;
+            emit BonusClaimed(recipient, preBonus);
+        }
+    }
+
+    /// @dev EIP-170 split (2026-06-04): the C-1 two-step per-tokenId unsettled-reward
+    ///      drain around the NFT return — claim BEFORE the transfer, safeTransferFrom
+    ///      with the BATCH-C H5 stranded-record catch (a hostile/7702 recipient
+    ///      self-recovers via claimStrandedRestakeNFT), claim the post-transfer-hook
+    ///      credit on success, then REVIEW C-1 reserve any pool-capped residue to
+    ///      `recipient`. Duplicated verbatim in unrestake / emergencyWithdrawNFT.
+    ///      Returns the total drained so the caller folds it into UnsettledRecovered.
+    ///      CEI: the caller MUST clear its restaking-side position state BEFORE
+    ///      calling this (both sites do) so the safeTransferFrom callback cannot
+    ///      re-enter to double-vote.
+    function _returnNftSettleResidual(uint256 tokenId, address recipient) internal returns (uint256 totalUnsettled) {
+        uint256 prePaid;
+        try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p) {
+            prePaid = _p;
+        } catch {
+            prePaid = 0;
+        }
+        bool delivered;
+        try stakingNFT.safeTransferFrom(address(this), recipient, tokenId) {
+            delivered = true;
+        } catch {
+            strandedRestakeRecipient[tokenId] = recipient;
+            emit RestakeNFTStranded(tokenId, recipient);
+        }
+        uint256 postPaid;
+        if (delivered) {
+            try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p2) {
+                postPaid = _p2;
+            } catch {
+                postPaid = 0;
+            }
+        }
+        totalUnsettled = prePaid + postPaid;
+        _reserveResidual(tokenId, recipient);
+    }
+
     uint256 public totalBonusFunded;
     uint256 public totalBonusDistributed;
     mapping(address => uint256) public unforwardedBaseRewards; // AUDIT FIX H-02: Track base rewards arriving outside claimAll
@@ -962,20 +1021,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // R014 RETRY step 1 — settle pending bonus on OLD boost at the
             // PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt` BEFORE the
             // external transfer (CEI) so a hostile bonus token cannot re-enter.
-            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-            // slither-disable-next-line uninitialized-local
-            uint256 preBonus;
-            if (oldBoosted > 0) {
-                int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
-                int256 preDiff = preAccum - info.bonusDebt;
-                preBonus = preDiff > 0 ? uint256(preDiff) : 0;
-                info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
-            }
-            if (preBonus > 0) {
-                bonusRewardToken.safeTransfer(msg.sender, preBonus);
-                totalBonusDistributed += preBonus;
-                emit BonusClaimed(msg.sender, preBonus);
-            }
+            _settlePreAccrueBonus(info, msg.sender, oldBoosted);
 
             // R014 RETRY step 2 — update cached values and adjust
             // `totalRestaked` (shrink, in the typical decay case).
@@ -1059,24 +1105,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             bool stale = (currentAmount != info.positionAmount || currentBoosted != info.boostedAmount);
 
             if (stale) {
-                // R014 RETRY step 1 — settle pending bonus on the OLD boost at
-                // the PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt`
-                // BEFORE the external transfer (CEI).
+                // R014 RETRY step 1 — settle pending bonus on the OLD boost at the
+                // PRE-accrue accBonusPerShare; anchor bonusDebt BEFORE transfer (CEI).
                 uint256 oldBoosted = info.boostedAmount;
-                // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-                // slither-disable-next-line uninitialized-local
-                uint256 preBonus;
-                if (oldBoosted > 0) {
-                    int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
-                    int256 preDiff = preAccum - info.bonusDebt;
-                    preBonus = preDiff > 0 ? uint256(preDiff) : 0;
-                    info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
-                }
-                if (preBonus > 0) {
-                    bonusRewardToken.safeTransfer(msg.sender, preBonus);
-                    totalBonusDistributed += preBonus;
-                    emit BonusClaimed(msg.sender, preBonus);
-                }
+                _settlePreAccrueBonus(info, msg.sender, oldBoosted);
 
                 // R014 RETRY step 2 — update cached values + adjust
                 // `totalRestaked` (shrink in typical decay case). Handles both
@@ -1236,23 +1268,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
             if (stale) {
                 // R014 RETRY step 1 — settle pending bonus on OLD boost at the
-                // PRE-accrue `accBonusPerShare`. Anchor `info.bonusDebt` BEFORE
-                // the external transfer (CEI).
+                // PRE-accrue accBonusPerShare; anchor bonusDebt BEFORE transfer (CEI).
                 uint256 oldBoosted = info.boostedAmount;
-                // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-                // slither-disable-next-line uninitialized-local
-                uint256 preBonus;
-                if (oldBoosted > 0) {
-                    int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
-                    int256 preDiff = preAccum - info.bonusDebt;
-                    preBonus = preDiff > 0 ? uint256(preDiff) : 0;
-                    info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
-                }
-                if (preBonus > 0) {
-                    bonusRewardToken.safeTransfer(msg.sender, preBonus);
-                    totalBonusDistributed += preBonus;
-                    emit BonusClaimed(msg.sender, preBonus);
-                }
+                _settlePreAccrueBonus(info, msg.sender, oldBoosted);
 
                 // R014 RETRY step 2 — update cached values + adjust
                 // `totalRestaked` (shrink in typical decay case).
@@ -1346,59 +1364,12 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // shares as the prior snapshot/delta path did under multi-restaker
         // contention. `claimUnsettledForTokenId` transfers directly to msg.sender
         // and is a no-op (returns 0) when there's nothing attributed.
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 prePaid;
-        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
-            prePaid = _p;
-        } catch {
-            prePaid = 0;
-        }
-
-        // Return NFT to user. The transfer triggers `_settleRewardsOnTransfer`
-        // on the staking side, which credits any final-period accrual to BOTH
-        // the holder bucket AND `unsettledRewardsByTokenId[tokenId]` (for the
-        // restakingContract → user transfer leg).
-        // AUDIT FIX (BATCH-C H5): wrap in try/catch — if recipient is a hostile
-        // contract or 7702-delegated EOA without onERC721Received, record stranded
-        // mapping so user can self-recover via claimStrandedRestakeNFT after fixing
-        // their wallet. Mirrors TegridyStakingJbacVault.returnJbac pattern (already
-        // battle-tested in this codebase). Restaking-side state is already cleared
-        // pre-transfer (lines 1056-1058) so a re-entrant double-vote is not possible
-        // even on a hostile receive callback. The post-transfer claim is gated on
-        // success because no _settleRewardsOnTransfer fires when the transfer reverts.
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        bool nftDelivered;
-        try stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId) {
-            nftDelivered = true;
-        } catch {
-            strandedRestakeRecipient[tokenId] = msg.sender;
-            emit RestakeNFTStranded(tokenId, msg.sender);
-        }
-
-        // AUDIT FIX C-1: pull the just-credited per-tokenId share from the
-        // transfer hook, again going directly to msg.sender. Two-step claim
-        // (pre + post) is what makes per-tokenId attribution exact.
-        // (skipped on stranded path — _settleRewardsOnTransfer didn't fire)
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 postPaid;
-        if (nftDelivered) {
-            try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
-                postPaid = _p2;
-            } catch {
-                postPaid = 0;
-            }
-        }
-
-        uint256 totalUnsettled = prePaid + postPaid;
-
-        // REVIEW C-1-FINDING-1: if either claim was pool-capped, residue stays in
-        // `staking.unsettledRewardsByTokenId[tokenId]`. Reserve it to msg.sender
-        // so a future restaker of the same NFT cannot drain it. Recoverable via
-        // `claimResidualForTokenId(tokenId)` once the pool is replenished.
-        _reserveResidual(tokenId, msg.sender);
+        // EIP-170 split (2026-06-04): the C-1 two-step per-tokenId drain + NFT return
+        // (BATCH-C H5 stranded-record catch) + REVIEW C-1 residual reservation lives in
+        // `_returnNftSettleResidual` (shared verbatim with emergencyWithdrawNFT).
+        // Position state is ALREADY cleared above (CEI) so the safeTransferFrom callback
+        // cannot re-enter to double-vote.
+        uint256 totalUnsettled = _returnNftSettleResidual(tokenId, msg.sender);
 
         // Recover any previously deferred share from a prior under-funded claim
         // (DEEP-DR-01 reservation semantics, extracted to `_recoverPriorPending`).
@@ -2031,46 +2002,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // prevents the prior multi-restaker race where the snapshot/delta
         // path drained other restakers' shares from the shared
         // `unsettledRewards[restakingContract]` bucket.
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 prePaid;
-        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p) {
-            prePaid = _p;
-        } catch {
-            prePaid = 0;
-        }
-
-        // Return NFT to user. The transfer triggers `_settleRewardsOnTransfer`
-        // which credits any final-period accrual to BOTH holder bucket AND
-        // `unsettledRewardsByTokenId[tokenId]`.
-        // AUDIT FIX (BATCH-C H5): same try/catch + stranded-record pattern as
-        // unrestake() above. Self-DoS protection for hostile / 7702 EOAs.
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        bool emNftDelivered;
-        try stakingNFT.safeTransferFrom(address(this), msg.sender, tokenId) {
-            emNftDelivered = true;
-        } catch {
-            strandedRestakeRecipient[tokenId] = msg.sender;
-            emit RestakeNFTStranded(tokenId, msg.sender);
-        }
-
-        // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-        // slither-disable-next-line uninitialized-local
-        uint256 postPaid;
-        if (emNftDelivered)
-        try staking.claimUnsettledForTokenId(tokenId, msg.sender) returns (uint256 _p2) {
-            postPaid = _p2;
-        } catch {
-            postPaid = 0;
-        }
-
-        uint256 totalUnsettled = prePaid + postPaid;
-
-        // REVIEW C-1-FINDING-2: same residual reservation as unrestake() so a
-        // pool-shortfall doesn't leak this restaker's per-tokenId share to a
-        // future restaker of the same NFT.
-        _reserveResidual(tokenId, msg.sender);
+        // EIP-170 split (2026-06-04): shared two-step per-tokenId drain + NFT return
+        // + REVIEW C-1 residual reservation — see `_returnNftSettleResidual` (verbatim
+        // shared with unrestake). Restaking-side state cleared above (CEI).
+        uint256 totalUnsettled = _returnNftSettleResidual(tokenId, msg.sender);
 
         // Recover any previously deferred share. Same logic as `unrestake()`.
         totalUnsettled += _recoverPriorPending(msg.sender);
