@@ -16,6 +16,10 @@ import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 import {StakingMonitorView} from "./StakingMonitorView.sol";
 import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {PauseGuardian} from "./base/PauseGuardian.sol";
+// EIP-170 split (2026-06-04): cold owner-only admin/governance bodies live in a
+// linked (delegatecall) library to keep the host under EIP-170. See the lib's
+// NatSpec for the storage-reference / delegatecall semantics.
+import {RestakingAdminLib} from "./lib/RestakingAdminLib.sol";
 
 interface ITegridyStaking {
     function getReward(uint256 tokenId) external returns (uint256 claimed);
@@ -312,11 +316,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         elapses, so an abandoned residual-clear proposal self-expires instead of
     ///         staying executable forever (parity with sibling inline timelocks).
     uint256 public constant CLEAR_RESIDUAL_VALIDITY = 7 days;
-    struct PendingResidualClear {
-        address newClaimant;
-        uint256 executeAfter;
-    }
-    mapping(uint256 => PendingResidualClear) public pendingResidualClears;
+    // EIP-170 split (2026-06-04): PendingResidualClear now lives in RestakingAdminLib
+    // so the storage-reference type matches across the delegatecall seam (same
+    // {address newClaimant; uint256 executeAfter} layout — identical storage slots).
+    mapping(uint256 => RestakingAdminLib.PendingResidualClear) public pendingResidualClears;
     event ResidualClearProposed(uint256 indexed tokenId, address indexed newClaimant, uint256 executeAfter);
     event ResidualClearExecuted(uint256 indexed tokenId, address indexed oldClaimant, address indexed newClaimant);
     event ResidualClearCancelled(uint256 indexed tokenId);
@@ -1651,61 +1654,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @param newClaimant Pass `address(0)` to fully clear; pass a non-zero
     ///         address (e.g. the new NFT owner) to retarget the claim.
     function proposeClearResidualClaimant(uint256 tokenId, address newClaimant) external onlyOwner {
-        if (_residualClaimant[tokenId] == address(0)) revert BadParam();
-        // AUDIT FIX FRESH-2026 [H-RESTAKE-CLEAR-ABANDONS-RESIDUE]: reject the
-        // `newClaimant == address(0)` "fully abandon" path. Pre-fix, executing
-        // with newClaimant=0 would `delete _residualClaimant[tokenId]` while
-        // leaving the staking-side `unsettledRewardsByTokenId[tokenId]`
-        // residue UNCLAIMED. The next restaker of that NFT would then trigger
-        // `claimUnsettledForTokenId(tokenId, newRestaker)` on the next
-        // unrestake, silently inheriting the abandoned lost-key user's
-        // residue. Owner intent ("clear the local claim") quietly leaked
-        // those funds to a third party.
-        //
-        // Fix (option b from finding): force owner to nominate a successor.
-        // If no clear successor exists, the original `_residualClaimant`
-        // stays in place; the lost-key user's residue remains stuck (no
-        // worse than the pre-fix state) but no one else can siphon it. The
-        // legitimate claimant retains the self-help path via
-        // `waiveResidualClaim` (L1681-1685) if they ever recover their key.
-        if (newClaimant == address(0)) revert ZeroAddress();
-        // AUDIT FIX 2026-05-26 [M-03]: reject when a proposal is already pending.
-        // Pre-fix, a captured-key owner could spam re-proposals to keep resetting
-        // the 7-day executeAfter clock; multisig would have to cancel each one.
-        // Mirrors sibling timelocked setters' `ExistingProposalPending` shape from
-        // TimelockAdmin (uses tokenId as the disambiguator key).
-        if (pendingResidualClears[tokenId].executeAfter != 0) {
-            revert ExistingProposalPending(bytes32(tokenId));
-        }
-        pendingResidualClears[tokenId] = PendingResidualClear({
-            newClaimant: newClaimant,
-            executeAfter: block.timestamp + CLEAR_RESIDUAL_TIMELOCK
-        });
-        emit ResidualClearProposed(tokenId, newClaimant, block.timestamp + CLEAR_RESIDUAL_TIMELOCK);
+        // EIP-170 split (2026-06-04): body in RestakingAdminLib (delegatecall) —
+        // behaviour byte-identical (H-RESTAKE-CLEAR-ABANDONS-RESIDUE non-zero-successor
+        // guard + M-03 pending-proposal reject preserved verbatim in the lib).
+        RestakingAdminLib.proposeClearResidualClaimant(_residualClaimant, pendingResidualClears, tokenId, newClaimant);
     }
 
     function executeClearResidualClaimant(uint256 tokenId) external onlyOwner {
-        PendingResidualClear memory p = pendingResidualClears[tokenId];
-        if (p.executeAfter == 0) revert NoPendingResidualClear();
-        if (block.timestamp < p.executeAfter) revert ResidualClearTimelockNotElapsed();
-        // AUDIT FIX (2026-05-25 2nd pass): stale-proposal expiry — matches the 7-day
-        // validity every sibling inline timelock enforces, so a proposal from a since-
-        // rotated/compromised owner key cannot be executed an arbitrary time later.
-        if (block.timestamp > p.executeAfter + CLEAR_RESIDUAL_VALIDITY) revert ResidualClearExpired();
-        address oldClaimant = _residualClaimant[tokenId];
-        if (p.newClaimant == address(0)) {
-            delete _residualClaimant[tokenId];
-        } else {
-            _residualClaimant[tokenId] = p.newClaimant;
-        }
-        delete pendingResidualClears[tokenId];
-        emit ResidualClearExecuted(tokenId, oldClaimant, p.newClaimant);
+        // EIP-170 split (2026-06-04): body in RestakingAdminLib (delegatecall) —
+        // 7-day timelock + validity-window expiry checks preserved verbatim.
+        RestakingAdminLib.executeClearResidualClaimant(_residualClaimant, pendingResidualClears, tokenId);
     }
 
     function cancelClearResidualClaimant(uint256 tokenId) external onlyOwner {
-        if (pendingResidualClears[tokenId].executeAfter == 0) revert NoPendingResidualClear();
-        delete pendingResidualClears[tokenId];
-        emit ResidualClearCancelled(tokenId);
+        // EIP-170 split (2026-06-04): body in RestakingAdminLib (delegatecall).
+        RestakingAdminLib.cancelClearResidualClaimant(pendingResidualClears, tokenId);
     }
 
     // ─── Admin ──────────────────────────────────────────────────────
