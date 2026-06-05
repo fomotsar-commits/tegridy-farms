@@ -2,14 +2,17 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+// EIP-170 split (2026-06-04, part 2e): Solady drop-ins for SafeERC20/SafeCast.
+// Battle-tested (TegridyStaking already uses SafeTransferLib verbatim); reverts on
+// transfer failure identically to OZ SafeERC20 for standard ERC-20s.
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 // EIP-170 split (2026-05-30): pendingBase delegates to StakingMonitorView since
 // `earned(uint256)` moved off TegridyStaking into the read-only sister.
@@ -94,7 +97,6 @@ interface ITegridyStaking {
 ///         - Base staking = earning interest on a savings account
 ///         - Restaking = lending your savings certificate for extra yield
 contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver, TimelockAdmin, PauseGuardian {
-    using SafeERC20 for IERC20;
 
     // ─── Constants ──────────────────────────────────────────────────
     /// AUDIT FIX (BATCH-N1 M1): bumped from 1e12 to 1e18 (same as TegridyStaking).
@@ -195,7 +197,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function _writeBoostCheckpoint(address user, uint256 newBoost) internal {
         // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
         // slither-disable-next-line unused-return
-        _boostCheckpoints[user].push(SafeCast.toUint48(block.timestamp), SafeCast.toUint208(newBoost));
+        _boostCheckpoints[user].push(SafeCastLib.toUint48(block.timestamp), SafeCastLib.toUint208(newBoost));
     }
 
     /// @dev EIP-170 split (2026-06-04): the `totalActivePrincipal` delta-sync
@@ -232,7 +234,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             unforwardedBaseRewards[recipient] -= actual;
             if (totalUnforwardedBase >= actual) totalUnforwardedBase -= actual;
             if (actual > 0) {
-                rewardToken.safeTransfer(recipient, actual);
+                SafeTransferLib.safeTransfer(address(rewardToken), recipient, actual);
                 emit BaseClaimed(recipient, actual);
             }
         }
@@ -257,7 +259,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 totalPendingUnsettled += stillOwed;
             }
             if (paid > 0) {
-                rewardToken.safeTransfer(recipient, paid);
+                SafeTransferLib.safeTransfer(address(rewardToken), recipient, paid);
             }
         }
     }
@@ -305,7 +307,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
         }
         if (preBonus > 0) {
-            bonusRewardToken.safeTransfer(recipient, preBonus);
+            SafeTransferLib.safeTransfer(address(bonusRewardToken), recipient, preBonus);
             totalBonusDistributed += preBonus;
             emit BonusClaimed(recipient, preBonus);
         }
@@ -734,7 +736,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         if (_boostCheckpoints[_user].length() == 0) {
             cached = info.boostedAmount;
         } else {
-            cached = _boostCheckpoints[_user].upperLookup(SafeCast.toUint48(_timestamp));
+            cached = _boostCheckpoints[_user].upperLookup(SafeCastLib.toUint48(_timestamp));
         }
 
         // AUDIT FIX: DEEP-DR-04 — clamp by current staking-side boost. `min(cached,
@@ -991,7 +993,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
             info.bonusDebt = accumulated; // CEI: anchor BEFORE external call
             if (bonusPending > 0) {
-                bonusRewardToken.safeTransfer(msg.sender, bonusPending);
+                SafeTransferLib.safeTransfer(address(bonusRewardToken), msg.sender, bonusPending);
                 totalBonusDistributed += bonusPending;
                 emit BonusClaimed(msg.sender, bonusPending);
             }
@@ -1096,7 +1098,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         try staking.getReward(info.tokenId) returns (uint256 baseEarned) {
             // Forward base rewards to user
             if (baseEarned > 0) {
-                rewardToken.safeTransfer(msg.sender, baseEarned);
+                SafeTransferLib.safeTransfer(address(rewardToken), msg.sender, baseEarned);
                 emit BaseClaimed(msg.sender, baseEarned);
             }
         } catch {
@@ -1259,7 +1261,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // Forward base rewards to user
         if (totalBaseEarned > 0) {
-            rewardToken.safeTransfer(msg.sender, totalBaseEarned);
+            SafeTransferLib.safeTransfer(address(rewardToken), msg.sender, totalBaseEarned);
             emit BaseClaimed(msg.sender, totalBaseEarned);
         }
 
@@ -1358,7 +1360,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // SECURITY FIX: Decrement totalPendingUnsettled by the amount paid out
         if (payout > 0) {
             totalPendingUnsettled -= payout;
-            rewardToken.safeTransfer(msg.sender, payout);
+            SafeTransferLib.safeTransfer(address(rewardToken), msg.sender, payout);
             emit UnsettledRecovered(msg.sender, payout);
         }
     }
@@ -1601,7 +1603,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Curve gauge factory's "fund then accrue" topology.
         if (_amount == 0) revert ZeroAmount();
         uint256 balBefore = bonusRewardToken.balanceOf(address(this));
-        bonusRewardToken.safeTransferFrom(msg.sender, address(this), _amount);
+        SafeTransferLib.safeTransferFrom(address(bonusRewardToken), msg.sender, address(this), _amount);
         uint256 received = bonusRewardToken.balanceOf(address(this)) - balBefore;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
@@ -1818,7 +1820,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             uint256 baseBal = rewardToken.balanceOf(address(this));
             uint256 paid = stuckBase > baseBal ? baseBal : stuckBase;
             if (paid > 0) {
-                rewardToken.safeTransfer(msg.sender, paid);
+                SafeTransferLib.safeTransfer(address(rewardToken), msg.sender, paid);
                 emit BaseClaimed(msg.sender, paid);
             }
         }
@@ -1829,7 +1831,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         if (payout > 0) {
             totalRecoveredPrincipal += payout;
-            rewardToken.safeTransfer(msg.sender, payout);
+            SafeTransferLib.safeTransfer(address(rewardToken), msg.sender, payout);
             emit BaseClaimed(msg.sender, payout);
         }
     }
@@ -2247,7 +2249,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             info.bonusDebt = preAccum;
         }
         if (preBonus > 0) {
-            bonusRewardToken.safeTransfer(restaker, preBonus);
+            SafeTransferLib.safeTransfer(address(bonusRewardToken), restaker, preBonus);
             totalBonusDistributed += preBonus;
         }
 
@@ -2538,7 +2540,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     event BonusTransferDeferred(address indexed restaker, uint256 amount);
     function _safeBonusTransferExt(address to, uint256 amount) external {
         if (msg.sender != address(this)) revert OnlyStakingNFT(); // reuse error for size
-        bonusRewardToken.safeTransfer(to, amount);
+        SafeTransferLib.safeTransfer(address(bonusRewardToken), to, amount);
     }
 
     /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
