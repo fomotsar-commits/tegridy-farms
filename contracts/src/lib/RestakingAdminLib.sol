@@ -69,6 +69,15 @@ library RestakingAdminLib {
     event ResidualClearProposed(uint256 indexed tokenId, address indexed newClaimant, uint256 executeAfter);
     event ResidualClearExecuted(uint256 indexed tokenId, address indexed oldClaimant, address indexed newClaimant);
     event ResidualClearCancelled(uint256 indexed tokenId);
+    // EIP-170 split (2026-06-04, part 2d): attribution / sweep-stuck / rescue-NFT
+    // execute (+ propose/cancel) bodies relocated here. Events re-declared with the
+    // SAME signatures/topics so delegatecall-emitted logs match the host's ABI and
+    // the existing expectEmit test sites unchanged.
+    event StuckBaseRewardsAttributed(address indexed restaker, uint256 amount);
+    event AttributionProposed(address indexed restaker, uint256 amount, uint256 executeAfter);
+    event AttributionCancelled(address indexed restaker, uint256 amount);
+    event SweepStuckExecuted(address indexed token, uint256 amount);
+    event RescueNFTExecuted(uint256 indexed tokenId, address indexed to);
 
     // ════════════════════════════════════════════════════════════════════════════
     //  Residual-claimant clear (F-04-3) — inline 7-day timelock, no fund movement
@@ -129,5 +138,128 @@ library RestakingAdminLib {
         if (pendingClears[tokenId].executeAfter == 0) revert NoPendingResidualClear();
         delete pendingClears[tokenId];
         emit ResidualClearCancelled(tokenId);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    //  Stuck-base-reward retro-attribution (24h timelock) — execute body
+    // ════════════════════════════════════════════════════════════════════════════
+
+    /// @notice Verbatim move of the post-`_execute` body of
+    ///         `TegridyRestaking.executeAttributeStuckRewards`. The host runs the
+    ///         TimelockAdmin `_execute(ATTRIBUTION_CHANGE)` gate FIRST (internal base
+    ///         fn the lib cannot reach), then calls this for the rest.
+    /// @dev    F-2 cap math, NotRestaked re-check, credit + delete + emit — byte-for-byte.
+    ///         `restakerTokenId` is `restakers[pendingAttribution.restaker].tokenId`
+    ///         read by the host wrapper AFTER `_execute` (host keeps its own RestakeInfo
+    ///         struct type; `_execute` does not touch `restakers`, so reading the tokenId
+    ///         host-side then passing it preserves the original ordering exactly).
+    ///         `totalUnforwardedBase` is a host scalar (value types cannot be storage-ref
+    ///         params), so it is passed in and the post-increment value RETURNED for the
+    ///         host to re-assign — same SSTORE, same value, same ordering.
+    function executeAttributeStuckRewards(
+        PendingAttribution storage pendingAttribution,
+        uint256 restakerTokenId,
+        address rewardToken,
+        uint256 totalUnforwardedBase,
+        uint256 totalActivePrincipal,
+        uint256 totalPendingUnsettled,
+        mapping(address => uint256) storage unforwardedBaseRewards
+    ) public returns (uint256 newTotalUnforwardedBase) {
+        PendingAttribution memory p = pendingAttribution;
+        if (restakerTokenId == 0) revert NotRestaked();
+        // Cap attribution to actual unattributed rewardToken balance.
+        // AUDIT FIX F-2: subtract `totalActivePrincipal` AND `totalPendingUnsettled`
+        // from the unattributed pool. Pre-fix, the cap only excluded `totalUnforwardedBase`,
+        // letting a captured-or-colluding owner credit a chosen restaker with rewards
+        // that were actually backing OTHER users' principal reservations or pending
+        // unsettled deferral. The colluder's subsequent `claimAll`/`unrestake` then
+        // pulled funds that legitimate restakers needed for their `recoverStuckPrincipal`
+        // path — driving honest recoveries to revert with NO_RECOVERABLE_BALANCE.
+        // Three-line subtract keeps the cap honest: only TRULY unbacked balance can
+        // be retro-attributed.
+        uint256 balance = IERC20(rewardToken).balanceOf(address(this));
+        uint256 reserved = totalUnforwardedBase + totalActivePrincipal + totalPendingUnsettled;
+        // AUDIT 2026-05-30 [slither timestamp FP]: detector misfires on these two
+        // comparisons — both are token-balance/amount comparisons, no block.timestamp
+        // involved. The `timestamp` detector over-flags any non-trivial > comparison.
+        // slither-disable-next-line timestamp
+        uint256 unattributed = balance > reserved ? balance - reserved : 0;
+        // slither-disable-next-line timestamp
+        if (p.amount > unattributed) revert BadParam();
+        unforwardedBaseRewards[p.restaker] += p.amount;
+        newTotalUnforwardedBase = totalUnforwardedBase + p.amount;
+        // `delete pendingAttribution` (host idiom) on a {address;uint256} struct zeroes
+        // both fields; replicated field-wise here because `delete` on a storage-pointer
+        // PARAMETER is rejected by the compiler (vs. `delete map[key]` in clearResidual).
+        // Behaviour-identical: same two slots cleared.
+        pendingAttribution.restaker = address(0);
+        pendingAttribution.amount = 0;
+        emit StuckBaseRewardsAttributed(p.restaker, p.amount);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    //  Sweep-stuck-token (24h timelock) — execute body
+    // ════════════════════════════════════════════════════════════════════════════
+
+    /// @notice Verbatim move of the post-`_execute` body of
+    ///         `TegridyRestaking.executeSweepStuckRewards`. Host runs
+    ///         `_execute(SWEEP_STUCK_CHANGE)` + clears `pendingSweepStuckToken` FIRST,
+    ///         then passes the cached token. Execute-time re-checks + transfer + emit
+    ///         move here byte-for-byte.
+    function executeSweepStuckRewards(
+        address token,
+        address bonusRewardToken,
+        address rewardToken,
+        address staking
+    ) public {
+        // Re-check guards at execute time — defends against a token classification
+        // changing during the 24h window (e.g., rewardToken rotated on staking side
+        // via that contract's 48h timelock).
+        if (token == bonusRewardToken) revert CannotSweepBonusToken();
+        if (token == rewardToken) revert CannotSweepRewardToken();
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (balance > 0) {
+            // Route to address(staking) (immutable) — see BATCH-J1 H17 rationale.
+            IERC20(token).safeTransfer(staking, balance);
+            emit SweepStuckExecuted(token, balance);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    //  Rescue-NFT (48h timelock) — execute body
+    // ════════════════════════════════════════════════════════════════════════════
+
+    /// @notice Verbatim move of the post-`_execute` body of
+    ///         `TegridyRestaking.executeRescueNFT`. Host runs
+    ///         `_execute(RESCUE_NFT_CHANGE)` FIRST, then calls this. The three
+    ///         execute-time re-checks (tokenIdToRestaker / strandedRestakeRecipient /
+    ///         _residualClaimant all == 0) + `delete pendingRescueNFT` + the
+    ///         `safeTransferFrom(this, to, tokenId)` + emit move here byte-for-byte.
+    function executeRescueNFT(
+        PendingRescueNFT storage pendingRescueNFT,
+        mapping(uint256 => address) storage tokenIdToRestaker,
+        mapping(uint256 => address) storage strandedRestakeRecipient,
+        mapping(uint256 => address) storage residualClaimant_,
+        address stakingNFT
+    ) public {
+        PendingRescueNFT memory p = pendingRescueNFT;
+        // Re-check at execute (proposal could go stale during 48h window —
+        // tokenId re-restaked, user filed stranded claim, etc).
+        if (tokenIdToRestaker[p.tokenId] != address(0)) revert BadParam();
+        if (strandedRestakeRecipient[p.tokenId] != address(0)) revert BadParam();
+        // SELF-AUDIT FIX 2026-05-26 [M-06 SYMMETRIC RECHECK]: also re-check
+        // residual claimant at execute time. Pre-fix the propose-time check
+        // (M-06) was asymmetric — a residue claim materializing during the 48h
+        // window (currently unreachable but defense-in-depth) would let rescue
+        // strand the residue. Mirrors the propose-time guard at line ~2199.
+        if (residualClaimant_[p.tokenId] != address(0)) revert BadParam();
+        // `delete pendingRescueNFT` (host idiom) zeroes both fields; replicated
+        // field-wise because `delete` on a storage-pointer PARAMETER is rejected by
+        // the compiler. Behaviour-identical: same two slots cleared, BEFORE the
+        // external safeTransferFrom (CEI preserved exactly as the host had it).
+        pendingRescueNFT.tokenId = 0;
+        pendingRescueNFT.to = address(0);
+        IERC721(stakingNFT).safeTransferFrom(address(this), p.to, p.tokenId); // M-16
+        emit RescueNFTExecuted(p.tokenId, p.to);
     }
 }

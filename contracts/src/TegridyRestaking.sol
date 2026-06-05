@@ -386,11 +386,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @notice AUDIT FIX FRESH-2026: M-4 [F-04-2] — propose/execute pair for
     ///         the rescueNFT path (48h timelock).
     uint256 public constant RESCUE_NFT_TIMELOCK = 48 hours;
-    struct PendingRescueNFT {
-        uint256 tokenId;
-        address to;
-    }
-    PendingRescueNFT public pendingRescueNFT;
+    // EIP-170 split (2026-06-04, part 2d): PendingRescueNFT now lives in
+    // RestakingAdminLib so the storage-reference type matches across the
+    // delegatecall seam (same {uint256 tokenId; address to} layout — identical
+    // storage slots; the public getter tuple shape is unchanged).
+    RestakingAdminLib.PendingRescueNFT public pendingRescueNFT;
     event RescueNFTProposed(uint256 indexed tokenId, address indexed to, uint256 executeAfter);
     event RescueNFTExecuted(uint256 indexed tokenId, address indexed to);
     event RescueNFTCancelled(uint256 indexed tokenId);
@@ -413,11 +413,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     // SECURITY FIX: Timelock for attributeStuckBaseRewards
     uint256 public constant ATTRIBUTE_TIMELOCK = 24 hours;
-    struct PendingAttribution {
-        address restaker;
-        uint256 amount;
-    }
-    PendingAttribution public pendingAttribution;
+    // EIP-170 split (2026-06-04, part 2d): PendingAttribution now lives in
+    // RestakingAdminLib so the storage-reference type matches across the
+    // delegatecall seam (same {address restaker; uint256 amount} layout —
+    // identical storage slots; the public getter tuple shape is unchanged).
+    RestakingAdminLib.PendingAttribution public pendingAttribution;
 
     // H-01 FIX: Track per-user recovery to prevent race condition in recoverStuckPrincipal
     /// @dev AUDIT FIX (pass-8): EIP170-04 — visibility lowered to `internal`.
@@ -1711,17 +1711,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         _execute(SWEEP_STUCK_CHANGE);
         address _token = pendingSweepStuckToken;
         pendingSweepStuckToken = address(0);
-        // Re-check guards at execute time — defends against a token classification
-        // changing during the 24h window (e.g., rewardToken rotated on staking side
-        // via that contract's 48h timelock).
-        if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
-        if (_token == address(rewardToken)) revert CannotSweepRewardToken();
-        uint256 balance = IERC20(_token).balanceOf(address(this));
-        if (balance > 0) {
-            // Route to address(staking) (immutable) — see BATCH-J1 H17 rationale.
-            IERC20(_token).safeTransfer(address(staking), balance);
-            emit SweepStuckExecuted(_token, balance);
-        }
+        // EIP-170 split (2026-06-04, part 2d): execute-time re-check guards +
+        // transfer-to-staking + emit delegate to RestakingAdminLib byte-for-byte.
+        RestakingAdminLib.executeSweepStuckRewards(
+            _token,
+            address(bonusRewardToken),
+            address(rewardToken),
+            address(staking)
+        );
     }
 
     function cancelSweepStuckRewards() external onlyOwner {
@@ -1846,7 +1843,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function proposeAttributeStuckRewards(address _restaker, uint256 _amount) external onlyOwner {
         if (restakers[_restaker].tokenId == 0) revert NotRestaked();
         if (_amount == 0) revert ZeroAmount();
-        pendingAttribution = PendingAttribution({
+        pendingAttribution = RestakingAdminLib.PendingAttribution({
             restaker: _restaker,
             amount: _amount
         });
@@ -1855,39 +1852,28 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     }
 
     /// @notice Execute a previously proposed stuck reward attribution after the 24h timelock.
+    /// @dev EIP-170 split (2026-06-04, part 2d): run the TimelockAdmin `_execute`
+    ///      gate here (internal base fn the lib cannot reach), read the recheck
+    ///      tokenId, then delegate the F-2 cap math + credit + delete + emit to
+    ///      RestakingAdminLib (behaviour byte-identical). `_execute` does not touch
+    ///      `restakers`, so reading `restakers[...].tokenId` here preserves ordering.
     function executeAttributeStuckRewards() external onlyOwner {
         _execute(ATTRIBUTION_CHANGE);
-        PendingAttribution memory p = pendingAttribution;
-        if (restakers[p.restaker].tokenId == 0) revert NotRestaked();
-        // Cap attribution to actual unattributed rewardToken balance.
-        // AUDIT FIX F-2: subtract `totalActivePrincipal` AND `totalPendingUnsettled`
-        // from the unattributed pool. Pre-fix, the cap only excluded `totalUnforwardedBase`,
-        // letting a captured-or-colluding owner credit a chosen restaker with rewards
-        // that were actually backing OTHER users' principal reservations or pending
-        // unsettled deferral. The colluder's subsequent `claimAll`/`unrestake` then
-        // pulled funds that legitimate restakers needed for their `recoverStuckPrincipal`
-        // path — driving honest recoveries to revert with NO_RECOVERABLE_BALANCE.
-        // Three-line subtract keeps the cap honest: only TRULY unbacked balance can
-        // be retro-attributed.
-        uint256 balance = rewardToken.balanceOf(address(this));
-        uint256 reserved = totalUnforwardedBase + totalActivePrincipal + totalPendingUnsettled;
-        // AUDIT 2026-05-30 [slither timestamp FP]: detector misfires on these two
-        // comparisons — both are token-balance/amount comparisons, no block.timestamp
-        // involved. The `timestamp` detector over-flags any non-trivial > comparison.
-        // slither-disable-next-line timestamp
-        uint256 unattributed = balance > reserved ? balance - reserved : 0;
-        // slither-disable-next-line timestamp
-        if (p.amount > unattributed) revert BadParam();
-        unforwardedBaseRewards[p.restaker] += p.amount;
-        totalUnforwardedBase += p.amount;
-        delete pendingAttribution;
-        emit StuckBaseRewardsAttributed(p.restaker, p.amount);
+        totalUnforwardedBase = RestakingAdminLib.executeAttributeStuckRewards(
+            pendingAttribution,
+            restakers[pendingAttribution.restaker].tokenId,
+            address(rewardToken),
+            totalUnforwardedBase,
+            totalActivePrincipal,
+            totalPendingUnsettled,
+            unforwardedBaseRewards
+        );
     }
 
     /// @notice Cancel a pending stuck reward attribution proposal.
     function cancelAttributeStuckRewards() external onlyOwner {
         _cancel(ATTRIBUTION_CHANGE);
-        PendingAttribution memory p = pendingAttribution;
+        RestakingAdminLib.PendingAttribution memory p = pendingAttribution;
         delete pendingAttribution;
         emit AttributionCancelled(p.restaker, p.amount);
     }
@@ -2020,27 +2006,24 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // still clear via the 7-day `proposeClearResidualClaimant` path first.
         if (_residualClaimant[_tokenId] != address(0)) revert BadParam();
         if (_to == address(0)) revert ZeroAddress();
-        pendingRescueNFT = PendingRescueNFT({tokenId: _tokenId, to: _to});
+        pendingRescueNFT = RestakingAdminLib.PendingRescueNFT({tokenId: _tokenId, to: _to});
         _propose(RESCUE_NFT_CHANGE, RESCUE_NFT_TIMELOCK);
         emit RescueNFTProposed(_tokenId, _to, _executeAfter[RESCUE_NFT_CHANGE]);
     }
 
+    /// @dev EIP-170 split (2026-06-04, part 2d): run the TimelockAdmin `_execute`
+    ///      gate here, then delegate the three execute-time re-checks
+    ///      (tokenIdToRestaker / strandedRestakeRecipient / _residualClaimant) +
+    ///      delete + safeTransferFrom + emit to RestakingAdminLib byte-for-byte.
     function executeRescueNFT() external onlyOwner {
         _execute(RESCUE_NFT_CHANGE);
-        PendingRescueNFT memory p = pendingRescueNFT;
-        // Re-check at execute (proposal could go stale during 48h window —
-        // tokenId re-restaked, user filed stranded claim, etc).
-        if (tokenIdToRestaker[p.tokenId] != address(0)) revert BadParam();
-        if (strandedRestakeRecipient[p.tokenId] != address(0)) revert BadParam();
-        // SELF-AUDIT FIX 2026-05-26 [M-06 SYMMETRIC RECHECK]: also re-check
-        // residual claimant at execute time. Pre-fix the propose-time check
-        // (M-06) was asymmetric — a residue claim materializing during the 48h
-        // window (currently unreachable but defense-in-depth) would let rescue
-        // strand the residue. Mirrors the propose-time guard at line ~2199.
-        if (_residualClaimant[p.tokenId] != address(0)) revert BadParam();
-        delete pendingRescueNFT;
-        stakingNFT.safeTransferFrom(address(this), p.to, p.tokenId); // M-16
-        emit RescueNFTExecuted(p.tokenId, p.to);
+        RestakingAdminLib.executeRescueNFT(
+            pendingRescueNFT,
+            tokenIdToRestaker,
+            strandedRestakeRecipient,
+            _residualClaimant,
+            address(stakingNFT)
+        );
     }
 
     function cancelRescueNFT() external onlyOwner {
@@ -2587,7 +2570,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             lastBonusRateActionAt = 0;
         }
         if (_executeAfter[ATTRIBUTION_CHANGE] != 0) {
-            PendingAttribution memory p = pendingAttribution;
+            RestakingAdminLib.PendingAttribution memory p = pendingAttribution;
             _cancel(ATTRIBUTION_CHANGE);
             delete pendingAttribution;
             emit AttributionCancelled(p.restaker, p.amount);
