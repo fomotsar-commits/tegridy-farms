@@ -38,9 +38,16 @@ optimizer = true
 # SwapFeeRouter: 21,392 B (~3,184 B headroom).
 #   - src/lib/SwapFeeRouterConvertLib.sol: TWAP-floor conversion cluster.
 #
-# TegridyRestaking: still ~31.3 KB — DEFERRED to Phase 7 (removed from the MVP
-#   DeployMVP/VerifyMVP path). MUST be split + deployed + wired before restaking
-#   opens; it is the only LIVE-on-mainnet candidate currently over EIP-170.
+# TegridyRestaking: 26,623 B (2026-06-04 split from 31,399 B — banked -15%, STILL over
+#   EIP-170). DEFERRED to Phase 7 (NOT on the MVP DeployMVP/VerifyMVP path), so being over
+#   does not block the relaunch. The split moved cold owner-only admin bodies to
+#   src/lib/RestakingAdminLib.sol (delegatecall lib) + the 4 display views to
+#   src/RestakingMonitorView.sol (read-only sister) + Solady SafeTransferLib/SafeCastLib +
+#   internal DRY. Behaviour-preserving extraction FLOORED here (each lever nets only
+#   ~70-780 B; wrapper/marshalling/delegatecall overhead offsets the body moved). The final
+#   ~2 KB needs a Phase-7 architectural reduction (feature removal, OR relocating the hot-path
+#   reward helpers to the lib at a delegatecall-gas cost) + re-audit. MUST be brought under
+#   24,576 + deployed + wired before restaking opens. Full suite 2104/0 after the split.
 #
 # If a future change pushes any LIVE-on-mainnet contract back over 24,576, the
 # right answer is to split that contract (extract to a linked library), NOT to
