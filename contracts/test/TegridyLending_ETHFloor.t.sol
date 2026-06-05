@@ -351,12 +351,14 @@ contract TegridyLending_ETHFloorTest is Test {
         // observations recorded at the original reserves.
         pair.setReserves(INITIAL_TOWELI_RESERVE, INITIAL_WETH_RESERVE * 10);
 
-        // Note: we deliberately do NOT call _recordObservation() here. Even
-        // if the attacker tried to push an observation immediately, MIN_PERIOD
-        // (15 min) gates further updates; and even one new observation does
-        // not move a 30-min average enough to clear the 50 ETH floor.
+        // Note: we deliberately do NOT call _recordObservation() here. The
+        // AUDIT FIX (2026-06-05) spot-vs-TWAP deviation gate rejects the read
+        // outright because spot now deviates ~10x from the TWAP; MIN_PERIOD
+        // (15 min) would also gate any same-block observation push.
         vm.prank(alice);
-        vm.expectRevert(TegridyLending.InsufficientCollateralValue.selector);
+        // AUDIT FIX (2026-06-05, MEDIUM): the deviation gate trips before the floor
+        // comparison, so the manipulation now fails with the specific, earlier error.
+        vm.expectRevert(TegridyLending.ReservesDeviateFromTWAP.selector);
         lending.acceptOffer(offerId, aliceTokenId);
     }
 

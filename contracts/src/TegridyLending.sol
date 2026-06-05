@@ -435,6 +435,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         typed-error feedback.
     uint256 public constant TWAP_MAX_STALENESS = 2 hours;
 
+    /// @notice AUDIT FIX (2026-06-05, MEDIUM): max allowed deviation between live spot
+    ///         reserves and the TWAP consult result for the ETH-floor check. Mirrors
+    ///         POLAccumulator.HARVEST_TWAP_DEVIATION_BPS (50 bps). TegridyTWAP's own
+    ///         CONSUMER REQUIREMENT NatSpec mandates every `consult()` consumer add this
+    ///         spot-vs-TWAP gate (the bridge term in the per-observation cumulative can
+    ///         weight the average toward a recently-pushed spot on an idle pair).
+    uint256 public constant TWAP_DEVIATION_BPS = 50;
+
+    /// @notice One whole TOWELI (18-decimal protocol token, fixed supply, immutable
+    ///         `toweli`). Hardcoded — mirrors POLAccumulator's `toweliUnit` snapshot but
+    ///         a constant is safe here because `toweli` cannot change.
+    uint256 private constant TOWELI_UNIT = 1e18;
+
     // ─── AUDIT R062: L2 Sequencer Uptime gating ──────────────────────
     /// @notice Optional Chainlink L2 Sequencer Uptime feed. address(0) on
     ///         mainnet / non-L2 (no-op). Stored immutable so it cannot be
@@ -748,6 +761,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      keeper to refresh the oracle (or call `twap.update(pair)` themselves)
     ///      before `acceptOffer` will succeed for a non-zero ETH floor.
     error OracleStale();
+    /// @dev AUDIT FIX (2026-06-05, MEDIUM): live spot reserves deviate from the TWAP
+    ///      consult by more than `TWAP_DEVIATION_BPS`. Indicates an in-flight manipulation
+    ///      (or genuine extreme volatility) — fail closed on the ETH-floor read rather than
+    ///      value collateral against a bent price. Mirrors POLAccumulator's gate.
+    error ReservesDeviateFromTWAP();
     /// @dev R014: lender opened an offer at less than `minPrincipal`.
     error PrincipalTooSmall();
     /// @dev AUDIT FIX (pass-8 batch-15): Phase 3.5 — caller-supplied offer
@@ -1962,11 +1980,62 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             revert OracleStale();
         }
 
+        // AUDIT FIX (2026-06-05, MEDIUM): satisfy TegridyTWAP's CONSUMER REQUIREMENT.
+        // `consult()` alone is NOT manipulation-proof — on an idle pair the per-observation
+        // `spot * elapsedSinceLastTouch` bridge term can weight the average toward a
+        // recently-pushed spot. Gate the read against live spot with a 50 bps deviation
+        // bound (the exact pattern POLAccumulator already applies; the ONLY in-tree
+        // consult() consumer the TWAP NatSpec was aware of). Without this a borrower could
+        // bend spot within the TWAP's per-step cap to over-value their own TOWELI collateral
+        // and pass a lender's `minPositionETHValue` floor. Origination-only read; liquidation
+        // is time-based and never consults a price.
+        _assertSpotWithinTWAP();
+
         // consult(pair, tokenIn=toweli, amountIn=toweliAmount, period=30 min)
         // returns the time-weighted ETH-equivalent over the window. Same return
         // semantics as the previous reserve-ratio math but immune to single-block
         // reserve manipulation.
         return twap.consult(pair, toweli, toweliAmount, TWAP_PERIOD);
+    }
+
+    /// @notice AUDIT FIX (2026-06-05, MEDIUM): spot-vs-TWAP deviation gate, ported verbatim
+    ///         from POLAccumulator `_assertSpotNearTWAP`/`_assertSpotDeviationFromTWAP`.
+    ///         Reverts if live pair reserves imply a TOWELI->ETH spot price more than
+    ///         `TWAP_DEVIATION_BPS` away from the TWAP consult. Caller (`_positionETHValue`)
+    ///         already performs the staleness / sequencer / dormancy-bypass gates, so this
+    ///         adds only the reserve-deviation leg the TWAP NatSpec mandates.
+    /// @dev    `pair`/`toweli` are immutable and constructor-validated as the canonical
+    ///         TOWELI/WETH pair, so the untyped getReserves()/token0() staticcall surface is
+    ///         trusted — same approach POLAccumulator uses to avoid a pair-interface import.
+    function _assertSpotWithinTWAP() internal view {
+        (bool okR, bytes memory dataR) =
+            pair.staticcall(abi.encodeWithSignature("getReserves()"));
+        require(okR && dataR.length >= 96, "POOL_READ");
+        (uint112 r0, uint112 r1,) = abi.decode(dataR, (uint112, uint112, uint32));
+        (bool okT0, bytes memory dataT0) =
+            pair.staticcall(abi.encodeWithSignature("token0()"));
+        require(okT0 && dataT0.length == 32, "POOL_READ");
+        address t0 = abi.decode(dataT0, (address));
+
+        uint256 toweliReserve;
+        uint256 ethReserve;
+        if (t0 == toweli) {
+            (toweliReserve, ethReserve) = (uint256(r0), uint256(r1));
+        } else {
+            (toweliReserve, ethReserve) = (uint256(r1), uint256(r0));
+        }
+        if (toweliReserve == 0 || ethReserve == 0) revert OracleStale();
+
+        uint256 twapEthPer1eToweli = twap.consult(pair, toweli, TOWELI_UNIT, TWAP_PERIOD);
+        if (twapEthPer1eToweli == 0) revert OracleStale();
+
+        uint256 spotEthPer1eToweli = (ethReserve * TOWELI_UNIT) / toweliReserve;
+        uint256 priceDelta = spotEthPer1eToweli > twapEthPer1eToweli
+            ? spotEthPer1eToweli - twapEthPer1eToweli
+            : twapEthPer1eToweli - spotEthPer1eToweli;
+        if ((priceDelta * BPS) / twapEthPer1eToweli > TWAP_DEVIATION_BPS) {
+            revert ReservesDeviateFromTWAP();
+        }
     }
 
     /// @notice Get the total number of loans created.

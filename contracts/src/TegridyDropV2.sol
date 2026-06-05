@@ -705,7 +705,18 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         // the dutch bidders. Block opening a zero-price PUBLIC phase once any token has
         // been minted; genesis free drops (totalSupply == 0) are still allowed. Mirrors
         // the executeMintPrice/proposeMintPrice guards (lines 787/806).
-        if (phase == MintPhase.PUBLIC && mintPrice == 0 && totalSupply > 0) revert ZeroPricePostMint();
+        // AUDIT FIX (2026-06-05, MEDIUM): extend the H19 invariant to ALLOWLIST too.
+        // ALLOWLIST prices off the SAME storage `mintPrice` as PUBLIC (see mint(), the
+        // `mintPhase == DUTCH_AUCTION ? _dutchAuctionPrice() : mintPrice` branch). A
+        // DUTCH drop legitimately runs with storage mintPrice == 0, so a DUTCH -> ALLOWLIST
+        // flip after paid mints re-opened the exact "toggle-to-free" rug the PUBLIC guard
+        // closes (a captured owner sets an attacker-controlled merkleRoot, then mints the
+        // remaining supply for free, rugging the dutch bidders). DUTCH stays excluded — its
+        // price comes from the curve, and a zero floor there is a legitimate auction outcome.
+        if (
+            (phase == MintPhase.PUBLIC || phase == MintPhase.ALLOWLIST)
+                && mintPrice == 0 && totalSupply > 0
+        ) revert ZeroPricePostMint();
         mintPhase = phase;
         emit MintPhaseChanged(phase);
     }
