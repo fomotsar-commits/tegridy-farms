@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
 import {StakingMonitorView} from "../src/StakingMonitorView.sol";
+import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -46,6 +47,7 @@ contract DeepRestakingTest is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin public stakingAdmin;
     TegridyRestaking public restaking;
+    RestakingMonitorView public rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -81,6 +83,7 @@ contract DeepRestakingTest is Test {
             address(weth),
             BONUS_RATE
         );
+        rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Fund staking with rewards
         toweli.approve(address(staking), 500_000 ether);
@@ -146,9 +149,9 @@ contract DeepRestakingTest is Test {
         // clamped boost, not the inflated cache. Since the boost is now 0
         // post-kick, pendingBonus should not grow further (verified by
         // comparing two readings).
-        uint256 pending1 = restaking.pendingBonus(alice);
+        uint256 pending1 = rMonitorView.pendingBonus(alice);
         vm.warp(block.timestamp + 1 days);
-        uint256 pending2 = restaking.pendingBonus(alice);
+        uint256 pending2 = rMonitorView.pendingBonus(alice);
         assertEq(pending2, pending1, "DR-08: pendingBonus must stop growing once boost clamps to 0");
     }
 

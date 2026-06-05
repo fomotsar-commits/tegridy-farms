@@ -629,83 +629,15 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     // ─── View Functions ─────────────────────────────────────────────
 
-    /// @notice Check pending bonus rewards for a user
-    /// @dev AUDIT FIX: DEEP-DR-08 — route through the clamped historical boost
-    ///      view so frontends/integrators see a value consistent with what the
-    ///      RevenueDistributor (or a `claimAll` after `staking.kick`) would
-    ///      actually settle. Pre-fix, between staking-side lock expiry and the
-    ///      next restaking-side mutation, this view returned the inflated cached
-    ///      `info.boostedAmount` — users would see a "100 TOWELI pending" toast
-    ///      that silently shrinks to ~30 TOWELI on claim because `claimAll`'s
-    ///      stale path correctly clamps to the current staking boost.
-    function pendingBonus(address _user) public view returns (uint256) {
-        RestakeInfo memory info = restakers[_user];
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (info.tokenId == 0) return 0;
-
-        uint256 currentAcc = accBonusPerShare;
-        if (block.timestamp > lastBonusRewardTime && totalRestaked > 0) {
-            uint256 elapsed = block.timestamp - lastBonusRewardTime;
-            uint256 reward = elapsed * bonusRewardPerSecond;
-            // AUDIT FIX: DR2-06 — wrap `bonusRewardToken.balanceOf` in try/catch
-            // for parity with `_accrueBonus` (which DR-06 fix made tolerant).
-            // Without this, a hostile/paused/blacklisted bonus token would
-            // revert this view, breaking every frontend dashboard, off-chain
-            // indexer, and integrator that reads `pendingBonus`/`pendingTotal`.
-            // The mutator path tolerates it; the view should too.
-            // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
-            // slither-disable-next-line uninitialized-local
-            uint256 available;
-            try bonusRewardToken.balanceOf(address(this)) returns (uint256 bal) {
-                // AUDIT FIX FRESH-2026 [H-RESTAKE-BONUS-CAP-DEBT]: view-side
-                // mirror of the updateBonus cap fix — subtract deferred-payout
-                // debt from the cap so the view shows the same number a
-                // mutator-side accrual would actually credit. Avoids
-                // frontend/indexer drift relative to on-chain accrual.
-                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
-            } catch {
-                available = 0;
-            }
-            if (reward > available) reward = available;
-            currentAcc += (reward * ACC_PRECISION) / totalRestaked;
-        }
-
-        // AUDIT FIX: DEEP-DR-08 — use the staleness-clamped boost (min(cached,
-        // current)) instead of the raw cached `info.boostedAmount`. Same fix as
-        // DEEP-DR-04 applied to the pendingBonus view surface.
-        uint256 effectiveBoost = _boostedAmountAt(_user, block.timestamp);
-        // M-27: Safe int256 cast via _safeInt256 helper
-        int256 accumulated = _safeInt256((effectiveBoost * currentAcc) / ACC_PRECISION);
-        int256 diff = accumulated - info.bonusDebt;
-        return diff > 0 ? uint256(diff) : 0;
-    }
-
-    /// @notice Check pending base staking rewards for the deposited NFT
-    function pendingBase(address _user) public view returns (uint256) {
-        RestakeInfo memory info = restakers[_user];
-        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
-        // slither-disable-next-line incorrect-equality
-        if (info.tokenId == 0) return 0;
-        return monitor.earned(info.tokenId);
-    }
-
-    /// @notice AUDIT FIX 2026-05-26 [L-03]: sum of accruing bonus + deferred
-    ///         payout sitting in `unforwardedBonusRewards`. The standalone
-    ///         `pendingBonus(user)` view returns 0 when the user has no
-    ///         active restake — but a previously-deferred bonus payout (e.g.
-    ///         caught by a blacklist arm in claimAll/unrestake) still owes
-    ///         them ETH/tokens via `claimPendingBonusPayout`. This combined
-    ///         view lets UIs surface the full claimable in one read.
-    function totalBonusClaimable(address user) external view returns (uint256) {
-        return pendingBonus(user) + unforwardedBonusRewards[user];
-    }
-
-    /// @notice Total pending rewards (base + bonus) for display
-    function pendingTotal(address _user) external view returns (uint256 base, uint256 bonus) {
-        base = pendingBase(_user);
-        bonus = pendingBonus(_user);
-    }
+    /// @notice EIP-170 split (2026-06-04, part 2c): the display views
+    ///         `pendingBonus` / `pendingBase` / `totalBonusClaimable` /
+    ///         `pendingTotal` moved off this host into the read-only sister
+    ///         `RestakingMonitorView` (mirrors the StakingMonitorView pattern).
+    ///         They have ZERO on-chain consumers, so frontends/indexers/tests
+    ///         point at the sister's address instead — no protocol-state or
+    ///         behaviour change, just reclaimed bytecode. The sister reproduces
+    ///         each body byte-for-byte, reading host state through getters
+    ///         (boost via the lazy-decay-safe `boostedAmountAt` below).
 
     /// @notice AUDIT NEW-S1 (CRITICAL): voting-power source for RevenueDistributor.
     ///         When an NFT is transferred into this contract, TegridyStaking zeroes the

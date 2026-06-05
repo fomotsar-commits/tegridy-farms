@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
 import {StakingMonitorView} from "../src/StakingMonitorView.sol";
+import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -49,6 +50,7 @@ contract FinalAuditRestaking is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
+    RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -84,6 +86,7 @@ contract FinalAuditRestaking is Test {
             address(weth),
             BONUS_RATE
         );
+        rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Set restaking contract on staking so revalidateBoost works
         stakingAdmin.proposeRestakingContract(address(restaking));
@@ -368,7 +371,7 @@ contract FinalAuditRestaking is Test {
         // Only 1 second passes with 0.5 ether/sec bonus rate
         vm.warp(block.timestamp + 1);
 
-        uint256 pendingBonus = restaking.pendingBonus(alice);
+        uint256 pendingBonus = rMonitorView.pendingBonus(alice);
         // With 0.5 ether reward and ACC_PRECISION = 1e12, rounding should be minimal
         // reward = 0.5e18, accBonusPerShare += (0.5e18 * 1e12) / totalRestaked
         // At 100k ether stake with ~2x boost => ~200k ether boosted

@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
 import {StakingMonitorView} from "../src/StakingMonitorView.sol";
+import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import "../src/TegridyRestaking.sol";
@@ -59,6 +60,7 @@ contract TegridyRestakingTest is Test {
     TegridyStakingAdmin stakingAdmin;
     TegridyStakingJbacVault vault; // AUDIT FIX (pass-8 batch-14)
     TegridyRestaking restaking;
+    RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -98,6 +100,7 @@ contract TegridyRestakingTest is Test {
             address(weth),
             BONUS_RATE
         );
+        rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Fund staking with rewards
         toweli.approve(address(staking), 500_000 ether);
@@ -191,7 +194,7 @@ contract TegridyRestakingTest is Test {
         vm.warp(block.timestamp + 1 hours + 1); // Must exceed TRANSFER_RATE_LIMIT
 
         // Verify there are pending rewards
-        assertGt(restaking.pendingBonus(alice), 0, "Should have pending bonus");
+        assertGt(rMonitorView.pendingBonus(alice), 0, "Should have pending bonus");
 
         uint256 wethBefore = weth.balanceOf(alice);
         uint256 toweliBefore = toweli.balanceOf(alice);
@@ -234,8 +237,8 @@ contract TegridyRestakingTest is Test {
 
         vm.warp(block.timestamp + 100);
 
-        uint256 pendingBase = restaking.pendingBase(alice);
-        uint256 pendingBonus = restaking.pendingBonus(alice);
+        uint256 pendingBase = rMonitorView.pendingBase(alice);
+        uint256 pendingBonus = rMonitorView.pendingBonus(alice);
 
         assertGt(pendingBase, 0, "Should have base rewards");
         assertGt(pendingBonus, 0, "Should have bonus rewards");
@@ -549,8 +552,8 @@ contract TegridyRestakingTest is Test {
         // Long accrual period so the 24h gap is negligible
         vm.warp(block.timestamp + 30 days);
 
-        uint256 aliceBonus = restaking.pendingBonus(alice);
-        uint256 bobBonus = restaking.pendingBonus(bob);
+        uint256 aliceBonus = rMonitorView.pendingBonus(alice);
+        uint256 bobBonus = rMonitorView.pendingBonus(bob);
 
         assertGt(aliceBonus, 0);
         assertGt(bobBonus, 0);
@@ -637,7 +640,7 @@ contract TegridyRestakingTest is Test {
         vm.warp(block.timestamp + 100);
 
         // Snapshot expected base rewards before any manipulation
-        uint256 expectedBase = restaking.pendingBase(alice);
+        uint256 expectedBase = rMonitorView.pendingBase(alice);
         assertGt(expectedBase, 0, "Should have pending base rewards");
 
         // Attacker sends rewardToken directly to the restaking contract
@@ -663,7 +666,7 @@ contract TegridyRestakingTest is Test {
 
         vm.warp(block.timestamp + 1 hours + 1); // Must exceed TRANSFER_RATE_LIMIT
 
-        uint256 expectedBase = restaking.pendingBase(alice);
+        uint256 expectedBase = rMonitorView.pendingBase(alice);
         assertGt(expectedBase, 0, "Should have pending base rewards");
 
         // Attacker sends rewardToken directly to the restaking contract
@@ -750,8 +753,8 @@ contract TegridyRestakingTest is Test {
 
         // After time passes, Bob should earn more bonus than Alice
         vm.warp(block.timestamp + 1000);
-        uint256 aliceBonus = restaking.pendingBonus(alice);
-        uint256 bobBonus = restaking.pendingBonus(bob);
+        uint256 aliceBonus = rMonitorView.pendingBonus(alice);
+        uint256 bobBonus = rMonitorView.pendingBonus(bob);
         assertGt(bobBonus, aliceBonus, "Higher boost should earn more bonus");
 
         // Ratio of bonuses should match ratio of boosted amounts

@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
 import {StakingMonitorView} from "../src/StakingMonitorView.sol";
+import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import "../src/TegridyRestaking.sol";
@@ -88,6 +89,7 @@ contract RedTeamStaking is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
+    RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -124,6 +126,7 @@ contract RedTeamStaking is Test {
             address(weth),
             BONUS_RATE
         );
+        rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Register restaking contract via timelock
         stakingAdmin.proposeRestakingContract(address(restaking));
@@ -549,7 +552,7 @@ contract RedTeamStaking is Test {
         _stakeAndRestake(alice, STAKE_AMOUNT, 30 days);
 
         // Check alice's pending bonus — should be zero since she just restaked
-        uint256 alicePending = restaking.pendingBonus(alice);
+        uint256 alicePending = rMonitorView.pendingBonus(alice);
         assertEq(alicePending, 0, "First restaker should not get windfall bonus from gap period");
     }
 

@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import "../src/TegridyStaking.sol";
 import {StakingMonitorView} from "../src/StakingMonitorView.sol";
+import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
@@ -50,6 +51,7 @@ contract Audit195Restaking is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
+    RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -84,6 +86,7 @@ contract Audit195Restaking is Test {
             address(weth),
             BONUS_RATE
         );
+        rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Set restaking contract reference in staking (48h timelock)
         stakingAdmin.proposeRestakingContract(address(restaking));
@@ -300,7 +303,7 @@ contract Audit195Restaking is Test {
         restaking.claimAll();
 
         // After claiming, pendingBonus should be ~0 (within rounding)
-        uint256 pendingAfter = restaking.pendingBonus(alice);
+        uint256 pendingAfter = rMonitorView.pendingBonus(alice);
         assertLe(pendingAfter, 1, "Pending bonus should be ~0 after claim (rounding tolerance)");
     }
 
@@ -357,7 +360,7 @@ contract Audit195Restaking is Test {
         _stakeAndRestake(alice, STAKE_AMOUNT);
         vm.warp(block.timestamp + 200);
 
-        uint256 pendingBefore = restaking.pendingBonus(alice);
+        uint256 pendingBefore = rMonitorView.pendingBonus(alice);
         assertGt(pendingBefore, 0, "Should have accrued bonus");
 
         uint256 wethBefore = weth.balanceOf(alice);
@@ -521,7 +524,7 @@ contract Audit195Restaking is Test {
         uint256 tokenId = _stakeAndRestake(alice, STAKE_AMOUNT);
         vm.warp(block.timestamp + 200);
 
-        uint256 pendingBonus = restaking.pendingBonus(alice);
+        uint256 pendingBonus = rMonitorView.pendingBonus(alice);
         assertGt(pendingBonus, 0, "Should have pending bonus");
 
         uint256 wethBefore = weth.balanceOf(alice);
@@ -843,16 +846,16 @@ contract Audit195Restaking is Test {
     // ═══════════════════════════════════════════════════════════════════
 
     function test_pendingBonus_returnsZeroForNonRestaker() public view {
-        assertEq(restaking.pendingBonus(alice), 0, "Non-restaker should have 0 pending");
+        assertEq(rMonitorView.pendingBonus(alice), 0, "Non-restaker should have 0 pending");
     }
 
     function test_pendingBonus_accumulatesOverTime() public {
         _stakeAndRestake(alice, STAKE_AMOUNT);
 
-        uint256 p1 = restaking.pendingBonus(alice);
+        uint256 p1 = rMonitorView.pendingBonus(alice);
 
         vm.warp(block.timestamp + 100);
-        uint256 p2 = restaking.pendingBonus(alice);
+        uint256 p2 = rMonitorView.pendingBonus(alice);
 
         assertGt(p2, p1, "Pending should increase over time");
     }
@@ -865,7 +868,7 @@ contract Audit195Restaking is Test {
 
         vm.warp(block.timestamp + 1000);
 
-        uint256 pending = restaking.pendingBonus(alice);
+        uint256 pending = rMonitorView.pendingBonus(alice);
         uint256 expected = 1000 * BONUS_RATE; // 100 ether (0.1 * 1000)
 
         // Rounding loss should be negligible for reasonable stake amounts
@@ -1012,7 +1015,7 @@ contract Audit195Restaking is Test {
         restaking.refreshPosition();
 
         // After refresh, pending should be ~0 (bonus was claimed during refresh)
-        uint256 pending = restaking.pendingBonus(alice);
+        uint256 pending = rMonitorView.pendingBonus(alice);
         assertLe(pending, 1, "Pending should be near 0 right after refresh");
     }
 
@@ -1023,7 +1026,7 @@ contract Audit195Restaking is Test {
         vm.prank(alice);
         restaking.claimAll();
 
-        uint256 pending = restaking.pendingBonus(alice);
+        uint256 pending = rMonitorView.pendingBonus(alice);
         assertLe(pending, 1, "Pending should be near 0 right after claimAll");
     }
 
@@ -1038,8 +1041,8 @@ contract Audit195Restaking is Test {
         // Fast-forward a very long time so the initial gap (~24h per restake) becomes negligible
         vm.warp(block.timestamp + 10_000_000);
 
-        uint256 alicePending = restaking.pendingBonus(alice);
-        uint256 bobPending = restaking.pendingBonus(bob);
+        uint256 alicePending = rMonitorView.pendingBonus(alice);
+        uint256 bobPending = rMonitorView.pendingBonus(bob);
 
         // Both should have accrued bonus; verify each gets between 30-70% of total
         // (alice has a slight edge from the ~24h solo period before bob joined)
