@@ -527,6 +527,49 @@ contract TegridyRestakingTest is Test {
         restaking.claimResidualForTokenId(99999);
     }
 
+    // ===== AUDIT 2026-06-05 (HIGH): a STALE residual-claimant cannot drain a NEW
+    //        restaker's per-tokenId staking rewards (residual-claimant reward theft).
+    //        Root cause was _reserveResidual's zero-residue early-return leaving a stale
+    //        claimant; this test proves the defense-in-depth cross-holder guard in
+    //        claimResidualForTokenId ALSO blocks the drain when the NFT is restaked by a
+    //        different holder. Pre-fix this drained `paid > 0` to the stale claimant. =====
+    function test_AUDIT20260605_staleResidualClaimant_cannotDrainNewRestaker() public {
+        _linkRestakingContract();
+
+        // Bob legitimately stakes + restakes. The NFT is escrowed in restaking and
+        // tokenIdToRestaker[tokenId] == bob.
+        uint256 tokenId = _stakeAndRestake(bob);
+        assertEq(staking.ownerOf(tokenId), address(restaking), "nft escrowed by restaking");
+
+        // Install the only hard-to-reach precondition directly: a STALE _residualClaimant
+        // pointing at a prior restaker (alice). `_residualClaimant` is
+        // mapping(uint256 => address) at storage slot 13 (forge inspect storageLayout).
+        bytes32 slot = keccak256(abi.encode(tokenId, uint256(13)));
+        vm.store(address(restaking), slot, bytes32(uint256(uint160(alice))));
+
+        // Accrue rewards for bob's position past his lock, then settle them into the
+        // shared per-tokenId bucket via a permissionless kick — the credit a thief targets.
+        vm.warp(block.timestamp + 31 days);
+        staking.kick(tokenId);
+        uint256 perTokenCredit = staking.unsettledRewardsByTokenId(tokenId);
+        assertGt(perTokenCredit, 0, "bob has a per-tokenId credit to steal");
+
+        uint256 aliceBefore = toweli.balanceOf(alice);
+
+        // Alice (stale claimant) attempts the drain. Post-fix it MUST defer (pay 0)
+        // because the NFT is restaked by bob != alice.
+        vm.prank(alice);
+        uint256 paid = restaking.claimResidualForTokenId(tokenId);
+
+        assertEq(paid, 0, "stale claimant must not drain a different restaker's credit");
+        assertEq(toweli.balanceOf(alice), aliceBefore, "alice balance unchanged");
+        assertEq(
+            staking.unsettledRewardsByTokenId(tokenId),
+            perTokenCredit,
+            "bob's per-tokenId credit preserved"
+        );
+    }
+
     // ===== REVIEW C-1-FINDING-4: claimUnsettledFor(restakingContract) reverts =====
     function test_C1_claimUnsettledFor_restakingContract_reverts() public {
         _linkRestakingContract();

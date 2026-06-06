@@ -1110,6 +1110,55 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         pendingGaugeRemove = address(0);
     }
 
+    /// @notice AUDIT FIX (2026-06-05 deep-audit, LOW — removal griefing): force-remove a
+    ///         gauge that a griefer keeps un-removable via a recurring current-epoch vote.
+    ///         `executeRemoveGauge` refuses while the gauge has current-epoch votes (to
+    ///         avoid stranding voter weight), so a 1-wei vote each epoch could block
+    ///         removal indefinitely. This variant instead CLEANLY removes the gauge's
+    ///         current-epoch weight from the epoch total before pruning — so surviving
+    ///         gauges are NOT diluted (relative weights stay correct) — at the cost that
+    ///         voters who allocated to THIS gauge forfeit their current-epoch allocation.
+    ///         Intended for compromised/abandoned gauges. Owner-only and gated by the SAME
+    ///         24h GAUGE_REMOVE timelock as `executeRemoveGauge` (propose first via
+    ///         `proposeRemoveGauge`). Pattern of record: Curve GaugeController kill /
+    ///         Velodrome Voter.killGauge (weight zeroed, no revert).
+    /// @dev    Underflow-safe: `gaugeWeightByEpoch` and `totalWeightByEpoch` are
+    ///         increment-only and updated in lockstep at every vote/reveal site
+    ///         (lines 474-475 / 765-766), so `gw <= totalWeightByEpoch[ep]` always holds
+    ///         and removing the gauge's own contribution preserves the
+    ///         `totalWeightByEpoch == Σ gaugeWeightByEpoch` invariant.
+    function executeForceRemoveGauge() external onlyOwner {
+        _execute(GAUGE_REMOVE);
+        address gauge = pendingGaugeRemove;
+
+        // De-weight the current epoch instead of reverting on active votes.
+        uint256 ep = currentEpoch();
+        uint256 gw = gaugeWeightByEpoch[ep][gauge];
+        if (gw > 0) {
+            totalWeightByEpoch[ep] -= gw;
+            gaugeWeightByEpoch[ep][gauge] = 0;
+        }
+
+        isGauge[gauge] = false;
+        address removedPair = gaugeToPair[gauge];
+        if (removedPair != address(0)) {
+            delete pairToGauge[removedPair];
+            delete gaugeToPair[gauge];
+        }
+
+        uint256 len = gaugeList.length;
+        for (uint256 i; i < len; ++i) {
+            if (gaugeList[i] == gauge) {
+                gaugeList[i] = gaugeList[len - 1];
+                gaugeList.pop();
+                break;
+            }
+        }
+
+        pendingGaugeRemove = address(0);
+        emit GaugeRemoved(gauge, removedPair);
+    }
+
     function cancelRemoveGauge() external onlyOwner {
         _cancel(GAUGE_REMOVE);
         pendingGaugeRemove = address(0);

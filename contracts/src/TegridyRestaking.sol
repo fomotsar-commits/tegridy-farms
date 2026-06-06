@@ -1439,7 +1439,19 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      claim through the next exit cycle).
     function _reserveResidual(uint256 tokenId, address claimant) internal {
         uint256 residue = staking.unsettledRewardsByTokenId(tokenId);
-        if (residue == 0) return;
+        if (residue == 0) {
+            // AUDIT FIX (2026-06-05 deep-audit, HIGH — residual-claimant reward theft):
+            // a FULL-DRAIN exit (the pre/post-transfer drains in _returnNftSettleResidual
+            // already pulled the per-tokenId residue to 0) MUST also clear any stale
+            // `_residualClaimant`. Pre-fix the bare `return` left a zero-residue claimant
+            // live; once the NFT changed hands and a NEW restaker accrued fresh per-tokenId
+            // credit (a permissionless `kick` settles it into the shared restaking bucket),
+            // the stale claimant could siphon it via `claimResidualForTokenId` — whose
+            // cross-holder guard only defends the third-party/lending-escrow case, NOT
+            // "NFT back at restaking under a different restaker". Clear at the source.
+            if (_residualClaimant[tokenId] != address(0)) delete _residualClaimant[tokenId];
+            return;
+        }
         // AUDIT FIX 2026-05-26 [H-04]: ALWAYS overwrite `_residualClaimant` when
         // residue is non-zero. Pre-fix, the "preserve prior claimant" branch
         // was a hijack vector: Alice self-re-restakes (M28 carve-out admits
@@ -1490,11 +1502,24 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // is unaffected because by the time this fix evaluates, the NFT is in lending,
         // meaning any pre-fix residue has either been drained by restaking's own
         // settlement OR was never created (the lending escrow accumulates fresh).
+        // AUDIT FIX (2026-06-05 deep-audit, HIGH — defense-in-depth): defer the pull when
+        // the NFT is (a) at a third-party tracked holder (lending escrow), OR (b) back at
+        // THIS restaking contract under a DIFFERENT current restaker. Case (b) was the
+        // missed leg of the cross-holder guard: a stale claimant must never drain a NEW
+        // restaker's freshly-kicked per-tokenId credit. The root-cause clear in
+        // _reserveResidual already prevents a stale claimant from existing, so this is a
+        // fail-safe backstop (it can only DEFER a pull, never enable one). It never blocks
+        // a legitimate claim: when the NFT is back at restaking under the claimant
+        // themselves (self-re-restake), `liveRestaker == msg.sender` and the pull proceeds.
         address currentOwner = staking.ownerOf(tokenId);
-        if (currentOwner != address(this) && currentOwner != msg.sender) {
-            // NFT is at a third party — most likely a tracked-holder lending contract.
-            // Drain attempt aborted; claim stays live for a future window when the
-            // NFT returns to msg.sender (the residual claimant) or is unstaked entirely.
+        address liveRestaker = tokenIdToRestaker[tokenId];
+        bool atThirdParty = currentOwner != address(this) && currentOwner != msg.sender;
+        bool atRestakingUnderOther =
+            currentOwner == address(this) && liveRestaker != address(0) && liveRestaker != msg.sender;
+        if (atThirdParty || atRestakingUnderOther) {
+            // NFT is at a third party (lending) or restaked by someone else — abort the
+            // drain; the claim stays live for a future window when the NFT returns to the
+            // residual claimant or is unstaked entirely.
             emit ResidualPullDeferredCrossHolder(tokenId, currentOwner);
             return 0;
         }
@@ -2363,8 +2388,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // would stay inflated indefinitely after a bricked decay attempt,
                 // siphoning honest restakers' bonus emission until owner ran
                 // emergencyForceReturn. Now: on transfer failure, accumulate to
-                // unforwardedBaseRewards (re-uses existing path; restaker can
-                // sweep later via recoverStuckPrincipal or unrestake's stuck-base).
+                // unforwardedBonusRewards (the bonus-token bucket; restaker
+                // redeems later via claimPendingBonusPayout, or the bonus-sweep
+                // sites in claimAll/unrestake/emergency*) — see H-3 [F-04-1] below.
                 // SLITHER 2026-05-18: nonReentrant on entrypoint; cross-fn view-only reads cannot enable theft
                 // slither-disable-next-line reentrancy-no-eth
                 try this._safeBonusTransferExt(_restaker, bonusPending) {

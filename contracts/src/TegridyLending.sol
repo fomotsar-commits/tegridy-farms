@@ -2518,6 +2518,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 nLoans = loans.length;
         for (uint256 i = 0; i < nLoans; i++) {
             Loan storage l = loans[i];
+            // AUDIT FIX (2026-06-05 deep-audit, LOW — sibling-divergence with NFTLending):
+            // also refuse to sweep collateral reserved for a stuck-transfer recipient (a
+            // RESOLVED loan whose collateral return no-op'd, recoverable by the rightful
+            // party via claimStuckCollateral). The active-loan scan below `continue`s past
+            // resolved loans, so without this a stuck-but-resolved NFT owed to
+            // `stuckCollateralRecipient[i]` could be swept to an arbitrary `_to`, overriding
+            // the rightful recovery. Mirrors TegridyNFTLending's sweep guard
+            // (TegridyNFTLending.sol:1604).
+            if (
+                stuckCollateralRecipient[i] != address(0) && l.tokenId == _tokenId
+                    && offers[l.offerId].collateralContract == _collection
+            ) revert CollateralInUse();
             if (l.repaid || l.defaultClaimed) continue;
             if (l.tokenId != _tokenId) continue;
             address coll = offers[l.offerId].collateralContract;
