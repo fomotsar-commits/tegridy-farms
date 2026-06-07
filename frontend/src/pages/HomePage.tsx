@@ -18,6 +18,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES } from '../lib/copy';
 import { ArtImg } from '../components/ArtImg';
+import { ProtocolStats } from '../components/ProtocolStats';
 
 const CORE_LOOP_STEPS = [
   { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
@@ -245,6 +246,15 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+        </m.div>
+
+        {/* By the Numbers — live on-chain protocol analytics */}
+        <m.div className="pb-16" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <div className="mb-6">
+            <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>By the Numbers</h2>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Live on-chain &mdash; volume, real yield, and staking rewards.</p>
+          </div>
+          <ProtocolStats />
         </m.div>
 
         {/* Protocol Overview */}
