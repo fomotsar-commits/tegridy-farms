@@ -28,20 +28,16 @@ export function usePoolData() {
   const totalPenalties = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
 
   let apr = '0';
-  let aprCapped = false;
+  const aprCapped = false;
   if (rewardRate > 0n && totalBoostedStake > 0n) {
     // Scale up before dividing to preserve precision for low APRs
     const aprScaled = rewardRate * 31536000n * 10000n * 10n ** 18n;
     const aprBps = aprScaled / totalBoostedStake;
-    const aprNum = Number(aprBps) / 1e18;
-    if (aprNum > 999999) {
-      // Ceiling display for a near-empty pool (tiny stake → astronomical APR).
-      // Comma-formatted so it reads as a deliberate cap, not a render glitch.
-      apr = '>9,999';
-      aprCapped = true;
-    } else {
-      apr = (aprNum / 100).toFixed(2);
-    }
+    const aprPct = Number(aprBps) / 1e18 / 100; // REAL APR in %
+    // Operator decision (2026-06-07): show the REAL APR — no ">9,999%" ceiling.
+    // At bootstrap TVL this is very large and falls toward the steady-state as
+    // stake grows. >=10,000% rendered as comma integers; smaller keeps 2 decimals.
+    apr = aprPct >= 10000 ? Math.round(aprPct).toLocaleString() : aprPct.toFixed(2);
   }
 
   return {

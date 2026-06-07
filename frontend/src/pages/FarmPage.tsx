@@ -177,7 +177,7 @@ export default function FarmPage() {
         </div>
         <div className="relative z-10 pt-20">
           <div className="max-w-[1100px] mx-auto px-4 md:px-6">
-            <IncentivesStrip rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
+            <IncentivesStrip apr={pool.apr} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
           </div>
           <ConnectPrompt surface="farm" />
         </div>
@@ -205,8 +205,8 @@ export default function FarmPage() {
           <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </m.div>
 
-        {/* Incentives strip — concrete reward-pool / emissions / boost / fee-share */}
-        <IncentivesStrip rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
+        {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
+        <IncentivesStrip apr={pool.apr} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
 
         {/* Stats */}
         <FarmStatsRow

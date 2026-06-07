@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 
 interface IncentivesStripProps {
+  apr: string;
   rewardPool: string;
   dailyEmissions: string;
 }
@@ -11,8 +12,9 @@ interface IncentivesStripProps {
  * a wallet. Additive only; reuses the kyle-green stat styling from FarmStatsRow.
  * No art or existing sections removed.
  */
-export function IncentivesStrip({ rewardPool, dailyEmissions }: IncentivesStripProps) {
+export function IncentivesStrip({ apr, rewardPool, dailyEmissions }: IncentivesStripProps) {
   const items = [
+    { l: 'Staking APR', v: apr && apr !== '0' && apr !== '–' ? `${apr}%` : '–', icon: '📈' },
     { l: 'Reward Pool', v: rewardPool, icon: '💰' },
     { l: 'Daily Emissions', v: dailyEmissions === '–' ? '–' : `${dailyEmissions} / day`, icon: '⚡' },
     { l: 'Max Boost', v: '4.0× · 4-yr lock', icon: '🚀' },
@@ -20,7 +22,7 @@ export function IncentivesStrip({ rewardPool, dailyEmissions }: IncentivesStripP
   ];
   return (
     <m.div
-      className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8"
+      className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.05 }}
