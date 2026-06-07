@@ -385,6 +385,23 @@ contract TegridyV4HookTest is Test, Deployers {
         assertEq(hook.quoteFee(address(this), abi.encode(makeAddr("anyone"))), BASE_FEE, "no config => base fee");
     }
 
+    // ── AUDIT 2026-06-07: premiumAccess is *called* (hasPremium) inside
+    //    _discountedFee, so setDiscountConfig must reject an EOA / 7702-delegated
+    //    EOA that could return true to grant the discount — mirrors
+    //    SwapFeeRouter.applyPremiumAccess. address(0) stays the disable path. ──
+    function test_setDiscountConfig_rejectsEOAPremiumAccess() public {
+        address eoa = makeAddr("eoaPremium"); // code.length == 0
+        vm.expectRevert(TegridyV4Hook.NotAContract.selector);
+        hook.setDiscountConfig(eoa, makeAddr("router"), 5000);
+    }
+
+    function test_setDiscountConfig_allowsZeroToDisable() public {
+        MockPremiumAccess pa = new MockPremiumAccess();
+        hook.setDiscountConfig(address(pa), makeAddr("router"), 5000); // enable
+        hook.setDiscountConfig(address(0), address(0), 0);             // disable — must not revert
+        assertEq(hook.quoteFee(makeAddr("router"), abi.encode(makeAddr("u"))), BASE_FEE, "disabled => base fee");
+    }
+
     function test_discount_flooredAtMinFee() public {
         MockPremiumAccess pa = new MockPremiumAccess();
         address user = makeAddr("p");

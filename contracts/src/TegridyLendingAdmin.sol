@@ -493,4 +493,77 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
         if (block.timestamp > readyAt + _proposalValidity()) return false;
         return pendingAcceptedCollateral == _collateral && !pendingAcceptedCollateralAdd;
     }
+
+    // ─── Ownership handoff: flush queued proposals ────────────────────
+    /// @notice AUDIT FIX (2026-06-07, M19-PORT): cancel every pending timelocked
+    ///         proposal when a new owner accepts ownership.
+    /// @dev    TegridyLendingAdmin was the ONLY admin sister missing this override
+    ///         — every peer (TegridyNFTLendingAdmin, SwapFeeRouterAdmin,
+    ///         TegridyStakingAdmin, RevenueDistributor, POLAccumulator, …) flushes
+    ///         its queue on handoff. The pending slots live in `_executeAfter`
+    ///         (TimelockAdmin), which is independent of `owner()`, so without this
+    ///         a proposal queued by a rotated-away (possibly compromised) owner
+    ///         would survive the transfer and become an executable booby-trap for
+    ///         the incoming owner (e.g. a queued `proposeTreasuryChange(attacker)`
+    ///         or a `proposeMaxPrincipal(FLOOR)` origination-brick) after its 48h
+    ///         delay. Each branch mirrors the corresponding `cancel*` cleanup
+    ///         (zeroes the paired `pending*` slot + emits the cancellation event
+    ///         where one exists). Never blocks the new owner from re-proposing.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[PROTOCOL_FEE_CHANGE] != 0) {
+            uint256 cancelled = pendingProtocolFeeBps;
+            _cancel(PROTOCOL_FEE_CHANGE);
+            pendingProtocolFeeBps = 0;
+            emit ProtocolFeeChangeCancelled(cancelled);
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[MAX_PRINCIPAL_CHANGE] != 0) {
+            _cancel(MAX_PRINCIPAL_CHANGE);
+            pendingMaxPrincipal = 0;
+        }
+        if (_executeAfter[MAX_APR_CHANGE] != 0) {
+            _cancel(MAX_APR_CHANGE);
+            pendingMaxAprBps = 0;
+        }
+        if (_executeAfter[MIN_DURATION_CHANGE] != 0) {
+            _cancel(MIN_DURATION_CHANGE);
+            pendingMinDuration = 0;
+        }
+        if (_executeAfter[MAX_DURATION_CHANGE] != 0) {
+            _cancel(MAX_DURATION_CHANGE);
+            pendingMaxDuration = 0;
+        }
+        if (_executeAfter[ORIGINATION_FEE_CHANGE] != 0) {
+            _cancel(ORIGINATION_FEE_CHANGE);
+            pendingOriginationFeeBps = 0;
+        }
+        if (_executeAfter[MIN_APR_CHANGE] != 0) {
+            _cancel(MIN_APR_CHANGE);
+            pendingMinAprBps = 0;
+        }
+        if (_executeAfter[MIN_PRINCIPAL_CHANGE] != 0) {
+            _cancel(MIN_PRINCIPAL_CHANGE);
+            pendingMinPrincipal = 0;
+        }
+        if (_executeAfter[ACCEPTED_COLLATERAL_CHANGE] != 0) {
+            address cancelled = pendingAcceptedCollateral;
+            bool wasAdd = pendingAcceptedCollateralAdd;
+            _cancel(ACCEPTED_COLLATERAL_CHANGE);
+            pendingAcceptedCollateral = address(0);
+            pendingAcceptedCollateralAdd = false;
+            emit AcceptedCollateralCancelled(cancelled, wasAdd);
+        }
+        if (_executeAfter[SWEEP_DONATED_TOWELI] != 0) {
+            _cancel(SWEEP_DONATED_TOWELI);
+            pendingSweepAmount = 0;
+            pendingSweepTo = address(0);
+            emit SweepDonatedToweliCancelled();
+        }
+    }
 }

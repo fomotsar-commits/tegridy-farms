@@ -71,6 +71,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     error InvalidFeeBounds();
     error SkimOutOfBounds();
     error ZeroAddress();
+    error NotAContract();
     error NotPoolManagerUnlock();
     error TradingPaused();
     error DiscountTooHigh();
@@ -177,6 +178,17 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         onlyParamAdmin
     {
         if (discountBps_ > MAX_DISCOUNT_BPS) revert DiscountTooHigh();
+        // AUDIT FIX (2026-06-07): `premiumAccess` is *called* (`hasPremium`) inside
+        // `_discountedFee`. Reject an EOA / EIP-7702-delegated EOA (code.length 0
+        // or 23) so a captured paramAdmin can't point it at an attacker-controlled
+        // responder that returns `true` to grant the (≤50%) fee discount. Mirrors
+        // SwapFeeRouter.applyPremiumAccess; address(0) stays the explicit disable
+        // path. trustedRouter is only ever compared (never called), so it needs no
+        // such check.
+        if (premiumAccess_ != address(0)) {
+            uint256 codeLen = premiumAccess_.code.length;
+            if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        }
         premiumAccess = premiumAccess_;
         trustedRouter = trustedRouter_;
         discountBps = discountBps_;

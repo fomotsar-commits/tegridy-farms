@@ -1313,4 +1313,56 @@ contract TegridyLendingTest is Test {
         (,,,,,,,,,bool defaultClaimed,) = lending.getLoan(loanId);
         assertTrue(defaultClaimed);
     }
+
+    // ── AUDIT 2026-06-07 (M19-PORT): TegridyLendingAdmin was the only admin
+    //    sister missing the acceptOwnership override that flushes queued
+    //    timelocked proposals on ownership handoff. Without it, a rotated-away
+    //    (possibly compromised) owner could leave the incoming owner an
+    //    executable booby-trap (treasury redirect / origination brick). ──
+    function test_AUDIT20260607_lendingAdmin_acceptOwnership_flushesPendingProposals() public {
+        address newOwner = makeAddr("newLendingAdminOwner");
+
+        // Outgoing owner queues a treasury-redirect + a principal-window brick.
+        lendingAdmin.proposeTreasuryChange(carol);
+        lendingAdmin.proposeMaxPrincipal(lendingAdmin.MAX_PRINCIPAL_FLOOR());
+        assertTrue(lendingAdmin.treasuryChangeReadyAt() != 0, "treasury proposal queued");
+        assertTrue(lendingAdmin.maxPrincipalChangeReadyAt() != 0, "maxPrincipal proposal queued");
+
+        // Rotate ownership (Ownable2Step) to a fresh owner and accept.
+        lendingAdmin.transferOwnership(newOwner);
+        vm.prank(newOwner);
+        lendingAdmin.acceptOwnership();
+
+        // Both queued proposals must be flushed — no inherited booby-trap.
+        assertEq(lendingAdmin.treasuryChangeReadyAt(), 0, "treasury proposal flushed");
+        assertEq(lendingAdmin.pendingTreasury(), address(0), "pendingTreasury cleared");
+        assertEq(lendingAdmin.maxPrincipalChangeReadyAt(), 0, "maxPrincipal proposal flushed");
+        assertEq(lendingAdmin.pendingMaxPrincipal(), 0, "pendingMaxPrincipal cleared");
+        assertEq(lendingAdmin.owner(), newOwner, "ownership transferred");
+
+        // New owner is not bricked — can still propose.
+        vm.prank(newOwner);
+        lendingAdmin.proposeTreasuryChange(treasury);
+        assertTrue(lendingAdmin.treasuryChangeReadyAt() != 0, "new owner can re-propose");
+    }
+
+    // ── AUDIT 2026-06-07: TegridyLending.acceptOwnership flushes the inline
+    //    admin-replacement proposal on handoff (mirrors SwapFeeRouter/Staking). ──
+    function test_AUDIT20260607_lending_acceptOwnership_flushesAdminReplacement() public {
+        // Candidate replacement admin (must be a contract — EOA/7702 rejected).
+        TegridyLendingAdmin candidate = new TegridyLendingAdmin(address(lending));
+        address newOwner = makeAddr("newLendingOwner");
+
+        lending.proposeLendingAdminReplacement(address(candidate));
+        assertTrue(lending.lendingAdminReplacementReadyAt() != 0, "replacement queued");
+        assertEq(lending.pendingLendingAdmin(), address(candidate), "pending set");
+
+        lending.transferOwnership(newOwner);
+        vm.prank(newOwner);
+        lending.acceptOwnership();
+
+        assertEq(lending.lendingAdminReplacementReadyAt(), 0, "replacement flushed");
+        assertEq(lending.pendingLendingAdmin(), address(0), "pending cleared");
+        assertEq(lending.owner(), newOwner, "ownership transferred");
+    }
 }

@@ -246,6 +246,25 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit LendingAdminReplacementCancelled(proposed);
     }
 
+    /// @notice AUDIT FIX (2026-06-07): flush the inline admin-replacement proposal
+    ///         on ownership handoff.
+    /// @dev    Mirrors SwapFeeRouter / TegridyStaking, whose `acceptOwnership`
+    ///         overrides cancel their inline timelocked proposals so a rotated-away
+    ///         (possibly compromised) owner cannot leave the incoming owner an
+    ///         executable admin-swap booby-trap. `pendingLendingAdmin` /
+    ///         `lendingAdminReplacementReadyAt` live outside `owner()`, so a queued
+    ///         replacement would otherwise survive the transfer (bounded by the 7-day
+    ///         validity window, but still a gap). The new owner can always re-propose.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (lendingAdminReplacementReadyAt != 0) {
+            address proposed = pendingLendingAdmin;
+            pendingLendingAdmin = address(0);
+            lendingAdminReplacementReadyAt = 0;
+            emit LendingAdminReplacementCancelled(proposed);
+        }
+    }
+
     // ─── Safety Caps ─────────────────────────────────────────────────
     // AUDIT TF-06 (Spartan MEDIUM): lending caps were compile-time constants with
     // no way to adjust as ETH price / market demand evolves. They are now timelocked
