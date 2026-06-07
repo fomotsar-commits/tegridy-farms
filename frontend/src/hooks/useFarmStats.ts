@@ -18,20 +18,27 @@ export function useFarmStats() {
     contracts: [
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
     ],
     query: { enabled: isDeployed && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   const totalStaked = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
   const totalFunded = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
+  const rewardRate = (data?.[2]?.status === 'success' ? data[2].result as bigint : 0n);
 
   const totalStakedStr = formatWei(totalStaked, 18, 4);
   const totalFundedStr = formatWei(totalFunded, 18, 4);
+  // Daily emissions = rewardRate (TOWELI/sec) * 86400 s/day (fixed-rate emission).
+  const dailyEmissionsStr = formatWei(rewardRate * 86400n, 18, 0);
 
   return {
     tvl: isDeployed ? (totalStaked > 0n ? `${Number(totalStakedStr).toLocaleString()} TOWELI` : '0 TOWELI') : '–',
     toweliPrice: effectivePrice > 0 ? formatCurrency(effectivePrice, 6) : '–',
     rewardsDistributed: isDeployed ? `${Number(totalFundedStr).toLocaleString()} TOWELI` : '–',
+    // Incentive headline figures surfaced via <IncentivesStrip/>.
+    rewardPool: isDeployed && totalFunded > 0n ? `${Number(totalFundedStr).toLocaleString()} TOWELI` : '–',
+    dailyEmissions: isDeployed && rewardRate > 0n ? `${Number(dailyEmissionsStr).toLocaleString()} TOWELI` : '–',
     isDeployed,
     isLoading,
   };

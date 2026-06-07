@@ -26,6 +26,7 @@ import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
+import { IncentivesStrip } from '../components/farm/IncentivesStrip';
 import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
@@ -175,6 +176,9 @@ export default function FarmPage() {
           <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.55)' }} aria-hidden="true" />
         </div>
         <div className="relative z-10 pt-20">
+          <div className="max-w-[1100px] mx-auto px-4 md:px-6">
+            <IncentivesStrip rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
+          </div>
           <ConnectPrompt surface="farm" />
         </div>
       </div>
@@ -200,6 +204,9 @@ export default function FarmPage() {
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
           <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </m.div>
+
+        {/* Incentives strip — concrete reward-pool / emissions / boost / fee-share */}
+        <IncentivesStrip rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
 
         {/* Stats */}
         <FarmStatsRow
