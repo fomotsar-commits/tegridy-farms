@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, mvp-launch]
   pull_request:
-    branches: [main]
+    branches: [main, mvp-launch]
 
 # Least-privilege default — jobs may not write to the repo, PRs, issues, or
 # publish anything. Any job that needs more scope must opt in explicitly.

@@ -1,0 +1,34 @@
+name: Gitleaks
+
+# Secret scan on every push + PR. Added after the 2026-06-07 post-deploy red-team
+# found a live Etherscan key committed into a tracked audit doc (.audit_101/*).
+# Since audit artifacts are intentionally tracked, scan-on-commit is the right
+# guard. gitleaks-action scans the push/PR commit range (not full history), so it
+# catches NEW secrets without blocking on the already-known historical leak
+# (which is remediated by rotating the key, not by this scan).
+on:
+  push:
+    branches: [main, mvp-launch]
+  pull_request:
+    branches: [main, mvp-launch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Scan for secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"

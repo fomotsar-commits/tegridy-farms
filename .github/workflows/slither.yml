@@ -2,12 +2,12 @@ name: Slither
 
 on:
   push:
-    branches: [main]
+    branches: [main, mvp-launch]
     paths:
       - "contracts/**"
       - ".github/workflows/slither.yml"
   pull_request:
-    branches: [main]
+    branches: [main, mvp-launch]
     paths:
       - "contracts/**"
       - ".github/workflows/slither.yml"
