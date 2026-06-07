@@ -147,8 +147,6 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery"
 export default async function handler(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
-    "https://tegridyfarms.xyz",
-    "https://www.tegridyfarms.xyz",
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
     "https://tegridyfarms.vercel.app",

@@ -2,7 +2,7 @@
 //
 // Background: every entry under `vercel.json#rewrites` that pointed at a
 // third-party host (api.odos.xyz, api.cow.fi, li.quest, …) was an open
-// proxy. Anyone could `curl https://tegridyfarms.xyz/api/odos/<arbitrary>`
+// proxy. Anyone could `curl https://tegridyfarms.vercel.app/api/odos/<arbitrary>`
 // to:
 //   - burn the upstream quota associated with our Vercel IP
 //   - send arbitrary POST bodies through our trusted origin (potential
@@ -54,8 +54,6 @@ function isProdLikeEnv() {
 // in one place so security policy doesn't drift between proxies.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://tegridyfarms.xyz",
-    "https://www.tegridyfarms.xyz",
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
     "https://tegridyfarms.vercel.app",
@@ -95,7 +93,7 @@ function isOriginAllowed(origin) {
 function setCors(req, res) {
   const origin = req.headers?.origin || "";
   const allowed = buildAllowedOrigins();
-  const fallback = process.env.ALLOWED_ORIGIN || "https://tegridyfarms.xyz";
+  const fallback = process.env.ALLOWED_ORIGIN || "https://tegridyfarms.vercel.app";
   res.setHeader("Access-Control-Allow-Origin", allowed.has(origin) ? origin : fallback);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");

@@ -58,8 +58,6 @@ const MAX_MESSAGE_TTL_MS = 15 * 60 * 1000;
 // `ALLOWED_ORIGINS=foo,bar` extends without redeploy.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://tegridyfarms.xyz",
-    "https://www.tegridyfarms.xyz",
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
     "https://tegridyfarms.vercel.app",

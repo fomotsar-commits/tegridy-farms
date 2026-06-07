@@ -53,8 +53,6 @@ function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.tes
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const prodOrigins = [
-    "https://tegridyfarms.xyz",
-    "https://www.tegridyfarms.xyz",
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
     "https://tegridyfarms.vercel.app",

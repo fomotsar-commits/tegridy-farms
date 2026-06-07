@@ -135,11 +135,11 @@ describe('buildContractMetadata', () => {
       ...base,
       coverImageUri: 'ar://cover',
       bannerImageUri: 'ar://banner',
-      externalLink: 'https://tegridyfarms.xyz',
+      externalLink: 'https://tegridyfarms.vercel.app',
     });
     expect(meta.image).toBe('ar://cover');
     expect(meta.banner_image).toBe('ar://banner');
-    expect(meta.external_link).toBe('https://tegridyfarms.xyz');
+    expect(meta.external_link).toBe('https://tegridyfarms.vercel.app');
   });
 
   it('throws on royaltyBps > 10000', () => {

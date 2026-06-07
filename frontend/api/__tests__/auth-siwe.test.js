@@ -81,7 +81,7 @@ function makeReqRes({ method, body, headers = {}, query = {} }) {
     method,
     body,
     query,
-    headers: { origin: "https://tegridyfarms.xyz", ...headers },
+    headers: { origin: "https://tegridyfarms.vercel.app", ...headers },
   };
   const statusSpy = vi.fn();
   const jsonSpy = vi.fn();
@@ -98,11 +98,11 @@ function makeReqRes({ method, body, headers = {}, query = {} }) {
 function buildValidSiweMessageObject(overrides = {}) {
   const now = Date.now();
   return {
-    domain: "tegridyfarms.xyz",
+    domain: "tegridyfarms.vercel.app",
     address: WALLET,
     chainId: 1,
     nonce: "abc",
-    uri: "https://tegridyfarms.xyz/login",
+    uri: "https://tegridyfarms.vercel.app/login",
     expirationTime: new Date(now + 5 * 60 * 1000).toISOString(),
     notBefore: new Date(now - 1000).toISOString(),
     ...overrides,

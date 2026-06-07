@@ -43,8 +43,6 @@ const graphqlMiddleware = graphql({
 // trivial credential-coupled lookups. Set ALLOWED_ORIGINS in the indexer env
 // (comma-separated) for additional preview/staging origins.
 const allowedOrigins = [
-  "https://tegridyfarms.xyz",
-  "https://www.tegridyfarms.xyz",
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",
   "https://tegridyfarms.vercel.app",

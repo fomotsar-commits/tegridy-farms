@@ -45,8 +45,6 @@ function isRevocationRequired() {
 // default; ALLOWED_ORIGINS=foo,bar extends without redeploy.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://tegridyfarms.xyz",
-    "https://www.tegridyfarms.xyz",
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
     "https://tegridyfarms.vercel.app",

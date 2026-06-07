@@ -24,7 +24,7 @@ function authHeaders(extra = {}) {
 
 // Shared CORS helpers
 // AUDIT FIX FRESH-2026: F8 — drop `www.tegridyfarms.com`. The team owns
-//         tegridyfarms.xyz; tegridyfarms.com appeared in this allowlist only
+//         tegridyfarms.vercel.app; tegridyfarms.com appeared in this allowlist only
 //         (every other API proxy uses .xyz). If unowned, an attacker could
 //         register the domain and burn the team's Etherscan API quota via
 //         credentialed CORS. If owned, the asymmetry is drift the rest of the
@@ -35,8 +35,6 @@ function authHeaders(extra = {}) {
 //         /api/etherscan for tx history rendering (HistoryPage.tsx); without
 //         this entry, browser CORS preflight fails from that origin.
 const ALLOWED_ORIGINS = [
-  "https://tegridyfarms.xyz",
-  "https://www.tegridyfarms.xyz",
   "https://tegridyfarms.vercel.app",
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",

@@ -12,7 +12,7 @@ function makeReq({ query = {}, headers = {} } = {}) {
   return {
     method: "GET",
     query,
-    headers: { origin: "https://tegridyfarms.xyz", ...headers },
+    headers: { origin: "https://tegridyfarms.vercel.app", ...headers },
   };
 }
 

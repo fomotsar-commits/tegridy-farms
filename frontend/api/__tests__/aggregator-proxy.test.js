@@ -22,7 +22,7 @@ function makeReq({ method = "GET", query = {}, body = null, headers = {} } = {})
     method,
     query,
     body,
-    headers: { origin: "https://tegridyfarms.xyz", ...headers },
+    headers: { origin: "https://tegridyfarms.vercel.app", ...headers },
   };
 }
 
@@ -242,7 +242,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
       method: okMethod,
       query: { ...okQuery, path: okPath },
       body: okBody,
-      headers: { origin: "https://tegridyfarms.xyz" },
+      headers: { origin: "https://tegridyfarms.vercel.app" },
     });
     const { res, statusSpy } = makeRes();
     await handler(req, res);
