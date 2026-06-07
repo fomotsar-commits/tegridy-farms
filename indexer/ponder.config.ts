@@ -494,11 +494,14 @@ const rpcTransport = RPC_URLS.length > 0
 // responses for post-DeployV2 contracts. Two legacy contracts
 // (TegridyFactory) keep the conservative 24500000 floor until ops verify
 // their broadcast files.
-const TEGRIDY_STAKING_START = 24808994; // DeployAuditFixes.s.sol/1/run-latest.json (C-01 fix redeploy)
-const REVENUE_DISTRIBUTOR_START = 24816810; // DeployV2
-const SWAP_FEE_ROUTER_START = 24816811; // DeployV2
-const POL_ACCUMULATOR_START = 24808997; // DeployAuditFixes
-const TEGRIDY_FACTORY_START = 24500000; // legacy — verify before tightening
+// RELAUNCH 2026-06-06 (DeployMVP): every MVP contract deployed in blocks
+// 25263328–25263339. Use the first deploy-tx block as a single conservative
+// start for all relaunch subscriptions (Ponder skips pre-creation blocks).
+const TEGRIDY_STAKING_START = 25263328;
+const REVENUE_DISTRIBUTOR_START = 25263328;
+const SWAP_FEE_ROUTER_START = 25263328;
+const POL_ACCUMULATOR_START = 25263328;
+const TEGRIDY_FACTORY_START = 25263328;
 // AUDIT M5 (2026-05-24): start-block consts for removed non-MVP subscriptions
 // (TegridyRestaking/VoteIncentives/LPFarming/TegridyLending/CommunityGrants/
 // MemeBountyBoard/GaugeController/PremiumAccess/TegridyNFTLending) were pruned
@@ -523,7 +526,7 @@ export default createConfig({
       // Canonical v2 (C-01 Spartan TF-01 fix migration) — the old
       // 0x65D8...a421 v1 is paused and has been superseded. See
       // docs/MIGRATION_HISTORY.md.
-      address: "0x626644523d34B84818df602c991B4a06789C4819",
+      address: "0xcaDc93E96De58EA554c71ca609974625615E046D",
       startBlock: TEGRIDY_STAKING_START,
     },
     // AUDIT M5 (2026-05-24): TegridyRestaking subscription removed —
@@ -531,7 +534,7 @@ export default createConfig({
     RevenueDistributor: {
       abi: RevenueDistributorAbi,
       network: "mainnet",
-      address: "0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8",
+      address: "0xF993316E2fC079de4358c489A935E01e03E23E17",
       startBlock: REVENUE_DISTRIBUTOR_START,
     },
     // AUDIT M5 (2026-05-24): VoteIncentives, LPFarming, and TegridyLending
@@ -539,7 +542,7 @@ export default createConfig({
     SwapFeeRouter: {
       abi: SwapFeeRouterAbi,
       network: "mainnet",
-      address: "0xea13Cd47a37cC5B59675bfd52BFc8fF8691937A0",
+      address: "0x6d5791A660e79175F74C6D639584C98422d5956E",
       startBlock: SWAP_FEE_ROUTER_START,
     },
     // AUDIT M5 (2026-05-24): CommunityGrants, MemeBountyBoard, and
@@ -553,7 +556,7 @@ export default createConfig({
       abi: TegridyPairAbi,
       network: "mainnet",
       address: factory({
-        address: "0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6",
+        address: "0xa24C7287eC56A7DEFDc70033803451240e267a52",
         event: TegridyFactoryPairCreatedEvent,
         parameter: "pair",
       }),
@@ -568,7 +571,7 @@ export default createConfig({
     POLAccumulator_Pause: {
       abi: PausableOnlyAbi,
       network: "mainnet",
-      address: "0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca",
+      address: "0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2",
       startBlock: POL_ACCUMULATOR_START,
     },
     // Wave-3 IDX-1: business-event subscription for POLAccumulator (was
@@ -579,7 +582,7 @@ export default createConfig({
     POLAccumulator_Business: {
       abi: POLAccumulatorBusinessAbi,
       network: "mainnet",
-      address: "0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca",
+      address: "0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2",
       startBlock: POL_ACCUMULATOR_START,
     },
     // AUDIT (post-Batch-J sweep): track TegridyFactory governance lifecycle.
@@ -589,14 +592,14 @@ export default createConfig({
     TegridyFactory_Governance: {
       abi: TegridyFactoryGovernanceAbi,
       network: "mainnet",
-      address: "0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6",
+      address: "0xa24C7287eC56A7DEFDc70033803451240e267a52",
       startBlock: TEGRIDY_FACTORY_START,
     },
     // AUDIT (post-Batch-J sweep): TegridyTWAP rebootstrap detection.
     TegridyTWAP: {
       abi: TegridyTWAPAbi,
       network: "mainnet",
-      address: "0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995",
+      address: "0xdFdd6D72539A425dC917F49FB834901105cA98c9",
       startBlock: TEGRIDY_FACTORY_START,
     },
     // AUDIT (2026-04-26 split, commit 99eaf9b): TegridyStakingAdmin sister
@@ -611,7 +614,7 @@ export default createConfig({
       abi: TimelockAdminMinimalAbi,
       network: "mainnet",
       address: (process.env.TEGRIDY_STAKING_ADMIN_ADDRESS as `0x${string}` | undefined)
-        ?? "0x0000000000000000000000000000000000000000",
+        ?? "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3", // relaunch StakingAdmin (env overrides)
       startBlock: TEGRIDY_STAKING_START,
     },
     // AUDIT (2026-04-26 split, commit cb3d12b): SwapFeeRouterAdmin sister
@@ -625,7 +628,7 @@ export default createConfig({
       abi: TimelockAdminMinimalAbi,
       network: "mainnet",
       address: (process.env.SWAP_FEE_ROUTER_ADMIN_ADDRESS as `0x${string}` | undefined)
-        ?? "0x0000000000000000000000000000000000000000",
+        ?? "0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060", // relaunch SwapFeeRouterAdmin (env overrides)
       startBlock: SWAP_FEE_ROUTER_START,
     },
   },

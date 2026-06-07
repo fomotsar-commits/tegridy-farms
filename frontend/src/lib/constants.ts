@@ -108,12 +108,15 @@ export function isDeployed(address: string): boolean {
 }
 
 // Farming Seasons
+// RELAUNCH 2026-06-07: fresh season so the Farm doesn't show a stale "0d left".
+// totalRewards = the 6.4M TOWELI actually funded for this ~90-day window
+// (rewardRate 0.8243/s ≈ 71.2k/day × 90d). Adjust number/name/dates as desired.
 export const CURRENT_SEASON = {
-  number: 2,
-  name: 'Season 2',
-  startDate: '2026-01-01',
-  endDate: '2026-06-01',
-  totalRewards: 26_000_000,
+  number: 3,
+  name: 'Season 3',
+  startDate: '2026-06-07',
+  endDate: '2026-09-05',
+  totalRewards: 6_400_000,
 };
 
 // External links
