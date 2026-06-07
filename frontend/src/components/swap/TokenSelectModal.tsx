@@ -180,12 +180,20 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
     query: { enabled: isImporting },
   });
 
-  // Timeout for token import lookup
+  // Timeout for token import lookup.
+  // AUDIT 2026-06-07 (live browser test): the guard was `!importSymbol && !importDecimals`,
+  // which only fired when BOTH reads failed. Tokens whose `symbol()`/`name()` return a
+  // non-standard `bytes32` (e.g. MKR, SAI) make the string-typed `symbol()` read error out
+  // (importSymbol stays undefined) while `decimals()` succeeds — so the `&&` never matched
+  // and the modal hung forever on "Looking up token...". Fire when EITHER field is still
+  // missing after the window. Use `=== undefined` (not `!importDecimals`) so a legitimate
+  // 0-decimal token is not falsely rejected. Fails safe: a token that can't be fully read
+  // is never imported.
   useEffect(() => {
     if (!isImporting) return;
     const timer = setTimeout(() => {
-      if (!importSymbol && !importDecimals) {
-        setImportError('Could not find token at this address');
+      if (!importSymbol || importDecimals === undefined) {
+        setImportError('Could not read token details at this address (it may use a non-standard contract)');
         setImportAddress('');
       }
     }, 8000);
