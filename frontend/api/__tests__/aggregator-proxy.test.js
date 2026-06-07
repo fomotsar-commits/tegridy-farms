@@ -51,12 +51,22 @@ function mockUpstreamOk(payload = { ok: true }) {
   }));
 }
 
-// ─── Provider matrix: name → file path → expected good path/method ──────
-// Each row: [identifier, modulePath, validQuery (object), validMethod, validBody]
+// 2026-05-27: the 7 per-provider catchalls (api/<provider>/[...path].js) were
+// consolidated into ONE serverless function — api/aggregator/[provider]/[...path].js
+// — to stay under the Vercel Hobby 12-function cap. Routing is by the `[provider]`
+// path segment (req.query.provider). These tests import that single handler and
+// pass `provider` in the query exactly the way the vercel.json rewrites do
+// (/api/odos/:path* → /api/aggregator/odos/:path*). The per-provider security
+// policy (matchPath / allowedQuery / method / origin) is preserved verbatim inside
+// the consolidated handler, so the matrix below still exercises each provider e2e.
+const AGG_HANDLER = "../aggregator/[provider]/[...path].js";
+
+// ─── Provider matrix: name → expected good path/method ──────
+// Each row: [identifier, validQuery (object), validMethod, validBody]
 const MATRIX = [
   {
     id: "odos",
-    mod: "../odos/[...path].js",
+    mod: AGG_HANDLER,
     okPath: ["sor", "quote", "v2"],
     badPath: ["sor", "swap"],
     okMethod: "POST",
@@ -66,17 +76,19 @@ const MATRIX = [
   },
   {
     id: "cow",
-    mod: "../cow/[...path].js",
+    mod: AGG_HANDLER,
     okPath: ["mainnet", "api", "v1", "quote"],
     badPath: ["polygon", "api", "v1", "quote"],
     okMethod: "POST",
-    badMethod: "GET",
+    // cow allows GET (orders/{uid} status polling, added 2026-06-02), so a
+    // disallowed-method probe must use a verb that's genuinely not allowlisted.
+    badMethod: "DELETE",
     okQuery: {},
     okBody: { sellToken: "0x", buyToken: "0x" },
   },
   {
     id: "lifi",
-    mod: "../lifi/[...path].js",
+    mod: AGG_HANDLER,
     okPath: ["v1", "quote"],
     badPath: ["v1", "connections"],
     okMethod: "GET",
@@ -86,7 +98,7 @@ const MATRIX = [
   },
   {
     id: "kyber",
-    mod: "../kyber/[...path].js",
+    mod: AGG_HANDLER,
     okPath: ["ethereum", "api", "v1", "routes"],
     badPath: ["polygon", "api", "v1", "routes"],
     okMethod: "GET",
@@ -96,7 +108,7 @@ const MATRIX = [
   },
   {
     id: "openocean",
-    mod: "../openocean/[...path].js",
+    mod: AGG_HANDLER,
     okPath: ["v4", "eth", "quote"],
     badPath: ["v4", "bsc", "quote"],
     okMethod: "GET",
@@ -106,7 +118,7 @@ const MATRIX = [
   },
   {
     id: "paraswap",
-    mod: "../paraswap/[...path].js",
+    mod: AGG_HANDLER,
     okPath: ["prices"],
     badPath: ["transactions", "1"],
     okMethod: "GET",
@@ -116,7 +128,7 @@ const MATRIX = [
   },
   {
     id: "swapapi",
-    mod: "../swapapi/[...path].js",
+    mod: AGG_HANDLER,
     okPath: ["v1", "swap", "1"],
     badPath: ["v1", "swap", "999"],
     okMethod: "GET",
@@ -126,7 +138,10 @@ const MATRIX = [
   },
 ];
 
-describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, okMethod, badMethod, okQuery, okBody }) => {
+describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, okMethod, badMethod, okQuery: _okQuery, okBody }) => {
+  // The consolidated handler routes on req.query.provider (the `[provider]`
+  // path segment). Inject it into every request, the way Vercel's rewrites do.
+  const okQuery = { ..._okQuery, provider: id };
   let handler;
   let fetchMock;
 
@@ -257,7 +272,7 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
   });
 
   it("returns OPTIONS preflight as 200", async () => {
-    const req = makeReq({ method: "OPTIONS", query: { path: okPath } });
+    const req = makeReq({ method: "OPTIONS", query: { ...okQuery, path: okPath } });
     const { res, statusSpy } = makeRes();
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(200);
@@ -272,7 +287,7 @@ describe("aggregator proxy — body cap (32 KB)", () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
     globalThis.fetch = mockUpstreamOk();
-    handler = (await import("../odos/[...path].js")).default;
+    handler = (await import(AGG_HANDLER)).default;
   });
 
   it("rejects POST body over 32 KB with 413", async () => {
@@ -280,7 +295,7 @@ describe("aggregator proxy — body cap (32 KB)", () => {
     const bigPadding = "x".repeat(40_000);
     const req = makeReq({
       method: "POST",
-      query: { path: ["sor", "quote", "v2"] },
+      query: { provider: "odos", path: ["sor", "quote", "v2"] },
       body: { padding: bigPadding },
     });
     const { res, statusSpy, jsonSpy } = makeRes();
@@ -299,13 +314,14 @@ describe("aggregator proxy — query allowlist", () => {
     process.env.NODE_ENV = "test";
     fetchMock = mockUpstreamOk();
     globalThis.fetch = fetchMock;
-    handler = (await import("../paraswap/[...path].js")).default;
+    handler = (await import(AGG_HANDLER)).default;
   });
 
   it("forwards only allowlisted query params upstream (no key smuggling)", async () => {
     const req = makeReq({
       method: "GET",
       query: {
+        provider: "paraswap",
         path: ["prices"],
         srcToken: "0xeee",
         destToken: "0xeee",
@@ -335,7 +351,7 @@ describe("aggregator proxy — upstream over-cap defends against gzip-bomb", () 
   beforeEach(async () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
-    handler = (await import("../paraswap/[...path].js")).default;
+    handler = (await import(AGG_HANDLER)).default;
   });
 
   it("returns 502 when upstream Content-Length exceeds the body cap", async () => {
@@ -347,7 +363,7 @@ describe("aggregator proxy — upstream over-cap defends against gzip-bomb", () 
     }));
     const req = makeReq({
       method: "GET",
-      query: { path: ["prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
+      query: { provider: "paraswap", path: ["prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
     });
     const { res, statusSpy, jsonSpy } = makeRes();
     await handler(req, res);
@@ -362,7 +378,7 @@ describe("aggregator proxy — upstream error collapse", () => {
   beforeEach(async () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
-    handler = (await import("../paraswap/[...path].js")).default;
+    handler = (await import(AGG_HANDLER)).default;
   });
 
   it("collapses upstream non-2xx into opaque 502 (no leakage of upstream body)", async () => {
@@ -375,7 +391,7 @@ describe("aggregator proxy — upstream error collapse", () => {
     }));
     const req = makeReq({
       method: "GET",
-      query: { path: ["prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
+      query: { provider: "paraswap", path: ["prices"], srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" },
     });
     const { res, statusSpy, jsonSpy } = makeRes();
     await handler(req, res);
