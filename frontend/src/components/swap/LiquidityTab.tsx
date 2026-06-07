@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useAccount, useBalance, useChainId } from 'wagmi';
+import { useAccount, useBalance, useChainId, useWalletClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatUnits, parseUnits } from 'viem';
+import { toast } from 'sonner';
 import { useAddLiquidity } from '../../hooks/useAddLiquidity';
 import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
@@ -93,6 +94,34 @@ export function LiquidityTab() {
   const [slippageBps, setSlippageBps] = useState<number>(50);
 
   const liq = useAddLiquidity(tokenA, tokenB);
+  const { data: walletClient } = useWalletClient();
+
+  // The #1 source of "my LP disappeared" confusion: the LP receipt is a plain ERC-20
+  // (symbol "TGLP") at the pair address, and wallets hide tokens they don't recognize.
+  // This one-tap import (EIP-747 watchAsset) makes the position visible in-wallet.
+  const addLpToWallet = async () => {
+    if (!liq.pairAddress) return;
+    if (!walletClient) { toast.error('Connect a wallet that supports adding tokens'); return; }
+    try {
+      await walletClient.watchAsset({
+        type: 'ERC20',
+        options: { address: liq.pairAddress as `0x${string}`, symbol: 'TGLP', decimals: 18 },
+      });
+    } catch {
+      // User declined the wallet prompt, or the wallet doesn't support watchAsset — no-op.
+    }
+  };
+
+  // The two underlying tokens this LP position is currently redeemable for (pro-rata
+  // share of reserves), so users see what their TGLP is actually "worth" right now.
+  const yourUnderlying = useMemo(() => {
+    if (liq.lpTotalSupply === 0n || liq.lpBalance === 0n) return null;
+    try {
+      const a = (liq.reserveA * liq.lpBalance) / liq.lpTotalSupply;
+      const b = (liq.reserveB * liq.lpBalance) / liq.lpTotalSupply;
+      return { a: formatUnits(a, tokenA.decimals), b: formatUnits(b, tokenB.decimals) };
+    } catch { return null; }
+  }, [liq.reserveA, liq.reserveB, liq.lpBalance, liq.lpTotalSupply, tokenA.decimals, tokenB.decimals]);
 
   // Native ETH balance (useAddLiquidity reads the WETH ERC20 balance for native tokens,
   // which is wrong — user might hold ETH but no WETH). Fetch real native balance here.
@@ -228,6 +257,42 @@ export function LiquidityTab() {
             ? 'Pair two tokens, earn a cut of every swap that routes through your pool. LP goes to your wallet.'
             : 'Withdraw your LP back into the two underlying tokens. Burn the LP, take the crop.'}
         </p>
+
+        {/* "Where did my LP go?" reassurance — shown whenever the user holds LP in this
+            pair, in both Add and Remove modes. Directly answers the most common support
+            question: the position is a token in your wallet, not lost. */}
+        {isConnected && hasLP && (
+          <div className="mb-4 rounded-xl p-3" style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.22)' }}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-emerald-300 text-[12px] font-semibold">🌿 Your liquidity is safe</span>
+              <span className="text-white/70 text-[10px] font-mono">{formatTokenAmount(liq.lpBalanceFormatted)} TGLP</span>
+            </div>
+            <p className="text-white/75 text-[11px] leading-relaxed mb-2.5">
+              It lives in your wallet as a token called <span className="font-mono text-white">TGLP</span> — it didn't
+              disappear, wallets just hide tokens they don't recognize.
+              {yourUnderlying && (
+                <> Redeemable right now for about{' '}
+                  <span className="text-white font-mono">{parseFloat(yourUnderlying.a).toFixed(4)} {tokenA.symbol}</span> +{' '}
+                  <span className="text-white font-mono">{parseFloat(yourUnderlying.b).toFixed(2)} {tokenB.symbol}</span>,
+                  and it earns a cut of every swap through the pool.</>
+              )}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={addLpToWallet}
+                className="px-3 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium transition-colors"
+                style={{ background: 'var(--color-weed-20, rgba(45,139,78,0.25))', color: 'white', border: '1px solid var(--color-weed-60, rgba(45,139,78,0.55))' }}>
+                + Add TGLP to wallet
+              </button>
+              {mode === 'add' && (
+                <button onClick={() => setMode('remove')}
+                  className="px-3 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium text-white/80 hover:text-white transition-colors"
+                  style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                  Withdraw it
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {!isConnected ? (
           <div className="text-center py-8">

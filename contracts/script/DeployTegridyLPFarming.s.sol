@@ -13,7 +13,14 @@ import "../src/TegridyLPFarming.sol";
 contract DeployTegridyLPFarmingScript is Script {
     // ─── Mainnet Constants ───────────────────────────────────────────
     address constant TOWELI = 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D;
-    address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
+    // RELAUNCH 2026-06-06: synced to the relaunch treasury (2-of-2 Safe) from
+    // frontend/src/lib/constants.ts `TREASURY_ADDRESS`. The prior value
+    // (0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e) was the pre-relaunch treasury and
+    // is stale — `_treasury` is the recover/sweep destination, so deploying with the
+    // old address would route any recovered tokens to a wallet the relaunch Safe may
+    // not control. OPERATOR: confirm this matches the Safe that should receive sweeps
+    // before broadcasting.
+    address constant TREASURY = 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d;
 
     uint256 constant REWARDS_DURATION = 7 days;
 
