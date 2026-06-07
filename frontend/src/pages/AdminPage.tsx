@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
-  TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, PREMIUM_ACCESS_ADDRESS,
+  TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, SWAP_FEE_ROUTER_ADMIN_ADDRESS, PREMIUM_ACCESS_ADDRESS,
   LP_FARMING_ADDRESS, CHAIN_ID,
 } from '../lib/constants';
 import {
@@ -191,8 +191,9 @@ export default function AdminPage() {
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' },
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps' },
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees' },
-      { address: SWAP_FEE_ROUTER_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingFeeBps' },
-      { address: SWAP_FEE_ROUTER_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingTreasury' },
+      // M2 fix: pending fee/treasury timelock state lives on SwapFeeRouterAdmin, not the main router.
+      { address: SWAP_FEE_ROUTER_ADMIN_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingFeeBps' },
+      { address: SWAP_FEE_ROUTER_ADMIN_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingTreasury' },
       // PremiumAccess
       { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'monthlyFeeToweli' },
       { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalSubscribers' },

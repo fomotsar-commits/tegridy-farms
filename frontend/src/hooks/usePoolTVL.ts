@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useReadContracts, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
 import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
-import { TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 
 const MAX_APR = 500;
@@ -19,9 +19,9 @@ export function usePoolTVL() {
   // (was 30s — TVL doesn't move per-block).
   const { data } = useReadContracts({
     contracts: [
-      { address: TOWELI_WETH_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: CHAIN_ID } as const,
-      { address: TOWELI_WETH_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0', chainId: CHAIN_ID } as const,
-      { address: TOWELI_WETH_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply', chainId: CHAIN_ID } as const,
+      { address: TEGRIDY_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: CHAIN_ID } as const,
+      { address: TEGRIDY_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0', chainId: CHAIN_ID } as const,
+      { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply', chainId: CHAIN_ID } as const,
       ...(hasFeeRouter ? [
         { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees' as const, chainId: CHAIN_ID },
         { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps' as const, chainId: CHAIN_ID },

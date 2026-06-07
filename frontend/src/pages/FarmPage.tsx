@@ -259,7 +259,7 @@ export default function FarmPage() {
         <LPFarmingSection lpFarm={lpFarm} isConnected={isConnected} />
 
         {/* ── Restaking (Bonus Yield Layer) ── */}
-        {isConnected && pos.hasPosition && (
+        {isConnected && pos.hasPosition && restaking.isDeployed && (
           <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <div className="flex items-center justify-between mb-4">
               <div>

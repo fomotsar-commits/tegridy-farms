@@ -9,7 +9,7 @@ import {
 } from '../lib/pointsEngine';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import {
-  TEGRIDY_STAKING_ADDRESS, TOWELI_WETH_LP_ADDRESS,
+  TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TEGRIDY_LP_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
   isDeployed as checkDeployed,
 } from '../lib/constants';
@@ -34,7 +34,7 @@ export function usePoints() {
   const { data: contractData } = useReadContracts({
     contracts: [
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr] },
-      { address: TOWELI_WETH_LP_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
+      { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'getReferralInfo', args: [userAddr] },
     ],
     query: { enabled, refetchInterval: 30_000 },
@@ -53,7 +53,7 @@ export function usePoints() {
   const hasTokenId = tokenId > 0n;
   const { data: posData } = useReadContracts({
     contracts: [
-      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n] },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n] },
     ],
     query: { enabled: enabled && hasTokenId, refetchInterval: 30_000 },
   });

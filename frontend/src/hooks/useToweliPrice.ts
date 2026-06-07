@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../lib/contracts';
-import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
 
 // R075: every cache key carries its own schema version. A stale entry from
@@ -49,7 +49,7 @@ const TWAP_DIVERGENCE_THRESHOLD = 0.02;
 const MAX_STALENESS_SECONDS = 300;
 
 export function useToweliPrice() {
-  const pairAddr = TOWELI_WETH_LP_ADDRESS;
+  const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Tegridy DEX pair (was external Uniswap LP)
   const hasPair = checkDeployed(pairAddr);
 
   const { data: reserves } = useReadContract({

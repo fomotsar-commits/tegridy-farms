@@ -1,7 +1,7 @@
 import { useAccount, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
 // Dummy address for disabled queries (wagmi needs valid args shape)
 const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -33,10 +33,11 @@ export function useUserPosition() {
 
   // Get position details + earned if user has a staking NFT
   const hasTokenId = tokenId > 0n;
+  // EIP-170 split: getPosition + earned live on StakingMonitorView, not the host staking contract.
   const { data: posData, refetch: refetchPos } = useReadContracts({
     contracts: [
-      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n] },
-      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n] },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n] },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n] },
     ],
     query: { enabled: enabled && hasTokenId, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });

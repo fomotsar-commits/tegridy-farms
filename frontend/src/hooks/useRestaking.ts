@@ -3,12 +3,14 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadCont
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_RESTAKING_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
-import { TEGRIDY_RESTAKING_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { TEGRIDY_RESTAKING_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 
 export function useRestaking() {
   const chainId = useChainId();
   const { address } = useAccount();
   const userAddr = address ?? '0x0000000000000000000000000000000000000000';
+  // M1 fix: gate all reads/writes — restaking is deferred (TEGRIDY_RESTAKING_ADDRESS == address(0)).
+  const isDeployed = checkDeployed(TEGRIDY_RESTAKING_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
@@ -28,7 +30,7 @@ export function useRestaking() {
       { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalBonusDistributed' },
       { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'bonusRewardPerSecond' },
     ],
-    query: { enabled: !!address, refetchInterval: 30_000 },
+    query: { enabled: !!address && isDeployed, refetchInterval: 30_000 },
   });
 
   // Parse results
@@ -86,6 +88,7 @@ export function useRestaking() {
 
   // Actions
   function restake() {
+    if (!isDeployed) { toast.error('Restaking is not live yet'); return; }
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!hasStakingPosition) { toast.error('You need a staking position first'); return; }
     if (isRestaked) { toast.error('Already restaked'); return; }
@@ -99,6 +102,7 @@ export function useRestaking() {
   }
 
   function unrestake() {
+    if (!isDeployed) { toast.error('Restaking is not live yet'); return; }
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!isRestaked) return;
     writeContract({
@@ -110,6 +114,7 @@ export function useRestaking() {
   }
 
   function claimAll() {
+    if (!isDeployed) { toast.error('Restaking is not live yet'); return; }
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (pendingTotal === 0n) { toast.info('No rewards to claim'); return; }
     writeContract({
@@ -140,6 +145,8 @@ export function useRestaking() {
   }, [writeError]);
 
   return {
+    // Deploy gate (M1): restaking deferred to Phase 7 — UI hides the section when false.
+    isDeployed,
     // User state
     hasStakingPosition,
     isRestaked,
