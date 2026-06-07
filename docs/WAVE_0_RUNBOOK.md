@@ -372,7 +372,7 @@ Open https://github.com/fomotsar-commits/tegridy-farms and verify:
 1. **Don't panic** — every step above is either reversible (no ETH moves) or has a built-in safety net (2-step ownership, timelock delays, pull-pattern refunds).
 2. **Pause the contract** if you suspect something's wrong: every contract with `onlyOwner` has `pause()`. Pauses trade safety for liveness — reasonable during incident response.
 3. **Open a GitHub issue** with a tag `incident:` and share as much of the broadcast JSON as you can without revealing keys.
-4. **Talk to your security researcher contacts** in parallel. The bug bounty is active (`security@tegridyfarms.xyz`) but an active incident can also go to trusted external eyes.
+4. **Talk to your security researcher contacts** in parallel. The bug bounty is active (`the team via our community channels`) but an active incident can also go to trusted external eyes.
 
 ---
 

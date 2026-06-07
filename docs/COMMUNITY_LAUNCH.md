@@ -43,7 +43,7 @@ Paste this as the first pinned thread under Announcements:
 > This is the canonical channel for the protocol until we stand up Discord / Twitter / Telegram. Good-faith questions, feature ideas, and feedback are welcome here.
 >
 > **Before posting:**
-> - Security vulnerability? **Do not post here.** Email `security@tegridyfarms.xyz` — see [SECURITY.md](../SECURITY.md) for the disclosure process and bounty tiers.
+> - Security vulnerability? **Do not post here.** Email `the team via our community channels` — see [SECURITY.md](../SECURITY.md) for the disclosure process and bounty tiers.
 > - Read the [README](../README.md) and [FAQ](../FAQ.md) first.
 >
 > **What the team will answer:**
@@ -217,7 +217,7 @@ Triggered on new-member join:
 > **Before posting, please:**
 > - Read the pinned rules in #welcome
 > - Never respond to DMs from "admins" — we never DM first
-> - Security bugs → email `security@tegridyfarms.xyz`, not Discord
+> - Security bugs → email `the team via our community channels`, not Discord
 >
 > **If you're here to learn:** #roadmap and pinned links in #general.
 > **If you're here to contribute:** react with 👋 in #welcome to unlock the full channel list.

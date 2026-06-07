@@ -174,7 +174,7 @@ Each pass narrowed scope; March passes inventoried broadly, April passes tracked
 
 Found something not listed? Report privately:
 
-- **Email:** `security@tegridyfarms.xyz` (PGP on request)
+- **Contact:** the community channels linked on our site
 - **Bounty:** [Immunefi — Tegridy Farms](https://immunefi.com/bounty/tegridyfarms)
 - **SLA:** acknowledgement < 48 hours, triage < 5 business days
 

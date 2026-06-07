@@ -4,11 +4,11 @@ Tegridy Farms takes the security of its smart contracts, frontend, and user fund
 
 ## Reporting a Vulnerability
 
-**Preferred channel:** [security@tegridyfarms.xyz](mailto:security@tegridyfarms.xyz)
+**Preferred channel:** the community channels linked on our site
 
 PGP key fingerprint available on request. Please encrypt critical findings.
 
-**Bug bounty program status:** A formal bug bounty program is being set up. For now, please email security@tegridyfarms.xyz with disclosures. Researchers who report responsibly during this interim period will receive Hall-of-Fame acknowledgment and priority consideration for rewards once the program is live. There is no public Immunefi page yet — this section will be updated when the program goes live.
+**Bug bounty program status:** A formal bug bounty program is being set up. For now, please email the team via our community channels with disclosures. Researchers who report responsibly during this interim period will receive Hall-of-Fame acknowledgment and priority consideration for rewards once the program is live. There is no public Immunefi page yet — this section will be updated when the program goes live.
 
 **Response SLA:**
 - Initial acknowledgement: within 24 hours

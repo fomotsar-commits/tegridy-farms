@@ -123,7 +123,7 @@ The order roughly mirrors latency, fastest first.
 2. **OpenZeppelin Defender Sentinel** (to be configured) — pause-state changes, `acceptOwnership` events, oracle staleness.
 3. **Dune Dashboard** (to be configured) — TVL anomaly cards, hourly resync.
 4. **Indexer health endpoint** — `/health` on the Ponder instance; if response > 5s or block lag > 10, page on-call.
-5. **Direct user reports** — Twitter mentions, Discord #report-bug, security@tegridyfarms.xyz. Treat *every* report as potentially valid until proven otherwise.
+5. **Direct user reports** — Twitter mentions, Discord #report-bug, the team via our community channels. Treat *every* report as potentially valid until proven otherwise.
 6. **External monitors** — DeFiLlama TVL drop, Etherscan label changes, Chainalysis tags. Slower but high-signal when they fire.
 
 Until Tenderly / Defender / Dune are live, the team is operating with detection sources 4–6 only. **This is itself a SEV-2-class operational gap** — see the open work in [NEXT_SESSION.md](../NEXT_SESSION.md) § Observability.
@@ -171,7 +171,7 @@ All public comms go through Comms Lead. Drafts are reviewed by IC before sending
 
 ### 6a. Initial acknowledgement (within 15 min of pause)
 
-> We're investigating a possible incident on the [Contract Name] contract at [0x…]. As a precaution, the contract is paused; deposits and withdrawals via this contract are temporarily unavailable. We will share a substantive update within 60 minutes. If you've been affected, please contact security@tegridyfarms.xyz.
+> We're investigating a possible incident on the [Contract Name] contract at [0x…]. As a precaution, the contract is paused; deposits and withdrawals via this contract are temporarily unavailable. We will share a substantive update within 60 minutes. If you've been affected, please contact the team via our community channels.
 
 ### 6b. 60-minute update
 

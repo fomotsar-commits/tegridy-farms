@@ -40,7 +40,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-If you see or experience abusive, harassing, or otherwise unacceptable behavior, report it to the community leaders at **conduct@tegridyfarms.xyz**. We'll review and investigate all complaints promptly and fairly.
+If you see or experience abusive, harassing, or otherwise unacceptable behavior, report it to the community leaders at **the team via our community channels**. We'll review and investigate all complaints promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of anyone reporting an incident.
 

@@ -32,7 +32,7 @@ const SECTIONS = [
   {
     id: 'your-rights',
     title: '6. Your Rights',
-    body: 'You may disconnect your wallet at any time, ending the session. You may clear all locally stored data through your browser settings. For Supabase-backed records, you can delete your own messages, favorites, watchlist items, trade offers, and push subscriptions directly in the UI; those deletions remove the rows from our database (not just from your view). We retain audit-only data (orderbook entries after they\'re filled or cancelled; revoked_jwts until the underlying token expires) for the minimum time needed to prevent replay and fraud. If you are in the EU, UK, or California and want a machine-readable export or verified deletion of all records keyed to your wallet address, email security@tegridyfarms.xyz from any channel under your control and we will respond within 30 days (GDPR Articles 15 and 17; CCPA §1798.100 and §1798.105). Your on-chain transaction history is public, immutable, and outside our control.',
+    body: 'You may disconnect your wallet at any time, ending the session. You may clear all locally stored data through your browser settings. For Supabase-backed records, you can delete your own messages, favorites, watchlist items, trade offers, and push subscriptions directly in the UI; those deletions remove the rows from our database (not just from your view). We retain audit-only data (orderbook entries after they\'re filled or cancelled; revoked_jwts until the underlying token expires) for the minimum time needed to prevent replay and fraud. If you are in the EU, UK, or California and want a machine-readable export or verified deletion of all records keyed to your wallet address, reach us through the community channels linked in the site footer and we will respond within 30 days (GDPR Articles 15 and 17; CCPA §1798.100 and §1798.105). Your on-chain transaction history is public, immutable, and outside our control.',
   },
   {
     id: 'security',
@@ -52,7 +52,7 @@ const SECTIONS = [
   {
     id: 'contact',
     title: '10. Contact',
-    body: 'For privacy questions, data-rights requests, or security disclosures, email security@tegridyfarms.xyz. Our PGP fingerprint is available on request. For general community discussion, join the channels linked from the site footer.',
+    body: 'For privacy questions, data-rights requests, or security disclosures, reach us through the community channels linked in the site footer. For general community discussion, join those same channels.',
   },
 ];
 

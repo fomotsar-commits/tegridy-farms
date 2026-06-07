@@ -320,7 +320,7 @@ export default function SecurityPage() {
                 );
               })}
             </div>
-            <p className="text-sm text-[#22c55e]" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Contact: <a href="mailto:security@tegridyfarms.xyz" className="text-purple-300 hover:text-purple-200">security@tegridyfarms.xyz</a></p>
+            <p className="text-sm text-[#22c55e]" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Contact: reach the team through the community channels linked in the site footer.</p>
           </ArtCard>
         </m.section>
 
