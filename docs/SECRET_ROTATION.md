@@ -56,11 +56,11 @@ Tracked per-contract in [`WAVE_0_RUNBOOK.md`](./WAVE_0_RUNBOOK.md).
 ### A key from Bucket A (public)
 
 1. Generate a new key in the provider dashboard; add origin restriction
-   to `tegridyfarms.xyz` + `www.tegridyfarms.xyz` + `tegridyfarms.vercel.app`.
+   to `tegridyfarms.vercel.app` + `tegridyfarms.vercel.app` + `tegridyfarms.vercel.app`.
 2. Update the value in Vercel → Project Settings → Environment Variables
    → `VITE_<NAME>`. Apply to Production, Preview, Development.
 3. Trigger a redeploy (Vercel dashboard → Deployments → Redeploy).
-4. Confirm new bundle is live: `curl -s https://tegridyfarms.xyz/assets/index-*.js | grep -c <old-key-prefix>` should return `0`.
+4. Confirm new bundle is live: `curl -s https://tegridyfarms.vercel.app/assets/index-*.js | grep -c <old-key-prefix>` should return `0`.
 5. Revoke the old key in the provider dashboard.
 
 ### A key from Bucket B (server-only)
@@ -70,7 +70,7 @@ Tracked per-contract in [`WAVE_0_RUNBOOK.md`](./WAVE_0_RUNBOOK.md).
    for Production, Preview, and Development.
 3. Redeploy Production (so the serverless function picks up the new env).
 4. Smoke-test the affected endpoint from Chrome against
-   `https://tegridyfarms.xyz` — e.g. for Alchemy: open any page that
+   `https://tegridyfarms.vercel.app` — e.g. for Alchemy: open any page that
    shows NFT data and confirm no 500/502 in the Network tab.
 5. Revoke the old key in the provider dashboard.
 6. If the key is `SUPABASE_JWT_SECRET`: this invalidates every existing

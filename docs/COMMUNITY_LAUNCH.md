@@ -83,11 +83,11 @@ Desired handles in priority order (grab the first one available):
 
 ### Bio draft (under 160 chars)
 
-> DeFi yield protocol on Ethereum. Stake TOWELI, earn 100% of swap fees as real ETH. Fixed supply. Audited. tegridyfarms.xyz
+> DeFi yield protocol on Ethereum. Stake TOWELI, earn 100% of swap fees as real ETH. Fixed supply. Audited. tegridyfarms.vercel.app
 
 Pinned bio fields:
 - **Location:** `onchain`
-- **Website:** `https://tegridyfarms.xyz`
+- **Website:** `https://tegridyfarms.vercel.app`
 - **Join date:** public
 - **Header image:** use `frontend/public/og.png` (rendered from the SVG banner)
 - **Avatar:** 400×400 crop of the shield glyph from `docs/banner.svg`
@@ -101,7 +101,7 @@ Pinned bio fields:
 >
 > No inflation. No emissions tricks.
 >
-> 🌾 tegridyfarms.xyz
+> 🌾 tegridyfarms.vercel.app
 > 📖 github.com/fomotsar-commits/tegridy-farms
 
 **Tweet 2 — audit**
@@ -300,7 +300,7 @@ Replace the current treasury-only sponsor with the real channels:
 
 ```yaml
 custom:
-  - "https://tegridyfarms.xyz"
+  - "https://tegridyfarms.vercel.app"
   - "https://discord.gg/tegridyfarms"
   - "https://twitter.com/tegridyfarms"
 ```

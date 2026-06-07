@@ -84,7 +84,7 @@
 
   <!-- Bottom strip: URL + chain chip -->
   <g transform="translate(68 564)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
-    <text x="0" y="0" font-size="18" font-weight="600" fill="url(#gold)">tegridyfarms.xyz</text>
+    <text x="0" y="0" font-size="18" font-weight="600" fill="url(#gold)">tegridyfarms.vercel.app</text>
   </g>
 
   <g transform="translate(1050 556)">

@@ -155,7 +155,7 @@ Expected: 3 rows.
 ### 2.5 Smoke-test an API endpoint
 
 ```bash
-curl -s https://tegridyfarms.xyz/api/orderbook
+curl -s https://tegridyfarms.vercel.app/api/orderbook
 # Expected: {"orders":[]} or similar — NOT a 500.
 ```
 
@@ -319,11 +319,11 @@ Expected output:
 Then update `frontend/index.html`:
 ```html
 <!-- BEFORE -->
-<meta property="og:image" content="https://tegridyfarms.xyz/og.svg" />
+<meta property="og:image" content="https://tegridyfarms.vercel.app/og.svg" />
 
 <!-- AFTER -->
-<meta property="og:image" content="https://tegridyfarms.xyz/og.png" />
-<meta property="og:image:secure_url" content="https://tegridyfarms.xyz/og.svg" />
+<meta property="og:image" content="https://tegridyfarms.vercel.app/og.png" />
+<meta property="og:image:secure_url" content="https://tegridyfarms.vercel.app/og.svg" />
 ```
 
 Commit + push.
@@ -334,7 +334,7 @@ Commit + push.
 
 After everything above lands:
 
-### 6.1 Visit https://tegridyfarms.xyz with a fresh browser profile
+### 6.1 Visit https://tegridyfarms.vercel.app with a fresh browser profile
 
 - `/` → audit badge links to `/security` correctly, YieldCalculator renders for disconnected wallet
 - `/farm` → ConnectPrompt renders (no crashes); connect wallet → Farm UI renders
@@ -344,7 +344,7 @@ After everything above lands:
 
 ### 6.2 Check social preview
 
-Paste `https://tegridyfarms.xyz` into the Discord preview tester: https://discohook.org → "Send from webhook" → verify hero image renders (PNG with the Tegridy Farms wordmark + 3 pillars).
+Paste `https://tegridyfarms.vercel.app` into the Discord preview tester: https://discohook.org → "Send from webhook" → verify hero image renders (PNG with the Tegridy Farms wordmark + 3 pillars).
 
 Or test via Twitter's Card Validator: https://cards-dev.twitter.com/validator
 

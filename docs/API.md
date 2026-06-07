@@ -6,7 +6,7 @@ All endpoints live under `frontend/api/*` (Vercel serverless functions) and are 
 
 ## Base URL
 
-Production: `https://tegridyfarms.xyz/api`
+Production: `https://tegridyfarms.vercel.app/api`
 
 In development, the API is served by Vercel's dev proxy at `http://localhost:3000/api` when running `vercel dev`.
 

@@ -146,7 +146,7 @@ const priceEth = Number((priceBig * 100000000n) / divisor) / 100000000;
 
 ### I1. `ALLOWED_ORIGIN` env-var default is `https://nakamigos.gallery` — dual-domain ambiguity
 **File:** `opensea.js:64`, `orderbook.js:81`
-**Note:** the fallback origin doesn't match the project's apparent primary domain `tegridyfarms.xyz`. Not a bug — but if env is unset and a request comes from a non-allowed origin, the response advertises `nakamigos.gallery` as canonical. If both domains are owned by the project, fine; if `nakamigos.gallery` is ever transferred away, the CORS header will silently still point there.
+**Note:** the fallback origin doesn't match the project's apparent primary domain `tegridyfarms.vercel.app`. Not a bug — but if env is unset and a request comes from a non-allowed origin, the response advertises `nakamigos.gallery` as canonical. If both domains are owned by the project, fine; if `nakamigos.gallery` is ever transferred away, the CORS header will silently still point there.
 
 ### I2. `MAX_BODY_SIZE = 10 * 1024` — fine, but set after `JSON.stringify(req.body)`
 **File:** both files, body-size guards

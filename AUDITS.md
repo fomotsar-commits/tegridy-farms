@@ -24,7 +24,7 @@ A paid human audit by a recognised firm (OpenZeppelin / Trail of Bits / Spearbit
 
 | If you are… | Start with… | Then read… |
 |---|---|---|
-| **A depositor sizing risk** | [`RisksPage` on tegridyfarms.xyz](https://tegridyfarms.xyz/risks) | [`SPARTAN_AUDIT.txt`](./SPARTAN_AUDIT.txt) + [`FIX_STATUS.md`](./FIX_STATUS.md) |
+| **A depositor sizing risk** | [`RisksPage` on tegridyfarms.vercel.app](https://tegridyfarms.vercel.app/risks) | [`SPARTAN_AUDIT.txt`](./SPARTAN_AUDIT.txt) + [`FIX_STATUS.md`](./FIX_STATUS.md) |
 | **An auditor / researcher** | [`SECURITY.md`](./SECURITY.md) | [`SECURITY_AUDIT_300_AGENT.md`](./SECURITY_AUDIT_300_AGENT.md) |
 | **A developer / integrator** | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | [`AUDIT_FINDINGS.md`](./AUDIT_FINDINGS.md) |
 

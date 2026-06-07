@@ -113,8 +113,8 @@ callers, so any future user-bound RPC method that gets added to
   `private-state-token-issuance=()` (Privacy Sandbox opt-out
   baseline).
 - Branch-preview redirect: new 302 `(?<host>.+)\.vercel\.app` →
-  `tegridyfarms.xyz/$1` with `missing: tegridyfarms.vercel.app`,
-  plus a 301 from `tegridyfarms.vercel.app` → `tegridyfarms.xyz`.
+  `tegridyfarms.vercel.app/$1` with `missing: tegridyfarms.vercel.app`,
+  plus a 301 from `tegridyfarms.vercel.app` → `tegridyfarms.vercel.app`.
   Matches every preview host except the canonical Vercel host.
 
 ### R077 — index.html PWA + social preview correctness

@@ -35,7 +35,7 @@
 
 ### M-076-1 — `URI` (`siweMessage.uri`) not validated against allowed origins [MEDIUM]
 **File:** `siwe.js:163-168`
-**Issue:** Code validates `siweMessage.domain` against the host portion of `ALLOWED_ORIGINS`, but never checks `siweMessage.uri`. Per EIP-4361 §"Verifying the Sign-In with Ethereum message," the verifier SHOULD check that `uri` matches the resource the user intended to authenticate to. A relying party could craft a SIWE message with `domain=tegridyfarms.xyz` (passes) and `uri=https://attacker.example/login` (passes — never inspected). The user's wallet UI will surface the URI; mismatched URI vs domain weakens the user-facing trust signal but the server accepts.
+**Issue:** Code validates `siweMessage.domain` against the host portion of `ALLOWED_ORIGINS`, but never checks `siweMessage.uri`. Per EIP-4361 §"Verifying the Sign-In with Ethereum message," the verifier SHOULD check that `uri` matches the resource the user intended to authenticate to. A relying party could craft a SIWE message with `domain=tegridyfarms.vercel.app` (passes) and `uri=https://attacker.example/login` (passes — never inspected). The user's wallet UI will surface the URI; mismatched URI vs domain weakens the user-facing trust signal but the server accepts.
 **Impact:** Phishing UX harm: a third party operating a relay could induce users to sign messages whose URI claims a different resource, and our backend accepts. Does not directly compromise our auth (signature still binds to our domain+nonce), but it weakens the audit trail of *what* the user thought they were signing into.
 **Fix:** Parse `siweMessage.uri`, take `.host`, require it to be in the allowed-domain set (same set used for `domain` check).
 

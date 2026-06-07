@@ -99,7 +99,7 @@ straight ports from canonical patterns.
   recipient, excess feeds the legacy pro-rata path for sibling claims.
   [TegridyLending.sol:2102-2153](contracts/src/TegridyLending.sol#L2102).
 - **F8** (HIGH) — `frontend/api/etherscan.js` stale `tegridyfarms.com`
-  CORS allowlist — removed. Every other API proxy uses `tegridyfarms.xyz`.
+  CORS allowlist — removed. Every other API proxy uses `tegridyfarms.vercel.app`.
 - **F9** (HIGH) — JWT revocation fail-open if `SUPABASE_SERVICE_KEY` unset
   in production. Both `me.js` and `supabase-proxy.js` now return 503 in
   prod/preview when the service client is null.

@@ -91,16 +91,16 @@ Combined with HIGH-2: any crawler that bails before the chunk loads gets the def
 
 ## MED
 
-### MED-1 — `og:url` and `<link rel="canonical">` in index.html hardcoded to `https://tegridyfarms.xyz/` regardless of route
+### MED-1 — `og:url` and `<link rel="canonical">` in index.html hardcoded to `https://tegridyfarms.vercel.app/` regardless of route
 **File:** `frontend/index.html:22, 38, 46`
 ```html
-<link rel="canonical" href="https://tegridyfarms.xyz/" />
-<meta property="og:url" content="https://tegridyfarms.xyz/" />
-<meta name="twitter:url" content="https://tegridyfarms.xyz/" />
+<link rel="canonical" href="https://tegridyfarms.vercel.app/" />
+<meta property="og:url" content="https://tegridyfarms.vercel.app/" />
+<meta name="twitter:url" content="https://tegridyfarms.vercel.app/" />
 ```
 - All 21 sitemap URLs share the same canonical/og:url until `usePageTitle` runs (see HIGH-2). Crawlers that don't execute JS (Twitterbot, facebookexternalhit, Slackbot — all of which ignore JS) will see every page as `/`.
-- `tegridyfarms.xyz` is the production domain, not a dev/preview domain — at least the domain is correct. But Vercel preview deploys (`tegridyfarms-three.vercel.app`) inherit the same hardcoded canonical, which is then **redirected** by `frontend/vercel.json:51-57` (only redirects the `-three.vercel.app` host, not `tegridyfarms.vercel.app`).
-- A search engine indexing a preview URL will see `canonical = https://tegridyfarms.xyz/` — which would actually be correct dedup behavior — but the **redirect chain on `tegridyfarms-three.vercel.app` returns 308 to `tegridyfarms.vercel.app`, NOT to `tegridyfarms.xyz`**, so canonical and redirect target disagree. Confusing for crawlers.
+- `tegridyfarms.vercel.app` is the production domain, not a dev/preview domain — at least the domain is correct. But Vercel preview deploys (`tegridyfarms-three.vercel.app`) inherit the same hardcoded canonical, which is then **redirected** by `frontend/vercel.json:51-57` (only redirects the `-three.vercel.app` host, not `tegridyfarms.vercel.app`).
+- A search engine indexing a preview URL will see `canonical = https://tegridyfarms.vercel.app/` — which would actually be correct dedup behavior — but the **redirect chain on `tegridyfarms-three.vercel.app` returns 308 to `tegridyfarms.vercel.app`, NOT to `tegridyfarms.vercel.app`**, so canonical and redirect target disagree. Confusing for crawlers.
 
 ---
 
@@ -136,7 +136,7 @@ Also: `lastmod=2026-04-19` is now 6 days stale; not a bug per se, but indicates 
 ```
 User-agent: *
 Allow: /
-Sitemap: https://tegridyfarms.xyz/sitemap.xml
+Sitemap: https://tegridyfarms.vercel.app/sitemap.xml
 ```
 - `/admin` (App.tsx:134) and `/art-studio` (App.tsx:115) are publicly routable. If any internal link, social share, or referrer leaks the URL, Googlebot will crawl them.
 - `/api/odos/*`, `/api/cow/*`, `/api/lifi/*`, `/api/kyber/*`, `/api/openocean/*`, `/api/paraswap/*` are aggregator proxies (vercel.json:60-65). Crawlers hitting these will rate-limit / spam upstream APIs.
@@ -146,8 +146,8 @@ Sitemap: https://tegridyfarms.xyz/sitemap.xml
 ### MED-5 — `og:image` declares `og:image:type` as PNG but `og:image:secure_url` points at SVG
 **File:** `frontend/index.html:31-35`
 ```html
-<meta property="og:image" content="https://tegridyfarms.xyz/og.png" />
-<meta property="og:image:secure_url" content="https://tegridyfarms.xyz/og.svg" />
+<meta property="og:image" content="https://tegridyfarms.vercel.app/og.png" />
+<meta property="og:image:secure_url" content="https://tegridyfarms.vercel.app/og.svg" />
 <meta property="og:image:type" content="image/png" />
 ```
 - Per OG spec, `og:image:type` describes the MIME of the **most recent** `og:image` group. Some parsers (LinkedIn, older Slack) interpret `og:image:type=image/png` as applying to `secure_url` and reject the SVG. The cleaner pattern is two full image groups.

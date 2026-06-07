@@ -35,7 +35,7 @@ That's it. The rest of this README is *how*.
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Gondi primitives.
 
-- **Website:** [tegridyfarms.xyz](https://tegridyfarms.xyz)
+- **Website:** [tegridyfarms.vercel.app](https://tegridyfarms.vercel.app)
 - **Token (pre-relaunch):** [`TOWELI`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) · 1,000,000,000 fixed supply · Ethereum Mainnet
 - **Chart:** [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D)
 
@@ -196,7 +196,7 @@ Every contract earns its place in the protocol because it either *generates reve
 | **TegridyStaking** | Lock TOWELI for 7d–4y, get a boosted position NFT | The center of the flywheel. Holding the NFT is what entitles you to ETH revenue + LP boost + voting power. |
 | **TegridyRestaking** | Stake the position NFT for bonus token rewards | Lets stakers earn a 2nd reward stream without giving up voting power. Pattern: EigenLayer operator delegation. |
 | **TegridyLPFarming** | Provide TOWELI/WETH liquidity, earn boosted TOWELI emissions | Funds LP depth so the DEX has tight spreads → swap volume → ETH revenue to stakers. The boost links LP yield to staking, so LPs have skin in governance too. |
-| **Native DEX** (Factory + Router + Pair) | Uniswap V2-style AMM for TOWELI/WETH | Without a native DEX, swap fees would leak to Uniswap. By routing trades through `tegridyfarms.xyz/swap`, every basis point flows to stakers, not third parties. |
+| **Native DEX** (Factory + Router + Pair) | Uniswap V2-style AMM for TOWELI/WETH | Without a native DEX, swap fees would leak to Uniswap. By routing trades through `tegridyfarms.vercel.app/swap`, every basis point flows to stakers, not third parties. |
 | **TegridyFeeHook** (V4) | Uniswap V4 hook routing V4-pool fees to RevenueDistributor | Catches the next wave of liquidity (V4 pools) into the same revenue stream. Future-proofs the flywheel against the V2→V4 migration. |
 | **TegridyTWAP** | Time-weighted average price oracle | Provides manipulation-resistant pricing for lending collateral valuation. Pattern: Uniswap V2 cumulative-price + V3-style observations. |
 | **SwapFeeRouter** | Converts non-ETH fee revenue to ETH, distributes to RevenueDistributor + treasury + caller credit | The funnel that aggregates fees from every surface and converts them into a single ETH stream. Caller-credit incentivizes anyone to call `distribute()`. |
@@ -250,14 +250,14 @@ MetaMask, Rabby, Coinbase Wallet, or anything RainbowKit supports. Fund it with 
 
 Two paths:
 
-- **Native DEX (recommended):** [tegridyfarms.xyz/swap](https://tegridyfarms.xyz/swap) — fees flow to stakers, so buying here supports the yield flywheel.
+- **Native DEX (recommended):** [tegridyfarms.vercel.app/swap](https://tegridyfarms.vercel.app/swap) — fees flow to stakers, so buying here supports the yield flywheel.
 - **Uniswap V2:** [app.uniswap.org](https://app.uniswap.org/swap?outputCurrency=0x420698CFdEDdEa6bc78D59bC17798113ad278F9D&chain=ethereum) — works, but Uniswap keeps the fees.
 
 Price and liquidity: [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D).
 
 ### 3. Stake & lock
 
-Go to [tegridyfarms.xyz/farm](https://tegridyfarms.xyz/farm). Choose a lock duration:
+Go to [tegridyfarms.vercel.app/farm](https://tegridyfarms.vercel.app/farm). Choose a lock duration:
 
 | Lock | Boost | Flavor |
 |---|---|---|
@@ -275,13 +275,13 @@ Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336
 ### 4. Earn, vote, compound
 
 - **Yield accrues continuously.** Claim ETH rewards anytime from the Dashboard; no minimum.
-- **Vote on gauges** at [tegridyfarms.xyz/community](https://tegridyfarms.xyz/community). Your staking NFT is your voting power. Direct LP emissions to the pool you hold (or the one paying the biggest bribe).
-- **Farm LP tokens** on [tegridyfarms.xyz/farm](https://tegridyfarms.xyz/farm) under the LP tab. Your staking lock auto-boosts your LP rewards.
-- **Borrow or trade NFTs** at [tegridyfarms.xyz/lending](https://tegridyfarms.xyz/lending) (the "NFT Finance" tab in the top nav). Borrow against TOWELI / LP, take peer-to-peer NFT loans, or trade on bonding-curve NFT AMM pools.
+- **Vote on gauges** at [tegridyfarms.vercel.app/community](https://tegridyfarms.vercel.app/community). Your staking NFT is your voting power. Direct LP emissions to the pool you hold (or the one paying the biggest bribe).
+- **Farm LP tokens** on [tegridyfarms.vercel.app/farm](https://tegridyfarms.vercel.app/farm) under the LP tab. Your staking lock auto-boosts your LP rewards.
+- **Borrow or trade NFTs** at [tegridyfarms.vercel.app/lending](https://tegridyfarms.vercel.app/lending) (the "NFT Finance" tab in the top nav). Borrow against TOWELI / LP, take peer-to-peer NFT loans, or trade on bonding-curve NFT AMM pools.
 
 ### 5. Launch your own NFT collection (optional)
 
-Artists can deploy a gas-efficient ERC-721 drop on [tegridyfarms.xyz/lending → Launchpad](https://tegridyfarms.xyz/lending). The 5-step wizard handles everything:
+Artists can deploy a gas-efficient ERC-721 drop on [tegridyfarms.vercel.app/lending → Launchpad](https://tegridyfarms.vercel.app/lending). The 5-step wizard handles everything:
 
 1. Connect wallet
 2. Upload a folder of images + a traits CSV ([sample template](frontend/public/sample-collection.csv))
@@ -555,7 +555,7 @@ In the meantime, here are the Wave 0 addresses for **historical / context-only**
 
 </details>
 
-For a full live directory after relaunch, see [tegridyfarms.xyz/contracts](https://tegridyfarms.xyz/contracts).
+For a full live directory after relaunch, see [tegridyfarms.vercel.app/contracts](https://tegridyfarms.vercel.app/contracts).
 
 ---
 

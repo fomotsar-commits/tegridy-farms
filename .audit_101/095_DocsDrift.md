@@ -156,7 +156,7 @@ Honourable mention: README-04 / TOKEN-01 — the **boost ladder differs by 0.5×
 
 - `security@tegridyfarms.xyz` — verify the mailbox actually receives mail and is monitored. (Per audit instruction: do not fetch.)
 - `https://immunefi.com/bounty/tegridyfarms` — page status (NEXT_SESSION says 404; needs visual confirmation by user before public launch).
-- `tegridyfarms.xyz/community`, `/lending`, `/farm` URLs in README — confirm they resolve and route to the documented pages.
+- `tegridyfarms.vercel.app/community`, `/lending`, `/farm` URLs in README — confirm they resolve and route to the documented pages.
 
 ---
 
