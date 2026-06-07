@@ -126,7 +126,8 @@ export const OPENSEA_FEE_RECIPIENT = "0x0000a26b00c1F0DF003000390027140000fAa719
 export const OPENSEA_FEE_BPS = 100;
 
 // Platform fee — 1% on all trades
-export const PLATFORM_FEE_RECIPIENT = "0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e";
+// RELAUNCH 2026-06-06: route to new 2-of-2 treasury Safe (was EOA 0xE9B7aB…, now only a Safe signer)
+export const PLATFORM_FEE_RECIPIENT = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
 export const PLATFORM_FEE_BPS = 100; // 1%
 
 export const OPENSEA_ITEM = (id, contract = CONTRACT) => `https://opensea.io/item/ethereum/${contract}/${id}`;

@@ -1,29 +1,26 @@
 // TOWELI Token
 export const TOWELI_ADDRESS = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as const;
 
-// Core Contracts — DEPLOYED ON MAINNET (audit-fixed v2, C-01 migration)
-// 2026-04-17: swapped from 0x65D8... (paused) to 0x6266... per DEPLOY_CHEAT_SHEET §1 Gap A
-export const TEGRIDY_STAKING_ADDRESS = '0x626644523d34B84818df602c991B4a06789C4819' as const;
-export const TEGRIDY_RESTAKING_ADDRESS = '0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4' as const;
+// Core Contracts — RELAUNCH DEPLOYED ON MAINNET 2026-06-06 (DeployMVP, fresh wallet)
+export const TEGRIDY_STAKING_ADDRESS = '0xcaDc93E96De58EA554c71ca609974625615E046D' as const;
+// Restaking DEFERRED to Phase 7 (EIP-170 split). Zeroed until deployed; UI gates on isDeployed().
+export const TEGRIDY_RESTAKING_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
-// EIP-170 admin sister contracts (post-Apr-26 splits, commits 99eaf9b + cb3d12b).
-// Operators MUST update these placeholders with the deployed addresses after running:
-//   1. Deploy TegridyStakingAdmin(staking) + call staking.setStakingAdmin(admin)
-//   2. Deploy SwapFeeRouterAdmin(router) + call router.setSwapFeeRouterAdmin(admin)
-// Until then, any propose/execute/cancel admin call from the dApp will revert against
-// address(0). User-facing functions (stake/withdraw/claim/swap) work without these.
-export const TEGRIDY_STAKING_ADMIN_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-export const SWAP_FEE_ROUTER_ADMIN_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// EIP-170 admin sister contracts — RELAUNCH 2026-06-06 (deployed + wired by DeployMVP).
+export const TEGRIDY_STAKING_ADMIN_ADDRESS = '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3' as const;
+export const SWAP_FEE_ROUTER_ADMIN_ADDRESS = '0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060' as const;
+// Read-only staking view sister (EIP-170 split) — RELAUNCH 2026-06-06.
+export const STAKING_MONITOR_VIEW_ADDRESS = '0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC' as const;
 
-// Native DEX
-export const TEGRIDY_FACTORY_ADDRESS = '0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6' as const;
-export const TEGRIDY_ROUTER_ADDRESS = '0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F' as const;
-export const TEGRIDY_LP_ADDRESS = '0xeD01d5f52EBE97360133bdeF77305ee24d5f26f6' as const;
+// Native DEX — RELAUNCH 2026-06-06 (DeployMVP); LP = our factory's TOWELI/WETH pair
+export const TEGRIDY_FACTORY_ADDRESS = '0xa24C7287eC56A7DEFDc70033803451240e267a52' as const;
+export const TEGRIDY_ROUTER_ADDRESS = '0xE9F83A07b071748E795d2489651d5310fA098Db8' as const;
+export const TEGRIDY_LP_ADDRESS = '0x55875887B43C2E23aE424AF0FC8606Fdb058a481' as const;
 
-// Revenue & Fees
-export const REVENUE_DISTRIBUTOR_ADDRESS = '0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8' as const;
-export const SWAP_FEE_ROUTER_ADDRESS = '0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0' as const;
-export const POL_ACCUMULATOR_ADDRESS = '0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca' as const;
+// Revenue & Fees — RELAUNCH 2026-06-06 (DeployMVP)
+export const REVENUE_DISTRIBUTOR_ADDRESS = '0xF993316E2fC079de4358c489A935E01e03E23E17' as const;
+export const SWAP_FEE_ROUTER_ADDRESS = '0x6d5791A660e79175F74C6D639584C98422d5956E' as const;
+export const POL_ACCUMULATOR_ADDRESS = '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2' as const;
 
 // LP Farming — Wave 0 2026-04-18: C-01 fix (MAX_BOOST_BPS_CEILING=45000) redeploy
 // ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).
@@ -40,7 +37,7 @@ export const GAUGE_CONTROLLER_ADDRESS = '0x0000000000000000000000000000000000000
 export const COMMUNITY_GRANTS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9
 export const MEME_BOUNTY_BOARD_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-export const REFERRAL_SPLITTER_ADDRESS = '0xd3d46C0d25Ef1F4EAdb58b9218AA23Ed4c2f2c16' as const;
+export const REFERRAL_SPLITTER_ADDRESS = '0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c' as const; // RELAUNCH 2026-06-06 (DeployMVP)
 // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0xaA16dF3dC66c7A6aD7db153711329955519422Ad
 export const PREMIUM_ACCESS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A
@@ -51,12 +48,12 @@ export const TEGRIDY_LENDING_ADDRESS = '0x00000000000000000000000000000000000000
 // V1 TegridyLaunchpad (0x5d5976...FF3C2) deleted from source 2026-04-19; existing
 // V1 clones remain browseable on Etherscan. Use TEGRIDY_LAUNCHPAD_V2_ADDRESS.
 export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0
-// Wave 0 2026-04-18: redeployed pointing at current staking (0x6266...)
-export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0xfec9aea42ea966c9382eeb03f63a784579841eb2' as const;
+// RELAUNCH 2026-06-06 (DeployMVP)
+export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0x5cfEe751eAf274F68b05267012b85a867dfCd326' as const;
 // Wave 0 2026-04-18: C-02 grace period redeploy
 export const TEGRIDY_NFT_LENDING_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x05409880aDFEa888F2c93568B8D88c7b4aAdB139
-// Wave 0 2026-04-18: fresh TWAP oracle deploy
-export const TEGRIDY_TWAP_ADDRESS = '0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995' as const;
+// RELAUNCH 2026-06-06 (DeployMVP) — needs 4x update() bootstrap after LP seed (audit H-18)
+export const TEGRIDY_TWAP_ADDRESS = '0xdFdd6D72539A425dC917F49FB834901105cA98c9' as const;
 // Wave 0 2026-04-18: Uniswap V4 fee hook (B7). Address ends in 0x0044 for
 // AFTER_SWAP_FLAG|AFTER_SWAP_RETURNS_DELTA permissions. NOTE: deployed via
 // Arachnid CREATE2 proxy — owner is the proxy (0x4e59b44...), not our EOA.
@@ -80,8 +77,8 @@ export const TOWELI_WETH_LP_ADDRESS = '0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104
 // Chainlink ETH/USD Price Feed
 export const ETH_USD_FEED = '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419' as const;
 
-// Treasury
-export const TREASURY_ADDRESS = '0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e' as const;
+// Treasury — RELAUNCH 2026-06-06: 2-of-2 Safe (protocol funds)
+export const TREASURY_ADDRESS = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d' as const;
 
 // Jungle Bay NFTs
 export const JBAC_NFT_ADDRESS = '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' as const;
