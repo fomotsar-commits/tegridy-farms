@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { useUserPosition } from '../hooks/useUserPosition';
+import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
@@ -72,6 +73,7 @@ export default function DashboardPage() {
   const limitOrders = useLimitOrders();
   const myLoans = useMyLoans();
   const pos = useUserPosition();
+  const lpPos = useLpPosition(address);
   const pool = usePoolData();
   const { history: priceHistory } = usePriceHistory(price.priceInUsd);
   const revenueStats = useRevenueStats();
@@ -90,12 +92,17 @@ export default function DashboardPage() {
 
   // Portfolio value in USD
   const ethBal = useMemo(() => ethBalance ? Number(formatEther(ethBalance.value)) : 0, [ethBalance]);
+  // USD value of the user's LP position (redeemable TOWELI + WETH).
+  const lpUsd = useMemo(() => price.isLoaded
+    ? (lpPos.toweliAmount * price.priceInUsd) + (price.oracleStale ? 0 : lpPos.wethAmount * price.ethUsd)
+    : 0, [lpPos.toweliAmount, lpPos.wethAmount, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
   const portfolioUsd = useMemo(() => price.isLoaded ? (
     (walletToweli * price.priceInUsd) +
     (stakedTotal * price.priceInUsd) +
     (pendingTotal * price.priceInUsd) +
-    (price.oracleStale ? 0 : ethBal * price.ethUsd)
-  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
+    (price.oracleStale ? 0 : ethBal * price.ethUsd) +
+    lpUsd
+  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, lpUsd, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
 
   // Claim handler
   const handleClaim = () => {
@@ -441,6 +448,45 @@ export default function DashboardPage() {
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Earnings Projection</h3>
                 <Projections staked={stakedTotal} apr={parseFloat(pool.apr) || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
+              </m.div>
+            )}
+
+            {/* Liquidity position (LP) — surfaces TGLP that wallets otherwise hide */}
+            {lpPos.hasPosition && (
+              <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+                <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
+                <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
+                  <div className="absolute inset-0">
+                    <ArtImg pageId="dashboard" idx={14} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="relative z-10 p-5">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-white text-[10px] mb-0.5">LP Tokens</p>
+                        <p className="stat-value text-[16px] text-white">{formatTokenAmount(lpPos.lpBalanceFormatted, 4)} <span className="text-white/50 text-[11px]">TGLP</span></p>
+                      </div>
+                      <div>
+                        <p className="text-white text-[10px] mb-0.5">Pool Share</p>
+                        <p className="stat-value text-[16px] text-white">{lpPos.sharePct < 0.01 ? '<0.01' : lpPos.sharePct.toFixed(2)}%</p>
+                      </div>
+                      <div>
+                        <p className="text-white text-[10px] mb-0.5">Redeemable</p>
+                        <p className="text-white text-[12px]">{formatTokenAmount(lpPos.wethAmount.toString(), 4)} ETH</p>
+                        <p className="text-white text-[12px]">{formatTokenAmount(lpPos.toweliAmount.toString(), 0)} TOWELI</p>
+                      </div>
+                      <div>
+                        <p className="text-white text-[10px] mb-0.5">Value</p>
+                        <p className="stat-value text-[16px] text-white">{formatCurrency(lpUsd)}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-4 flex-wrap">
+                      <span className="text-white/50 text-[11px]">Held in your wallet as the TGLP token &middot; earns a cut of swap fees</span>
+                      <Link to="/liquidity" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
+                        Manage liquidity &#8594;
+                      </Link>
+                    </div>
+                  </div>
+                </div>
               </m.div>
             )}
           </m.div>
