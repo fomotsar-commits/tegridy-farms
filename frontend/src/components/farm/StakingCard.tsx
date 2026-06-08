@@ -9,6 +9,10 @@ import type { useFarmActions } from '../../hooks/useFarmActions';
 import type { useUserPosition } from '../../hooks/useUserPosition';
 import type { useNFTBoost } from '../../hooks/useNFTBoost';
 import { ArtImg } from '../ArtImg';
+import { useReadContract } from 'wagmi';
+import { formatEther, parseEther } from 'viem';
+import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
+import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID } from '../../lib/constants';
 
 const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
 
@@ -72,6 +76,30 @@ export function StakingCard({
     const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // Surface the staking contract's per-wallet cap + minimum so the form never lets the
+  // user build a reverting stake (the "Likely to Fail" footgun). The cap is read on-chain
+  // so it auto-updates when governance raises it (testing-phase 50,000 → later) — no
+  // frontend redeploy needed. MIN_STAKE mirrors TegridyStaking.MIN_STAKE (100e18).
+  const { data: maxStakeRaw } = useReadContract({
+    address: TEGRIDY_STAKING_ADDRESS,
+    abi: TEGRIDY_STAKING_ABI,
+    functionName: 'maxStakePerUser',
+    chainId: CHAIN_ID,
+  });
+  const MIN_STAKE_TOWELI = 100;
+  const maxStakeWei = (maxStakeRaw as bigint | undefined) ?? 0n;
+  const maxStakeDisplay = maxStakeWei > 0n ? formatTokenAmount(formatEther(maxStakeWei), 0) : '—';
+  let stakeWei = 0n;
+  try {
+    stakeWei = amtNum > 0 ? parseEther(stakeAmount) : 0n;
+  } catch {
+    stakeWei = 0n;
+  }
+  const overCap = maxStakeWei > 0n && stakeWei > maxStakeWei;
+  const belowMin = amtNum > 0 && amtNum < MIN_STAKE_TOWELI;
+  const stakeBlocked = overCap || belowMin;
+
   return (
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -315,7 +343,11 @@ export function StakingCard({
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-white text-[11px] uppercase tracking-wider label-pill">Amount</label>
-                <button onClick={() => setStakeAmount(pos.walletBalanceFormatted)}
+                <button onClick={() => {
+                    const bal = parseFloat(pos.walletBalanceFormatted) || 0;
+                    const cap = maxStakeWei > 0n ? parseFloat(formatEther(maxStakeWei)) : bal;
+                    setStakeAmount(String(Math.min(bal, cap)));
+                  }}
                   className="text-white/60 text-[11px] hover:text-white transition-colors cursor-pointer">
                   Balance: {formatTokenAmount(pos.walletBalanceFormatted, 0)}
                 </button>
@@ -324,6 +356,10 @@ export function StakingCard({
                 placeholder="0" min="0" step="any"
                 className="w-full rounded-lg p-4 min-h-[44px] font-mono text-xl text-white outline-none token-input"
                 style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }} />
+              <p className="text-white/50 text-[10px] mt-1.5">
+                Max <span className="font-mono text-white/70">{maxStakeDisplay}</span> TOWELI per wallet &middot; min {MIN_STAKE_TOWELI}
+                <span className="text-white/35"> (testing phase)</span>
+              </p>
             </div>
 
             <div className="mb-4">
@@ -397,11 +433,15 @@ export function StakingCard({
             )}
 
             <button onClick={handleStake}
-              disabled={actions.isPending || actions.isConfirming || amtNum <= 0}
+              disabled={actions.isPending || actions.isConfirming || amtNum <= 0 || stakeBlocked}
               className="btn-primary w-full py-3.5 text-[14px] disabled:opacity-70 disabled:cursor-not-allowed">
               {actions.isPending || actions.isConfirming
                 ? 'Processing...'
-                : stakeNeedsApproval ? 'Approve TOWELI' : amtNum <= 0 ? 'Enter Amount' : `Stake & Lock for ${selectedLock.label}`}
+                : amtNum <= 0 ? 'Enter Amount'
+                : belowMin ? `Minimum ${MIN_STAKE_TOWELI} TOWELI`
+                : overCap ? `Max ${maxStakeDisplay} per wallet`
+                : stakeNeedsApproval ? 'Approve TOWELI'
+                : `Stake & Lock for ${selectedLock.label}`}
             </button>
 
             <p className="text-white text-[10px] text-center mt-3">
