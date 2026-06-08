@@ -17,7 +17,7 @@ import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
-import { formatTokenAmount, formatCurrency } from '../lib/formatting';
+import { formatTokenAmount, formatCurrency, formatWholeNumber } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
@@ -476,7 +476,7 @@ export default function DashboardPage() {
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Redeemable</p>
                         <p className="text-white text-[12px]">{formatTokenAmount(lpPos.wethAmount.toString(), 4)} ETH</p>
-                        <p className="text-white text-[12px]">{formatTokenAmount(lpPos.toweliAmount.toString(), 0)} TOWELI</p>
+                        <p className="text-white text-[12px]">{formatWholeNumber(lpPos.toweliAmount)} TOWELI</p>
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Value</p>
