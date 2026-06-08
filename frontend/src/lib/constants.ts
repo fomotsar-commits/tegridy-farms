@@ -25,7 +25,7 @@ export const POL_ACCUMULATOR_ADDRESS = '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11
 // LP Farming — Wave 0 2026-04-18: C-01 fix (MAX_BOOST_BPS_CEILING=45000) redeploy
 // ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).
 // Restore the real address after the relaunch redeploy. Prev: 0xa7EF711Be3662B9557634502032F98944eC69ec1
-export const LP_FARMING_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+export const LP_FARMING_ADDRESS = '0x1171268AE5B69791c47Fd589b7825932c957e149' as const; // RELAUNCH 2026-06-08 (DeployTegridyLPFarming): boosted Synthetix LP staking; owner pending the 0xA360 Safe
 
 // Gauge Controller — Wave 0 2026-04-18: H-2 commit-reveal redeploy
 // ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).
