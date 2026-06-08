@@ -113,6 +113,7 @@ describe('usePoolData', () => {
     wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 31_536_000n });
     const { result } = renderHook(() => usePoolData());
     expect(result.current.apr).toBe('100.00');
+    expect(result.current.aprNum).toBe(100);
     expect(result.current.aprCapped).toBe(false);
   });
 
@@ -123,16 +124,20 @@ describe('usePoolData', () => {
     wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 3_153_600_000n });
     const { result } = renderHook(() => usePoolData());
     expect(result.current.apr).toBe('1.00');
+    expect(result.current.aprNum).toBe(1);
     expect(result.current.aprCapped).toBe(false);
   });
 
-  it('caps apr at ">9999" when the computed percentage exceeds 999999', () => {
-    // Huge reward rate, tiny boosted stake → enormous APR → cap trips.
-    wagmiMock.setReadResult({ functionName: 'rewardRate', result: parseEther('1000000') });
-    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 1n });
+  it('renders a very large apr as a comma integer with no cap (operator decision 2026-06-07)', () => {
+    // rewardRate=100 wei/s, boostedStake=31_536_000 wei → APR = exactly 10,000%.
+    // Post-2026-06-07 the hook shows the REAL APR (comma integer), not a ">9999" cap,
+    // and exposes the numeric aprNum so consumers never parseFloat the comma string.
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 100n });
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 31_536_000n });
     const { result } = renderHook(() => usePoolData());
-    expect(result.current.apr).toBe('>9999');
-    expect(result.current.aprCapped).toBe(true);
+    expect(result.current.apr).toBe((10000).toLocaleString());
+    expect(result.current.aprNum).toBe(10000);
+    expect(result.current.aprCapped).toBe(false);
   });
 
   it('scopes reads to the TEGRIDY_STAKING_ADDRESS contract', () => {

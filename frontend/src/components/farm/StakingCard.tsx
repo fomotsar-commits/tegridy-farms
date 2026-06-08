@@ -50,7 +50,7 @@ interface StakingCardProps {
   input: StakeInputState;
   confirms: ConfirmState;
   setConfirm: (key: keyof ConfirmState, val: boolean) => void;
-  pool?: { apr: string; isDeployed: boolean };
+  pool?: { apr: string; aprNum: number; isDeployed: boolean };
   computed: {
     boostDisplay: string;
     totalBoostBps: number;
@@ -406,7 +406,7 @@ export function StakingCard({
             </div>
 
             {/* Yield Projections — shows estimated earnings based on current APR and selected boost */}
-            {amtNum > 0 && pool?.isDeployed && parseFloat(pool.apr) > 0 && (
+            {amtNum > 0 && pool?.isDeployed && pool.aprNum > 0 && (
               <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
                 <p className="text-emerald-400 text-[11px] font-semibold mb-2 uppercase tracking-wider">Projected Earnings</p>
                 <div className="grid grid-cols-3 gap-3">
@@ -415,7 +415,7 @@ export function StakingCard({
                     { label: '90 Days', days: 90 },
                     { label: '1 Year', days: 365 },
                   ].map(({ label, days }) => {
-                    const boostedApr = parseFloat(pool.apr) * (totalBoostBps / 10000);
+                    const boostedApr = pool.aprNum * (totalBoostBps / 10000);
                     const projected = amtNum * (boostedApr / 100) * (days / 365);
                     return (
                       <div key={label} className="text-center">

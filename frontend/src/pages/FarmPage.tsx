@@ -344,7 +344,7 @@ export default function FarmPage() {
             pos={pos}
             actions={actions}
             nft={nft}
-            pool={{ apr: pool.apr, isDeployed: pool.isDeployed }}
+            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed }}
             input={{
               amount: stakeAmount,
               setAmount: setStakeAmount,
@@ -367,7 +367,7 @@ export default function FarmPage() {
           />
 
           {/* Boost Table */}
-          <BoostScheduleTable selectedLockLabel={selectedLock.label} apr={pool.apr} />
+          <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
         </div>
       </div>
       </ErrorBoundary>

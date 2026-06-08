@@ -17,11 +17,11 @@ const LOCK_OPTIONS = [
 
 interface BoostScheduleTableProps {
   selectedLockLabel: string;
-  apr?: string;
+  aprNum?: number;
 }
 
-export function BoostScheduleTable({ selectedLockLabel, apr }: BoostScheduleTableProps) {
-  const baseApr = parseFloat(apr || '0');
+export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleTableProps) {
+  const baseApr = aprNum ?? 0;
   return (
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>

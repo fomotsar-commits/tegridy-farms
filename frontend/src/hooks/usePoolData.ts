@@ -28,12 +28,17 @@ export function usePoolData() {
   const totalPenalties = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
 
   let apr = '0';
+  // Numeric APR % for any math. Consumers MUST use this, not parseFloat(apr): once
+  // apr >= 10000 the display string is comma-formatted ("28,567") and parseFloat
+  // would silently truncate it to 28, breaking every projection ~1000x low.
+  let aprNum = 0;
   const aprCapped = false;
   if (rewardRate > 0n && totalBoostedStake > 0n) {
     // Scale up before dividing to preserve precision for low APRs
     const aprScaled = rewardRate * 31536000n * 10000n * 10n ** 18n;
     const aprBps = aprScaled / totalBoostedStake;
     const aprPct = Number(aprBps) / 1e18 / 100; // REAL APR in %
+    aprNum = aprPct;
     // Operator decision (2026-06-07): show the REAL APR — no ">9,999%" ceiling.
     // At bootstrap TVL this is very large and falls toward the steady-state as
     // stake grows. >=10,000% rendered as comma integers; smaller keeps 2 decimals.
@@ -49,6 +54,7 @@ export function usePoolData() {
     totalRewardsFunded: formatEther(totalRewardsFunded),
     totalPenalties: formatEther(totalPenalties),
     apr,
+    aprNum,
     aprCapped,
     /** Display alongside APR values */
     aprDisclaimer: 'Current rate, subject to change',

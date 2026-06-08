@@ -448,7 +448,7 @@ export default function DashboardPage() {
             {pos.hasPosition && (
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Earnings Projection</h3>
-                <Projections staked={stakedTotal} apr={parseFloat(pool.apr) || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
+                <Projections staked={stakedTotal} apr={pool.aprNum || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
               </m.div>
             )}
 
