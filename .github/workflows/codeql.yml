@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Checkout
         # AUDIT R056: SHA-pinned actions (was @v3/@v4 floating).
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@c1f0c97bcb634b400fc376ab260a5f187961f8e0 # v3.26.10
