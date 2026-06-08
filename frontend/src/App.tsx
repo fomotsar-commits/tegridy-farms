@@ -136,6 +136,8 @@ function AnimatedRoutes() {
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
+        {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
+        <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
         <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
