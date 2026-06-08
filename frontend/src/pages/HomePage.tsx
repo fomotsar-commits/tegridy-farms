@@ -187,6 +187,15 @@ export default function HomePage() {
                 ) : (
                   <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                 )}
+                {s.l === 'Base APR' && s.v && s.v !== '–' && (
+                  <span
+                    title="High at launch because total staked is still small — it falls toward steady-state as staking grows. The real yield is the ETH paid to stakers."
+                    className="text-[10px] italic cursor-help"
+                    style={{ color: 'var(--color-kyle)', opacity: 0.7, textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+                  >
+                    early-stage
+                  </span>
+                )}
                 {s.showSparkline && priceData.length > 1 && (
                   <Sparkline data={priceData} width={48} height={16} />
                 )}

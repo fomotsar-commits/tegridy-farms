@@ -32,7 +32,9 @@ export function FeatureNotDeployed({ title, subtitle, pageId, idx = 0 }: Feature
     >
       <div className="absolute inset-0">
         <ArtImg pageId={pageId} idx={idx} alt="" loading="lazy" className="w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.66)' }} />
+        {/* Scrim strong enough to keep the copy legible even over bright art (e.g. the
+            pale skull on Community). Bumped 0.66 -> 0.80 — art still reads through. */}
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.80)' }} />
       </div>
       <div className="relative z-10">
         <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">

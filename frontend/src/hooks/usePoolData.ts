@@ -57,7 +57,7 @@ export function usePoolData() {
     aprNum,
     aprCapped,
     /** Display alongside APR values */
-    aprDisclaimer: 'Current rate, subject to change',
+    aprDisclaimer: 'Bootstrap rate — falls as staking grows',
     isDeployed,
     isLoading,
   };
