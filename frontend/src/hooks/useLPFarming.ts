@@ -50,6 +50,7 @@ export function useLPFarming() {
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, LP_FARMING_ADDRESS], chainId: CHAIN_ID },
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply', chainId: CHAIN_ID },
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'MIN_STAKE', chainId: CHAIN_ID },
     ],
     query: { enabled: isDeployed && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
@@ -64,6 +65,7 @@ export function useLPFarming() {
   const walletLPBalance = data?.[7]?.status === 'success' ? data[7].result as bigint : 0n;
   const lpAllowance = data?.[8]?.status === 'success' ? data[8].result as bigint : 0n;
   const lpTotalSupply = data?.[9]?.status === 'success' ? data[9].result as bigint : 0n;
+  const minStake = data?.[10]?.status === 'success' ? data[10].result as bigint : 0n;
 
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
@@ -243,6 +245,8 @@ export function useLPFarming() {
     totalRewardsFundedFormatted: formatEther(totalRewardsFunded),
     isActive,
     lpTotalSupply,
+    minStake,
+    minStakeFormatted: formatEther(minStake),
     stakedBalance,
     stakedBalanceFormatted: formatEther(stakedBalance),
     pendingReward,

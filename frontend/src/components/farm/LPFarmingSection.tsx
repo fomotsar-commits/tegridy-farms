@@ -6,6 +6,7 @@ import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
 import { ILCalculator } from './ILCalculator';
 import { ArtImg } from '../ArtImg';
+import { Link } from 'react-router-dom';
 import { usePoolTVL } from '../../hooks/usePoolTVL';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
 
@@ -219,8 +220,20 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                   <p className="text-white text-[10px] mb-2 font-mono">Wallet: {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} LP</p>
                   {(() => {
                     const amt = parseFloat(lpStakeAmount) || 0;
-                    let needsApproval = false;
-                    try { needsApproval = amt > 0 && lpFarm.lpAllowance < parseEther(lpStakeAmount || '0'); } catch { /* invalid input */ }
+                    let stakeWei = 0n;
+                    try { stakeWei = amt > 0 ? parseEther(lpStakeAmount) : 0n; } catch { stakeWei = 0n; }
+                    // On-chain MIN_STAKE guard — without this, a sub-minimum amount builds a
+                    // tx that reverts with StakeBelowMinimum() and the wallet shows a scary
+                    // revert-fallback gas estimate. Block it client-side instead.
+                    const belowMin = stakeWei > 0n && lpFarm.minStake > 0n && stakeWei < lpFarm.minStake;
+                    const needsApproval = stakeWei > 0n && lpFarm.lpAllowance < stakeWei;
+                    if (belowMin) {
+                      return (
+                        <button className="btn-primary w-full py-2 text-sm rounded-lg" disabled>
+                          Min {formatTokenAmount(lpFarm.minStakeFormatted, 0)} LP required
+                        </button>
+                      );
+                    }
                     return needsApproval ? (
                       <button
                         className="btn-secondary w-full py-2 text-sm rounded-lg"
@@ -239,6 +252,14 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       </button>
                     );
                   })()}
+                  {lpFarm.minStake > 0n && (
+                    <p className="text-white/50 text-[10px] mt-2">
+                      Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
+                      {parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (
+                        <> &middot; you hold {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} &mdash; <Link to="/liquidity" className="underline hover:text-white">add liquidity</Link></>
+                      )}
+                    </p>
+                  )}
                 </div>
 
                 {/* Withdraw */}

@@ -343,6 +343,7 @@ export const LP_FARMING_ABI = [
   { type: 'function', name: 'rawBalanceOf', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'effectiveBalanceOf', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'refreshBoost', inputs: [{ name: 'account', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'MIN_STAKE', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 export const lpFarmingConfig = {
