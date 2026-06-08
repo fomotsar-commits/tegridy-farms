@@ -22,7 +22,7 @@ import { ProtocolStats } from '../components/ProtocolStats';
 
 const CORE_LOOP_STEPS = [
   { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
-  { label: 'Every swap skims a fee',  sub: '0.3% on each trade' },
+  { label: 'Every swap skims a fee',  sub: 'a protocol fee on each swap' },
   { label: '100% flows to stakers',   sub: 'paid out in ETH' },
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
@@ -79,7 +79,12 @@ export default function HomePage() {
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
         <div className="pt-28 pb-20">
-          <m.div className="max-w-xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <m.div className="max-w-xl relative" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+            {/* Readability scrim — softly darkens the art behind the hero copy so the white
+                text stays legible over light patches of the art (e.g. the pale ape on the
+                left). Additive only: fades to transparent, so the art elsewhere is untouched. */}
+            <div aria-hidden="true" className="absolute -left-6 -right-10 -top-8 -bottom-8 -z-10 pointer-events-none"
+              style={{ background: 'radial-gradient(115% 115% at 12% 42%, rgba(6,12,26,0.88) 0%, rgba(6,12,26,0.6) 42%, rgba(6,12,26,0.2) 68%, transparent 84%)' }} />
             <div className="badge badge-primary mb-5 text-[10px]">LIVE ON ETHEREUM</div>
 
             <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
