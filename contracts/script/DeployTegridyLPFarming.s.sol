@@ -22,18 +22,21 @@ contract DeployTegridyLPFarmingScript is Script {
     // before broadcasting.
     address constant TREASURY = 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d;
 
+    // RELAUNCH 2026-06-07: hardcoded (each verified live on-chain) so the deploy is a single
+    // command with no env vars. TEGRIDY_LP + TEGRIDY_STAKING are the live relaunch contracts;
+    // MULTISIG is the relaunch Safe (== the pendingOwner already set on TegridyStaking /
+    // RevenueDistributor / SwapFeeRouter), so the farm lands under the same owner as the rest.
+    address constant TEGRIDY_LP = 0x55875887B43C2E23aE424AF0FC8606Fdb058a481;
+    address constant TEGRIDY_STAKING = 0xcaDc93E96De58EA554c71ca609974625615E046D;
+    address constant MULTISIG = 0xA36053477568Fb5382492F3A5970D35Fe896b7F8;
+
     uint256 constant REWARDS_DURATION = 7 days;
 
     function run() external {
         require(block.chainid == 1, "MAINNET_ONLY");
 
-        // LP pair address — set after DeployFinal.s.sol creates the TOWELI/WETH pair
-        address tegridyLP = vm.envAddress("TEGRIDY_LP");
-        require(tegridyLP != address(0), "Set TEGRIDY_LP env var");
-
-        // New TegridyStaking address — set after DeployFinal.s.sol
-        address tegridyStaking = vm.envAddress("TEGRIDY_STAKING");
-        require(tegridyStaking != address(0), "Set TEGRIDY_STAKING env var");
+        address tegridyLP = TEGRIDY_LP;
+        address tegridyStaking = TEGRIDY_STAKING;
 
         // FRESH-EYES M-13: keystore migration completion. Forge selects sender from --account/--private-key/--ledger CLI flags; reading PRIVATE_KEY from env defeats the keystore path.
         console.log("=== Deploying TegridyLPFarming (C-01 fixed) ===");
@@ -48,22 +51,18 @@ contract DeployTegridyLPFarmingScript is Script {
 
         // Deploy the audit-fixed boosted LP farming contract
         TegridyLPFarming farm = new TegridyLPFarming(
-            TOWELI,           // _rewardToken
-            tegridyLP,        // _stakingToken
-            tegridyStaking,   // _tegridyStaking (boost source)
-            TREASURY,         // _treasury
-            REWARDS_DURATION  // _rewardsDuration
+            TOWELI, // _rewardToken
+            tegridyLP, // _stakingToken
+            tegridyStaking, // _tegridyStaking (boost source)
+            TREASURY, // _treasury
+            REWARDS_DURATION // _rewardsDuration
         );
         console.log("1. TegridyLPFarming deployed:", address(farm));
 
-        // Transfer ownership to multisig (initiates 2-step handover)
-        address multisig = vm.envAddress("MULTISIG"); // FRESH-2026 (post-fix scan3 F-DI-31): require non-empty MULTISIG env so deployer EOA never silently retains ownership
-        if (multisig != address(0)) {
-            farm.transferOwnership(multisig);
-            console.log("2. Ownership transfer initiated to:", multisig);
-        } else {
-            console.log("2. SKIPPED ownership transfer (no MULTISIG env var)");
-        }
+        // Transfer ownership to the relaunch multisig (initiates the 2-step handover; the
+        // Safe completes it with acceptOwnership(), same as the other relaunch contracts).
+        farm.transferOwnership(MULTISIG);
+        console.log("2. Ownership transfer initiated to:", MULTISIG);
 
         vm.stopBroadcast();
 
