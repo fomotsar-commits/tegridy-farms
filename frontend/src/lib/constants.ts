@@ -101,6 +101,12 @@ export const MAX_BOOST_BPS = 40000; // 4.0x
 export const JBAC_BONUS_BPS = 5000; // +0.5x
 export const EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
 
+// Protocol swap fee (mirrors the deployed SwapFeeRouter feeBps). The native
+// ('tegridy') route executes through SwapFeeRouter, which deducts this from the
+// input as protocol revenue. MUST stay in sync with DeployMVP SWAP_FEE_BPS /
+// SwapFeeRouter.feeBps() (read on-chain if the owner ever retunes it).
+export const SWAP_FEE_BPS = 50; // 0.5%
+
 // Helper: check if an address is deployed (not zero address)
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 export function isDeployed(address: string): boolean {

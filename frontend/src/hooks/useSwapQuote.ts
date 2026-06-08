@@ -2,7 +2,7 @@ import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useReadContract, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI } from '../lib/contracts';
-import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID, SWAP_FEE_BPS } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
 import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type AggregatorQuote, type AggregatorSource } from '../lib/aggregator';
 
@@ -10,9 +10,11 @@ export type RouteSource = 'tegridy' | 'uniswap' | 'aggregator';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
-// 0.15% tolerance favoring own pools — keeps volume on our DEX while minimizing user cost.
-// Disclosed in swap UI route label when active.
-const TEGRIDY_PREFERENCE_BPS = 15n;
+// The native ('tegridy') route executes through SwapFeeRouter, which deducts a protocol
+// fee from the input. We compare and quote the native route NET of that fee, so it's
+// only selected when it genuinely beats Uniswap for the user (i.e. when the deep native
+// pool's lower slippage outweighs the fee) — never worse than going direct to Uniswap.
+const SWAP_FEE_BPS_BI = BigInt(SWAP_FEE_BPS);
 
 // R033 H-02: max age of an outstanding quote before we force a refresh.
 // Matches the Uniswap Interface gate; 30s is well under the 5min default
@@ -265,6 +267,13 @@ export function useSwapQuote(
   // ---- Smart Route Selection ----
   const uniOutputAmount = uniAmountsOut ? (uniAmountsOut[uniAmountsOut.length - 1] ?? 0n) : 0n;
   const tegridyOutputAmount = tegridyAmountsOut ? (tegridyAmountsOut[tegridyAmountsOut.length - 1] ?? 0n) : 0n;
+  // Native route runs through SwapFeeRouter (fee deducted from input), so its effective
+  // output to the user is reduced by SWAP_FEE_BPS. Quote and compare on this net figure.
+  // (Linear haircut is conservative: the true output of swapping `in*(1-fee)` is slightly
+  // higher than `out*(1-fee)` by AMM concavity, so the derived minOut never reverts.)
+  const tegridyOutputAfterFee = tegridyOutputAmount > 0n
+    ? (tegridyOutputAmount * (10000n - SWAP_FEE_BPS_BI)) / 10000n
+    : 0n;
 
   let aggOutputAmount = 0n;
   try {
@@ -277,21 +286,20 @@ export function useSwapQuote(
   const bestAggregatorName = aggQuoteResult?.source ? AGGREGATOR_NAMES[aggQuoteResult.source] : null;
   const allAggQuotes = aggQuoteResult?.allQuotes ?? [];
 
-  // Select best on-chain route: Tegridy vs Uniswap
-  // Give Tegridy a 0.5% preference to keep volume on our pools (revenue capture)
+  // Select best on-chain route: native (NET of its protocol fee) vs Uniswap.
   const selectedOnChainRoute: { source: 'tegridy' | 'uniswap'; output: bigint } = useMemo(() => {
-    if (tegridyOutputAmount > 0n && uniOutputAmount > 0n) {
-      // Tegridy wins if its output + 0.5% tolerance >= Uniswap output
-      const tegridyWithPreference = tegridyOutputAmount + (tegridyOutputAmount * TEGRIDY_PREFERENCE_BPS) / 10000n;
-      if (tegridyWithPreference >= uniOutputAmount) {
-        return { source: 'tegridy', output: tegridyOutputAmount };
+    if (tegridyOutputAfterFee > 0n && uniOutputAmount > 0n) {
+      // Native wins only when, AFTER its protocol fee, it still delivers >= Uniswap.
+      // No artificial preference — the deep POL has to earn the routing on price, so the
+      // user is never worse off than going direct to Uniswap while the treasury earns.
+      if (tegridyOutputAfterFee >= uniOutputAmount) {
+        return { source: 'tegridy', output: tegridyOutputAfterFee };
       }
-      // Uniswap is meaningfully better
       return { source: 'uniswap', output: uniOutputAmount };
     }
-    if (tegridyOutputAmount > 0n) return { source: 'tegridy', output: tegridyOutputAmount };
+    if (tegridyOutputAfterFee > 0n) return { source: 'tegridy', output: tegridyOutputAfterFee };
     return { source: 'uniswap', output: uniOutputAmount };
-  }, [tegridyOutputAmount, uniOutputAmount]);
+  }, [tegridyOutputAfterFee, uniOutputAmount]);
 
   // Aggregator comparison against the best on-chain route
   const aggComparison = useMemo(
@@ -406,11 +414,11 @@ export function useSwapQuote(
   const routeLabel = useMemo(() => {
     if (selectedRoute === 'aggregator') return `Best rate via ${bestAggregatorName ?? 'Aggregator'}`;
     const dex = selectedRoute === 'tegridy' ? 'Tegridy DEX' : 'Uniswap V2';
-    // Disclose routing preference when Tegridy DEX is selected over Uniswap
-    const preferenceNote = selectedRoute === 'tegridy' && uniOutputAmount > 0n ? ' (preferred +0.15%)' : '';
-    if (path.length <= 2) return `Direct swap via ${dex}${preferenceNote}`;
-    return `Routed through WETH via ${dex}${preferenceNote}`;
-  }, [path, selectedRoute, bestAggregatorName, uniOutputAmount]);
+    // Native route carries the protocol fee; disclose it (the shown output already nets it).
+    const feeNote = selectedRoute === 'tegridy' ? ` (incl. ${Number(SWAP_FEE_BPS) / 100}% fee)` : '';
+    if (path.length <= 2) return `Direct swap via ${dex}${feeNote}`;
+    return `Routed through WETH via ${dex}${feeNote}`;
+  }, [path, selectedRoute, bestAggregatorName]);
 
   // R033 H-02: stale flag flips reactively when (now - quoteFetchedAt) > MAX.
   const isQuoteStale = useMemo(
@@ -429,9 +437,11 @@ export function useSwapQuote(
     setQuoteFetchedAt(0);
   }, [refetchUni, refetchTegridy, hasTegridyPair]);
 
+  // Net of the protocol fee — this is what the user actually receives on the native
+  // route, so the route-comparison panel shows an honest (not pre-fee) number.
   const tegridyOutputFormatted = useMemo(
-    () => tegridyOutputAmount > 0n ? formatUnits(tegridyOutputAmount as bigint, toDecimals) : null,
-    [tegridyOutputAmount, toDecimals],
+    () => tegridyOutputAfterFee > 0n ? formatUnits(tegridyOutputAfterFee, toDecimals) : null,
+    [tegridyOutputAfterFee, toDecimals],
   );
   const uniOutputFormatted = useMemo(
     () => uniOutputAmount > 0n ? formatUnits(uniOutputAmount as bigint, toDecimals) : null,

@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
-import { ERC20_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
-import { WETH_ADDRESS, TEGRIDY_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, CHAIN_ID } from '../lib/constants';
+import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
+import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
@@ -379,12 +379,15 @@ export function useSwap() {
       const onChainMin = minReceivedRaw;
       const { selectedOnChainRoute } = quote;
       if (selectedOnChainRoute.source === 'tegridy') {
+        // FEE CAPTURE: the aggregator's on-chain fallback is the native pool — route it
+        // through SwapFeeRouter so the protocol earns its fee on native execution.
+        const maxFeeBps = 100n;
         if (swapType === 'ethForTokens') {
-          writeContract({ chainId: CHAIN_ID, address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
+          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
-          writeContract({ chainId: CHAIN_ID, address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         } else {
-          writeContract({ chainId: CHAIN_ID, address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         }
       } else {
         // AUDIT FIX (deep-pool routing): the on-chain fallback for an aggregator
@@ -401,23 +404,29 @@ export function useSwap() {
         }
       }
     } else if (selectedRoute === 'tegridy') {
+      // FEE CAPTURE: native-pool trades execute through SwapFeeRouter, which deducts
+      // the protocol fee (SWAP_FEE_BPS) from the input before swapping on the native
+      // pool. The quote already nets this fee (useSwapQuote), so minReceivedRaw is the
+      // post-fee minimum and the route was only selected when it beats Uniswap net of
+      // the fee — the user is never worse off than market.
+      const maxFeeBps = 100n;
       if (swapType === 'ethForTokens') {
         writeContract({
           chainId: CHAIN_ID,
-          address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactETHForTokens',
-          args: [minReceivedRaw, path, address, deadlineTs], value: parsedAmount,
+          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
+          args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
           chainId: CHAIN_ID,
-          address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForETH',
-          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
+          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
+          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       } else {
         writeContract({
           chainId: CHAIN_ID,
-          address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
-          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
+          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
+          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       }
     } else {
