@@ -107,16 +107,18 @@ export function isDeployed(address: string): boolean {
   return address !== ZERO_ADDRESS;
 }
 
-// Farming Seasons
-// RELAUNCH 2026-06-07: fresh season so the Farm doesn't show a stale "0d left".
-// totalRewards = the 6.4M TOWELI actually funded for this ~90-day window
-// (rewardRate 0.8243/s ≈ 71.2k/day × 90d). Adjust number/name/dates as desired.
+// Engagement season — a label + countdown for the points/leaderboard program
+// (LeaderboardPage) and the Farm "Season" stat. This is NOT a claim about on-chain
+// LP-farm funding: the LP farm's real reward rate, total funded, and period-end are
+// read live from the contract in <LPFarmingSection/>, and single-asset staking
+// emissions come from useFarmStats (also on-chain). Set these dates to the
+// engagement window you're actually running. Do NOT add unfunded reward figures
+// here — nothing should render a number the chain can't back.
 export const CURRENT_SEASON = {
   number: 3,
   name: 'Season 3',
   startDate: '2026-06-07',
   endDate: '2026-09-05',
-  totalRewards: 6_400_000,
 };
 
 // External links

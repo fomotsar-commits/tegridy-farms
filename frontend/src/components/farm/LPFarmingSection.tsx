@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { formatTokenAmount } from '../../lib/formatting';
+import { formatTokenAmount, formatPercent, formatNumber } from '../../lib/formatting';
 import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
 import { ILCalculator } from './ILCalculator';
 import { ArtImg } from '../ArtImg';
+import { usePoolTVL } from '../../hooks/usePoolTVL';
+import { useTOWELIPrice } from '../../contexts/PriceContext';
 
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
@@ -25,6 +27,23 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
       setLpWithdrawAmount('');
     }
   }, [lpFarm.isSuccess]);
+
+  const poolTVL = usePoolTVL();
+  const price = useTOWELIPrice();
+
+  // Live LP-farming APR = annual TOWELI emissions (in USD) ÷ USD value of LP staked
+  // in the farm. Honest and self-correcting: as more LP is staked the APR falls
+  // toward steady state. Null when nothing is staked yet (an APR needs a non-zero
+  // denominator) or while pool data is still loading — never a fabricated figure.
+  const lpApr = useMemo(() => {
+    const lpSupply = poolTVL.lpSupply;
+    const staked = lpFarm.totalStaked;
+    if (!poolTVL.isLoaded || lpSupply === 0n || staked === 0n || price.priceInUsd <= 0) return null;
+    const stakedUsd = poolTVL.tvl * (Number(staked) / Number(lpSupply));
+    if (!(stakedUsd > 0)) return null;
+    const annualRewardsUsd = lpFarm.rewardRatePerYear * price.priceInUsd;
+    return (annualRewardsUsd / stakedUsd) * 100;
+  }, [poolTVL.isLoaded, poolTVL.lpSupply, poolTVL.tvl, lpFarm.totalStaked, lpFarm.rewardRatePerYear, price.priceInUsd]);
 
   // Loading skeleton — render whenever we're still reading, regardless of deploy status.
   // Prior guard (`isDeployed && isReadLoading`) skipped the skeleton when isDeployed was
@@ -98,6 +117,22 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
           <ArtImg pageId="lp-farming" idx={1} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-6">
+          {/* APR hero — the headline number a farmer wants, derived live from on-chain
+              emissions + staked TVL (not a hardcoded figure). */}
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-5">
+            <span className="text-white/85 text-[11px] uppercase tracking-wider label-pill">Est. APR</span>
+            {lpApr !== null ? (
+              <>
+                <span className="stat-value text-[26px] font-bold" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{formatPercent(lpApr)}</span>
+                <span className="text-white/55 text-[10px]">estimated from staked TVL &middot; falls as more LP is staked</span>
+              </>
+            ) : (
+              <>
+                <span className="stat-value text-[26px] font-bold text-white/70">&ndash;</span>
+                <span className="text-white/55 text-[10px]">{lpFarm.totalStaked === 0n ? 'be the first to stake LP to activate the live APR' : 'calculating&hellip;'}</span>
+              </>
+            )}
+          </div>
           {/* Stats row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
@@ -106,11 +141,11 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Reward Rate</p>
-              <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(String(lpFarm.rewardRatePerDay))} / day</p>
+              <p className="stat-value text-[14px] text-white font-mono">{formatNumber(lpFarm.rewardRatePerDay, 2)} / day</p>
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Total Funded</p>
-              <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalRewardsFundedFormatted)} TOWELI</p>
+              <p className="stat-value text-[14px] text-white font-mono">{formatNumber(parseFloat(lpFarm.totalRewardsFundedFormatted), 0)} TOWELI</p>
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Period Ends</p>
