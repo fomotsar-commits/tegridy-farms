@@ -72,7 +72,7 @@ contract DeployTegridyLPFarmingScript is Script {
         console.log("");
         console.log("=== NEXT STEPS ===");
         console.log("1. TOWELI.approve(farm, amount)");
-        console.log("2. farm.notifyRewardAmount(amount) to fund first epoch");
+        console.log("2. farm.notifyRewardAmount(amount, 604800) -- 2-arg: (amount, durationSec). Duration must equal rewardsDuration (604800) after bootstrap.");
         console.log("3. Update LP_FARMING_ADDRESS in frontend/src/lib/constants.ts");
         console.log("4. Multisig: acceptOwnership()");
         console.log("");
