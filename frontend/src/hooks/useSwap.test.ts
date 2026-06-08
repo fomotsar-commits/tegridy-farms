@@ -158,7 +158,7 @@ import { DEFAULT_TOKENS } from '../lib/tokenList';
 import {
   CHAIN_ID,
   TEGRIDY_ROUTER_ADDRESS,
-  SWAP_FEE_ROUTER_ADDRESS,
+  UNISWAP_V2_ROUTER,
 } from '../lib/constants';
 
 const USER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
@@ -320,19 +320,19 @@ describe('useSwap', () => {
 
   // ────────────── Action-side: writeContract args ───────────────────────
 
-  it('ETH→TOKEN via uniswap route targets SWAP_FEE_ROUTER with value and maxFeeBps', () => {
+  it('ETH→TOKEN via uniswap route targets the real Uniswap router with value and no maxFeeBps', () => {
     const { result } = renderHook(() => useSwap());
     act(() => result.current.setInputAmount('0.5'));
     act(() => result.current.executeSwap());
     const write = wagmiState.writeContractMock;
     expect(write).toHaveBeenCalledTimes(1);
     const call = write.mock.calls[0][0];
-    expect(call.address).toBe(SWAP_FEE_ROUTER_ADDRESS);
+    expect(call.address).toBe(UNISWAP_V2_ROUTER);
     expect(call.functionName).toBe('swapExactETHForTokens');
     expect(call.value).toBe(parseEther('0.5'));
     expect(call.args[0]).toBe(990n * 10n ** 18n); // minimumReceived from quote
     expect(call.args[2]).toBe(USER);
-    expect(call.args[4]).toBe(100n); // maxFeeBps cap
+    expect(call.args).toHaveLength(4); // Uniswap router takes no maxFeeBps
   });
 
   it('ETH→TOKEN via tegridy route targets TEGRIDY_ROUTER and omits maxFeeBps', () => {
@@ -353,7 +353,7 @@ describe('useSwap', () => {
     expect(call.args).toHaveLength(4); // no maxFeeBps
   });
 
-  it('TOKEN→ETH via uniswap route uses swapExactTokensForETH on SWAP_FEE_ROUTER', () => {
+  it('TOKEN→ETH via uniswap route uses swapExactTokensForETH on the real Uniswap router', () => {
     const { result } = renderHook(() => useSwap());
     act(() => {
       result.current.setFromToken(TOWELI);
@@ -362,11 +362,11 @@ describe('useSwap', () => {
     });
     act(() => result.current.executeSwap());
     const call = wagmiState.writeContractMock.mock.calls[0][0];
-    expect(call.address).toBe(SWAP_FEE_ROUTER_ADDRESS);
+    expect(call.address).toBe(UNISWAP_V2_ROUTER);
     expect(call.functionName).toBe('swapExactTokensForETH');
     expect(call.value).toBeUndefined();
     expect(call.args[0]).toBe(parseUnits('10', 18));
-    expect(call.args[5]).toBe(100n);
+    expect(call.args).toHaveLength(5); // [amountIn, minOut, path, to, deadline] — no maxFeeBps
   });
 
   it('TOKEN→TOKEN via tegridy uses swapExactTokensForTokens without maxFeeBps', () => {
@@ -406,7 +406,7 @@ describe('useSwap', () => {
     expect(call.args).toHaveLength(4); // no maxFeeBps on tegridy router
   });
 
-  it('aggregator route with uniswap on-chain source routes through SWAP_FEE_ROUTER', () => {
+  it('aggregator route with uniswap on-chain source routes through the real Uniswap router', () => {
     quoteState.current = {
       ...defaultQuote(),
       selectedRoute: 'aggregator',
@@ -416,8 +416,8 @@ describe('useSwap', () => {
     act(() => result.current.setInputAmount('1'));
     act(() => result.current.executeSwap());
     const call = wagmiState.writeContractMock.mock.calls[0][0];
-    expect(call.address).toBe(SWAP_FEE_ROUTER_ADDRESS);
-    expect(call.args[4]).toBe(100n); // maxFeeBps present
+    expect(call.address).toBe(UNISWAP_V2_ROUTER);
+    expect(call.args).toHaveLength(4); // ethForTokens on Uniswap — no maxFeeBps
   });
 
   it('aggregator route recomputes minimumReceived from on-chain output using slippage', () => {

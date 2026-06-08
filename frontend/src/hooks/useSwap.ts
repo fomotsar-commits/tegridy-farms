@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
-import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI } from '../lib/contracts';
-import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { ERC20_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
+import { WETH_ADDRESS, TEGRIDY_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
@@ -387,13 +387,17 @@ export function useSwap() {
           writeContract({ chainId: CHAIN_ID, address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         }
       } else {
-        const maxFeeBps = 100n;
+        // AUDIT FIX (deep-pool routing): the on-chain fallback for an aggregator
+        // quote is the real Uniswap V2 pool, so execute on the REAL Uniswap router.
+        // Routing this leg through SWAP_FEE_ROUTER was wrong — SFR is wired to the
+        // native TegridyRouter (our deep-POL venue), so a Uniswap-priced minOut sent
+        // through it executes on the (currently thin) native pool and reverts.
         if (swapType === 'ethForTokens') {
-          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
+          writeContract({ chainId: CHAIN_ID, address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
-          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: CHAIN_ID, address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         } else {
-          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: CHAIN_ID, address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         }
       }
     } else if (selectedRoute === 'tegridy') {
@@ -417,47 +421,53 @@ export function useSwap() {
         });
       }
     } else {
-      const maxFeeBps = 100n;
+      // AUDIT FIX (deep-pool routing): a 'uniswap'-selected route means the real
+      // Uniswap V2 pool gave the best price, so execute on the REAL Uniswap router.
+      // Previously this routed through SWAP_FEE_ROUTER, which is wired to the native
+      // TegridyRouter (our deep-POL venue) — so a Uniswap-priced minOut executed on
+      // the thin native pool and reverted. Genuine-Uniswap trades carry no protocol
+      // fee (you can't fee a trade you don't host); the protocol fee is captured on
+      // native-pool ('tegridy') volume once the deep POL makes it the best venue.
       if (supportsFeeOnTransfer) {
         if (swapType === 'ethForTokens') {
           writeContract({
             chainId: CHAIN_ID,
-            address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
+            address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI,
             functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
-            args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
+            args: [minReceivedRaw, path, address, deadlineTs], value: parsedAmount,
           });
         } else if (swapType === 'tokensForEth') {
           writeContract({
             chainId: CHAIN_ID,
-            address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
+            address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI,
             functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
-            args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
+            args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
           });
         } else {
           writeContract({
             chainId: CHAIN_ID,
-            address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI,
+            address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI,
             functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
-            args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
+            args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
           });
         }
       } else if (swapType === 'ethForTokens') {
         writeContract({
           chainId: CHAIN_ID,
-          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
-          args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
+          address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactETHForTokens',
+          args: [minReceivedRaw, path, address, deadlineTs], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
           chainId: CHAIN_ID,
-          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
-          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
+          address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForETH',
+          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
       } else {
         writeContract({
           chainId: CHAIN_ID,
-          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
-          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
+          address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
+          args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
       }
     }
