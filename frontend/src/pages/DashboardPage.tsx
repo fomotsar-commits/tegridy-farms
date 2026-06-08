@@ -101,8 +101,9 @@ export default function DashboardPage() {
     (stakedTotal * price.priceInUsd) +
     (pendingTotal * price.priceInUsd) +
     (price.oracleStale ? 0 : ethBal * price.ethUsd) +
-    lpUsd
-  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, lpUsd, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
+    lpUsd +
+    (lpPos.pendingRewards * price.priceInUsd)
+  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, lpUsd, lpPos.pendingRewards, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
 
   // Claim handler
   const handleClaim = () => {
@@ -464,6 +465,9 @@ export default function DashboardPage() {
                       <div>
                         <p className="text-white text-[10px] mb-0.5">LP Tokens</p>
                         <p className="stat-value text-[16px] text-white">{formatTokenAmount(lpPos.lpBalanceFormatted, 4)} <span className="text-white/50 text-[11px]">TGLP</span></p>
+                        {lpPos.stakedLp > 0n && (
+                          <p className="text-white/45 text-[10px]">{formatTokenAmount(lpPos.stakedLpFormatted, 4)} staked</p>
+                        )}
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Pool Share</p>
@@ -480,10 +484,20 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 mt-4 flex-wrap">
-                      <span className="text-white/50 text-[11px]">Held in your wallet as the TGLP token &middot; earns a cut of swap fees</span>
-                      <Link to="/liquidity" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
-                        Manage liquidity &#8594;
-                      </Link>
+                      <span className="text-white/50 text-[11px]">
+                        {lpPos.farmingDeployed && (lpPos.stakedLp > 0n || lpPos.pendingRewards > 0)
+                          ? `Staked & earning · ${formatTokenAmount(lpPos.pendingRewards.toString(), 4)} TOWELI pending`
+                          : 'Held in your wallet as the TGLP token · earns a cut of swap fees'}
+                      </span>
+                      {lpPos.farmingDeployed && lpPos.stakedLp > 0n ? (
+                        <Link to="/farm" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
+                          Manage on Farm &#8594;
+                        </Link>
+                      ) : (
+                        <Link to="/liquidity" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
+                          Manage liquidity &#8594;
+                        </Link>
+                      )}
                     </div>
                   </div>
                 </div>
