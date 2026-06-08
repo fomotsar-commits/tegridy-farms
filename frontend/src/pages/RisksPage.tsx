@@ -57,6 +57,70 @@ const PROTOCOL_RISKS: Array<{
   },
 ];
 
+// Every min/max/cap in the protocol, with the rationale and live status. Surfaced
+// here as a single reference so users are never surprised by a hidden limit (the
+// live forms also show their own limits inline). Values mirror the contracts; the
+// mutable ones (staking caps, swap fee, lending principal) can change via governance.
+const PROTOCOL_LIMITS: Array<{
+  feature: string;
+  status: 'Live' | 'Not yet deployed';
+  items: Array<{ label: string; value: string; why: string }>;
+}> = [
+  {
+    feature: 'Staking (TOWELI)',
+    status: 'Live',
+    items: [
+      { label: 'Minimum stake', value: '100 TOWELI', why: 'Blocks dust positions' },
+      { label: 'Maximum per wallet', value: '50,000 TOWELI', why: 'Testing-phase cap — to be raised' },
+      { label: 'Protocol-wide cap', value: '5,000,000 TOWELI', why: 'Testing-phase safety ceiling' },
+      { label: 'Lock duration', value: '7 days – 4 years', why: 'Longer lock = higher boost' },
+      { label: 'Boost range', value: '0.4× – 4.0× (4.5× with JBAC NFT)', why: 'Rewards long-term locking' },
+      { label: 'Early-exit penalty', value: '25%', why: 'Redistributed to remaining stakers' },
+    ],
+  },
+  {
+    feature: 'LP Farming',
+    status: 'Live',
+    items: [
+      { label: 'Minimum stake', value: '100 LP', why: 'Anti-dust — needs a deeper pool to be reachable; lowering planned' },
+      { label: 'Max boost', value: '4.5×', why: 'Shared from your TOWELI staking position' },
+    ],
+  },
+  {
+    feature: 'Swap',
+    status: 'Live',
+    items: [
+      { label: 'Protocol fee', value: '0.5% (1% hard cap)', why: 'Revenue to stakers; fee routing being finalized' },
+      { label: 'Pool trading fee', value: '0.3%', why: 'Standard AMM fee, paid to liquidity providers' },
+      { label: 'Slippage', value: 'You choose', why: 'Caps adverse price movement / MEV' },
+    ],
+  },
+  {
+    feature: 'Lending (ETH)',
+    status: 'Not yet deployed',
+    items: [
+      { label: 'Loan principal', value: '0.001 – 1,000 ETH', why: 'Dust floor + whale cap' },
+    ],
+  },
+  {
+    feature: 'NFT Lending',
+    status: 'Not yet deployed',
+    items: [
+      { label: 'Loan duration', value: '1 – 365 days', why: 'Sane loan-term bounds' },
+      { label: 'Minimum offer', value: '~0.001 ETH', why: 'Blocks dust offers' },
+    ],
+  },
+  {
+    feature: 'NFT Launchpad / Drops',
+    status: 'Not yet deployed',
+    items: [
+      { label: 'Max collection supply', value: '100,000', why: 'Sanity bound at creation' },
+      { label: 'Max mint price', value: '100 ETH', why: 'Sanity bound at creation' },
+      { label: 'Per-wallet mint cap', value: 'Set per drop', why: 'Anti-whale — the creator’s choice' },
+    ],
+  },
+];
+
 const RISKS = [
   {
     title: '1. Smart Contract Risk',
@@ -252,6 +316,67 @@ export default function RisksPage() {
               AUDITS.md
             </a>
             .
+          </p>
+        </m.section>
+
+        <m.section
+          aria-labelledby="limits-heading"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="mb-10"
+        >
+          <div className="mb-4">
+            <h2 id="limits-heading" className="text-2xl font-semibold text-white mb-1">
+              Protocol limits &amp; parameters
+            </h2>
+            <p className="text-white/60 text-sm">
+              Every minimum, maximum, and cap — what it is and why. So nothing surprises you mid-transaction.
+            </p>
+          </div>
+
+          <ul className="space-y-4 list-none p-0 m-0">
+            {PROTOCOL_LIMITS.map((grp, i) => (
+              <m.li
+                key={grp.feature}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.12 + i * 0.04 }}
+                className="rounded-2xl p-5 md:p-6 backdrop-blur-md"
+                style={{
+                  background: 'rgba(13, 21, 48, 0.82)',
+                  border: '1px solid var(--color-purple-20)',
+                }}
+              >
+                <div className="flex items-center flex-wrap gap-2 mb-3">
+                  <h3 className="text-lg font-semibold text-white">{grp.feature}</h3>
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                    style={{
+                      background: grp.status === 'Live' ? 'rgba(34, 197, 94, 0.18)' : 'rgba(148, 163, 184, 0.15)',
+                      color: grp.status === 'Live' ? '#4ade80' : '#cbd5e1',
+                      border: grp.status === 'Live' ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid rgba(148, 163, 184, 0.3)',
+                    }}
+                  >
+                    {grp.status}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {grp.items.map((it) => (
+                    <div key={it.label} className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-3">
+                      <span className="text-white/60 text-[13px] sm:w-44 sm:shrink-0">{it.label}</span>
+                      <span className="text-white font-mono text-[13px] sm:w-52 sm:shrink-0">{it.value}</span>
+                      <span className="text-white/45 text-[12px] flex-1">{it.why}</span>
+                    </div>
+                  ))}
+                </div>
+              </m.li>
+            ))}
+          </ul>
+
+          <p className="text-white/55 text-xs mt-4 leading-relaxed">
+            Live forms also show their own limits inline. Mutable values (staking caps, swap fee, lending principal)
+            can change via governance and are read on-chain where shown.
           </p>
         </m.section>
 
