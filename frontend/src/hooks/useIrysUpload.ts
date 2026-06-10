@@ -91,6 +91,18 @@ export function useIrysUpload(): UseIrysUploadApi {
   }, []);
 
   const quote = useCallback(async (totalBytes: number) => {
+    // R044 H2 (guard RESTORED 2026-06-09 after a refactor dropped it): validate
+    // BEFORE any SDK call. The wizard's flow is quote() → fund() → uploadFolder(),
+    // and the upload-side caps only fire AFTER the wallet has already funded —
+    // so an unguarded quote() is exactly the "enormous fund() leg" wallet-drain
+    // path the module header documents. Reject non-finite/negative input and
+    // anything over the folder cap without ever touching the SDK.
+    if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
+      throw new PayloadTooLargeError(totalBytes, MAX_UPLOAD_BYTES_TOTAL, `Invalid byte total: ${totalBytes}`);
+    }
+    if (totalBytes > MAX_UPLOAD_BYTES_TOTAL) {
+      throw new PayloadTooLargeError(totalBytes, MAX_UPLOAD_BYTES_TOTAL);
+    }
     setStatus('quoting');
     const u = await getUploader();
     // Irys returns a BigNumber-like — coerce via string to keep bigint semantics.

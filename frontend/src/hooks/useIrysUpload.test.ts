@@ -45,6 +45,11 @@ describe('useIrysUpload — R044 H2 size cap', () => {
     expect(MAX_UPLOAD_BYTES_TOTAL).toBe(500 * 1024 * 1024);
   });
 
+  // ── R044 H2 quote() guard (regressed in a refactor, RESTORED 2026-06-09) ──
+  // quote() must validate totalBytes BEFORE any SDK call: the wizard's flow is
+  // quote() → fund() → uploadFolder(), and the upload-side caps only fire
+  // AFTER funding — an unguarded quote() is the documented "enormous fund()
+  // leg" wallet-drain path.
   it('quote() throws PayloadTooLargeError when bytes exceed total cap', async () => {
     const { result } = renderHook(() => useIrysUpload());
     await expect(
