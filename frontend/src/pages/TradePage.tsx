@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
@@ -90,6 +90,22 @@ export default function TradePage() {
   };
 
   const swap = useSwap();
+
+  // Route-savings receipt: quantify what the multi-venue comparison earned on
+  // THIS quote — best venue vs the worst quoted venue. Turns every quote into
+  // proof the router works for the user. Display-only; parses the formatted
+  // outputs the route-details list already renders.
+  const routeSavingsPct = useMemo(() => {
+    const outs = [
+      swap.hasTegridyPair && swap.tegridyOutputFormatted ? parseFloat(swap.tegridyOutputFormatted) : NaN,
+      swap.uniOutputFormatted ? parseFloat(swap.uniOutputFormatted) : NaN,
+      ...(swap.allAggQuotes ?? []).map((q: { amountOut: string }) => parseFloat(q.amountOut)),
+    ].filter((n) => Number.isFinite(n) && n > 0);
+    if (outs.length < 2) return 0;
+    const best = Math.max(...outs);
+    const worst = Math.min(...outs);
+    return worst > 0 ? ((best - worst) / worst) * 100 : 0;
+  }, [swap.hasTegridyPair, swap.tegridyOutputFormatted, swap.uniOutputFormatted, swap.allAggQuotes]);
 
   // Towelie nudge: warn before user fires a swap with high price impact.
   // Urgent so it jumps the queue. Dedup `key` so we don't spam every tick;
@@ -365,6 +381,12 @@ export default function TradePage() {
                       <span className="text-white">Route</span>
                       <span className="font-medium" style={{ color: 'var(--color-stan)' }}>{swap.routeLabel}</span>
                     </div>
+                    {routeSavingsPct >= 0.05 && (
+                      <div className="flex justify-between mt-1">
+                        <span className="text-white">Route Savings</span>
+                        <span className="font-mono text-emerald-300">+{routeSavingsPct.toFixed(2)}% vs worst venue</span>
+                      </div>
+                    )}
                     {swap.priceImpact > 0 && (
                       <div className="flex justify-between mt-1">
                         <span className="text-white">Price Impact</span>

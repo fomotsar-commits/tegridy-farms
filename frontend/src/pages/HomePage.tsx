@@ -19,6 +19,7 @@ import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES } from '../lib/copy';
 import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
+import { RealYieldProof } from '../components/RealYieldProof';
 
 const CORE_LOOP_STEPS = [
   { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
@@ -270,6 +271,10 @@ export default function HomePage() {
           </div>
           <ProtocolStats />
         </m.div>
+
+        {/* Real-yield proof — self-gating: renders nothing until the first
+            ETH distribution lands, then lights up automatically. */}
+        <RealYieldProof />
 
         {/* Protocol Overview */}
         <div className="pb-16">

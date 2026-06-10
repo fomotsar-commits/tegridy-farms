@@ -1,0 +1,94 @@
+import { m } from 'framer-motion';
+import { useReadContracts } from 'wagmi';
+import { formatEther } from 'viem';
+import { REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
+import { REVENUE_DISTRIBUTOR_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
+import { useTOWELIPrice } from '../contexts/PriceContext';
+
+/**
+ * Real-yield proof strip — the protocol's one true differentiator is
+ * "100% of protocol fees → stakers, in ETH", and this makes it VERIFIABLE:
+ * cumulative ETH distributed, epochs completed, and % already claimed, read
+ * straight from RevenueDistributor with an Etherscan link to check the math.
+ *
+ * SELF-GATING BY DESIGN (2026-06-09): renders nothing until the first real
+ * distribution lands (totalDistributed > 0), so it can ship pre-LP-seed
+ * without adding another zero to the page — and lights up on its own the
+ * day the flywheel turns. Additive — drop <RealYieldProof/> on any page.
+ */
+export function RealYieldProof() {
+  const deployed = isDeployed(REVENUE_DISTRIBUTOR_ADDRESS);
+  const price = useTOWELIPrice();
+
+  const { data } = useReadContracts({
+    contracts: [
+      { address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'totalDistributed', chainId: CHAIN_ID },
+      { address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'totalClaimed', chainId: CHAIN_ID },
+      { address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'epochCount', chainId: CHAIN_ID },
+    ],
+    query: { enabled: deployed, refetchInterval: 60_000 },
+  });
+
+  const totalDistributed = data?.[0]?.status === 'success' ? (data[0].result as bigint) : 0n;
+  const totalClaimed = data?.[1]?.status === 'success' ? (data[1].result as bigint) : 0n;
+  const epochCount = data?.[2]?.status === 'success' ? (data[2].result as bigint) : 0n;
+
+  // Nothing real to prove yet — render nothing (never a zero-stat).
+  if (!deployed || totalDistributed === 0n) return null;
+
+  const distEth = Number(formatEther(totalDistributed));
+  const distUsd = distEth * price.ethUsd;
+  const claimedPct = totalDistributed > 0n ? Number((totalClaimed * 10000n) / totalDistributed) / 100 : 0;
+
+  const items = [
+    { l: 'ETH Paid to Stakers', v: `${distEth.toFixed(4)} ETH`, sub: distUsd > 0 ? `≈ $${distUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })} all-time` : 'all-time', icon: '💎' },
+    { l: 'Distribution Epochs', v: epochCount.toString(), sub: 'completed', icon: '🗓️' },
+    { l: 'Claimed by Stakers', v: `${claimedPct.toFixed(1)}%`, sub: 'of all ETH distributed', icon: '🤝' },
+  ];
+
+  return (
+    <m.div
+      className="mb-10"
+      initial={{ opacity: 0, y: 10 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+    >
+      <div className="mb-4">
+        <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          Real Yield, Proven On-Chain
+        </h2>
+        <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          Not emissions. Not IOUs. ETH from protocol fees, distributed to stakers —{' '}
+          <a
+            href={`https://etherscan.io/address/${REVENUE_DISTRIBUTOR_ADDRESS}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-white/80"
+          >
+            verify on Etherscan ↗
+          </a>
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {items.map((it) => (
+          <div
+            key={it.l}
+            className="rounded-xl p-3 md:p-4"
+            style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
+          >
+            <p
+              className="text-[11px] uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+              style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+            >
+              <span aria-hidden="true">{it.icon}</span>{it.l}
+            </p>
+            <p className="stat-value text-lg md:text-xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}>
+              {it.v}
+            </p>
+            <p className="text-[10px] mt-0.5" style={{ color: '#22c55e', opacity: 0.75 }}>{it.sub}</p>
+          </div>
+        ))}
+      </div>
+    </m.div>
+  );
+}
