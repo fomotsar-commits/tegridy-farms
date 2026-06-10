@@ -14,6 +14,9 @@ const wagmiState = vi.hoisted(() => {
     writeContractMock: null as unknown as ReturnType<typeof import('vitest').vi.fn>,
     ethBalance: undefined as { value: bigint; decimals: number } | undefined,
     tokenBalance: 0n as bigint,
+    // FE-HIGH-6: addCustomToken re-verifies symbol/decimals on-chain before
+    // adding. Tests configure the "on-chain" ERC20 shape the mock returns.
+    erc20Shape: { symbol: 'FOO', decimals: 18 } as { symbol: string; decimals: number },
   };
 });
 
@@ -57,7 +60,13 @@ vi.mock('wagmi', async () => {
     // `usePublicClient` for direct `viemClient.readContract` calls — the
     // mock previously omitted it, blowing up at hook construction.
     usePublicClient: () => ({
-      readContract: vitest.fn().mockResolvedValue(0n),
+      // FE-HIGH-6 verification reads symbol()/decimals(); resolve them from
+      // the configurable shape so import-verification can pass in tests.
+      readContract: vitest.fn().mockImplementation(({ functionName }: { functionName?: string }) => {
+        if (functionName === 'symbol') return Promise.resolve(wagmiState.erc20Shape.symbol);
+        if (functionName === 'decimals') return Promise.resolve(wagmiState.erc20Shape.decimals);
+        return Promise.resolve(0n);
+      }),
       multicall: vitest.fn().mockResolvedValue([]),
     }),
   };
@@ -172,6 +181,7 @@ function resetWagmi() {
   wagmiState.writeStatus = { isPending: false, isConfirming: false, isSuccess: false, isTxError: false, hash: undefined };
   wagmiState.ethBalance = { value: parseEther('5'), decimals: 18 };
   wagmiState.tokenBalance = parseUnits('1000000', 18); // plenty
+  wagmiState.erc20Shape = { symbol: 'FOO', decimals: 18 };
   wagmiState.writeContractMock.mockReset();
 }
 
@@ -260,7 +270,11 @@ describe('useSwap', () => {
     expect(result.current.swapType).toBe('tokensForTokens');
   });
 
-  it('addCustomToken appends unique token and dedupes by address', () => {
+  it('addCustomToken appends unique token and dedupes by address', async () => {
+    // FE-HIGH-6 made addCustomToken async (on-chain symbol/decimals
+    // re-verification before adding) — both calls must be awaited inside
+    // act, or the floating verification promise leaks act() scope into
+    // every subsequent test and nulls their renders.
     const { result } = renderHook(() => useSwap());
     const token = {
       address: '0x1234567890123456789012345678901234567890',
@@ -269,10 +283,25 @@ describe('useSwap', () => {
       decimals: 18,
       logoURI: '',
     };
-    act(() => result.current.addCustomToken(token));
-    act(() => result.current.addCustomToken({ ...token, address: token.address.toUpperCase() }));
+    await act(async () => { await result.current.addCustomToken(token); });
+    await act(async () => { await result.current.addCustomToken({ ...token, address: token.address.toUpperCase() }); });
     expect(result.current.customTokens).toHaveLength(1);
     expect(result.current.customTokens[0].symbol).toBe('FOO');
+  });
+
+  it('addCustomToken REFUSES a token whose on-chain shape mismatches (FE-HIGH-6)', async () => {
+    const { result } = renderHook(() => useSwap());
+    wagmiState.erc20Shape = { symbol: 'NOT-FOO', decimals: 18 };
+    await act(async () => {
+      await result.current.addCustomToken({
+        address: '0x1234567890123456789012345678901234567890',
+        symbol: 'FOO',
+        name: 'Foo Token',
+        decimals: 18,
+        logoURI: '',
+      });
+    });
+    expect(result.current.customTokens).toHaveLength(0);
   });
 
   // ────────────── Guards: do-nothing paths ──────────────────────────────

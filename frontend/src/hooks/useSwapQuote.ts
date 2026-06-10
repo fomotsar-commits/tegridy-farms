@@ -390,12 +390,20 @@ export function useSwapQuote(
     }
   }, [reserves, token0, parsedAmount, outputAmount, fromToken, toToken, path, activeAmountsOut, leg1Reserves, leg1Token0, leg2Reserves, leg2Token0]);
 
-  // Slippage-protected minimum
+  // Slippage-protected minimum.
+  // R033 H-01 (amended 2026-06-09): the floor derives from the venue that
+  // EXECUTES. Aggregator-won quotes still execute on the on-chain fallback
+  // (SFR / Uniswap), so basing the floor on the aggregator's higher estimate
+  // guaranteed a revert whenever the spread exceeded slippage. The displayed
+  // "Min. Received" and the submitted minOut (useSwap recomputes the same
+  // formula) are both anchored to the on-chain route's own output —
+  // display == submit holds, and the floor is actually fillable.
   const minimumReceived = useMemo(() => {
-    if (outputAmount === 0n) return 0n;
+    const basis = aggBetter ? selectedOnChainRoute.output : outputAmount;
+    if (basis === 0n) return 0n;
     const slippageBps = BigInt(Math.round(slippage * 100));
-    return outputAmount - (outputAmount * slippageBps) / 10000n;
-  }, [outputAmount, slippage]);
+    return basis - (basis * slippageBps) / 10000n;
+  }, [outputAmount, slippage, aggBetter, selectedOnChainRoute.output]);
 
   const minimumReceivedFormatted = useMemo(
     () => formatUnits(minimumReceived, toDecimals),

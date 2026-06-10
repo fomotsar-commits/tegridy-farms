@@ -366,18 +366,21 @@ export function useSwap() {
     }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + deadline * 60);
     const { path, selectedRoute, minimumReceived } = quote;
-    // R033 H-01: bind the displayed minOut directly. Aggregator path now
-    // submits `quote.minimumReceived` — the exact value rendered in the
-    // "Min. Received" UI row — instead of re-deriving from the on-chain leg.
-    // Trade-off: aggregator selected but execution still routes through an
-    // on-chain router; if the on-chain leg returns less the swap reverts.
-    // That's the desired contract — user gets the price they signed for or
-    // no swap. Matches 1inch / Paraswap / Uniswap behaviour.
+    // R033 H-01 (amended 2026-06-09): the floor must come from the venue that
+    // EXECUTES. Aggregator-selected quotes still execute on the on-chain
+    // fallback (SFR / Uniswap), and holding that leg to the aggregator-priced
+    // minimum made the revert guaranteed-by-construction whenever the spread
+    // exceeded slippage — wasted gas, never a fill. The submitted min is now
+    // recomputed from the on-chain route's own output with the user's
+    // slippage, and useSwapQuote displays the SAME on-chain-derived floor in
+    // the "Min. Received" row, so R033's display==submit invariant holds.
     const minReceivedRaw = minimumReceived;
 
     if (selectedRoute === 'aggregator') {
-      const onChainMin = minReceivedRaw;
       const { selectedOnChainRoute } = quote;
+      const slippageBps = BigInt(Math.round(slippage * 100));
+      const onChainMin =
+        selectedOnChainRoute.output - (selectedOnChainRoute.output * slippageBps) / 10000n;
       if (selectedOnChainRoute.source === 'tegridy') {
         // FEE CAPTURE: the aggregator's on-chain fallback is the native pool — route it
         // through SwapFeeRouter so the protocol earns its fee on native execution.
