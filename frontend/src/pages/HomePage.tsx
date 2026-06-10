@@ -266,7 +266,7 @@ export default function HomePage() {
         <m.div className="pb-16" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="mb-6">
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>By the Numbers</h2>
-            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Live on-chain &mdash; volume, real yield, and staking rewards.</p>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Live on-chain stats &mdash; and the protocol guarantees behind them.</p>
           </div>
           <ProtocolStats />
         </m.div>

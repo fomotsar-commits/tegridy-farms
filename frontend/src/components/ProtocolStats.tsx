@@ -15,22 +15,39 @@ function fmtToken(n: number, sym = 'TOWELI'): string {
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${sym}`;
 }
 
+interface StatItem { l: string; v: string; sub: string; icon: string }
+
 /**
- * Public protocol-analytics showcase: trading volume, real yield (fees) generated,
- * staking reward pool + daily emissions, total staked, swap count. Reads on-chain
- * (no wallet needed). Populates as activity comes in post-LP-seed; reads as 0/—
- * until then. Additive — drop <ProtocolStats/> on any public page.
+ * Public protocol-analytics showcase, reads on-chain (no wallet needed).
+ *
+ * CREDIBILITY FIX (2026-06-09): never render an empty stat. The previous
+ * version proudly displayed "Total Volume —", "Total Staked $9" and
+ * "Total Swaps 0" pre-LP-seed — a wall of zeros that reads as a dead
+ * protocol to exactly the DeFi-native audience the page courts. Live
+ * metrics now render only once they're meaningful and are backfilled with
+ * evergreen protocol guarantees (fee share, LP lock, fixed supply, audit
+ * record) that are true on day zero. As volume/fees/swaps light up
+ * post-seed they displace the evergreen cards automatically.
  */
 export function ProtocolStats() {
   const s = useProtocolStats();
-  const items = [
-    { l: 'Total Volume', v: fmtUsd(s.volumeUsd), sub: 'all-time, on native DEX', icon: '🔄' },
-    { l: 'Real Yield Generated', v: fmtUsd(s.feesUsd), sub: '100% to stakers', icon: '💸' },
-    { l: 'Reward Pool', v: fmtToken(s.rewardPoolToweli), sub: 'TOWELI staking rewards', icon: '💰' },
-    { l: 'Daily Emissions', v: s.dailyEmissionToweli > 0 ? `${fmtToken(s.dailyEmissionToweli)}/day` : '—', sub: 'to stakers', icon: '⚡' },
-    { l: 'Total Staked', v: s.stakedUsd > 0 ? fmtUsd(s.stakedUsd) : fmtToken(s.stakedToweli), sub: 'TOWELI locked', icon: '🔒' },
-    { l: 'Total Swaps', v: s.totalSwaps > 0 ? s.totalSwaps.toLocaleString() : '0', sub: 'lifetime trades', icon: '📊' },
+  const live: StatItem[] = [];
+  if (s.volumeUsd > 0) live.push({ l: 'Total Volume', v: fmtUsd(s.volumeUsd), sub: 'all-time, on native DEX', icon: '🔄' });
+  if (s.feesUsd > 0) live.push({ l: 'Real Yield Generated', v: fmtUsd(s.feesUsd), sub: '100% to stakers, in ETH', icon: '💸' });
+  if (s.rewardPoolToweli > 0) live.push({ l: 'Reward Pool', v: fmtToken(s.rewardPoolToweli), sub: 'TOWELI staking rewards', icon: '💰' });
+  if (s.dailyEmissionToweli > 0) live.push({ l: 'Daily Emissions', v: `${fmtToken(s.dailyEmissionToweli)}/day`, sub: 'to stakers', icon: '⚡' });
+  // Below ~$1k the USD figure undersells the position — show the token count.
+  if (s.stakedToweli > 0) live.push({ l: 'Total Staked', v: s.stakedUsd >= 1000 ? fmtUsd(s.stakedUsd) : fmtToken(s.stakedToweli), sub: 'TOWELI locked', icon: '🔒' });
+  if (s.totalSwaps > 0) live.push({ l: 'Total Swaps', v: s.totalSwaps.toLocaleString(), sub: 'lifetime trades', icon: '📊' });
+
+  const evergreen: StatItem[] = [
+    { l: 'Fee Share', v: '100%', sub: 'of protocol fees → stakers, in ETH', icon: '💸' },
+    { l: 'LP Locked', v: '~69 yrs', sub: 'Uniswap LP in UNCX until 2093', icon: '🔐' },
+    { l: 'Fixed Supply', v: '1B', sub: 'TOWELI — no mint function, ever', icon: '🧱' },
+    { l: 'Security', v: '82+', sub: 'findings resolved · bounty live', icon: '🛡️' },
   ];
+
+  const items = [...live, ...evergreen].slice(0, 6);
   return (
     <m.div
       className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"
