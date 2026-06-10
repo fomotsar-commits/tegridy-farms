@@ -18,6 +18,7 @@ import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import useEns from "../hooks/useEns";
 
 const ComparableSales = lazy(() => import("./ComparableSales").catch(() => ({ default: () => null })));
+const TradeWindow = lazy(() => import("./TradeWindow").catch(() => ({ default: () => null })));
 
 function FairValueBadge({ nft, floorPrice, supply }) {
   if (!nft?.rank || !floorPrice || floorPrice <= 0) return null;
@@ -118,6 +119,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
   const [copied, setCopied] = useState(null);
   const [buying, setBuying] = useState(false);
   const [showOfferModal, setShowOfferModal] = useState(false);
+  const [showTradeWindow, setShowTradeWindow] = useState(false);
   const [orderWarning, setOrderWarning] = useState(null); // { status, reason, warnings }
   const modalRef = useRef(null);
   const showOfferModalRef = useRef(false);
@@ -453,6 +455,18 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             </button>
           </div>
 
+          {/* P2P trade entry — only when we know the owner and it isn't us */}
+          {wallet && nft?.owner && wallet.toLowerCase() !== nft.owner.toLowerCase() && (
+            <button
+              className="btn-secondary"
+              style={{ width: "100%", marginTop: 10, fontSize: 11 }}
+              aria-label="Offer the owner an NFT-for-NFT trade"
+              onClick={() => setShowTradeWindow(true)}
+            >
+              {"⇄"} Offer a trade for this NFT
+            </button>
+          )}
+
           {/* NFT Finance funnel — owner-only, and credibility-gated until the
               relaunch TegridyNFTLending address lands in lib/constants.ts */}
           {NFT_LOAN_DESK_LIVE && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
@@ -618,6 +632,17 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
           onConnect={onConnect}
           addToast={addToast}
         />
+      )}
+      {showTradeWindow && (
+        <Suspense fallback={null}>
+          <TradeWindow
+            wallet={wallet}
+            counterparty={nft?.owner}
+            initialRequested={[{ ...nft, contract: collection.contract, collectionName: collection.name, pixelated: collection.pixelated }]}
+            onClose={() => setShowTradeWindow(false)}
+            addToast={addToast}
+          />
+        </Suspense>
       )}
 
       <TransactionProgress

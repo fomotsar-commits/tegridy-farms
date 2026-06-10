@@ -49,6 +49,7 @@ const TraitExplorer = lazy(() => import("./components/TraitExplorer"));
 const ActivityFeed = lazy(() => import("./components/ActivityFeed"));
 const Favorites = lazy(() => import("./components/Favorites"));
 const NftCompare = lazy(() => import("./components/NftCompare"));
+const TradesPanel = lazy(() => import("./components/TradesPanel"));
 const Watchlist = lazy(() => import("./components/Watchlist"));
 const BidManager = lazy(() => import("./components/BidManager"));
 const MyListings = lazy(() => import("./components/MyListings"));
@@ -594,6 +595,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         return <Watchlist tokens={nfts.allTokens} onPick={setSelected} addToast={addToast} setTab={handleTabChange} wallet={wallet} />;
       case "collection":
         return <MyCollection wallet={wallet} onPick={setSelected} onConnect={handleConnect} addToast={addToast} stats={stats} />;
+      case "trades":
+        return <TradesPanel wallet={wallet} onConnect={handleConnect} addToast={addToast} onViewProfile={setProfileAddress} />;
       case "whales":
         return <WhaleIntelligence onViewProfile={setProfileAddress} stats={stats} />;
       case "about":

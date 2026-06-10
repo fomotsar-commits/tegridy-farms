@@ -133,8 +133,9 @@ const PRIMARY_NAV = [
 ];
 
 const MORE_NAV = [
+  ["trades", "⇄ P2P Trades"],
   ["sniper", "\u{1F3AF} Sniper"],
-  ["trade", "Trade"],
+  ["trade", "Compare"],
   ["watchlist", "Watchlist"],
   ["favorites", "Favorites"],
   ["bids", "Bids"],
