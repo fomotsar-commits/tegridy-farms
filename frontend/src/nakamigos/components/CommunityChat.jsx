@@ -12,6 +12,7 @@ import {
 } from "../lib/supabase";
 
 import { useActiveCollection } from "../contexts/CollectionContext";
+import DirectMessages from "./DirectMessages";
 
 const MAX_CHARS = 280;
 const FEED_TABS = ["All", "Alpha", "Discussion"];
@@ -346,8 +347,9 @@ function renderMessageText(text, metadataBase, pixelated) {
   });
 }
 
-export default function CommunityChat({ tokenId, wallet, onConnect, addToast, holderTier }) {
+export default function CommunityChat({ tokenId, wallet, onConnect, addToast, holderTier, onOpenTrades }) {
   const collection = useActiveCollection();
+  const [chatView, setChatView] = useState("room"); // room | dms
   const [messages, setMessages] = useState(() =>
     CHAT_ENABLED ? [] : loadMessages(collection.slug)
   );
@@ -591,8 +593,27 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
     <div style={styles.container}>
       {/* Header */}
       <div style={styles.header}>
-        <span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           {isTokenMode ? `# ${collection.name} ${tokenId}` : `${collection.name} Chat`}
+          {!isTokenMode && (
+            <span style={{ display: "inline-flex", gap: 4 }}>
+              {["room", "dms"].map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setChatView(v)}
+                  style={{
+                    fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.06em",
+                    padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+                    background: chatView === v ? "rgba(111,168,220,0.12)" : "transparent",
+                    border: `1px solid ${chatView === v ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
+                    color: chatView === v ? "var(--naka-blue)" : "var(--text-dim)",
+                  }}
+                >
+                  {v === "room" ? "ROOM" : "DMs"}
+                </button>
+              ))}
+            </span>
+          )}
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           {CHAT_ENABLED && onlineCount > 0 && (
@@ -614,6 +635,13 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
         </span>
       </div>
 
+      {/* DM view replaces the room below the shared header */}
+      {!isTokenMode && chatView === "dms" ? (
+        <div style={{ padding: "12px 2px" }}>
+          <DirectMessages wallet={wallet} addToast={addToast} onOpenTrades={onOpenTrades} embedded />
+        </div>
+      ) : (
+      <>
       {/* Filter tabs (general feed only) */}
       {!isTokenMode && (
         <div style={styles.filterRow}>
@@ -880,6 +908,8 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

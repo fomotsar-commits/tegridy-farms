@@ -58,8 +58,9 @@ DROP POLICY IF EXISTS "Anyone can read trades"   ON trade_offers;
 CREATE POLICY "Anyone can read trades" ON trade_offers FOR SELECT USING (true);
 
 -- ── B1. Direct messages ──
--- channel_key = lower(walletA)||':'||lower(walletB) with A < B lexically, so
--- both participants derive the same key. Reads/writes go through
+-- channel_key = lower(walletA)||'_'||lower(walletB) with A < B lexically, so
+-- both participants derive the same key. ('_' not ':' — the proxy's
+-- SAFE_MATCH_VALUE filter charset excludes ':'.) Reads/writes go through
 -- /api/supabase-proxy which attaches the SIWE JWT from the httpOnly cookie —
 -- the anon key alone can see nothing (RLS below).
 CREATE TABLE IF NOT EXISTS dm_messages (
@@ -89,8 +90,8 @@ CREATE POLICY "Sender writes DMs" ON dm_messages FOR INSERT WITH CHECK (
   sender = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
   AND sender <> recipient
   AND channel_key = CASE WHEN sender < recipient
-                         THEN sender || ':' || recipient
-                         ELSE recipient || ':' || sender END
+                         THEN sender || '_' || recipient
+                         ELSE recipient || '_' || sender END
 );
 
 -- Recipient may mark their messages read.

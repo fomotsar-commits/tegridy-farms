@@ -106,6 +106,68 @@ async function ensureCollectionApprovals(ethers, signer, owner, items) {
 }
 
 /**
+ * EIP-5792 atomic batch: approvals + fulfill in ONE wallet confirmation.
+ * Production-real in MetaMask (user-consented EIP-7702 smart-account
+ * upgrade) and other 5792 wallets; returns null when unsupported so the
+ * caller falls back to the sequential path. Rethrows user rejection (4001)
+ * so the fallback doesn't re-prompt someone who just said no.
+ *
+ * @param {object} provider ethers BrowserProvider
+ * @param {string} from
+ * @param {Array<{to:string,data:string,value?:string}>} calls
+ * @returns {Promise<{hash:string|null}|null>}
+ */
+async function tryAtomicBatch(provider, from, calls) {
+  let supported = false;
+  try {
+    const caps = await provider.send("wallet_getCapabilities", [from, ["0x1"]]);
+    const atomic = caps?.["0x1"]?.atomic?.status;
+    supported = atomic === "supported" || atomic === "ready";
+  } catch {
+    return null; // wallet doesn't speak 5792 at all
+  }
+  if (!supported) return null;
+
+  let id;
+  try {
+    const ret = await provider.send("wallet_sendCalls", [{
+      version: "2.0.0",
+      chainId: "0x1",
+      from,
+      atomicRequired: true,
+      calls,
+    }]);
+    id = typeof ret === "string" ? ret : ret?.id;
+  } catch (err) {
+    if (err.code === 4001 || err.code === "ACTION_REJECTED" || err?.error?.code === 4001) {
+      throw Object.assign(new Error("Batch cancelled by user"), { code: "rejected" });
+    }
+    return null; // capability advertised but call failed — use fallback
+  }
+  if (!id) return null;
+
+  // Poll for confirmation (~3 min ceiling). 200 = confirmed per EIP-5792.
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    let st;
+    try {
+      st = await provider.send("wallet_getCallsStatus", [id]);
+    } catch { continue; }
+    const code = typeof st?.status === "number" ? st.status : null;
+    if (code === 200) {
+      const receipts = st.receipts || [];
+      const failed = receipts.some(r => r && (r.status === "0x0" || r.status === 0));
+      if (failed) throw Object.assign(new Error("Batch reverted on-chain"), { code: "reverted" });
+      return { hash: receipts.length ? receipts[receipts.length - 1].transactionHash : null };
+    }
+    if (code != null && code >= 400) {
+      throw Object.assign(new Error("Batch failed in wallet"), { code: "reverted" });
+    }
+  }
+  throw Object.assign(new Error("Batch confirmation timed out"), { code: "timeout" });
+}
+
+/**
  * Pure builder for the Seaport OrderParameters of a trade. Exported for unit
  * tests — no wallet, no network.
  *
@@ -351,15 +413,21 @@ export async function acceptTrade(trade) {
       }
     }
 
-    // Approvals for the taker's NFTs (every consideration ERC721 leaves the taker)
+    // Taker's NFTs that leave their wallet (every consideration ERC721)
     const takerItems = params.consideration
       .filter(i => Number(i.itemType) === 2)
       .map(i => ({ contract: i.token, tokenId: i.identifierOrCriteria }));
-    try {
-      await ensureCollectionApprovals(ethers, signer, takerAddress, takerItems);
-    } catch (err) {
-      if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "Approval cancelled" };
-      return { error: "approval-failed", message: err.message };
+
+    // Which collections still need conduit approval (read-only checks)
+    const approvalAbi = [
+      "function isApprovedForAll(address,address) view returns (bool)",
+      "function setApprovalForAll(address,bool)",
+    ];
+    const missingApprovals = [];
+    for (const contract of [...new Set(takerItems.map(i => i.contract.toLowerCase()))]) {
+      const nft = new ethers.Contract(contract, approvalAbi, provider);
+      const ok = await nft.isApprovedForAll(takerAddress, CONDUIT_ADDRESS).catch(() => false);
+      if (!ok) missingApprovals.push(contract);
     }
 
     // Native ETH the taker owes = sum of itemType 0 consideration
@@ -400,35 +468,84 @@ export async function acceptTrade(trade) {
       totalOriginalConsiderationItems: params.totalOriginalConsiderationItems || params.consideration.length,
     };
 
-    // The taker fulfills WITH the conduit key so their NFT transfers route
-    // through the conduit they just approved.
-    const tx = await seaport.fulfillOrder(
-      { parameters: orderStruct, signature: trade.signature },
-      CONDUIT_KEY,
-      { value: totalWei }
-    );
-    const receipt = await tx.wait();
-    if (!receipt || receipt.status === 0) {
-      return { error: "reverted", message: "Trade transaction reverted on-chain" };
+    // ── Execution ──
+    // Preferred: ONE confirmation via EIP-5792 atomic batch (approvals +
+    // fulfill). Falls back to the classic sequential path when the wallet
+    // doesn't support it (or no approvals are missing — then it's a single
+    // tx either way).
+    let txHash = null;
+    let batchDone = false;
+    if (missingApprovals.length > 0) {
+      const approvalIface = new ethers.Interface(approvalAbi);
+      const fulfillData = seaport.interface.encodeFunctionData("fulfillOrder", [
+        { parameters: orderStruct, signature: trade.signature },
+        CONDUIT_KEY,
+      ]);
+      const calls = [
+        ...missingApprovals.map(contract => ({
+          to: contract,
+          data: approvalIface.encodeFunctionData("setApprovalForAll", [CONDUIT_ADDRESS, true]),
+        })),
+        {
+          to: trade.protocol_address || SEAPORT_ADDRESS,
+          data: fulfillData,
+          ...(totalWei > 0n ? { value: "0x" + totalWei.toString(16) } : {}),
+        },
+      ];
+      try {
+        const batched = await tryAtomicBatch(provider, takerAddress, calls);
+        if (batched) { batchDone = true; txHash = batched.hash; }
+      } catch (err) {
+        if (err.code === "rejected") return { error: "rejected", message: "Trade cancelled by user" };
+        if (err.code === "reverted") return { error: "reverted", message: "Trade batch reverted on-chain" };
+        if (err.code === "timeout") return { error: "timeout", message: "Wallet did not confirm the batch — check your wallet activity" };
+        throw err;
+      }
     }
 
-    // Notify backend (retried, same signature — no extra wallet prompt)
-    const ts = Math.floor(Date.now() / 1000);
-    const fillMessage = `Fill trade ${trade.id} tx ${tx.hash} | Chain: 1 | Time: ${ts}`;
-    const fillSignature = await signer.signMessage(fillMessage);
-    try {
-      await postOrderbook({
-        action: "trade-fill",
-        tradeId: trade.id,
-        txHash: tx.hash,
-        signature: fillSignature,
-        timestamp: ts,
-      });
-    } catch {
-      console.warn("Trade fill notify failed; on-chain trade succeeded:", tx.hash);
+    if (!batchDone) {
+      // Sequential path: approve missing collections, then fulfill.
+      try {
+        await ensureCollectionApprovals(ethers, signer, takerAddress, takerItems);
+      } catch (err) {
+        if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "Approval cancelled" };
+        return { error: "approval-failed", message: err.message };
+      }
+      // The taker fulfills WITH the conduit key so their NFT transfers route
+      // through the conduit they just approved.
+      const tx = await seaport.fulfillOrder(
+        { parameters: orderStruct, signature: trade.signature },
+        CONDUIT_KEY,
+        { value: totalWei }
+      );
+      const receipt = await tx.wait();
+      if (!receipt || receipt.status === 0) {
+        return { error: "reverted", message: "Trade transaction reverted on-chain" };
+      }
+      txHash = tx.hash;
     }
 
-    return { success: true, hash: tx.hash };
+    // Notify backend (retried, same signature — no extra wallet prompt).
+    // The batch path's last receipt IS the atomic tx containing the
+    // OrderFulfilled event, so the server-side receipt check holds.
+    if (txHash) {
+      const ts = Math.floor(Date.now() / 1000);
+      const fillMessage = `Fill trade ${trade.id} tx ${txHash} | Chain: 1 | Time: ${ts}`;
+      const fillSignature = await signer.signMessage(fillMessage);
+      try {
+        await postOrderbook({
+          action: "trade-fill",
+          tradeId: trade.id,
+          txHash,
+          signature: fillSignature,
+          timestamp: ts,
+        });
+      } catch {
+        console.warn("Trade fill notify failed; on-chain trade succeeded:", txHash);
+      }
+    }
+
+    return { success: true, hash: txHash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Trade cancelled by user" };

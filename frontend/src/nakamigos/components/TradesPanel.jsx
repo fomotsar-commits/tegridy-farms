@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Eth } from "./Icons";
 import TradeWindow from "./TradeWindow";
+import DirectMessages from "./DirectMessages";
 import { COLLECTIONS } from "../constants";
 import { fetchTrades, acceptTrade, updateTradeStatus, cancelTradeOnChain } from "../lib/trades";
 
@@ -49,7 +50,7 @@ const STATUS_COLOR = {
   cancelled: "var(--text-muted)", expired: "var(--text-muted)", countered: "var(--gold)",
 };
 
-function TradeCard({ trade, direction, wallet, addToast, onChanged, onCounter, onPickProfile }) {
+function TradeCard({ trade, direction, wallet, addToast, onChanged, onCounter, onPickProfile, onMessage }) {
   const [busy, setBusy] = useState(null); // "accept" | "decline" | "cancel" | "revoke"
   const [confirming, setConfirming] = useState(false);
   const isIncoming = direction === "incoming";
@@ -94,6 +95,17 @@ function TradeCard({ trade, direction, wallet, addToast, onChanged, onCounter, o
           {trade.counter_of && <span style={{ marginLeft: 8, color: "var(--gold)" }}>COUNTER</span>}
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            onClick={() => onMessage?.(trade)}
+            title="Message this wallet about the trade"
+            style={{
+              fontFamily: "var(--mono)", fontSize: 9, padding: "3px 10px", borderRadius: 6,
+              background: "transparent", border: "1px solid var(--border)", color: "var(--text-dim)",
+              cursor: "pointer", letterSpacing: "0.04em",
+            }}
+          >
+            {"✉"} Message
+          </button>
           <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: STATUS_COLOR[trade.status] || "var(--text-dim)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
             {trade.status}
           </span>
@@ -208,6 +220,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
   const [loading, setLoading] = useState(false);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [counterTrade, setCounterTrade] = useState(null);
+  const [dmContext, setDmContext] = useState(null); // { peer, tradeId }
   const mountedRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -316,8 +329,37 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
             onChanged={load}
             onCounter={(tr) => setCounterTrade(tr)}
             onPickProfile={onViewProfile}
+            onMessage={(tr) => setDmContext({
+              peer: direction === "incoming" ? tr.offerer : tr.target_owner,
+              tradeId: tr.id,
+            })}
           />
         ))
+      )}
+
+      {dmContext && (
+        <div className="modal-bg" onClick={() => setDmContext(null)} style={{ zIndex: 1100 }} role="dialog" aria-modal="true" aria-label="Direct messages">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--bg, #0b0b14)", border: "1px solid var(--border)", borderRadius: 14,
+              width: "min(720px, 94vw)", maxHeight: "86vh", overflowY: "auto",
+              padding: "18px 20px", margin: "6vh auto",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>MESSAGES</span>
+              <button aria-label="Close modal" onClick={() => setDmContext(null)} className="btn-secondary" style={{ padding: "5px 11px", fontSize: 12 }}>{"✕"}</button>
+            </div>
+            <DirectMessages
+              wallet={wallet}
+              addToast={addToast}
+              initialPeer={dmContext.peer}
+              initialTradeId={dmContext.tradeId}
+              embedded
+            />
+          </div>
+        </div>
       )}
 
       {builderOpen && (

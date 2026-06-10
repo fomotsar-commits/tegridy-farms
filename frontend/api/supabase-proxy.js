@@ -50,7 +50,14 @@ export const config = {
   },
 };
 
-const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes"];
+const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes", "dm_messages"];
+
+// SELECT through the proxy exists ONLY for DMs: their RLS hides rows from
+// the anon key, and the SIWE JWT lives in the httpOnly cookie this proxy
+// holds. Every other table stays write-only here (public reads go straight
+// to PostgREST with the anon key, as before).
+const SELECT_TABLES = new Set(["dm_messages"]);
+const SELECT_MAX_ROWS = 200;
 
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 
@@ -129,7 +136,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid table" });
   }
 
-  if (!method || !["INSERT", "UPDATE", "DELETE", "UPSERT"].includes(method)) {
+  if (!method || !["INSERT", "UPDATE", "DELETE", "UPSERT", "SELECT"].includes(method)) {
+    return res.status(400).json({ error: "Invalid method" });
+  }
+  if (method === "SELECT" && !SELECT_TABLES.has(table)) {
     return res.status(400).json({ error: "Invalid method" });
   }
 
@@ -297,6 +307,21 @@ export default async function handler(req, res) {
         url += `?${params.toString()}`;
       }
       break;
+    case "SELECT": {
+      // Reads are filter-REQUIRED (no table scans) with a pinned order and
+      // row cap. RLS scopes the result to the JWT wallet's own threads.
+      fetchMethod = "GET";
+      if (!match || Object.keys(match).length === 0) {
+        return res.status(400).json({ error: "Invalid match value" });
+      }
+      const { params, error } = buildMatchParams(match);
+      if (error) return res.status(400).json({ error });
+      params.set("select", "*");
+      params.set("order", "created_at.asc");
+      params.set("limit", String(SELECT_MAX_ROWS));
+      url += `?${params.toString()}`;
+      break;
+    }
   }
 
   try {

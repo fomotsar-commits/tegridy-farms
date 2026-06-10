@@ -63,6 +63,27 @@ const votes = z.object({
   week: z.string().regex(/^\d{4}-W\d{2}$/),
 }).strict();
 
+// DMs: sender must equal the JWT wallet (enforced in validateBody below),
+// channel_key must be the sorted "<a>_<b>" pair so both sides derive the
+// same thread, and self-DMs are rejected. RLS in migration 007 is the
+// primary boundary; this is the same belt-and-suspenders as the others.
+const dm_message = z.object({
+  sender: wallet,
+  recipient: wallet,
+  channel_key: z.string().regex(/^0x[a-f0-9]{40}_0x[a-f0-9]{40}$/),
+  text: z.string().min(1).max(500),
+  trade_id: z.string().uuid().nullable().optional(),
+}).strict().refine(
+  (d) => d.sender !== d.recipient
+    && d.channel_key === (d.sender < d.recipient ? `${d.sender}_${d.recipient}` : `${d.recipient}_${d.sender}`),
+  { message: "bad channel" },
+);
+
+// UPDATE on dm_messages = mark-as-read only.
+const dm_read = z.object({
+  read_at: z.string().datetime(),
+}).strict();
+
 // Accept single row or array of rows. The typical writer for
 // user_favorites/user_watchlist upserts an array of selections in one call.
 // Max 200 keeps a malicious client from burning a full request budget on
@@ -91,6 +112,10 @@ const TABLE_SCHEMAS = {
   votes: {
     INSERT: arrayable(votes),
     UPSERT: arrayable(votes),
+  },
+  dm_messages: {
+    INSERT: dm_message, // single message per send — no array form
+    UPDATE: dm_read,
   },
 };
 
@@ -132,6 +157,9 @@ export function validateBody(table, method, body, jwtClaims) {
     }
     if (row.author && row.author.toLowerCase() !== claimWallet) {
       return { ok: false, error: "author mismatch" };
+    }
+    if (row.sender && row.sender.toLowerCase() !== claimWallet) {
+      return { ok: false, error: "sender mismatch" };
     }
   }
 

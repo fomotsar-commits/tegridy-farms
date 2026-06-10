@@ -608,7 +608,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       case "alerts":
         return <PriceAlertPanel tokens={nfts.allTokens} addToast={addToast} />;
       case "chat":
-        return <CommunityChat wallet={wallet} onConnect={handleConnect} addToast={addToast} holderTier={holderTier} />;
+        return <CommunityChat wallet={wallet} onConnect={handleConnect} addToast={addToast} holderTier={holderTier} onOpenTrades={() => handleTabChange("trades")} />;
       case "history":
         return <TransactionHistory wallet={wallet} onConnect={handleConnect} />;
       case "sniper":
