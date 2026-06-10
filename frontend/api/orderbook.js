@@ -13,7 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
-import { verifySeaportSignature, verifyNftOwnership, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
+import { verifySeaportSignature, verifyNftOwnership, fetchNftOwner, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
 // AUDIT FIX 2026-05-26 [H-20]: bound the Alchemy RPC response so a hostile /
 // compromised RPC cannot OOM the lambda or rack up memory-time billing with a
@@ -147,6 +147,45 @@ export default async function handler(req, res) {
   // ── GET: Query orders ──
   if (req.method === "GET") {
     const { action, contract, maker, tokenId, status = "active", limit = "50", sort = "price_eth" } = req.query;
+
+    // ── P2P trades inbox/outbox ──
+    // Trades are signed Seaport swap offers on public NFTs (same privacy
+    // class as listings), so reads are open; writes are verified below.
+    if (action === "trade-query") {
+      const { wallet, role = "incoming" } = req.query;
+      if (!isValidAddress(wallet || "")) {
+        return res.status(400).json({ error: "Missing or invalid wallet" });
+      }
+      const tStatus = String(req.query.status || "active");
+      const TRADE_STATUSES = new Set(["active", "accepted", "declined", "cancelled", "expired", "countered", "all"]);
+      if (!TRADE_STATUSES.has(tStatus)) {
+        return res.status(400).json({ error: "Invalid status filter" });
+      }
+      const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
+      try {
+        let q = supabase.from("trade_offers").select("*");
+        q = role === "outgoing"
+          ? q.eq("offerer", wallet.toLowerCase())
+          : q.eq("target_owner", wallet.toLowerCase());
+        if (tStatus !== "all") q = q.eq("status", tStatus);
+        const { data, error } = await q.order("created_at", { ascending: false }).limit(lim);
+        if (error) throw new Error(error.message);
+        // Surface expiry without a write: callers treat expired-but-active
+        // rows as dead; the row itself sunsets via expires_at.
+        const nowIso = new Date().toISOString();
+        const trades = (data || []).map(t =>
+          t.status === "active" && t.expires_at && t.expires_at < nowIso
+            ? { ...t, status: "expired" }
+            : t
+        );
+        res.setHeader("Cache-Control", "no-store");
+        return res.json({ trades, count: trades.length });
+      } catch (err) {
+        console.error("Trade query degraded:", err?.message ?? err);
+        res.setHeader("Cache-Control", "no-store");
+        return res.json({ trades: [], count: 0, degraded: true });
+      }
+    }
 
     if (action !== "query") return res.status(400).json({ error: "Use action=query for GET" });
 
@@ -847,6 +886,398 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: `Order is already ${existing.status}` });
       }
 
+      return res.json({ success: true });
+    }
+
+    // ═══ P2P TRADE ACTIONS ═══
+    // A trade is ONE signed Seaport swap order (offer = maker NFTs + optional
+    // WETH; consideration = requested NFTs to maker + optional native ETH to
+    // maker). Settlement is canonical Seaport.fulfillOrder — no custom escrow
+    // (NFT Trader Dec-2023 lesson). Counterparty restriction is ownership-
+    // gated on-chain; target_owner is the soft pin this API verifies.
+
+    if (action === "trade-create") {
+      const { trade } = req.body;
+      if (!trade?.parameters || !trade?.seaportSignature || !trade?.authSignature) {
+        return res.status(400).json({ error: "Missing trade parameters or signatures" });
+      }
+      const params = trade.parameters;
+      const taker = String(trade.taker || "").toLowerCase();
+      if (!isValidAddress(taker)) return res.status(400).json({ error: "Missing or invalid taker" });
+      if (!params.offerer || typeof params.offerer !== "string" || !isValidAddress(params.offerer)) {
+        return res.status(400).json({ error: "Missing or invalid offerer" });
+      }
+      const offerer = params.offerer.toLowerCase();
+      if (taker === offerer) return res.status(400).json({ error: "Cannot trade with yourself" });
+      if (!Array.isArray(params.offer) || !Array.isArray(params.consideration)) {
+        return res.status(400).json({ error: "Malformed offer/consideration" });
+      }
+
+      // Same replay window as listing creation: startTime ≈ sign time.
+      const startSec = parseInt(params.startTime);
+      const endSec = parseInt(params.endTime);
+      if (isNaN(startSec) || isNaN(endSec) || endSec <= startSec) {
+        return res.status(400).json({ error: "Invalid startTime/endTime" });
+      }
+      if (endSec * 1000 < Date.now()) return res.status(400).json({ error: "Trade already expired" });
+      const nowSecT = Math.floor(Date.now() / 1000);
+      if (startSec < nowSecT - 300 || startSec > nowSecT + 300) {
+        return res.status(400).json({ error: "Trade signature is stale — re-sign with a fresh startTime" });
+      }
+      // 30-day ceiling keeps zombie signed orders bounded.
+      if (endSec - startSec > 30 * 24 * 3600) {
+        return res.status(400).json({ error: "Trade expiry too far out (max 30 days)" });
+      }
+
+      // Pin the protocol shape: FULL_OPEN + zero zone + canonical conduit.
+      // (orderType 2 is FULL_RESTRICTED — unfulfillable with a zero zone.)
+      const CANONICAL_CONDUIT_KEY = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
+      if (Number(params.orderType) !== 0) return res.status(400).json({ error: "Trades must use orderType 0 (FULL_OPEN)" });
+      if ((params.zone || "").toLowerCase() !== "0x0000000000000000000000000000000000000000") {
+        return res.status(400).json({ error: "Trades must use the zero zone" });
+      }
+      if ((params.conduitKey || "").toLowerCase() !== CANONICAL_CONDUIT_KEY) {
+        return res.status(400).json({ error: "Trades must use the canonical conduit" });
+      }
+
+      // ── Item shape validation ──
+      const WETH_ADDR = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+      const MAX_TRADE_ITEMS = 6;
+      const parseAmt = (raw) => {
+        const s = String(raw ?? "").trim();
+        if (!/^[0-9]+$/.test(s)) throw new Error("non-numeric amount");
+        const v = BigInt(s);
+        if (v > MAX_PRICE_WEI) throw new Error("amount over cap");
+        return v;
+      };
+
+      const givenNfts = [];
+      let wethTopupWei = 0n;
+      try {
+        for (const item of params.offer) {
+          const t = Number(item.itemType);
+          if (t === 2) {
+            const token = (item.token || "").toLowerCase();
+            if (!ALLOWED_CONTRACTS.has(token)) return res.status(403).json({ error: "Offered collection not supported" });
+            if (!isValidTokenId(String(item.identifierOrCriteria))) return res.status(400).json({ error: "Invalid offered tokenId" });
+            givenNfts.push({ contract: token, tokenId: String(item.identifierOrCriteria) });
+          } else if (t === 1) {
+            if ((item.token || "").toLowerCase() !== WETH_ADDR) return res.status(400).json({ error: "Maker cash leg must be WETH" });
+            wethTopupWei += parseAmt(item.startAmount);
+          } else {
+            // Native ETH cannot be an offer item — Seaport can't pull it from a maker.
+            return res.status(400).json({ error: "Unsupported offer itemType" });
+          }
+        }
+        if (givenNfts.length === 0) return res.status(400).json({ error: "Trade must offer at least one NFT" });
+        if (givenNfts.length > MAX_TRADE_ITEMS) return res.status(400).json({ error: "Too many offered NFTs" });
+
+        const requestedNfts = [];
+        let ethTopupWei = 0n;
+        for (const item of params.consideration) {
+          const t = Number(item.itemType);
+          const recipient = (item.recipient || "").toLowerCase();
+          if (recipient !== offerer) {
+            // Every consideration leg must pay the maker — anything else is
+            // value leaking to a third party hidden inside the signed order.
+            return res.status(400).json({ error: "All consideration must route to the trade creator" });
+          }
+          if (t === 2) {
+            const token = (item.token || "").toLowerCase();
+            if (!ALLOWED_CONTRACTS.has(token)) return res.status(403).json({ error: "Requested collection not supported" });
+            if (!isValidTokenId(String(item.identifierOrCriteria))) return res.status(400).json({ error: "Invalid requested tokenId" });
+            requestedNfts.push({ contract: token, tokenId: String(item.identifierOrCriteria) });
+          } else if (t === 0) {
+            ethTopupWei += parseAmt(item.startAmount);
+          } else {
+            return res.status(400).json({ error: "Unsupported consideration itemType" });
+          }
+        }
+        if (requestedNfts.length === 0) return res.status(400).json({ error: "Trade must request at least one NFT" });
+        if (requestedNfts.length > MAX_TRADE_ITEMS) return res.status(400).json({ error: "Too many requested NFTs" });
+
+        // ── Auth signature binds offerer + taker + canonical hash + window ──
+        const tHash = String(trade.seaportOrderHash || "");
+        if (!isValidSeaportOrderHash(tHash)) {
+          return res.status(400).json({ error: "Invalid seaportOrderHash format" });
+        }
+        const authMessage = `Create trade for ${offerer} | Taker: ${taker} | Hash: ${tHash.toLowerCase()} | StartTime: ${startSec} | EndTime: ${endSec}`;
+        let recovered;
+        try {
+          recovered = (await recoverMessageAddress({ message: authMessage, signature: trade.authSignature })).toLowerCase();
+        } catch {
+          return res.status(400).json({ error: "Invalid auth signature" });
+        }
+        if (recovered !== offerer) return res.status(403).json({ error: "Signer does not match offerer" });
+
+        // ── Seaport EIP-712 signature must validate against the SAME params ──
+        const sigCheck = await verifySeaportSignature({ parameters: params, signature: trade.seaportSignature });
+        if (!sigCheck.ok) {
+          const status = sigCheck.error === "rpc-unavailable" ? 503 : 403;
+          return res.status(status).json({ error: `Seaport signature verification failed: ${sigCheck.error}` });
+        }
+
+        // ── Canonical hash re-derivation (F10 parity) ──
+        const counterRaw = trade.seaportCounter;
+        if (counterRaw == null || !/^[0-9]+$/.test(String(counterRaw))) {
+          return res.status(400).json({ error: "Missing or invalid seaportCounter" });
+        }
+        let derivedHash;
+        try {
+          derivedHash = computeSeaportOrderHash(params, BigInt(String(counterRaw)));
+        } catch {
+          return res.status(400).json({ error: "Could not derive Seaport orderHash from parameters" });
+        }
+        if (derivedHash !== tHash.toLowerCase()) {
+          return res.status(400).json({ error: "seaportOrderHash mismatch" });
+        }
+
+        // ── Live ownership: maker owns every offered NFT, taker owns every
+        //    requested NFT (also proves target_owner is the right wallet).
+        //    fetchNftOwner THROWS: OWNER_OF_REVERT/EMPTY → bad token (4xx);
+        //    anything else (RPC/config) → fail closed with 503.
+        const ownerOf = async (nft) => {
+          try {
+            return await fetchNftOwner(nft.contract, nft.tokenId);
+          } catch (err) {
+            if (err.code === "OWNER_OF_REVERT" || err.code === "OWNER_OF_EMPTY") {
+              const e = new Error(`Token ${nft.contract.slice(0, 8)}… #${nft.tokenId} not found`);
+              e.httpStatus = 400;
+              throw e;
+            }
+            const e = new Error("Ownership verification temporarily unavailable");
+            e.httpStatus = 503;
+            throw e;
+          }
+        };
+        try {
+          for (const nft of givenNfts) {
+            if ((await ownerOf(nft)) !== offerer) {
+              return res.status(403).json({ error: `You do not own ${nft.contract.slice(0, 8)}… #${nft.tokenId}` });
+            }
+          }
+          for (const nft of requestedNfts) {
+            if ((await ownerOf(nft)) !== taker) {
+              return res.status(400).json({ error: `Counterparty does not own ${nft.contract.slice(0, 8)}… #${nft.tokenId}` });
+            }
+          }
+        } catch (err) {
+          return res.status(err.httpStatus || 503).json({ error: err.message });
+        }
+
+        // Per-maker creation throttle (parity with listings: 20/hr)
+        const oneHourAgoT = new Date(Date.now() - 3600000).toISOString();
+        const { count: makerTradeCount } = await supabase
+          .from("trade_offers")
+          .select("*", { count: "exact", head: true })
+          .eq("offerer", offerer)
+          .gte("created_at", oneHourAgoT);
+        if (makerTradeCount != null && makerTradeCount >= 20) {
+          return res.status(429).json({ error: "Rate limit exceeded — max 20 trades per hour" });
+        }
+
+        // Counter-offer linkage: valid only when the new maker is the parent's
+        // taker and vice versa; parent flips to `countered`.
+        let counterOf = null;
+        if (trade.counterOf) {
+          const cid = String(trade.counterOf);
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cid)) {
+            const { data: parent } = await supabase
+              .from("trade_offers")
+              .select("id, offerer, target_owner, status")
+              .eq("id", cid)
+              .maybeSingle();
+            if (parent && parent.status === "active" && parent.offerer === taker && parent.target_owner === offerer) {
+              counterOf = parent.id;
+              await supabase
+                .from("trade_offers")
+                .update({ status: "countered", updated_at: new Date().toISOString() })
+                .eq("id", parent.id)
+                .eq("status", "active");
+            }
+          }
+        }
+
+        const offerHash = "0x" + createHash("sha256").update(JSON.stringify({
+          offerer, taker, offer: params.offer, consideration: params.consideration,
+          startTime: params.startTime, endTime: params.endTime, salt: params.salt,
+        })).digest("hex");
+
+        const row = {
+          offer_hash: offerHash,
+          offerer,
+          target_owner: taker,
+          offered: givenNfts,
+          requested: requestedNfts,
+          eth_topup_wei: ethTopupWei.toString(),
+          weth_topup_wei: wethTopupWei.toString(),
+          signature: trade.seaportSignature,
+          parameters: params,
+          protocol_address: "0x00000000000000adc04c56bf30ac9d3c0aaf14dc",
+          seaport_order_hash: derivedHash,
+          counter_of: counterOf,
+          status: "active",
+          expires_at: new Date(endSec * 1000).toISOString(),
+        };
+        const { data: inserted, error } = await supabase.from("trade_offers").insert(row).select().single();
+        if (error) {
+          // Graceful pre-migration message instead of a bare 500
+          if (/column|relation/i.test(error.message)) {
+            console.error("trade-create schema missing:", error.message);
+            return res.status(503).json({ error: "Trades are not enabled yet (migration 007 pending)" });
+          }
+          console.error("trade-create error:", error.message);
+          return res.status(500).json({ error: "Internal error" });
+        }
+        return res.json({ success: true, trade: inserted });
+      } catch (e) {
+        if (e.message === "non-numeric amount" || e.message === "amount over cap") {
+          return res.status(400).json({ error: "Topup amount out of range" });
+        }
+        console.error("trade-create error:", e?.message ?? e);
+        return res.status(500).json({ error: "Internal error" });
+      }
+    }
+
+    if (action === "trade-decline" || action === "trade-cancel") {
+      const { tradeId, signature, timestamp } = req.body;
+      if (!tradeId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(tradeId))) {
+        return res.status(400).json({ error: "Missing or invalid tradeId" });
+      }
+      if (typeof timestamp !== "number" || Math.abs(Math.floor(Date.now() / 1000) - timestamp) > 300) {
+        return res.status(400).json({ error: "Signature expired or clock-skewed; please re-sign" });
+      }
+      const verb = action === "trade-decline" ? "Decline" : "Cancel";
+      let signer;
+      try {
+        signer = (await recoverMessageAddress({
+          message: `${verb} trade ${tradeId} | Chain: 1 | Time: ${timestamp}`,
+          signature,
+        })).toLowerCase();
+      } catch {
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+      const { data: row } = await supabase
+        .from("trade_offers")
+        .select("id, offerer, target_owner, status")
+        .eq("id", tradeId)
+        .maybeSingle();
+      if (!row) return res.status(404).json({ error: "Trade not found" });
+      if (row.status !== "active") return res.status(409).json({ error: `Trade is already ${row.status}` });
+      const allowed = action === "trade-decline" ? row.target_owner : row.offerer;
+      if (signer !== allowed) {
+        return res.status(403).json({ error: action === "trade-decline" ? "Only the recipient can decline" : "Only the creator can cancel" });
+      }
+      const patch = action === "trade-decline"
+        ? { status: "declined", declined_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+        : { status: "cancelled", cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      const { error } = await supabase.from("trade_offers").update(patch).eq("id", tradeId).eq("status", "active");
+      if (error) { console.error("trade status error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+      return res.json({ success: true });
+    }
+
+    if (action === "trade-fill") {
+      const { tradeId, txHash, signature, timestamp } = req.body;
+      if (!tradeId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(tradeId))) {
+        return res.status(400).json({ error: "Missing or invalid tradeId" });
+      }
+      if (!txHash || typeof txHash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+        return res.status(400).json({ error: "Missing or invalid txHash" });
+      }
+      if (typeof timestamp !== "number" || Math.abs(Math.floor(Date.now() / 1000) - timestamp) > 300) {
+        return res.status(400).json({ error: "Signature expired or clock-skewed; please re-sign" });
+      }
+      let filler;
+      try {
+        filler = (await recoverMessageAddress({
+          message: `Fill trade ${tradeId} tx ${txHash} | Chain: 1 | Time: ${timestamp}`,
+          signature,
+        })).toLowerCase();
+      } catch {
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+
+      const { data: row } = await supabase
+        .from("trade_offers")
+        .select("id, offerer, target_owner, status, seaport_order_hash")
+        .eq("id", tradeId)
+        .maybeSingle();
+      if (!row) return res.status(404).json({ error: "Trade not found" });
+      if (filler !== row.target_owner) return res.status(403).json({ error: "Only the trade recipient can mark it filled" });
+      if (!row.seaport_order_hash) return res.status(400).json({ error: "Trade lacks canonical order hash" });
+
+      // Same fail-closed on-chain verification as listing fills (H-2/F10):
+      // the OrderFulfilled event in the receipt must carry this exact hash.
+      const alchemyKey = process.env.ALCHEMY_API_KEY;
+      const hasAlchemy = alchemyKey && alchemyKey !== "demo";
+      if (!hasAlchemy && process.env.NODE_ENV === "production") {
+        return res.status(503).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
+      }
+      if (hasAlchemy) {
+        try {
+          const rpcRes = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
+          });
+          const { text: rpcBodyText, truncated } = await readBoundedText(rpcRes, MAX_RESPONSE_BYTES);
+          if (truncated) return res.status(502).json({ error: "On-chain verification temporarily unavailable" });
+          let rpcData;
+          try { rpcData = JSON.parse(rpcBodyText); } catch {
+            return res.status(502).json({ error: "On-chain verification temporarily unavailable" });
+          }
+          const receipt = rpcData?.result;
+          if (!receipt) return res.status(400).json({ error: "Transaction not found on-chain — it may still be pending" });
+          if (receipt.status !== "0x1") return res.status(400).json({ error: "Transaction reverted on-chain" });
+          if (Array.isArray(receipt.logs) && receipt.logs.length > 256) {
+            return res.status(400).json({ error: "Transaction log count exceeds verification budget" });
+          }
+          const ORDER_FULFILLED_TOPIC = "0x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcb6f31";
+          const SEAPORT_ADDRESSES = new Set([
+            "0x00000000000000adc04c56bf30ac9d3c0aaf14dc",
+            "0x0000000000000068f116a894984e2db1123eb395",
+          ]);
+          let matched = false;
+          for (const log of (receipt.logs || [])) {
+            if (log.topics?.[0] !== ORDER_FULFILLED_TOPIC) continue;
+            if (!SEAPORT_ADDRESSES.has(log.address?.toLowerCase())) continue;
+            try {
+              const decoded = decodeAbiParameters(
+                parseAbiParameters("bytes32, address, (uint8,address,uint256,uint256)[], (uint8,address,uint256,uint256,address)[]"),
+                log.data,
+              );
+              if ((decoded[0] || "").toLowerCase() === row.seaport_order_hash) { matched = true; break; }
+            } catch { continue; }
+          }
+          if (!matched) {
+            return res.status(400).json({ error: "Transaction does not contain a matching Seaport OrderFulfilled event" });
+          }
+        } catch (rpcErr) {
+          console.error("Trade fill verification failed, rejecting:", rpcErr.message);
+          return res.status(503).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
+        }
+      }
+
+      // One tx fills one trade
+      const { count: txUsed } = await supabase
+        .from("trade_offers")
+        .select("*", { count: "exact", head: true })
+        .eq("accepted_tx", txHash)
+        .eq("status", "accepted");
+      if (txUsed != null && txUsed > 0) {
+        return res.status(409).json({ error: "This transaction hash has already been used" });
+      }
+
+      const { data: updated, error } = await supabase
+        .from("trade_offers")
+        .update({ status: "accepted", accepted_tx: txHash, updated_at: new Date().toISOString() })
+        .eq("id", tradeId)
+        .eq("status", "active")
+        .select();
+      if (error) { console.error("trade-fill error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+      if (!updated || updated.length === 0) {
+        return res.status(409).json({ error: "Trade is no longer active" });
+      }
       return res.json({ success: true });
     }
 

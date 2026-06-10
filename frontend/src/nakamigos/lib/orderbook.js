@@ -296,7 +296,14 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
           recipient: PLATFORM_FEE_RECIPIENT,
         },
       ],
-      orderType: 2, // FULL_OPEN_VIA_CONDUIT — required when using conduitKey
+      // AUDIT FIX (2026-06-10): was 2 with a "FULL_OPEN_VIA_CONDUIT" comment —
+      // that's a Wyvern-era mental model. In Seaport's enum 2 = FULL_RESTRICTED,
+      // and with zone = address(0) restricted orders revert at fulfillment
+      // (validateOrder staticcall to an empty address can't return the magic
+      // value), making every listing signed this way unbuyable. Seaport's
+      // conduit usage is controlled by conduitKey alone; FULL_OPEN = 0 is
+      // correct for public listings.
+      orderType: 0,
       startTime: String(now),
       endTime: String(endTime),
       zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
