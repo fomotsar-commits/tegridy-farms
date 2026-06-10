@@ -12,18 +12,25 @@
 //   - Configured via two env vars set in Vercel:
 //       UPSTASH_REDIS_REST_URL
 //       UPSTASH_REDIS_REST_TOKEN
-//     AUDIT API-SEC (2026-04) + F1 (2026-05): fail-closed on prod-like
-//     (production + Vercel preview), fail-open only in genuine dev. Earlier
-//     revisions always failed open on missing env or Upstash errors — a
-//     configuration mistake silently left the API unthrottled. Now:
-//       prod-like AND no env vars   → 503 Service Unavailable
-//       prod-like AND Upstash error → 503 Service Unavailable
-//       dev (no Upstash)            → allow with console.warn
-//     "prod-like" = NODE_ENV==='production' OR VERCEL_ENV in {preview,production};
-//     Vercel preview inherits prod secrets but NOT NODE_ENV=production, so the
-//     old `=== 'production'` gate left preview URLs unthrottled.
-//     This shifts the failure mode toward visibility: a 503 gets noticed,
-//     a silent unthrottled API does not.
+//     AUDIT API-SEC (2026-04) + F1 (2026-05): earlier revisions always failed
+//     open on missing env or Upstash errors — a configuration mistake silently
+//     left the API unthrottled — so F1 made prod-like deployments fail CLOSED
+//     (503 on missing env / Upstash error).
+//
+//     PROD OUTAGE FIX (2026-06-09): fail-closed took the ENTIRE api/ read
+//     surface down — the Vercel project had no Upstash configured, so every
+//     alchemy/opensea/etherscan/aggregator proxy 503'd and the NFT marketplace
+//     rendered skeletons forever. Fail-closed conflated "no abuse protection"
+//     with "no service at all". Current behavior, every environment:
+//       Upstash configured + healthy → distributed sliding-window (unchanged)
+//       Upstash missing OR erroring  → DEGRADED MODE: per-instance in-memory
+//                                      fixed-window enforcing the SAME
+//                                      { limit, windowSec } per key
+//     Degraded mode is weaker than Redis (per-instance buckets, reset on cold
+//     start) but preserves F1's real goal — the API is never silently
+//     unthrottled — without turning a Redis outage into a product outage.
+//     A console.error fires once per instance so the missing config stays
+//     loud in Vercel logs.
 //
 // USAGE
 //   import { withRateLimit } from './_lib/ratelimit.js';
@@ -70,7 +77,7 @@ function getRedis() {
     if (!configWarned) {
       console.warn(
         '[ratelimit] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set — ' +
-        'rate limiting DISABLED. Requests will be allowed without throttling.'
+        'falling back to per-instance in-memory rate limiting (degraded mode).'
       );
       configWarned = true;
     }
@@ -147,28 +154,83 @@ export function buildRateLimitKey(req, walletAddress) {
   return `ip:${extractIp(req)}`;
 }
 
-// AUDIT FIX F1 (2026-05-25): fail-closed on prod-like (production + Vercel
-// preview), not just NODE_ENV==="production". Vercel preview deploys inherit
-// the production env (incl. secrets) but DO NOT set NODE_ENV=production, so the
-// old `=== 'production'` check left preview URLs failing OPEN (unthrottled) on
-// missing Upstash config or an Upstash error. Mirrors supabase-proxy.js:172-174.
-const IS_PROD_LIKE =
-  process.env.NODE_ENV === 'production' ||
-  process.env.VERCEL_ENV === 'preview' ||
-  process.env.VERCEL_ENV === 'production';
+// ── Degraded-mode fallback (2026-06-09) ─────────────────────────────────
+// Per-instance fixed-window counter used ONLY when Upstash is unconfigured
+// or erroring. Enforces the same { limit, windowSec } per key so the API is
+// never silently unthrottled (F1's goal) while a Redis outage can no longer
+// 503 the whole read surface. Bounded so a key-spray can't balloon instance
+// memory: expired entries are swept on insert pressure, then oldest-inserted
+// entries are evicted.
+const MEM_MAX_KEYS = 5000;
+const memBuckets = new Map(); // key -> { count, resetAt }
+let degradedWarned = false;
+
+function warnDegraded(reason) {
+  if (degradedWarned) return;
+  degradedWarned = true;
+  console.error(
+    `[ratelimit] DEGRADED MODE — Upstash ${reason}; enforcing per-instance ` +
+    'in-memory limits. Set UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN ' +
+    'to restore distributed rate limiting.'
+  );
+}
+
+/**
+ * Fixed-window in-memory limiter. Exported for unit testing.
+ *
+ * @param {string} key
+ * @param {number} limit
+ * @param {number} windowSec
+ * @param {number} [nowMs] injectable clock for tests
+ * @returns {{ success: boolean, limit: number, remaining: number, reset: number }}
+ */
+export function memoryRateLimit(key, limit, windowSec, nowMs = Date.now()) {
+  let slot = memBuckets.get(key);
+  if (!slot || nowMs >= slot.resetAt) {
+    if (!memBuckets.has(key) && memBuckets.size >= MEM_MAX_KEYS) {
+      for (const [k, v] of memBuckets) {
+        if (nowMs >= v.resetAt) memBuckets.delete(k);
+      }
+      if (memBuckets.size >= MEM_MAX_KEYS) {
+        const oldest = memBuckets.keys().next().value;
+        if (oldest !== undefined) memBuckets.delete(oldest);
+      }
+    }
+    slot = { count: 0, resetAt: nowMs + windowSec * 1000 };
+    memBuckets.set(key, slot);
+  }
+  slot.count += 1;
+  return {
+    success: slot.count <= limit,
+    limit,
+    remaining: Math.max(0, limit - slot.count),
+    reset: slot.resetAt,
+  };
+}
+
+/** Write X-RateLimit-* headers and the 429 when blocked. */
+function applyLimitResult(res, { success, limit, remaining, reset }) {
+  res.setHeader('X-RateLimit-Limit', String(limit));
+  res.setHeader('X-RateLimit-Remaining', String(Math.max(0, remaining)));
+  res.setHeader('X-RateLimit-Reset', String(Math.floor(reset / 1000)));
+  if (!success) {
+    const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({ error: 'Too many requests' });
+    return false;
+  }
+  return true;
+}
 
 /**
  * Consume one rate-limit token.
  *
- * Returns true (allowed), false (blocked — 429 or 503 already sent).
+ * Returns true (allowed), false (blocked — 429 already sent).
  *
- * Failure modes:
- *   - Upstash env vars missing:
- *     - prod-like (production / preview) → 503 + false    (fail closed)
- *     - dev                              → true           (fail open, warn once)
- *   - Upstash request error:
- *     - prod-like (production / preview) → 503 + false    (fail closed)
- *     - dev                              → true           (fail open, warn)
+ * Failure modes (see header comment, PROD OUTAGE FIX 2026-06-09):
+ *   - Upstash env vars missing → in-memory fixed-window, same limits
+ *   - Upstash request error    → in-memory fixed-window, same limits
+ * Both paths console.error once per instance; neither 503s.
  *
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
@@ -177,37 +239,27 @@ const IS_PROD_LIKE =
  */
 export async function checkRateLimit(req, res, opts) {
   const limiter = getLimiter(opts);
-  if (!limiter) {
-    // No Upstash configured.
-    if (IS_PROD_LIKE) {
-      res.status(503).json({ error: 'Rate limiter unavailable' });
-      return false;
-    }
-    return true; // dev without Upstash — allowed
-  }
-
   const key = buildRateLimitKey(req, opts.walletAddress);
+
+  if (!limiter) {
+    // No Upstash configured — degraded mode, never a hard outage.
+    warnDegraded('not configured');
+    return applyLimitResult(
+      res,
+      memoryRateLimit(`${opts.identifier}:${key}`, opts.limit, opts.windowSec),
+    );
+  }
 
   try {
     const { success, limit, remaining, reset } = await limiter.limit(key);
-    res.setHeader('X-RateLimit-Limit', String(limit));
-    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, remaining)));
-    res.setHeader('X-RateLimit-Reset', String(Math.floor(reset / 1000)));
-    if (!success) {
-      const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
-      res.setHeader('Retry-After', String(retryAfter));
-      res.status(429).json({ error: 'Too many requests' });
-      return false;
-    }
-    return true;
+    return applyLimitResult(res, { success, limit, remaining, reset });
   } catch (err) {
     console.error('[ratelimit] upstash error:', err?.message ?? err);
-    if (IS_PROD_LIKE) {
-      res.status(503).json({ error: 'Rate limiter unavailable' });
-      return false;
-    }
-    // Dev — fail open, but loud in logs.
-    return true;
+    warnDegraded('erroring');
+    return applyLimitResult(
+      res,
+      memoryRateLimit(`${opts.identifier}:${key}`, opts.limit, opts.windowSec),
+    );
   }
 }
 

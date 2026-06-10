@@ -14,7 +14,7 @@
 //   The fix: only ever read `request.ip`, then `x-real-ip`, then XFF[last].
 
 import { describe, it, expect } from "vitest";
-import { extractIp, buildRateLimitKey } from "../ratelimit.js";
+import { extractIp, buildRateLimitKey, memoryRateLimit, checkRateLimit } from "../ratelimit.js";
 
 function makeReq({ ip, headers = {} } = {}) {
   return { ip, headers };
@@ -113,5 +113,91 @@ describe("buildRateLimitKey — per-wallet keying", () => {
     // be the rate-limit key.
     const req = makeReq({ headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3" } });
     expect(buildRateLimitKey(req)).toBe("ip:3.3.3.3");
+  });
+});
+
+// PROD OUTAGE FIX (2026-06-09): Upstash missing/erroring no longer 503s the
+// whole API — it degrades to a per-instance fixed-window limiter with the
+// same { limit, windowSec }. These tests pin the degraded mode: it must
+// THROTTLE (F1's never-silently-unthrottled goal) and must NEVER 503.
+describe("memoryRateLimit — degraded-mode fallback", () => {
+  it("allows up to `limit` requests then blocks within one window", () => {
+    const key = `mem-test-block-${Math.random()}`;
+    const t0 = 1_000_000;
+    for (let i = 0; i < 5; i++) {
+      expect(memoryRateLimit(key, 5, 60, t0).success).toBe(true);
+    }
+    const blocked = memoryRateLimit(key, 5, 60, t0);
+    expect(blocked.success).toBe(false);
+    expect(blocked.remaining).toBe(0);
+  });
+
+  it("resets the bucket once the window elapses", () => {
+    const key = `mem-test-window-${Math.random()}`;
+    const t0 = 2_000_000;
+    for (let i = 0; i < 3; i++) memoryRateLimit(key, 3, 60, t0);
+    expect(memoryRateLimit(key, 3, 60, t0).success).toBe(false);
+    // One window later the counter starts fresh.
+    expect(memoryRateLimit(key, 3, 60, t0 + 60_001).success).toBe(true);
+  });
+
+  it("keeps separate buckets per key", () => {
+    const t0 = 3_000_000;
+    const a = `mem-test-a-${Math.random()}`;
+    const b = `mem-test-b-${Math.random()}`;
+    expect(memoryRateLimit(a, 1, 60, t0).success).toBe(true);
+    expect(memoryRateLimit(a, 1, 60, t0).success).toBe(false);
+    // Key `a` being exhausted must not affect key `b`.
+    expect(memoryRateLimit(b, 1, 60, t0).success).toBe(true);
+  });
+
+  it("reports remaining/reset for header propagation", () => {
+    const key = `mem-test-headers-${Math.random()}`;
+    const t0 = 4_000_000;
+    const first = memoryRateLimit(key, 10, 30, t0);
+    expect(first.limit).toBe(10);
+    expect(first.remaining).toBe(9);
+    expect(first.reset).toBe(t0 + 30_000);
+  });
+});
+
+describe("checkRateLimit — no Upstash configured (degraded mode)", () => {
+  function makeRes() {
+    const headers = {};
+    const res = {
+      statusCode: null,
+      body: null,
+      setHeader: (k, v) => { headers[k] = v; },
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.body = payload; return this; },
+      headers,
+    };
+    return res;
+  }
+
+  it("allows the first request instead of 503ing (the 2026-06 prod outage)", async () => {
+    // vitest runs without UPSTASH_* env vars, exercising the no-Upstash path.
+    const req = makeReq({ ip: `7.7.7.${Math.floor(Math.random() * 255)}` });
+    const res = makeRes();
+    const ok = await checkRateLimit(req, res, { limit: 5, windowSec: 60, identifier: `t-${Math.random()}` });
+    expect(ok).toBe(true);
+    expect(res.statusCode).toBe(null); // no error response written
+    expect(res.headers["X-RateLimit-Limit"]).toBe("5");
+  });
+
+  it("returns 429 (never 503) once the in-memory limit is exhausted", async () => {
+    const req = makeReq({ ip: "6.6.6.6" });
+    const identifier = `t-exhaust-${Math.random()}`;
+    let res = makeRes();
+    for (let i = 0; i < 2; i++) {
+      res = makeRes();
+      await checkRateLimit(req, res, { limit: 2, windowSec: 60, identifier });
+    }
+    res = makeRes();
+    const ok = await checkRateLimit(req, res, { limit: 2, windowSec: 60, identifier });
+    expect(ok).toBe(false);
+    expect(res.statusCode).toBe(429);
+    expect(res.body).toEqual({ error: "Too many requests" });
+    expect(res.headers["Retry-After"]).toBeTruthy();
   });
 });
