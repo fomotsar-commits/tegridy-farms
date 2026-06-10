@@ -113,8 +113,10 @@ describe('aggregator: uniform slippage propagation (R045 M1)', () => {
 
     await getMetaAggregatorQuotes('ETH', 'WETH', '1', '0xdead', 1, /* slippage */ 0.5);
 
+    // AUDIT FIX FE-HIGH-3: SwapAPI is now fetched through the same-origin
+    // `/api/swapapi/` Vercel rewrite instead of api.swapapi.dev directly.
     const swapApiCall = fetchSpy.mock.calls.find(([url]) =>
-      typeof url === 'string' && url.includes('swapapi.dev'),
+      typeof url === 'string' && url.includes('/api/swapapi/'),
     );
     expect(swapApiCall).toBeDefined();
     const url = String(swapApiCall![0]);

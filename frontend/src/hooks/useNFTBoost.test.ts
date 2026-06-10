@@ -17,6 +17,10 @@ describe('useNFTBoost', () => {
   });
 
   it('defaults to no boost when user holds neither collection', () => {
+    // Tri-state refactor (R034 H3 / R043 H-062-01): holds* is only `false`
+    // on a CONFIRMED zero balance — stub both reads as 0n.
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: JBAC, result: 0n });
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: GOLD, result: 0n });
     const { result } = renderHook(() => useNFTBoost());
     expect(result.current.holdsJBAC).toBe(false);
     expect(result.current.holdsGoldCard).toBe(false);
@@ -50,6 +54,9 @@ describe('useNFTBoost', () => {
   });
 
   it('Gold Card holder without JBAC: no on-chain boost, labelled as cosmetic', () => {
+    // Tri-state: an unstubbed read is "unknown" (null), so confirm the zero
+    // JBAC balance explicitly to express "holds no JBAC".
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: JBAC, result: 0n });
     wagmiMock.setReadResult({ functionName: 'balanceOf', address: GOLD, result: 1n });
     const { result } = renderHook(() => useNFTBoost());
     expect(result.current.holdsJBAC).toBe(false);
@@ -77,7 +84,7 @@ describe('useNFTBoost', () => {
     expect(result.current.jbacCount).toBe(Number.MAX_SAFE_INTEGER);
   });
 
-  it('returns undefined-safe zero state when reads fail', () => {
+  it('returns tri-state null (unknown) + baseline boost when reads fail', () => {
     wagmiMock.setReadResult({
       functionName: 'balanceOf',
       address: JBAC,
@@ -91,8 +98,10 @@ describe('useNFTBoost', () => {
       status: 'failure',
     });
     const { result } = renderHook(() => useNFTBoost());
-    expect(result.current.holdsJBAC).toBe(false);
-    expect(result.current.holdsGoldCard).toBe(false);
+    // Tri-state refactor: failed reads are `null` ("unknown"), not `false` —
+    // but the boost still only credits on confirmed true, so baseline holds.
+    expect(result.current.holdsJBAC).toBeNull();
+    expect(result.current.holdsGoldCard).toBeNull();
     expect(result.current.boostMultiplier).toBe(1);
   });
 });

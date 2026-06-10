@@ -67,16 +67,19 @@ describe('useLPFarming', () => {
 
   it('propagates every read field from the useReadContracts batch', () => {
     const periodFinish = BigInt(Math.floor(Date.now() / 1000) + 100000);
-    wagmiMock.setReadResult({ functionName: 'totalSupply', address: LP_FARMING_ADDRESS, result: 5_000n * 10n ** 18n });
+    // Boosted-farming refactor: the contract reads raw (un-boosted) figures via
+    // totalRawSupply / rawBalanceOf, not the ERC20-style totalSupply / balanceOf.
+    wagmiMock.setReadResult({ functionName: 'totalRawSupply', address: LP_FARMING_ADDRESS, result: 5_000n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'rewardRate', result: 2n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'periodFinish', result: periodFinish });
     wagmiMock.setReadResult({ functionName: 'rewardsDuration', result: 604800n });
     wagmiMock.setReadResult({ functionName: 'totalRewardsFunded', result: 1_000_000n * 10n ** 18n });
-    wagmiMock.setReadResult({ functionName: 'balanceOf', address: LP_FARMING_ADDRESS, result: 100n * 10n ** 18n });
+    wagmiMock.setReadResult({ functionName: 'rawBalanceOf', address: LP_FARMING_ADDRESS, result: 100n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'earned', result: 50n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'balanceOf', address: TEGRIDY_LP_ADDRESS, result: 999n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'allowance', result: 500n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'totalSupply', address: TEGRIDY_LP_ADDRESS, result: 10_000n * 10n ** 18n });
+    wagmiMock.setReadResult({ functionName: 'MIN_STAKE', address: LP_FARMING_ADDRESS, result: 10n ** 16n });
 
     const { result } = renderHook(() => useLPFarming());
     expect(result.current.totalStaked).toBe(5_000n * 10n ** 18n);
@@ -89,10 +92,12 @@ describe('useLPFarming', () => {
     expect(result.current.walletLPBalance).toBe(999n * 10n ** 18n);
     expect(result.current.lpAllowance).toBe(500n * 10n ** 18n);
     expect(result.current.lpTotalSupply).toBe(10_000n * 10n ** 18n);
+    expect(result.current.minStake).toBe(10n ** 16n);
   });
 
   it('emits *Formatted strings as 18-decimal ether format', () => {
-    wagmiMock.setReadResult({ functionName: 'balanceOf', address: LP_FARMING_ADDRESS, result: 3n * 10n ** 18n });
+    // rawBalanceOf (not balanceOf) feeds stakedBalance post boosted-farming refactor.
+    wagmiMock.setReadResult({ functionName: 'rawBalanceOf', address: LP_FARMING_ADDRESS, result: 3n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'earned', result: parseEther('0.25') });
     const { result } = renderHook(() => useLPFarming());
     expect(result.current.stakedBalanceFormatted).toBe('3');

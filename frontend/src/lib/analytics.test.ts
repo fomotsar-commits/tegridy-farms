@@ -3,6 +3,10 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 describe('analytics', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    // R046 H-1: track() is now deny-by-default behind the telemetry consent
+    // gate (lib/consent.ts). Grant consent so events actually enqueue; the
+    // gate itself is covered separately below.
+    localStorage.setItem('tegridy_telemetry_consent', 'granted');
     vi.useFakeTimers();
     vi.stubEnv('DEV', true);
     vi.stubEnv('VITE_ANALYTICS_ENDPOINT', '');
@@ -166,6 +170,17 @@ describe('analytics', () => {
     track('bare_event');
     vi.advanceTimersByTime(11_000);
     expect(console.log).toHaveBeenCalledWith('[analytics]', 'bare_event', {});
+  });
+
+  it('drops events entirely while consent is not granted (R046 H-1 deny-by-default)', async () => {
+    localStorage.removeItem('tegridy_telemetry_consent');
+    const { track } = await getModule();
+    track('pre_consent_event');
+    vi.advanceTimersByTime(11_000);
+    const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => c[0] === '[analytics]',
+    );
+    expect(calls.length).toBe(0);
   });
 
   it('trackError handles non-Error objects', async () => {

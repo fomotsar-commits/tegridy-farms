@@ -44,7 +44,9 @@ describe('usePoolData', () => {
 
   it('aprDisclaimer is the fixed display string', () => {
     const { result } = renderHook(() => usePoolData());
-    expect(result.current.aprDisclaimer).toBe('Current rate, subject to change');
+    // Copy updated with the bootstrap-rate framing on outlier APRs
+    // (was "Current rate, subject to change").
+    expect(result.current.aprDisclaimer).toBe('Bootstrap rate — falls as staking grows');
   });
 
   it('isLoading propagates as a boolean', () => {

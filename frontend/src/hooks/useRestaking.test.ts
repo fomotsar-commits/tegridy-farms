@@ -14,6 +14,20 @@ vi.mock('sonner', () => ({
 
 vi.mock('../lib/explorer', () => ({ getTxUrl: () => 'https://example.test/tx' }));
 
+// M1 deploy gate: live constants zero TEGRIDY_RESTAKING_ADDRESS (restaking is
+// deferred until its contract redeploys), which makes restake/unrestake/claimAll
+// no-op behind `isDeployed`. These tests pin the hook's behavior for the
+// DEPLOYED state, so substitute a non-zero address while keeping every other
+// constant real. The imported TEGRIDY_RESTAKING_ADDRESS below resolves to this
+// same mocked value, so call-arg assertions stay consistent with the hook.
+vi.mock('../lib/constants', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/constants')>();
+  return {
+    ...actual,
+    TEGRIDY_RESTAKING_ADDRESS: '0x1111111111111111111111111111111111111111' as const,
+  };
+});
+
 import { useRestaking } from './useRestaking';
 import {
   TEGRIDY_RESTAKING_ADDRESS,

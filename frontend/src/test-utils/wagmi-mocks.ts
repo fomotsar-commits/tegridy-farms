@@ -56,6 +56,12 @@ interface WriteStatus {
   isSuccess: boolean;
   isTxError: boolean;
   hash?: Address;
+  // Optional receipt details consumed by useTrackedTransactionReceipt (R044 H3).
+  // At runtime wagmi attaches these via the receipt object; tests set them via
+  // setWriteStatus and useWaitForTransactionReceipt passes them through.
+  receiptStatus?: 'success' | 'reverted';
+  blockNumber?: bigint;
+  errorName?: string;
 }
 
 interface WagmiMockState {
@@ -176,6 +182,11 @@ vi.mock('wagmi', () => {
     isLoading: state.writeStatus.isConfirming,
     isSuccess: state.writeStatus.isSuccess,
     isError: state.writeStatus.isTxError,
+    // Additive passthrough for useTrackedTransactionReceipt (R044 H3): lets
+    // tests distinguish success/reverted receipts and replaced/dropped errors.
+    receiptStatus: state.writeStatus.receiptStatus,
+    blockNumber: state.writeStatus.blockNumber,
+    errorName: state.writeStatus.errorName,
   });
 
   // R075: no-op so hooks using useWatchContractEvent still mount in tests.

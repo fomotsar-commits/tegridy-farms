@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+// YieldCalculator now prefers the live on-chain base APR via usePoolData()
+// (wagmi useReadContracts), so the component can no longer render without a
+// wagmi surface. Importing the shared mock installs vi.mock('wagmi'); with no
+// read stubs configured the live APR resolves to 0 and the component falls
+// back to the static "Baseline 12% APR" these tests assert.
+import { wagmiMock } from '../../test-utils/wagmi-mocks';
 import { YieldCalculator } from './YieldCalculator';
 
 // framer-motion passthrough (same shape as OnboardingModal.test.tsx).
@@ -32,7 +38,8 @@ function renderCalc() {
 
 describe('YieldCalculator', () => {
   beforeEach(() => {
-    // Ensure a clean DOM between tests.
+    // Reset wagmi mock state so no stray read stubs flip the live-APR branch.
+    wagmiMock.reset();
   });
 
   it('renders headline + baseline-APR chip', () => {

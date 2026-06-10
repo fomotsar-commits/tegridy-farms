@@ -25,7 +25,10 @@ describe('useBribes', () => {
 
   it('returns zero state when no reads are stubbed', () => {
     const { result } = renderHook(() => useBribes());
-    expect(result.current.isDeployed).toBe(true); // VOTE_INCENTIVES_ADDRESS is non-zero
+    // VOTE_INCENTIVES_ADDRESS is zeroed until the bribes contract redeploys
+    // (interim feature gating) — isDeployed reflects that and the section is
+    // hidden in the UI. Flips back to true when the operator sets the address.
+    expect(result.current.isDeployed).toBe(false);
     expect(result.current.epochCount).toBe(0);
     expect(result.current.currentEpoch).toBe(0);
     // Default bribe fee falls back to 300 bps (3%) when read fails.

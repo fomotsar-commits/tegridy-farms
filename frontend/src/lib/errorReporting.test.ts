@@ -8,6 +8,10 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 describe('errorReporting', () => {
   beforeEach(() => {
     localStorage.clear();
+    // R046 H-1: reportError() is now deny-by-default behind the telemetry
+    // consent gate (lib/consent.ts). Grant consent so the reporting pipeline
+    // under test actually runs; the gate itself is covered separately below.
+    localStorage.setItem('tegridy_telemetry_consent', 'granted');
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('no endpoint'))));
     // Ensure no VITE_ERROR_ENDPOINT so errors go to localStorage
@@ -160,6 +164,14 @@ describe('errorReporting', () => {
     const stored = getStoredErrors();
     // Both should be recorded (they are different string representations)
     expect(stored.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('drops reports entirely while consent is not granted (R046 H-1 deny-by-default)', async () => {
+    localStorage.removeItem('tegridy_telemetry_consent');
+    const { reportError } = await getModule();
+    reportError(new Error('pre-consent error'));
+    vi.advanceTimersByTime(6000);
+    expect(getStoredErrors().length).toBe(0);
   });
 
   it('limits stored errors to MAX_BUFFER (50)', async () => {
