@@ -5,7 +5,8 @@ import OfferPanel from "./OfferPanel";
 import MakeOfferModal from "./MakeOfferModal";
 import ErrorBoundary from "./ErrorBoundary";
 import TransactionProgress, { useTransactionProgress } from "./TransactionProgress";
-import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES } from "../constants";
+import { Link } from "react-router-dom";
+import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, NFT_LOAN_DESK_LIVE } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
@@ -451,6 +452,25 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               Make Offer
             </button>
           </div>
+
+          {/* NFT Finance funnel — owner-only, and credibility-gated until the
+              relaunch TegridyNFTLending address lands in lib/constants.ts */}
+          {NFT_LOAN_DESK_LIVE && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
+            <Link
+              to="/nft-finance"
+              aria-label="Borrow ETH against this NFT in NFT Finance"
+              style={{
+                display: "block", textAlign: "center", textDecoration: "none",
+                marginTop: 10, fontFamily: "var(--mono)", fontSize: 10,
+                letterSpacing: "0.04em", color: "var(--gold)",
+                background: "rgba(212,168,67,0.06)",
+                border: "1px solid rgba(212,168,67,0.15)",
+                borderRadius: 8, padding: "10px 14px",
+              }}
+            >
+              You own this one. Borrow ETH against it in NFT Finance instead of selling {"→"}
+            </Link>
+          )}
 
           {/* Offers on this token */}
           <OfferPanel

@@ -1,6 +1,9 @@
 /**
  * Native Orderbook Client SDK — interact with our own order storage.
- * Creates Seaport-compatible signed orders at 1% fee (vs OpenSea's 2.5%).
+ * Creates Seaport-compatible signed orders at a flat 1% platform fee routed
+ * to the Tegridy treasury Safe. (OpenSea has charged ~1% since Sep 2025 —
+ * don't market this as a fee discount; the edge is that fees fund the
+ * protocol treasury and fills have no marketplace dependency.)
  * Pattern from Blur's native orderbook and Reservoir's open protocol.
  *
  * Orders are standard Seaport v1.5 orders that can be fulfilled by

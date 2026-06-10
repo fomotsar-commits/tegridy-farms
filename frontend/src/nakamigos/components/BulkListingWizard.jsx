@@ -440,6 +440,11 @@ function StepReview({ selectedNfts, getPrice, duration, collection }) {
           <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", fontWeight: 600 }}>You receive</span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--green)", fontWeight: 600 }}>{formatPrice(totalRevenue)} ETH</span>
         </div>
+        {HAS_PLATFORM_FEE && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+            One flat {PLATFORM_FEE_BPS / 100}% fee, routed to the Tegridy treasury. Listings fill on-chain via Seaport.
+          </div>
+        )}
       </div>
     </>
   );

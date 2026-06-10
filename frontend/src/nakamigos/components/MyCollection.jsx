@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Link } from "react-router-dom";
+import { NFT_LOAN_DESK_LIVE } from "../constants";
 import { fetchWalletNfts, shortenAddress } from "../api";
 import { fetchMyListings, cancelOrder } from "../api-offers";
 import { formatPrice } from "../lib/formatPrice";
@@ -286,6 +288,31 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
             </div>
           </div>
         </div>
+      )}
+
+      {/* NFT Finance funnel — credibility-gated until the relaunch
+          TegridyNFTLending address lands in lib/constants.ts */}
+      {NFT_LOAN_DESK_LIVE && !loading && tokens.length > 0 && (
+        <Link
+          to="/nft-finance"
+          aria-label="Borrow ETH against your NFTs in NFT Finance"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 12, margin: "0 32px 16px", padding: "14px 18px",
+            background: "rgba(212,168,67,0.06)", border: "1px solid rgba(212,168,67,0.15)",
+            borderRadius: 10, textDecoration: "none",
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.06em" }}>
+              BORROW WITHOUT SELLING
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+              Your {collection.name} NFTs can back an ETH loan in NFT Finance
+            </div>
+          </div>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)", whiteSpace: "nowrap" }}>{"→"}</span>
+        </Link>
       )}
 
       {/* Active Listings Banner */}

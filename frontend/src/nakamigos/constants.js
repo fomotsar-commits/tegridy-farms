@@ -1,3 +1,11 @@
+import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from "../lib/constants";
+
+// CREDIBILITY GATING (same rule as lib/navConfig.ts): loan-desk CTAs render
+// only once the relaunch TegridyNFTLending address lands in lib/constants.ts.
+// A borrow button that dead-ends in "Contract Not Deployed" costs more trust
+// than the funnel earns, so the CTAs light up on deploy with no code change.
+export const NFT_LOAN_DESK_LIVE = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+
 // ═══ MULTI-COLLECTION CONFIG ═══
 export const COLLECTIONS = {
   nakamigos: {

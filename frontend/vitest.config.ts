@@ -7,7 +7,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.ts',
-    include: ['src/**/*.test.{ts,tsx}', 'api/**/*.test.{js,ts}'],
+    // .test.{js,jsx} included for the nakamigos marketplace, which is plain JS
+    include: ['src/**/*.test.{js,jsx,ts,tsx}', 'api/**/*.test.{js,ts}'],
   },
   resolve: {
     alias: {

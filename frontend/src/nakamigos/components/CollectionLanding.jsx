@@ -737,6 +737,18 @@ export default function CollectionLanding() {
           </span>
         </div>
 
+        {/* Native-orderbook value line: factual (flat 1% to the protocol
+            treasury, on-chain Seaport settlement) — no stale fee comparisons */}
+        <div style={{
+          fontFamily: "var(--mono)",
+          fontSize: 10,
+          color: "var(--text-dim)",
+          marginTop: 14,
+          letterSpacing: "0.04em",
+        }}>
+          Native listings: one flat 1% fee, every fee funds the treasury
+        </div>
+
         {/* Decorative line below */}
         <div style={{
           width: 48,
