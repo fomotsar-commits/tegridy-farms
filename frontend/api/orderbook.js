@@ -191,8 +191,33 @@ export default async function handler(req, res) {
       query = query.eq("token_id", tokenId);
     }
 
-    const { data, error } = await query;
-    if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+    // DEGRADED READS (2026-06-09): when the Supabase project is paused or
+    // unreachable, the SDK burns ~7s of internal retries and resolves with
+    // error 'TypeError: fetch failed' — and every marketplace listings view
+    // hung behind this before erroring. Reads now race a short deadline and
+    // degrade to an empty order list with `degraded: true`, so UIs render
+    // external (OpenSea) listings immediately instead of stalling. WRITE
+    // paths below intentionally stay loud (4xx/5xx) — silently dropping
+    // order creates/cancels/fills would be worse than failing.
+    const QUERY_DEADLINE_MS = 2500;
+    let data, error;
+    try {
+      ({ data, error } = await Promise.race([
+        query,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("orderbook read deadline exceeded")), QUERY_DEADLINE_MS)
+        ),
+      ]));
+    } catch (err) {
+      console.error("Orderbook degraded (read):", err?.message ?? err);
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ orders: [], count: 0, degraded: true });
+    }
+    if (error) {
+      console.error("Orderbook degraded (read):", error.message);
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ orders: [], count: 0, degraded: true });
+    }
 
     res.setHeader("Cache-Control", "s-maxage=5, stale-while-revalidate=10");
     return res.json({ orders: data || [], count: (data || []).length });
