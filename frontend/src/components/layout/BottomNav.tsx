@@ -1,13 +1,19 @@
 import { NavLink } from 'react-router-dom';
 import React from 'react';
+import { NFT_FINANCE_LIVE } from '../../lib/navConfig';
 
 /**
  * Bottom nav tabs — primary destinations mirrored from TopNav's PRIMARY_NAV
  * plus Tradermigos. Secondary routes live in the TopNav hamburger drawer.
  * Theme toggle is desktop-only (TopNav) — mobile has limited bottom real
  * estate and theme is a low-frequency action.
+ *
+ * CREDIBILITY GATING (2026-06-09): this list hardcodes its tabs for the
+ * icon pairing, so it must apply the same isDeployed gating as PRIMARY_NAV —
+ * the NFT Finance tab hides while all its contracts are zeroed and returns
+ * automatically on redeploy (see navConfig.NFT_FINANCE_LIVE).
  */
-const TABS = [
+const ALL_TABS = [
   { to: '/dashboard', label: 'Dashboard', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -41,6 +47,8 @@ const TABS = [
     </svg>
   )},
 ];
+
+const TABS = ALL_TABS.filter((t) => t.to !== '/nft-finance' || NFT_FINANCE_LIVE);
 
 export const BottomNav = React.memo(function BottomNav() {
   return (
