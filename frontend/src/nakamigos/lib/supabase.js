@@ -173,7 +173,10 @@ export async function fetchMessages({ tokenId = null, limit = 100, offset = 0, s
   const { data, error } = await query;
   if (error) {
     if (import.meta.env.DEV) console.error("[supabase] fetchMessages error:", error);
-    return [];
+    // null (not []) so the caller can tell "backend unreachable" apart from
+    // "no messages yet" — rendering the cheerful be-the-first empty state
+    // over a fetch failure would misreport a chat that actually has history.
+    return null;
   }
   return (data || []).map(rowToMsg);
 }

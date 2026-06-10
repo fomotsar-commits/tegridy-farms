@@ -85,6 +85,30 @@ export async function fulfillNativeOrder(order) {
       }
     }
 
+    // Pre-flight Seaport status check: the backend can miss a fill
+    // notification (the post-fill POST below is best-effort), so a stored row
+    // may still say "active" for an order already filled or cancelled
+    // on-chain. Ask Seaport directly before broadcasting so the buyer fails
+    // fast instead of burning gas on a doomed fulfillOrder.
+    if (order.order_hash) {
+      try {
+        const statusAbi = [
+          "function getOrderStatus(bytes32 orderHash) view returns (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize)",
+        ];
+        const seaportRead = new ethers.Contract(order.protocol_address || SEAPORT_ADDRESS, statusAbi, provider);
+        const [, isCancelled, totalFilled] = await seaportRead.getOrderStatus(order.order_hash);
+        if (isCancelled) {
+          return { error: "cancelled", message: "This listing was cancelled by the seller" };
+        }
+        if (totalFilled > 0n) {
+          return { error: "filled", message: "This NFT was already sold — the listing is stale" };
+        }
+      } catch {
+        // Best-effort: if the status read fails, Seaport still enforces
+        // validity on-chain; we just lose the cheap early exit.
+      }
+    }
+
     // Calculate total payment (sum of all consideration amounts)
     const totalWei = params.consideration.reduce(
       (sum, item) => sum + BigInt(item.startAmount || "0"),
@@ -150,25 +174,35 @@ export async function fulfillNativeOrder(order) {
     const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
     const fillSignature = await signer.signMessage(fillMessage);
 
-    const fillController = new AbortController();
-    const fillTimeout = setTimeout(() => fillController.abort(), 30000);
+    // Retry the notification (same signature — it stays valid for the
+    // server's 5-minute window, and re-signing would re-prompt the wallet).
+    // If every attempt fails the row stays "active" until the seller's NFT
+    // moves; the pre-flight getOrderStatus check above keeps later buyers
+    // from broadcasting against the stale row.
     try {
-      await fetch(ORDERBOOK_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: fillController.signal,
-        body: JSON.stringify({
-          action: "fill",
-          orderHash: order.order_hash,
-          txHash: tx.hash,
-          signature: fillSignature,
-          chainId: _fillChainId,
-          timestamp: _fillTs,
-        }),
+      await withRetry(async () => {
+        const fillController = new AbortController();
+        const fillTimeout = setTimeout(() => fillController.abort(), 30000);
+        try {
+          const res = await fetch(ORDERBOOK_API, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: fillController.signal,
+            body: JSON.stringify({
+              action: "fill",
+              orderHash: order.order_hash,
+              txHash: tx.hash,
+              signature: fillSignature,
+              chainId: _fillChainId,
+              timestamp: _fillTs,
+            }),
+          });
+          if (!res.ok) throw new Error(`fill notify failed: ${res.status}`);
+        } finally {
+          clearTimeout(fillTimeout);
+        }
       });
-      clearTimeout(fillTimeout);
     } catch {
-      clearTimeout(fillTimeout);
       // Non-critical: on-chain fill succeeded even if backend update fails
       console.warn("Failed to update orderbook backend after fill, tx:", tx.hash);
     }

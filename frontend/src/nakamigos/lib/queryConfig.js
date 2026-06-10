@@ -56,7 +56,6 @@ export const offersQuery = {
 export const queryKeys = {
   listings: (slug) => ["listings", slug],
   collectionOffers: (slug) => ["collection-offers", slug],
-  traitOffers: (slug) => ["trait-offers", slug],
   collectionStats: (slug) => ["collection-stats", slug],
   ownedNfts: (wallet, contract) => ["owned-nfts", wallet, contract],
   nftMetadata: (contract, tokenId) => ["nft-metadata", contract, tokenId],

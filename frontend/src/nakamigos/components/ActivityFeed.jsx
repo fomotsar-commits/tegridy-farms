@@ -165,7 +165,7 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
           <div className="activity-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
             ACTIVITY FEED
             {isWebSocketConnected && (
-              <span role="status" aria-label="Live WebSocket connection active" style={{
+              <span role="status" aria-label="Live transfer feed active, refreshed every 12 seconds" style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 4,
@@ -193,7 +193,7 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
           </div>
           <div className="activity-subtitle">
             {isWebSocketConnected
-              ? "Real-time transfers via WebSocket"
+              ? "Live on-chain transfers — refreshed every ~12s"
               : "Recent trades and transfers"}
           </div>
         </div>

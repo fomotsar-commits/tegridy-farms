@@ -348,6 +348,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
   const [messages, setMessages] = useState(() =>
     CHAT_ENABLED ? [] : loadMessages(collection.slug)
   );
+  const [loadFailed, setLoadFailed] = useState(false);
   const [text, setText] = useState("");
   const [feedFilter, setFeedFilter] = useState("All");
   const listRef = useRef(null);
@@ -357,9 +358,20 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
   useEffect(() => {
     if (!CHAT_ENABLED) return;
     let cancelled = false;
-    fetchMessages({ tokenId: isTokenMode ? tokenId : null, slug: collection.slug }).then((msgs) => {
-      if (!cancelled) setMessages(msgs);
-    });
+    fetchMessages({ tokenId: isTokenMode ? tokenId : null, slug: collection.slug })
+      .then((msgs) => {
+        if (cancelled) return;
+        // null = backend unreachable; [] = genuinely no messages
+        if (msgs === null) {
+          setLoadFailed(true);
+        } else {
+          setLoadFailed(false);
+          setMessages(msgs);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -532,7 +544,12 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
         <span>
           {isTokenMode ? `# ${collection.name} ${tokenId}` : `${collection.name} Chat`}
         </span>
-        <span style={styles.modeIndicator(CHAT_ENABLED)}>
+        <span
+          style={styles.modeIndicator(CHAT_ENABLED)}
+          title={CHAT_ENABLED
+            ? "Connected to the shared community chat"
+            : "Chat backend not configured — messages are saved only in this browser and other users can't see them"}
+        >
           {CHAT_ENABLED ? "Live" : "Local mode"}
         </span>
       </div>
@@ -555,6 +572,15 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
       {/* Message list */}
       <div ref={listRef} style={styles.messageList}>
         {visibleMessages.length === 0 ? (
+          loadFailed ? (
+            <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
+              <div className="empty-state-icon">{"\uD83D\uDCE1"}</div>
+              <div className="empty-state-title">Chat Unreachable</div>
+              <div className="empty-state-text">
+                Couldn't load messages right now. The history is still there. Try again in a moment.
+              </div>
+            </div>
+          ) : (
           <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
             <div className="empty-state-icon">{isTokenMode ? "\uD83D\uDCAC" : "\uD83D\uDDE8\uFE0F"}</div>
             <div className="empty-state-title">
@@ -572,6 +598,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                 : `Be the first to start a conversation in the ${collection.name} community.`}
             </div>
           </div>
+          )
         ) : (
           visibleMessages.map((msg) => {
             const isOwn =

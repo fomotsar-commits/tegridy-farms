@@ -6,13 +6,7 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, wallet
   const { data: traitOffers = {}, isLoading: loading } = useTraitOffers();
 
   const offerData = traitOffers?.[traitKey]?.[traitValue];
-  let bestPrice = null;
-  try {
-    if (offerData?.price?.value) {
-      const raw = Number(BigInt(offerData.price.value) * 10000n / BigInt(1e18)) / 10000;
-      bestPrice = Number.isFinite(raw) ? raw : null;
-    }
-  } catch { bestPrice = null; }
+  const bestPrice = Number.isFinite(offerData?.priceEth) && offerData.priceEth > 0 ? offerData.priceEth : null;
   const offerCount = offerData?.count || 0;
 
   return (

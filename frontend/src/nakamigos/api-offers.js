@@ -126,22 +126,26 @@ export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlu
   }
 }
 
-export async function fetchTraitOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
-  // SELF-AUDIT 2026-05-27: OpenSea v2 `offers/collection/{slug}/traits` API
-  // surface is undocumented at the call shape this function attempts. Live
-  // tests in dev showed:
-  //   - no `mode` param → 400 "'mode' parameter is required"
-  //   - `mode=best`     → 400 "Invalid value 'best'"
-  //   - `mode=top`      → 400 "Invalid value 'top'"
-  // Until we have a verified OpenSea spec for valid `mode` values OR migrate
-  // to the canonical filter-param form (`type+value` / `type+min_value` etc),
-  // the trait-offers panel will continue to render empty (caller wraps in
-  // try/catch and tolerates `{}`). Returning `{}` directly avoids the noisy
-  // 400 in production logs.
-  // TODO: verify against OpenSea v2 docs and either pass a valid `mode` or
-  // switch to the `traits` filter form.
-  void slug; void openseaSlug; void signal;
-  return {};
+// SELF-AUDIT 2026-05-27, resolved 2026-06-09: OpenSea's dedicated
+// `offers/collection/{slug}/traits` endpoint 400s on every `mode` value we
+// tried and has no public spec. But `offers/collection/{slug}/all` (already
+// fetched for the collection-offers panel) includes criteria offers, and
+// trait offers carry `criteria.trait = { type, value }` — so the per-trait
+// best bid is derived from data the app already has. Zero extra requests
+// against OpenSea's rate limit.
+// Input: normalized offers from fetchCollectionOffers (price in ETH).
+// Output: { [traitType]: { [traitValue]: { priceEth, count } } }
+export function deriveTraitOffers(collectionOffers = []) {
+  const map = {};
+  for (const o of collectionOffers) {
+    const trait = o?.criteria?.trait;
+    if (!trait?.type || trait.value == null || !(o.price > 0)) continue;
+    const byValue = map[trait.type] || (map[trait.type] = {});
+    const slot = byValue[trait.value] || (byValue[trait.value] = { priceEth: 0, count: 0 });
+    slot.count += 1;
+    if (o.price > slot.priceEth) slot.priceEth = o.price;
+  }
+  return map;
 }
 
 function safePriceFromWei(wei) {

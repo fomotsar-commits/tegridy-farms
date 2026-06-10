@@ -19,15 +19,11 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
   const traitOfferList = [];
   for (const [traitType, values] of Object.entries(traitOffers)) {
     for (const [traitValue, data] of Object.entries(values)) {
-      let price = null;
-      try {
-        if (data?.price?.value) price = Number(BigInt(data.price.value) * 10000n / BigInt(1e18)) / 10000;
-      } catch { /* malformed price data */ }
-      if (price) {
+      if (data?.priceEth > 0) {
         traitOfferList.push({
           traitType,
           traitValue,
-          price,
+          price: data.priceEth,
           count: data.count || 0,
         });
       }
@@ -35,8 +31,12 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
   }
   traitOfferList.sort((a, b) => b.price - a.price);
 
-  const bestCollectionOffer = collectionOffers.length > 0
-    ? collectionOffers.reduce((best, o) => (!best || (o.price && o.price > best.price)) ? o : best, null)
+  // Trait offers render in their own column — keep them out of the
+  // collection-wide list so the same bid isn't counted twice.
+  const pureCollectionOffers = collectionOffers.filter((o) => !o?.criteria?.trait);
+
+  const bestCollectionOffer = pureCollectionOffers.length > 0
+    ? pureCollectionOffers.reduce((best, o) => (!best || (o.price && o.price > best.price)) ? o : best, null)
     : null;
 
   return (
@@ -81,7 +81,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
               fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)",
               letterSpacing: "0.08em", marginBottom: 10, paddingLeft: 2,
             }}>
-              COLLECTION OFFERS ({collectionOffers.length})
+              COLLECTION OFFERS ({pureCollectionOffers.length})
             </div>
 
             {bestCollectionOffer && (
@@ -102,10 +102,10 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
             )}
 
             <div style={{ maxHeight: 200, overflowY: "auto" }}>
-              {collectionOffers.length === 0 ? (
+              {pureCollectionOffers.length === 0 ? (
                 <EmptyState type="collectionOffers" compact />
               ) : (
-                collectionOffers.slice(0, 10).map((offer, i) => (
+                pureCollectionOffers.slice(0, 10).map((offer, i) => (
                   <div key={offer.orderHash || i} style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
                     padding: "6px 8px", borderBottom: "1px solid var(--border)",

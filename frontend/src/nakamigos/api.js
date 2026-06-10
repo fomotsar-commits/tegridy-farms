@@ -1,4 +1,4 @@
-import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, FALLBACK_WHALES } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, FALLBACK_WHALES, SEAPORT_DOMAIN } from "./constants";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // ═══ RETRY WITH EXPONENTIAL BACKOFF ═══
@@ -977,6 +977,20 @@ export async function fulfillSeaportOrder(listing) {
   try {
     const { ethers } = await import("ethers");
     const provider = new ethers.BrowserProvider(ethProvider);
+
+    // AUDIT FIX M-8 parity (2026-06-09): the offer/accept paths in
+    // api-offers.js refuse wrong-chain wallets up-front; this buy path did
+    // not. Seaport is deployed at the same address on most chains, so a
+    // wrong-chain "Buy" broadcasts a doomed tx and burns the buyer's gas.
+    try {
+      const network = await provider.getNetwork();
+      if (Number(network.chainId) !== Number(SEAPORT_DOMAIN.chainId)) {
+        return { error: "wrong-chain", message: `Connected to chain ${Number(network.chainId)} — switch to Ethereum Mainnet to buy` };
+      }
+    } catch {
+      return { error: "no-network", message: "Could not read wallet chain" };
+    }
+
     const signer = await provider.getSigner();
     const buyerAddress = await signer.getAddress();
 
