@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
+import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
 
@@ -7,14 +8,19 @@ import { CopyButton } from '../ui/CopyButton';
  * Footer — four-column IA: Product / Resources / Community / Legal.
  * Every route demoted from the top nav must be reachable here so the
  * reduced TopNav doesn't strand any page.
+ *
+ * CREDIBILITY GATING (2026-06-09): undeployed feature surfaces (NFT Finance,
+ * Governance, Gold Card — all relaunch-zeroed in constants.ts) are dropped
+ * from the promoted link lists until their contracts are live. Routes stay
+ * reachable by URL; entries reappear automatically on redeploy.
  */
 const PRODUCT_LINKS: { to: string; label: string }[] = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Trade' },
-  { to: '/nft-finance', label: 'NFT Finance' },
-  { to: '/community', label: 'Governance' },
-  { to: '/premium', label: 'Gold Card' },
+  ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'NFT Finance' }] : []),
+  ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Governance' }] : []),
+  ...(PREMIUM_LIVE ? [{ to: '/premium', label: 'Gold Card' }] : []),
   { to: '/leaderboard', label: 'Points' },
   { to: '/nakamigos', label: 'Tradermigos' },
 ];
@@ -132,9 +138,11 @@ export function Footer() {
           <div>
             <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Community</h4>
             <div className="space-y-2">
-              <Link to="/community" className={LINK_CLASS} style={LINK_SHADOW}>
-                Governance
-              </Link>
+              {COMMUNITY_LIVE && (
+                <Link to="/community" className={LINK_CLASS} style={LINK_SHADOW}>
+                  Governance
+                </Link>
+              )}
               {COMMUNITY_LINKS.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}

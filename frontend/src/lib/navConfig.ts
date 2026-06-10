@@ -1,10 +1,46 @@
+import {
+  isDeployed,
+  TEGRIDY_LENDING_ADDRESS,
+  TEGRIDY_NFT_LENDING_ADDRESS,
+  TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+  TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+  COMMUNITY_GRANTS_ADDRESS,
+  MEME_BOUNTY_BOARD_ADDRESS,
+  VOTE_INCENTIVES_ADDRESS,
+  GAUGE_CONTROLLER_ADDRESS,
+  PREMIUM_ACCESS_ADDRESS,
+} from './constants';
+
 export interface NavItem {
   to: string;
   label: string;
 }
 
 /**
- * Primary navigation — the 5 core items shown in both TopNav (desktop)
+ * CREDIBILITY GATING (2026-06-09): a primary-nav destination where every
+ * section dead-ends in "Contract Not Deployed" costs more trust than the
+ * feature earns back. Feature surfaces stay routable by URL (and reappear
+ * in the nav automatically the moment their relaunch addresses land in
+ * constants.ts) but are not promoted while 100% dark.
+ */
+export const NFT_FINANCE_LIVE = [
+  TEGRIDY_LENDING_ADDRESS,
+  TEGRIDY_NFT_LENDING_ADDRESS,
+  TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+  TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+].some(isDeployed);
+
+export const COMMUNITY_LIVE = [
+  COMMUNITY_GRANTS_ADDRESS,
+  MEME_BOUNTY_BOARD_ADDRESS,
+  VOTE_INCENTIVES_ADDRESS,
+  GAUGE_CONTROLLER_ADDRESS,
+].some(isDeployed);
+
+export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
+
+/**
+ * Primary navigation — the core items shown in both TopNav (desktop)
  * and BottomNav (mobile). Order is identical across viewports for
  * symmetric IA. Everything else lives in the Footer.
  */
@@ -12,7 +48,7 @@ export const PRIMARY_NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
   { to: '/swap', label: 'Trade' },
-  { to: '/nft-finance', label: 'NFT Finance' },
+  ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'NFT Finance' }] : []),
 ];
 
 /** Tradermigos link — right-aligned action, separate from primary nav. Swapped
@@ -38,7 +74,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Engage',
     items: [
-      { to: '/community',   label: 'Community' },
+      // Community is gated until any governance contract redeploys —
+      // today all four (grants/bounties/bribes/gauges) are zeroed and the
+      // page is wall-to-wall "isn't live yet".
+      ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Tegridy Score' },
     ],

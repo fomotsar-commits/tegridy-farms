@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PRIMARY_NAV, POINTS_NAV, ALL_NAV } from './navConfig';
+import { PRIMARY_NAV, POINTS_NAV, ALL_NAV, MORE_NAV, NFT_FINANCE_LIVE, COMMUNITY_LIVE } from './navConfig';
 
 // Session 1 consolidated the navigation from 21 routes to 5 primary entries.
 // MORE_NAV / MORE_PATHS were removed; ALL_NAV now contains the primary set
@@ -16,7 +16,7 @@ describe('navConfig', () => {
     }
   });
 
-  it('PRIMARY_NAV is the agreed 5-item consolidation', () => {
+  it('PRIMARY_NAV is the agreed tight consolidation', () => {
     // Keep the top-nav tight. If this ever exceeds 5, revisit the IA
     // consolidation rationale in the session-1 battle plan before
     // relaxing the assertion.
@@ -26,7 +26,19 @@ describe('navConfig', () => {
     expect(paths).toContain('/dashboard');
     expect(paths).toContain('/farm');
     expect(paths).toContain('/swap');
-    expect(paths).toContain('/nft-finance');
+  });
+
+  it('NFT Finance is promoted in primary nav ONLY when a contract is live', () => {
+    // CREDIBILITY GATING (2026-06-09): a top-nav item whose every tab ends
+    // in "Contract Not Deployed" leaks trust. The entry returns automatically
+    // when any nft-finance relaunch address lands in constants.ts.
+    const paths = PRIMARY_NAV.map((n) => n.to);
+    expect(paths.includes('/nft-finance')).toBe(NFT_FINANCE_LIVE);
+  });
+
+  it('Community appears in the More menu ONLY when a governance contract is live', () => {
+    const morePaths = MORE_NAV.map((n) => n.to);
+    expect(morePaths.includes('/community')).toBe(COMMUNITY_LIVE);
   });
 
   it('POINTS_NAV is the right-aligned promoted action (Tradermigos)', () => {

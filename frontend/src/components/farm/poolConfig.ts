@@ -1,4 +1,4 @@
-import { pageArt, type ArtPiece } from '../../lib/artConfig';
+import { type ArtPiece } from '../../lib/artConfig';
 
 /* ── Native LP Pool Types & Config ──────────────────────────────────── */
 
@@ -28,45 +28,13 @@ export const TOKEN_LOGOS: Record<string, string> = {
   MANA: '/tokens/mana.png',
 };
 
-export const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [
-  {
-    id: 'usdt-usdc',
-    name: 'USDT / USDC',
-    tokenA: { symbol: 'USDT', logo: TOKEN_LOGOS.USDT! },
-    tokenB: { symbol: 'USDC', logo: TOKEN_LOGOS.USDC! },
-    fee: '0.05%',
-    status: 'soon',
-    art: pageArt('upcoming-pools', 0),
-    artPos: 'center 40%',
-  },
-  {
-    id: 'eth-wbtc',
-    name: 'ETH / WBTC',
-    tokenA: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
-    tokenB: { symbol: 'WBTC', logo: TOKEN_LOGOS.WBTC! },
-    fee: '0.3%',
-    status: 'soon',
-    art: pageArt('upcoming-pools', 1),
-    artPos: 'center 20%',
-  },
-  {
-    id: 'dot-eth',
-    name: 'DOT / ETH',
-    tokenA: { symbol: 'DOT', logo: TOKEN_LOGOS.DOT! },
-    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
-    fee: '0.3%',
-    status: 'soon',
-    art: pageArt('upcoming-pools', 2),
-    artPos: 'center 30%',
-  },
-  {
-    id: 'mana-eth',
-    name: 'MANA / ETH',
-    tokenA: { symbol: 'MANA', logo: TOKEN_LOGOS.MANA! },
-    tokenB: { symbol: 'ETH', logo: TOKEN_LOGOS.ETH! },
-    fee: '0.3%',
-    status: 'soon',
-    art: pageArt('upcoming-pools', 3),
-    artPos: 'center 20%',
-  },
-];
+/**
+ * CREDIBILITY FIX (2026-06-09): the four speculative "PROPOSED – NOT
+ * GUARANTEED" cards (USDT/USDC, ETH/WBTC, DOT/ETH, MANA/ETH) rendered with
+ * em-dash TVL/APR next to the one live pool and read as vaporware — the
+ * single worst trust signal on the Farm page for a DeFi-native visitor.
+ * The render path (FarmPage → UpcomingPoolCard) is data-driven and stays;
+ * add an entry here ONLY when a pair is actually scheduled (gauge vote
+ * passed / seed committed), and it appears again automatically.
+ */
+export const UPCOMING_POOLS: Omit<LPPool, 'tvl' | 'apr' | 'volume24h'>[] = [];
