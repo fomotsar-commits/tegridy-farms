@@ -1,6 +1,21 @@
 import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, FALLBACK_WHALES, SEAPORT_DOMAIN } from "./constants";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
+// Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
+// legitimately returns. Used to allowlist the function signature in API
+// responses before encoding calldata (the tx target is separately pinned to
+// canonical Seaport addresses). Exported for api-offers.js and unit tests.
+export const SEAPORT_FULFILLMENT_FUNCTIONS = new Set([
+  "fulfillBasicOrder",
+  "fulfillBasicOrder_efficient_6GL6yc",
+  "fulfillOrder",
+  "fulfillAdvancedOrder",
+  "fulfillAvailableOrders",
+  "fulfillAvailableAdvancedOrders",
+  "matchOrders",
+  "matchAdvancedOrders",
+]);
+
 // ═══ RETRY WITH EXPONENTIAL BACKOFF ═══
 // Retries on: 429 (rate limit), 5xx (server errors), network failures (fetch throws TypeError).
 // Does NOT retry: 400, 401, 403, 404 — these are permanent client errors.
@@ -1033,6 +1048,15 @@ export async function fulfillSeaportOrder(listing) {
       return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
     }
 
+    // The target is pinned to Seaport above, but the function signature also
+    // comes from the API response — without an allowlist a tampered response
+    // could make the client encode ANY Seaport function (cancel,
+    // incrementCounter, validate …) and ask the user to sign it.
+    const fnName = String(txData.function || "").split("(")[0].trim();
+    if (!SEAPORT_FULFILLMENT_FUNCTIONS.has(fnName)) {
+      return { error: "failed", message: "Unexpected fulfillment function — aborting for safety" };
+    }
+
     // Step 2: Encode calldata using ABI parameter names to avoid
     // depending on Object.values() insertion order from the API.
     function toPositional(val) {
@@ -1044,7 +1068,6 @@ export async function fulfillSeaportOrder(listing) {
     }
 
     const iface = new ethers.Interface([`function ${txData.function}`]);
-    const fnName = txData.function.split("(")[0];
     const fnFragment = iface.getFunction(fnName);
 
     // Map by ABI parameter name when available, fall back to positional order

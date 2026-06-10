@@ -1,6 +1,6 @@
 import { parseEther, formatEther } from "viem";
 import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
-import { getProvider } from "./api";
+import { getProvider, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
@@ -205,13 +205,29 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
         return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
       }
       // Wrap ETH -> WETH (leave gas buffer for approve + sign)
-      await wrapEth(needed);
+      // Typed errors so a wrap failure doesn't surface as a generic
+      // "Failed to create offer" — the user needs to know which tx died.
+      try {
+        await wrapEth(needed);
+      } catch (err) {
+        if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+          return { error: "rejected", message: "ETH wrap cancelled by user" };
+        }
+        return { error: "wrap-failed", message: `Wrapping ${formatEther(needed)} ETH to WETH failed: ${err.shortMessage || err.message || "transaction failed"}` };
+      }
     }
 
     // Step 2: Check WETH allowance for conduit
     const allowance = await getWethAllowance(buyerAddress);
     if (allowance < priceWei) {
-      await approveWeth(priceWei);
+      try {
+        await approveWeth(priceWei);
+      } catch (err) {
+        if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+          return { error: "rejected", message: "WETH approval cancelled by user" };
+        }
+        return { error: "approve-failed", message: `WETH approval failed: ${err.shortMessage || err.message || "transaction failed"}` };
+      }
     }
 
     // Step 3: Build the offer order
@@ -729,6 +745,14 @@ export async function acceptOffer(offer) {
       return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
     }
 
+    // Same defense as fulfillSeaportOrder: target is pinned to Seaport, and
+    // the function signature from the API response must be a known
+    // fulfillment entrypoint before we encode calldata from it.
+    const fnName = String(txData.function || "").split("(")[0].trim();
+    if (!SEAPORT_FULFILLMENT_FUNCTIONS.has(fnName)) {
+      return { error: "failed", message: "Unexpected fulfillment function — aborting for safety" };
+    }
+
     // Encode calldata using ABI parameter names to avoid
     // depending on Object.values() insertion order from the API.
     function toPositional(val) {
@@ -740,7 +764,6 @@ export async function acceptOffer(offer) {
     }
 
     const iface = new ethers.Interface([`function ${txData.function}`]);
-    const fnName = txData.function.split("(")[0];
     const fnFragment = iface.getFunction(fnName);
 
     let inputValues;

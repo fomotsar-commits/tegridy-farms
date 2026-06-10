@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deriveTraitOffers } from "./api-offers";
+import { SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
 import { NFT_LOAN_DESK_LIVE } from "./constants";
 import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from "../lib/constants";
 
@@ -53,6 +54,29 @@ describe("deriveTraitOffers", () => {
   it("returns an empty map for empty or missing input", () => {
     expect(deriveTraitOffers([])).toEqual({});
     expect(deriveTraitOffers()).toEqual({});
+  });
+});
+
+describe("SEAPORT_FULFILLMENT_FUNCTIONS allowlist", () => {
+  it("accepts the canonical fulfillment/match entrypoints", () => {
+    for (const fn of [
+      "fulfillBasicOrder",
+      "fulfillBasicOrder_efficient_6GL6yc",
+      "fulfillOrder",
+      "fulfillAdvancedOrder",
+      "fulfillAvailableOrders",
+      "fulfillAvailableAdvancedOrders",
+      "matchOrders",
+      "matchAdvancedOrders",
+    ]) {
+      expect(SEAPORT_FULFILLMENT_FUNCTIONS.has(fn)).toBe(true);
+    }
+  });
+
+  it("rejects state-changing non-fulfillment Seaport functions", () => {
+    for (const fn of ["cancel", "incrementCounter", "validate", "", "transferFrom"]) {
+      expect(SEAPORT_FULFILLMENT_FUNCTIONS.has(fn)).toBe(false);
+    }
   });
 });
 

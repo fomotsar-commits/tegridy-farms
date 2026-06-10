@@ -394,6 +394,13 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
   // Fall back to collection config, then loaded token count.
   const totalSupply = stats?.supply || collection.supply || tokens.length || 1;
 
+  // Percentages are estimated from the LOADED sample: trait counts only cover
+  // loaded tokens, so dividing by full supply would understate every trait's
+  // incidence (a 40-of-20k load would show ~500x-too-rare values). Sample
+  // incidence is the unbiased estimate; isSampled marks the UI approximate.
+  const sampleSize = tokens.length || 1;
+  const isSampled = tokens.length < totalSupply;
+
   /* ── Build trait map with rarity % ── */
   const traitMap = useMemo(() => {
     const map = {};
@@ -409,12 +416,12 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
         .map(([value, count]) => ({
           value,
           count,
-          pct: parseFloat((count / totalSupply * 100).toFixed(1)),
+          pct: parseFloat((count / sampleSize * 100).toFixed(1)),
         }))
         .sort((a, b) => b.count - a.count),
       totalValues: Object.keys(values).length,
     }));
-  }, [tokens, totalSupply]);
+  }, [tokens, sampleSize]);
 
   /* ── Trait floor prices from listings ── */
   const traitFloors = useMemo(() => {
@@ -542,7 +549,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
         <div style={S.selectedHeader}>
           <span style={S.selectedBadge}>{selected.key}</span>
           <span style={S.selectedValue}>{selected.value}</span>
-          <span style={S.selectedCount}>{matchingNfts.length} NFTs</span>
+          <span style={S.selectedCount}>{matchingNfts.length}{isSampled ? " loaded" : ""} NFTs</span>
           {onFilterGallery && (
             <button
               style={S.filterGalleryBtn}
@@ -558,6 +565,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
           traitKey={selected.key}
           traitValue={selected.value}
           matchCount={matchingNfts.length}
+          sampled={isSampled}
           wallet={wallet}
           onConnect={onConnect}
           addToast={addToast}
@@ -662,7 +670,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
           <div style={S.statValue}>{tokens.length.toLocaleString()}</div>
           {stats?.supply && tokens.length < stats.supply && (
             <div style={{ ...S.statLabel, marginTop: 2, color: "var(--naka-blue)" }}>
-              of {stats.supply.toLocaleString()} supply
+              of {stats.supply.toLocaleString()} supply (trait % from loaded sample)
             </div>
           )}
         </div>
@@ -672,7 +680,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
             <>
               <div style={S.statGold}>{summaryStats.rarest.value}</div>
               <div style={{ ...S.statLabel, marginTop: 2, color: "var(--gold)" }}>
-                {summaryStats.rarest.pct}% &middot; {summaryStats.rarest.category}
+                {isSampled ? "~" : ""}{summaryStats.rarest.pct}% &middot; {summaryStats.rarest.category}
               </div>
             </>
           )}
@@ -683,7 +691,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
             <>
               <div style={{ ...S.statValue, fontSize: 14 }}>{summaryStats.mostCommon.value}</div>
               <div style={{ ...S.statLabel, marginTop: 2 }}>
-                {summaryStats.mostCommon.pct}% &middot; {summaryStats.mostCommon.category}
+                {isSampled ? "~" : ""}{summaryStats.mostCommon.pct}% &middot; {summaryStats.mostCommon.category}
               </div>
             </>
           )}
@@ -773,13 +781,13 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
                       onClick={() => handleSelect(category.key, v.value)}
                       onMouseEnter={() => setHoveredRow(rowKey)}
                       onMouseLeave={() => setHoveredRow(null)}
-                      title={`${v.value}: ${v.count} NFTs (${v.pct}%)`}
+                      title={`${v.value}: ${v.count}${isSampled ? " loaded" : ""} NFTs (${isSampled ? "~" : ""}${v.pct}%)`}
                     >
                       {/* Value Name */}
                       <span style={S.valueName}>{v.value}</span>
 
                       {/* Rarity % */}
-                      <span style={{ ...S.rarityBadge, color }}>{v.pct}%</span>
+                      <span style={{ ...S.rarityBadge, color }}>{isSampled ? "~" : ""}{v.pct}%</span>
 
                       {/* Count */}
                       <span style={S.countText}>{v.count}</span>

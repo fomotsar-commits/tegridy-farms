@@ -240,6 +240,19 @@ export default function Onboarding({ onComplete }) {
       if (e.key === "Escape") finish();
       if (e.key === "ArrowRight" || e.key === "Enter") next();
       if (e.key === "ArrowLeft") prev();
+      // Trap Tab inside the tooltip — without this, Tab walks the page
+      // content hidden behind the overlay while the tour is up.
+      if (e.key === "Tab" && tooltipRef.current) {
+        const focusable = tooltipRef.current.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])');
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first || !tooltipRef.current.contains(document.activeElement)) { e.preventDefault(); last.focus(); }
+        } else {
+          if (document.activeElement === last || !tooltipRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+        }
+      }
     };
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);

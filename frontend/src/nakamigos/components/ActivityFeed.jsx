@@ -146,6 +146,13 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
     return list;
   }, [activities, filter, search]);
 
+  // Render cap: the merged list can reach 500 rows after a long session of
+  // live polling — without virtualization that many DOM rows makes scroll
+  // sluggish on mobile, so reveal in chunks behind the Load More button.
+  const RENDER_CHUNK = 100;
+  const [visibleCount, setVisibleCount] = useState(RENDER_CHUNK);
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+
   // Stats are computed from fetchedActivities (the user's chosen time range)
   // rather than the merged list, so they accurately reflect the selected period
   const totalVolume = useMemo(() => {
@@ -329,7 +336,7 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
             )}
           </div>
         )}
-        {filtered.map((a, i) => (
+        {visible.map((a, i) => (
           <div key={a.hash ? `${a.hash}-${i}` : i} className="activity-row" style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}>
             <div
               className="activity-type-badge"
@@ -383,11 +390,16 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
         ))}
       </div>
 
-      {/* Load More button */}
-      {nextPageKey && (
+      {/* Load More: reveals already-fetched rows first, then pages the API */}
+      {(filtered.length > visibleCount || nextPageKey) && (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px 0" }}>
           <button
-            onClick={() => loadActivities(daysBack, nextPageKey)}
+            onClick={() => {
+              setVisibleCount((c) => c + RENDER_CHUNK);
+              if (filtered.length <= visibleCount && nextPageKey) {
+                loadActivities(daysBack, nextPageKey);
+              }
+            }}
             disabled={loadingMore}
             style={{
               fontFamily: "var(--pixel)",

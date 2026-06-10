@@ -4,6 +4,7 @@ import { getWethBalance, getEthBalance, formatEth } from "../lib/weth";
 import { createItemOffer, createTraitOffer, createCollectionOffer, fetchMyOffers } from "../api-offers";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
+import { lockScroll, unlockScroll } from "../lib/scrollLock";
 
 const EXPIRATION_OPTIONS = [
   { label: "1 hour", hours: 1 },
@@ -164,9 +165,16 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
       }
     };
     window.addEventListener("keydown", h);
+    // Ref-counted, so locking is safe whether this modal is nested under the
+    // NFT detail Modal (which also locks) or opened standalone from
+    // CollectionOffersPanel / TraitExplorer (which don't).
+    lockScroll();
     const closeBtn = modalRef.current?.querySelector('[aria-label="Close modal"]');
     closeBtn?.focus();
-    return () => window.removeEventListener("keydown", h);
+    return () => {
+      window.removeEventListener("keydown", h);
+      unlockScroll();
+    };
   }, [onClose]);
 
   const infoText = isCollectionOffer

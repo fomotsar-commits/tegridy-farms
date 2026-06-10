@@ -2,7 +2,7 @@ import { Eth } from "./Icons";
 import { useTraitOffers } from "../hooks/useOffers";
 import EmptyState from "./EmptyState";
 
-export default function TraitBidPanel({ traitKey, traitValue, matchCount, wallet, onConnect, addToast, onMakeOffer }) {
+export default function TraitBidPanel({ traitKey, traitValue, matchCount, sampled, wallet, onConnect, addToast, onMakeOffer }) {
   const { data: traitOffers = {}, isLoading: loading } = useTraitOffers();
 
   const offerData = traitOffers?.[traitKey]?.[traitValue];
@@ -23,7 +23,7 @@ export default function TraitBidPanel({ traitKey, traitValue, matchCount, wallet
             TRAIT OFFERS
           </div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
-            {matchCount != null ? `${matchCount} NFTs have this trait` : "Trait offers"}
+            {matchCount != null ? `${matchCount}${sampled ? " loaded" : ""} NFTs have this trait` : "Trait offers"}
           </div>
         </div>
         <button

@@ -171,12 +171,15 @@ export default function useActivityWebSocket(contractAddress, openSeaEvents = []
     // Initial poll
     poll(controller.signal);
 
-    // Set up recurring poll
+    // Set up recurring poll. ±15% jitter de-synchronizes this loop from the
+    // other fixed-interval pollers (OpenSea stream, offer panels) that share
+    // the same per-IP/wallet rate-limit bucket — aligned bursts can trip it.
+    const jitteredInterval = POLL_INTERVAL_MS * (0.85 + Math.random() * 0.3);
     intervalRef.current = setInterval(() => {
       if (mountedRef.current && !document.hidden) {
         poll(controller.signal);
       }
-    }, POLL_INTERVAL_MS);
+    }, jitteredInterval);
 
     return () => {
       mountedRef.current = false;

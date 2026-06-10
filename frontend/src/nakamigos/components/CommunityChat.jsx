@@ -438,6 +438,14 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
     return list;
   }, [messages, tokenId, isTokenMode, feedFilter]);
 
+  // Render cap: realtime INSERTs grow the list unbounded over a long session,
+  // and hundreds of message bubbles without virtualization jank mobile scroll.
+  const MAX_RENDERED_MESSAGES = 200;
+  const renderedMessages = visibleMessages.length > MAX_RENDERED_MESSAGES
+    ? visibleMessages.slice(-MAX_RENDERED_MESSAGES)
+    : visibleMessages;
+  const hiddenCount = visibleMessages.length - renderedMessages.length;
+
   /* ── Send handler ──────────────────────────────────────────────── */
   const handleSend = useCallback(async () => {
     const trimmed = sanitize(text.trim());
@@ -600,7 +608,16 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
           </div>
           )
         ) : (
-          visibleMessages.map((msg) => {
+          <>
+            {hiddenCount > 0 && (
+              <div style={{
+                textAlign: "center", fontFamily: "var(--mono)", fontSize: 9,
+                color: "var(--text-muted)", padding: "4px 0 8px",
+              }}>
+                Showing the latest {MAX_RENDERED_MESSAGES} messages
+              </div>
+            )}
+            {renderedMessages.map((msg) => {
             const isOwn =
               wallet && msg.author.toLowerCase() === wallet.toLowerCase();
             const liked = wallet && msg.likes.some(l => l.toLowerCase() === wallet.toLowerCase());
@@ -669,7 +686,8 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                 </div>
               </div>
             );
-          })
+          })}
+          </>
         )}
       </div>
 
