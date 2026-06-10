@@ -347,9 +347,14 @@ function renderMessageText(text, metadataBase, pixelated) {
   });
 }
 
-export default function CommunityChat({ tokenId, wallet, onConnect, addToast, holderTier, onOpenTrades }) {
+export default function CommunityChat({ tokenId, wallet, onConnect, addToast, holderTier, onOpenTrades, openDmsSignal = 0 }) {
   const collection = useActiveCollection();
   const [chatView, setChatView] = useState("room"); // room | dms
+
+  // Header envelope button (and any future deep link) lands directly on DMs
+  useEffect(() => {
+    if (openDmsSignal > 0) setChatView("dms");
+  }, [openDmsSignal]);
   const [messages, setMessages] = useState(() =>
     CHAT_ENABLED ? [] : loadMessages(collection.slug)
   );

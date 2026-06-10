@@ -281,3 +281,52 @@ describe("validateBody — pass-through cases", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("validateBody — dm_messages", () => {
+  const key = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+  const validDm = {
+    sender: WALLET_A,
+    recipient: WALLET_B,
+    channel_key: key(WALLET_A, WALLET_B),
+    text: "gm — about that trade",
+  };
+
+  it("accepts a valid DM from the JWT wallet", () => {
+    const r = validateBody("dm_messages", "INSERT", validDm, CLAIMS_A);
+    expect(r.ok).toBe(true);
+  });
+
+  it("accepts an attached trade_id uuid and rejects a non-uuid", () => {
+    const ok = validateBody("dm_messages", "INSERT", { ...validDm, trade_id: "123e4567-e89b-42d3-a456-426614174000" }, CLAIMS_A);
+    expect(ok.ok).toBe(true);
+    const bad = validateBody("dm_messages", "INSERT", { ...validDm, trade_id: "not-a-uuid" }, CLAIMS_A);
+    expect(bad.ok).toBe(false);
+  });
+
+  it("rejects sender forgery (sender != JWT wallet)", () => {
+    const r = validateBody("dm_messages", "INSERT", { ...validDm, sender: WALLET_B, recipient: WALLET_A, channel_key: key(WALLET_A, WALLET_B) }, CLAIMS_A);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/sender mismatch/);
+  });
+
+  it("rejects self-DMs and wrong channel keys", () => {
+    const self = validateBody("dm_messages", "INSERT", { ...validDm, recipient: WALLET_A, channel_key: key(WALLET_A, WALLET_A) }, CLAIMS_A);
+    expect(self.ok).toBe(false);
+    const wrongKey = validateBody("dm_messages", "INSERT", { ...validDm, channel_key: `${WALLET_B}_${WALLET_A}` }, CLAIMS_A);
+    expect(wrongKey.ok).toBe(false);
+  });
+
+  it("rejects oversize text and unknown columns", () => {
+    const big = validateBody("dm_messages", "INSERT", { ...validDm, text: "x".repeat(501) }, CLAIMS_A);
+    expect(big.ok).toBe(false);
+    const extra = validateBody("dm_messages", "INSERT", { ...validDm, admin: true }, CLAIMS_A);
+    expect(extra.ok).toBe(false);
+  });
+
+  it("UPDATE allows only read_at (mark-read)", () => {
+    const ok = validateBody("dm_messages", "UPDATE", { read_at: "2026-06-10T10:00:00Z" }, CLAIMS_A);
+    expect(ok.ok).toBe(true);
+    const bad = validateBody("dm_messages", "UPDATE", { text: "edited!" }, CLAIMS_A);
+    expect(bad.ok).toBe(false);
+  });
+});

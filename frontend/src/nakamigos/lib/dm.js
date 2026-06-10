@@ -62,6 +62,28 @@ export async function fetchThread(me, other) {
 }
 
 /**
+ * Pure grouping of DM rows into a conversation list (exported for unit
+ * tests): newest-first threads with per-thread unread counts. A message is
+ * unread when I'm the recipient and read_at is null — counted regardless of
+ * whether it's also the thread's latest message.
+ */
+export function groupConversations(messages, me) {
+  const w = (me || "").toLowerCase();
+  const byChannel = new Map();
+  for (const m of messages) {
+    const peer = m.sender.toLowerCase() === w ? m.recipient.toLowerCase() : m.sender.toLowerCase();
+    let slot = byChannel.get(m.channelKey);
+    if (!slot) {
+      slot = { channelKey: m.channelKey, peer, last: m, unread: 0 };
+      byChannel.set(m.channelKey, slot);
+    }
+    if (m.timestamp > slot.last.timestamp) slot.last = m;
+    if (m.recipient.toLowerCase() === w && !m.readAt) slot.unread += 1;
+  }
+  return [...byChannel.values()].sort((a, b) => b.last.timestamp - a.last.timestamp);
+}
+
+/**
  * Conversation list: union of sent + received, grouped by channel, newest
  * first. Two filtered reads because the minimal SELECT path has no or=().
  */
@@ -71,25 +93,26 @@ export async function fetchConversations(me) {
     proxyCall({ table: "dm_messages", method: "SELECT", match: { sender: w } }),
     proxyCall({ table: "dm_messages", method: "SELECT", match: { recipient: w } }),
   ]);
-  const byChannel = new Map();
+  // De-dup by id: a row can't be both sent and received by the same wallet
+  // (self-DMs are rejected), but belt-and-suspenders against double counts.
+  const seen = new Set();
+  const all = [];
   for (const row of [...(sent || []), ...(received || [])]) {
-    const m = rowToDm(row);
-    const existing = byChannel.get(m.channelKey);
-    const peer = m.sender.toLowerCase() === w ? m.recipient : m.sender;
-    if (!existing || m.timestamp > existing.last.timestamp) {
-      byChannel.set(m.channelKey, {
-        channelKey: m.channelKey,
-        peer,
-        last: m,
-        unread: existing?.unread || 0,
-      });
-    }
-    if (m.recipient.toLowerCase() === w && !m.readAt) {
-      const slot = byChannel.get(m.channelKey);
-      slot.unread = (slot.unread || 0) + 1;
-    }
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    all.push(rowToDm(row));
   }
-  return [...byChannel.values()].sort((a, b) => b.last.timestamp - a.last.timestamp);
+  return groupConversations(all, me);
+}
+
+/** Total unread across all threads — feeds the header badge. */
+export async function fetchUnreadCount(me) {
+  try {
+    const convos = await fetchConversations(me);
+    return convos.reduce((sum, c) => sum + (c.unread || 0), 0);
+  } catch {
+    return 0; // badge is cosmetic — never surface errors from a poll
+  }
 }
 
 export async function sendDm({ me, other, text, tradeId = null }) {

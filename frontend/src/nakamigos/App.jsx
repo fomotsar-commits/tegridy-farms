@@ -35,6 +35,7 @@ import useCollection from "./hooks/useCollection";
 import useListings from "./hooks/useListings";
 import useSound from "./hooks/useSound";
 import useHolderStatus from "./hooks/useHolderStatus.jsx";
+import useDmUnread from "./hooks/useDmUnread";
 // Lazy-imported to avoid pulling @supabase/supabase-js into the initial bundle.
 // These are only needed after wallet connect / user interaction.
 const getUserdata = () => import("./lib/userdata");
@@ -262,6 +263,12 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 
   const { play, muted, toggleMute } = useSound();
   const { stats, activities, activitiesLoading, activitiesEmpty, isLive, isWebSocketConnected } = useCollection();
+
+  // Global DM badge + "open DMs" signal for the chat tab
+  const [dmSignal, setDmSignal] = useState(0);
+  const { unread: dmUnread } = useDmUnread(wallet, {
+    onNew: () => addToast?.("📩 New direct message", "info"),
+  });
   const nfts = useNfts({ onChainSupply: stats?.supply });
   const { listings, listingsLoading, listingsError, listingsSource, refreshListings, lastRefresh } = useListings();
   const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
@@ -608,7 +615,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       case "alerts":
         return <PriceAlertPanel tokens={nfts.allTokens} addToast={addToast} />;
       case "chat":
-        return <CommunityChat wallet={wallet} onConnect={handleConnect} addToast={addToast} holderTier={holderTier} onOpenTrades={() => handleTabChange("trades")} />;
+        return <CommunityChat wallet={wallet} onConnect={handleConnect} addToast={addToast} holderTier={holderTier} onOpenTrades={() => handleTabChange("trades")} openDmsSignal={dmSignal} />;
       case "history":
         return <TransactionHistory wallet={wallet} onConnect={handleConnect} />;
       case "sniper":
@@ -655,6 +662,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         collectionImage={collection.image}
         collectionSlug={collectionSlug}
         collectionPixelated={collection.pixelated}
+        dmUnread={dmUnread}
+        onOpenDms={() => { handleTabChange("chat"); setDmSignal((s) => s + 1); }}
         notificationCenter={
           <Suspense fallback={null}>
           <NotificationCenter

@@ -2,20 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Eth } from "./Icons";
 import TradeWindow from "./TradeWindow";
 import DirectMessages from "./DirectMessages";
-import { COLLECTIONS } from "../constants";
+import { ItemChips, fmtEthWei as fmtEth } from "./TradeChips";
 import { fetchTrades, acceptTrade, updateTradeStatus, cancelTradeOnChain } from "../lib/trades";
-
-const SHORT_NAME = Object.values(COLLECTIONS).reduce((m, c) => {
-  m[c.contract.toLowerCase()] = c.name.split(" ")[0].toUpperCase().slice(0, 5);
-  return m;
-}, {});
-
-const fmtEth = (wei) => {
-  try {
-    const v = Number(BigInt(wei || "0") / 10n ** 12n) / 1e6;
-    return v > 0 ? v.toFixed(4) : null;
-  } catch { return null; }
-};
 
 const timeLeft = (iso) => {
   if (!iso) return "";
@@ -28,22 +16,6 @@ const timeLeft = (iso) => {
 };
 
 const short = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "";
-
-function ItemChips({ items, accent }) {
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-      {(items || []).map((it, i) => (
-        <span key={i} style={{
-          fontFamily: "var(--mono)", fontSize: 9, padding: "3px 7px", borderRadius: 5,
-          background: "rgba(0,0,0,0.3)", border: `1px solid ${accent}30`, color: accent,
-          letterSpacing: "0.03em",
-        }}>
-          {SHORT_NAME[(it.contract || "").toLowerCase()] || "NFT"} #{it.tokenId}
-        </span>
-      ))}
-    </div>
-  );
-}
 
 const STATUS_COLOR = {
   active: "var(--naka-blue)", accepted: "var(--green)", declined: "var(--red)",
