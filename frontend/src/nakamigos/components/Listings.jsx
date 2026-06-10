@@ -268,6 +268,13 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
   const [buying, setBuying] = useState(null); // tokenId being purchased
 
+  // Render cap: a liquid collection can have many hundreds of live listings
+  // (Nakamigos had 787 at launch verification) — mapping them all mounts
+  // ~800 cards + images in one pass and janks the page. Reveal in chunks;
+  // sweep/sort/filter logic stays data-level on the full arrays.
+  const LISTINGS_RENDER_CHUNK = 60;
+  const [visibleCount, setVisibleCount] = useState(LISTINGS_RENDER_CHUNK);
+
   // Reset local state when collection changes to prevent stale data bleed
   useEffect(() => {
     setExtraTokens([]);
@@ -280,6 +287,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     setTraitValue("");
     setShowTraitOfferModal(null);
     setBuying(null);
+    setVisibleCount(LISTINGS_RENDER_CHUNK);
   }, [collection.slug]);
 
   const handleBuy = useCallback(async (nft, e) => {
@@ -371,6 +379,10 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       : null;
 
   const listedPct = stats?.supply ? ((listedNfts.length / stats.supply) * 100).toFixed(1) : null;
+
+  // Grid source (full, for counts) and the capped slice that actually mounts
+  const gridItems = hasRealListings ? displayNfts : hasRecentSales ? displaySales : tokens.slice(0, 24);
+  const visibleGridItems = gridItems.length > visibleCount ? gridItems.slice(0, visibleCount) : gridItems;
 
   return (
     <section className="listings-section">
@@ -755,7 +767,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
           {/* Listings Grid */}
           <div className="listings-grid" style={(!hasRealListings && !hasRecentSales) ? { display: "none" } : undefined}>
-            {(hasRealListings ? displayNfts : hasRecentSales ? displaySales : tokens.slice(0, 24)).map((nft, idx) => {
+            {visibleGridItems.map((nft, idx) => {
               const isSelected = selectedIds.has(nft.id);
               return (
               <div key={`${nft.id}-${idx}`} className="listing-card" onClick={() => onPick(nft)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); } }} role="button" tabIndex={0} aria-label={`${nft.name}${nft.price ? `, ${nft.price} ETH` : ""}`} style={isSelected ? { border: "2px solid var(--naka-blue)" } : undefined}>
@@ -853,6 +865,19 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               );
             })}
           </div>
+
+          {/* Reveal the next chunk of the already-fetched list */}
+          {gridItems.length > visibleCount && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "16px 0 4px" }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setVisibleCount((c) => c + LISTINGS_RENDER_CHUNK)}
+                style={{ fontSize: 11, padding: "10px 24px" }}
+              >
+                Show {Math.min(LISTINGS_RENDER_CHUNK, gridItems.length - visibleCount)} more ({visibleCount} of {gridItems.length})
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Sweep Calculator Sidebar — only shown when there are active listings; hidden in Lite mode */}
