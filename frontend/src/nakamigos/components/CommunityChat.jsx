@@ -5,6 +5,9 @@ import {
   fetchMessages,
   sendMessage,
   toggleLike,
+  toggleReaction,
+  REACTION_EMOJIS,
+  joinPresence,
   subscribeToMessages,
 } from "../lib/supabase";
 
@@ -350,6 +353,12 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
   );
   const [loadFailed, setLoadFailed] = useState(false);
   const [text, setText] = useState("");
+  const [onlineCount, setOnlineCount] = useState(0);
+  const [pickerFor, setPickerFor] = useState(null); // message id with open reaction picker
+  const [muted, setMuted] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("nakamigos_muted_wallets") || "[]")); }
+    catch { return new Set(); }
+  });
   const [feedFilter, setFeedFilter] = useState("All");
   const listRef = useRef(null);
   const isTokenMode = tokenId != null;
@@ -400,6 +409,35 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
     return () => sub.unsubscribe();
   }, [collection.slug]);
 
+  /* ── Presence: live online count for this room ─────────────────── */
+  useEffect(() => {
+    const handle = joinPresence(collection.slug, wallet, setOnlineCount);
+    return () => handle.leave();
+  }, [collection.slug, wallet]);
+
+  /* ── Mute list (local, reversible via the footer) ──────────────── */
+  const toggleMute = useCallback((author) => {
+    setMuted((prev) => {
+      const next = new Set(prev);
+      const a = author.toLowerCase();
+      if (next.has(a)) next.delete(a); else next.add(a);
+      try { localStorage.setItem("nakamigos_muted_wallets", JSON.stringify([...next])); } catch { /* quota */ }
+      return next;
+    });
+  }, []);
+
+  /* ── Reactions: optimistic toggle + atomic RPC ──────────────────── */
+  const handleReaction = useCallback(async (msgId, emoji) => {
+    if (!wallet) { addToast?.("Connect wallet to react", "info"); return; }
+    setPickerFor(null);
+    const updated = await toggleReaction({ messageId: msgId, wallet, emoji, slug: collection.slug });
+    if (updated) {
+      setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+    } else if (CHAT_ENABLED) {
+      addToast?.("Reactions aren't enabled yet", "info");
+    }
+  }, [wallet, addToast, collection.slug]);
+
   /* ── Sync from localStorage on focus (local mode, other tabs) ─── */
   useEffect(() => {
     if (CHAT_ENABLED) return;
@@ -435,8 +473,12 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
       }
     }
 
+    if (muted.size > 0) {
+      list = list.filter((m) => !muted.has((m.author || "").toLowerCase()));
+    }
+
     return list;
-  }, [messages, tokenId, isTokenMode, feedFilter]);
+  }, [messages, tokenId, isTokenMode, feedFilter, muted]);
 
   // Render cap: realtime INSERTs grow the list unbounded over a long session,
   // and hundreds of message bubbles without virtualization jank mobile scroll.
@@ -552,13 +594,23 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
         <span>
           {isTokenMode ? `# ${collection.name} ${tokenId}` : `${collection.name} Chat`}
         </span>
-        <span
-          style={styles.modeIndicator(CHAT_ENABLED)}
-          title={CHAT_ENABLED
-            ? "Connected to the shared community chat"
-            : "Chat backend not configured — messages are saved only in this browser and other users can't see them"}
-        >
-          {CHAT_ENABLED ? "Live" : "Local mode"}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          {CHAT_ENABLED && onlineCount > 0 && (
+            <span
+              style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.04em" }}
+              title="Wallets and viewers in this room right now"
+            >
+              {"●"} {onlineCount} online
+            </span>
+          )}
+          <span
+            style={styles.modeIndicator(CHAT_ENABLED)}
+            title={CHAT_ENABLED
+              ? "Connected to the shared community chat"
+              : "Chat backend not configured — messages are saved only in this browser and other users can't see them"}
+          >
+            {CHAT_ENABLED ? "Live" : "Local mode"}
+          </span>
         </span>
       </div>
 
@@ -666,7 +718,65 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
                   {msg.likes.length > 0 && (
                     <span style={styles.likeCount}>{msg.likes.length}</span>
                   )}
-                  {/* Reactions removed — no backend support (schema only has likes array) */}
+                  {/* Emoji reactions (atomic toggle_reaction RPC; local-mode fallback) */}
+                  {Object.entries(msg.reactions || {}).map(([emoji, wallets]) => {
+                    const mine = wallet && wallets.some((w) => w.toLowerCase() === wallet.toLowerCase());
+                    return (
+                      <button
+                        key={emoji}
+                        onClick={() => handleReaction(msg.id, emoji)}
+                        title={mine ? "Remove your reaction" : "React"}
+                        style={{
+                          background: mine ? "rgba(111,168,220,0.12)" : "rgba(255,255,255,0.04)",
+                          border: `1px solid ${mine ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
+                          borderRadius: 10, padding: "1px 7px", cursor: "pointer",
+                          fontSize: 10, color: "var(--text)", fontFamily: "var(--mono)",
+                        }}
+                      >
+                        {emoji} {wallets.length}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => setPickerFor(pickerFor === msg.id ? null : msg.id)}
+                    title="Add reaction"
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      fontSize: 11, color: "rgba(255,255,255,0.25)", padding: "2px 4px",
+                    }}
+                  >
+                    {"☺+"}
+                  </button>
+                  {pickerFor === msg.id && (
+                    <span style={{
+                      display: "inline-flex", gap: 4, padding: "2px 6px", borderRadius: 10,
+                      background: "rgba(0,0,0,0.5)", border: "1px solid var(--border)",
+                    }}>
+                      {REACTION_EMOJIS.map((e) => (
+                        <button
+                          key={e}
+                          onClick={() => handleReaction(msg.id, e)}
+                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0 }}
+                          aria-label={`React with ${e}`}
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </span>
+                  )}
+                  {/* Mute author (local, reversible from the footer) */}
+                  {!isOwn && (
+                    <button
+                      onClick={() => toggleMute(msg.author)}
+                      title="Mute this wallet (only hides messages for you)"
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        fontSize: 10, color: "rgba(255,255,255,0.2)", padding: "2px 4px",
+                      }}
+                    >
+                      {"🔇"}
+                    </button>
+                  )}
                   {/* Reply button */}
                   {wallet && (
                     <button
@@ -690,6 +800,25 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
           </>
         )}
       </div>
+
+      {/* Muted-wallets footer — keeps muting reversible */}
+      {muted.size > 0 && (
+        <div style={{
+          display: "flex", justifyContent: "center", gap: 8, alignItems: "center",
+          padding: "4px 0", fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
+        }}>
+          {muted.size} wallet{muted.size !== 1 ? "s" : ""} muted
+          <button
+            onClick={() => {
+              setMuted(new Set());
+              try { localStorage.setItem("nakamigos_muted_wallets", "[]"); } catch { /* quota */ }
+            }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", fontSize: 9, color: "var(--naka-blue)", padding: 0 }}
+          >
+            unmute all
+          </button>
+        </div>
+      )}
 
       {/* Input area */}
       <div style={styles.inputArea}>

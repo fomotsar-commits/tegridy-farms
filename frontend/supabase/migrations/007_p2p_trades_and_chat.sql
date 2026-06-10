@@ -100,6 +100,39 @@ CREATE POLICY "Recipient marks read" ON dm_messages FOR UPDATE USING (
 );
 
 -- ── B2. Reactions on community messages ──
--- Same write path and policy surface as the existing likes array.
+-- Same atomic-RPC pattern as toggle_like (read-then-write from clients
+-- would TOCTOU-race concurrent reactions).
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS reactions jsonb NOT NULL DEFAULT '{}'::jsonb;
-COMMENT ON COLUMN messages.reactions IS 'emoji -> [lowercase wallets], maintained via supabase-proxy like likes';
+COMMENT ON COLUMN messages.reactions IS 'emoji -> [lowercase wallets], maintained via toggle_reaction RPC';
+
+CREATE OR REPLACE FUNCTION toggle_reaction(msg_id uuid, wallet text, emoji text)
+RETURNS SETOF messages
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  w text := lower(wallet);
+  current jsonb;
+  arr jsonb;
+BEGIN
+  -- Fixed emoji set keeps the jsonb bounded and the picker honest.
+  IF emoji NOT IN ('👍','🔥','💎','😂','🫡','📈') THEN
+    RAISE EXCEPTION 'unsupported emoji';
+  END IF;
+  IF w IS NULL OR w !~ '^0x[0-9a-f]{40}$' THEN
+    RAISE EXCEPTION 'invalid wallet';
+  END IF;
+  SELECT COALESCE(reactions, '{}'::jsonb) INTO current FROM messages WHERE id = msg_id FOR UPDATE;
+  IF NOT FOUND THEN RETURN; END IF;
+  arr := COALESCE(current->emoji, '[]'::jsonb);
+  IF arr ? w THEN
+    arr := (SELECT COALESCE(jsonb_agg(x), '[]'::jsonb)
+            FROM jsonb_array_elements_text(arr) AS t(x) WHERE x <> w);
+  ELSE
+    arr := arr || to_jsonb(w);
+  END IF;
+  IF arr = '[]'::jsonb THEN
+    current := current - emoji;
+  ELSE
+    current := jsonb_set(current, ARRAY[emoji], arr);
+  END IF;
+  RETURN QUERY UPDATE messages SET reactions = current WHERE id = msg_id RETURNING *;
+END $$;

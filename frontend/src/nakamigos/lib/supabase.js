@@ -131,6 +131,7 @@ function rowToMsg(row) {
     text: row.text,
     tokenId: row.token_id ?? null,
     likes: row.likes ?? [],
+    reactions: row.reactions ?? {},
     timestamp: new Date(row.created_at).getTime(),
   };
 }
@@ -263,6 +264,66 @@ export async function toggleLike({ messageId, wallet, slug }) {
     return null;
   }
   return rowToMsg(data);
+}
+
+// Fixed set, mirrored in the toggle_reaction RPC's allowlist.
+export const REACTION_EMOJIS = ["👍", "🔥", "💎", "😂", "🫡", "📈"];
+
+/**
+ * Toggle an emoji reaction on a message. Atomic via the toggle_reaction RPC
+ * (same pattern as toggle_like). Local mode mirrors the likes fallback.
+ * Returns the updated message, or null when unavailable (e.g. migration 007
+ * not applied yet — callers degrade silently).
+ */
+export async function toggleReaction({ messageId, wallet, emoji, slug }) {
+  if (!REACTION_EMOJIS.includes(emoji) || !wallet) return null;
+  const w = wallet.toLowerCase();
+  if (!CHAT_ENABLED) {
+    const all = loadLocal(slug);
+    const updated = all.map((m) => {
+      if (m.id !== messageId) return m;
+      const reactions = { ...(m.reactions || {}) };
+      const arr = reactions[emoji] || [];
+      const has = arr.some((x) => x.toLowerCase() === w);
+      const next = has ? arr.filter((x) => x.toLowerCase() !== w) : [...arr, w];
+      if (next.length === 0) delete reactions[emoji]; else reactions[emoji] = next;
+      return { ...m, reactions };
+    });
+    saveLocal(updated, slug);
+    return updated.find((m) => m.id === messageId) || null;
+  }
+  const { data, error } = await supabase
+    .rpc("toggle_reaction", { msg_id: messageId, wallet: w, emoji })
+    .single();
+  if (error) {
+    if (import.meta.env.DEV) console.error("[supabase] toggleReaction RPC unavailable:", error.message);
+    return null;
+  }
+  return rowToMsg(data);
+}
+
+/**
+ * Presence for a collection room: who's online right now. Supabase Presence
+ * ships with Realtime — no extra infra. No-op handle in local mode.
+ * @param {string} slug
+ * @param {string|null} wallet  tracked key; anonymous viewers count too
+ * @param {(count: number) => void} onCount
+ */
+export function joinPresence(slug, wallet, onCount) {
+  if (!CHAT_ENABLED || !slug) return { leave: () => {} };
+  const channel = supabase.channel(`presence-${slug}`, {
+    config: { presence: { key: wallet ? wallet.toLowerCase() : `anon-${Math.random().toString(36).slice(2, 10)}` } },
+  });
+  channel
+    .on("presence", { event: "sync" }, () => {
+      try {
+        onCount(Object.keys(channel.presenceState()).length);
+      } catch { /* count is cosmetic */ }
+    })
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") channel.track({ at: Date.now() });
+    });
+  return { leave: () => { supabase.removeChannel(channel); } };
 }
 
 /**
