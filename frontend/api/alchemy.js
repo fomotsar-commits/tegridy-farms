@@ -2,27 +2,32 @@
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
+import { fetchAlchemyWithFailover } from "./_lib/alchemy-failover.js";
 
 // AUDIT R048: prefer Authorization: Bearer header over URL path embedding so
 // the key never appears in Vercel access logs, observability tracers, or
 // upstream HTML error pages that echo the request URL. Falls back to URL
 // path embedding only when no real key is configured (legacy/demo dev).
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || "";
-const USE_HEADER_AUTH = !!process.env.ALCHEMY_API_KEY;
-const ALCHEMY_KEY = ALCHEMY_API_KEY || "demo";
+// RESIL-1: every upstream fetch goes through fetchAlchemyWithFailover, which
+// retries ONCE with the optional ALCHEMY_API_KEY_FALLBACK on 401/403/429/5xx
+// — a lapsed primary key no longer blacks out the marketplace. The builders
+// below are keyed per attempt so URL shape + Authorization track the key.
+const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
 if (!process.env.ALCHEMY_API_KEY && process.env.NODE_ENV === "production") {
   console.warn("WARNING: ALCHEMY_API_KEY is not set — using demo key in production");
 }
-const BASE = USE_HEADER_AUTH
-  ? "https://eth-mainnet.g.alchemy.com/nft/v3"
-  : `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
-const RPC_BASE = USE_HEADER_AUTH
-  ? "https://eth-mainnet.g.alchemy.com/v2"
-  : `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
+const NFT_V3_ROOT = "https://eth-mainnet.g.alchemy.com/nft/v3";
+const RPC_ROOT = "https://eth-mainnet.g.alchemy.com/v2";
 
-function authHeaders(extra = {}) {
+function nftBaseFor(key) {
+  return key ? NFT_V3_ROOT : `${NFT_V3_ROOT}/${ALCHEMY_KEY}`;
+}
+function rpcBaseFor(key) {
+  return key ? RPC_ROOT : `${RPC_ROOT}/${ALCHEMY_KEY}`;
+}
+function authHeadersFor(key, extra = {}) {
   const headers = { Accept: "application/json", ...extra };
-  if (USE_HEADER_AUTH) headers["Authorization"] = `Bearer ${ALCHEMY_API_KEY}`;
+  if (key) headers["Authorization"] = `Bearer ${key}`;
   return headers;
 }
 
@@ -82,11 +87,14 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery"
 // so the same delta cap applies whether the client sends numeric blocks or
 // "latest". Bounded by readBoundedText so it can't reintroduce H-3.
 async function resolveChainTip() {
-  const res = await fetch(RPC_BASE, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
-  });
+  const res = await fetchAlchemyWithFailover((key) => ({
+    url: rpcBaseFor(key),
+    opts: {
+      method: "POST",
+      headers: authHeadersFor(key, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
+    },
+  }));
   const { text } = await readBoundedText(res, MAX_RESPONSE_BYTES);
   const data = JSON.parse(text);
   if (!data?.result || typeof data.result !== "string") throw new Error("tip-resolve-failed");
@@ -195,11 +203,14 @@ export default async function handler(req, res) {
     }
 
     try {
-      const rpcRes = await fetch(RPC_BASE, {
-        method: "POST",
-        headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ jsonrpc: "2.0", method, params: req.body.params || [], id: 1 }),
-      });
+      const rpcRes = await fetchAlchemyWithFailover((key) => ({
+        url: rpcBaseFor(key),
+        opts: {
+          method: "POST",
+          headers: authHeadersFor(key, { "Content-Type": "application/json" }),
+          body: JSON.stringify({ jsonrpc: "2.0", method, params: req.body.params || [], id: 1 }),
+        },
+      }));
       // AUDIT R049 H-3: bounded body read.
       const { text, truncated } = await readBoundedText(rpcRes, MAX_RESPONSE_BYTES);
       if (truncated) {
@@ -302,20 +313,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const url = new URL(`${BASE}/${endpoint}`);
-    Object.entries(params).forEach(([k, v]) => {
-      if (v != null && v !== "") url.searchParams.set(k, String(v));
+    const response = await fetchAlchemyWithFailover((key) => {
+      const url = new URL(`${nftBaseFor(key)}/${endpoint}`);
+      Object.entries(params).forEach(([k, v]) => {
+        if (v != null && v !== "") url.searchParams.set(k, String(v));
+      });
+
+      let fetchOpts = { headers: authHeadersFor(key) };
+      if (req.method === "POST") {
+        fetchOpts.method = "POST";
+        fetchOpts.headers = authHeadersFor(key, { "Content-Type": "application/json" });
+        // Guard against undefined/null body — send empty object instead of "undefined"
+        fetchOpts.body = JSON.stringify(req.body ?? {});
+      }
+      return { url: url.toString(), opts: fetchOpts };
     });
-
-    let fetchOpts = { headers: authHeaders() };
-    if (req.method === "POST") {
-      fetchOpts.method = "POST";
-      fetchOpts.headers = authHeaders({ "Content-Type": "application/json" });
-      // Guard against undefined/null body — send empty object instead of "undefined"
-      fetchOpts.body = JSON.stringify(req.body ?? {});
-    }
-
-    const response = await fetch(url.toString(), fetchOpts);
 
     // AUDIT R049 H-3: bounded body read protects against gzip-bombs / OOM.
     const { text, truncated } = await readBoundedText(response, MAX_RESPONSE_BYTES);

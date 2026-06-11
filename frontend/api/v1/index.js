@@ -13,19 +13,22 @@
 import { checkRateLimit } from "../_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "../_lib/bodycap.js";
 import { logSafe } from "../_lib/logSafe.js";
+import { fetchAlchemyWithFailover } from "../_lib/alchemy-failover.js";
 
 // AUDIT R048: header auth — Alchemy NFT base URL drops the /${KEY} segment
 // when a real key is configured; the bearer header is injected per-fetch.
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || "";
-const USE_HEADER_AUTH = !!process.env.ALCHEMY_API_KEY;
-const ALCHEMY_KEY = ALCHEMY_API_KEY || "demo";
-const ALCHEMY_NFT = USE_HEADER_AUTH
-  ? "https://eth-mainnet.g.alchemy.com/nft/v3"
-  : `https://eth-mainnet.g.alchemy.com/nft/v3/${ALCHEMY_KEY}`;
+// RESIL-1: fetches route through fetchAlchemyWithFailover so a lapsed primary
+// key retries once with ALCHEMY_API_KEY_FALLBACK; builders are keyed per
+// attempt (same convention as api/alchemy.js).
+const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
+const ALCHEMY_NFT_ROOT = "https://eth-mainnet.g.alchemy.com/nft/v3";
 
-function alchemyAuthHeaders(extra = {}) {
+function alchemyNftBaseFor(key) {
+  return key ? ALCHEMY_NFT_ROOT : `${ALCHEMY_NFT_ROOT}/${ALCHEMY_KEY}`;
+}
+function alchemyAuthHeadersFor(key, extra = {}) {
   const headers = { Accept: "application/json", ...extra };
-  if (USE_HEADER_AUTH) headers["Authorization"] = `Bearer ${ALCHEMY_API_KEY}`;
+  if (key) headers["Authorization"] = `Bearer ${key}`;
   return headers;
 }
 
@@ -69,11 +72,13 @@ function setCors(req, res) {
 }
 
 async function alchemyFetch(endpoint, params = {}) {
-  const url = new URL(`${ALCHEMY_NFT}/${endpoint}`);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v != null && v !== "") url.searchParams.set(k, String(v));
+  const res = await fetchAlchemyWithFailover((key) => {
+    const url = new URL(`${alchemyNftBaseFor(key)}/${endpoint}`);
+    Object.entries(params).forEach(([k, v]) => {
+      if (v != null && v !== "") url.searchParams.set(k, String(v));
+    });
+    return { url: url.toString(), opts: { headers: alchemyAuthHeadersFor(key) } };
   });
-  const res = await fetch(url.toString(), { headers: alchemyAuthHeaders() });
   if (!res.ok) throw new Error(`Alchemy ${res.status}`);
   // AUDIT R049 H-3: bounded body read.
   const { text, truncated } = await readBoundedText(res, MAX_RESPONSE_BYTES);

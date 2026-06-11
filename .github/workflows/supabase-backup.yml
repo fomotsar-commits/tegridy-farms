@@ -1,0 +1,186 @@
+name: Supabase Backup
+
+# Weekly encrypted snapshot of every Supabase table the app writes.
+#
+# WHY THIS EXISTS: signed Seaport orders (native_orders, trade_offers) are
+# BEARER INSTRUMENTS — the signature in the row is the only copy. If the
+# Supabase project is paused/deleted/corrupted, this backup is what lets
+# makers see and CANCEL their still-valid on-chain-fulfillable orders
+# (Seaport orders stay fulfillable until incrementCounter/cancel on-chain,
+# whether or not our DB remembers them). DMs, profiles, favorites and push
+# subscriptions are the rest of the user-state that has no other home.
+#
+# SECURITY: this repo is PUBLIC and workflow artifacts on public repos are
+# downloadable by any logged-in GitHub user. The bundle contains private DMs
+# and signed orders, so it is ALWAYS gpg-encrypted (AES256, symmetric) with
+# the BACKUP_PASSPHRASE secret before upload. Plaintext never leaves the
+# runner. Restore:
+#   gpg --decrypt --batch --passphrase "<BACKUP_PASSPHRASE>" \
+#     supabase-backup-<date>.tar.gz.gpg | tar -xz
+#
+# Required repo secrets (workflow skips cleanly when any is unset):
+#   SUPABASE_URL          — https://<project-ref>.supabase.co
+#   SUPABASE_SERVICE_KEY  — service-role key (bypasses RLS; read-only use here)
+#   BACKUP_PASSPHRASE     — long random string; store a copy offline — without
+#                           it the backups are unreadable
+#
+# NOT backed up: siwe_nonces (5-minute-TTL ephemeral auth nonces — already
+# dead by the time any restore could happen).
+
+on:
+  schedule:
+    - cron: "23 4 * * 1" # Mondays 04:23 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Preflight — skip cleanly when secrets are not configured
+        id: preflight
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -u
+          missing=""
+          if [ -z "${SUPABASE_URL}" ]; then missing="$missing SUPABASE_URL"; fi
+          if [ -z "${SUPABASE_SERVICE_KEY}" ]; then missing="$missing SUPABASE_SERVICE_KEY"; fi
+          if [ -z "${BACKUP_PASSPHRASE}" ]; then missing="$missing BACKUP_PASSPHRASE"; fi
+          if [ -n "$missing" ]; then
+            echo "Skipping backup — repo secrets not configured:$missing"
+            echo "Set them under Settings > Secrets and variables > Actions to enable weekly backups."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dump tables via PostgREST (paginated, 1000 rows/page)
+        if: steps.preflight.outputs.ready == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p backup
+
+          # Table list = union of the API surface's writable tables:
+          #   frontend/api/orderbook.js        → native_orders, trade_offers
+          #   frontend/api/supabase-proxy.js   → ALLOWED_TABLES (messages,
+          #     user_profiles, user_favorites, user_watchlist, votes,
+          #     dm_messages, push_subscriptions)
+          #   frontend/api/auth/*.js           → revoked_jwts (siwe_nonces
+          #     intentionally excluded — ephemeral)
+          # Keep in sync when ALLOWED_TABLES or the orderbook schema grows.
+          TABLES="native_orders trade_offers messages dm_messages user_profiles user_favorites user_watchlist votes push_subscriptions revoked_jwts"
+
+          PAGE_SIZE=1000
+          MAX_PAGES=500   # 500k rows/table runtime bound — log loudly if hit
+          ok=0
+          failed=""
+
+          dump_table() {
+            local table="$1"
+            local tmpdir page=0 from to code rows
+            tmpdir="$(mktemp -d)"
+            while [ "$page" -lt "$MAX_PAGES" ]; do
+              from=$((page * PAGE_SIZE))
+              to=$((from + PAGE_SIZE - 1))
+              code="$(curl -sS --max-time 60 -o "$tmpdir/page_$page.json" -w '%{http_code}' \
+                -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+                -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+                -H "Range-Unit: items" \
+                -H "Range: ${from}-${to}" \
+                "${SUPABASE_URL}/rest/v1/${table}?select=*")" || code="000"
+              if [ "$code" = "416" ]; then
+                # Range past end of table — pagination complete.
+                rm -f "$tmpdir/page_$page.json"
+                break
+              fi
+              if [ "$code" != "200" ] && [ "$code" != "206" ]; then
+                # 404 = table missing (e.g. trade_offers pre-migration-007);
+                # anything else = transient/permission problem. Either way:
+                # warn, skip this table, keep the rest of the backup alive.
+                echo "::warning::${table}: HTTP ${code} on rows ${from}-${to} — table skipped"
+                rm -rf "$tmpdir"
+                return 1
+              fi
+              rows="$(jq 'length' "$tmpdir/page_$page.json" 2>/dev/null || echo bad)"
+              if ! [[ "$rows" =~ ^[0-9]+$ ]]; then
+                echo "::warning::${table}: non-JSON page at rows ${from}-${to} — table skipped"
+                rm -rf "$tmpdir"
+                return 1
+              fi
+              page=$((page + 1))
+              if [ "$rows" -lt "$PAGE_SIZE" ]; then break; fi
+            done
+            if [ "$page" -ge "$MAX_PAGES" ]; then
+              echo "::warning::${table}: hit ${MAX_PAGES}-page cap — backup of this table is TRUNCATED"
+            fi
+            # Merge pages into one JSON array per table.
+            if ls "$tmpdir"/page_*.json >/dev/null 2>&1; then
+              jq -s 'add // []' "$tmpdir"/page_*.json > "backup/${table}.json"
+            else
+              echo "[]" > "backup/${table}.json"
+            fi
+            local total
+            total="$(jq 'length' "backup/${table}.json")"
+            echo "${table}: ${total} rows"
+            echo "| ${table} | ${total} |" >> "$GITHUB_STEP_SUMMARY"
+            rm -rf "$tmpdir"
+            return 0
+          }
+
+          echo "| Table | Rows |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for t in $TABLES; do
+            if dump_table "$t"; then ok=$((ok + 1)); else failed="$failed $t"; fi
+          done
+
+          if [ -n "$failed" ]; then
+            echo "::warning::Tables skipped:$failed"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Skipped:$failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$ok" -eq 0 ]; then
+            echo "::error::Every table failed — check SUPABASE_URL / SUPABASE_SERVICE_KEY (project paused? key rotated?)"
+            exit 1
+          fi
+
+      - name: Bundle and encrypt (NEVER upload plaintext)
+        if: steps.preflight.outputs.ready == 'true'
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u '+%Y-%m-%d')"
+          tar -czf "supabase-backup-${STAMP}.tar.gz" backup/
+          # Passphrase via stdin (never argv — argv is visible in process lists).
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --symmetric \
+            --cipher-algo AES256 --pinentry-mode loopback --passphrase-fd 0 \
+            -o "supabase-backup-${STAMP}.tar.gz.gpg" "supabase-backup-${STAMP}.tar.gz"
+          # Shred the plaintext so only the .gpg can ever reach the artifact step.
+          rm -f "supabase-backup-${STAMP}.tar.gz"
+          rm -rf backup
+          ls -l supabase-backup-*.tar.gz.gpg
+
+      - name: Upload encrypted artifact (90-day retention)
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: supabase-backup-${{ github.run_id }}
+          path: supabase-backup-*.tar.gz.gpg
+          retention-days: 90
+          if-no-files-found: error

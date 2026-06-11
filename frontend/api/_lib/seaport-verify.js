@@ -34,7 +34,7 @@
 //   - Reservoir Protocol orderbook      (signature + ownership pre-checks)
 //   - Seaport SDK `verifyOrder`          (parameters + signature → offerer)
 
-import { verifyTypedData, createPublicClient, http } from "viem";
+import { verifyTypedData, createPublicClient, http, fallback } from "viem";
 import { mainnet, sepolia } from "viem/chains";
 
 // AUDIT FIX H-1-FINDING-2: chainId was hardcoded to `1` in SEAPORT_DOMAIN, so
@@ -77,9 +77,12 @@ function getPublicClient() {
   if (_publicClient) return _publicClient;
   const url = alchemyUrl();
   if (!url) return null;
+  // RESIL-1: viem's canonical `fallback` transport — the EIP-1271 staticcall
+  // (and ERC-6492 deployless validation) survives a lapsed Alchemy key by
+  // demoting to the fallback key, then the public RPC list.
   _publicClient = createPublicClient({
     chain: SEAPORT_VIEM_CHAIN,
-    transport: http(url),
+    transport: fallback(rpcUrlChain().map((u) => http(u))),
   });
   return _publicClient;
 }
@@ -142,6 +145,34 @@ function alchemyUrl() {
   return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
 }
 
+// ── RESIL-1 (2026-06-11): RPC failover chain ────────────────────────
+// A lapsed/disabled Alchemy key used to 503 every order create (getCounter +
+// ownerOf both dead). The chain below degrades instead: primary Alchemy key →
+// optional ALCHEMY_API_KEY_FALLBACK → public JSON-RPC endpoints (mirrors the
+// client-side transport list in `frontend/src/lib/wagmi.ts`). The chain is
+// only consulted when Alchemy IS configured — the no-key-at-all policy stays
+// exactly as before (prod fails closed with `rpc-unavailable`, non-prod skips
+// with a warning), so a misconfigured deploy still can't silently verify
+// nothing. Fail-closed is reached only when EVERY path fails.
+const PUBLIC_RPC_URLS = Object.freeze([
+  "https://ethereum-rpc.publicnode.com",
+  "https://eth.llamarpc.com",
+  "https://rpc.ankr.com/eth",
+]);
+
+function rpcUrlChain() {
+  const urls = [];
+  const primary = alchemyUrl();
+  if (primary) urls.push(primary);
+  const fb = process.env.ALCHEMY_API_KEY_FALLBACK;
+  if (fb && fb !== "demo") {
+    const fbUrl = `https://eth-mainnet.g.alchemy.com/v2/${fb}`;
+    if (fbUrl !== primary) urls.push(fbUrl);
+  }
+  urls.push(...PUBLIC_RPC_URLS);
+  return urls;
+}
+
 // Hex-encode a uint256 padded to 32 bytes (no `0x` prefix).
 function pad32(value) {
   let h = BigInt(value).toString(16);
@@ -156,7 +187,7 @@ function padAddr(addr) {
   return stripped.padStart(64, "0");
 }
 
-async function ethCall(url, to, data) {
+async function ethCallOnce(url, to, data) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -178,6 +209,23 @@ async function ethCall(url, to, data) {
   return json.result;
 }
 
+// RESIL-1: walk the RPC chain. Deterministic JSON-RPC errors (execution
+// revert — the "token not minted / not ERC721" signal) are NOT retried:
+// every node returns the same answer and callers map them to a 4xx. Only
+// transport-level failures (HTTP !ok, network throw) move to the next URL.
+async function ethCall(to, data) {
+  let lastErr = null;
+  for (const url of rpcUrlChain()) {
+    try {
+      return await ethCallOnce(url, to, data);
+    } catch (err) {
+      if (err.rpcError) throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error("alchemy-not-configured");
+}
+
 /**
  * Fetch the current Seaport counter for an offerer. Required because the
  * Seaport EIP-712 message includes a nonce that the wallet doesn't expose.
@@ -186,10 +234,9 @@ async function ethCall(url, to, data) {
  * @returns {Promise<bigint>}
  */
 export async function fetchSeaportCounter(offerer) {
-  const url = alchemyUrl();
-  if (!url) throw new Error("alchemy-not-configured");
+  if (!alchemyUrl()) throw new Error("alchemy-not-configured");
   const data = `${SELECTOR_GET_COUNTER}${padAddr(offerer)}`;
-  const result = await ethCall(url, SEAPORT_VERIFYING_CONTRACT, data);
+  const result = await ethCall(SEAPORT_VERIFYING_CONTRACT, data);
   if (!result || result === "0x") return 0n;
   return BigInt(result);
 }
@@ -202,16 +249,17 @@ export async function fetchSeaportCounter(offerer) {
  * @returns {Promise<string>} lowercase address
  */
 export async function fetchNftOwner(contract, tokenId) {
-  const url = alchemyUrl();
-  if (!url) throw new Error("alchemy-not-configured");
+  if (!alchemyUrl()) throw new Error("alchemy-not-configured");
   const data = `${SELECTOR_OWNER_OF}${pad32(tokenId)}`;
   let result;
   try {
-    result = await ethCall(url, contract, data);
+    result = await ethCall(contract, data);
   } catch (err) {
     // Token not minted / burned / contract reverts → propagate so caller
-    // can return a 4xx, not a 5xx.
-    err.code = "OWNER_OF_REVERT";
+    // can return a 4xx, not a 5xx. RESIL-1: only deterministic JSON-RPC
+    // reverts carry the 4xx tag; a transport failure that exhausted the
+    // whole RPC chain stays untagged so callers map it to rpc-unavailable.
+    if (err.rpcError) err.code = "OWNER_OF_REVERT";
     throw err;
   }
   if (!result || result === "0x" || result.length < 66) {

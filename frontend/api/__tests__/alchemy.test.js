@@ -85,6 +85,73 @@ describe("alchemy — R048 auth header migration", () => {
   });
 });
 
+describe("alchemy — RESIL-1 fallback key failover", () => {
+  let handler;
+  let fetchMock;
+
+  const failRes = (status) => ({
+    ok: false,
+    status,
+    headers: { get: () => null },
+    body: null,
+    text: async () => JSON.stringify({ error: "upstream" }),
+  });
+  const okRes = () => ({
+    ok: true,
+    headers: { get: () => null },
+    body: null,
+    text: async () => JSON.stringify({ ownersForCollection: [] }),
+  });
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.ALCHEMY_API_KEY = "primary-key-aaaaaaaaaaaaaaaaaaaa";
+    process.env.ALCHEMY_API_KEY_FALLBACK = "fallback-key-bbbbbbbbbbbbbbbb";
+    process.env.NODE_ENV = "test";
+    handler = (await import("../alchemy.js")).default;
+  });
+
+  afterEach(() => {
+    delete process.env.ALCHEMY_API_KEY;
+    delete process.env.ALCHEMY_API_KEY_FALLBACK;
+  });
+
+  it("retries once with the fallback key on upstream 401", async () => {
+    fetchMock = vi.fn().mockResolvedValueOnce(failRes(401)).mockResolvedValueOnce(okRes());
+    globalThis.fetch = fetchMock;
+    const req = makeReq({ query: { endpoint: "getOwnersForContract", contractAddress: NAKAMIGOS } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer primary-key-aaaaaaaaaaaaaaaaaaaa");
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe("Bearer fallback-key-bbbbbbbbbbbbbbbb");
+    expect(statusSpy).toHaveBeenCalledWith(200);
+  });
+
+  it("does NOT retry deterministic 4xx (404) — single fetch, opaque 502", async () => {
+    fetchMock = vi.fn().mockResolvedValue(failRes(404));
+    globalThis.fetch = fetchMock;
+    const req = makeReq({ query: { endpoint: "getOwnersForContract", contractAddress: NAKAMIGOS } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+
+  it("makes a single fetch when ALCHEMY_API_KEY_FALLBACK is unset (pre-RESIL-1 behavior)", async () => {
+    delete process.env.ALCHEMY_API_KEY_FALLBACK;
+    vi.resetModules();
+    handler = (await import("../alchemy.js")).default;
+    fetchMock = vi.fn().mockResolvedValue(failRes(429));
+    globalThis.fetch = fetchMock;
+    const req = makeReq({ query: { endpoint: "getOwnersForContract", contractAddress: NAKAMIGOS } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+});
+
 describe("alchemy — R049 body cap (gzip-bomb / OOM defense)", () => {
   let handler;
   let fetchMock;
