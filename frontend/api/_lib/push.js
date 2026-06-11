@@ -37,7 +37,7 @@ export async function sendPushToWallet(supabase, wallet, payload) {
     if (!ensureConfigured() || !supabase || !wallet) return;
     const { data: subs } = await supabase
       .from("push_subscriptions")
-      .select("endpoint, keys")
+      .select("endpoint, p256dh, auth")
       .eq("wallet", wallet.toLowerCase())
       .limit(10);
     if (!subs || subs.length === 0) return;
@@ -46,7 +46,7 @@ export async function sendPushToWallet(supabase, wallet, payload) {
     await Promise.allSettled(subs.map(async (sub) => {
       try {
         await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: sub.keys },
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           body,
           { TTL: 3600 }
         );

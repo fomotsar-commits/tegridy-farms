@@ -84,22 +84,17 @@ const dm_read = z.object({
   read_at: z.string().datetime(),
 }).strict();
 
-// Web-push subscriptions: wallet must match the JWT (enforced below); the
-// endpoint is the browser push service URL and keys are the standard
-// p256dh/auth pair from PushSubscription.toJSON().
+// Web-push subscriptions: wallet must match the JWT (enforced below). Flat
+// p256dh/auth columns per migration 002's canonical push_subscriptions
+// schema (NOT a nested keys object).
 const push_subscription = z.object({
   wallet: wallet,
   endpoint: z.string().url().max(500),
-  keys: z.object({
-    p256dh: z.string().min(1).max(200),
-    auth: z.string().min(1).max(100),
-  }).strict(),
-  preferences: z.record(z.string().max(40), z.boolean()).optional(),
+  p256dh: z.string().min(1).max(200),
+  auth: z.string().min(1).max(100),
+  user_agent: z.string().max(300).optional(),
 }).strict();
 
-const push_preferences = z.object({
-  preferences: z.record(z.string().max(40), z.boolean()),
-}).strict();
 
 // Accept single row or array of rows. The typical writer for
 // user_favorites/user_watchlist upserts an array of selections in one call.
@@ -137,7 +132,6 @@ const TABLE_SCHEMAS = {
   push_subscriptions: {
     INSERT: push_subscription,
     UPSERT: push_subscription,
-    UPDATE: push_preferences,
   },
 };
 

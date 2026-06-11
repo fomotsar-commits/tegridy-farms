@@ -96,10 +96,16 @@ export async function subscribeToPush(wallet) {
   });
 
   const sub = subscription.toJSON();
+  // Flat p256dh/auth columns to match migration 002's canonical schema.
   await pushProxy({
     table: "push_subscriptions",
     method: "UPSERT",
-    body: { wallet: wallet.toLowerCase(), endpoint: sub.endpoint, keys: sub.keys },
+    body: {
+      wallet: wallet.toLowerCase(),
+      endpoint: sub.endpoint,
+      p256dh: sub.keys?.p256dh,
+      auth: sub.keys?.auth,
+    },
   });
 
   return subscription;
@@ -130,19 +136,12 @@ export async function unsubscribeFromPush(wallet) {
 /**
  * Update notification preferences.
  */
-export async function updatePreferences(wallet, preferences) {
-  if (!wallet) return;
-  try {
-    // Applies to all of the wallet's subscriptions (see unsubscribe note).
-    await pushProxy({
-      table: "push_subscriptions",
-      method: "UPDATE",
-      body: { preferences },
-      match: { wallet: wallet.toLowerCase() },
-    });
-  } catch (err) {
-    console.error("updatePreferences failed:", err);
-  }
+// Per-type preferences are not yet persisted — migration 002's
+// push_subscriptions schema has no preferences column. The bell is a single
+// on/off for all trade alerts. No-op kept so callers don't break; wire a
+// preferences column + this body when granular toggles ship.
+export async function updatePreferences() {
+  return;
 }
 
 /**
