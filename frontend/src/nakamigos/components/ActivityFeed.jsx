@@ -11,6 +11,7 @@ const EVENT_COLORS = {
   bid: "var(--purple)",
   transfer: "var(--text-dim)",
   mint: "var(--gold)",
+  trade: "var(--naka-blue)",
 };
 const EVENT_LABELS = {
   sale: "Sale",
@@ -18,6 +19,7 @@ const EVENT_LABELS = {
   bid: "Bid",
   transfer: "Transfer",
   mint: "Mint",
+  trade: "⇄ Trade",
 };
 
 const DATE_RANGE_OPTIONS = [
@@ -52,6 +54,16 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
   // (vs network error / fallback). Helps show a more informative empty state.
   const [apiEmpty, setApiEmpty] = useState(false);
   const [apiFallback, setApiFallback] = useState(false);
+  // Executed P2P trades surfaced alongside marketplace events
+  const [tradeEvents, setTradeEvents] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!collection?.contract) return;
+    import("../lib/trades").then(({ fetchTradeFeed }) =>
+      fetchTradeFeed(collection.contract).then((rows) => { if (!cancelled) setTradeEvents(rows); })
+    ).catch(() => {});
+    return () => { cancelled = true; };
+  }, [collection?.contract]);
 
   // Clear state and re-fetch when the active collection changes
   useEffect(() => {
@@ -101,8 +113,15 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
     loadActivities(daysBack);
   }, [daysBack, loadActivities]);
 
-  // Merge: WebSocket/prop activities overlay on top of fetched data
+  // Merge: WebSocket/prop activities overlay on top of fetched data, plus
+  // executed P2P trades (deduped by their own hashes, sorted on render).
   const activities = useMemo(() => {
+    const base = mergeBase();
+    if (tradeEvents.length === 0) return base;
+    const merged = [...base, ...tradeEvents].sort((a, b) => (b.time || 0) - (a.time || 0));
+    return merged;
+
+    function mergeBase() {
     if (!propActivities?.length) return fetchedActivities;
     if (!fetchedActivities.length) return propActivities;
     // Deduplicate by hash+tokenId so bundle sales (multiple NFTs in one tx) are preserved
@@ -119,7 +138,8 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
       merged.push(a);
     }
     return merged;
-  }, [propActivities, fetchedActivities]);
+    }
+  }, [propActivities, fetchedActivities, tradeEvents]);
 
   // Only show filter types that exist in the data
   const availableTypes = useMemo(() => {

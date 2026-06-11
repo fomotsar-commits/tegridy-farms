@@ -154,8 +154,8 @@ export default async function handler(req, res) {
     // class as listings), so reads are open; writes are verified below.
     if (action === "trade-query") {
       const { wallet, role = "incoming" } = req.query;
-      // The public board needs no wallet; inbox/outbox views do.
-      if (role !== "board" && !isValidAddress(wallet || "")) {
+      // The public board and feed need no wallet; inbox/outbox views do.
+      if (role !== "board" && role !== "feed" && !isValidAddress(wallet || "")) {
         return res.status(400).json({ error: "Missing or invalid wallet" });
       }
       const tStatus = String(req.query.status || "active");
@@ -166,14 +166,23 @@ export default async function handler(req, res) {
       const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
       try {
         let q = supabase.from("trade_offers").select("*");
-        if (role === "board") {
+        if (role === "feed") {
+          // Public per-collection feed of EXECUTED trades (activity surface).
+          const feedContract = String(req.query.contract || "").toLowerCase();
+          if (!ALLOWED_CONTRACTS.has(feedContract)) {
+            return res.status(400).json({ error: "Missing or unsupported contract" });
+          }
+          const probe = JSON.stringify([{ contract: feedContract }]);
+          q = q.eq("status", "accepted").or(`offered.cs.${probe},requested.cs.${probe}`);
+        } else if (role === "board") {
           q = q.eq("is_open", true);
-        } else if (role === "outgoing") {
-          q = q.eq("offerer", wallet.toLowerCase());
+          if (tStatus !== "all") q = q.eq("status", tStatus);
         } else {
-          q = q.eq("target_owner", wallet.toLowerCase());
+          q = role === "outgoing"
+            ? q.eq("offerer", wallet.toLowerCase())
+            : q.eq("target_owner", wallet.toLowerCase());
+          if (tStatus !== "all") q = q.eq("status", tStatus);
         }
-        if (tStatus !== "all") q = q.eq("status", tStatus);
         const { data, error } = await q.order("created_at", { ascending: false }).limit(lim);
         if (error) throw new Error(error.message);
         // Surface expiry without a write: callers treat expired-but-active

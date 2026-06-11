@@ -364,6 +364,39 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
   }
 }
 
+/** Executed-trade feed for one collection (public). Mapped for the activity surface. */
+export async function fetchTradeFeed(contract) {
+  try {
+    const res = await fetch(`/api/orderbook?action=trade-query&role=feed&contract=${contract}&limit=25`);
+    if (!res.ok) return [];
+    const { trades } = await res.json();
+    return (trades || []).map((t) => {
+      const firstOffered = (t.offered || [])[0];
+      const firstRequested = (t.requested || [])[0];
+      const label = `#${firstOffered?.tokenId ?? "?"} ⇄ ${firstRequested?.any ? "any" : `#${firstRequested?.tokenId ?? "?"}`}${(t.offered || []).length + (t.requested || []).length > 2 ? " +" : ""}`;
+      let priceEth = null;
+      try {
+        const wei = BigInt(t.eth_topup_wei || "0") + BigInt(t.weth_topup_wei || "0");
+        priceEth = wei > 0n ? Number(wei / 10n ** 12n) / 1e6 : null;
+      } catch { /* malformed */ }
+      return {
+        type: "trade",
+        token: { id: firstOffered?.tokenId ?? "", name: label },
+        price: priceEth,
+        from: t.offerer ? `${t.offerer.slice(0, 6)}...${t.offerer.slice(-4)}` : null,
+        fromFull: t.offerer || null,
+        to: t.target_owner ? `${t.target_owner.slice(0, 6)}...${t.target_owner.slice(-4)}` : "board",
+        toFull: t.target_owner || null,
+        time: new Date(t.updated_at || t.created_at).getTime(),
+        marketplace: "p2p",
+        hash: t.accepted_tx || null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** Query trades. role: "incoming" (taker) | "outgoing" (maker) | "board" (public open trades — no wallet needed). */
 export async function fetchTrades({ wallet, role = "incoming", status = "active" }) {
   if (!wallet && role !== "board") return { trades: [] };

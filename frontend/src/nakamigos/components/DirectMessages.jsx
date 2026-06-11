@@ -257,20 +257,43 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
     }
   }, [wallet, peer, loadConvos]);
 
-  const handleSend = useCallback(async () => {
-    const trimmed = text.trim();
-    if (!trimmed || !wallet || !peer || sending) return;
-    if (trimmed.length > MAX_CHARS) return;
+  const sendBody = useCallback(async (body, tradeId = null) => {
+    if (!body || !wallet || !peer || sending) return;
     setSending(true);
     nearBottomRef.current = true;
+    const key = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setPending((prev) => [...prev, { key, text: body, tradeId, failed: false }]);
+    await doSend(body, tradeId, key);
+    setSending(false);
+  }, [wallet, peer, sending, doSend]);
+
+  const handleSend = useCallback(async () => {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.length > MAX_CHARS) return;
     const tradeId = pendingTradeRef.current;
     pendingTradeRef.current = null;
-    const key = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setPending((prev) => [...prev, { key, text: trimmed, tradeId, failed: false }]);
     setText("");
-    await doSend(trimmed, tradeId, key);
-    setSending(false);
-  }, [text, wallet, peer, sending, doSend]);
+    await sendBody(trimmed, tradeId);
+  }, [text, sendBody]);
+
+  // No shared trade history = the classic impersonation setup; say so.
+  const hasTradeHistory = useMemo(() => {
+    if (!peer) return true;
+    return Object.values(tradesById).some(
+      (t) => t.offerer?.toLowerCase() === peer || t.target_owner?.toLowerCase() === peer
+    );
+  }, [tradesById, peer]);
+
+  // Quick replies under the newest trade card the PEER sent
+  const latestPeerTradeMsgId = useMemo(() => {
+    let best = null;
+    for (const m of thread) {
+      if (m.tradeId && m.sender.toLowerCase() === peer) {
+        if (!best || m.timestamp > best.timestamp) best = m;
+      }
+    }
+    return best?.id || null;
+  }, [thread, peer]);
 
   const retryPending = useCallback((p) => {
     setPending((prev) => prev.map((x) => (x.key === p.key ? { ...x, failed: false } : x)));
@@ -464,6 +487,16 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                   {blocked.has(peer) ? "Unblock" : "Block"}
                 </button>
               </div>
+              {!hasTradeHistory && (
+                <div style={{
+                  fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)",
+                  background: "rgba(212,168,67,0.06)", border: "1px solid rgba(212,168,67,0.15)",
+                  borderRadius: 6, padding: "6px 10px", marginBottom: 8, lineHeight: 1.5,
+                }}>
+                  {"⚠"} No trade history with this wallet. Verify who you're talking to — never act on
+                  links or addresses pasted in chat, and only execute trades through the trade cards.
+                </div>
+              )}
               <div
                 ref={listRef}
                 onScroll={onScroll}
@@ -517,6 +550,26 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
                                 {fmtClock(m.timestamp)}
                                 {own && m.id === lastReadOwnId && <span style={{ marginLeft: 5, color: "var(--naka-blue)" }}>{"✓✓ read"}</span>}
                               </div>
+                              {/* Quick replies on the peer's newest trade card */}
+                              {m.id === latestPeerTradeMsgId && (
+                                <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
+                                  {["Interested 👀", "Can you sweeten it?", "No thanks"].map((reply) => (
+                                    <button
+                                      key={reply}
+                                      disabled={sending}
+                                      onClick={() => sendBody(reply)}
+                                      style={{
+                                        fontFamily: "var(--mono)", fontSize: 8, padding: "4px 9px",
+                                        borderRadius: 10, cursor: "pointer",
+                                        background: "rgba(111,168,220,0.06)", border: "1px solid rgba(111,168,220,0.2)",
+                                        color: "var(--naka-blue)",
+                                      }}
+                                    >
+                                      {reply}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
