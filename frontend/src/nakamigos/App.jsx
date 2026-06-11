@@ -740,7 +740,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       )}
       {/* key={tab}: a crashed tab must not stay latched across navigation —
           without it one tab error bricks every subsequent tab (prod 2026-06-11) */}
-      <ErrorBoundary key={tab} title="Tab error" onReset={() => handleTabChange("gallery")}>
+      {/* No onReset navigation: Try Again should retry THIS tab (the boundary
+          clears its own error state); the Go Home button is the escape hatch. */}
+      <ErrorBoundary key={tab} title="Tab error">
       <Suspense fallback={<LazyFallback />}>
       <PageTransition tabKey={tab}>
         {renderTab()}

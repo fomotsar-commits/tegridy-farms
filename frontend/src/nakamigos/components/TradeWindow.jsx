@@ -501,7 +501,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
           Signing is gas-free. Your items only move if the counterparty accepts, in one atomic Seaport transaction.
-          Offers expire in 72h. P2P trades carry no platform fee.
+          Offers expire in 72h. NFT-for-NFT swaps carry no fee.
         </div>
       </div>
     </div>

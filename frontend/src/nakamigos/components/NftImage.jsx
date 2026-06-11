@@ -1,9 +1,9 @@
 import { useState, useEffect, memo } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
 
-// Alchemy NFT image CDN — direct URL, no API key needed
-const alchemyCdnUrl = (tokenId, contract) =>
-  `https://nft-cdn.alchemy.com/eth-mainnet/${contract}/${tokenId}`;
+// (The old nft-cdn.alchemy.com/<contract>/<tokenId> direct-URL fallback was
+// removed 2026-06-11: that format now returns 403 for every collection here.
+// BidManager/MyListings still carry their own copies as last-resort fallbacks.)
 
 // Alchemy metadata API fallback — routed through server proxy to hide API key
 const alchemyMetadataProxy = (tokenId, contract) =>
@@ -54,7 +54,12 @@ function setCachedFailed(id) {
   evictOldest();
 }
 
-export default memo(function NftImage({ nft, style, className, large, priority }) {
+// noSelfFetch: the caller is batch-fetching metadata for this token (e.g. the
+// listings grid via fetchTokensByIds) — render the placeholder without firing
+// a per-card /api/alchemy fetch. Sixty cards mounting at once each doing their
+// own metadata fetch tripped the proxy rate limit and locked the buy grid into
+// letter placeholders for minutes (prod 2026-06-11).
+export default memo(function NftImage({ nft, style, className, large, priority, noSelfFetch }) {
   const collection = useActiveCollection();
   const cacheKey = `${collection.contract}:${nft.id}`;
   const [failCount, setFailCount] = useState(0);
@@ -72,7 +77,7 @@ export default memo(function NftImage({ nft, style, className, large, priority }
     setDynamicSrc(cached);
 
     // If no image URL at all, immediately try metadata API
-    if (!cached && !primarySrc && nft.id) {
+    if (!cached && !primarySrc && nft.id && !noSelfFetch) {
       (async () => {
         try {
           const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
@@ -90,52 +95,27 @@ export default memo(function NftImage({ nft, style, className, large, priority }
         setFailCount(3);
       })();
     }
-  }, [cacheKey, primarySrc, nft.id, collection.contract]);
+  }, [cacheKey, primarySrc, nft.id, collection.contract, noSelfFetch]);
 
   const handleError = async () => {
     if (failCount === 0 && nft.id) {
-      // First failure: skip CDN for non-Nakamigos (returns 503), go straight to metadata API
-      if (!collection.metadataBase) {
-        setFailCount(2);
-        try {
-          const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
-          if (res.ok) {
-            const data = await res.json();
-            const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || resolveIpfs(data.raw?.metadata?.image);
-            if (url) {
-              setDynamicSrc(url);
-              setCachedUrl(cacheKey, url);
-              return;
-            }
-          }
-        } catch { /* fall through */ }
-        setCachedFailed(cacheKey);
-        setFailCount(3);
-        return;
-      }
-      // Nakamigos: try Alchemy CDN direct URL
-      setFailCount(1);
-      const cdnUrl = alchemyCdnUrl(nft.id, collection.contract);
-      setDynamicSrc(cdnUrl);
-      setCachedUrl(cacheKey, cdnUrl);
-      return;
-    }
-
-    if (failCount === 1 && nft.id) {
-      // Second failure: try fetching URL from Alchemy metadata API
+      // First failure: go straight to the metadata API. (The old intermediate
+      // hop — nft-cdn.alchemy.com/<contract>/<tokenId> — now 403s for
+      // Nakamigos too, and setting an identical failing src never re-fires
+      // onError, which stalled the whole chain.)
       setFailCount(2);
       try {
         const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
         if (res.ok) {
           const data = await res.json();
           const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || resolveIpfs(data.raw?.metadata?.image);
-          if (url) {
+          if (url && url !== src) {
             setDynamicSrc(url);
             setCachedUrl(cacheKey, url);
             return;
           }
         }
-      } catch { /* fall through to placeholder */ }
+      } catch { /* fall through */ }
       setCachedFailed(cacheKey);
       setFailCount(3);
       return;
@@ -147,8 +127,14 @@ export default memo(function NftImage({ nft, style, className, large, priority }
   };
 
   if (failCount >= 3 || !src) {
+    // While a caller-side batch fetch is pending, pulse to read as "loading"
+    // rather than "missing".
+    const pending = noSelfFetch && failCount < 3;
     return (
-      <div className="nft-placeholder" style={style}>
+      <div
+        className="nft-placeholder"
+        style={pending ? { ...style, animation: "pulse 1.6s ease-in-out infinite" } : style}
+      >
         <div style={{ textAlign: "center" }}>
           <div className="nft-placeholder-icon">{collection.name?.[0] || "?"}</div>
           <div className="nft-placeholder-id">#{nft.id}</div>

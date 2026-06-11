@@ -436,6 +436,17 @@ export default function Deals({
   const [newDealsCount, setNewDealsCount] = useState(0);
   const prevDealsRef = useRef(null);
 
+  // Slow-load detection: the tab used to spin 20s+ with no message when
+  // marketplace data crawled (prod 2026-06-11) — surface that it's the
+  // upstream, not a hang.
+  const isInitialLoading = listingsLoading || tokens.length === 0;
+  const [slowLoad, setSlowLoad] = useState(false);
+  useEffect(() => {
+    if (!isInitialLoading) { setSlowLoad(false); return; }
+    const t = setTimeout(() => setSlowLoad(true), 12000);
+    return () => clearTimeout(t);
+  }, [isInitialLoading]);
+
   // Filters
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
@@ -675,7 +686,7 @@ export default function Deals({
   /* ══════════════════════════════════════════════
      LOADING STATE
      ══════════════════════════════════════════════ */
-  if (listingsLoading || tokens.length === 0) {
+  if (isInitialLoading) {
     return (
       <section style={S.page}>
         <div style={S.header}>
@@ -685,6 +696,12 @@ export default function Deals({
         <div style={S.emptyState}>
           <div className="spinner" style={{ margin: "0 auto 16px" }} />
           Loading listings and trait data...
+          {slowLoad && (
+            <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-dim)" }}>
+              Marketplace data is responding slowly right now — still trying.
+              Deals appear as soon as the first listings land.
+            </div>
+          )}
         </div>
       </section>
     );
@@ -702,11 +719,25 @@ export default function Deals({
         </div>
         <div style={S.emptyState}>
           <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.5 }}>{"🔍"}</div>
-          No deals found right now. All listings are priced at or above their trait floors.
-          <br />
-          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            Deals auto-refresh every 60 seconds. Check back soon!
-          </span>
+          {hasMore ? (
+            <>
+              Scanning for deals&hellip; {tokens.length.toLocaleString()}
+              {collection.supply ? ` of ${collection.supply.toLocaleString()}` : ""} tokens analyzed.
+              <br />
+              <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                Trait floors sharpen as more of the collection loads — deals can
+                surface at any moment.
+              </span>
+            </>
+          ) : (
+            <>
+              No deals found right now. All listings are priced at or above their trait floors.
+              <br />
+              <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                Deals auto-refresh every 60 seconds. Check back soon!
+              </span>
+            </>
+          )}
         </div>
       </section>
     );
@@ -723,6 +754,13 @@ export default function Deals({
         <div style={S.subtitle}>
           NFTs listed below their trait floor value &mdash; {collection.name}
         </div>
+        {hasMore && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>
+            Scanning: {tokens.length.toLocaleString()}
+            {collection.supply ? ` / ${collection.supply.toLocaleString()}` : ""} tokens
+            loaded &mdash; results refine live
+          </div>
+        )}
       </div>
 
       {/* Summary Stats */}

@@ -453,7 +453,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
         <div>
           <div style={{ fontFamily: "var(--pixel)", fontSize: 13, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>P2P TRADES</div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 5 }}>
-            NFT-for-NFT swaps, settled atomically on Seaport. No platform fee.
+            NFT-for-NFT swaps, settled atomically on Seaport. Pure NFT swaps are fee-free.
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

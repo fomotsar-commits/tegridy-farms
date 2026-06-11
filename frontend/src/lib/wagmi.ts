@@ -12,8 +12,10 @@ const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | unde
 const transports = {
   [mainnet.id]: fallback([
     http('https://ethereum-rpc.publicnode.com'),
-    http('https://eth.llamarpc.com'),
     http('https://rpc.ankr.com/eth'),
+    // llamarpc demoted to last-resort: observed 503/521 (origin down) in prod
+    // on 2026-06-11 — rank:true heals mid-session but first hits still pay.
+    http('https://eth.llamarpc.com'),
     http(), // wagmi default public fallback
   ], { rank: true }),
 };

@@ -173,17 +173,25 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
   const [visibleCount, setVisibleCount] = useState(RENDER_CHUNK);
   const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
-  // Stats are computed from fetchedActivities (the user's chosen time range)
-  // rather than the merged list, so they accurately reflect the selected period
+  // Stats prefer fetchedActivities (server-filtered to the chosen time range);
+  // when that fetch fails or returns empty while the stream/prop source still
+  // fills the list, fall back to the merged list so the header never reads
+  // "0 SALES" above visible sales (prod 2026-06-11).
+  const statsSource = useMemo(() => {
+    return (fetchedActivities && fetchedActivities.length > 0)
+      ? fetchedActivities
+      : (activities || []);
+  }, [fetchedActivities, activities]);
+
   const totalVolume = useMemo(() => {
-    return (fetchedActivities || [])
+    return statsSource
       .filter((a) => a.type === "sale" && a.price)
       .reduce((sum, a) => sum + a.price, 0);
-  }, [fetchedActivities]);
+  }, [statsSource]);
 
   const salesCount = useMemo(() => {
-    return (fetchedActivities || []).filter((a) => a.type === "sale").length;
-  }, [fetchedActivities]);
+    return statsSource.filter((a) => a.type === "sale").length;
+  }, [statsSource]);
 
   return (
     <section className="activity-section">

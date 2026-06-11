@@ -164,7 +164,14 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       return {
         id: listing.tokenId,
         name: token?.name || `${collection.name} #${listing.tokenId}`,
-        image: token?.image || null, // Let NftImage fetch thumbnail via metadata API
+        // No deterministic image URL exists (Nakamigos metadata points at
+        // per-token IPFS CIDs; the old CDN contract/tokenId format 403s now).
+        // Leave null and let the batched fetchTokensByIds enrichment fill it —
+        // imagePending suppresses NftImage's per-card metadata fetch, whose
+        // 60-call mount storm tripped the proxy rate limit and froze the buy
+        // grid as letter placeholders for minutes (prod 2026-06-11).
+        image: token?.image || null,
+        imagePending: !token,
         imageLarge: token?.imageLarge || fullResImg,
         attributes: token?.attributes || [],
         rank: token?.rank || null,
@@ -414,11 +421,13 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         </div>
         {priceStats && (
           <div className="listings-stat-card">
-            <div className="listings-stat-label">AVG / MEDIAN</div>
+            {/* Median leads: one whale listing drags the mean far above what
+                anyone actually pays (6.9 avg vs 0.45 median in prod). */}
+            <div className="listings-stat-label">MEDIAN / AVG</div>
             <div className="listings-stat-value" style={{ color: "var(--text)", fontSize: 18 }}>
-              <Eth size={14} /> {priceStats.avg.toFixed(4)}
+              <Eth size={14} /> {priceStats.median.toFixed(4)}
               <span style={{ fontSize: 11, color: "var(--text-dim)", fontWeight: 400, marginLeft: 4 }}>
-                / {priceStats.median.toFixed(4)}
+                / {priceStats.avg.toFixed(4)}
               </span>
             </div>
           </div>
@@ -772,7 +781,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               return (
               <div key={`${nft.id}-${idx}`} className="listing-card" onClick={() => onPick(nft)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); } }} role="button" tabIndex={0} aria-label={`${nft.name}${nft.price ? `, ${nft.price} ETH` : ""}`} style={isSelected ? { border: "2px solid var(--naka-blue)" } : undefined}>
                 <div className="listing-card-image">
-                  <NftImage nft={nft} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <NftImage nft={nft} noSelfFetch={nft.imagePending} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   {nft.rank && <div className="listing-card-rank">#{nft.rank}</div>}
                   {nft.marketplace && (
                     <div style={{
