@@ -17,8 +17,8 @@ const PROTOCOL_RISKS: Array<{
   },
   {
     title: 'Patched contracts not yet redeployed on-chain',
-    status: 'In progress',
-    body: 'Several contracts have fixes merged in the repository but are still running the older bytecode on mainnet: VoteIncentives, TegridyLending, TegridyNFTPool (template + factory), TegridyFeeHook (with the patched constructor), TegridyLaunchpadV2, and TegridyStaking (autoMaxLock + getReward stuck-state fix landed in commit d8ba708 — affects only positions with autoMaxLock enabled that go silent past their lockEnd). Pass-7 (May 4 2026) added more to this queue: TegridyTWAP (drop V3-AMM-L1 fail-open carve-out), POLAccumulator (mirror lending bypass-cooldown), GaugeController (block re-add while pendingGaugeRemove set), TegridyLPFarming (auto-refresh boost in updateReward), TegridyLending (+TegridyNFTLending) major architectural changes (snapshot-and-delta cross-loan attribution, _safeOutboundTransfer + claimStuckCollateral on the lending side), TegridyFeeHook (manager.take inside afterSwap to settle V4 hookDelta), SwapFeeRouter (L2 sequencer awareness via one-shot setSequencerFeed). Until the redeploys broadcast, the on-chain surfaces carry the pre-fix behaviour — see FIX_STATUS.md for the exact list and blast radius.',
+    status: 'Mitigated',
+    body: 'Resolved by the June 6, 2026 relaunch: the live protocol was redeployed from scratch from a new deployer, so every contract running on mainnet today carries fresh bytecode that includes the previously-merged fixes (including the autoMaxLock/getReward stuck-state fix and the Pass-7 remediations). The contracts that have not been redeployed — gauge voting, vote incentives, grants, premium, lending, NFT pools, launchpad — are not running old bytecode either: they are not deployed at all. Their addresses are zeroed in the app and each feature un-gates only after its contract clears a pre-deploy audit wave and goes live.',
   },
   {
     title: 'Treasury is an EOA / multisig, not a smart contract',
@@ -424,7 +424,7 @@ export default function RisksPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: May 4, 2026 (Pass-7 audit + remediation)
+            Last updated: June 11, 2026 (post-relaunch honesty pass)
           </p>
         </m.div>
       </div>

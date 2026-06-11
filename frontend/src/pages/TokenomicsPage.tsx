@@ -7,7 +7,7 @@ import {
   TOWELI_ADDRESS, TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS,
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS,
   REFERRAL_SPLITTER_ADDRESS, PREMIUM_ACCESS_ADDRESS, POL_ACCUMULATOR_ADDRESS,
-  ETHERSCAN_TOKEN, UNISWAP_BUY_URL, GECKOTERMINAL_URL,
+  TREASURY_ADDRESS, ETHERSCAN_TOKEN, UNISWAP_BUY_URL, GECKOTERMINAL_URL,
   TOWELI_TOTAL_SUPPLY, isDeployed,
 } from '../lib/constants';
 import { formatNumber, shortenAddress } from '../lib/formatting';
@@ -20,14 +20,16 @@ import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ArtImg } from '../components/ArtImg';
 
 // AUDIT R035: Split mirrors TOKENOMICS.md (source of truth) — Circulating 45 /
-// LP Seed 30 / Treasury 10 / Community Emissions 10 / Team (vesting) 5.
+// LP Seed 30 / Treasury 10 / Community Emissions 10 / Team 5.
 // Investors 0% omitted from the pie. Distinct fills so the legend reads.
+// HONESTY PASS 2026-06-11: there is no on-chain vesting contract for the team
+// allocation — the label must say so instead of implying enforced vesting.
 const SUPPLY_DATA = [
   { name: 'Circulating', value: 45, color: '#ffb237' },
   { name: 'LP Seed', value: 30, color: '#ff4ea3' },
   { name: 'Treasury', value: 10, color: '#8b5cf6' },
   { name: 'Community', value: 10, color: '#22c55e' },
-  { name: 'Team (vesting)', value: 5, color: '#3b82f6' },
+  { name: 'Team (locked by policy — on-chain vesting pending)', value: 5, color: '#3b82f6' },
 ];
 
 const CONTRACTS = [
@@ -43,7 +45,7 @@ const CONTRACTS = [
 ];
 
 export default function TokenomicsPage() {
-  usePageTitle('Tokenomics', 'TOWELI token distribution, supply mechanics, and vesting schedules.');
+  usePageTitle('Tokenomics', 'TOWELI token distribution, supply mechanics, and emission schedule.');
   const price = useTOWELIPrice();
   const pool = usePoolData();
   const priceHistory = usePriceHistory(price.priceInUsd);
@@ -51,7 +53,11 @@ export default function TokenomicsPage() {
 
   const rewardPerDay = Number.isFinite(parseFloat(pool.rewardRate)) ? parseFloat(pool.rewardRate) * 86400 : 0;
   const totalFunded = Number.isFinite(parseFloat(pool.totalRewardsFunded)) ? parseFloat(pool.totalRewardsFunded) : 0;
-  const daysLeft = rewardPerDay > 0 ? totalFunded / rewardPerDay : 0;
+  // HONESTY PASS 2026-06-11: totalRewardsFunded is cumulative (never goes down),
+  // so the old "funded ÷ rate" runway never counted down. The honest figures come
+  // from the contract's own periodFinish clock (read in usePoolData).
+  const rewardsRemaining = Number.isFinite(parseFloat(pool.rewardsRemaining)) ? parseFloat(pool.rewardsRemaining) : 0;
+  const daysLeft = pool.secondsRemaining > 0 ? pool.secondsRemaining / 86400 : 0;
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -150,8 +156,8 @@ export default function TokenomicsPage() {
               {[
                 { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
                 { l: 'Rewards / Second', v: pool.isDeployed ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
-                { l: 'Total Funded', v: pool.isDeployed ? `${formatNumber(totalFunded, 0)} TOWELI` : '–' },
-                { l: 'Est. Duration', v: pool.isDeployed && daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : '–' },
+                { l: 'Funded (lifetime)', v: pool.isDeployed ? `${formatNumber(totalFunded, 0)} TOWELI` : '–' },
+                { l: 'Emissions End In', v: pool.isDeployed && daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : pool.isDeployed ? 'Period ended' : '–' },
               ].map((r) => (
                 <div key={r.l} className="flex items-center justify-between">
                   <span className="text-white text-[13px]">{r.l}</span>
@@ -160,7 +166,8 @@ export default function TokenomicsPage() {
               ))}
               <div className="pt-3 accent-divider" />
               <p className="text-white text-[11px] leading-relaxed pt-2">
-                Rewards split: LP Pool (60%) + Staking Pool (40%). 100% of protocol revenue goes to stakers.
+                Emissions come from a one-time fixed seed — no ongoing minting. Protocol swap fees
+                route on-chain to stakers via the RevenueDistributor once the native pool is live.
               </p>
             </div>
             </div>
@@ -176,25 +183,31 @@ export default function TokenomicsPage() {
           <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="heading-luxury text-[15px] text-white">Community Treasury</h2>
-              <a href={`https://etherscan.io/address/${TEGRIDY_STAKING_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+              {/* HONESTY PASS 2026-06-11: link points at the actual treasury Safe,
+                  not the staking contract. */}
+              <a href={`https://etherscan.io/address/${TREASURY_ADDRESS}`} target="_blank" rel="noopener noreferrer"
                 className="text-[11px] text-white hover:text-white transition-colors">
                 View on Etherscan &#8599;
               </a>
             </div>
             <p className="text-white text-[12px] mb-3">
-              100% of protocol revenue is distributed to stakers. The farm contract holds all staked tokens and manages reward distribution transparently on-chain.
+              The treasury is a Safe multisig, rebuilt fresh at the June 2026 relaunch — it starts lean and fills from on-chain protocol fee flows as revenue ramps. The staking emission stats below are held and paid by the staking contract, transparently on-chain.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {/* HONESTY PASS 2026-06-11: "Rewards Remaining" now shows the true
+                  remaining pool (rewardRate × time to periodFinish) instead of the
+                  cumulative totalRewardsFunded, and the runway counts down off the
+                  contract's own periodFinish clock. */}
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Rewards Remaining</p>
-                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{pool.totalRewardsFunded || '0'} TOWELI</p>
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{rewardsRemaining > 0 ? `${formatNumber(rewardsRemaining, 0)} TOWELI` : '–'}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Emission Rate</p>
                 <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Est. Duration</p>
+                <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Ends In</p>
                 <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{daysLeft > 0 ? `${daysLeft.toFixed(0)} days` : '–'}</p>
               </div>
             </div>

@@ -15,6 +15,7 @@ export function usePoolData() {
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate' },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded' },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalPenaltiesCollected' },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'periodFinish' },
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
@@ -26,6 +27,15 @@ export function usePoolData() {
   const rewardRate = (data?.[3]?.status === 'success' ? data[3].result as bigint : 0n);
   const totalRewardsFunded = (data?.[4]?.status === 'success' ? data[4].result as bigint : 0n);
   const totalPenalties = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
+  const periodFinish = (data?.[6]?.status === 'success' ? data[6].result as bigint : 0n);
+
+  // HONESTY PASS 2026-06-11: totalRewardsFunded is CUMULATIVE (never decreases),
+  // so it must not be displayed as "rewards remaining". The true remaining pool
+  // for the current emission period is rewardRate × time-until-periodFinish —
+  // the standard Synthetix StakingRewards accounting.
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  const secondsRemaining = periodFinish > nowSec ? periodFinish - nowSec : 0n;
+  const rewardsRemaining = rewardRate * secondsRemaining;
 
   let apr = '0';
   // Numeric APR % for any math. Consumers MUST use this, not parseFloat(apr): once
@@ -53,6 +63,12 @@ export function usePoolData() {
     rewardRate: formatEther(rewardRate),
     totalRewardsFunded: formatEther(totalRewardsFunded),
     totalPenalties: formatEther(totalPenalties),
+    /** Unix seconds when the current emission period ends (0 if unread). */
+    periodFinish: Number(periodFinish),
+    /** Seconds left in the current emission period (0 once it has ended). */
+    secondsRemaining: Number(secondsRemaining),
+    /** TOWELI still to be emitted this period — the honest "remaining" figure. */
+    rewardsRemaining: formatEther(rewardsRemaining),
     apr,
     aprNum,
     aprCapped,

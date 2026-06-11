@@ -24,7 +24,7 @@ import { RealYieldProof } from '../components/RealYieldProof';
 const CORE_LOOP_STEPS = [
   { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
   { label: 'Every swap skims a fee',  sub: 'a protocol fee on each swap' },
-  { label: '100% flows to stakers',   sub: 'paid out in ETH' },
+  { label: 'Fees flow to stakers',    sub: 'on-chain, paid in ETH' },
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
@@ -44,13 +44,13 @@ const HOW_IT_WORKS_STEPS = [
   {
     step: '3',
     title: 'Harvest the Tegridy',
-    desc: '100% of every swap fee pays out in ETH. Not tokens, not IOUs \u2014 ETH. Claim whenever the crop looks ripe.',
+    desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
     to: '/dashboard',
   },
 ];
 
 export default function HomePage() {
-  usePageTitle('Home', 'Earn ETH yields on Ethereum. Stake TOWELI & earn 100% of protocol revenue.');
+  usePageTitle('Home', 'Stake TOWELI on Ethereum. Protocol swap fees flow on-chain to stakers — verifiable on Etherscan.');
   const { address } = useAccount();
   const stats = useFarmStats();
   const pool = usePoolData();
@@ -93,8 +93,8 @@ export default function HomePage() {
             </h1>
 
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-              Stake TOWELI. Every swap on the DEX feeds ETH back to stakers &mdash; 100% of it.
-              Real farm. Real yield. Earned with tegridy.
+              Stake TOWELI. Every protocol fee flows on-chain &mdash; to stakers, the liquidity
+              engine, and operations. Verifiable on Etherscan. Real farm. Earned with tegridy.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -141,11 +141,14 @@ export default function HomePage() {
               </AnimatePresence>
             </div>
 
-            {/* Audit trust badge — visible in hero so first-time visitors
-                see security posture before scrolling. Links to /security. */}
+            {/* Security trust badge — visible in hero so first-time visitors
+                see security posture before scrolling. Links to /security.
+                HONESTY PASS 2026-06-11: no paid third-party audit exists, so the
+                badge states the actual (checkable) record: internal multi-agent
+                audit waves + Slither CI + the 1,500+ test suite. */}
             <Link
               to="/security"
-              aria-label="View security audit details and bug bounty program"
+              aria-label="View security details: internal audit waves, Slither CI, and the test suite"
               className="inline-flex items-center gap-2 mt-5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all hover:opacity-90"
               style={{
                 background: 'rgba(139, 92, 246, 0.12)',
@@ -157,7 +160,7 @@ export default function HomePage() {
                 <path d="M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6l8-3z" />
                 <path d="M9 12l2 2 4-4" />
               </svg>
-              Audited · Bug Bounty Active
+              Internal audit waves · Slither CI · 1,500+ tests
             </Link>
           </m.div>
 
@@ -343,10 +346,14 @@ export default function HomePage() {
         {/* Trust Badges */}
         <div className="pb-16">
           <div className="flex flex-wrap justify-center gap-3">
+            {/* HONESTY PASS 2026-06-11: "Contracts Verified" → "Timelocked Admin"
+                (Etherscan source-verify is still rolling out post-relaunch; the
+                24-48h timelock IS live and checkable) and "Bug Bounty Active" →
+                "Responsible Disclosure" (the bounty has no funded pool yet). */}
             {[
               { label: '82 Findings Resolved', to: '/security' },
-              { label: 'Contracts Verified', to: '/security' },
-              { label: 'Bug Bounty Active', to: '/security' },
+              { label: 'Timelocked Admin', to: '/security' },
+              { label: 'Responsible Disclosure', to: '/security' },
               { label: 'Open Source', href: 'https://github.com/fomotsar-commits/tegridy-farms' },
             ].map((b) => (
               'href' in b ? (

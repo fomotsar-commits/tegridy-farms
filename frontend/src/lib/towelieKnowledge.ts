@@ -23,11 +23,14 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // (rebasing K-invariant earnings) and 1/6 mints protocol-owned LP that gets
     // routed to the RevenueDistributor for staker ETH yield.
     keywords: ['toweli', 'token'],
-    answer: "TOWELI is the farm's token. 1B fixed supply. Swap fees are split 5/6 to LPs and 1/6 to the protocol → stakers as ETH yield. That's the whole pitch.",
+    answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Swap fees split 5/6 to LPs, 1/6 to the protocol → stakers as ETH — that pipeline is on-chain and turns on with the native pool. That's the whole pitch.",
   },
   {
+    // HONESTY PASS 2026-06-11: rewards today are TOWELI emissions from a fixed
+    // launch seed; the ETH swap-fee share is deployed but has distributed 0 ETH
+    // until the native pool is seeded. Don't claim "real yield" in present tense.
     keywords: ['tegridy', 'farms', 'protocol', 'project'],
-    answer: "Tegridy Farms is a yield farm where you stake TOWELI to earn ETH from swap fees. Real yield, no printed rewards.",
+    answer: "Tegridy Farms is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed; the ETH swap-fee share is deployed on-chain and kicks in when the native pool goes live. Supply's fixed — no printer.",
   },
   {
     keywords: ['supply', 'total', 'circulating', 'mint'],
@@ -38,12 +41,16 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "FDV = price × 1B supply. Live number on /tokenomics. Market cap is similar since most supply is circulating.",
   },
   {
+    // HONESTY PASS 2026-06-11: supply is fixed (true), but current rewards ARE
+    // emissions from a one-time 6.4M seed — ETH fee rewards start with the pool.
     keywords: ['emission', 'inflation', 'distribution'],
-    answer: "Zero inflation. Rewards come from real swap fees, not new tokens. /tokenomics shows the original distribution.",
+    answer: "Supply is fixed — no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch; ETH swap-fee rewards switch on when the native pool goes live. /tokenomics shows the breakdown.",
   },
   {
+    // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and
+    // still being funded; grants/governance spend-votes are not deployed yet.
     keywords: ['treasury', 'dao', 'fund'],
-    answer: "Community treasury holds protocol-owned liquidity + grants budget. Tracked at /treasury. Spend votes go through governance.",
+    answer: "Community treasury is a Safe multisig — rebuilt fresh at the relaunch, so it's still filling up. Protocol fee flows route to it on-chain as revenue ramps. Watch it at /treasury; every wei's on Etherscan.",
   },
 
   // ── Staking ──────────────────────────────────────────────────
@@ -131,7 +138,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // yield for stakers via the RevenueDistributor. Earlier copy said 100% to
     // stakers, which would have left LPs earning nothing.
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Swap fee is 0.3% per trade. 5/6 of it stays with LPs (earned via K growth), 1/6 flows to the protocol and out to TOWELI stakers as ETH yield.",
+    answer: "Swap fee is 0.3% per trade. 5/6 of it stays with LPs (earned via K growth), 1/6 flows to the protocol and out to TOWELI stakers as ETH — starting when the native pool is trading.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────
@@ -158,7 +165,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['nft', 'lending', 'borrow', 'collateral'],
-    answer: "NFT Finance → NFT Lending. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH. No oracles needed.",
+    answer: "NFT Finance → NFT Lending. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH. No oracles needed. Audited but not redeployed since the relaunch — the page un-gates when it's live.",
   },
   {
     keywords: ['liquidation', 'liquidate', 'default'],
@@ -174,37 +181,40 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['amm', 'bonding', 'curve'],
-    answer: "NFT AMM lets you trade NFTs against bonding-curve pools. Add NFTs as inventory, earn fees on every swap. Pure on-chain.",
+    answer: "NFT AMM lets you trade NFTs against bonding-curve pools. Add NFTs as inventory, earn fees on every swap. Pure on-chain — but not redeployed since the relaunch yet.",
   },
   {
     keywords: ['launchpad'],
-    answer: "Launchpad lets project owners create gated NFT collections with a wizard. Live in NFT Finance → Launchpad tab.",
+    answer: "Launchpad lets project owners create gated NFT collections with a wizard. Built and audited; the NFT Finance → Launchpad tab un-gates when it redeploys.",
   },
 
   // ── Governance ──────────────────────────────────────────────
+  // HONESTY PASS 2026-06-11: GaugeController, VoteIncentives, MemeBountyBoard and
+  // CommunityGrants are NOT deployed (zeroed addresses in lib/constants.ts).
+  // Answers describe them as built-and-audited-but-not-live, with what to do now.
   {
     keywords: ['vote', 'voting', 'governance', 'gauge'],
-    answer: "Community → Gauge Voting. Direct emissions to your favorite pool. Your vote weight = your locked TOWELI × boost.",
+    answer: "Gauge voting's built and audited but not live on mainnet yet — /community un-gates when it deploys. The plan: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
   },
   {
     keywords: ['weight', 'power', 'vote'],
-    answer: "Vote weight = locked TOWELI × current boost. Lock more or longer → more weight. Bribe-your-friends mechanics, with tegridy.",
+    answer: "When gauge voting goes live, vote weight = locked TOWELI × current boost. Lock more or longer → more weight. Not deployed yet — but locking now still builds your future weight.",
   },
   {
     keywords: ['epoch', 'cycle', 'period'],
-    answer: "Voting epochs are 7 days. Votes you cast this epoch direct emissions next epoch. Plan ahead.",
+    answer: "Voting epochs will run 7 days once gauge voting is live — votes cast one epoch direct emissions the next. Not deployed yet, so no clock's ticking.",
   },
   {
     keywords: ['bribes', 'bribe', 'incentive', 'cartman'],
-    answer: "Cartman's Market on /community — deposit tokens to bribe voters into directing emissions your way. Kinda shady. We love it.",
+    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Built and audited, not deployed yet — it lands on /community alongside gauge voting.",
   },
   {
     keywords: ['bounty', 'bounties', 'task'],
-    answer: "Community → Bounties. Post a task with a reward, contributors complete it for the bounty. Both sides win.",
+    answer: "Bounties are coming back post-relaunch — the MemeBountyBoard contract isn't redeployed yet. When it's live: post a task with a reward, contributors complete it for the bounty. Both sides win.",
   },
   {
     keywords: ['grants', 'proposal', 'fund'],
-    answer: "Community → Grants. Propose a project, the DAO funds it. Tegridy preserved by votes.",
+    answer: "Community Grants is built and audited but not redeployed yet. When it's live: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
   },
 
   // ── Wallet / network ────────────────────────────────────────
@@ -243,29 +253,34 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Pull your /history page or use Etherscan to export tx data. I'm a towel — talk to a tax pro for the rest.",
   },
   {
+    // HONESTY PASS 2026-06-11: Etherscan source-verification is still rolling out
+    // post-relaunch (e.g. staking not yet verified) — don't claim it blanket-done.
     keywords: ['etherscan', 'verify', 'contract', 'address'],
-    answer: "All contract addresses + Etherscan links live at /contracts. Source-verified, ABI public, audit linked.",
+    answer: "All contract addresses + Etherscan links live at /contracts. Code's open on GitHub, ABIs public; Etherscan source-verification is rolling out contract by contract post-relaunch.",
   },
 
   // ── Premium / referrals / scoring ──────────────────────────
   {
+    // HONESTY PASS 2026-06-11: there is NO paid third-party audit and the bug
+    // bounty has no funded pool — state the real (checkable) security record.
     keywords: ['safe', 'security', 'audit', 'rug', 'risk'],
-    answer: "Audited by an independent firm + active bug bounty. /security has the full report. Probably safer than my last job.",
+    answer: "Straight answer: no paid outside audit yet. Security record = internal multi-agent audit waves, Slither on every CI run, 1,500+ tests. Token's fixed-supply with no mint or pause, and admin changes wait out a 24–48h timelock. /security has the artifacts, /risks has the blunt version.",
   },
   {
     keywords: ['risks'],
     answer: "Smart-contract risk, market risk, IL risk for LPs. /risks has the honest version. Read it.",
   },
   {
+    // HONESTY PASS 2026-06-11: PremiumAccess is not deployed (zeroed address).
     keywords: ['premium', 'gold', 'card', 'subscription'],
-    answer: "Randy's Gold Card gives bonus rewards + perks. Subscription via /premium. Pays for itself if you're staking serious size.",
+    answer: "Randy's Gold Card — bonus rewards + perks, paid in ETH. Built and audited, not deployed yet. /premium lights up the day it ships.",
   },
   {
     // AUDIT R073: prior copy said "no refund mid-period" — wrong. PremiumAccess
     // implements pull-payment pro-rata refunds: cancel mid-window and the
     // unspent fraction is credited as a pull-pattern claim you withdraw.
     keywords: ['cancel', 'unsubscribe', 'refund'],
-    answer: "Cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
+    answer: "Once premium's live: cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
   },
   {
     keywords: ['leaderboard', 'points', 'rank', 'ranking'],
@@ -295,15 +310,17 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['roadmap', 'upcoming', 'future', 'next'],
-    answer: "Roadmap lives in community grants + governance proposals. Big swings get voted on at /community.",
+    answer: "Big swings get voted on at /community once governance deploys. Until then, /changelog tracks everything that actually ships.",
   },
   {
+    // HONESTY PASS 2026-06-11: contracts are NOT multisig-governed yet — the
+    // multisig handoff (acceptOwnership) is in progress; timelock IS live.
     keywords: ['team', 'devs', 'who', 'built'],
-    answer: "Team's pseudonymous, multi-sig governs the contracts. Look at /security for the multisig setup, /contracts for the code.",
+    answer: "Team's pseudonymous. Admin changes sit behind a 24–48h timelock, and the multisig handoff is in progress. /security has the setup, /contracts the code.",
   },
   {
     keywords: ['contact', 'support', 'help', 'discord'],
-    answer: "Community channels link from /community footer. For bugs use the bug bounty (/security). For tax stuff, talk to a pro.",
+    answer: "Community channels link from /community footer. For bugs use the responsible-disclosure channel on /security. For tax stuff, talk to a pro.",
   },
 
   // ── South Park easter eggs ─────────────────────────────────
