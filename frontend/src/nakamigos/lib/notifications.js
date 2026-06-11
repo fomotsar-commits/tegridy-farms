@@ -25,8 +25,6 @@
  *   CREATE POLICY "Anyone can manage own subs" ON push_subscriptions FOR ALL USING (true);
  */
 
-import { supabase } from "./supabase";
-
 // VAPID public key — generate with: npx web-push generate-vapid-keys
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
 
@@ -54,55 +52,75 @@ export function getNotificationStatus() {
 /**
  * Request permission and subscribe to push notifications.
  */
+// FIX (2026-06-11): this flow was dead end-to-end — no service worker file
+// or registration ever existed, so `navigator.serviceWorker.ready` hung
+// forever; and the writes used the anon client, which RLS (001: subs are
+// keyed to the SIWE JWT wallet) correctly rejects. The worker now registers
+// on demand and writes flow through /api/supabase-proxy, which attaches the
+// httpOnly SIWE JWT — same pattern as DMs. Requires sign-in.
+async function pushProxy(payload) {
+  const res = await fetch("/api/supabase-proxy", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) {
+    const err = new Error("Sign in first — push subscriptions are tied to your wallet");
+    err.needsAuth = true;
+    throw err;
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Proxy ${res.status}`);
+  }
+  return res.json().catch(() => null);
+}
+
+async function getRegistration() {
+  // Register (idempotent) instead of waiting on `.ready`, which never
+  // resolves when no worker was registered.
+  return navigator.serviceWorker.register("/push-sw.js");
+}
+
 export async function subscribeToPush(wallet) {
   if (!VAPID_PUBLIC_KEY || !wallet) return null;
 
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") return null;
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") return null;
 
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-    });
+  const registration = await getRegistration();
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+  });
 
-    const sub = subscription.toJSON();
+  const sub = subscription.toJSON();
+  await pushProxy({
+    table: "push_subscriptions",
+    method: "UPSERT",
+    body: { wallet: wallet.toLowerCase(), endpoint: sub.endpoint, keys: sub.keys },
+  });
 
-    // Save to Supabase
-    if (supabase) {
-      await supabase.from("push_subscriptions").upsert({
-        wallet: wallet.toLowerCase(),
-        endpoint: sub.endpoint,
-        keys: sub.keys,
-      });
-    }
-
-    return subscription;
-  } catch (err) {
-    console.error("subscribeToPush failed:", err);
-    return null;
-  }
+  return subscription;
 }
 
 /**
- * Unsubscribe from push notifications.
+ * Unsubscribe from push notifications. Server-side rows for this wallet are
+ * removed wholesale (the proxy's filter charset can't carry endpoint URLs) —
+ * push is per-wallet, so this disables it on all of the wallet's devices.
  */
 export async function unsubscribeFromPush(wallet) {
   try {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await getRegistration();
     const subscription = await registration.pushManager.getSubscription();
-
-    if (subscription) {
-      await subscription.unsubscribe();
-
-      if (supabase && wallet) {
-        await supabase
-          .from("push_subscriptions")
-          .delete()
-          .eq("wallet", wallet.toLowerCase())
-          .eq("endpoint", subscription.endpoint);
-      }
+    if (subscription) await subscription.unsubscribe();
+    if (wallet) {
+      await pushProxy({
+        table: "push_subscriptions",
+        method: "DELETE",
+        match: { wallet: wallet.toLowerCase() },
+      });
     }
   } catch (err) {
     console.error("unsubscribeFromPush failed:", err);
@@ -113,18 +131,15 @@ export async function unsubscribeFromPush(wallet) {
  * Update notification preferences.
  */
 export async function updatePreferences(wallet, preferences) {
-  if (!supabase || !wallet) return;
-
+  if (!wallet) return;
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    if (!subscription) return;
-
-    await supabase
-      .from("push_subscriptions")
-      .update({ preferences })
-      .eq("wallet", wallet.toLowerCase())
-      .eq("endpoint", subscription.endpoint);
+    // Applies to all of the wallet's subscriptions (see unsubscribe note).
+    await pushProxy({
+      table: "push_subscriptions",
+      method: "UPDATE",
+      body: { preferences },
+      match: { wallet: wallet.toLowerCase() },
+    });
   } catch (err) {
     console.error("updatePreferences failed:", err);
   }
@@ -135,7 +150,9 @@ export async function updatePreferences(wallet, preferences) {
  */
 export async function isSubscribed() {
   try {
-    const registration = await navigator.serviceWorker.ready;
+    // Passive check — don't force a registration just to look.
+    const registration = await navigator.serviceWorker.getRegistration("/push-sw.js");
+    if (!registration) return false;
     const subscription = await registration.pushManager.getSubscription();
     return !!subscription;
   } catch {
@@ -151,7 +168,7 @@ export async function sendLocalNotification(title, body, url = "/") {
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   if (!("serviceWorker" in navigator)) return;
 
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await navigator.serviceWorker.register("/push-sw.js");
   await registration.showNotification(title, {
     body,
     icon: "/splash/skeleton.jpg",

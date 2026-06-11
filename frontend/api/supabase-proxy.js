@@ -50,7 +50,7 @@ export const config = {
   },
 };
 
-const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes", "dm_messages"];
+const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes", "dm_messages", "push_subscriptions"];
 
 // SELECT through the proxy exists ONLY for DMs: their RLS hides rows from
 // the anon key, and the SIWE JWT lives in the httpOnly cookie this proxy

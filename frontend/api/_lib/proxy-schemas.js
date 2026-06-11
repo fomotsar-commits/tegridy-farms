@@ -84,6 +84,23 @@ const dm_read = z.object({
   read_at: z.string().datetime(),
 }).strict();
 
+// Web-push subscriptions: wallet must match the JWT (enforced below); the
+// endpoint is the browser push service URL and keys are the standard
+// p256dh/auth pair from PushSubscription.toJSON().
+const push_subscription = z.object({
+  wallet: wallet,
+  endpoint: z.string().url().max(500),
+  keys: z.object({
+    p256dh: z.string().min(1).max(200),
+    auth: z.string().min(1).max(100),
+  }).strict(),
+  preferences: z.record(z.string().max(40), z.boolean()).optional(),
+}).strict();
+
+const push_preferences = z.object({
+  preferences: z.record(z.string().max(40), z.boolean()),
+}).strict();
+
 // Accept single row or array of rows. The typical writer for
 // user_favorites/user_watchlist upserts an array of selections in one call.
 // Max 200 keeps a malicious client from burning a full request budget on
@@ -116,6 +133,11 @@ const TABLE_SCHEMAS = {
   dm_messages: {
     INSERT: dm_message, // single message per send — no array form
     UPDATE: dm_read,
+  },
+  push_subscriptions: {
+    INSERT: push_subscription,
+    UPSERT: push_subscription,
+    UPDATE: push_preferences,
   },
 };
 

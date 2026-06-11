@@ -19,6 +19,7 @@ import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaport
 // compromised RPC cannot OOM the lambda or rack up memory-time billing with a
 // 100MB receipt or a gzip-bomb. Parity with the aggregator-proxy hardening.
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
+import { sendPushToWallet } from "./_lib/push.js";
 
 // Whitelist allowed contract addresses (lowercase)
 const ALLOWED_CONTRACTS = new Set([
@@ -1157,6 +1158,16 @@ export default async function handler(req, res) {
           console.error("trade-create error:", error.message);
           return res.status(500).json({ error: "Internal error" });
         }
+        // Push to the named taker (open board posts have no recipient).
+        // Bounded + never throws — a push hiccup must not fail the trade.
+        if (!isOpen) {
+          await sendPushToWallet(supabase, taker, {
+            title: "New trade offer ⇄",
+            body: `${offerer.slice(0, 6)}…${offerer.slice(-4)} wants to trade ${givenNfts.length} NFT${givenNfts.length !== 1 ? "s" : ""} with you`,
+            url: "/nakamigos/nakamigos/trades",
+            tag: `trade-${inserted.id}`,
+          });
+        }
         return res.json({ success: true, trade: inserted });
       } catch (e) {
         if (e.message === "non-numeric amount" || e.message === "amount over cap") {
@@ -1205,6 +1216,14 @@ export default async function handler(req, res) {
         : { status: "cancelled", cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() };
       const { error } = await supabase.from("trade_offers").update(patch).eq("id", tradeId).eq("status", "active");
       if (error) { console.error("trade status error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+      if (action === "trade-decline") {
+        await sendPushToWallet(supabase, row.offerer, {
+          title: "Trade declined",
+          body: "Your trade offer was declined — counter with different terms?",
+          url: "/nakamigos/nakamigos/trades",
+          tag: `trade-${tradeId}`,
+        });
+      }
       return res.json({ success: true });
     }
 
@@ -1318,6 +1337,12 @@ export default async function handler(req, res) {
       if (!updated || updated.length === 0) {
         return res.status(409).json({ error: "Trade is no longer active" });
       }
+      await sendPushToWallet(supabase, row.offerer, {
+        title: "Trade executed ✓",
+        body: "Your trade was accepted and settled on-chain",
+        url: "/nakamigos/nakamigos/trades",
+        tag: `trade-${tradeId}`,
+      });
       return res.json({ success: true });
     }
 

@@ -5,7 +5,48 @@ import DirectMessages from "./DirectMessages";
 import NftImage from "./NftImage";
 import { ItemChips, TradeSummary, fmtEthWei as fmtEth } from "./TradeChips";
 import { fetchTrades, acceptTrade, acceptOpenTrade, updateTradeStatus, cancelTradeOnChain } from "../lib/trades";
+import { getNotificationStatus, subscribeToPush, unsubscribeFromPush, isSubscribed } from "../lib/notifications";
 import { fetchWalletNfts } from "../api";
+
+/** Bell toggle for trade push alerts. Hidden until VAPID keys are configured. */
+function PushToggle({ wallet, addToast }) {
+  const [status] = useState(() => getNotificationStatus());
+  const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { isSubscribed().then(setOn); }, []);
+
+  if (!wallet || status === "unsupported" || status === "unconfigured") return null;
+
+  return (
+    <button
+      className="btn-secondary"
+      style={{ fontSize: 10, padding: "10px 14px", color: on ? "var(--green)" : "var(--text-dim)" }}
+      disabled={busy}
+      title={on ? "Push alerts for trade offers and settlements are on (click to disable on all devices)" : "Get a push notification when someone sends or accepts a trade"}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          if (on) {
+            await unsubscribeFromPush(wallet);
+            setOn(false);
+            addToast?.("Trade alerts disabled", "info");
+          } else {
+            const sub = await subscribeToPush(wallet);
+            if (sub) { setOn(true); addToast?.("Trade alerts on — we'll ping you here", "success"); }
+            else addToast?.("Notification permission was not granted", "info");
+          }
+        } catch (err) {
+          addToast?.(err.needsAuth ? "Sign in first — alerts are tied to your wallet" : (err.message || "Push setup failed"), "error");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? "…" : on ? "🔔 Alerts on" : "🔕 Trade alerts"}
+    </button>
+  );
+}
 import { COLLECTIONS } from "../constants";
 
 const COLLECTION_BY_CONTRACT = Object.values(COLLECTIONS).reduce((m, c) => {
@@ -416,6 +457,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <PushToggle wallet={wallet} addToast={addToast} />
           <button className="btn-secondary" style={{ fontSize: 11, padding: "10px 20px" }} onClick={() => setBoardBuilderOpen(true)}>
             + Post to board
           </button>
