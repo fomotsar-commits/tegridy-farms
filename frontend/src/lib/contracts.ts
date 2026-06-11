@@ -29,6 +29,9 @@ export const TEGRIDY_STAKING_ABI = [
   { type: 'function', name: 'totalLocked', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalRewardsFunded', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalPenaltiesCollected', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Public state var auto-getter (TegridyStaking.sol:268) — needed to compute
+  // the true remaining reward pool: balanceOf(staking) - totalStaked - this.
+  { type: 'function', name: 'totalUnsettledRewards', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   // AUDIT R010: removed phantom `totalPenaltiesRedistributed` view — never
   // existed in `TegridyStaking.sol`. Calling it would have reverted with
   // "function does not exist" and any UI relying on it would have shown 0n

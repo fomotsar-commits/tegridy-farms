@@ -1,7 +1,7 @@
 import { useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
-import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
+import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 
 export function usePoolData() {
   const addr = TEGRIDY_STAKING_ADDRESS;
@@ -15,7 +15,8 @@ export function usePoolData() {
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate' },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded' },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalPenaltiesCollected' },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'periodFinish' },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalUnsettledRewards' },
+      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [addr] },
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
@@ -27,15 +28,22 @@ export function usePoolData() {
   const rewardRate = (data?.[3]?.status === 'success' ? data[3].result as bigint : 0n);
   const totalRewardsFunded = (data?.[4]?.status === 'success' ? data[4].result as bigint : 0n);
   const totalPenalties = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
-  const periodFinish = (data?.[6]?.status === 'success' ? data[6].result as bigint : 0n);
+  const totalUnsettled = (data?.[6]?.status === 'success' ? data[6].result as bigint : 0n);
+  const stakingBalance = (data?.[7]?.status === 'success' ? data[7].result as bigint : 0n);
 
-  // HONESTY PASS 2026-06-11: totalRewardsFunded is CUMULATIVE (never decreases),
-  // so it must not be displayed as "rewards remaining". The true remaining pool
-  // for the current emission period is rewardRate × time-until-periodFinish —
-  // the standard Synthetix StakingRewards accounting.
+  // HONESTY PASS 2026-06-11: totalRewardsFunded is CUMULATIVE (never
+  // decreases), so it must not be displayed as "rewards remaining".
+  // TegridyStaking is NOT Synthetix-style — there is no periodFinish on the
+  // contract; emission runs continuously at rewardRate against whatever is
+  // actually funded. The true remaining pool is the StakingRewardLib formula:
+  //   balanceOf(staking) − totalStaked − totalUnsettledRewards
+  // and the runway is that pool divided by rewardRate.
+  const haveReads = stakingBalance > 0n;
+  const rawRemaining = stakingBalance - totalStaked - totalUnsettled;
+  const rewardsRemaining = haveReads && rawRemaining > 0n ? rawRemaining : 0n;
+  const secondsRemaining = rewardRate > 0n ? rewardsRemaining / rewardRate : 0n;
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
-  const secondsRemaining = periodFinish > nowSec ? periodFinish - nowSec : 0n;
-  const rewardsRemaining = rewardRate * secondsRemaining;
+  const periodFinish = secondsRemaining > 0n ? nowSec + secondsRemaining : 0n;
 
   let apr = '0';
   // Numeric APR % for any math. Consumers MUST use this, not parseFloat(apr): once
@@ -63,11 +71,11 @@ export function usePoolData() {
     rewardRate: formatEther(rewardRate),
     totalRewardsFunded: formatEther(totalRewardsFunded),
     totalPenalties: formatEther(totalPenalties),
-    /** Unix seconds when the current emission period ends (0 if unread). */
+    /** Unix seconds when the reward pool runs dry at the current rate (derived; 0 if unread). */
     periodFinish: Number(periodFinish),
-    /** Seconds left in the current emission period (0 once it has ended). */
+    /** Seconds of emission runway left at the current rate (0 once dry/unread). */
     secondsRemaining: Number(secondsRemaining),
-    /** TOWELI still to be emitted this period — the honest "remaining" figure. */
+    /** TOWELI actually left in the reward pool — the honest "remaining" figure. */
     rewardsRemaining: formatEther(rewardsRemaining),
     apr,
     aprNum,
