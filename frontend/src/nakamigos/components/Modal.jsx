@@ -336,7 +336,11 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               )}
               <button
                 className="modal-close"
-                onClick={() => handleCopy(`${window.location.origin}/${collection.slug}/nft/${nft.id}`, "share")}
+                // FIX: previously copied /<slug>/nft/<id> — a route that does
+                // not exist (404 for every collection). The canonical share
+                // URL is the gallery + ?token deep link, which reopens this
+                // modal for humans and gets a per-NFT OG card for unfurlers.
+                onClick={() => handleCopy(`${window.location.origin}/nakamigos/${collection.slug}/gallery?token=${nft.id}`, "share")}
                 title="Copy link"
                 aria-label="Copy shareable link"
               >

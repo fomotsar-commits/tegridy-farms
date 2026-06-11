@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { fetchTokensByIds } from "./api";
 // CSS imported eagerly in main.tsx to avoid Vite CSS preload errors on lazy chunks
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { TradingModeProvider, useTradingMode, LITE_HIDDEN_ALL } from "./contexts/TradingModeContext";
@@ -269,7 +270,42 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   const { unread: dmUnread } = useDmUnread(wallet, {
     onNew: () => addToast?.("📩 New direct message", "info"),
   });
+
   const nfts = useNfts({ onChainSupply: stats?.supply });
+
+  // ── Shareable NFT deep link: ?token=<id> ↔ the detail modal ──
+  // The edge middleware serves unfurl bots a per-token OG card for the same
+  // URL, so the modal's copy-link button produces a link that previews.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const current = url.searchParams.get("token");
+    const next = selected?.id != null ? String(selected.id) : null;
+    if (current === next) return;
+    if (next) url.searchParams.set("token", next);
+    else url.searchParams.delete("token");
+    window.history.replaceState({}, "", url);
+  }, [selected?.id]);
+
+  const tokenParamHandled = useRef(false);
+  useEffect(() => {
+    if (tokenParamHandled.current) return;
+    const id = new URLSearchParams(window.location.search).get("token");
+    if (!id || !/^\d{1,10}$/.test(id)) { tokenParamHandled.current = true; return; }
+    const loaded = nfts.allTokens?.find((t) => String(t.id) === id);
+    if (loaded) {
+      tokenParamHandled.current = true;
+      setSelected(loaded);
+      return;
+    }
+    // Token outside the loaded pages — fetch it directly once tokens exist
+    // (waiting for the first page proves the API path is up).
+    if (nfts.allTokens?.length) {
+      tokenParamHandled.current = true;
+      fetchTokensByIds([id], collection.contract, collection.metadataBase)
+        .then((arr) => { if (arr?.[0]) setSelected(arr[0]); })
+        .catch(() => { /* bad/burned id — deep link is best-effort */ });
+    }
+  }, [nfts.allTokens, collection.contract, collection.metadataBase]);
   const { listings, listingsLoading, listingsError, listingsSource, refreshListings, lastRefresh } = useListings();
   const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
   const [showOnboarding, setShowOnboarding] = useState(() => { try { return !localStorage.getItem(`${collectionSlug}_onboarded`); } catch { return true; } });

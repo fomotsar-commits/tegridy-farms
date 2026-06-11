@@ -1,0 +1,85 @@
+name: Synthetic Monitor
+
+# Prod health watch: the deploy pipeline has failed silently twice (Vercel
+# function-cap rejections; an expired-CLI-auth deploy that never aliased).
+# This catches "prod is down/stale/broken" within 30 minutes instead of at
+# the next product review. On failure it opens (or comments on) a single
+# deduplicated issue labeled `prod-incident`.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: synthetic-monitor
+  cancel-in-group: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe production
+        id: probe
+        shell: bash
+        run: |
+          set -u
+          BASE="https://tegridyfarms.vercel.app"
+          FAILS=""
+
+          probe() { # name url grep_pattern
+            local name="$1" url="$2" pattern="$3"
+            local body code
+            body="$(curl -sS --max-time 20 -w '\n%{http_code}' "$url" 2>&1)" || { FAILS="$FAILS\n- $name: curl failed"; return; }
+            code="${body##*$'\n'}"
+            body="${body%$'\n'*}"
+            if [ "$code" != "200" ]; then FAILS="$FAILS\n- $name: HTTP $code"; return; fi
+            if [ -n "$pattern" ] && ! grep -q "$pattern" <<<"$body"; then
+              FAILS="$FAILS\n- $name: 200 but expected content missing ($pattern)"
+            fi
+          }
+
+          # 1. App shell serves and references hashed assets (SPA alive)
+          probe "app shell" "$BASE/" "/assets/"
+          # 2. Alchemy proxy + rate limiter path (floor price is the hottest read)
+          probe "alchemy proxy" "$BASE/api/alchemy?endpoint=getFloorPrice&contractAddress=0xd774557b647330C91Bf44cfEAB205095f7E6c367" "floorPrice"
+          # 3. Native orderbook (Supabase-backed; degraded:true still proves the function runs)
+          probe "orderbook" "$BASE/api/orderbook?action=query&contract=0xd774557b647330C91Bf44cfEAB205095f7E6c367&limit=1" "orders"
+          # 4. Trades endpoint (graceful pre-migration shape counts as healthy)
+          probe "trades" "$BASE/api/orderbook?action=trade-query&wallet=0x0000000000000000000000000000000000000001" "trades"
+
+          if [ -n "$FAILS" ]; then
+            printf 'failed=true\n' >> "$GITHUB_OUTPUT"
+            {
+              printf 'report<<EOF\n'
+              printf 'Synthetic monitor failures at %s UTC:%b\n' "$(date -u '+%Y-%m-%d %H:%M')" "$FAILS"
+              printf 'EOF\n'
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Open or update incident issue
+        if: failure() && steps.probe.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ steps.probe.outputs.report }}
+        shell: bash
+        run: |
+          set -u
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label prod-incident --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$REPORT"
+          else
+            gh label create prod-incident --repo "$GITHUB_REPOSITORY" --color B60205 --description "Synthetic monitor detected a production failure" 2>/dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Prod incident: synthetic monitor failing" \
+              --label prod-incident \
+              --body "$REPORT
+
+Runbook: check Vercel deployments (\`npx vercel ls\` from the repo root), the Upstash rate limiter, and Supabase status. Close this issue once probes pass again."
+          fi
