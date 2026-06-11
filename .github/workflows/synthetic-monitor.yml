@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: synthetic-monitor
-  cancel-in-group: false
+  cancel-in-progress: false
 
 jobs:
   probe:
@@ -76,10 +76,9 @@ jobs:
             gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$REPORT"
           else
             gh label create prod-incident --repo "$GITHUB_REPOSITORY" --color B60205 --description "Synthetic monitor detected a production failure" 2>/dev/null || true
-            gh issue create --repo "$GITHUB_REPOSITORY" \
-              --title "Prod incident: synthetic monitor failing" \
-              --label prod-incident \
-              --body "$REPORT
-
-Runbook: check Vercel deployments (\`npx vercel ls\` from the repo root), the Upstash rate limiter, and Supabase status. Close this issue once probes pass again."
+            printf '%s\n\nRunbook: check Vercel deployments (npx vercel ls from the repo root), the Upstash rate limiter, and Supabase status. Close this issue once probes pass again.\n' "$REPORT" \
+              | gh issue create --repo "$GITHUB_REPOSITORY" \
+                  --title "Prod incident: synthetic monitor failing" \
+                  --label prod-incident \
+                  --body-file -
           fi
