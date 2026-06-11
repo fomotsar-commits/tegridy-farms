@@ -9,7 +9,7 @@ import { CollectionProvider, useActiveCollection } from "./contexts/CollectionCo
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { FavoritesProvider, useFavorites } from "./contexts/FavoritesContext";
 import { CartProvider, useCart } from "./contexts/CartContext";
-import { COLLECTIONS, DEFAULT_COLLECTION } from "./constants";
+import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS } from "./constants";
 import Background from "./components/Background";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
@@ -73,7 +73,8 @@ const Deals = lazy(() => import("./components/Deals"));
 const LazyFallback = GallerySkeleton;
 
 // ═══ Route-based tab mapping (multi-collection: /:collection/:tab) ═══
-const VALID_TABS = ["gallery", "deals", "whales", "about", "analytics", "collection", "listings", "traits", "activity", "favorites", "trade", "watchlist", "bids", "my-listings", "alerts", "chat", "history", "sniper", "portfolio"];
+// VALID_TABS lives in constants.js so navRouting.test.jsx can enforce that
+// every nav target routes without importing the whole app tree.
 
 function parseRoute(pathname) {
   // Strip the /nakamigos prefix when embedded in Tegriddy Farms

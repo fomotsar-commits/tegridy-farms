@@ -8,12 +8,12 @@ import { createTradeOffer, MAX_ITEMS_PER_SIDE } from "../lib/trades";
 import { estimateTokenValue, tradeDelta } from "../lib/valuation";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 
+const COLLECTION_LIST = Object.values(COLLECTIONS);
+
 const SUPPLY_BY_CONTRACT = COLLECTION_LIST.reduce((m, c) => {
   m[c.contract.toLowerCase()] = c.supply;
   return m;
 }, {});
-
-const COLLECTION_LIST = Object.values(COLLECTIONS);
 const keyOf = (n) => `${n.contract.toLowerCase()}:${n.id ?? n.tokenId}`;
 
 // Classic game-trade-window scam defense: when the two sides' estimated

@@ -62,6 +62,16 @@ export const COLLECTIONS = {
 
 export const DEFAULT_COLLECTION = "nakamigos";
 
+// Every routable tab. App.jsx parseRoute() 404s anything not in this list, so
+// a tab that ships in any nav but not here is unreachable in production —
+// navRouting.test.jsx enforces nav ⊆ VALID_TABS against this single source.
+export const VALID_TABS = [
+  "gallery", "deals", "whales", "about", "analytics", "collection",
+  "listings", "traits", "activity", "favorites", "trade", "trades",
+  "watchlist", "bids", "my-listings", "alerts", "chat", "history",
+  "sniper", "portfolio",
+];
+
 // Legacy single-collection exports (used as defaults / backwards compat)
 export const CONTRACT = COLLECTIONS.nakamigos.contract;
 export const COLLECTION_SLUG = COLLECTIONS.nakamigos.slug;

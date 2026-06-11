@@ -122,7 +122,7 @@ function ThemeIconSvg({ theme }) {
   );
 }
 
-const PRIMARY_NAV = [
+export const PRIMARY_NAV = [
   ["listings", "Floor"],
   ["gallery", "Gallery"],
   ["deals", "Deals"],
@@ -132,7 +132,7 @@ const PRIMARY_NAV = [
   ["portfolio", "P&L"],
 ];
 
-const MORE_NAV = [
+export const MORE_NAV = [
   ["trades", "⇄ P2P Trades"],
   ["sniper", "\u{1F3AF} Sniper"],
   ["trade", "Compare"],

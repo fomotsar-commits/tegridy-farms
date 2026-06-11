@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useTradingMode, LITE_HIDDEN_ALL, LITE_HIDDEN_PRIMARY } from "../contexts/TradingModeContext";
 
-const PRIMARY_TABS = [
+export const PRIMARY_TABS = [
   { key: "gallery", label: "Gallery", icon: "\u229E" },
   { key: "deals", label: "Deals", icon: "\uD83D\uDD25" },
   { key: "listings", label: "Floor", icon: "\uD83D\uDCB0" },
@@ -9,7 +9,8 @@ const PRIMARY_TABS = [
   { key: "favorites", label: "Favs", icon: "\u2665" },
 ];
 
-const MORE_TABS = [
+export const MORE_TABS = [
+  { key: "trades", label: "⇄ P2P Trades" },
   { key: "sniper", label: "Sniper" },
   { key: "traits", label: "Traits" },
   { key: "analytics", label: "Analytics" },
