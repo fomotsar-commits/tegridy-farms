@@ -969,6 +969,19 @@ export default async function handler(req, res) {
 
       const givenNfts = [];
       let wethTopupWei = 0n;
+      // Dutch legs: cash items may interpolate startAmount→endAmount (Seaport
+      // does this natively); NFT legs must stay exactly 1/1. Stored topup
+      // columns carry the MAX of each leg — the maker's full commitment.
+      const maxLeg = (item) => {
+        const a = parseAmt(item.startAmount);
+        const b = parseAmt(item.endAmount);
+        return a > b ? a : b;
+      };
+      const assertStaticNft = (item) => {
+        if (String(item.startAmount) !== "1" || String(item.endAmount) !== "1") {
+          throw new Error("nft amount not 1");
+        }
+      };
       try {
         for (const item of params.offer) {
           const t = Number(item.itemType);
@@ -976,10 +989,11 @@ export default async function handler(req, res) {
             const token = (item.token || "").toLowerCase();
             if (!ALLOWED_CONTRACTS.has(token)) return res.status(403).json({ error: "Offered collection not supported" });
             if (!isValidTokenId(String(item.identifierOrCriteria))) return res.status(400).json({ error: "Invalid offered tokenId" });
+            assertStaticNft(item);
             givenNfts.push({ contract: token, tokenId: String(item.identifierOrCriteria) });
           } else if (t === 1) {
             if ((item.token || "").toLowerCase() !== WETH_ADDR) return res.status(400).json({ error: "Maker cash leg must be WETH" });
-            wethTopupWei += parseAmt(item.startAmount);
+            wethTopupWei += maxLeg(item);
           } else {
             // Native ETH cannot be an offer item — Seaport can't pull it from a maker.
             return res.status(400).json({ error: "Unsupported offer itemType" });
@@ -1005,6 +1019,7 @@ export default async function handler(req, res) {
             const token = (item.token || "").toLowerCase();
             if (!ALLOWED_CONTRACTS.has(token)) return res.status(403).json({ error: "Requested collection not supported" });
             if (!isValidTokenId(String(item.identifierOrCriteria))) return res.status(400).json({ error: "Invalid requested tokenId" });
+            assertStaticNft(item);
             requestedNfts.push({ contract: token, tokenId: String(item.identifierOrCriteria) });
           } else if (t === 4) {
             // Wildcard criteria slot — board trades only, and ONLY the
@@ -1016,9 +1031,10 @@ export default async function handler(req, res) {
             if (String(item.identifierOrCriteria) !== "0") {
               return res.status(400).json({ error: "Only any-token wildcards are supported" });
             }
+            assertStaticNft(item);
             requestedNfts.push({ contract: token, tokenId: null, any: true });
           } else if (t === 0) {
-            ethTopupWei += parseAmt(item.startAmount);
+            ethTopupWei += maxLeg(item);
           } else {
             return res.status(400).json({ error: "Unsupported consideration itemType" });
           }
@@ -1181,6 +1197,9 @@ export default async function handler(req, res) {
       } catch (e) {
         if (e.message === "non-numeric amount" || e.message === "amount over cap") {
           return res.status(400).json({ error: "Topup amount out of range" });
+        }
+        if (e.message === "nft amount not 1") {
+          return res.status(400).json({ error: "NFT legs must be exactly 1/1 — only cash legs may be dynamic" });
         }
         console.error("trade-create error:", e?.message ?? e);
         return res.status(500).json({ error: "Internal error" });

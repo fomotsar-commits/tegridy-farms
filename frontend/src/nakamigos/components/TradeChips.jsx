@@ -1,5 +1,11 @@
 import { COLLECTIONS } from "../constants";
 import { Eth } from "./Icons";
+import { currentLegAmounts } from "../lib/trades";
+
+const fmtWei = (wei) => {
+  const v = Number(wei / 10n ** 12n) / 1e6;
+  return v > 0 ? v.toFixed(4) : null;
+};
 
 // Shared by TradesPanel cards and DM trade cards.
 const SHORT_NAME = Object.values(COLLECTIONS).reduce((m, c) => {
@@ -45,28 +51,33 @@ export function TradeSummary({ trade, viewer }) {
     : !!viewer && trade.target_owner?.toLowerCase() === viewer.toLowerCase();
   const youGet = isTarget ? trade.offered : trade.requested;
   const youGive = isTarget ? trade.requested : trade.offered;
-  const ethTopup = fmtEthWei(trade.eth_topup_wei);
-  const wethTopup = fmtEthWei(trade.weth_topup_wei);
+  // Dutch legs: show the LIVE interpolated amounts with a direction arrow
+  // (the stored topup columns carry the max commitment, not the moment).
+  const legs = trade.parameters ? currentLegAmounts(trade.parameters) : null;
+  const ethTopup = legs ? fmtWei(legs.ethNowWei) : fmtEthWei(trade.eth_topup_wei);
+  const wethTopup = legs ? fmtWei(legs.wethNowWei) : fmtEthWei(trade.weth_topup_wei);
+  const ethArrow = legs?.ethDecaying ? " ↘" : "";
+  const wethArrow = legs?.wethRising ? " ↗" : "";
   return (
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
       <div style={{ flex: "1 1 130px" }}>
         <div style={{ fontFamily: "var(--mono)", fontSize: 7, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 4 }}>YOU GIVE</div>
         <ItemChips items={youGive} accent="var(--gold)" />
         {isTarget && ethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup} ETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup}{ethArrow} ETH</div>
         )}
         {!isTarget && wethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", marginTop: 4 }}>+ {wethTopup} WETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", marginTop: 4 }}>+ {wethTopup}{wethArrow} WETH</div>
         )}
       </div>
       <div style={{ flex: "1 1 130px" }}>
         <div style={{ fontFamily: "var(--mono)", fontSize: 7, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 4 }}>YOU GET</div>
         <ItemChips items={youGet} accent="var(--green)" />
         {isTarget && wethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", marginTop: 4 }}>+ {wethTopup} WETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", marginTop: 4 }}>+ {wethTopup}{wethArrow} WETH</div>
         )}
         {!isTarget && ethTopup && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup} ETH</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", marginTop: 4 }}>+ <Eth size={8} /> {ethTopup}{ethArrow} ETH</div>
         )}
       </div>
     </div>

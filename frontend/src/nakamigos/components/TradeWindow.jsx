@@ -5,7 +5,13 @@ import { COLLECTIONS } from "../constants";
 import { fetchWalletNfts } from "../api";
 import { alchemyGet } from "../lib/proxy";
 import { createTradeOffer, MAX_ITEMS_PER_SIDE } from "../lib/trades";
+import { estimateTokenValue, tradeDelta } from "../lib/valuation";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+
+const SUPPLY_BY_CONTRACT = COLLECTION_LIST.reduce((m, c) => {
+  m[c.contract.toLowerCase()] = c.supply;
+  return m;
+}, {});
 
 const COLLECTION_LIST = Object.values(COLLECTIONS);
 const keyOf = (n) => `${n.contract.toLowerCase()}:${n.id ?? n.tokenId}`;
@@ -97,6 +103,9 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
   const [get, setGet] = useState(() => new Map((initialRequested || []).map(n => [keyOf(n), n])));
   const [wethTopup, setWethTopup] = useState("");
   const [ethTopup, setEthTopup] = useState("");
+  // Dutch legs ("" = static): sweetener rises to wethEnd, ask decays to ethEnd
+  const [wethEnd, setWethEnd] = useState("");
+  const [ethEnd, setEthEnd] = useState("");
   const [floors, setFloors] = useState({}); // contract(lower) -> ETH float
   const [submitting, setSubmitting] = useState(false);
   const modalRef = useRef(null);
@@ -174,18 +183,26 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
     });
   };
 
-  const sideValue = (map, topupEth) => {
+  // Rarity-adjusted side valuation (same formula as the modal's fair-value
+  // badge). Tokens without a known rank fall back to plain floor; dutch legs
+  // count at their END amount (the maker's full commitment).
+  const sideValue = (map, topupEth, topupEndEth) => {
     let v = 0; let known = true;
     for (const nft of map.values()) {
-      const f = floors[nft.contract.toLowerCase()];
-      if (Number.isFinite(f)) v += f; else known = false;
+      const contract = nft.contract.toLowerCase();
+      const est = estimateTokenValue({
+        floor: floors[contract],
+        rank: nft.rank,
+        supply: SUPPLY_BY_CONTRACT[contract],
+      });
+      if (est > 0) v += est; else known = false;
     }
-    const t = parseFloat(topupEth);
+    const t = parseFloat(topupEndEth || topupEth);
     if (Number.isFinite(t) && t > 0) v += t;
     return { value: v, known };
   };
 
-  const giveVal = sideValue(give, wethTopup);
+  const giveVal = sideValue(give, wethTopup, wethEnd);
   const getVal = boardMode
     ? (() => {
         let v = 0; let known = true;
@@ -193,13 +210,14 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
           const f = floors[contract];
           if (Number.isFinite(f)) v += f * count; else if (count > 0) known = false;
         }
-        const t = parseFloat(ethTopup);
+        const t = parseFloat(ethEnd || ethTopup);
         if (Number.isFinite(t) && t > 0) v += t;
         return { value: v, known };
       })()
-    : sideValue(get, ethTopup);
+    : sideValue(get, ethTopup, ethEnd);
   const lopsided = giveVal.known && getVal.known && giveVal.value > 0 && getVal.value > 0
     && Math.min(giveVal.value, getVal.value) / Math.max(giveVal.value, getVal.value) < LOPSIDED_RATIO;
+  const delta = giveVal.known && getVal.known ? tradeDelta(giveVal.value, getVal.value) : null;
 
   const canSubmit = give.size > 0 && !submitting
     && (boardMode ? wildcardTotal > 0 && wildcardTotal <= MAX_ITEMS_PER_SIDE : validCounterparty && get.size > 0);
@@ -219,6 +237,8 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         open: boardMode,
         wethTopupEth: wethTopup || "0",
         ethTopupEth: ethTopup || "0",
+        wethTopupEndEth: wethEnd.trim() ? wethEnd : null,
+        ethTopupEndEth: ethEnd.trim() ? ethEnd : null,
         counterOf: boardMode ? null : counterOf,
       });
       if (result.success) {
@@ -374,6 +394,27 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 4 }}>
               Wrapped automatically if needed — Seaport can't pull plain ETH from the offer side
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={wethEnd !== ""}
+                onChange={(e) => setWethEnd(e.target.checked ? (wethTopup || "0.01") : "")}
+              />
+              {"📈"} Auto-sweeten until accepted
+            </label>
+            {wethEnd !== "" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", whiteSpace: "nowrap" }}>rises to</span>
+                <input
+                  value={wethEnd}
+                  onChange={(e) => setWethEnd(e.target.value)}
+                  inputMode="decimal"
+                  aria-label="Final WETH sweetener at expiry"
+                  style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(212,168,67,0.3)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
+                />
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>by expiry</span>
+              </div>
+            )}
           </div>
           <div style={{ flex: "1 1 260px" }}>
             <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.06em", marginBottom: 6 }}>
@@ -389,6 +430,27 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 4 }}>
               Paid by the counterparty when they accept
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={ethEnd !== ""}
+                onChange={(e) => setEthEnd(e.target.checked ? "0" : "")}
+              />
+              {"📉"} Ask decays until accepted
+            </label>
+            {ethEnd !== "" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", whiteSpace: "nowrap" }}>falls to</span>
+                <input
+                  value={ethEnd}
+                  onChange={(e) => setEthEnd(e.target.value)}
+                  inputMode="decimal"
+                  aria-label="Final ETH ask at expiry"
+                  style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
+                />
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>by expiry</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -404,8 +466,16 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
           <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
             You get <span style={{ color: "var(--green)" }}>{fmtVal(getVal)}</span>
           </div>
+          {delta != null && Math.abs(delta) >= 0.02 && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700,
+              color: delta > 0 ? "var(--green)" : "var(--gold)",
+            }}>
+              ≈ {delta > 0 ? "+" : ""}{(delta * 100).toFixed(1)}% for you
+            </div>
+          )}
           <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)" }}>
-            floor-value estimate
+            rarity-adjusted estimate
           </div>
         </div>
         {lopsided && (

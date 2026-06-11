@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTradeOrderParameters, buildCriteriaResolvers, MAX_ITEMS_PER_SIDE } from "./lib/trades";
+import { buildTradeOrderParameters, buildCriteriaResolvers, currentLegAmounts, MAX_ITEMS_PER_SIDE } from "./lib/trades";
 import { WETH, CONDUIT_KEY } from "./constants";
 
 const MAKER = "0x1111111111111111111111111111111111111111";
@@ -125,5 +125,58 @@ describe("buildCriteriaResolvers", () => {
 
   it("returns [] for a fully-specific (directed) trade", () => {
     expect(buildCriteriaResolvers(base(), {})).toEqual([]);
+  });
+});
+
+describe("dutch trades — dynamic cash legs", () => {
+  it("builder emits asymmetric start/end on cash legs while NFT legs stay 1/1", () => {
+    const p = base({
+      wethTopupWei: "1000", wethTopupEndWei: "5000",
+      ethTopupWei: "9000", ethTopupEndWei: "3000",
+    });
+    const weth = p.offer.find(i => i.itemType === 1);
+    expect(weth.startAmount).toBe("1000");
+    expect(weth.endAmount).toBe("5000");
+    const eth = p.consideration.find(i => i.itemType === 0);
+    expect(eth.startAmount).toBe("9000");
+    expect(eth.endAmount).toBe("3000");
+    expect(p.offer[0].startAmount).toBe("1");
+    expect(p.offer[0].endAmount).toBe("1");
+  });
+
+  it("end amounts default to start (static legs)", () => {
+    const p = base({ wethTopupWei: "1000" });
+    const weth = p.offer.find(i => i.itemType === 1);
+    expect(weth.endAmount).toBe("1000");
+  });
+
+  it("currentLegAmounts interpolates linearly and clamps to the window", () => {
+    const p = base({
+      wethTopupWei: "0", wethTopupEndWei: "1000",   // rising sweetener
+      ethTopupWei: "1000", ethTopupEndWei: "0",      // decaying ask
+    });
+    // T0..T1 is 72h; midpoint → half of each leg
+    const mid = currentLegAmounts(p, T0 + (T1 - T0) / 2);
+    expect(mid.wethNowWei).toBe(500n);
+    expect(mid.ethNowWei).toBe(500n);
+    expect(mid.wethRising).toBe(true);
+    expect(mid.ethDecaying).toBe(true);
+
+    const before = currentLegAmounts(p, T0 - 999);
+    expect(before.wethNowWei).toBe(0n);
+    expect(before.ethNowWei).toBe(1000n);
+
+    const after = currentLegAmounts(p, T1 + 999);
+    expect(after.wethNowWei).toBe(1000n);
+    expect(after.ethNowWei).toBe(0n);
+  });
+
+  it("static legs report no dynamics and constant amounts", () => {
+    const p = base({ wethTopupWei: "700", ethTopupWei: "300" });
+    const now = currentLegAmounts(p, T0 + 1234);
+    expect(now.wethNowWei).toBe(700n);
+    expect(now.ethNowWei).toBe(300n);
+    expect(now.wethRising).toBe(false);
+    expect(now.ethDecaying).toBe(false);
   });
 });

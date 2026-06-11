@@ -181,7 +181,14 @@ async function tryAtomicBatch(provider, from, calls) {
  * @param {number} p.endTime    unix seconds
  * @param {string} p.salt       0x-prefixed 32-byte hex
  */
-export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0", ethTopupWei = "0", startTime, endTime, salt }) {
+export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0", ethTopupWei = "0", wethTopupEndWei = null, ethTopupEndWei = null, startTime, endTime, salt }) {
+  // Dutch legs: Seaport natively interpolates each item's amount linearly
+  // from startAmount to endAmount across [startTime, endTime]. A rising WETH
+  // sweetener (start < end) auto-sweetens the maker's side over the order's
+  // life; a decaying ETH ask (start > end) lowers what the taker must pay.
+  // NFT legs stay 1/1 — only cash legs may be dynamic.
+  const wethEnd = wethTopupEndWei == null ? wethTopupWei : wethTopupEndWei;
+  const ethEnd = ethTopupEndWei == null ? ethTopupWei : ethTopupEndWei;
   if (!Array.isArray(give) || give.length === 0) throw new Error("Trade must give at least one NFT");
   if (!Array.isArray(get) || get.length === 0) throw new Error("Trade must request at least one NFT");
   if (give.length > MAX_ITEMS_PER_SIDE || get.length > MAX_ITEMS_PER_SIDE) {
@@ -195,13 +202,13 @@ export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0"
     startAmount: "1",
     endAmount: "1",
   }));
-  if (BigInt(wethTopupWei) > 0n) {
+  if (BigInt(wethTopupWei) > 0n || BigInt(wethEnd) > 0n) {
     offer.push({
       itemType: 1, // ERC20 — maker-side cash must be WETH (Seaport can't pull native ETH)
       token: WETH,
       identifierOrCriteria: "0",
       startAmount: String(wethTopupWei),
-      endAmount: String(wethTopupWei),
+      endAmount: String(wethEnd),
     });
   }
 
@@ -219,13 +226,13 @@ export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0"
     endAmount: "1",
     recipient: maker, // every leg pays the maker; specific items also ownership-gate the taker
   }));
-  if (BigInt(ethTopupWei) > 0n) {
+  if (BigInt(ethTopupWei) > 0n || BigInt(ethEnd) > 0n) {
     consideration.push({
       itemType: 0, // native ETH from the taker, supplied as msg.value
       token: ZERO,
       identifierOrCriteria: "0",
       startAmount: String(ethTopupWei),
-      endAmount: String(ethTopupWei),
+      endAmount: String(ethEnd),
       recipient: maker,
     });
   }
@@ -249,7 +256,7 @@ export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0"
  * Build, sign, and submit a trade offer.
  * @returns {Promise<{success?:true, trade?:object, error?:string, message?:string}>}
  */
-export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", ethTopupEth = "0", expirationHours = 72, counterOf = null, open = false }) {
+export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", ethTopupEth = "0", wethTopupEndEth = null, ethTopupEndEth = null, expirationHours = 72, counterOf = null, open = false }) {
   const ctx = await getMainnetSigner();
   if (ctx.error) return ctx;
   const { ethers, provider, signer, address: maker } = ctx;
@@ -273,13 +280,17 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
 
     const wethTopupWei = ethers.parseEther(String(wethTopupEth || "0")).toString();
     const ethTopupWei = ethers.parseEther(String(ethTopupEth || "0")).toString();
+    const wethTopupEndWei = wethTopupEndEth == null ? wethTopupWei : ethers.parseEther(String(wethTopupEndEth)).toString();
+    const ethTopupEndWei = ethTopupEndEth == null ? ethTopupWei : ethers.parseEther(String(ethTopupEndEth)).toString();
+    // A rising sweetener commits up to its END amount — fund + approve the max.
+    const wethMaxWei = BigInt(wethTopupWei) > BigInt(wethTopupEndWei) ? BigInt(wethTopupWei) : BigInt(wethTopupEndWei);
 
     // Maker-side WETH sweetener: wrap + approve up front so fulfillment can't
     // fail on allowance. Typed errors per leg (same UX rule as createItemOffer).
-    if (BigInt(wethTopupWei) > 0n) {
+    if (wethMaxWei > 0n) {
       const bal = await getWethBalance(maker);
-      if (bal < BigInt(wethTopupWei)) {
-        const needed = BigInt(wethTopupWei) - bal;
+      if (bal < wethMaxWei) {
+        const needed = wethMaxWei - bal;
         try {
           await wrapEth(needed);
         } catch (err) {
@@ -288,9 +299,9 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
         }
       }
       const allowance = await getWethAllowance(maker);
-      if (allowance < BigInt(wethTopupWei)) {
+      if (allowance < wethMaxWei) {
         try {
-          await approveWeth(BigInt(wethTopupWei));
+          await approveWeth(wethMaxWei);
         } catch (err) {
           if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "WETH approval cancelled" };
           return { error: "approve-failed", message: `WETH approval failed: ${err.shortMessage || err.message}` };
@@ -308,7 +319,7 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
     const now = Math.floor(Date.now() / 1000);
     const endTime = now + expirationHours * 3600;
     const parameters = buildTradeOrderParameters({
-      maker, give, get, wethTopupWei, ethTopupWei,
+      maker, give, get, wethTopupWei, ethTopupWei, wethTopupEndWei, ethTopupEndWei,
       startTime: now, endTime,
       salt: ethers.hexlify(ethers.randomBytes(32)),
     });
@@ -481,8 +492,15 @@ export async function acceptTrade(trade) {
     }
 
     // Native ETH the taker owes = sum of itemType 0 consideration
+    // Dutch legs: pay max(start, end) — Seaport interpolates the real amount
+    // at fill time and refunds unused native value to the caller.
     const totalWei = params.consideration.reduce(
-      (sum, item) => Number(item.itemType) === 0 ? sum + BigInt(item.startAmount || "0") : sum,
+      (sum, item) => {
+        if (Number(item.itemType) !== 0) return sum;
+        const a = BigInt(item.startAmount || "0");
+        const b = BigInt(item.endAmount || "0");
+        return sum + (a > b ? a : b);
+      },
       0n
     );
 
@@ -609,6 +627,40 @@ export async function acceptTrade(trade) {
 }
 
 /**
+ * Live amounts of a trade's dynamic cash legs (pure, exported for tests).
+ * Mirrors Seaport's linear interpolation, clamped to [start, end] times.
+ * Display-grade math — fulfillment value uses max(start, end) since Seaport
+ * refunds unused native tokens to the caller.
+ *
+ * @returns {{ wethNowWei: bigint, ethNowWei: bigint, wethRising: boolean, ethDecaying: boolean }}
+ */
+export function currentLegAmounts(parameters, nowSec = Math.floor(Date.now() / 1000)) {
+  const start = parseInt(parameters?.startTime || "0");
+  const end = parseInt(parameters?.endTime || "0");
+  const interp = (a, b) => {
+    const s = BigInt(a || "0");
+    const e = BigInt(b || "0");
+    if (s === e || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return s;
+    const t = Math.min(Math.max(nowSec, start), end);
+    return s + ((e - s) * BigInt(t - start)) / BigInt(end - start);
+  };
+  let wethNowWei = 0n, ethNowWei = 0n, wethRising = false, ethDecaying = false;
+  for (const item of parameters?.offer || []) {
+    if (Number(item.itemType) === 1) {
+      wethNowWei += interp(item.startAmount, item.endAmount);
+      if (BigInt(item.endAmount || "0") > BigInt(item.startAmount || "0")) wethRising = true;
+    }
+  }
+  for (const item of parameters?.consideration || []) {
+    if (Number(item.itemType) === 0) {
+      ethNowWei += interp(item.startAmount, item.endAmount);
+      if (BigInt(item.endAmount || "0") < BigInt(item.startAmount || "0")) ethDecaying = true;
+    }
+  }
+  return { wethNowWei, ethNowWei, wethRising, ethDecaying };
+}
+
+/**
  * Pure builder for the Seaport CriteriaResolvers of an open trade. Exported
  * for unit tests. `selections` maps consideration INDEX → chosen tokenId.
  * Every itemType-4 (wildcard) slot needs exactly one selection; the empty
@@ -731,8 +783,15 @@ export async function acceptOpenTrade(trade, selections) {
       if (!ok) missingApprovals.push(contract);
     }
 
+    // Dutch legs: pay max(start, end) — Seaport interpolates the real amount
+    // at fill time and refunds unused native value to the caller.
     const totalWei = params.consideration.reduce(
-      (sum, item) => Number(item.itemType) === 0 ? sum + BigInt(item.startAmount || "0") : sum,
+      (sum, item) => {
+        if (Number(item.itemType) !== 0) return sum;
+        const a = BigInt(item.startAmount || "0");
+        const b = BigInt(item.endAmount || "0");
+        return sum + (a > b ? a : b);
+      },
       0n
     );
 
