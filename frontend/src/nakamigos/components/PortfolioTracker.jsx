@@ -5,7 +5,7 @@ import { formatPrice } from "../lib/formatPrice";
 import { Eth } from "./Icons";
 import Skeleton from "./Skeleton";
 import { useActiveCollection } from "../contexts/CollectionContext";
-import { useTOWELIPrice } from "../../contexts/PriceContext";
+import { useTOWELIPriceOptional } from "../../contexts/PriceContext";
 
 // ── Helpers ────────────────────────────────────────────────────
 function pnlColor(value) {
@@ -121,7 +121,10 @@ function ValueChart({ snapshots }) {
 // ── Main Component ─────────────────────────────────────────────
 export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }) {
   const collection = useActiveCollection();
-  const { ethUsd } = useTOWELIPrice();
+  // Optional: this tab renders outside the main app's PriceProvider (and the
+  // standalone gallery build has none) — the ?? path keeps USD math on the
+  // existing 3200 fallback instead of crashing the tab (prod bug 2026-06-11).
+  const { ethUsd } = useTOWELIPriceOptional() ?? {};
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pnlData, setPnlData] = useState(null);

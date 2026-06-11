@@ -42,3 +42,14 @@ export function useTOWELIPrice(): PriceData {
   }
   return ctx;
 }
+
+/**
+ * Non-throwing variant for surfaces that may mount outside AppLayout's
+ * PriceProvider (the Tradermigos sub-app has two mount points: embedded
+ * under /nakamigos and the standalone nakamigos.gallery build — neither
+ * is wrapped). Returns null there; callers keep their own fallbacks.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useTOWELIPriceOptional(): PriceData | null {
+  return useContext(PriceContext);
+}
