@@ -84,9 +84,11 @@ function SidePanel({ title, accent, tokens, loading, selected, onToggle, emptyTe
  * add optional cash legs (your side = WETH, their side = ETH), review the
  * floor-value balance, sign once.
  */
-export default function TradeWindow({ wallet, counterparty: initialCounterparty, initialRequested, prefillGive, counterOf = null, onClose, addToast, onCreated }) {
+export default function TradeWindow({ wallet, counterparty: initialCounterparty, initialRequested, prefillGive, counterOf = null, boardMode = false, onClose, addToast, onCreated }) {
   const [counterparty, setCounterparty] = useState(initialCounterparty || "");
   const [counterpartyLocked] = useState(!!initialCounterparty);
+  // Board mode: wildcard slot counts per collection contract (lowercase)
+  const [wildcards, setWildcards] = useState({});
   const [myTokens, setMyTokens] = useState([]);
   const [theirTokens, setTheirTokens] = useState([]);
   const [loadingMine, setLoadingMine] = useState(false);
@@ -99,7 +101,9 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
   const [submitting, setSubmitting] = useState(false);
   const modalRef = useRef(null);
 
-  const validCounterparty = /^0x[a-fA-F0-9]{40}$/.test(counterparty) && counterparty.toLowerCase() !== (wallet || "").toLowerCase();
+  const validCounterparty = boardMode
+    || (/^0x[a-fA-F0-9]{40}$/.test(counterparty) && counterparty.toLowerCase() !== (wallet || "").toLowerCase());
+  const wildcardTotal = Object.values(wildcards).reduce((s, n) => s + n, 0);
 
   // Focus trap + Escape + ref-counted scroll lock (MakeOfferModal pattern)
   useEffect(() => {
@@ -182,26 +186,43 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
   };
 
   const giveVal = sideValue(give, wethTopup);
-  const getVal = sideValue(get, ethTopup);
+  const getVal = boardMode
+    ? (() => {
+        let v = 0; let known = true;
+        for (const [contract, count] of Object.entries(wildcards)) {
+          const f = floors[contract];
+          if (Number.isFinite(f)) v += f * count; else if (count > 0) known = false;
+        }
+        const t = parseFloat(ethTopup);
+        if (Number.isFinite(t) && t > 0) v += t;
+        return { value: v, known };
+      })()
+    : sideValue(get, ethTopup);
   const lopsided = giveVal.known && getVal.known && giveVal.value > 0 && getVal.value > 0
     && Math.min(giveVal.value, getVal.value) / Math.max(giveVal.value, getVal.value) < LOPSIDED_RATIO;
 
-  const canSubmit = validCounterparty && give.size > 0 && get.size > 0 && !submitting;
+  const canSubmit = give.size > 0 && !submitting
+    && (boardMode ? wildcardTotal > 0 && wildcardTotal <= MAX_ITEMS_PER_SIDE : validCounterparty && get.size > 0);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
+      const getEntries = boardMode
+        ? Object.entries(wildcards).flatMap(([contract, count]) =>
+            Array.from({ length: count }, () => ({ contract, any: true })))
+        : [...get.values()].map(n => ({ contract: n.contract, tokenId: String(n.id ?? n.tokenId) }));
       const result = await createTradeOffer({
         give: [...give.values()].map(n => ({ contract: n.contract, tokenId: String(n.id ?? n.tokenId) })),
-        get: [...get.values()].map(n => ({ contract: n.contract, tokenId: String(n.id ?? n.tokenId) })),
-        taker: counterparty,
+        get: getEntries,
+        taker: boardMode ? null : counterparty,
+        open: boardMode,
         wethTopupEth: wethTopup || "0",
         ethTopupEth: ethTopup || "0",
-        counterOf,
+        counterOf: boardMode ? null : counterOf,
       });
       if (result.success) {
-        addToast?.(counterOf ? "Counter-offer sent!" : "Trade offer sent!", "success");
+        addToast?.(boardMode ? "Posted to the trade board!" : counterOf ? "Counter-offer sent!" : "Trade offer sent!", "success");
         onCreated?.(result.trade);
         onClose();
       } else if (result.error !== "rejected") {
@@ -215,7 +236,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
   const fmtVal = (v) => v.known ? `≈ ${v.value.toFixed(4)} ETH` : "—";
 
   return (
-    <div className="modal-bg" onClick={onClose} style={{ zIndex: 1100 }} role="dialog" aria-modal="true" aria-label={counterOf ? "Counter trade offer" : "Create trade offer"}>
+    <div className="modal-bg" onClick={onClose} style={{ zIndex: 1100 }} role="dialog" aria-modal="true" aria-label={boardMode ? "Post an open trade to the board" : counterOf ? "Counter trade offer" : "Create trade offer"}>
       <div
         ref={modalRef}
         onClick={(e) => e.stopPropagation()}
@@ -228,16 +249,19 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div>
             <div style={{ fontFamily: "var(--pixel)", fontSize: 12, color: "var(--naka-blue)", letterSpacing: "0.1em" }}>
-              {counterOf ? "COUNTER OFFER" : "P2P TRADE"}
+              {boardMode ? "POST TO TRADE BOARD" : counterOf ? "COUNTER OFFER" : "P2P TRADE"}
             </div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>
-              Settles atomically on Seaport. Only the wallet you name can accept.
+              {boardMode
+                ? "Public open offer — the first wallet holding what you ask for can accept. Settles atomically on Seaport."
+                : "Settles atomically on Seaport. Only the wallet you name can accept."}
             </div>
           </div>
           <button aria-label="Close modal" onClick={onClose} className="btn-secondary" style={{ padding: "6px 12px", fontSize: 12 }}>{"✕"}</button>
         </div>
 
-        {/* Counterparty */}
+        {/* Counterparty (directed trades only) */}
+        {!boardMode && (
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 6 }}>
             TRADE WITH
@@ -261,6 +285,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             </div>
           )}
         </div>
+        )}
 
         {/* Two panels */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -273,6 +298,54 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             onToggle={toggle(give, setGive, get)}
             emptyText={wallet ? "No NFTs from the supported collections in your wallet" : "Connect your wallet"}
           />
+          {boardMode ? (
+            <div style={{ flex: "1 1 300px", minWidth: 260 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 8 }}>
+                YOU GET ({wildcardTotal}/{MAX_ITEMS_PER_SIDE})
+              </div>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12, background: "rgba(0,0,0,0.2)" }}>
+                {COLLECTION_LIST.map((c) => {
+                  const key = c.contract.toLowerCase();
+                  const count = wildcards[key] || 0;
+                  const floor = floors[key];
+                  return (
+                    <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 2px", borderBottom: "1px solid var(--border)" }}>
+                      <div>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)" }}>Any {c.name}</div>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 2 }}>
+                          {Number.isFinite(floor) ? `floor ${floor.toFixed(4)} ETH` : "floor —"}
+                        </div>
+                      </div>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                        <button
+                          className="btn-secondary"
+                          aria-label={`Remove one Any ${c.name} slot`}
+                          style={{ fontSize: 12, padding: "2px 10px", opacity: count === 0 ? 0.4 : 1 }}
+                          disabled={count === 0}
+                          onClick={() => setWildcards((w) => ({ ...w, [key]: Math.max(0, (w[key] || 0) - 1) }))}
+                        >
+                          −
+                        </button>
+                        <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: count > 0 ? "var(--green)" : "var(--text-dim)", minWidth: 14, textAlign: "center" }}>{count}</span>
+                        <button
+                          className="btn-secondary"
+                          aria-label={`Add one Any ${c.name} slot`}
+                          style={{ fontSize: 12, padding: "2px 10px", opacity: wildcardTotal >= MAX_ITEMS_PER_SIDE ? 0.4 : 1 }}
+                          disabled={wildcardTotal >= MAX_ITEMS_PER_SIDE}
+                          onClick={() => setWildcards((w) => ({ ...w, [key]: (w[key] || 0) + 1 }))}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+                  The acceptor chooses which of their tokens fill each "Any" slot.
+                </div>
+              </div>
+            </div>
+          ) : (
           <SidePanel
             title="YOU GET"
             accent="var(--green)"
@@ -282,6 +355,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             onToggle={toggle(get, setGet, give)}
             emptyText={validCounterparty ? "No NFTs from the supported collections in that wallet" : "Enter the counterparty address above"}
           />
+          )}
         </div>
 
         {/* Cash legs */}
@@ -352,7 +426,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             disabled={!canSubmit}
             onClick={handleSubmit}
           >
-            {submitting ? "Check your wallet…" : counterOf ? "Sign counter-offer" : "Sign trade offer"}
+            {submitting ? "Check your wallet…" : boardMode ? "Sign & post to board" : counterOf ? "Sign counter-offer" : "Sign trade offer"}
           </button>
         </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>

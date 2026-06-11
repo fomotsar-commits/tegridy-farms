@@ -22,8 +22,11 @@ export function ItemChips({ items, accent }) {
           fontFamily: "var(--mono)", fontSize: 9, padding: "3px 7px", borderRadius: 5,
           background: "rgba(0,0,0,0.3)", border: `1px solid ${accent}30`, color: accent,
           letterSpacing: "0.03em",
+          ...(it.any ? { borderStyle: "dashed" } : {}),
         }}>
-          {SHORT_NAME[(it.contract || "").toLowerCase()] || "NFT"} #{it.tokenId}
+          {it.any
+            ? `ANY ${SHORT_NAME[(it.contract || "").toLowerCase()] || "NFT"}`
+            : `${SHORT_NAME[(it.contract || "").toLowerCase()] || "NFT"} #${it.tokenId}`}
         </span>
       ))}
     </div>
@@ -35,7 +38,11 @@ export function ItemChips({ items, accent }) {
  * perspective. Used inside DM threads; TradesPanel has its own fuller card.
  */
 export function TradeSummary({ trade, viewer }) {
-  const isTarget = viewer && trade.target_owner?.toLowerCase() === viewer.toLowerCase();
+  // Open (board) trades have no target_owner — any viewer who isn't the
+  // maker sees it from the acceptor's perspective.
+  const isTarget = trade.is_open
+    ? !!viewer && trade.offerer?.toLowerCase() !== viewer.toLowerCase()
+    : !!viewer && trade.target_owner?.toLowerCase() === viewer.toLowerCase();
   const youGet = isTarget ? trade.offered : trade.requested;
   const youGive = isTarget ? trade.requested : trade.offered;
   const ethTopup = fmtEthWei(trade.eth_topup_wei);

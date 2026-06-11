@@ -205,13 +205,19 @@ export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0"
     });
   }
 
-  const consideration = get.map(({ contract, tokenId }) => ({
-    itemType: 2,
+  // A `get` entry with `any: true` is a WILDCARD slot — Seaport criteria item
+  // (itemType 4) with identifierOrCriteria 0 = "any token from this
+  // collection". The acceptor picks the concrete token at fulfillment via a
+  // CriteriaResolver with an empty proof (same mechanism OpenSea collection
+  // offers settle with). Mixed wildcard+specific is allowed by the protocol;
+  // the trade-board flow uses all-wildcard considerations.
+  const consideration = get.map(({ contract, tokenId, any }) => ({
+    itemType: any ? 4 : 2, // ERC721_WITH_CRITERIA : ERC721
     token: contract,
-    identifierOrCriteria: String(tokenId),
+    identifierOrCriteria: any ? "0" : String(tokenId),
     startAmount: "1",
     endAmount: "1",
-    recipient: maker, // ownership-gating: only the owner of these exact NFTs can fulfill
+    recipient: maker, // every leg pays the maker; specific items also ownership-gate the taker
   }));
   if (BigInt(ethTopupWei) > 0n) {
     consideration.push({
@@ -243,17 +249,26 @@ export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0"
  * Build, sign, and submit a trade offer.
  * @returns {Promise<{success?:true, trade?:object, error?:string, message?:string}>}
  */
-export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", ethTopupEth = "0", expirationHours = 72, counterOf = null }) {
+export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", ethTopupEth = "0", expirationHours = 72, counterOf = null, open = false }) {
   const ctx = await getMainnetSigner();
   if (ctx.error) return ctx;
   const { ethers, provider, signer, address: maker } = ctx;
 
   try {
-    if (!taker || typeof taker !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(taker)) {
-      return { error: "invalid-taker", message: "Counterparty wallet address is invalid" };
-    }
-    if (taker.toLowerCase() === maker) {
-      return { error: "self-trade", message: "You cannot send a trade to yourself" };
+    if (open) {
+      // Trade-board post: no taker; v1 requires every requested slot to be a
+      // wildcard ("any token from collection") so there's no specific-token
+      // owner to pin or verify.
+      if (!Array.isArray(get) || !get.every((g) => g.any)) {
+        return { error: "invalid-open", message: "Open trades request collections, not specific tokens" };
+      }
+    } else {
+      if (!taker || typeof taker !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(taker)) {
+        return { error: "invalid-taker", message: "Counterparty wallet address is invalid" };
+      }
+      if (taker.toLowerCase() === maker) {
+        return { error: "self-trade", message: "You cannot send a trade to yourself" };
+      }
     }
 
     const wethTopupWei = ethers.parseEther(String(wethTopupEth || "0")).toString();
@@ -319,7 +334,8 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
       .hash(signData)
       .toLowerCase();
 
-    const authMessage = `Create trade for ${maker} | Taker: ${taker.toLowerCase()} | Hash: ${seaportOrderHash} | StartTime: ${now} | EndTime: ${endTime}`;
+    const takerTag = open ? "open" : taker.toLowerCase();
+    const authMessage = `Create trade for ${maker} | Taker: ${takerTag} | Hash: ${seaportOrderHash} | StartTime: ${now} | EndTime: ${endTime}`;
     let authSignature;
     try {
       authSignature = await signer.signMessage(authMessage);
@@ -336,8 +352,9 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
         authSignature,
         seaportOrderHash,
         seaportCounter: counter.toString(),
-        taker: taker.toLowerCase(),
-        counterOf,
+        taker: open ? null : taker.toLowerCase(),
+        open: !!open,
+        counterOf: open ? null : counterOf,
       },
     });
     return { success: true, trade: data.trade };
@@ -347,12 +364,12 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
   }
 }
 
-/** Query trades for a wallet. role: "incoming" (taker) | "outgoing" (maker). */
+/** Query trades. role: "incoming" (taker) | "outgoing" (maker) | "board" (public open trades — no wallet needed). */
 export async function fetchTrades({ wallet, role = "incoming", status = "active" }) {
-  if (!wallet) return { trades: [] };
+  if (!wallet && role !== "board") return { trades: [] };
   const params = new URLSearchParams({
     action: "trade-query",
-    wallet: wallet.toLowerCase(),
+    ...(wallet ? { wallet: wallet.toLowerCase() } : {}),
     role,
     status,
   });
@@ -554,6 +571,252 @@ export async function acceptTrade(trade) {
       return { error: "insufficient", message: "Insufficient ETH for the trade payment" };
     }
     console.error("Accept trade error:", err);
+    return { error: "failed", message: err.shortMessage || err.message || "Trade failed" };
+  }
+}
+
+/**
+ * Pure builder for the Seaport CriteriaResolvers of an open trade. Exported
+ * for unit tests. `selections` maps consideration INDEX → chosen tokenId.
+ * Every itemType-4 (wildcard) slot needs exactly one selection; the empty
+ * criteriaProof is the protocol's "criteria root 0 = any token" form — the
+ * same mechanism collection offers settle with.
+ *
+ * @returns {Array<{orderIndex:number, side:number, index:number, identifier:string, criteriaProof:string[]}>}
+ */
+export function buildCriteriaResolvers(parameters, selections = {}) {
+  const resolvers = [];
+  const usedTokens = new Set();
+  (parameters.consideration || []).forEach((item, index) => {
+    if (Number(item.itemType) !== 4) return;
+    const chosen = selections[index];
+    if (chosen == null || !/^\d{1,10}$/.test(String(chosen))) {
+      throw new Error(`Slot ${index} needs a token selection`);
+    }
+    const key = `${(item.token || "").toLowerCase()}:${chosen}`;
+    if (usedTokens.has(key)) {
+      throw new Error(`Token #${chosen} selected for more than one slot`);
+    }
+    usedTokens.add(key);
+    resolvers.push({
+      orderIndex: 0,
+      side: 1, // CONSIDERATION
+      index,
+      identifier: String(chosen),
+      criteriaProof: [], // identifierOrCriteria 0 = wildcard → empty proof
+    });
+  });
+  return resolvers;
+}
+
+/**
+ * Accept an OPEN (trade-board) offer: the acceptor picks which of their own
+ * tokens fill each wildcard slot, then fulfills via fulfillAdvancedOrder
+ * with criteria resolvers. Same pre-flight battery and 5792 batch path as
+ * acceptTrade.
+ *
+ * @param {object} trade       row from trade-query (parameters + signature)
+ * @param {object} selections  consideration index → tokenId the acceptor gives
+ */
+export async function acceptOpenTrade(trade, selections) {
+  const ctx = await getMainnetSigner();
+  if (ctx.error) return ctx;
+  const { ethers, provider, signer, address: acceptor } = ctx;
+
+  try {
+    const params = trade.parameters;
+    if (!params || !trade.signature) {
+      return { error: "invalid-trade", message: "Trade is missing its signed order" };
+    }
+    if (params.offerer?.toLowerCase() === acceptor) {
+      return { error: "self-trade", message: "You posted this trade — cancel it instead" };
+    }
+    if (params.endTime && parseInt(params.endTime) * 1000 <= Date.now()) {
+      return { error: "expired", message: "This trade offer has expired" };
+    }
+
+    let resolvers;
+    try {
+      resolvers = buildCriteriaResolvers(params, selections);
+    } catch (err) {
+      return { error: "invalid-selection", message: err.message };
+    }
+    if (resolvers.length === 0) {
+      return { error: "invalid-trade", message: "This is not an open trade — accept it from your inbox" };
+    }
+
+    // Pre-flight 1: Seaport order status
+    if (trade.seaport_order_hash) {
+      try {
+        const statusAbi = ["function getOrderStatus(bytes32) view returns (bool,bool,uint256,uint256)"];
+        const seaportRead = new ethers.Contract(trade.protocol_address || SEAPORT_ADDRESS, statusAbi, provider);
+        const [, isCancelled, totalFilled] = await seaportRead.getOrderStatus(trade.seaport_order_hash);
+        if (isCancelled) return { error: "cancelled", message: "The maker cancelled this trade on-chain" };
+        if (totalFilled > 0n) return { error: "filled", message: "Someone already accepted this trade" };
+      } catch { /* best-effort */ }
+    }
+
+    const erc721Abi = ["function ownerOf(uint256) view returns (address)"];
+
+    // Pre-flight 2: maker still owns every offered NFT
+    for (const item of params.offer) {
+      if (Number(item.itemType) !== 2) continue;
+      try {
+        const owner = await new ethers.Contract(item.token, erc721Abi, provider).ownerOf(item.identifierOrCriteria);
+        if (owner.toLowerCase() !== params.offerer.toLowerCase()) {
+          return { error: "stale", message: "The maker no longer owns their items — trade is stale" };
+        }
+      } catch {
+        return { error: "stale", message: "Could not verify the maker still owns their items" };
+      }
+    }
+
+    // Pre-flight 3: the acceptor owns every selected token
+    const givingItems = [];
+    for (const r of resolvers) {
+      const slot = params.consideration[r.index];
+      try {
+        const owner = await new ethers.Contract(slot.token, erc721Abi, provider).ownerOf(r.identifier);
+        if (owner.toLowerCase() !== acceptor) {
+          return { error: "not-owner", message: `You don't own #${r.identifier} in that collection` };
+        }
+      } catch {
+        return { error: "not-owner", message: `Token #${r.identifier} could not be verified` };
+      }
+      givingItems.push({ contract: slot.token, tokenId: r.identifier });
+    }
+
+    // Approvals for the collections the acceptor's tokens leave from
+    const approvalAbi = [
+      "function isApprovedForAll(address,address) view returns (bool)",
+      "function setApprovalForAll(address,bool)",
+    ];
+    const missingApprovals = [];
+    for (const contract of [...new Set(givingItems.map(i => i.contract.toLowerCase()))]) {
+      const nft = new ethers.Contract(contract, approvalAbi, provider);
+      const ok = await nft.isApprovedForAll(acceptor, CONDUIT_ADDRESS).catch(() => false);
+      if (!ok) missingApprovals.push(contract);
+    }
+
+    const totalWei = params.consideration.reduce(
+      (sum, item) => Number(item.itemType) === 0 ? sum + BigInt(item.startAmount || "0") : sum,
+      0n
+    );
+
+    const advancedAbi = [
+      "function fulfillAdvancedOrder(((address offerer, address zone, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems) parameters, uint120 numerator, uint120 denominator, bytes signature, bytes extraData) advancedOrder, (uint256 orderIndex, uint8 side, uint256 index, uint256 identifier, bytes32[] criteriaProof)[] criteriaResolvers, bytes32 fulfillerConduitKey, address recipient) payable returns (bool fulfilled)",
+    ];
+    const seaport = new ethers.Contract(trade.protocol_address || SEAPORT_ADDRESS, advancedAbi, signer);
+
+    const orderStruct = {
+      offerer: params.offerer,
+      zone: params.zone || ZERO,
+      offer: params.offer.map(item => ({
+        itemType: item.itemType,
+        token: item.token,
+        identifierOrCriteria: BigInt(item.identifierOrCriteria || "0"),
+        startAmount: BigInt(item.startAmount || "0"),
+        endAmount: BigInt(item.endAmount || "0"),
+      })),
+      consideration: params.consideration.map(item => ({
+        itemType: item.itemType,
+        token: item.token,
+        identifierOrCriteria: BigInt(item.identifierOrCriteria || "0"),
+        startAmount: BigInt(item.startAmount || "0"),
+        endAmount: BigInt(item.endAmount || "0"),
+        recipient: item.recipient,
+      })),
+      orderType: params.orderType || 0,
+      startTime: BigInt(params.startTime || "0"),
+      endTime: BigInt(params.endTime || "0"),
+      zoneHash: params.zoneHash || ZERO_HASH,
+      salt: BigInt(params.salt || "0"),
+      conduitKey: params.conduitKey || CONDUIT_KEY,
+      totalOriginalConsiderationItems: params.totalOriginalConsiderationItems || params.consideration.length,
+    };
+    const advancedOrder = {
+      parameters: orderStruct,
+      numerator: 1n,
+      denominator: 1n,
+      signature: trade.signature,
+      extraData: "0x",
+    };
+    const resolverStructs = resolvers.map(r => ({
+      orderIndex: BigInt(r.orderIndex),
+      side: r.side,
+      index: BigInt(r.index),
+      identifier: BigInt(r.identifier),
+      criteriaProof: r.criteriaProof,
+    }));
+    const fulfillArgs = [advancedOrder, resolverStructs, CONDUIT_KEY, ZERO /* recipient 0 = fulfiller */];
+
+    let txHash = null;
+    let batchDone = false;
+    if (missingApprovals.length > 0) {
+      const approvalIface = new ethers.Interface(approvalAbi);
+      const calls = [
+        ...missingApprovals.map(contract => ({
+          to: contract,
+          data: approvalIface.encodeFunctionData("setApprovalForAll", [CONDUIT_ADDRESS, true]),
+        })),
+        {
+          to: trade.protocol_address || SEAPORT_ADDRESS,
+          data: seaport.interface.encodeFunctionData("fulfillAdvancedOrder", fulfillArgs),
+          ...(totalWei > 0n ? { value: "0x" + totalWei.toString(16) } : {}),
+        },
+      ];
+      try {
+        const batched = await tryAtomicBatch(provider, acceptor, calls);
+        if (batched) { batchDone = true; txHash = batched.hash; }
+      } catch (err) {
+        if (err.code === "rejected") return { error: "rejected", message: "Trade cancelled by user" };
+        if (err.code === "reverted") return { error: "reverted", message: "Trade batch reverted on-chain" };
+        if (err.code === "timeout") return { error: "timeout", message: "Wallet did not confirm the batch — check your wallet activity" };
+        throw err;
+      }
+    }
+
+    if (!batchDone) {
+      try {
+        await ensureCollectionApprovals(ethers, signer, acceptor, givingItems);
+      } catch (err) {
+        if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "Approval cancelled" };
+        return { error: "approval-failed", message: err.message };
+      }
+      const tx = await seaport.fulfillAdvancedOrder(...fulfillArgs, { value: totalWei });
+      const receipt = await tx.wait();
+      if (!receipt || receipt.status === 0) {
+        return { error: "reverted", message: "Trade transaction reverted on-chain" };
+      }
+      txHash = tx.hash;
+    }
+
+    if (txHash) {
+      const ts = Math.floor(Date.now() / 1000);
+      const fillMessage = `Fill trade ${trade.id} tx ${txHash} | Chain: 1 | Time: ${ts}`;
+      const fillSignature = await signer.signMessage(fillMessage);
+      try {
+        await postOrderbook({
+          action: "trade-fill",
+          tradeId: trade.id,
+          txHash,
+          signature: fillSignature,
+          timestamp: ts,
+        });
+      } catch {
+        console.warn("Trade fill notify failed; on-chain trade succeeded:", txHash);
+      }
+    }
+
+    return { success: true, hash: txHash };
+  } catch (err) {
+    if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+      return { error: "rejected", message: "Trade cancelled by user" };
+    }
+    if (err.message?.includes("insufficient funds")) {
+      return { error: "insufficient", message: "Insufficient ETH for the trade payment" };
+    }
+    console.error("Accept open trade error:", err);
     return { error: "failed", message: err.shortMessage || err.message || "Trade failed" };
   }
 }

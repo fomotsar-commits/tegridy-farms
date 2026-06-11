@@ -57,6 +57,16 @@ DROP POLICY IF EXISTS "Participants read trades" ON trade_offers;
 DROP POLICY IF EXISTS "Anyone can read trades"   ON trade_offers;
 CREATE POLICY "Anyone can read trades" ON trade_offers FOR SELECT USING (true);
 
+-- ── A2. Open trades (the public Trade Board) ──
+-- An open trade has NO designated taker: the requested side is all wildcard
+-- criteria items ("any token from collection X", Seaport itemType 4 with
+-- identifierOrCriteria 0) and the first qualifying wallet to fulfill wins.
+-- Idempotent — safe to re-run if 007 was already applied.
+ALTER TABLE trade_offers ALTER COLUMN target_owner DROP NOT NULL;
+ALTER TABLE trade_offers ADD COLUMN IF NOT EXISTS is_open boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_trades_board ON trade_offers(is_open, status, created_at DESC) WHERE is_open = true;
+COMMENT ON COLUMN trade_offers.is_open IS 'true = public trade-board post (no taker; wildcard consideration)';
+
 -- ── B1. Direct messages ──
 -- channel_key = lower(walletA)||'_'||lower(walletB) with A < B lexically, so
 -- both participants derive the same key. ('_' not ':' — the proxy's

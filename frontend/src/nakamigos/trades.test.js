@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTradeOrderParameters, MAX_ITEMS_PER_SIDE } from "./lib/trades";
+import { buildTradeOrderParameters, buildCriteriaResolvers, MAX_ITEMS_PER_SIDE } from "./lib/trades";
 import { WETH, CONDUIT_KEY } from "./constants";
 
 const MAKER = "0x1111111111111111111111111111111111111111";
@@ -83,5 +83,47 @@ describe("buildTradeOrderParameters", () => {
   it("stringifies numeric token ids", () => {
     const p = base({ give: [{ contract: NAKA, tokenId: 7 }] });
     expect(p.offer[0].identifierOrCriteria).toBe("7");
+  });
+
+  it("builds wildcard slots as itemType 4 with criteria 0 (any token from collection)", () => {
+    const p = base({ get: [{ contract: JBAC, any: true }, { contract: NAKA, any: true }] });
+    expect(p.consideration[0]).toEqual({
+      itemType: 4, token: JBAC, identifierOrCriteria: "0",
+      startAmount: "1", endAmount: "1", recipient: MAKER,
+    });
+    expect(p.consideration[1].itemType).toBe(4);
+    expect(p.consideration[1].token).toBe(NAKA);
+  });
+});
+
+describe("buildCriteriaResolvers", () => {
+  const openParams = () => base({
+    get: [{ contract: JBAC, any: true }, { contract: JBAC, any: true }],
+    ethTopupWei: "10000000000000000", // adds an itemType-0 leg AFTER the wildcards
+  });
+
+  it("resolves each wildcard slot to the chosen token with an empty proof", () => {
+    const resolvers = buildCriteriaResolvers(openParams(), { 0: "420", 1: "777" });
+    expect(resolvers).toEqual([
+      { orderIndex: 0, side: 1, index: 0, identifier: "420", criteriaProof: [] },
+      { orderIndex: 0, side: 1, index: 1, identifier: "777", criteriaProof: [] },
+    ]);
+  });
+
+  it("ignores non-criteria items (the ETH leg needs no resolver)", () => {
+    const p = openParams();
+    expect(p.consideration).toHaveLength(3);
+    const resolvers = buildCriteriaResolvers(p, { 0: "1", 1: "2" });
+    expect(resolvers).toHaveLength(2);
+  });
+
+  it("throws on a missing selection, a bad id, or the same token in two slots", () => {
+    expect(() => buildCriteriaResolvers(openParams(), { 0: "420" })).toThrow(/needs a token/);
+    expect(() => buildCriteriaResolvers(openParams(), { 0: "420", 1: "abc" })).toThrow(/needs a token/);
+    expect(() => buildCriteriaResolvers(openParams(), { 0: "420", 1: "420" })).toThrow(/more than one slot/);
+  });
+
+  it("returns [] for a fully-specific (directed) trade", () => {
+    expect(buildCriteriaResolvers(base(), {})).toEqual([]);
   });
 });

@@ -153,7 +153,8 @@ export default async function handler(req, res) {
     // class as listings), so reads are open; writes are verified below.
     if (action === "trade-query") {
       const { wallet, role = "incoming" } = req.query;
-      if (!isValidAddress(wallet || "")) {
+      // The public board needs no wallet; inbox/outbox views do.
+      if (role !== "board" && !isValidAddress(wallet || "")) {
         return res.status(400).json({ error: "Missing or invalid wallet" });
       }
       const tStatus = String(req.query.status || "active");
@@ -164,9 +165,13 @@ export default async function handler(req, res) {
       const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
       try {
         let q = supabase.from("trade_offers").select("*");
-        q = role === "outgoing"
-          ? q.eq("offerer", wallet.toLowerCase())
-          : q.eq("target_owner", wallet.toLowerCase());
+        if (role === "board") {
+          q = q.eq("is_open", true);
+        } else if (role === "outgoing") {
+          q = q.eq("offerer", wallet.toLowerCase());
+        } else {
+          q = q.eq("target_owner", wallet.toLowerCase());
+        }
         if (tStatus !== "all") q = q.eq("status", tStatus);
         const { data, error } = await q.order("created_at", { ascending: false }).limit(lim);
         if (error) throw new Error(error.message);
@@ -902,13 +907,14 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Missing trade parameters or signatures" });
       }
       const params = trade.parameters;
-      const taker = String(trade.taker || "").toLowerCase();
-      if (!isValidAddress(taker)) return res.status(400).json({ error: "Missing or invalid taker" });
+      const isOpen = trade.open === true;
+      const taker = isOpen ? null : String(trade.taker || "").toLowerCase();
+      if (!isOpen && !isValidAddress(taker)) return res.status(400).json({ error: "Missing or invalid taker" });
       if (!params.offerer || typeof params.offerer !== "string" || !isValidAddress(params.offerer)) {
         return res.status(400).json({ error: "Missing or invalid offerer" });
       }
       const offerer = params.offerer.toLowerCase();
-      if (taker === offerer) return res.status(400).json({ error: "Cannot trade with yourself" });
+      if (!isOpen && taker === offerer) return res.status(400).json({ error: "Cannot trade with yourself" });
       if (!Array.isArray(params.offer) || !Array.isArray(params.consideration)) {
         return res.status(400).json({ error: "Malformed offer/consideration" });
       }
@@ -983,10 +989,24 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: "All consideration must route to the trade creator" });
           }
           if (t === 2) {
+            // Directed trades only: a specific token implies a specific owner
+            // to pin; open (board) trades must be all-wildcard.
+            if (isOpen) return res.status(400).json({ error: "Open trades must request collections, not specific tokens" });
             const token = (item.token || "").toLowerCase();
             if (!ALLOWED_CONTRACTS.has(token)) return res.status(403).json({ error: "Requested collection not supported" });
             if (!isValidTokenId(String(item.identifierOrCriteria))) return res.status(400).json({ error: "Invalid requested tokenId" });
             requestedNfts.push({ contract: token, tokenId: String(item.identifierOrCriteria) });
+          } else if (t === 4) {
+            // Wildcard criteria slot — board trades only, and ONLY the
+            // "criteria root 0 = any token from collection" form. Non-zero
+            // roots (trait merkle trees) are not supported in v1.
+            if (!isOpen) return res.status(400).json({ error: "Wildcard slots are only allowed on open trades" });
+            const token = (item.token || "").toLowerCase();
+            if (!ALLOWED_CONTRACTS.has(token)) return res.status(403).json({ error: "Requested collection not supported" });
+            if (String(item.identifierOrCriteria) !== "0") {
+              return res.status(400).json({ error: "Only any-token wildcards are supported" });
+            }
+            requestedNfts.push({ contract: token, tokenId: null, any: true });
           } else if (t === 0) {
             ethTopupWei += parseAmt(item.startAmount);
           } else {
@@ -995,13 +1015,17 @@ export default async function handler(req, res) {
         }
         if (requestedNfts.length === 0) return res.status(400).json({ error: "Trade must request at least one NFT" });
         if (requestedNfts.length > MAX_TRADE_ITEMS) return res.status(400).json({ error: "Too many requested NFTs" });
+        if (isOpen && !requestedNfts.every((n) => n.any)) {
+          return res.status(400).json({ error: "Open trades must be all-wildcard" });
+        }
 
         // ── Auth signature binds offerer + taker + canonical hash + window ──
         const tHash = String(trade.seaportOrderHash || "");
         if (!isValidSeaportOrderHash(tHash)) {
           return res.status(400).json({ error: "Invalid seaportOrderHash format" });
         }
-        const authMessage = `Create trade for ${offerer} | Taker: ${taker} | Hash: ${tHash.toLowerCase()} | StartTime: ${startSec} | EndTime: ${endSec}`;
+        const takerTag = isOpen ? "open" : taker;
+        const authMessage = `Create trade for ${offerer} | Taker: ${takerTag} | Hash: ${tHash.toLowerCase()} | StartTime: ${startSec} | EndTime: ${endSec}`;
         let recovered;
         try {
           recovered = (await recoverMessageAddress({ message: authMessage, signature: trade.authSignature })).toLowerCase();
@@ -1056,9 +1080,12 @@ export default async function handler(req, res) {
               return res.status(403).json({ error: `You do not own ${nft.contract.slice(0, 8)}… #${nft.tokenId}` });
             }
           }
-          for (const nft of requestedNfts) {
-            if ((await ownerOf(nft)) !== taker) {
-              return res.status(400).json({ error: `Counterparty does not own ${nft.contract.slice(0, 8)}… #${nft.tokenId}` });
+          // Open trades have no taker and no specific tokens to pin.
+          if (!isOpen) {
+            for (const nft of requestedNfts) {
+              if ((await ownerOf(nft)) !== taker) {
+                return res.status(400).json({ error: `Counterparty does not own ${nft.contract.slice(0, 8)}… #${nft.tokenId}` });
+              }
             }
           }
         } catch (err) {
@@ -1079,7 +1106,7 @@ export default async function handler(req, res) {
         // Counter-offer linkage: valid only when the new maker is the parent's
         // taker and vice versa; parent flips to `countered`.
         let counterOf = null;
-        if (trade.counterOf) {
+        if (trade.counterOf && !isOpen) {
           const cid = String(trade.counterOf);
           if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cid)) {
             const { data: parent } = await supabase
@@ -1106,7 +1133,8 @@ export default async function handler(req, res) {
         const row = {
           offer_hash: offerHash,
           offerer,
-          target_owner: taker,
+          target_owner: taker, // null for open (board) trades
+          is_open: isOpen,
           offered: givenNfts,
           requested: requestedNfts,
           eth_topup_wei: ethTopupWei.toString(),
@@ -1164,6 +1192,10 @@ export default async function handler(req, res) {
         .maybeSingle();
       if (!row) return res.status(404).json({ error: "Trade not found" });
       if (row.status !== "active") return res.status(409).json({ error: `Trade is already ${row.status}` });
+      if (action === "trade-decline" && !row.target_owner) {
+        // Open board posts have no recipient — only the maker can cancel.
+        return res.status(400).json({ error: "Open trades cannot be declined" });
+      }
       const allowed = action === "trade-decline" ? row.target_owner : row.offerer;
       if (signer !== allowed) {
         return res.status(403).json({ error: action === "trade-decline" ? "Only the recipient can decline" : "Only the creator can cancel" });
@@ -1203,7 +1235,15 @@ export default async function handler(req, res) {
         .eq("id", tradeId)
         .maybeSingle();
       if (!row) return res.status(404).json({ error: "Trade not found" });
-      if (filler !== row.target_owner) return res.status(403).json({ error: "Only the trade recipient can mark it filled" });
+      // Directed trades pin the filler to the named taker. Open (board)
+      // trades have no taker — anyone may report the fill, and the
+      // OrderFulfilled receipt check below is the real gate on truth.
+      if (row.target_owner && filler !== row.target_owner) {
+        return res.status(403).json({ error: "Only the trade recipient can mark it filled" });
+      }
+      if (filler === row.offerer) {
+        return res.status(403).json({ error: "The trade creator cannot mark their own trade filled" });
+      }
       if (!row.seaport_order_hash) return res.status(400).json({ error: "Trade lacks canonical order hash" });
 
       // Same fail-closed on-chain verification as listing fills (H-2/F10):
