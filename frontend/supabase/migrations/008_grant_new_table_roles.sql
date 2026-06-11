@@ -1,20 +1,30 @@
--- Standard Supabase role grants for tables created via raw SQL (the dashboard
--- table editor does this automatically; raw CREATE TABLE does not). RLS still
--- governs which ROWS each role sees; these grant table-level access at all.
+-- ═══ Comprehensive Supabase role grants for the public schema ═══
+-- The whole public schema was created via raw SQL (not the dashboard table
+-- editor), so anon/authenticated/service_role never received table-level
+-- GRANTs — every REST query 42501'd ("permission denied"), silently
+-- breaking chat/profiles/favorites/trades. RLS (enabled on every table) is
+-- the real row gate; these grants are the standard Supabase posture that
+-- lets the roles touch the tables at all. Idempotent + future-proofed via
+-- ALTER DEFAULT PRIVILEGES so new tables auto-grant.
 
--- service_role = the /api layer (orderbook, push sender). Full access.
-GRANT ALL ON trade_offers, dm_messages, push_subscriptions, revoked_jwts TO service_role;
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 
--- authenticated = the user's SIWE JWT forwarded by /api/supabase-proxy.
--- RLS scopes rows to the wallet; these grant the verbs.
-GRANT SELECT, INSERT, UPDATE, DELETE ON dm_messages TO authenticated;
-GRANT SELECT, INSERT, DELETE ON push_subscriptions TO authenticated;
+-- service_role: the /api layer. Full access (also bypasses RLS).
+GRANT ALL ON ALL TABLES    IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL ROUTINES  IN SCHEMA public TO service_role;
 
--- anon = public reads (trades are public offers, RLS USING(true)).
-GRANT SELECT ON trade_offers TO anon, authenticated;
+-- anon + authenticated: the verbs; RLS policies decide which rows.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+GRANT EXECUTE ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
 
--- The reactions RPC is called from the public supabase-js client.
-GRANT EXECUTE ON FUNCTION toggle_reaction(uuid, text, text) TO anon, authenticated;
+-- Future tables/functions created by postgres (the SQL-editor role) auto-grant.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON ROUTINES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON ROUTINES TO anon, authenticated;
 
--- Reload PostgREST so it picks up the new grants immediately.
 NOTIFY pgrst, 'reload schema';
