@@ -4,6 +4,7 @@ import NftImage from "./NftImage";
 import { fetchCollectionStats } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
+import { sendLocalNotification } from "../lib/notifications";
 
 const CHECK_INTERVAL = 30000;
 
@@ -144,11 +145,9 @@ export function usePriceAlerts(tokens = [], addToast) {
             typeof Notification !== "undefined" &&
             Notification.permission === "granted"
           ) {
-            try {
-              new Notification(`${collection.name} Price Alert`, { body });
-            } catch {
-              // Notification constructor can throw in some contexts
-            }
+            // Use the service-worker notification helper so delivery works on
+            // Android Chrome (bare `new Notification()` throws there) — F742.
+            sendLocalNotification(`${collection.name} Price Alert`, body).catch(() => {});
           }
 
           if (addToast) {

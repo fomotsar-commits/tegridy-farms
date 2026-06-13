@@ -126,8 +126,10 @@ export default function useSmartAlerts(addToast) {
     const lastFired = cooldownMapRef.current[category] || 0;
     if (now - lastFired < config.cooldown) return;
 
-    // Check quiet hours
-    if (isInQuietHours(config.quietHours)) return;
+    // Quiet hours silence the toast/push but the alert is still recorded to
+    // history (read:false) so it's recoverable later (F741) — previously
+    // quiet-hours events returned early and were lost entirely.
+    const quiet = isInQuietHours(config.quietHours);
 
     cooldownMapRef.current[category] = now;
 
@@ -143,6 +145,8 @@ export default function useSmartAlerts(addToast) {
     };
 
     setHistory(prev => [notification, ...prev].slice(0, MAX_HISTORY));
+
+    if (quiet) return;
 
     // In-app toast
     if (addToast) addToast(body, "success");
@@ -290,7 +294,10 @@ export default function useSmartAlerts(addToast) {
           );
           const count = recentListings.length;
           if (count >= cfg.listingRate.count) {
-            const normalRate = Math.max(1, Math.round((collection.supply || 10000) / 2500));
+            // Honor the user-configured "Normal rate" when set, falling back
+            // to the supply heuristic (F730 — the setting was previously dead).
+            const normalRate = cfg.listingRate.normalRate
+              ?? Math.max(1, Math.round((collection.supply || 10000) / 2500));
             const multiplier = normalRate > 0
               ? (count / normalRate).toFixed(1)
               : count;

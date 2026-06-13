@@ -9,6 +9,14 @@ const CATEGORIES = [
   { key: "whale", label: "Whale" },
 ];
 
+// Per-tab empty-state copy (replaces the awkward "No notifications in price").
+const EMPTY_COPY = {
+  all: "No notifications yet — alerts you set will appear here",
+  price: "No price alerts yet — set floor thresholds in settings",
+  activity: "No activity alerts yet — enable listing/volume alerts in settings",
+  whale: "No whale alerts yet — enable whale-buy alerts in settings",
+};
+
 const COOLDOWN_OPTIONS = [
   { value: 300000, label: "5 min" },
   { value: 900000, label: "15 min" },
@@ -384,7 +392,7 @@ export default memo(function NotificationCenter({
                   {filtered.length === 0 ? (
                     <div style={emptyStyle}>
                       <div style={{ fontSize: 24, marginBottom: 8 }}>{"\uD83D\uDD14"}</div>
-                      <div>No notifications{activeTab !== "all" ? ` in ${activeTab}` : ""}</div>
+                      <div>{EMPTY_COPY[activeTab] || EMPTY_COPY.all}</div>
                     </div>
                   ) : (
                     filtered.map(n => (
