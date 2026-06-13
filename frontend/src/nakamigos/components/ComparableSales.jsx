@@ -56,7 +56,26 @@ export default function ComparableSales({ nft, allTokens }) {
       </div>
     );
   }
-  if (loading || sales.length === 0) return null;
+  if (loading) return null;
+  // F692 (T11): when we actually had similar tokens to check but found no
+  // recent sales, show an explicit empty state instead of vanishing — so the
+  // skeleton resolves to a clear terminal state, never a perpetual shimmer.
+  if (sales.length === 0) {
+    if (similarTokenIds.length === 0) return null; // nothing comparable to look up
+    return (
+      <div style={{ marginTop: 16 }}>
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
+          letterSpacing: "0.08em", marginBottom: 8,
+        }}>
+          COMPARABLE SALES
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
+          No comparable sales in the last 90 days.
+        </div>
+      </div>
+    );
+  }
 
   const validSales = sales.filter((a) => typeof a.price === "number" && Number.isFinite(a.price));
   const avgPrice = validSales.length > 0 ? validSales.reduce((s, a) => s + a.price, 0) / validSales.length : 0;

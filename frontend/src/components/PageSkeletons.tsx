@@ -1,41 +1,48 @@
 import React from 'react';
 
-/** Swap page skeleton — token inputs, route info, button */
+/** Swap page skeleton — token inputs, route info, button.
+ *  F52 (T11): mirror TradePage's shell — the full-bleed dark backdrop, the
+ *  -mt-14 pull-under-nav, the min-h-screen, and the max-w-[600px] pt-20
+ *  container — so the Suspense window doesn't flash a dark void with a stray
+ *  divider / ghost footer peeking through a too-short, off-width column. */
 export const SwapSkeleton = React.memo(function SwapSkeleton() {
   return (
-    <div role="status" aria-busy="true" aria-live="polite" aria-label="Loading swap" className="max-w-[480px] mx-auto pt-8 px-4 space-y-4">
-      <div className="skeleton h-6 w-32 mb-6" />
-      {/* From input */}
-      <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--color-purple-08)' }}>
-        <div className="flex justify-between">
-          <div className="skeleton h-4 w-16" />
-          <div className="skeleton h-4 w-24" />
+    <div role="status" aria-busy="true" aria-live="polite" aria-label="Loading swap" className="-mt-14 relative min-h-screen">
+      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }} />
+      <div className="relative z-10 max-w-[600px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12 space-y-4">
+        <div className="skeleton h-6 w-32 mb-6" />
+        {/* From input */}
+        <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--color-purple-08)' }}>
+          <div className="flex justify-between">
+            <div className="skeleton h-4 w-16" />
+            <div className="skeleton h-4 w-24" />
+          </div>
+          <div className="flex justify-between items-center">
+            <div className="skeleton h-10 w-40" />
+            <div className="skeleton h-10 w-24 rounded-lg" />
+          </div>
         </div>
-        <div className="flex justify-between items-center">
-          <div className="skeleton h-10 w-40" />
-          <div className="skeleton h-10 w-24 rounded-lg" />
+        {/* Arrow */}
+        <div className="flex justify-center"><div className="skeleton h-8 w-8 rounded-full" /></div>
+        {/* To input */}
+        <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--color-purple-08)' }}>
+          <div className="flex justify-between">
+            <div className="skeleton h-4 w-16" />
+            <div className="skeleton h-4 w-24" />
+          </div>
+          <div className="flex justify-between items-center">
+            <div className="skeleton h-10 w-40" />
+            <div className="skeleton h-10 w-24 rounded-lg" />
+          </div>
         </div>
+        {/* Route info */}
+        <div className="space-y-2">
+          <div className="skeleton h-4 w-full" />
+          <div className="skeleton h-4 w-3/4" />
+        </div>
+        {/* Button */}
+        <div className="skeleton h-12 w-full rounded-xl" />
       </div>
-      {/* Arrow */}
-      <div className="flex justify-center"><div className="skeleton h-8 w-8 rounded-full" /></div>
-      {/* To input */}
-      <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--color-purple-08)' }}>
-        <div className="flex justify-between">
-          <div className="skeleton h-4 w-16" />
-          <div className="skeleton h-4 w-24" />
-        </div>
-        <div className="flex justify-between items-center">
-          <div className="skeleton h-10 w-40" />
-          <div className="skeleton h-10 w-24 rounded-lg" />
-        </div>
-      </div>
-      {/* Route info */}
-      <div className="space-y-2">
-        <div className="skeleton h-4 w-full" />
-        <div className="skeleton h-4 w-3/4" />
-      </div>
-      {/* Button */}
-      <div className="skeleton h-12 w-full rounded-xl" />
     </div>
   );
 });

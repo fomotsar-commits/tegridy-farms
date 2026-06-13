@@ -174,7 +174,33 @@ function configSupplyFor(contract) {
   return entry?.supply ?? null;
 }
 
-export async function fetchCollectionStats({ contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug, signal } = {}) {
+// F516: in-flight de-dupe for collection stats. Several components mount at
+// once (useCollection, PortfolioTracker, PriceAlerts, OnChainProfile, …) and
+// each calls fetchCollectionStats for the same collection, multiplying the
+// per-page request fan-out and tripping our own /api/opensea rate limiter.
+// Concurrent callers for the same key share a single in-flight request; the
+// entry is cleared as soon as it settles. The shared fetch isn't given any one
+// caller's AbortSignal (so one unmount can't cancel it for the others) — the
+// proxy-layer request timeout still guarantees it terminates.
+const _statsInFlight = new Map();
+
+export function fetchCollectionStats({ contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug, signal } = {}) {
+  const osSlug = openseaSlug || slug;
+  const key = `${String(contract).toLowerCase()}::${osSlug}`;
+  const existing = _statsInFlight.get(key);
+  if (existing) return existing;
+  // Note: the shared fetch is intentionally NOT given a caller signal — one
+  // caller unmounting must not cancel the request the others are awaiting.
+  // The proxy request timeout still bounds it. Callers already guard their own
+  // setState against unmount/stale results.
+  const p = _fetchCollectionStatsUncached({ contract, slug, openseaSlug }).finally(() => {
+    _statsInFlight.delete(key);
+  });
+  _statsInFlight.set(key, p);
+  return p;
+}
+
+async function _fetchCollectionStatsUncached({ contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug, signal } = {}) {
   // Use openseaSlug for OpenSea API calls; fall back to slug
   const osSlug = openseaSlug || slug;
   const knownSupply = configSupplyFor(contract);

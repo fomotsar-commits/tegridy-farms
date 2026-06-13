@@ -20,6 +20,32 @@ export class ApiError extends Error {
   }
 }
 
+// Default request timeout (ms). A stalled proxy request (sent, no response)
+// would otherwise leave a promise that never settles — which latches loading
+// skeletons forever (F692/F611/F516). 30s is far beyond any healthy response,
+// so it only ever fires on a genuinely hung request, and surfaces as a
+// retryable network error (status 0) via withRetry.
+const REQUEST_TIMEOUT_MS = 30000;
+
+// fetch() with a timeout that also respects the caller's abort signal.
+// Uses a local controller so we don't depend on AbortSignal.any/timeout
+// being present; aborts on either a timeout or the caller aborting.
+function fetchWithTimeout(url, opts, callerSignal, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const onCallerAbort = () => controller.abort(callerSignal?.reason);
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort(callerSignal.reason);
+    else callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException("Request timed out", "TimeoutError"));
+  }, timeoutMs);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+    if (callerSignal) callerSignal.removeEventListener("abort", onCallerAbort);
+  });
+}
+
 // Parse Retry-After header: may be seconds (integer) or HTTP-date
 function parseRetryAfter(header) {
   if (!header) return null;
@@ -53,10 +79,13 @@ export async function opensea(path, { method = "GET", body, params = {}, signal 
 
   let res;
   try {
-    res = await fetch(url.toString(), opts);
+    res = await fetchWithTimeout(url.toString(), opts, signal);
   } catch (err) {
-    // fetch() throws TypeError on CORS blocks and network-down
-    throw new ApiError(`OpenSea proxy: network/CORS error — ${err.message}`, 0);
+    // Propagate a real caller-abort so withRetry / callers don't retry it.
+    if (err.name === "AbortError" && signal?.aborted) throw err;
+    // fetch() throws TypeError on CORS/network-down; TimeoutError on our
+    // request timeout — both are transient, surface as retryable (status 0).
+    throw new ApiError(`OpenSea proxy: network/timeout error — ${err.message}`, 0);
   }
   if (!res.ok) {
     const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));
@@ -104,10 +133,13 @@ export async function alchemy(endpoint, { method = "GET", body, params = {}, sig
 
   let res;
   try {
-    res = await fetch(url.toString(), opts);
+    res = await fetchWithTimeout(url.toString(), opts, signal);
   } catch (err) {
-    // fetch() throws TypeError on CORS blocks and network-down
-    throw new ApiError(`Alchemy proxy: network/CORS error — ${err.message}`, 0);
+    // Propagate a real caller-abort so withRetry / callers don't retry it.
+    if (err.name === "AbortError" && signal?.aborted) throw err;
+    // fetch() throws TypeError on CORS/network-down; TimeoutError on our
+    // request timeout — both are transient, surface as retryable (status 0).
+    throw new ApiError(`Alchemy proxy: network/timeout error — ${err.message}`, 0);
   }
   if (!res.ok) {
     const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));

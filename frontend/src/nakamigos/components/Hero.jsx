@@ -156,13 +156,18 @@ export default function Hero({ stats, tokens, onPick }) {
 
           {/* Premium stat cards */}
           <div className="stats-row">
-            {/* Supply -- always visible from config */}
-            <div className="stat-card">
-              <div className="stat-value" style={{ color: "var(--text)" }}>
-                {supply?.toLocaleString() || "\u2014"}
+            {/* Supply -- usually from config; shimmer (not a bare em-dash) while
+                the value is still resolving so it doesn't read as "no data". F620 */}
+            {supply != null ? (
+              <div className="stat-card">
+                <div className="stat-value" style={{ color: "var(--text)" }}>
+                  {supply.toLocaleString()}
+                </div>
+                <div className="stat-label">SUPPLY</div>
               </div>
-              <div className="stat-label">SUPPLY</div>
-            </div>
+            ) : (
+              <StatSkeleton label="SUPPLY" />
+            )}
 
             {/* Floor price */}
             {stats.floor != null ? (
