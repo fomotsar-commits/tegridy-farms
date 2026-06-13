@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
-import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation, useNavigationType } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,7 +9,7 @@ import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
 import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
-import { safeSetItem } from './lib/storage';
+import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 
@@ -85,7 +85,9 @@ const queryClient = new QueryClient({
 });
 
 function NotFoundPage() {
-  usePageTitle('404 — Page Not Found');
+  // F24: don't canonicalize the bogus path (would create a soft-404 served 200)
+  // and mark it noindex so crawlers drop it.
+  usePageTitle('404 — Page Not Found', undefined, { noCanonical: true, noIndex: true });
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-6">
       <div className="text-center max-w-sm">
@@ -100,15 +102,41 @@ function NotFoundPage() {
         >
           Back to Home
         </Link>
+        {/* F62: quick links so a mistyped URL still routes users somewhere useful. */}
+        <div className="mt-6">
+          <p className="text-white/40 text-[11px] uppercase tracking-wider mb-2">Or jump to</p>
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            {[
+              { to: '/farm', label: 'Farm' },
+              { to: '/swap', label: 'Trade' },
+              { to: '/dashboard', label: 'Dashboard' },
+            ].map((l) => (
+              <Link
+                key={l.to}
+                to={l.to}
+                className="btn-secondary px-4 py-2 text-[13px]"
+              >
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// Scroll to top on route change (no built-in scroll restoration in React Router v7)
+// Scroll to top on route change (no built-in scroll restoration in React Router v7).
+// F18: skip the reset on POP (Back/Forward) so the browser's native scroll
+// restoration can return the user to their previous reading position; PUSH/REPLACE
+// navigations still scroll to top.
 function ScrollToTop() {
   const { pathname } = useLocation();
-  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  const navType = useNavigationType();
+  useEffect(() => {
+    if (navType === 'POP') return;
+    window.scrollTo(0, 0);
+  }, [pathname, navType]);
   return null;
 }
 
@@ -202,7 +230,9 @@ function AppInner() {
 
 function App() {
   useEffect(() => {
-    if (!localStorage.getItem('tegridy_first_visit')) {
+    // F23: safeGetItem guards the SecurityError thrown by raw localStorage
+    // access when the browser blocks site data.
+    if (!safeGetItem('tegridy_first_visit')) {
       safeSetItem('tegridy_first_visit', Date.now().toString());
     }
   }, []);

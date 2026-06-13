@@ -8,6 +8,9 @@
          can confuse some PWA tooling. -->
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <!-- F30/F8: black-translucent lets content (and the safe-area-inset-top
+         header padding) sit under the status bar on a notched standalone launch. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#060c1a">
     <!--
       AUDIT THEME-FOUC: pre-hydration theme script runs synchronously before
@@ -67,8 +70,11 @@
     <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/fonts/fonts.css">
-    <link rel="preload" as="image" href="/art/mfers-heaven.jpg">
-    <link rel="preload" as="image" href="/art/mumu-bull.jpg">
+    <!-- F19: the splash picks 4 random art pieces from a 41-entry pool, so
+         preloading specific splash JPGs was <10% likely to be used (and repeat
+         visitors skip the splash entirely yet still paid the bytes). Keep only
+         bobowelie — it's the TopNav replay button and the Towelie avatar, so
+         it's genuinely warmed on every page. -->
     <link rel="preload" as="image" href="/art/bobowelie.jpg">
     <script type="application/ld+json">
     {"@context":"https://schema.org","@type":"WebApplication","name":"Tegridy Farms","description":"Art-first yield farming protocol on Ethereum","url":"https://tegridyfarms.vercel.app","applicationCategory":"DeFi","operatingSystem":"Web"}
@@ -76,6 +82,16 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- F30: JS-disabled visitors otherwise get a blank #root. -->
+    <noscript>
+      <div style="max-width:640px;margin:48px auto;padding:24px;font-family:system-ui,sans-serif;color:#ede9fe;text-align:center;line-height:1.5">
+        <h1 style="font-size:20px;margin:0 0 12px">Tegridy Farms requires JavaScript</h1>
+        <p style="font-size:14px;color:#a599c9;margin:0">
+          This DeFi app needs JavaScript enabled to connect your wallet and read on-chain data.
+          Please enable JavaScript and reload the page.
+        </p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

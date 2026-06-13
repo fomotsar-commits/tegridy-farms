@@ -79,7 +79,7 @@ function SourceLink({ chainId, address, label }: { chainId: number | undefined; 
 }
 
 export default function TreasuryPage() {
-  usePageTitle('Treasury');
+  usePageTitle('Treasury', 'On-chain Tegridy Farms treasury holdings and protocol revenue flows.');
 
   const chainId = useChainId();
   const price = useTOWELIPrice();

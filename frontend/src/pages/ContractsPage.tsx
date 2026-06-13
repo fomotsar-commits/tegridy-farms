@@ -288,7 +288,7 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
 }
 
 export default function ContractsPage() {
-  usePageTitle('Contracts');
+  usePageTitle('Contracts', 'Tegridy Farms smart contract addresses, verified on-chain on Ethereum mainnet.');
 
   return (
     <div className="-mt-14 relative min-h-screen">

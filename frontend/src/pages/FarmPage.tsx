@@ -48,7 +48,7 @@ const LOCK_OPTIONS = [
 ];
 
 export default function FarmPage() {
-  usePageTitle('Farm');
+  usePageTitle('Farm', 'Stake TOWELI and provide liquidity to earn boosted yield on Tegridy Farms.');
   const { isConnected } = useAccount();
   // Wrong-chain display delegated to <WrongChainBanner/>; button-level chain
   // checks still happen inside useFarmActions / useRestaking before any write.

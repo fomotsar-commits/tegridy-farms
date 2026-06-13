@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { PRIMARY_NAV, POINTS_NAV, ALL_NAV, MORE_NAV, NFT_FINANCE_LIVE, COMMUNITY_LIVE } from './navConfig';
 
-// Session 1 consolidated the navigation from 21 routes to 5 primary entries.
-// MORE_NAV / MORE_PATHS were removed; ALL_NAV now contains the primary set
-// plus the right-aligned Points action. This test file is updated to match
-// the post-consolidation shape.
+// Session 1 consolidated the navigation from 21 routes to a tight primary set.
+// MORE_PATHS was removed; MORE_NAV is the flattened "More" destinations and
+// ALL_NAV is PRIMARY_NAV + the right-aligned Tradermigos action + MORE_NAV.
+// This test asserts the post-consolidation shape.
 
 describe('navConfig', () => {
   it('PRIMARY_NAV has items with `to` and `label`', () => {

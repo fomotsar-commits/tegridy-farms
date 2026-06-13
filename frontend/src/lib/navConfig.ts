@@ -70,9 +70,11 @@ export interface NavSection {
 }
 
 /**
- * "More" dropdown / drawer — curated secondary destinations. Three sections
- * of three items keeps the menu scannable on both desktop and mobile with a
- * single source of truth. Pages merged into tabbed hosts (LearnPage covers
+ * "More" dropdown / drawer — curated secondary destinations. A short set of
+ * grouped sections (Engage / Stats) keeps the menu scannable on both desktop
+ * and mobile from a single source of truth. Some entries are gated
+ * (Community appears only when a governance contract is live), so the rendered
+ * counts vary. Pages merged into tabbed hosts (LearnPage covers
  * Tokenomics/Lore/Security/FAQ; ActivityPage covers Leaderboard/Gold Card/
  * History/Changelog; InfoPage covers Treasury/Contracts/Risks/Terms/Privacy)
  * have one representative entry each so the menu stays flat instead of
@@ -104,9 +106,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
 export const MORE_NAV: NavItem[] = MORE_NAV_SECTIONS.flatMap((s) => s.items);
 
 /**
- * All-nav list used by the mobile drawer fallback. Matches PRIMARY_NAV
- * plus the Tradermigos action and the "More" destinations so every top-level
- * route is reachable from the drawer.
+ * Flat all-nav list (PRIMARY_NAV + the Tradermigos action + the "More"
+ * destinations). NOTE: the live TopNav drawer renders MORE_NAV_SECTIONS
+ * directly (primary tabs live in the BottomNav), so this export is currently
+ * only consumed by navConfig.test.ts as a completeness assertion. Kept as the
+ * canonical "every reachable top-level route" list for tooling/tests.
  */
 export const ALL_NAV: NavItem[] = [
   ...PRIMARY_NAV,

@@ -146,7 +146,7 @@ function PauseControls({
 }
 
 export default function AdminPage() {
-  usePageTitle('Admin');
+  usePageTitle('Admin', 'Tegridy Farms protocol administration.');
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
   const onCorrectChain = walletChainId === CHAIN_ID;
