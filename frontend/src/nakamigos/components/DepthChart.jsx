@@ -35,6 +35,11 @@ function computeSpread(floorPrice, bestBid) {
   if (!floorPrice || !bestBid || floorPrice <= 0) return null;
   const abs = floorPrice - bestBid;
   const pct = (abs / floorPrice) * 100;
+  // A best bid ABOVE the floor (negative spread) is impossible in a real
+  // book — it would be instant-arbitraged. It means the offers feed is being
+  // mis-parsed (criteria/qty-scaled WETH offers read as per-unit prices). Flag
+  // it as invalid so the UI never calls a -4000% spread "narrow"/"healthy" (F609).
+  if (bestBid > floorPrice) return { abs, pct, health: "invalid" };
   let health = "green";
   if (pct >= 15) health = "red";
   else if (pct >= 5) health = "yellow";
@@ -71,7 +76,8 @@ function generateSummary(askBuckets, bidBuckets, spread, thickness) {
   // Spread
   if (spread) {
     const pctStr = spread.pct.toFixed(1);
-    if (spread.health === "green") parts.push(`Price gap is narrow (${pctStr}%), suggesting healthy trading`);
+    if (spread.health === "invalid") parts.push("Bid data looks unreliable (a bid above floor) — spread unavailable");
+    else if (spread.health === "green") parts.push(`Price gap is narrow (${pctStr}%), suggesting healthy trading`);
     else if (spread.health === "yellow") parts.push(`Price gap is moderate (${pctStr}%), watch for volatility`);
     else parts.push(`Price gap is wide (${pctStr}%), low liquidity zone`);
   }
@@ -88,6 +94,7 @@ const HEALTH_COLORS = {
   green: "var(--green)",
   yellow: "var(--yellow)",
   red: "var(--red)",
+  invalid: "var(--text-muted)",
 };
 
 export default function DepthChart({ listings = [], offers = [], floorPrice, collection }) {
@@ -401,11 +408,11 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
         <div className="depth-spread-bar">
           <span className="depth-spread-label">SPREAD</span>
           <span className="depth-spread-value" style={{ color: HEALTH_COLORS[spread.health] }}>
-            {spread.abs.toFixed(4)} ETH ({spread.pct.toFixed(1)}%)
+            {spread.health === "invalid" ? "—" : `${spread.abs.toFixed(4)} ETH (${spread.pct.toFixed(1)}%)`}
           </span>
           <span className="depth-spread-dot" style={{ background: HEALTH_COLORS[spread.health] }} />
           <span className="depth-spread-health" style={{ color: HEALTH_COLORS[spread.health] }}>
-            {spread.health === "green" ? "Healthy" : spread.health === "yellow" ? "Moderate" : "Wide"}
+            {spread.health === "invalid" ? "Data unavailable" : spread.health === "green" ? "Healthy" : spread.health === "yellow" ? "Moderate" : "Wide"}
           </span>
         </div>
       )}

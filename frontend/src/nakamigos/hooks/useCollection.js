@@ -11,11 +11,15 @@ const POLL_INTERVAL_FALLBACK = 60000;
 
 const EMPTY_STATS = { floor: null, volume: null, owners: null, supply: null };
 
+// Mark the hardcoded first-paint fallback as such so the UI can badge it
+// "cached" instead of presenting stale numbers as live (F582).
+const FALLBACK_STATS_FLAGGED = { ...FALLBACK_STATS, fallback: true };
+
 export default function useCollection() {
   const collection = useActiveCollection();
   // Only use Nakamigos fallback stats for Nakamigos; other collections start empty
   const [stats, setStats] = useState(
-    collection.slug === DEFAULT_COLLECTION ? FALLBACK_STATS : EMPTY_STATS
+    collection.slug === DEFAULT_COLLECTION ? FALLBACK_STATS_FLAGGED : EMPTY_STATS
   );
   const [activities, setActivities] = useState([]);
   const [activitiesLoading, setActivitiesLoading] = useState(true); // true until first fetch completes
@@ -39,7 +43,7 @@ export default function useCollection() {
 
   // Reset stats when switching collections so stale data doesn't bleed across
   useEffect(() => {
-    setStats(collection.slug === DEFAULT_COLLECTION ? FALLBACK_STATS : EMPTY_STATS);
+    setStats(collection.slug === DEFAULT_COLLECTION ? FALLBACK_STATS_FLAGGED : EMPTY_STATS);
     setActivities([]);
     setActivitiesLoading(true);
     setActivitiesEmpty(false);

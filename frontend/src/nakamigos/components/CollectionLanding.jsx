@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { COLLECTIONS, COLLECTION_LORE } from "../constants";
 import { fetchCollectionStats, fetchTokens } from "../api";
+import { formatPrice } from "../lib/formatPrice";
 
 const COLLECTION_LIST = Object.values(COLLECTIONS);
 
@@ -75,6 +76,7 @@ function CrossCollectionSearch() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const wrapperRef = useRef(null);
 
   const results = useMemo(() => {
@@ -94,12 +96,17 @@ function CrossCollectionSearch() {
       }
     }
 
-    // Token ID search
+    // Token ID search. The supply count is only a heuristic bound: ids can run
+    // above supply (gnss token ids go past 9000 on a 9696 supply) and below it
+    // can be burned (junglebay). Allow #0 and a generous upper bound, and flag
+    // out-of-range hits as best-effort rather than excluding them (F578).
     if (/^\d+$/.test(query)) {
       const id = parseInt(query, 10);
       for (const [slug, col] of Object.entries(COLLECTIONS)) {
-        if (id > 0 && id <= col.supply) {
-          out.push({ type: "token", slug, name: `${col.name} #${id}`, id, image: col.image });
+        const upper = Math.max(col.supply, Math.round(col.supply * 1.5));
+        if (id >= 0 && id <= upper) {
+          const tentative = id >= col.supply;
+          out.push({ type: "token", slug, name: `${col.name} #${id}`, id, image: col.image, tentative });
         }
       }
     }
@@ -121,10 +128,37 @@ function CrossCollectionSearch() {
   const handleSelect = (r) => {
     setQuery("");
     setFocused(false);
+    setActiveIndex(-1);
     navigate(`/nakamigos/${r.slug}/${r.type === "token" ? `nft/${r.id}` : "gallery"}`);
   };
 
+  // Reset the keyboard highlight whenever the result set changes.
+  useEffect(() => { setActiveIndex(-1); }, [query]);
+
   const showDropdown = focused && query.length >= 2 && results.length > 0;
+
+  const handleKeyDown = (e) => {
+    if (!showDropdown) {
+      if (e.key === "Escape") { setFocused(false); }
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % results.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? results.length - 1 : i - 1));
+    } else if (e.key === "Enter") {
+      if (activeIndex >= 0 && activeIndex < results.length) {
+        e.preventDefault();
+        handleSelect(results[activeIndex]);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setFocused(false);
+      setActiveIndex(-1);
+    }
+  };
 
   return (
     <div ref={wrapperRef} style={{ position: "relative", maxWidth: 480, margin: "0 auto 40px", zIndex: 20 }}>
@@ -151,7 +185,14 @@ function CrossCollectionSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setFocused(true)}
+          onKeyDown={handleKeyDown}
           placeholder="Search collections or token ID..."
+          role="combobox"
+          aria-expanded={showDropdown}
+          aria-controls="landing-search-listbox"
+          aria-autocomplete="list"
+          aria-activedescendant={activeIndex >= 0 ? `landing-search-opt-${activeIndex}` : undefined}
+          aria-label="Search collections or token ID"
           style={{
             flex: 1,
             background: "transparent",
@@ -186,7 +227,11 @@ function CrossCollectionSearch() {
 
       {/* Dropdown results */}
       {showDropdown && (
-        <div style={{
+        <div
+          id="landing-search-listbox"
+          role="listbox"
+          aria-label="Search results"
+          style={{
           position: "absolute",
           top: "calc(100% + 6px)",
           left: 0,
@@ -203,14 +248,18 @@ function CrossCollectionSearch() {
           {results.map((r, i) => (
             <button
               key={`${r.slug}-${r.type}-${r.id ?? i}`}
+              id={`landing-search-opt-${i}`}
+              role="option"
+              aria-selected={i === activeIndex}
               onClick={() => handleSelect(r)}
+              onMouseMove={() => setActiveIndex(i)}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
                 width: "100%",
                 padding: "10px 16px",
-                background: "transparent",
+                background: i === activeIndex ? "rgba(111,168,220,0.12)" : "transparent",
                 border: "none",
                 borderBottom: i < results.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
                 cursor: "pointer",
@@ -220,8 +269,6 @@ function CrossCollectionSearch() {
                 textAlign: "left",
                 transition: "background 0.15s ease",
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(111,168,220,0.08)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
               <img
                 src={r.image}
@@ -254,7 +301,7 @@ function CrossCollectionSearch() {
                   letterSpacing: "0.06em",
                   marginTop: 2,
                 }}>
-                  {r.type === "token" ? "Token" : "Collection"}
+                  {r.type === "token" ? (r.tentative ? "Token · may not exist" : "Token") : "Collection"}
                 </div>
               </div>
               {/* Arrow icon */}
@@ -486,7 +533,8 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           marginBottom: 8,
           flexWrap: "wrap",
         }}>
-          <h3 style={{
+          {/* div (not h3): headings are not valid content inside a <button> */}
+          <div role="heading" aria-level={3} style={{
             fontFamily: "var(--pixel)",
             fontSize: 14,
             color: "var(--naka-blue)",
@@ -495,7 +543,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
             lineHeight: 1.3,
           }}>
             {collection.name}
-          </h3>
+          </div>
           {collection.highlights?.map((h) => (
             <HighlightBadge key={h.label} label={h.label} color={h.color} />
           ))}
@@ -511,8 +559,8 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           </div>
         )}
 
-        {/* Description */}
-        <p style={{
+        {/* Description — div (not p): paragraphs aren't valid inside a <button> */}
+        <div style={{
           fontFamily: "var(--mono)",
           fontSize: 10,
           color: "var(--text-muted)",
@@ -525,7 +573,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           minHeight: 32,
         }}>
           {collection.description}
-        </p>
+        </div>
 
         {/* Creator */}
         {COLLECTION_LORE[collection.slug]?.creator?.name && (
@@ -575,7 +623,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
             label="Floor"
             loading={isLoading}
             shimmerWidth="55%"
-            value={isError ? dash : stats ? formatStat(stats.floor, " ETH") : dash}
+            value={isError ? dash : stats && stats.floor != null ? `${formatPrice(stats.floor)} ETH` : dash}
           />
           <Stat
             label="Volume"

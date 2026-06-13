@@ -18,7 +18,9 @@ function HeroShowcase({ tokens, onPick }) {
   useEffect(() => {
     if (!featured.length) return;
     const iv = setInterval(() => {
-      if (!pausedRef.current) setActive((p) => (p + 1) % featured.length);
+      // Don't advance while paused (hover/focus) or while the tab is hidden —
+      // a backgrounded tab shouldn't burn the rotation (F591).
+      if (!pausedRef.current && !document.hidden) setActive((p) => (p + 1) % featured.length);
     }, 4000);
     return () => clearInterval(iv);
   }, [featured.length]);
@@ -84,6 +86,7 @@ function HeroShowcase({ tokens, onPick }) {
 
 function formatVolume(n) {
   if (n == null) return null;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return n.toLocaleString();
 }
@@ -97,11 +100,30 @@ function StatSkeleton({ label }) {
   );
 }
 
+// Small "cached" marker shown on stat cards when the numbers are the hardcoded
+// fallback rather than a live fetch (F582) — honest disclosure, no number change.
+function CachedTag() {
+  return (
+    <span
+      title="Cached estimate — live stats unavailable right now"
+      style={{
+        marginLeft: 6, fontFamily: "var(--mono)", fontSize: 8,
+        letterSpacing: "0.06em", color: "var(--text-muted)",
+        border: "1px solid var(--border)", borderRadius: 4,
+        padding: "0 4px", verticalAlign: "middle", textTransform: "uppercase",
+      }}
+    >
+      cached
+    </span>
+  );
+}
+
 export default function Hero({ stats, tokens, onPick }) {
   const collection = useActiveCollection();
   // Use config supply as the ultimate fallback for display
   const supply = stats.supply ?? collection.supply ?? null;
   const isLoading = stats.floor == null && stats.owners == null && stats.volume == null;
+  const isFallback = !!stats.fallback;
 
   return (
     <section className="hero">
@@ -149,7 +171,7 @@ export default function Hero({ stats, tokens, onPick }) {
                   {Number(stats.floor).toFixed(4)}
                   <span className="stat-suffix"> ETH</span>
                 </div>
-                <div className="stat-label">FLOOR</div>
+                <div className="stat-label">FLOOR{isFallback && <CachedTag />}</div>
               </div>
             ) : isLoading ? (
               <StatSkeleton label="FLOOR" />
@@ -162,7 +184,7 @@ export default function Hero({ stats, tokens, onPick }) {
                   {formatVolume(stats.volume)}
                   <span className="stat-suffix"> ETH</span>
                 </div>
-                <div className="stat-label">ALL-TIME VOL</div>
+                <div className="stat-label">ALL-TIME VOL{isFallback && <CachedTag />}</div>
               </div>
             )}
 
@@ -172,7 +194,7 @@ export default function Hero({ stats, tokens, onPick }) {
                 <div className="stat-value" style={{ color: "var(--green)" }}>
                   {stats.owners.toLocaleString()}
                 </div>
-                <div className="stat-label">OWNERS</div>
+                <div className="stat-label">OWNERS{isFallback && <CachedTag />}</div>
               </div>
             ) : isLoading ? (
               <StatSkeleton label="OWNERS" />
