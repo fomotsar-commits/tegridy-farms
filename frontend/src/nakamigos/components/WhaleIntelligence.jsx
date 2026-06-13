@@ -169,6 +169,8 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
   const [apiTotalHeld, setApiTotalHeld] = useState(0);
   const [expandedNfts, setExpandedNfts] = useState([]);
   const [loadingNfts, setLoadingNfts] = useState(false);
+  // Distinguish an outage from a genuinely-empty wallet in the expanded view (F724).
+  const [expandedError, setExpandedError] = useState(false);
   const [error, setError] = useState(null);
 
   const mountedRef = useRef(true);
@@ -243,9 +245,12 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
       }
       setExpandedHolder(address);
       setExpandedNfts([]);
+      setExpandedError(false);
       setLoadingNfts(true);
       const data = await fetchWalletNfts(address, collection.contract, collection.metadataBase);
       if (!mountedRef.current) return;
+      // An outage returns { tokens:[], error } — don't claim "none held".
+      if (data?.error && (data.tokens?.length || 0) === 0) setExpandedError(true);
       setExpandedNfts(data.tokens || []);
       setLoadingNfts(false);
     },
@@ -527,6 +532,16 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
               }}>
                 Distribution of top {holders.length} holders (by holding size)
                 {totalOwners > 0 && <> &middot; {totalOwners.toLocaleString()} unique owners</>}
+              </div>
+            )}
+            {!loadingHolders && !holdersLive && holders.length > 0 && (
+              <div style={{
+                padding: "8px 12px", borderRadius: 8, marginBottom: 14,
+                background: "rgba(251, 191, 36, 0.04)", border: "1px solid rgba(251, 191, 36, 0.1)",
+                fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow)",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                {"⚠"} Showing cached example holders — live holder API unavailable
               </div>
             )}
 
@@ -825,7 +840,9 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                 color: "var(--text-muted)",
                               }}
                             >
-                              No {collection.name} held by this wallet.
+                              {expandedError
+                                ? "Couldn't load this wallet's NFTs right now."
+                                : `No ${collection.name} held by this wallet.`}
                             </div>
                           )}
                         </div>
@@ -1035,8 +1052,10 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                         >
                           {tx.type === "sale"
                             ? "Sale"
-                            : tx.type === "ask"
+                            : tx.type === "ask" || tx.type === "listing"
                             ? "List"
+                            : tx.type === "cancellation"
+                            ? "Cancel"
                             : tx.type || "Tx"}
                         </span>
                         <span

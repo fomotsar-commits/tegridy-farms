@@ -190,12 +190,17 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
 
   const [traitFilter, setTraitFilter] = useState("all");
   const [show24hSales, setShow24hSales] = useState(false);
+  // Mirror "is zoomed" into state so the Reset Zoom button actually appears
+  // when the user scrolls to zoom (the button previously read zoomRef during
+  // render, which never re-rendered on a zoom) — F728.
+  const [isZoomed, setIsZoomed] = useState(false);
 
   // Reset state on collection change
   useEffect(() => {
     setTraitFilter("all");
     setShow24hSales(false);
     zoomRef.current = { scale: 1, offsetX: 0, offsetY: 0 };
+    setIsZoomed(false);
   }, [collection.slug]);
 
   // Build price map from listings
@@ -585,6 +590,7 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
     const newOffsetX = mx - (mx - zoom.offsetX) * (newScale / zoom.scale);
     const newOffsetY = my - (my - zoom.offsetY) * (newScale / zoom.scale);
     zoomRef.current = { scale: newScale, offsetX: newScale === 1 ? 0 : newOffsetX, offsetY: newScale === 1 ? 0 : newOffsetY };
+    setIsZoomed(newScale > 1);
     draw();
   }, [draw]);
 
@@ -743,10 +749,10 @@ export default function RarityPriceScatter({ tokens, listings, activities, onPic
         )}
 
         {/* Zoom reset */}
-        {zoomRef.current.scale > 1 && (
+        {isZoomed && (
           <button
             style={S.toggleBtn(false)}
-            onClick={() => { zoomRef.current = { scale: 1, offsetX: 0, offsetY: 0 }; draw(); }}
+            onClick={() => { zoomRef.current = { scale: 1, offsetX: 0, offsetY: 0 }; setIsZoomed(false); draw(); }}
           >
             Reset Zoom
           </button>

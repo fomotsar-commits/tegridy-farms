@@ -10,17 +10,21 @@ const MAX_GRID = 24;
 const EVENT_COLORS = {
   sale: "var(--green)",
   ask: "var(--yellow)",
+  listing: "var(--yellow)",
   bid: "var(--purple)",
   transfer: "var(--text-dim)",
   mint: "var(--gold)",
+  cancellation: "var(--text-muted)",
 };
 
 const EVENT_LABELS = {
   sale: "Sale",
   ask: "Listed",
+  listing: "Listed",
   bid: "Bid",
   transfer: "Transfer",
   mint: "Mint",
+  cancellation: "Cancelled",
 };
 
 function formatTimeAgo(ts) {
@@ -98,6 +102,9 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
   const [showAll, setShowAll] = useState(false);
   const [activities, setActivities] = useState([]);
   const [visible, setVisible] = useState(false);
+  // Distinguish an API outage from a genuinely-empty wallet (F724) so we don't
+  // label a failed fetch as "Observer / does not hold any".
+  const [loadError, setLoadError] = useState(false);
   const prevCollectionRef = useRef(collection.contract);
 
   // Slide-in animation
@@ -120,22 +127,32 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
   }, [collection.contract]);
 
   // Fetch wallet NFTs — pass metadataBase so images resolve for all collections
-  useEffect(() => {
+  const loadTokensRef = useRef(0);
+  const loadTokens = useCallback(() => {
     if (!address) return;
-    let mounted = true;
+    const gen = ++loadTokensRef.current;
     setLoading(true);
+    setLoadError(false);
 
     fetchWalletNfts(address, collection.contract, collection.metadataBase).then((data) => {
-      if (!mounted) return;
+      if (gen !== loadTokensRef.current) return;
+      // An outage returns { tokens:[], totalCount:0, error } — flag it so the
+      // empty grid shows a retry instead of a confident zero-holdings claim.
+      if (data?.error && (data.tokens?.length || 0) === 0) {
+        setLoadError(true);
+        setLoading(false);
+        return;
+      }
       setTokens(data.tokens || []);
       setTotalCount(data.totalCount || 0);
       setLoading(false);
     });
-
-    return () => {
-      mounted = false;
-    };
   }, [address, collection.contract, collection.metadataBase]);
+
+  useEffect(() => {
+    loadTokens();
+    return () => { loadTokensRef.current++; };
+  }, [loadTokens]);
 
   // Fetch real floor price for this collection
   useEffect(() => {
@@ -444,7 +461,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
             },
             {
               label: "STATUS",
-              value: loading ? "\u2014" : totalCount === 0 ? "Observer" : isWhale ? "Whale" : isCollector ? "Collector" : "Holder",
+              value: loading || loadError ? "\u2014" : totalCount === 0 ? "Observer" : isWhale ? "Whale" : isCollector ? "Collector" : "Holder",
               gold: false,
             },
           ].map((stat, i) => (
@@ -493,12 +510,14 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
           }}
         >
           {isWhale && <Badge label="Whale" icon={"\uD83D\uDC33"} color="var(--gold)" />}
-          {isWhale && <Badge label="Diamond Hands" icon={"\uD83D\uDC8E"} color="var(--naka-blue)" />}
+          {/* "Diamond Hands" implies a hold-duration we don't measure here; the
+              badge is driven purely by holding count, so label it as such (F729). */}
+          {isWhale && <Badge label="Top Holder" icon={"\uD83D\uDC8E"} color="var(--naka-blue)" />}
           {isCollector && !isWhale && <Badge label="Collector" icon={"\u2B50"} color="var(--purple)" />}
           {!isWhale && !isCollector && totalCount > 0 && (
             <Badge label="Holder" icon={"\u2728"} color="var(--green)" />
           )}
-          {totalCount === 0 && !loading && (
+          {totalCount === 0 && !loading && !loadError && (
             <Badge label="Observer" icon={"\uD83D\uDC41"} color="var(--text-muted)" />
           )}
         </div>
@@ -562,6 +581,22 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
                   }}
                 />
               ))}
+            </div>
+          ) : loadError ? (
+            <div className="empty-state" style={{ padding: "32px 0", minHeight: "auto" }}>
+              <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\u26A0"}</div>
+              <div className="empty-state-title" style={{ fontSize: 13 }}>Couldn't load holdings</div>
+              <div className="empty-state-text" style={{ fontSize: 10 }}>The NFT API is unavailable right now.</div>
+              <button
+                onClick={loadTokens}
+                style={{
+                  marginTop: 12, fontFamily: "var(--mono)", fontSize: 10, padding: "6px 14px",
+                  borderRadius: 8, border: "1px solid var(--border)",
+                  background: "var(--surface-glass)", color: "var(--gold)", cursor: "pointer",
+                }}
+              >
+                Retry
+              </button>
             </div>
           ) : tokens.length === 0 ? (
             <div className="empty-state" style={{ padding: "32px 0", minHeight: "auto" }}>
