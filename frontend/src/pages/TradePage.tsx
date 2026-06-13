@@ -16,6 +16,7 @@ import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
+import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
 
@@ -103,6 +104,11 @@ export default function TradePage() {
     setSearchParams(params, { replace: true });
   };
 
+  // T10 (F205): WAI-ARIA tabs roving-focus + arrow-key navigation. Shared hook
+  // adds the missing keyboard behaviour without restructuring the existing
+  // tablist markup.
+  const tabKeys = useTabListKeys(VALID_TABS, tab, handleTabChange);
+
   const swap = useSwap();
 
   // F226/F227/F235/F196: aggregator `amountOut` is WEI while the on-chain
@@ -170,6 +176,7 @@ export default function TradePage() {
         <div
           role="tablist"
           aria-label="Trade view — swap, liquidity, DCA, or limit order"
+          onKeyDown={tabKeys.onKeyDown}
           className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
           // F521: bumped the bar background 0.4 -> 0.85 (matches the NFT-finance
           // section toggle) so the inactive Liquidity/DCA/Alerts labels stop
@@ -181,9 +188,12 @@ export default function TradePage() {
               key={t}
               type="button"
               role="tab"
+              id={`trade-tab-${t}`}
               aria-selected={tab === t}
+              aria-controls={`trade-panel-${t}`}
+              tabIndex={tabKeys.tabIndex(t)}
+              ref={tabKeys.ref(t)}
               onClick={() => handleTabChange(t)}
-              aria-pressed={tab === t}
               className="flex-1 px-3 md:px-4 py-2.5 min-h-[44px] rounded-xl text-[13px] md:text-sm font-medium transition-all whitespace-nowrap text-white"
               style={tab === t ? {
                 background: 'var(--color-stan)',
@@ -197,7 +207,7 @@ export default function TradePage() {
 
         {/* Swap Tab */}
         {tab === 'swap' && (
-          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div role="tabpanel" id="trade-panel-swap" aria-labelledby="trade-tab-swap" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
               <ArtImg pageId="trade" idx={1} fallbackPosition="center 15%" alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>
@@ -294,7 +304,13 @@ export default function TradePage() {
                       <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
                       <span className="text-white/80" aria-hidden="true">▾</span>
                     </button>
-                    <div className="flex-1 text-right text-white text-[20px] font-mono font-medium">
+                    <div
+                      className="flex-1 text-right text-white text-[20px] font-mono font-medium"
+                      // F205: announce quote updates to assistive tech as they settle.
+                      aria-live="polite"
+                      aria-atomic="true"
+                      aria-label={`You receive ${swap.outputFormatted || '0'} ${swap.toToken?.symbol ?? ''}`}
+                    >
                       {swap.isQuoteLoading ? (
                         // F207: skeleton shimmer instead of a bare "..." while the quote loads.
                         <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
@@ -541,14 +557,14 @@ export default function TradePage() {
 
         {/* Liquidity Tab */}
         {tab === 'liquidity' && (
-          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div role="tabpanel" id="trade-panel-liquidity" aria-labelledby="trade-tab-liquidity" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
             <LiquidityTab />
           </m.div>
         )}
 
         {/* DCA Tab */}
         {tab === 'dca' && (
-          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div role="tabpanel" id="trade-panel-dca" aria-labelledby="trade-tab-dca" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
               <ArtImg pageId="trade" idx={2} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>
@@ -560,7 +576,7 @@ export default function TradePage() {
 
         {/* Limit Order Tab */}
         {tab === 'limit' && (
-          <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
+          <m.div role="tabpanel" id="trade-panel-limit" aria-labelledby="trade-tab-limit" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
             <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
               <ArtImg pageId="trade" idx={3} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>

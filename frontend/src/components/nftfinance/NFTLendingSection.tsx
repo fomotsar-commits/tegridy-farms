@@ -9,6 +9,7 @@ import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '.
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 import { useCountdown } from '../../hooks/useCountdown';
+import { useTabListKeys } from '../../hooks/useTabListKeys';
 
 // Per-collection art for the collateral selector — pulls from each project's
 // canonical asset instead of Tegridy's art pool so the cards represent the
@@ -101,6 +102,8 @@ function collectionName(addr: string): string {
 export function NFTLendingSection() {
   void useAccount(); // keep wagmi context alive
   const [activeTab, setActiveTab] = useState<Tab>('Lend');
+  // T10 (F275): tablist semantics + roving-focus arrow-key navigation.
+  const tabKeys = useTabListKeys(TABS, activeTab, setActiveTab);
 
   /* ── Protocol Stats ──────────────────────────────────────────── */
   const { data: offerCountData } = useReadContract({
@@ -186,6 +189,9 @@ export function NFTLendingSection() {
       {/* Tab Navigation — solid black box so Lend/Borrow/My Loans labels stay
           readable over the full-bleed mascot art on this section. */}
       <m.div
+        role="tablist"
+        aria-label="NFT lending sections"
+        onKeyDown={tabKeys.onKeyDown}
         className="flex gap-1 rounded-xl p-1"
         style={{ background: 'rgba(0, 0, 0, 0.85)', border: `1px solid ${CARD_BORDER}` }}
         initial={{ opacity: 0, y: 8 }}
@@ -195,6 +201,10 @@ export function NFTLendingSection() {
         {TABS.map((tab) => (
           <button
             key={tab}
+            role="tab"
+            aria-selected={activeTab === tab}
+            tabIndex={tabKeys.tabIndex(tab)}
+            ref={tabKeys.ref(tab)}
             onClick={() => setActiveTab(tab)}
             className={`relative flex-1 min-h-[44px] rounded-lg text-[13px] font-medium transition-colors ${
               activeTab === tab ? 'text-white' : 'text-white/70 hover:text-white/70'

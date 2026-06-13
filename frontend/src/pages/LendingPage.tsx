@@ -12,6 +12,7 @@ import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../lib/constants';
+import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
 
@@ -105,6 +106,8 @@ export default function LendingPage() {
     // the tab history is intentionally replace-not-push.
     setSearchParams(params, { replace: true });
   };
+  // T10 (F303): WAI-ARIA tabs roving-focus + arrow-key navigation.
+  const tabKeys = useTabListKeys(VALID_SECTIONS, section, handleSectionChange);
   const [introDismissed, setIntroDismissed] = useState(() => {
     try { return localStorage.getItem(INTRO_DISMISSED_KEY) === '1'; } catch { return false; }
   });
@@ -205,6 +208,7 @@ export default function LendingPage() {
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"
+          onKeyDown={tabKeys.onKeyDown}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -213,8 +217,11 @@ export default function LendingPage() {
             <button
               key={key}
               role="tab"
+              id={`nft-finance-tab-${key}`}
               aria-selected={section === key}
               aria-controls={`nft-finance-panel-${key}`}
+              tabIndex={tabKeys.tabIndex(key)}
+              ref={tabKeys.ref(key)}
               className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap snap-start flex-shrink-0 ${
                 section === key
                   ? 'text-white'
@@ -254,7 +261,9 @@ export default function LendingPage() {
             key={section}
             role="tabpanel"
             id={`nft-finance-panel-${section}`}
-            aria-label={`${SECTIONS.find(s => s.key === section)?.label} panel`}
+            aria-labelledby={`nft-finance-tab-${section}`}
+            tabIndex={0}
+            className="outline-none"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}

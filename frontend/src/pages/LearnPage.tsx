@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
+import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Tab = 'tokenomics' | 'lore' | 'security' | 'faq';
 
@@ -41,6 +42,11 @@ export default function LearnPage() {
     navigate(TAB_PATHS[t], { replace: false });
   };
 
+  // T10 (F22): WAI-ARIA tabs roving-focus + arrow-key navigation. Route-nav
+  // tabs — "activate" navigates to the sub-page rendered in the tabpanel below.
+  const TABS = Object.keys(TAB_LABELS) as Tab[];
+  const tabKeys = useTabListKeys(TABS, tab, handleTab);
+
   return (
     <>
       {/* Sticky tab bar below TopNav. Sits above page hero content but below modals. */}
@@ -50,6 +56,9 @@ export default function LearnPage() {
       >
         <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
           <div
+            role="tablist"
+            aria-label="Learn sections"
+            onKeyDown={tabKeys.onKeyDown}
             className="flex gap-1.5 p-1 rounded-2xl"
             style={{
               // F509: opacity bump 0.72 -> 0.92 (sibling of InfoPage) so page
@@ -61,11 +70,16 @@ export default function LearnPage() {
               boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
             }}
           >
-            {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+            {TABS.map((t) => (
               <button
                 key={t}
+                role="tab"
+                id={`learn-tab-${t}`}
+                aria-selected={tab === t}
+                aria-controls="learn-panel"
+                tabIndex={tabKeys.tabIndex(t)}
+                ref={tabKeys.ref(t)}
                 onClick={() => handleTab(t)}
-                aria-pressed={tab === t}
                 className="flex-1 px-3 md:px-4 py-2 min-h-[40px] rounded-xl text-[13px] md:text-[14px] font-medium text-white transition-all whitespace-nowrap"
                 style={
                   tab === t
@@ -80,12 +94,14 @@ export default function LearnPage() {
         </div>
       </div>
 
-      <Suspense fallback={<PageSkeleton />}>
-        {tab === 'tokenomics' && <TokenomicsPage />}
-        {tab === 'lore' && <LorePage />}
-        {tab === 'security' && <SecurityPage />}
-        {tab === 'faq' && <FAQPage />}
-      </Suspense>
+      <div role="tabpanel" id="learn-panel" aria-labelledby={`learn-tab-${tab}`}>
+        <Suspense fallback={<PageSkeleton />}>
+          {tab === 'tokenomics' && <TokenomicsPage />}
+          {tab === 'lore' && <LorePage />}
+          {tab === 'security' && <SecurityPage />}
+          {tab === 'faq' && <FAQPage />}
+        </Suspense>
+      </div>
     </>
   );
 }

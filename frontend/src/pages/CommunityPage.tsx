@@ -17,6 +17,7 @@ const VoteIncentivesSection = lazy(() => import('../components/community/VoteInc
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_ADDRESS, GAUGE_CONTROLLER_ADDRESS, isDeployed } from '../lib/constants';
+import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
 
@@ -53,6 +54,9 @@ export default function CommunityPage() {
     setSearchParams(params, { replace: true });
   };
 
+  // T10 (F332): WAI-ARIA tabs roving-focus + arrow-key navigation.
+  const tabKeys = useTabListKeys(VALID_SECTIONS, section, handleSectionChange);
+
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
@@ -85,6 +89,7 @@ export default function CommunityPage() {
           className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
+          onKeyDown={tabKeys.onKeyDown}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -93,7 +98,11 @@ export default function CommunityPage() {
             <button
               key={key}
               role="tab"
+              id={`community-tab-${key}`}
               aria-selected={section === key}
+              aria-controls={`community-panel-${key}`}
+              tabIndex={tabKeys.tabIndex(key)}
+              ref={tabKeys.ref(key)}
               className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
                 section === key ? 'text-white' : 'text-white/60 hover:text-white'
               }`}
@@ -137,7 +146,10 @@ export default function CommunityPage() {
           <m.div
             key={section}
             role="tabpanel"
-            aria-label={`${SECTIONS.find(s => s.key === section)?.label} panel`}
+            id={`community-panel-${section}`}
+            aria-labelledby={`community-tab-${section}`}
+            tabIndex={0}
+            className="outline-none"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}

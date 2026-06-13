@@ -140,18 +140,29 @@ export const TopNav = React.memo(function TopNav() {
         }} />
         <div className="max-w-[1200px] mx-auto h-14 px-4 md:px-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
+            {/* F314: the replay easter egg is a distinct 28px button sitting to
+                the LEFT of the home logo link (separate targets, gap-2 apart, so
+                an off-logo click can't trigger a ~15s replay). A hover play-icon
+                overlay makes its purpose legible without altering the art. */}
             <button
               onClick={() => {
                 sessionStorage.removeItem('tegridy_loaded');
                 sessionStorage.removeItem('tf_loaded');
                 window.location.href = '/';
               }}
-              className="w-7 h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
+              className="group relative w-7 h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
               style={{ border: '1px solid var(--color-purple-25)' }}
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
             >
               <img src="/art/bobowelie.jpg" alt="" className="w-full h-full object-cover" />
+              <span
+                aria-hidden="true"
+                className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
+                style={{ background: 'rgba(0,0,0,0.45)' }}
+              >
+                <span className="text-white text-[11px] leading-none">&#9658;</span>
+              </span>
             </button>
             <Link to="/" className="flex items-center gap-1" title="Go to home page">
               <span className="heading-luxury text-[16px] tracking-wide text-white">TEGRIDY</span>

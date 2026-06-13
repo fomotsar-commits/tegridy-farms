@@ -28,6 +28,7 @@ import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { ART } from '../../lib/artConfig';
 import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
 import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
+import { useTabListKeys } from '../../hooks/useTabListKeys';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -462,11 +463,23 @@ function TabNav({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
     { id: 'pools', label: 'My Pools' },
   ];
 
+  // T10 (F275): full tablist semantics + roving-focus arrow-key navigation.
+  const tabKeys = useTabListKeys(tabs.map((t) => t.id), active, onChange);
+
   return (
-    <div className="relative flex gap-1 mb-8 border-b border-white/20">
+    <div
+      role="tablist"
+      aria-label="NFT AMM sections"
+      onKeyDown={tabKeys.onKeyDown}
+      className="relative flex gap-1 mb-8 border-b border-white/20"
+    >
       {tabs.map((t) => (
         <button
           key={t.id}
+          role="tab"
+          aria-selected={active === t.id}
+          tabIndex={tabKeys.tabIndex(t.id)}
+          ref={tabKeys.ref(t.id)}
           onClick={() => onChange(t.id)}
           className={`relative px-5 py-3 text-sm font-medium transition-colors duration-200 ${
             active === t.id ? 'text-white' : 'text-white/60 hover:text-white/80'

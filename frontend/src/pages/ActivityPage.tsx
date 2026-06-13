@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { PREMIUM_LIVE } from '../lib/navConfig';
+import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Tab = 'points' | 'gold' | 'history' | 'changelog';
 
@@ -63,6 +64,11 @@ export default function ActivityPage() {
     navigate(TAB_PATHS[t], { replace: false });
   };
 
+  // T10 (F22): WAI-ARIA tabs roving-focus + arrow-key navigation. These tabs
+  // navigate routes (each sub-page is lazy-loaded into the tabpanel below), so
+  // "activate" = navigate; the pattern still applies for keyboard users.
+  const tabKeys = useTabListKeys(visibleTabs, effectiveTab, handleTab);
+
   return (
     <>
       <div
@@ -71,6 +77,9 @@ export default function ActivityPage() {
       >
         <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
           <div
+            role="tablist"
+            aria-label="Activity sections"
+            onKeyDown={tabKeys.onKeyDown}
             className="flex gap-1.5 p-1 rounded-2xl"
             style={{
               // F509: opacity bump 0.72 -> 0.92 (sibling of InfoPage) so text
@@ -85,8 +94,13 @@ export default function ActivityPage() {
             {visibleTabs.map((t) => (
               <button
                 key={t}
+                role="tab"
+                id={`activity-tab-${t}`}
+                aria-selected={effectiveTab === t}
+                aria-controls="activity-panel"
+                tabIndex={tabKeys.tabIndex(t)}
+                ref={tabKeys.ref(t)}
                 onClick={() => handleTab(t)}
-                aria-pressed={effectiveTab === t}
                 className="flex-1 px-3 md:px-4 py-2 min-h-[40px] rounded-xl text-[13px] md:text-[14px] font-medium text-white transition-all whitespace-nowrap"
                 style={
                   effectiveTab === t
@@ -101,12 +115,14 @@ export default function ActivityPage() {
         </div>
       </div>
 
-      <Suspense fallback={<PageSkeleton />}>
-        {effectiveTab === 'points' && <LeaderboardPage />}
-        {effectiveTab === 'gold' && <PremiumPage />}
-        {effectiveTab === 'history' && <HistoryPage />}
-        {effectiveTab === 'changelog' && <ChangelogPage />}
-      </Suspense>
+      <div role="tabpanel" id="activity-panel" aria-labelledby={`activity-tab-${effectiveTab}`}>
+        <Suspense fallback={<PageSkeleton />}>
+          {effectiveTab === 'points' && <LeaderboardPage />}
+          {effectiveTab === 'gold' && <PremiumPage />}
+          {effectiveTab === 'history' && <HistoryPage />}
+          {effectiveTab === 'changelog' && <ChangelogPage />}
+        </Suspense>
+      </div>
     </>
   );
 }

@@ -46,6 +46,10 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
   const audioRef = useRef<AudioEngine | null>(null);
   const postfxRef = useRef<PostFX | null>(null);
   const [muted, setMuted] = useState(false);
+  // F304: surface a visible, labeled Skip affordance ~2s in so first-time
+  // visitors aren't held for the full ~15-19s intro. The art/choreography is
+  // unchanged — this only adds an opt-out (mirrors the existing Escape-to-skip).
+  const [showSkip, setShowSkip] = useState(false);
 
   const stateRef = useRef<LoaderState>({
     phase: 'loading',
@@ -127,21 +131,33 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     }
   }, [initAudio]);
 
+  /* Skip the intro (shared by Escape and the visible Skip button). Triggers
+   * the existing dissolve "skip" phase — no art removed, just an opt-out. */
+  const skipIntro = useCallback(() => {
+    if (!visible) return;
+    const s = stateRef.current;
+    if (s.phase !== 'skip' && s.phase !== 'exit' && s.phase !== 'exit-crack') {
+      initAudio();
+      s.phase = 'skip';
+      s.exitStart = performance.now();
+    }
+  }, [visible, initAudio]);
+
   /* ESC to skip with style */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && visible) {
-        const s = stateRef.current;
-        if (s.phase !== 'skip' && s.phase !== 'exit' && s.phase !== 'exit-crack') {
-          initAudio();
-          s.phase = 'skip';
-          s.exitStart = performance.now();
-        }
-      }
+      if (e.key === 'Escape') skipIntro();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, initAudio]);
+  }, [skipIntro]);
+
+  /* F304: reveal the visible Skip button ~2s after the intro starts. */
+  useEffect(() => {
+    if (!visible) return;
+    const id = window.setTimeout(() => setShowSkip(true), 2000);
+    return () => window.clearTimeout(id);
+  }, [visible]);
 
   useEffect(() => {
     if (!visible) return;
@@ -655,6 +671,35 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           >
             {muted ? '\u{1F507}' : '\u{1F50A}'}
           </button>
+          {/* F304: visible, labeled Skip affordance — appears ~2s in. */}
+          {showSkip && (
+            <button
+              onClick={(e) => { e.stopPropagation(); skipIntro(); }}
+              style={{
+                position: 'absolute',
+                bottom: 24,
+                right: 16,
+                zIndex: 10,
+                background: 'rgba(0,0,0,0.5)',
+                border: '1px solid rgba(212,160,23,0.4)',
+                borderRadius: 8,
+                padding: '8px 16px',
+                cursor: 'pointer',
+                color: GOLD,
+                fontSize: 13,
+                fontWeight: 600,
+                letterSpacing: '0.04em',
+                lineHeight: 1,
+                opacity: 0.85,
+                transition: 'opacity 0.2s',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+              aria-label="Skip intro animation"
+            >
+              Skip intro &rarr;
+            </button>
+          )}
         </div>
       )}
     </>

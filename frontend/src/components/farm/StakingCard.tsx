@@ -334,7 +334,8 @@ export function StakingCard({
           <div>
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-white text-[11px] uppercase tracking-wider label-pill">Amount</label>
+                {/* F104: associate the label with the input so AT announces it. */}
+                <label htmlFor="stake-amount-input" className="text-white text-[11px] uppercase tracking-wider label-pill">Amount</label>
                 <button onClick={() => {
                     const bal = parseFloat(pos.walletBalanceFormatted) || 0;
                     const cap = maxStakeWei > 0n ? parseFloat(formatEther(maxStakeWei)) : bal;
@@ -344,8 +345,9 @@ export function StakingCard({
                   Balance: {formatTokenAmount(pos.walletBalanceFormatted, 0)}
                 </button>
               </div>
-              <input type="text" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(sanitizeDecimalInput(e.target.value))}
+              <input id="stake-amount-input" type="text" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(sanitizeDecimalInput(e.target.value))}
                 placeholder="0"
+                aria-label="Amount of TOWELI to stake"
                 className="w-full rounded-lg p-4 min-h-[44px] font-mono text-xl text-white outline-none token-input"
                 style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }} />
               <p className="text-white/50 text-[10px] mt-1.5">
@@ -355,19 +357,27 @@ export function StakingCard({
             </div>
 
             <div className="mb-4">
-              <label className="text-white text-[11px] uppercase tracking-wider label-pill mb-2 block">Lock Duration</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                {LOCK_OPTIONS.map((opt) => (
+              <label id="stake-lock-label" className="text-white text-[11px] uppercase tracking-wider label-pill mb-2 block">Lock Duration</label>
+              {/* F104: radiogroup semantics + a non-color (checkmark) selected
+                  indicator so the choice isn't conveyed by background alone. */}
+              <div role="radiogroup" aria-labelledby="stake-lock-label" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {LOCK_OPTIONS.map((opt) => {
+                  const isSelected = selectedLock.label === opt.label;
+                  return (
                   <button key={opt.label} onClick={() => setSelectedLock(opt)}
+                    role="radio"
+                    aria-checked={isSelected}
                     className="rounded-lg p-2.5 min-h-[44px] text-center cursor-pointer transition-all text-[12px]"
                     style={{
-                      background: selectedLock.label === opt.label ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
-                      border: selectedLock.label === opt.label ? '1px solid var(--color-purple-30)' : '1px solid rgba(255,255,255,0.25)',
-                      color: selectedLock.label === opt.label ? '#000000' : 'rgba(255,255,255,1)',
+                      background: isSelected ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
+                      border: isSelected ? '1px solid var(--color-purple-30)' : '1px solid rgba(255,255,255,0.25)',
+                      color: isSelected ? '#000000' : 'rgba(255,255,255,1)',
                     }}>
+                    {isSelected && <span aria-hidden="true" className="mr-1">&#10003;</span>}
                     {opt.label}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

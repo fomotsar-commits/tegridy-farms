@@ -34,6 +34,7 @@ import { ReferralWidget } from '../components/ReferralWidget';
 import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
+import { useTabListKeys } from '../hooks/useTabListKeys';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -64,6 +65,8 @@ export default function DashboardPage() {
     else params.set('tab', next);
     setSearchParams(params, { replace: true });
   };
+  // T10 (F145): WAI-ARIA tabs roving-focus + arrow-key navigation.
+  const tabKeys = useTabListKeys(VALID_DASH_TABS, tab, handleTabChange);
   // R047 M1: chain-pin balance reads so a wrong-network wallet doesn't price
   // another chain's native balance as mainnet ETH in the Portfolio Value.
   const { data: ethBalance, isLoading: isEthLoading, error: ethError } = useBalance({ address, chainId: CHAIN_ID });
@@ -357,12 +360,17 @@ export default function DashboardPage() {
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="Dashboard sections"
+          onKeyDown={tabKeys.onKeyDown}
         >
           {DASH_TABS.map(({ key, label }) => (
             <button
               key={key}
               role="tab"
+              id={`dash-tab-${key}`}
               aria-selected={tab === key}
+              aria-controls={`dash-panel-${key}`}
+              tabIndex={tabKeys.tabIndex(key)}
+              ref={tabKeys.ref(key)}
               onClick={() => handleTabChange(key)}
               className={`flex-1 px-3 md:px-4 py-2.5 min-h-[44px] rounded-xl text-[13px] md:text-sm font-medium transition-all whitespace-nowrap ${
                 tab === key ? 'text-white' : 'text-white/70 hover:text-white'
@@ -379,7 +387,7 @@ export default function DashboardPage() {
 
         {/* Overview */}
         {tab === 'overview' && (
-          <m.div role="tabpanel" aria-label="Overview" key="overview"
+          <m.div role="tabpanel" id="dash-panel-overview" aria-labelledby="dash-tab-overview" tabIndex={0} className="outline-none" key="overview"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {/* Tegridy Score */}
             <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
@@ -443,7 +451,7 @@ export default function DashboardPage() {
 
         {/* Positions */}
         {tab === 'positions' && (
-          <m.div role="tabpanel" aria-label="Positions" key="positions"
+          <m.div role="tabpanel" id="dash-panel-positions" aria-labelledby="dash-tab-positions" tabIndex={0} className="outline-none" key="positions"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {/* Claim Button */}
             {pendingTotal >= 0.01 && pos.hasPosition && (
@@ -598,7 +606,7 @@ export default function DashboardPage() {
 
         {/* Loans */}
         {tab === 'loans' && (
-          <m.div role="tabpanel" aria-label="Loans" key="loans"
+          <m.div role="tabpanel" id="dash-panel-loans" aria-labelledby="dash-tab-loans" tabIndex={0} className="outline-none" key="loans"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {myLoans.isLoading && myLoans.loans.length === 0 ? (
               // F136: the chunked loan scan takes seconds — show a skeleton instead
@@ -647,7 +655,7 @@ export default function DashboardPage() {
 
         {/* Rewards */}
         {tab === 'rewards' && (
-          <m.div role="tabpanel" aria-label="Rewards" key="rewards"
+          <m.div role="tabpanel" id="dash-panel-rewards" aria-labelledby="dash-tab-rewards" tabIndex={0} className="outline-none" key="rewards"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {/* Claim staking rewards — primary action if pending */}
             {pendingTotal >= 0.01 && pos.hasPosition && (

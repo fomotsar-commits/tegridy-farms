@@ -16,6 +16,7 @@ import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { pageArt, artStyle, type ArtPiece } from '../../lib/artConfig';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
 import { useCountdown } from '../../hooks/useCountdown';
+import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 
 // ─── Design tokens ──────────────────────────────────────────────
@@ -569,8 +570,14 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 function TabNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+  // T10 (F275): give the inner Lend/Borrow/My Loans bar full tablist semantics
+  // + roving-focus arrow-key navigation.
+  const tabKeys = useTabListKeys(TABS.map((t) => t.key), tab, setTab);
   return (
     <div
+      role="tablist"
+      aria-label="Token lending sections"
+      onKeyDown={tabKeys.onKeyDown}
       className="flex gap-1 rounded-xl p-1 relative"
       style={{
         background: 'rgba(0, 0, 0, 0.85)',
@@ -580,6 +587,10 @@ function TabNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
       {TABS.map((t) => (
         <button
           key={t.key}
+          role="tab"
+          aria-selected={tab === t.key}
+          tabIndex={tabKeys.tabIndex(t.key)}
+          ref={tabKeys.ref(t.key)}
           onClick={() => setTab(t.key)}
           className={`relative flex-1 min-h-[44px] rounded-lg text-[13px] font-medium transition-colors ${
             tab === t.key ? 'text-white' : 'text-white/75 hover:text-white'
