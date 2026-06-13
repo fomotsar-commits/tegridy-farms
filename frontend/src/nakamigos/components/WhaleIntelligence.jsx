@@ -261,6 +261,22 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     [expandedHolder, collection.contract, collection.metadataBase]
   );
 
+  /* F702: Escape collapses the expanded holder panel. The panel is an inline
+     expand/collapse (not a true modal), so we only listen while one is open
+     and don't trap focus — just give keyboard users a way to dismiss it that
+     mirrors the click-to-toggle affordance. */
+  useEffect(() => {
+    if (!expandedHolder) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setExpandedHolder(null);
+        setExpandedNfts([]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expandedHolder]);
+
   /* ── Derived: holder address set (full addresses) for cross-ref ── */
   const holderAddressSet = useMemo(() => {
     const set = new Set();

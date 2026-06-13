@@ -3,6 +3,7 @@ import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useDCA, DEFAULT_SLIPPAGE_BPS, MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS } from '../../hooks/useDCA';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
+import { InfoTooltip } from '../ui/InfoTooltip';
 
 
 const INTERVALS = [
@@ -142,10 +143,14 @@ export function DCATab() {
           set 20%. */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1.5">
-          <label htmlFor="dca-slippage" className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          <label htmlFor="dca-slippage" className="text-white text-[11px] inline-flex items-center gap-1.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
             Slippage Tolerance
-            <span className="text-white/70 ml-1.5 cursor-help"
-              title={`Max price drift you'll accept per swap. Lower = more MEV-resistant but more failed swaps. Range: ${MIN_SLIPPAGE_BPS / 100}%–${MAX_SLIPPAGE_BPS / 100}%.`}>?</span>
+            {/* F241: the help was a native title= attr (1-2s desktop hover, no
+                touch path — violates the responsive mandate). InfoTooltip is
+                tap- and keyboard-accessible. */}
+            <InfoTooltip
+              text={`Max price drift you'll accept per swap. Lower = more MEV-resistant but more failed swaps. Range: ${MIN_SLIPPAGE_BPS / 100}%–${MAX_SLIPPAGE_BPS / 100}%.`}
+            />
           </label>
           <span className="text-white/90 text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{slippagePct.toFixed(2)}%</span>
         </div>

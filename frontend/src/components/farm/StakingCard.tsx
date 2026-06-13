@@ -123,7 +123,9 @@ export function StakingCard({
                   </button>
                 )}
               </div>
-              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+              {/* F104 (T10): announce claimable-reward changes to screen readers
+                  so they aren't silent visual-only updates. */}
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }} aria-live="polite">
                 <p className="text-white text-[10px] mb-0.5">Claimable</p>
                 <AnimatedCounter value={parseFloat(pos.pendingFormatted) || 0} decimals={4} className="stat-value text-[16px] text-white" />
               </div>

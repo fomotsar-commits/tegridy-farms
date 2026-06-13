@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, type TouchEvent as ReactTouchEvent } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import type { ArtPiece } from '../../lib/artConfig';
 // R041 + R072: lightbox image renders the trusted artConfig path directly,
@@ -21,6 +21,12 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
   const prevBtnRef = useRef<HTMLButtonElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const nextBtnRef = useRef<HTMLButtonElement>(null);
+  // F334: remember the element that opened the lightbox so we can return focus
+  // to it on close (WCAG 2.4.3). Without this, keyboard/SR users get dumped at
+  // <body> after Escape/Close instead of back on the gallery card they opened.
+  const openerRef = useRef<HTMLElement | null>(null);
+  // F334: swipe gesture origin for touch navigation.
+  const touchStartXRef = useRef<number | null>(null);
 
   const handlePrev = useCallback(() => {
     if (selectedIndex !== null) onNavigate((selectedIndex - 1 + pieces.length) % pieces.length);
@@ -38,12 +44,37 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
     return () => { document.body.style.overflow = prev; };
   }, [isOpen]);
 
-  // Focus trap & keyboard handling
+  // F334: preload the immediate neighbours so Prev/Next swap instantly instead
+  // of waiting on a fresh decode. Additive — no effect on the rendered <img>.
+  useEffect(() => {
+    if (selectedIndex === null || pieces.length < 2) return;
+    const next = pieces[(selectedIndex + 1) % pieces.length];
+    const prev = pieces[(selectedIndex - 1 + pieces.length) % pieces.length];
+    [next, prev].forEach((p) => {
+      if (p?.src) {
+        const img = new Image();
+        img.src = p.src;
+      }
+    });
+  }, [selectedIndex, pieces]);
+
+  // F334: focus management keyed ONLY on open/close so it doesn't re-run on
+  // every Prev/Next (which would steal focus mid-navigation). Capture the
+  // opener + move focus into the modal on open; restore focus to the opener on
+  // close. The keyboard handler below has its own effect with nav deps.
   useEffect(() => {
     if (!isOpen) return;
-
-    // Move focus into modal on open
+    openerRef.current = (document.activeElement as HTMLElement | null) ?? null;
     requestAnimationFrame(() => modalRef.current?.focus());
+    return () => {
+      const opener = openerRef.current;
+      if (opener && typeof opener.focus === 'function') opener.focus();
+    };
+  }, [isOpen]);
+
+  // Keyboard handling (Escape / arrows / Tab focus trap)
+  useEffect(() => {
+    if (!isOpen) return;
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -73,6 +104,24 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen, onClose, handlePrev, handleNext]);
 
+  // F334: touch-swipe navigation (buttons-only before this). A horizontal drag
+  // over ~48px flips to the prev/next piece; small drags are ignored so a tap
+  // to dismiss still works.
+  const onTouchStart = useCallback((e: ReactTouchEvent) => {
+    touchStartXRef.current = e.touches[0]?.clientX ?? null;
+  }, []);
+  const onTouchEnd = useCallback((e: ReactTouchEvent) => {
+    const start = touchStartXRef.current;
+    touchStartXRef.current = null;
+    if (start === null) return;
+    const end = e.changedTouches[0]?.clientX;
+    if (end === undefined) return;
+    const dx = end - start;
+    if (Math.abs(dx) < 48) return;
+    if (dx < 0) handleNext();
+    else handlePrev();
+  }, [handleNext, handlePrev]);
+
   return (
     <AnimatePresence>
       {isOpen && piece && (
@@ -88,7 +137,8 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
 
           <m.div className="relative z-10 max-w-4xl w-full"
             initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-            transition={{ type: 'spring', damping: 25 }} onClick={(e) => e.stopPropagation()}>
+            transition={{ type: 'spring', damping: 25 }} onClick={(e) => e.stopPropagation()}
+            onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
 
             <div className="rounded-xl overflow-hidden">
               <img

@@ -4,6 +4,7 @@ import type { CsvRow, TokenAttribute } from '../../../lib/nftMetadata';
 import { ArtCard } from '../launchpadShared';
 import { ART } from '../../../lib/artConfig';
 import { BTN_EMERALD, INPUT, LABEL } from '../launchpadConstants';
+import { useFocusTrap } from '../../../hooks/useFocusTrap';
 
 export function TraitEditor({
   row,
@@ -19,6 +20,13 @@ export function TraitEditor({
   const [name, setName] = useState(row.name);
   const [description, setDescription] = useState(row.description ?? '');
   const [attrs, setAttrs] = useState<TokenAttribute[]>(() => row.attributes.map((a) => ({ ...a })));
+
+  // F275 (T10): this dialog already declares role="dialog"/aria-modal but never
+  // trapped Tab focus or restored it on close — keyboard users could tab out
+  // behind the overlay, and dismissing dropped focus to <body>. Reuse the
+  // shared trap (same proven logic as ui/Modal) to focus the first field on
+  // open, cycle Tab within the dialog, and return focus to the opener on close.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true);
 
   // Object URL preview of the associated image. Revoke on unmount.
   const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
@@ -59,7 +67,9 @@ export function TraitEditor({
 
   return (
     <m.div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 outline-none"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
