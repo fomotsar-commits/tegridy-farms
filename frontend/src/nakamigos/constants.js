@@ -6,6 +6,24 @@ import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from "../lib/constants";
 // than the funnel earns, so the CTAs light up on deploy with no code change.
 export const NFT_LOAN_DESK_LIVE = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
 
+// ═══ RANK TIER (F809) ═══
+// Single source of truth for rarity-rank thresholds. Three surfaces previously
+// disagreed: Modal flagged the top 25%, ShareCard used gold≤0.5%/blue≤2.5%, and
+// TheaterMode treated any ranked token as notable. This converges the THRESHOLD
+// logic on ShareCard's scale (the most considered), so a token reads the same
+// tier everywhere. Each surface keeps its own visual treatment; this only tells
+// it which tier a rank falls in. Returns "gold" | "blue" | "plain" | null.
+export const RANK_TIER_GOLD_PCT = 0.005; // top 0.5%
+export const RANK_TIER_BLUE_PCT = 0.025; // top 2.5%
+export function rankTier(rank, supply) {
+  const r = Number(rank);
+  const s = Number(supply);
+  if (!Number.isFinite(r) || r <= 0 || !Number.isFinite(s) || s <= 0) return null;
+  if (r <= Math.ceil(s * RANK_TIER_GOLD_PCT)) return "gold";
+  if (r <= Math.ceil(s * RANK_TIER_BLUE_PCT)) return "blue";
+  return "plain";
+}
+
 // ═══ MULTI-COLLECTION CONFIG ═══
 export const COLLECTIONS = {
   nakamigos: {

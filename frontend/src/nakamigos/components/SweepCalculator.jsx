@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Eth } from "./Icons";
-import { fulfillSeaportOrder } from "../api";
+import { fulfillSeaportOrder, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { useActiveCollection } from "../contexts/CollectionContext";
@@ -10,6 +10,9 @@ import { useWallet } from "../contexts/WalletContext";
 const GAS_PER_FILL = 150_000n;
 const GWEI_DECIMALS = 1e9;
 
+// F637: the 30-gwei default was 30-300x too high at current basefees, so EST. GAS
+// read as ~0.018 ETH when the real cost is ~0.0001. Callers now pass the live gwei
+// from provider.getFeeData(); the default stays only as a no-provider fallback.
 function estimateGas(count, gasPriceGwei = 30) {
   const totalGas = Number(GAS_PER_FILL) * count;
   return (totalGas * gasPriceGwei) / GWEI_DECIMALS;
@@ -132,6 +135,30 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
   // Max price guard
   const [maxPriceGuard, setMaxPriceGuard] = useState("");
 
+  // F637: live network gas price (gwei) so EST. GAS tracks real basefees instead
+  // of a stale 30-gwei constant. null until the read lands (or no provider), in
+  // which case estimateGas() falls back to its rough default and we label it.
+  const [liveGasGwei, setLiveGasGwei] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const ethProvider = getProvider();
+        if (!ethProvider) return;
+        const { ethers } = await import("ethers");
+        const provider = new ethers.BrowserProvider(ethProvider);
+        const feeData = await provider.getFeeData();
+        const wei = feeData.maxFeePerGas || feeData.gasPrice;
+        if (!wei || cancelled) return;
+        const gwei = Number(wei) / GWEI_DECIMALS;
+        if (gwei > 0 && Number.isFinite(gwei)) setLiveGasGwei(gwei);
+      } catch {
+        // leave null — estimateGas() uses its labeled rough default
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const floor = stats?.floor ?? null;
   const hasListings = Array.isArray(listings) && listings.length > 0;
   const maxSlider = hasListings ? Math.min(listings.length, 30) : 30;
@@ -215,13 +242,17 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
 
   // Calculate sweep cost from filtered listings
   const sweepData = useMemo(() => {
+    // F637: prefer the live network gwei; fall back to the rough default + flag.
+    const gweiArg = liveGasGwei != null ? liveGasGwei : 30;
+    const gasIsRough = liveGasGwei == null;
     if (filteredListings.length === 0) {
       return {
         totalEth: floor != null ? floor * effectiveCount : null,
         source: floor != null ? "Floor estimate" : null,
         avgPrice: floor,
         maxPrice: floor,
-        gasEst: estimateGas(effectiveCount),
+        gasEst: estimateGas(effectiveCount, gweiArg),
+        gasIsRough,
       };
     }
 
@@ -231,7 +262,7 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     const avgPrice = sweep.length > 0 ? totalEth / sweep.length : null;
     const sweepMaxPrice = sweep.length > 0 ? (Number(sweep[sweep.length - 1]?.price) || null) : null;
 
-    const gasEst = estimateGas(clampedCount);
+    const gasEst = estimateGas(clampedCount, gweiArg);
 
     return {
       totalEth,
@@ -240,8 +271,9 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
       maxPrice: sweepMaxPrice,
       available: filteredListings.length,
       gasEst,
+      gasIsRough,
     };
-  }, [filteredListings, effectiveCount, floor]);
+  }, [filteredListings, effectiveCount, floor, liveGasGwei]);
 
   // Floor impact preview
   const floorImpact = useMemo(() => {
@@ -520,6 +552,11 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
           <div className="sweep-stat-label">EST. GAS</div>
           <div className="sweep-stat-value" style={{ color: "var(--text-dim)", fontSize: 11 }}>
             ~{sweepData.gasEst.toFixed(4)} ETH
+            {sweepData.gasIsRough && (
+              <span style={{ color: "var(--text-dim)", opacity: 0.7, fontSize: 9, marginLeft: 4 }}>
+                rough est.
+              </span>
+            )}
           </div>
         </div>
         <div className="sweep-stat">

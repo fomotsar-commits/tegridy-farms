@@ -6,7 +6,7 @@ import MakeOfferModal from "./MakeOfferModal";
 import ErrorBoundary from "./ErrorBoundary";
 import TransactionProgress, { useTransactionProgress } from "./TransactionProgress";
 import { Link } from "react-router-dom";
-import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, NFT_LOAN_DESK_LIVE } from "../constants";
+import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, NFT_LOAN_DESK_LIVE, rankTier } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
@@ -275,7 +275,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             <NftImage nft={nft} large style={{ width: "100%", display: "block" }} />
           </div>
           {nft.rank && nft.rank <= rankThreshold && (
-            <div className="modal-rank-badge">
+            // F809: keep the top-25% visibility (no badge removed) but color it by
+            // the shared rankTier scale so the tier reads identically to ShareCard.
+            <div className={`modal-rank-badge ${rankTier(nft.rank, supplyForRarity) === "gold" ? "" : rankTier(nft.rank, supplyForRarity) === "blue" ? "tier-blue" : "tier-plain"}`}>
               RANK #{nft.rank}
             </div>
           )}

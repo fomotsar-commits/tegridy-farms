@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { rankTier } from "../constants";
 
 /* ─── Ambient Particle Canvas ─── */
 function AmbientParticles({ width, height }) {
@@ -261,15 +262,22 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     letterSpacing: "0.04em",
   };
 
+  // F809: color the rank badge by the shared rankTier scale (gold≤0.5% /
+  // blue≤2.5% / plain) so the tier reads identically to Modal and ShareCard.
+  // Visibility is unchanged — any ranked token still shows the badge (additive).
+  const theaterTier = hasRank ? rankTier(nft.rank, supply) : null;
+  const TIER_BADGE = {
+    gold:  { color: "var(--gold)", background: "rgba(200,168,80,0.1)",  border: "1px solid rgba(200,168,80,0.25)" },
+    blue:  { color: "#7aa2ff",     background: "rgba(74,127,255,0.1)",  border: "1px solid rgba(74,127,255,0.25)" },
+    plain: { color: "#c4ccda",     background: "rgba(180,190,210,0.08)", border: "1px solid rgba(180,190,210,0.2)" },
+  };
   const rankBadge = {
     fontFamily: "var(--mono)",
     fontSize: 10,
-    color: "var(--gold)",
-    background: "rgba(200,168,80,0.1)",
-    border: "1px solid rgba(200,168,80,0.25)",
     borderRadius: 4,
     padding: "3px 8px",
     letterSpacing: "0.06em",
+    ...(TIER_BADGE[theaterTier] || TIER_BADGE.gold),
   };
 
   const hudRight = {

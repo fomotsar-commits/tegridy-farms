@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { rankTier } from "../constants";
 
 const W = 1200, H = 630;
 const GOLD = "#c8a850";
@@ -58,10 +59,11 @@ function drawCard(ctx, img, nft, collection) {
     ctx.font = `bold 16px ${pixelFont}`;
     const tw = ctx.measureText(rankText).width + 28;
     const supply = collection.supply || 10000;
-    const goldThreshold = Math.ceil(supply * 0.005);   // top 0.5%
-    const blueThreshold = Math.ceil(supply * 0.025);   // top 2.5%
-    const badgeColor = nft.rank <= goldThreshold ? GOLD : nft.rank <= blueThreshold ? "#4a7fff" : "#333a48";
-    const textColor = nft.rank <= goldThreshold ? "#0a0014" : "#ffffff";
+    // F809: shared rankTier helper (gold≤0.5% / blue≤2.5%) — same thresholds this
+    // card always used, now the single source the other surfaces converge on.
+    const tier = rankTier(nft.rank, supply);
+    const badgeColor = tier === "gold" ? GOLD : tier === "blue" ? "#4a7fff" : "#333a48";
+    const textColor = tier === "gold" ? "#0a0014" : "#ffffff";
     roundRect(ctx, rx, badgeY - 20, tw, 32, 6, badgeColor);
     ctx.fillStyle = textColor;
     ctx.fillText(rankText, rx + 14, badgeY + 3);
