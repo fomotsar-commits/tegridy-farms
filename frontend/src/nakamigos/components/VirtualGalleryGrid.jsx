@@ -21,12 +21,23 @@ const prefersReducedMotion =
   typeof window !== "undefined" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+// Coarse pointer (touch) devices have no hover — the add-to-cart button must be
+// always visible there, otherwise it's unreachable on phones/tablets (F588).
+const coarsePointer =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(hover: none)").matches;
+
 const CARD_HOVER = prefersReducedMotion
   ? {}
   : { scale: 1.02, y: -4, boxShadow: "0 8px 30px rgba(0,0,0,0.4)" };
 const CARD_TAP = prefersReducedMotion ? {} : { scale: 0.98 };
 
-function useColumns(containerRef, viewMode) {
+// `mounted` flips true once the real scroll container (the only node carrying
+// ref={parentRef}) is rendered. The first paint is the skeleton/empty branch,
+// which has no parentRef — so the observer must (re)attach when the container
+// finally appears, otherwise columns stay frozen at the default 4 (F563).
+function useColumns(containerRef, viewMode, mounted) {
   const [columns, setColumns] = useState(4);
 
   const recalc = useCallback(() => {
@@ -40,10 +51,11 @@ function useColumns(containerRef, viewMode) {
 
   useEffect(() => {
     recalc();
+    if (!containerRef.current) return;
     const ro = new ResizeObserver(recalc);
-    if (containerRef.current) ro.observe(containerRef.current);
+    ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [recalc, containerRef]);
+  }, [recalc, containerRef, mounted]);
 
   return columns;
 }
@@ -92,11 +104,15 @@ export default memo(function VirtualGalleryGrid({
   onLoadMore,
   cart = [],
   onAddToCart,
+  resetKey,
 }) {
   const parentRef = useRef(null);
   const prevKeyRef = useRef("");
   const loadMoreCalledRef = useRef(false);
-  const columns = useColumns(parentRef, viewMode);
+  // The scroll container (ref={parentRef}) only mounts once tokens exist; pass
+  // that so useColumns re-attaches its ResizeObserver when the node appears.
+  const containerMounted = tokens.length > 0;
+  const columns = useColumns(parentRef, viewMode, containerMounted);
   const collection = useActiveCollection();
   const { isLite } = useTradingMode();
 
@@ -111,15 +127,17 @@ export default memo(function VirtualGalleryGrid({
 
   const rowCount = columns > 0 ? Math.ceil(tokens.length / columns) : 0;
 
-  // Restore scroll position when tokens change (filter/sort)
-  const tokensKey = tokens.length + "-" + (tokens[0]?.id ?? "");
+  // Reset scroll to top only on a genuine filter/sort/search change (resetKey),
+  // NOT on a loadMore append — appending pages used to change the old
+  // tokens.length-based key and yank the viewport to the top every page (F562).
+  // Fall back to the token signature when no resetKey is provided.
+  const scrollKey = resetKey ?? (tokens.length + "-" + (tokens[0]?.id ?? ""));
   useEffect(() => {
-    if (prevKeyRef.current && prevKeyRef.current !== tokensKey) {
-      // tokens changed — restore to top
+    if (prevKeyRef.current && prevKeyRef.current !== scrollKey) {
       if (parentRef.current) parentRef.current.scrollTop = 0;
     }
-    prevKeyRef.current = tokensKey;
-  }, [tokensKey]);
+    prevKeyRef.current = scrollKey;
+  }, [scrollKey]);
 
   const virtualizer = useVirtualizer({
     count: rowCount,
@@ -233,6 +251,25 @@ export default memo(function VirtualGalleryGrid({
           );
         })}
       </div>
+
+      {/* Loading-more indicator while the next page streams in (F589) */}
+      {loading && tokens.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            padding: "16px 0 24px",
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            color: "var(--text-muted)",
+          }}
+        >
+          <div className="spinner" style={{ width: 16, height: 16 }} />
+          Loading more{"…"}
+        </div>
+      )}
     </div>
   );
 })
@@ -292,7 +329,7 @@ const VirtualCard = memo(function VirtualCard({
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-label={`${nft.name || `#${nft.id}`}${nft.rank ? `, rank ${nft.rank}` : ""}${nft.price != null ? `, ${nft.price} ETH` : ""}`}
+      aria-label={`${nft.name || `#${nft.id}`}${nft.rank ? `, rank ${nft.rank}` : ""}${nft.price != null ? `, ${formatPrice(nft.price)} ETH` : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -354,8 +391,8 @@ const VirtualCard = memo(function VirtualCard({
           </button>
         )}
 
-        {/* Add to Cart button — visible on hover */}
-        {onAddToCart && !inCart && hovered && (
+        {/* Add to Cart button — visible on hover (desktop) or always on touch (F588) */}
+        {onAddToCart && !inCart && (hovered || coarsePointer) && (
           <button
             onClick={handleAddToCart}
             aria-label="Add to cart"

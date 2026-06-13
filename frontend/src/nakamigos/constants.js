@@ -16,6 +16,10 @@ export const COLLECTIONS = {
     supply: 20000,
     mintBlock: 16893743, // March 2023 — post-merge
     metadataBase: "https://alchemy.mypinata.cloud/ipfs/QmaN1jRPtmzeqhp6s3mR1SRK4q1xWPvFvwqW1jyN6trir9",
+    // metadataBase points at per-token IPFS CIDs (JSON), NOT numbered PNGs, so
+    // `${metadataBase}/<id>.png` 404s for Nakamigos (gnss/junglebay DO serve
+    // per-id PNGs). Don't emit that dead fallback — let batch enrichment fill it.
+    deterministicImage: false,
     image: "/splash/skeleton.jpg",
     description: "20,000 unique crypto investors on the blockchain",
     tags: ["ERC-721", "ETHEREUM", "HIFO LABS"],

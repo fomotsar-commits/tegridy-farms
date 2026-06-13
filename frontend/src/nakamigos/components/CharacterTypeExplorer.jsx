@@ -366,6 +366,10 @@ export default function CharacterTypeExplorer({ tokens, listings, onFilterGaller
                   : tierGlow(type.name),
               }}
               onClick={() => handleTypeClick(type.name)}
+              role="button"
+              tabIndex={0}
+              aria-label={`${type.name} (${type.isHuman ? "Human" : "Non-human"})`}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTypeClick(type.name); } }}
               onMouseEnter={() => setHovered(type.name)}
               onMouseLeave={() => setHovered(null)}
             >

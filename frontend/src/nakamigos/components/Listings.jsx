@@ -122,7 +122,13 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
   // Fetch metadata for listed tokens AND recent sale tokens not in gallery data
   useEffect(() => {
-    const knownIds = new Set(tokens.map(t => String(t.id)));
+    // Already-fetched extras count as "known" too — otherwise every activities
+    // poll (new array each 60s) and every gallery page re-requests all listed +
+    // sale ids even though nothing is actually missing (F569).
+    const knownIds = new Set([
+      ...tokens.map(t => String(t.id)),
+      ...extraTokens.map(t => String(t.id)),
+    ]);
 
     // Collect token IDs from listings
     const listingIds = (listings || []).map(l => String(l.tokenId));
@@ -139,10 +145,17 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
     let cancelled = false;
     fetchTokensByIds(uniqueMissing, collection.contract, collection.metadataBase).then(fetched => {
-      if (!cancelled && fetched.length > 0) setExtraTokens(fetched);
+      // Merge with existing extras so prior fetches aren't dropped.
+      if (!cancelled && fetched.length > 0) {
+        setExtraTokens(prev => {
+          const map = new Map(prev.map(t => [String(t.id), t]));
+          for (const t of fetched) map.set(String(t.id), t);
+          return [...map.values()];
+        });
+      }
     });
     return () => { cancelled = true; };
-  }, [listings, activities, tokens, collection.contract, collection.metadataBase]);
+  }, [listings, activities, tokens, extraTokens, collection.contract, collection.metadataBase]);
 
   // Combined token lookup: gallery tokens + fetched extras
   const allTokens = useMemo(() => {
@@ -156,9 +169,12 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   const listedNfts = useMemo(() => {
     if (!listings || listings.length === 0) return [];
 
+    // Only build a `${metadataBase}/<id>.png` URL when this collection actually
+    // serves one (Nakamigos's 404s — see api.js hasDeterministicImage / F568).
+    const deterministicImg = collection.deterministicImage !== false;
     return listings.filter(listing => !purchasedIds.has(String(listing.tokenId))).map(listing => {
       const token = allTokens.get(String(listing.tokenId));
-      const fullResImg = collection.metadataBase
+      const fullResImg = collection.metadataBase && deterministicImg
         ? `${collection.metadataBase}/${listing.tokenId}.png`
         : null;
       return {
@@ -236,13 +252,17 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       .slice(0, 24)
       .map(a => {
         const token = allTokens.get(String(a.token.id));
-        const fallbackImg = collection.metadataBase
+        // Match the listings path: don't emit the known-404 Nakamigos png — leave
+        // image null + flag imagePending so NftImage shows a loading placeholder
+        // instead of firing a per-card metadata fetch on the 404 (F568).
+        const fallbackImg = collection.metadataBase && collection.deterministicImage !== false
           ? `${collection.metadataBase}/${a.token.id}.png`
-          : null; // Let NftImage handle fallback via metadata API
+          : null;
         return {
           id: a.token.id,
           name: token?.name || `${collection.name} ${a.token.name || "#" + a.token.id}`,
           image: token?.image || fallbackImg,
+          imagePending: !token && !fallbackImg,
           imageLarge: token?.imageLarge || token?.image || fallbackImg,
           attributes: token?.attributes || [],
           rank: token?.rank || null,
@@ -779,7 +799,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             {visibleGridItems.map((nft, idx) => {
               const isSelected = selectedIds.has(nft.id);
               return (
-              <div key={`${nft.id}-${idx}`} className="listing-card" onClick={() => onPick(nft)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); } }} role="button" tabIndex={0} aria-label={`${nft.name}${nft.price ? `, ${nft.price} ETH` : ""}`} style={isSelected ? { border: "2px solid var(--naka-blue)" } : undefined}>
+              <div key={nft.id} className="listing-card" onClick={() => onPick(nft)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); } }} role="button" tabIndex={0} aria-label={`${nft.name}${nft.price ? `, ${nft.price} ETH` : ""}`} style={isSelected ? { border: "2px solid var(--naka-blue)" } : undefined}>
                 <div className="listing-card-image">
                   <NftImage nft={nft} noSelfFetch={nft.imagePending} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   {nft.rank && <div className="listing-card-rank">#{nft.rank}</div>}
@@ -898,7 +918,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       </div>
       {/* Sticky batch selection bar */}
       {selectedIds.size > 0 && (
-        <div style={{
+        <div className="batch-selection-bar" style={{
           position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
           background: "var(--surface-glass)", backdropFilter: "var(--glass-blur)",
           borderTop: "1px solid var(--border)",
@@ -959,6 +979,16 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
           addToast={addToast}
         />
       )}
+
+      {/* On phones the fixed bottom nav (z-index 9999) sits over the selection
+          bar; lift the bar above it so both action buttons stay tappable (F571). */}
+      <style>{`
+        @media (max-width: 767px) {
+          .batch-selection-bar {
+            bottom: calc(56px + env(safe-area-inset-bottom)) !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }

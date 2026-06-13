@@ -489,8 +489,10 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
         return [...cats].sort((a, b) => b.totalValues - a.totalValues);
       case "rarest": {
         return [...cats].sort((a, b) => {
-          const aMin = a.values[0]?.pct ?? 100;
-          const bMin = b.values[0]?.pct ?? 100;
+          // values are sorted count-DESC, so the LAST value is the rarest;
+          // use the minimum pct as each category's rarity score.
+          const aMin = a.values[a.values.length - 1]?.pct ?? 100;
+          const bMin = b.values[b.values.length - 1]?.pct ?? 100;
           return aMin - bMin;
         });
       }
@@ -577,6 +579,10 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
               key={nft.id}
               style={S.nftItem}
               onClick={() => onPick(nft)}
+              role="button"
+              tabIndex={0}
+              aria-label={`View ${nft.name}`}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); } }}
               onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(0,0,0,.3)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}
             >
@@ -713,7 +719,7 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
           <span style={S.searchIcon}>{"\u2315"}</span>
           <input
             style={S.searchInput}
-            placeholder="Search traits or values\u2026"
+            placeholder={"Search traits or values\u2026"}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search trait categories and values"
@@ -779,6 +785,10 @@ export default function TraitExplorer({ tokens, onPick, wallet, onConnect, addTo
                       key={v.value}
                       style={{ ...S.row, ...(isHovered ? S.rowHover : {}) }}
                       onClick={() => handleSelect(category.key, v.value)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Browse ${category.key}: ${v.value}`}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleSelect(category.key, v.value); } }}
                       onMouseEnter={() => setHoveredRow(rowKey)}
                       onMouseLeave={() => setHoveredRow(null)}
                       title={`${v.value}: ${v.count}${isSampled ? " loaded" : ""} NFTs (${isSampled ? "~" : ""}${v.pct}%)`}

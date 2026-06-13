@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
-import Skeleton from "./Skeleton";
 import VirtualGalleryGrid from "./VirtualGalleryGrid";
 import FilterSidebar, { FilterPills, MobileFilterButton } from "./FilterSidebar";
 import { SORT_OPTIONS } from "../constants";
@@ -15,7 +14,7 @@ function useDebounce(value, delay = 300) {
   return debounced;
 }
 
-export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMore, onFilter, onPick, traitFilters, activeFilters, sortBy, onSort, favorites, onToggleFavorite, cart, onAddToCart, listings, allTokens, totalSupply }) {
+export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMore, onRetry, onFilter, onPick, traitFilters, activeFilters, sortBy, onSort, favorites, onToggleFavorite, cart, onAddToCart, listings, allTokens, totalSupply }) {
   const collection = useActiveCollection();
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("gallery");
@@ -33,14 +32,33 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
     setMobileSidebarOpen(false);
   }, [collection.slug]);
 
-  // Client-side search + listed-only + price range filtering on loaded tokens (debounced)
+  // Listing price lookup — normalizeToken hard-sets price:null, so the only
+  // source of a gallery card's price is the listings feed. Join it on by tokenId.
+  const priceById = useMemo(() => {
+    const m = new Map();
+    for (const l of listings || []) {
+      const id = String(l.tokenId ?? l.id);
+      if (id && l.price != null) m.set(id, l.price);
+    }
+    return m;
+  }, [listings]);
+
+  // Client-side search + listed-only + price range filtering on loaded tokens (debounced).
+  // Merge listing prices onto tokens first so the price-range filter, the price
+  // sort, and the card price badge all operate on real prices instead of null.
   const displayed = useMemo(() => {
-    let result = tokens;
+    let result = priceById.size
+      ? tokens.map((n) => {
+          const p = priceById.get(String(n.id));
+          return p != null && p !== n.price ? { ...n, price: p } : n;
+        })
+      : tokens;
 
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       result = result.filter((n) =>
         (n.name || "").toLowerCase().includes(q) || String(n.id).toLowerCase().includes(q)
+        || (n.attributes || []).some((a) => String(a.value).toLowerCase().includes(q))
       );
     }
 
@@ -59,20 +77,50 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
       });
     }
 
+    // The upstream sort in useNfts ran before prices were joined on, so a
+    // price sort there was a no-op (all-null). Re-apply it here on merged prices.
+    if (sortBy === "price" || sortBy === "price-asc") {
+      const withPrice = [];
+      const withoutPrice = [];
+      for (const n of result) (n.price != null ? withPrice : withoutPrice).push(n);
+      withPrice.sort((a, b) =>
+        sortBy === "price-asc" ? a.price - b.price : b.price - a.price
+      );
+      // Keep priceless tokens after priced ones, preserving their existing order.
+      result = [...withPrice, ...withoutPrice];
+    }
+
     return result;
-  }, [tokens, debouncedSearch, listedOnly, listings, priceRange]);
+  }, [tokens, priceById, debouncedSearch, listedOnly, listings, priceRange, sortBy]);
+
+  // Scroll-reset key: changes only on a genuine filter/sort/search change, never
+  // on a loadMore append — so infinite scroll keeps the viewport in place (F562).
+  const resetKey = useMemo(
+    () => JSON.stringify({ activeFilters, sortBy, debouncedSearch, listedOnly, priceRange, viewMode }),
+    [activeFilters, sortBy, debouncedSearch, listedOnly, priceRange, viewMode]
+  );
 
   const hasActiveFilters = Object.keys(activeFilters).length > 0 || listedOnly || priceRange.min || priceRange.max || !!debouncedSearch;
 
-  // Use actual collection supply for accurate rarity %; fall back to loaded count
+  // Rarity sort needs ranks; for partially-loaded collections ranks may not be
+  // present yet. Surface that instead of silently falling back to id order.
+  const rankPending = useMemo(
+    () => (sortBy === "rarity") && displayed.length > 0 && !displayed.some((n) => n.rank != null),
+    [sortBy, displayed]
+  );
+
+  // Use actual collection supply for the absolute count column; fall back to loaded count
   const totalTokens = totalSupply || allTokens?.length || tokens.length;
+  // Loaded-sample size for trait rarity % (traitFilters are extracted from the
+  // loaded tokens, so % must divide by this, not full supply — see FilterSidebar).
+  const loadedCount = allTokens?.length || tokens.length;
 
   return (
     <section style={{ position: "relative", zIndex: 1, maxWidth: 1440, margin: "0 auto" }}>
       {/* Toolbar */}
       <div className="toolbar">
         <MobileFilterButton
-          activeCount={Object.values(activeFilters).reduce((c, v) => c + v.length, 0) + (listedOnly ? 1 : 0)}
+          activeCount={Object.values(activeFilters).reduce((c, v) => c + v.length, 0) + (listedOnly ? 1 : 0) + ((priceRange.min || priceRange.max) ? 1 : 0)}
           onClick={() => setMobileSidebarOpen(true)}
         />
 
@@ -120,12 +168,23 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
           {loading && tokens.length === 0
             ? "Loading\u2026"
             : hasActiveFilters
-              ? `${displayed.length.toLocaleString()} result${displayed.length !== 1 ? "s" : ""}${totalSupply ? ` of ${totalSupply.toLocaleString()} items` : ""}`
+              // When the whole collection isn't loaded yet, filters only see the
+              // loaded sample \u2014 say so rather than implying a full-supply search.
+              ? `${displayed.length.toLocaleString()} result${displayed.length !== 1 ? "s" : ""}${
+                  hasMore
+                    ? ` of ${loadedCount.toLocaleString()} loaded`
+                    : totalSupply ? ` of ${totalSupply.toLocaleString()} items` : ""
+                }`
               : hasMore && totalSupply
                 ? `${displayed.length.toLocaleString()} of ${totalSupply.toLocaleString()} items`
                 : hasMore
                   ? `${displayed.length.toLocaleString()}+`
                   : `${displayed.length.toLocaleString()} items`}
+          {rankPending && (
+            <span style={{ marginLeft: 8, opacity: 0.7, fontStyle: "italic" }}>
+              {"\u00b7"} rank data loading{"\u2026"}
+            </span>
+          )}
         </div>
       </div>
 
@@ -137,6 +196,7 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
           onFilterChange={onFilter}
           listings={listings}
           totalTokens={totalTokens}
+          loadedCount={loadedCount}
           onClose={() => setMobileSidebarOpen(false)}
           isOpen={mobileSidebarOpen}
           isMobileOverlay
@@ -163,6 +223,7 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
               onFilterChange={onFilter}
               listings={listings}
               totalTokens={totalTokens}
+              loadedCount={loadedCount}
               onClose={() => setSidebarOpen(false)}
               isOpen={sidebarOpen}
               listedOnly={listedOnly}
@@ -189,23 +250,28 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
           {error && (
             <div className="error-banner">
               <span>{error}</span>
-              <button onClick={onLoadMore}>Retry</button>
+              <button onClick={onRetry || onLoadMore}>Retry</button>
             </div>
           )}
 
-          {/* Virtualized Grid */}
-          <VirtualGalleryGrid
-            tokens={displayed}
-            loading={loading}
-            onPick={onPick}
-            viewMode={viewMode}
-            favorites={favorites}
-            onToggleFavorite={onToggleFavorite}
-            hasMore={hasMore && !search}
-            onLoadMore={onLoadMore}
-            cart={cart}
-            onAddToCart={onAddToCart}
-          />
+          {/* Virtualized Grid — skip entirely when there's nothing to show so the
+              grid's own full-height "No items found" doesn't stack above the
+              styled empty-state below (F579). */}
+          {(loading || displayed.length > 0) && (
+            <VirtualGalleryGrid
+              tokens={displayed}
+              loading={loading}
+              onPick={onPick}
+              viewMode={viewMode}
+              favorites={favorites}
+              onToggleFavorite={onToggleFavorite}
+              hasMore={hasMore && !search}
+              onLoadMore={onLoadMore}
+              cart={cart}
+              onAddToCart={onAddToCart}
+              resetKey={resetKey}
+            />
+          )}
 
           {/* Empty State */}
           {!loading && displayed.length === 0 && (

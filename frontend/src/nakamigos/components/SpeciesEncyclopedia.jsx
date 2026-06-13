@@ -357,6 +357,11 @@ export default function SpeciesEncyclopedia() {
                     ...(isHovered ? S.cardHover : {}),
                   }}
                   onClick={() => toggleExpand(sp.letter)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  aria-label={`${sp.name} (${sp.rarityTier})`}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(sp.letter); } }}
                   onMouseEnter={() => setHoveredCard(sp.letter)}
                   onMouseLeave={() => setHoveredCard(null)}
                 >

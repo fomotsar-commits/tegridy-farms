@@ -29,13 +29,13 @@ const LEGENDARY_CATEGORIES = {
 const TIMELINE_EVENTS = [
   { date: "Nov 2021", title: "Rug Pull Exposed", description: "Roh (0xRoh) forensically exposes LBAC rug pull -- identical IPFS hashes, ~100 ETH stolen.", color: "var(--gold)", icon: "\u26A0" },
   { date: "Nov 16, 2021", title: "@JungleBayAC Created", description: "Community creates new identity the same day the scandal breaks. Refuses to scatter.", color: "var(--naka-blue)", icon: "\u2764" },
+  { date: "Nov 2021", title: "Sandbox Land Secured", description: "Jungle Bay Island established at coordinates (14, -69) in The Sandbox.", color: "var(--green)", icon: "\u{1F3DD}" },
   { date: "Jan 6, 2022", title: "New Collection Minted", description: "5,555 hand-drawn apes launched in just 7-8 weeks. Original LBAC holders get free 1:1 exchange.", color: "var(--green)", icon: "\u2728" },
   { date: "Apr 2022", title: "Staking Launched", description: "Community staking system goes live, rewarding diamond hands.", color: "var(--purple)", icon: "\u2B50" },
   { date: "May 2022", title: "Otherside Land Acquired", description: "Community treasury purchases land in Yuga Labs' Otherside metaverse.", color: "var(--naka-blue)", icon: "\u{1F30D}" },
-  { date: "Nov 2021", title: "Sandbox Land Secured", description: "Jungle Bay Island established at coordinates (14, -69) in The Sandbox.", color: "var(--green)", icon: "\u{1F3DD}" },
   { date: "2023", title: "Rebranded to Artists Collective", description: "Evolution from Ape Club to Artists Collective. Meme Cards collab with mfers artists launched.", color: "var(--gold)", icon: "\u{1F3A8}" },
   { date: "2024", title: "Multi-Chain Expansion", description: "Seeds (369, Base), Bojungles (250, Base), Junglets (208, Solana) launched across chains.", color: "var(--purple)", icon: "\u{1F680}" },
-  { date: "Present", title: "Memetic Finance Era", description: "DM+T = Dank Memes + Time. $JBM token on Base. Only 0.98% of supply listed.", color: "var(--gold)", icon: "\u{1F451}" },
+  { date: "Present", title: "Memetic Finance Era", description: "DM+T = Dank Memes + Time. $JBM token on Base.", color: "var(--gold)", icon: "\u{1F451}" },
 ];
 
 // ═══ SKIN TIER DATA ═══
@@ -269,6 +269,11 @@ function RugToRichesTimeline() {
               transition: "transform 0.15s",
             }}
             onClick={() => setExpanded(expanded === idx ? null : idx)}
+            role="button"
+            tabIndex={0}
+            aria-expanded={expanded === idx}
+            aria-label={`${evt.date}: ${evt.title}`}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(expanded === idx ? null : idx); } }}
           >
             {/* Dot */}
             <div style={{

@@ -98,14 +98,32 @@ function resolveIpfs(url) {
   return url;
 }
 
+// Does this collection serve a deterministic per-id PNG at `${metadataBase}/<id>.png`?
+// Nakamigos does NOT (its metadataBase is a per-token-JSON IPFS CID, so that URL
+// 404s); gnss/junglebay do. Default to true when unknown so we don't regress
+// collections that rely on the fallback.
+function hasDeterministicImage(contract) {
+  const entry = Object.values(COLLECTIONS).find(
+    c => contract && c.contract.toLowerCase() === String(contract).toLowerCase()
+  );
+  return entry ? entry.deterministicImage !== false : true;
+}
+
 // Normalize an Alchemy NFT object
 function normalizeToken(nft, metadataBase = METADATA_BASE) {
   const attrs = nft.raw?.metadata?.attributes || [];
-  // Only build a fallback IPFS image URL when metadataBase is set (Nakamigos only)
-  const fallbackImage = metadataBase ? `${metadataBase}/${nft.tokenId}.png` : null;
+  const contractAddr = nft.contract?.address || null;
+  // Only build a `${metadataBase}/<id>.png` fallback when it actually resolves
+  // for this collection — emitting the known-404 Nakamigos URL triggers a
+  // broken-image flash + a per-card metadata refetch storm (F568).
+  const fallbackImage = metadataBase && hasDeterministicImage(contractAddr)
+    ? `${metadataBase}/${nft.tokenId}.png`
+    : null;
   // Also check raw metadata image (some collections store image URL only there)
   const rawMetaImage = resolveIpfs(nft.raw?.metadata?.image || null);
-  const resolvedImage = nft.image?.thumbnailUrl || nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || rawMetaImage || fallbackImage;
+  // Grid thumbnail: prefer Alchemy CDN sizes; only fall to raw 2000px IPFS when
+  // no CDN size exists (raw IPFS is slow and re-blackens on re-render — F621).
+  const resolvedImage = nft.image?.thumbnailUrl || nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || fallbackImage || rawMetaImage;
   return {
     id: nft.tokenId,
     name: nft.name || nft.raw?.metadata?.name || `#${nft.tokenId}`,

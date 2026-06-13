@@ -40,8 +40,9 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
           <NftImage nft={nft} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           <div className="card-overlay" />
 
-          {/* Rank badge — show rank relative to collection supply; highlight top 25% */}
-          {nft.rank && (
+          {/* Rank badge — show rank relative to collection supply; highlight top 25%.
+              Hide when approximate (partial load) to match VirtualCard/Hero. */}
+          {nft.rank && !nft.rankApproximate && (
             <div
               className={`card-rank-badge${collection.supply && nft.rank <= collection.supply * 0.25 ? " card-rank-top" : ""}`}
               title={`Rank ${nft.rank}${collection.supply ? ` of ${collection.supply.toLocaleString()}` : ""}`}
@@ -108,6 +109,7 @@ export default memo(function Card({ nft, idx, onPick, view, isFavorite, onToggle
     && prev.skipReveal === next.skipReveal
     && prev.nft.price === next.nft.price
     && prev.nft.rank === next.nft.rank
+    && prev.nft.rankApproximate === next.nft.rankApproximate
     && prev.nft.name === next.nft.name
     && prev.nft.lastSale === next.nft.lastSale
     && prev.nft.image === next.nft.image

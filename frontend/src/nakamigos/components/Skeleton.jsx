@@ -1,4 +1,4 @@
-export default function Skeleton({ count = 8, view = "gallery" }) {
+export default function Skeleton({ count = 8 }) {
   return Array.from({ length: count }, (_, i) => (
     <div key={i} className="skeleton-card card-reveal" style={{ animationDelay: `${i * 50}ms` }}>
       <div className="skeleton skeleton-image" />

@@ -15,6 +15,10 @@ export default function useNfts({ onChainSupply } = {}) {
   const continuation = useRef(null);
   const tokensRef = useRef(tokens);
   const abortRef = useRef(null);
+  // When a load fails we must NOT let the infinite-scroll trigger keep re-firing
+  // (load→error→loading flips→guard resets→re-fire) and hammer the rate-limited
+  // proxy. Gate further auto-loads until the user explicitly retries (F570).
+  const loadErrorRef = useRef(false);
   tokensRef.current = tokens;
 
   const load = useCallback(async (reset = false, signal) => {
@@ -51,8 +55,10 @@ export default function useNfts({ onChainSupply } = {}) {
 
       continuation.current = data.continuation;
       setHasMore(!!data.continuation);
+      loadErrorRef.current = false;
     } catch (err) {
       if (signal?.aborted) return;
+      loadErrorRef.current = true;
       setError("Could not load NFTs. Please check your connection and try again.");
     } finally {
       if (!signal?.aborted) setLoading(false);
@@ -66,6 +72,7 @@ export default function useNfts({ onChainSupply } = {}) {
     abortRef.current = controller;
 
     continuation.current = null;
+    loadErrorRef.current = false;
     setTokens([]);
     setTraitFilters([]);
     setActiveFilters({});
@@ -76,6 +83,15 @@ export default function useNfts({ onChainSupply } = {}) {
 
   const loadMore = useCallback(() => {
     if (!abortRef.current || abortRef.current.signal.aborted) return;
+    if (loadErrorRef.current) return; // wait for an explicit retry after a failure
+    if (!loading && hasMore) load(false, abortRef.current?.signal);
+  }, [loading, hasMore, load]);
+
+  // Explicit retry from the error banner — clears the failure gate and reloads.
+  const retry = useCallback(() => {
+    if (!abortRef.current || abortRef.current.signal.aborted) return;
+    loadErrorRef.current = false;
+    setError(null);
     if (!loading && hasMore) load(false, abortRef.current?.signal);
   }, [loading, hasMore, load]);
 
@@ -85,6 +101,7 @@ export default function useNfts({ onChainSupply } = {}) {
     const shouldAutoLoad = collection.supply && collection.supply < 1000;
     if (!shouldAutoLoad) return;
     if (!hasMore || loading || tokens.length === 0) return;
+    if (loadErrorRef.current) return; // halt auto-pagination after a failure
     if (!abortRef.current || abortRef.current.signal.aborted) return;
 
     // Throttle: wait 500ms between auto-load pages to avoid API spam
@@ -106,6 +123,7 @@ export default function useNfts({ onChainSupply } = {}) {
   // Continuously load pages while loadAll has been requested
   useEffect(() => {
     if (!loadingAll) return;
+    if (loadErrorRef.current) { setLoadingAll(false); return; } // stop on failure
     if (!hasMore || loading) {
       if (!hasMore) setLoadingAll(false);
       return;
@@ -178,6 +196,7 @@ export default function useNfts({ onChainSupply } = {}) {
     activeFilters,
     sortBy,
     loadMore,
+    retry,
     loadAll,
     changeFilter,
     setSortBy,

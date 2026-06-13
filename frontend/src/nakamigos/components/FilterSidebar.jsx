@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
 
 /* ── Rarity color helper (matches TraitExplorer) ── */
 function rarityColor(pct) {
@@ -386,6 +386,7 @@ export default memo(function FilterSidebar({
   onFilterChange,
   listings,
   totalTokens,
+  loadedCount,
   onClose,
   isOpen,
   isMobileOverlay,
@@ -394,25 +395,21 @@ export default memo(function FilterSidebar({
   priceRange,
   onPriceChange,
 }) {
+  // Trait % is estimated from the LOADED sample: v.count only covers loaded
+  // tokens, so dividing by full supply would understate every trait's incidence
+  // (a 40-of-20k load reads ~500x too rare → everything paints gold). Sample
+  // incidence is the unbiased estimate — mark it approximate when sampled.
+  // Mirrors TraitExplorer's sampled-denominator handling.
+  const sampleSize = loadedCount > 0 ? loadedCount : totalTokens;
+  const isSampled = loadedCount > 0 && totalTokens > 0 && loadedCount < totalTokens;
   const [expanded, setExpanded] = useState(new Set());
   const [traitSearch, setTraitSearch] = useState({});
   const [hoveredRow, setHoveredRow] = useState(null);
-  const [isMobile, setIsMobile] = useState(false);
 
-  // Reset accordion/search state when trait filters change (i.e., new collection loaded)
-  useEffect(() => {
-    setExpanded(new Set());
-    setTraitSearch({});
-    setHoveredRow(null);
-  }, [traitFilters]);
-
-  // Check mobile on mount + resize
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
+  // NOTE: no reset-on-traitFilters effect — useNfts hands a brand-new
+  // traitFilters array on every appended page, which would spuriously collapse
+  // the user's open accordions during scroll. Collection switches already
+  // remount the whole tree (App.jsx key={collectionSlug}).
 
   const activeCount = useMemo(() => {
     let c = 0;
@@ -568,11 +565,12 @@ export default memo(function FilterSidebar({
                 )}
                 <div style={S.valueList}>
                   {filteredValues.map((v) => {
-                    const pct = totalTokens > 0 ? parseFloat((v.count / totalTokens * 100).toFixed(1)) : 0;
+                    const pct = sampleSize > 0 ? parseFloat((v.count / sampleSize * 100).toFixed(1)) : 0;
                     const color = rarityColor(pct);
                     const isChecked = activeFilters[attr.key]?.includes(v.value) || false;
                     const rowKey = `${attr.key}::${v.value}`;
                     const isHovered = hoveredRow === rowKey;
+                    const pctLabel = `${isSampled ? "~" : ""}${pct}%`;
 
                     return (
                       <div key={v.value}>
@@ -584,15 +582,15 @@ export default memo(function FilterSidebar({
                           onMouseLeave={() => setHoveredRow(null)}
                           role="checkbox"
                           aria-checked={isChecked}
-                          aria-label={`${attr.key}: ${v.value}, ${pct}%`}
+                          aria-label={`${attr.key}: ${v.value}, ${pctLabel}`}
                           tabIndex={0}
-                          title={`${v.value}: ${v.count} NFTs (${pct}%)`}
+                          title={`${v.value}: ${v.count}${isSampled ? " loaded" : ""} NFTs (${pctLabel})`}
                         >
                           <div style={S.checkbox(isChecked)}>
                             {isChecked && "\u2713"}
                           </div>
                           <span style={S.valueName}>{v.value}</span>
-                          <span style={S.valuePct(color)}>{pct}%</span>
+                          <span style={S.valuePct(color)}>{pctLabel}</span>
                           <span style={S.valueCount}>{v.count}</span>
                         </div>
                         <div style={S.barOuter}>

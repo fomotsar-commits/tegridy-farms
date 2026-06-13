@@ -88,7 +88,11 @@ function parseRoute(pathname) {
 
   // Check if the first segment is a known collection slug
   if (COLLECTIONS[first]) {
-    const second = segments[1] || "listings";
+    // Bare /:collection (and the trailing-slash form the Gallery nav produces)
+    // resolves to the gallery — the default tab. Previously defaulted to
+    // "listings", which made the Gallery nav button + "G" hotkey land on
+    // Listings (F607).
+    const second = segments[1] || "gallery";
     // Deep link: /:collection/nft/:id
     if (second === "nft" && segments[2]) {
       const id = parseInt(segments[2], 10);
@@ -274,6 +278,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 
   const nfts = useNfts({ onChainSupply: stats?.supply });
 
+  const tokenParamHandled = useRef(false);
+
   // ── Shareable NFT deep link: ?token=<id> ↔ the detail modal ──
   // The edge middleware serves unfurl bots a per-token OG card for the same
   // URL, so the modal's copy-link button produces a link that previews.
@@ -282,12 +288,16 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
     const current = url.searchParams.get("token");
     const next = selected?.id != null ? String(selected.id) : null;
     if (current === next) return;
+    // Don't strip an incoming ?token before the read effect below has consumed
+    // it: this effect runs first on mount (declared earlier) and, with selected
+    // still null, used to delete the param during splash click-through before it
+    // could open the modal (F608). Let the read effect win the race.
+    if (!next && current && !tokenParamHandled.current) return;
     if (next) url.searchParams.set("token", next);
     else url.searchParams.delete("token");
     window.history.replaceState({}, "", url);
   }, [selected?.id]);
 
-  const tokenParamHandled = useRef(false);
   useEffect(() => {
     if (tokenParamHandled.current) return;
     const id = new URLSearchParams(window.location.search).get("token");
@@ -327,15 +337,24 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   }, [collectionSlug, collection.name]);
 
   // ═══ Deep link: /:collection/nft/:id — auto-open modal ═══
+  const deepLinkFetchedRef = useRef(null);
   useEffect(() => {
     if (!deepLinkTokenId) return;
     const token = nfts.allTokens.find((t) => String(t.id) === deepLinkTokenId);
     if (token) {
       setSelected(token);
-    } else if (nfts.allTokens.length > 0) {
+    } else if (nfts.allTokens.length > 0 && deepLinkFetchedRef.current !== deepLinkTokenId) {
+      // Not in the loaded window — fetch it directly (same fetch-by-id fallback
+      // the ?token= handler uses) so the modal gets real image + traits instead
+      // of a bare "#id" placeholder (F583). Show a transient placeholder first.
+      // The ref guards against re-fetching as more gallery pages stream in.
+      deepLinkFetchedRef.current = deepLinkTokenId;
       setSelected({ id: deepLinkTokenId, name: `#${deepLinkTokenId}`, attributes: [], image: null });
+      fetchTokensByIds([deepLinkTokenId], collection.contract, collection.metadataBase)
+        .then((arr) => { if (arr?.[0]) setSelected(arr[0]); })
+        .catch(() => { /* bad/burned id — deep link is best-effort */ });
     }
-  }, [deepLinkTokenId, nfts.allTokens]);
+  }, [deepLinkTokenId, nfts.allTokens, collection.contract, collection.metadataBase]);
 
   // Update page title on tab change
   useEffect(() => {
@@ -355,7 +374,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       navigate("/nakamigos");
     } else {
       if (!collectionSlug) { navigate("/nakamigos"); return; }
-      navigate(`/nakamigos/${collectionSlug}/${newTab === "gallery" ? "" : newTab}`);
+      // Emit the real /gallery segment (not an empty one) so the URL is
+      // canonical and parseRoute doesn't fall through to another tab (F607).
+      navigate(`/nakamigos/${collectionSlug}/${newTab}`);
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
     play("click");
@@ -583,6 +604,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
               error={nfts.error}
               hasMore={nfts.hasMore}
               onLoadMore={nfts.loadMore}
+              onRetry={nfts.retry}
               onFilter={nfts.changeFilter}
               onPick={setSelected}
               traitFilters={nfts.traitFilters}
