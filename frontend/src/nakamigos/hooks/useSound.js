@@ -150,6 +150,23 @@ export default function useSound() {
     return ctxRef.current;
   }, []);
 
+  // Pre-warm the AudioContext on the first user gesture. Programmatic alert
+  // sounds (price/smart alerts) can otherwise fire before any gesture and be
+  // dropped by the autoplay policy. One-shot: removes itself after warming.
+  useEffect(() => {
+    const warm = () => {
+      getCtx();
+      window.removeEventListener('pointerdown', warm);
+      window.removeEventListener('keydown', warm);
+    };
+    window.addEventListener('pointerdown', warm, { once: true });
+    window.addEventListener('keydown', warm, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', warm);
+      window.removeEventListener('keydown', warm);
+    };
+  }, [getCtx]);
+
   const play = useCallback((name) => {
     if (mutedRef.current) return;
     const sound = SOUNDS[name];

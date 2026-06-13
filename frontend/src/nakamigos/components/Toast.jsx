@@ -1,8 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 
+// Default auto-dismiss windows. Errors and undo-able toasts get longer so the
+// user has time to read / react (mirrors sonner's behavior in the main app).
+const SUCCESS_DURATION = 3500;
+const ERROR_DURATION = 7000;
+
 export default function Toast({ toasts, onRemove }) {
   const [dismissing, setDismissing] = useState(new Set());
   const timersRef = useRef(new Map());
+  // Tracks remaining time + deadline per toast so hover can pause/resume.
+  const remainingRef = useRef(new Map());
+  const [paused, setPaused] = useState(false);
 
   const handleDismiss = useCallback(
     (id) => {
@@ -28,18 +36,36 @@ export default function Toast({ toasts, onRemove }) {
     [onRemove],
   );
 
-  // Auto-dismiss non-persistent toasts with animation
+  // Auto-dismiss non-persistent toasts with animation.
+  // While `paused` (pointer/focus over the stack) we clear pending timers and
+  // bank the remaining time, then resume the countdown on un-pause.
   useEffect(() => {
-    for (const t of toasts) {
-      if (t.persistent || dismissing.has(t.id) || timersRef.current.has(t.id)) continue;
-      const duration = t.duration || 3500;
-      const timer = setTimeout(() => {
-        timersRef.current.delete(t.id);
-        handleDismiss(t.id);
-      }, duration);
-      timersRef.current.set(t.id, timer);
+    const remaining = remainingRef.current;
+    if (paused) {
+      // Pause: clear timers, banking how long each had left.
+      const now = Date.now();
+      for (const [id, timer] of timersRef.current) {
+        clearTimeout(timer);
+        const meta = remaining.get(id);
+        if (meta) remaining.set(id, { ...meta, left: Math.max(0, meta.deadline - now) });
+      }
+      timersRef.current.clear();
+    } else {
+      for (const t of toasts) {
+        if (t.persistent || dismissing.has(t.id) || timersRef.current.has(t.id)) continue;
+        const banked = remaining.get(t.id)?.left;
+        const full = t.duration || (t.type === "error" || t.undoAction ? ERROR_DURATION : SUCCESS_DURATION);
+        const duration = banked != null ? banked : full;
+        remaining.set(t.id, { left: duration, deadline: Date.now() + duration });
+        const timer = setTimeout(() => {
+          timersRef.current.delete(t.id);
+          remaining.delete(t.id);
+          handleDismiss(t.id);
+        }, duration);
+        timersRef.current.set(t.id, timer);
+      }
     }
-    // Cleanup timers for removed toasts
+    // Cleanup timers + banked state for removed toasts
     const toastIds = new Set(toasts.map((t) => t.id));
     for (const [id, timer] of timersRef.current) {
       if (!toastIds.has(id)) {
@@ -47,7 +73,10 @@ export default function Toast({ toasts, onRemove }) {
         timersRef.current.delete(id);
       }
     }
-  }, [toasts, dismissing, handleDismiss]);
+    for (const id of remaining.keys()) {
+      if (!toastIds.has(id)) remaining.delete(id);
+    }
+  }, [toasts, dismissing, handleDismiss, paused]);
 
   // Cleanup all timers on unmount
   useEffect(() => {
@@ -61,7 +90,15 @@ export default function Toast({ toasts, onRemove }) {
   if (!toasts.length) return null;
 
   return (
-    <div className="toast-container" aria-live="polite" role="status">
+    <div
+      className="toast-container"
+      aria-live="polite"
+      role="status"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+    >
       {toasts.map((t) => (
         <div
           key={t.id}

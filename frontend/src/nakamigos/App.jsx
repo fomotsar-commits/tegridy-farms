@@ -321,12 +321,21 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
   const [showOnboarding, setShowOnboarding] = useState(() => { try { return !localStorage.getItem(`${collectionSlug}_onboarded`); } catch { return true; } });
 
-  // Lite mode: redirect away from hidden tabs
+  // Lite mode: redirect away from hidden tabs. Show a toast so a deep link to a
+  // Pro-only tab doesn't silently dump the user on Floor with no explanation (F826).
+  const liteRedirectNotedRef = useRef(null);
   useEffect(() => {
     if (isLite && LITE_HIDDEN_ALL.has(tab)) {
+      if (liteRedirectNotedRef.current !== tab) {
+        liteRedirectNotedRef.current = tab;
+        const label = tab.charAt(0).toUpperCase() + tab.slice(1);
+        addToast(`${label} is a Pro feature — switch to Pro in the header to view it`, "info");
+      }
       navigate(`/nakamigos/${collectionSlug}`, { replace: true });
+    } else if (!isLite || !LITE_HIDDEN_ALL.has(tab)) {
+      liteRedirectNotedRef.current = null;
     }
-  }, [isLite, tab, collectionSlug, navigate]);
+  }, [isLite, tab, collectionSlug, navigate, addToast]);
 
   // On mount (and collection switch — key={collectionSlug} forces remount),
   // update the page title and scroll to top.

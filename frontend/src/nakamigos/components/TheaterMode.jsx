@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { lockScroll, unlockScroll } from "../lib/scrollLock";
 
 /* ─── Ambient Particle Canvas ─── */
 function AmbientParticles({ width, height }) {
@@ -129,8 +130,10 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
   useEffect(() => {
     ensureKeyframes();
     requestAnimationFrame(() => setVisible(true));
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = ""; };
+    // Ref-counted lock (shared with the underlying Modal) so closing Theater
+    // over a still-open detail modal doesn't unlock the body behind it (F786).
+    lockScroll();
+    return () => { unlockScroll(); };
   }, []);
 
   // Window resize

@@ -634,6 +634,14 @@ export default function SplashScreen({ onComplete }) {
   const [progress, setProgress] = useState(0);
   const [phase, setPhase] = useState("loading");
   const [showContent, setShowContent] = useState(false);
+  // Touch devices say "TAP", pointer devices say "CLICK" — mirrors the main
+  // loader's isMob check in components/loader/phases/hold.ts (F835).
+  const [isMobile] = useState(() => {
+    try {
+      return typeof window !== "undefined" &&
+        window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
+    } catch { return false; }
+  });
   const containerRef = useRef(null);
   const { positions, sparks, shockwave, impactFlash, mousePos } = usePhysics(ART_PIECES, containerRef, phase);
 
@@ -1319,11 +1327,13 @@ export default function SplashScreen({ onComplete }) {
         {/* Tagline */}
         <motion.div
           initial={{ opacity: 0, letterSpacing: "1em" }}
-          animate={showContent ? { opacity: 0.7, letterSpacing: "0.4em" } : undefined}
+          animate={showContent ? { opacity: isMobile ? 0.92 : 0.7, letterSpacing: isMobile ? "0.25em" : "0.4em" } : undefined}
           transition={{ type: "spring", stiffness: 100, damping: 18, delay: 1.2 }}
           style={{
-            fontFamily: "var(--pixel)", fontSize: "clamp(8px, 1.2vw, 12px)",
-            color: "#c8a850", textShadow: "0 0 20px rgba(200,168,80,0.5), 0 0 40px rgba(200,168,80,0.2)",
+            // Floor raised from 8px to 10px so the subtitle stays legible at
+            // 390px and doesn't get lost in the title glow (F840).
+            fontFamily: "var(--pixel)", fontSize: "clamp(10px, 1.6vw, 12px)",
+            color: "#e0c068", textShadow: "0 0 20px rgba(200,168,80,0.5), 0 0 40px rgba(200,168,80,0.2)",
             marginBottom: 48, imageRendering: "pixelated",
           }}
         >THE DIGITAL ART GALLERY</motion.div>
@@ -1378,7 +1388,7 @@ export default function SplashScreen({ onComplete }) {
                 textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
                 fontSize: 12, letterSpacing: "0.3em", cursor: "pointer", pointerEvents: "auto",
               }}
-            >CLICK TO ENTER</motion.span>
+            >{isMobile ? "TAP TO ENTER" : "CLICK TO ENTER"}</motion.span>
           ) : (
             <motion.span
               animate={{ color: ["#ff2244", "#ffdd00", "#44ddff", "#ff44ff", "#00ff66", "#ff2244"] }}

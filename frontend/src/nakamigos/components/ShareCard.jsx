@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { lockScroll, unlockScroll } from "../lib/scrollLock";
 
 const W = 1200, H = 630;
 const GOLD = "#c8a850";
@@ -40,7 +41,9 @@ function drawCard(ctx, img, nft, collection) {
   const pixelFont = "'Press Start 2P', monospace";
   ctx.font = `20px ${pixelFont}`;
   ctx.fillStyle = GOLD;
-  ctx.fillText(collection.name.toUpperCase(), rx, 80);
+  // Pass rw as maxWidth (same as the NFT-name line) so long collection names
+  // don't paint past the right edge of the 1200x630 canvas.
+  ctx.fillText(collection.name.toUpperCase(), rx, 80, rw);
 
   // NFT name
   ctx.font = "bold 36px 'Inter', Arial, sans-serif";
@@ -102,7 +105,10 @@ function drawCard(ctx, img, nft, collection) {
   ctx.font = "13px 'Inter', Arial, sans-serif";
   ctx.fillStyle = "rgba(200,168,80,0.7)";
   ctx.textAlign = "center";
-  ctx.fillText(`${collection.slug}.gallery`, W / 2, H - 12);
+  // Print the real share host (e.g. tegridyfarms.vercel.app) rather than a
+  // pseudo-domain like "nakamigos.gallery" the project doesn't own.
+  const host = (typeof window !== "undefined" && window.location?.host) || "tegridyfarms.vercel.app";
+  ctx.fillText(host, W / 2, H - 12);
   ctx.textAlign = "left";
 }
 
@@ -162,10 +168,12 @@ export default function ShareCard({ nft, onClose }) {
       }
     };
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
+    // Use the ref-counted scroll lock (shared with Modal/WalletModal) so closing
+    // ShareCard over a still-open Modal doesn't unlock the body behind it (F786).
+    lockScroll();
     const closeBtn = modalRef.current?.querySelector('[aria-label="Close modal"]');
     closeBtn?.focus();
-    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+    return () => { document.removeEventListener("keydown", onKey); unlockScroll(); };
   }, [onClose]);
 
   const handleDownload = () => {

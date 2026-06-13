@@ -10,11 +10,11 @@ export const PRIMARY_TABS = [
 ];
 
 export const MORE_TABS = [
-  { key: "trades", label: "⇄ P2P Trades" },
+  { key: "trades", label: "⇄ Trade Offers" },
   { key: "sniper", label: "Sniper" },
   { key: "traits", label: "Traits" },
   { key: "analytics", label: "Analytics" },
-  { key: "trade", label: "Trade" },
+  { key: "trade", label: "Compare" },
   { key: "watchlist", label: "Watchlist" },
   { key: "bids", label: "Bids" },
   { key: "alerts", label: "Alerts" },
