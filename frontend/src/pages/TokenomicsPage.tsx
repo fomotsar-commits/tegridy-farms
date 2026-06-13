@@ -67,8 +67,8 @@ export default function TokenomicsPage() {
 
       <div className="relative z-10 max-w-[1000px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Tokenomics</h1>
-          <p className="text-white text-[14px]">TOWELI token economics and protocol transparency</p>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Tokenomics</h1>
+          <p className="text-white text-[14px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>TOWELI token economics and protocol transparency</p>
         </m.div>
 
         {/* Token info */}

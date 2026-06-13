@@ -119,8 +119,8 @@ export default function LendingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight">NFT Finance</h1>
-          <p className="text-white max-w-md mx-auto text-[14px]">
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Finance</h1>
+          <p className="text-white max-w-md mx-auto text-[14px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
             Lend, borrow, and trade NFTs — institutional-grade tools, all in one place.
           </p>
         </m.div>
@@ -181,9 +181,14 @@ export default function LendingPage() {
           )}
         </AnimatePresence>
 
-        {/* Section Toggle — horizontal scroll on mobile */}
+        {/* Section Toggle — horizontal scroll on mobile.
+            F510: the chip row scrolls horizontally but `no-scrollbar` hides the
+            scrollbar, so the 4th chip ("Launchpad") clipped mid-word with zero
+            affordance at 390-414px. A right-edge fade mask (mobile only — the
+            row is `md:w-fit` and never scrolls on desktop) signals there's more
+            to scroll. Additive CSS, pointer-events untouched. */}
         <m.div
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit no-scrollbar snap-x snap-mandatory"
+          className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit no-scrollbar snap-x snap-mandatory [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] md:[mask-image:none]"
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"

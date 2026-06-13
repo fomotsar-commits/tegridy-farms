@@ -2,7 +2,6 @@ import { useMemo, useEffect, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
@@ -27,6 +26,7 @@ import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
 import { PriceChart } from '../components/chart/PriceChart';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useNetworkCheck } from '../hooks/useNetworkCheck';
 import { useRevenueStats } from '../hooks/useRevenueStats';
@@ -149,20 +149,11 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
           <ArtImg pageId="dashboard" idx={0} fallbackPosition="center 5%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
+        {/* F519: use the shared dark-card ConnectPrompt (same as /farm) so the
+            wallet-gate stays legible over the busy camo art instead of the bare
+            text-center block that dissolved into the camouflage at 820px+. */}
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
-          <m.div className="text-center max-w-sm" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
-            <h2 className="heading-luxury text-2xl text-white mb-2">Connect Wallet</h2>
-            <p className="text-white text-[13px] mb-6">View your portfolio, positions, and earnings.</p>
-            <ConnectButton.Custom>
-              {({ openConnectModal, mounted }) => (
-                <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
-                  <button onClick={openConnectModal} className="btn-primary px-7 py-2.5 text-[14px]">
-                    Connect Wallet
-                  </button>
-                </div>
-              )}
-            </ConnectButton.Custom>
-          </m.div>
+          <ConnectPrompt surface="dashboard" />
         </div>
       </div>
     );

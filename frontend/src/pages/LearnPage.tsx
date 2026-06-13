@@ -52,7 +52,9 @@ export default function LearnPage() {
           <div
             className="flex gap-1.5 p-1 rounded-2xl"
             style={{
-              background: 'rgba(13,21,48,0.72)',
+              // F509: opacity bump 0.72 -> 0.92 (sibling of InfoPage) so page
+              // H1s / footer links stop ghosting through the sticky pill bar.
+              background: 'rgba(13,21,48,0.92)',
               border: '1px solid rgba(255,255,255,0.22)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',

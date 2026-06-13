@@ -14,7 +14,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 
-type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'generic';
+type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic';
 
 interface ConnectPromptProps {
   surface?: Surface;
@@ -46,6 +46,12 @@ const DEFAULTS: Record<Surface, { title: string; description: string; cta: strin
     description:
       'Stakers direct where LP farming emissions flow. Your locked TOWELI is your voting power. Bribers pay you to vote their way — totally not bribes, just donations.',
     cta: 'Open Governance',
+  },
+  dashboard: {
+    title: 'Connect Wallet',
+    description:
+      'View your portfolio, positions, and earnings. Track staking rewards, LP value, loans, and unclaimed yield in one place.',
+    cta: 'Connect Wallet',
   },
   generic: {
     title: 'Connect your wallet',

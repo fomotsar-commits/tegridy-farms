@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
+import { PREMIUM_LIVE } from '../lib/navConfig';
 
 type Tab = 'points' | 'gold' | 'history' | 'changelog';
 
@@ -42,8 +43,16 @@ export default function ActivityPage() {
   // No effect, no state, no cascading set. The URL is the source of truth.
   const tab = tabFromPath(location.pathname);
 
+  // F523: /premium maps to the Gold Card tab, but its content is a SOON
+  // placeholder until the PremiumAccess contract deploys. Landing first-time
+  // visitors on an empty feature is a poor impression, so while !PREMIUM_LIVE
+  // the Gold Card tab self-heals to the live Points content. The bar highlights
+  // Points to stay coherent, and the moment PREMIUM_LIVE flips true (address
+  // wired in constants.ts) /premium shows the real Gold Card with no code change.
+  const effectiveTab: Tab = tab === 'gold' && !PREMIUM_LIVE ? 'points' : tab;
+
   const handleTab = (t: Tab) => {
-    if (t === tab) return;
+    if (t === effectiveTab) return;
     navigate(TAB_PATHS[t], { replace: false });
   };
 
@@ -57,7 +66,9 @@ export default function ActivityPage() {
           <div
             className="flex gap-1.5 p-1 rounded-2xl"
             style={{
-              background: 'rgba(13,21,48,0.72)',
+              // F509: opacity bump 0.72 -> 0.92 (sibling of InfoPage) so text
+              // underneath stops ghosting through the sticky pill bar.
+              background: 'rgba(13,21,48,0.92)',
               border: '1px solid rgba(255,255,255,0.22)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',
@@ -68,10 +79,10 @@ export default function ActivityPage() {
               <button
                 key={t}
                 onClick={() => handleTab(t)}
-                aria-pressed={tab === t}
+                aria-pressed={effectiveTab === t}
                 className="flex-1 px-3 md:px-4 py-2 min-h-[40px] rounded-xl text-[13px] md:text-[14px] font-medium text-white transition-all whitespace-nowrap"
                 style={
-                  tab === t
+                  effectiveTab === t
                     ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
                     : undefined
                 }
@@ -84,10 +95,10 @@ export default function ActivityPage() {
       </div>
 
       <Suspense fallback={<PageSkeleton />}>
-        {tab === 'points' && <LeaderboardPage />}
-        {tab === 'gold' && <PremiumPage />}
-        {tab === 'history' && <HistoryPage />}
-        {tab === 'changelog' && <ChangelogPage />}
+        {effectiveTab === 'points' && <LeaderboardPage />}
+        {effectiveTab === 'gold' && <PremiumPage />}
+        {effectiveTab === 'history' && <HistoryPage />}
+        {effectiveTab === 'changelog' && <ChangelogPage />}
       </Suspense>
     </>
   );

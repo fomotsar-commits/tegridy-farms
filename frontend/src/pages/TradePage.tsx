@@ -133,8 +133,8 @@ export default function TradePage() {
 
       <div className="relative z-10 max-w-[600px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <m.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-2xl md:text-3xl text-white tracking-tight mb-1">{titleByTab[tab].title}</h1>
-          <p className="text-white text-[13px]">{titleByTab[tab].desc}</p>
+          <h1 className="heading-luxury text-2xl md:text-3xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].title}</h1>
+          <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].desc}</p>
         </m.div>
 
         {/* Tab Toggle */}
@@ -142,7 +142,10 @@ export default function TradePage() {
           role="tablist"
           aria-label="Trade view — swap, liquidity, DCA, or limit order"
           className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
-          style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+          // F521: bumped the bar background 0.4 -> 0.85 (matches the NFT-finance
+          // section toggle) so the inactive Liquidity/DCA/Alerts labels stop
+          // washing out white-on-light-art.
+          style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
         >
           {(['swap', 'liquidity', 'dca', 'limit'] as Tab[]).map((t) => (
             <button
@@ -156,7 +159,7 @@ export default function TradePage() {
               style={tab === t ? {
                 background: 'var(--color-stan)',
                 boxShadow: '0 4px 12px var(--color-stan-40)',
-              } : undefined}
+              } : { textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}
             >
               {TAB_LABELS[t]}
             </button>

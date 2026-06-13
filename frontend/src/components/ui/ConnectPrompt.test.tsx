@@ -28,7 +28,7 @@ vi.mock('@rainbow-me/rainbowkit', () => ({
   },
 }));
 
-function renderPrompt(surface?: 'farm' | 'trade' | 'lending' | 'governance' | 'generic') {
+function renderPrompt(surface?: 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic') {
   return render(
     <MemoryRouter>
       <ConnectPrompt surface={surface} />
@@ -63,6 +63,12 @@ describe('ConnectPrompt', () => {
     renderPrompt('governance');
     // Voice touchpoint: the governance subtitle's "totally not bribes" framing.
     expect(screen.getByText(/not bribes, just donations/i)).toBeInTheDocument();
+  });
+
+  it('renders dashboard surface copy (F519)', () => {
+    renderPrompt('dashboard');
+    expect(screen.getByRole('heading', { name: /Connect Wallet/i })).toBeInTheDocument();
+    expect(screen.getByText(/View your portfolio, positions, and earnings/i)).toBeInTheDocument();
   });
 
   it('renders "Connect Wallet" button and FAQ link', () => {

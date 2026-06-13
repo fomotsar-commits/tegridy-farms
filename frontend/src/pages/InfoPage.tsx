@@ -59,7 +59,10 @@ export default function InfoPage() {
           <div
             className="flex gap-1 md:gap-1.5 p-1 rounded-2xl"
             style={{
-              background: 'rgba(13,21,48,0.72)',
+              // F509: bumped 0.72 -> 0.92 so underlying H1s / footer links no
+              // longer ghost through the translucent pill bar (matches BottomNav's
+              // ~0.95). Blur retained for the frosted look.
+              background: 'rgba(13,21,48,0.92)',
               border: '1px solid rgba(255,255,255,0.22)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',

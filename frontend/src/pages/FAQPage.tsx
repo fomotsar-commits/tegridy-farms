@@ -120,7 +120,7 @@ export default function FAQPage() {
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-3">
             {FAQ_INTRO.headline}
           </h1>
-          <p className="text-gray-400 text-sm md:text-base max-w-[600px] mx-auto">
+          <p className="text-gray-400 text-sm md:text-base max-w-[600px] mx-auto" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
             {FAQ_INTRO.subheading}
           </p>
         </m.div>

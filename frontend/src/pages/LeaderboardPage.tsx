@@ -34,6 +34,11 @@ export default function LeaderboardPage() {
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="leaderboard" idx={0} alt="" loading="lazy" fallbackPosition="center 15%" className="w-full h-full object-cover" />
+        {/* F512: low-opacity scrim so the background art's speech captions
+            ("...THIS TOWEL GETS...POINTS?...") don't half-read as broken UI text
+            behind the points panels and tier rows. Additive — the art still
+            shows through; only stray painted words are dimmed. */}
+        <div aria-hidden="true" className="absolute inset-0 pointer-events-none" style={{ background: 'rgba(6,12,26,0.5)' }} />
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
