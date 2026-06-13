@@ -3,6 +3,8 @@ import {
   formatCurrency,
   formatNumber,
   formatTokenAmount,
+  formatTokenAmountGrouped,
+  formatBalance,
   formatPercent,
   shortenAddress,
   formatTimeAgo,
@@ -175,6 +177,63 @@ describe('formatTokenAmount', () => {
   it('respects custom decimals', () => {
     expect(formatTokenAmount(1.23456789, 2)).toBe('1.23');
     expect(formatTokenAmount(1.23456789, 6)).toBe('1.234568');
+  });
+});
+
+// ─── formatTokenAmountGrouped (F207) ────────────────────────────
+
+describe('formatTokenAmountGrouped', () => {
+  it('groups the integer part of big amounts with thousands separators', () => {
+    expect(formatTokenAmountGrouped(75_000_000)).toBe('75,000,000.0000');
+    expect(formatTokenAmountGrouped('35459581.8208')).toBe('35,459,581.8208');
+    expect(formatTokenAmountGrouped(1234.5)).toBe('1,234.5000');
+  });
+
+  it('never renders scientific notation for large values', () => {
+    expect(formatTokenAmountGrouped(3.5e25)).not.toMatch(/e\+?/i);
+  });
+
+  it('keeps the tiny / scientific / zero branches identical to formatTokenAmount', () => {
+    expect(formatTokenAmountGrouped(0)).toBe('0.0000');
+    expect(formatTokenAmountGrouped(0.0000001)).toBe('1.00e-7');
+    expect(formatTokenAmountGrouped(0.00005)).toBe('0.00005000');
+  });
+
+  it('returns dash for non-finite input', () => {
+    expect(formatTokenAmountGrouped(NaN)).toBe('–');
+    expect(formatTokenAmountGrouped(Infinity)).toBe('–');
+    expect(formatTokenAmountGrouped('abc')).toBe('–');
+  });
+
+  it('respects custom decimals', () => {
+    expect(formatTokenAmountGrouped(1234.56789, 2)).toBe('1,234.57');
+  });
+});
+
+// ─── formatBalance (F207) ───────────────────────────────────────
+
+describe('formatBalance', () => {
+  it('shows a floor marker instead of a misleading 0.0000 for dust', () => {
+    expect(formatBalance(0.00004)).toBe('<0.0001');
+    expect(formatBalance('0.00000123')).toBe('<0.0001');
+  });
+
+  it('renders an exact zero plainly (not as the floor marker)', () => {
+    expect(formatBalance(0)).toBe('0.0000');
+    expect(formatBalance('0')).toBe('0.0000');
+  });
+
+  it('groups large balances', () => {
+    expect(formatBalance(12_345.678)).toBe('12,345.6780');
+  });
+
+  it('renders normal balances at fixed decimals', () => {
+    expect(formatBalance(1.5)).toBe('1.5000');
+  });
+
+  it('falls back to 0 for non-finite input', () => {
+    expect(formatBalance(NaN)).toBe('0');
+    expect(formatBalance('not_a_number')).toBe('0');
   });
 });
 

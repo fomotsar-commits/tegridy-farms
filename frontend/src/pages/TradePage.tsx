@@ -7,7 +7,8 @@ import { getTxUrl } from '../lib/explorer';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
-import { formatTokenAmount } from '../lib/formatting';
+import { formatTokenAmountGrouped, formatBalance } from '../lib/formatting';
+import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
 import { DCATab } from '../components/swap/DCATab';
 import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
@@ -35,8 +36,13 @@ const TAB_LABELS: Record<Tab, string> = {
 
 const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit'];
 
+// F242: the Alerts feature is named three ways (tab label "Alerts", heading
+// "Price Alert", internal tab 'limit'). `?tab=alerts` is the canonical,
+// honesty-pass-aligned param; `?tab=limit` is kept as a legacy synonym so old
+// shared links keep working.
 function tabFromQuery(v: string | null): Tab | null {
   if (!v) return null;
+  if (v === 'alerts') return 'limit';
   return (VALID_TABS as string[]).includes(v) ? (v as Tab) : null;
 }
 
@@ -67,6 +73,13 @@ export default function TradePage() {
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
   const [showRouteDetails, setShowRouteDetails] = useState(false);
+  // F190: the custom-slippage field keeps its OWN string state while focused so
+  // a fractional value (0.3, 3.5) can be typed without each keystroke being
+  // round-tripped through swap.slippage.toFixed(2) (which collapsed "0.3" back
+  // to "0.00"). Committed/clamped on change-when-valid; re-synced from
+  // swap.slippage only while the field is NOT focused. Mirrors DCATab's pattern.
+  const [slippageFieldFocused, setSlippageFieldFocused] = useState(false);
+  const [slippageFieldStr, setSlippageFieldStr] = useState('');
 
   useEffect(() => { trackPageView('trade'); }, []);
 
@@ -85,27 +98,43 @@ export default function TradePage() {
     // write ?tab= so the canonical query knob stays authoritative and
     // Back/Forward + sharing continues to work intuitively.
     if (next === 'swap') params.delete('tab');
-    else params.set('tab', next);
+    // F242: write the canonical `?tab=alerts` for the Alerts (internal 'limit') tab.
+    else params.set('tab', next === 'limit' ? 'alerts' : next);
     setSearchParams(params, { replace: true });
   };
 
   const swap = useSwap();
 
-  // Route-savings receipt: quantify what the multi-venue comparison earned on
-  // THIS quote — best venue vs the worst quoted venue. Turns every quote into
-  // proof the router works for the user. Display-only; parses the formatted
-  // outputs the route-details list already renders.
-  const routeSavingsPct = useMemo(() => {
-    const outs = [
-      swap.hasTegridyPair && swap.tegridyOutputFormatted ? parseFloat(swap.tegridyOutputFormatted) : NaN,
-      swap.uniOutputFormatted ? parseFloat(swap.uniOutputFormatted) : NaN,
-      ...(swap.allAggQuotes ?? []).map((q: { amountOut: string }) => parseFloat(q.amountOut)),
-    ].filter((n) => Number.isFinite(n) && n > 0);
-    if (outs.length < 2) return 0;
-    const best = Math.max(...outs);
-    const worst = Math.min(...outs);
-    return worst > 0 ? ((best - worst) / worst) * 100 : 0;
-  }, [swap.hasTegridyPair, swap.tegridyOutputFormatted, swap.uniOutputFormatted, swap.allAggQuotes]);
+  // F226/F227/F235/F196: aggregator `amountOut` is WEI while the on-chain
+  // outputs are human token amounts — normalize before comparing/displaying.
+  // The pure math lives in `computeRouteSavings` (unit-tested): it also excludes
+  // degenerate-low (near-empty native pool) venues from the savings denominator
+  // and clamps the result so it can never render scientific notation.
+  const toDecimals = swap.toToken?.decimals ?? 18;
+  const tegridyOutputNum = swap.hasTegridyPair && swap.tegridyOutputFormatted
+    ? parseFloat(swap.tegridyOutputFormatted)
+    : null;
+
+  const { savingsPct: routeSavingsPct, tegridyIsLowLiquidity } = useMemo(
+    () =>
+      computeRouteSavings({
+        tegridyOutput: tegridyOutputNum,
+        uniOutput: swap.uniOutputFormatted ? parseFloat(swap.uniOutputFormatted) : null,
+        aggQuotes: swap.allAggQuotes ?? [],
+        toDecimals,
+      }),
+    [tegridyOutputNum, swap.uniOutputFormatted, swap.allAggQuotes, toDecimals],
+  );
+
+  // F196: the "Compare all N routes" count must reflect the rows that actually
+  // render (the Tegridy + Uniswap rows are conditional), not a hardcoded +2.
+  const routeRowCount = useMemo(
+    () =>
+      (swap.allAggQuotes?.length ?? 0) +
+      (swap.hasTegridyPair && swap.tegridyOutputFormatted ? 1 : 0) +
+      (swap.uniOutputFormatted ? 1 : 0),
+    [swap.allAggQuotes, swap.hasTegridyPair, swap.tegridyOutputFormatted, swap.uniOutputFormatted],
+  );
 
   // Towelie nudge: warn before user fires a swap with high price impact.
   // Urgent so it jumps the queue. Dedup `key` so we don't spam every tick;
@@ -206,7 +235,7 @@ export default function TradePage() {
                 <div className="mb-5">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
-                    <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {Number(swap.fromBalance).toFixed(4)}</span>
+                    <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.fromBalance)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
                     <button
@@ -251,7 +280,7 @@ export default function TradePage() {
                 <div className="mb-5">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Receive</span>
-                    <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {Number(swap.toBalance).toFixed(4)}</span>
+                    <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.toBalance)}</span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
                     <button
@@ -266,7 +295,10 @@ export default function TradePage() {
                       <span className="text-white/80" aria-hidden="true">▾</span>
                     </button>
                     <div className="flex-1 text-right text-white text-[20px] font-mono font-medium">
-                      {swap.isQuoteLoading ? '...' : swap.outputFormatted ? formatTokenAmount(swap.outputFormatted) : '0.0'}
+                      {swap.isQuoteLoading ? (
+                        // F207: skeleton shimmer instead of a bare "..." while the quote loads.
+                        <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
+                      ) : swap.outputFormatted ? formatTokenAmountGrouped(swap.outputFormatted) : '0.0'}
                     </div>
                   </div>
                 </div>
@@ -314,15 +346,32 @@ export default function TradePage() {
                             step="0.1"
                             min={0}
                             max={20}
-                            value={isPreset ? '' : swap.slippage.toFixed(2)}
+                            // F190: while focused, render the user's raw keystrokes so
+                            // partial fractions (0., 0.3) survive; while blurred, mirror
+                            // swap.slippage (blank when a preset is active).
+                            value={slippageFieldFocused ? slippageFieldStr : (isPreset ? '' : swap.slippage.toFixed(2))}
                             placeholder="Custom"
                             aria-label="Custom slippage tolerance percent"
+                            onFocus={() => {
+                              setSlippageFieldFocused(true);
+                              setSlippageFieldStr(isPreset ? '' : swap.slippage.toFixed(2));
+                            }}
                             onChange={(e) => {
                               const raw = e.target.value;
+                              setSlippageFieldStr(raw);
                               if (raw === '') return;
                               const n = parseFloat(raw);
                               if (Number.isFinite(n)) {
-                                // Clamp to useSwap's own 0-20% envelope.
+                                // Clamp to useSwap's own 0-20% envelope. The string
+                                // state still holds the raw text so the decimal can
+                                // be completed.
+                                swap.setSlippage(Math.max(0, Math.min(20, n)));
+                              }
+                            }}
+                            onBlur={() => {
+                              setSlippageFieldFocused(false);
+                              const n = parseFloat(slippageFieldStr);
+                              if (Number.isFinite(n)) {
                                 swap.setSlippage(Math.max(0, Math.min(20, n)));
                               }
                             }}
@@ -387,7 +436,7 @@ export default function TradePage() {
                     {routeSavingsPct >= 0.05 && (
                       <div className="flex justify-between mt-1">
                         <span className="text-white">Route Savings</span>
-                        <span className="font-mono text-emerald-300">+{routeSavingsPct.toFixed(2)}% vs worst venue</span>
+                        <span className="font-mono text-emerald-300">+{routeSavingsPct >= 999 ? '>999' : routeSavingsPct.toFixed(2)}% vs worst venue</span>
                       </div>
                     )}
                     {swap.priceImpact > 0 && (
@@ -399,7 +448,7 @@ export default function TradePage() {
                     {swap.minimumReceived && (
                       <div className="flex justify-between mt-1">
                         <span className="text-white">Min. Received</span>
-                        <span className="text-white font-mono">{formatTokenAmount(swap.minimumReceived)} {swap.toToken?.symbol}</span>
+                        <span className="text-white font-mono">{formatTokenAmountGrouped(swap.minimumReceived)} {swap.toToken?.symbol}</span>
                       </div>
                     )}
                     {swap.priceImpact > 5 && (
@@ -411,27 +460,31 @@ export default function TradePage() {
                       <div className="mt-2">
                         <button onClick={() => setShowRouteDetails(!showRouteDetails)}
                           className="text-[10px] text-white/90 hover:text-white underline underline-offset-2 transition-colors">
-                          {showRouteDetails ? 'Hide route details' : `Compare all ${swap.allAggQuotes.length + 2} routes`}
+                          {showRouteDetails ? 'Hide route details' : `Compare all ${routeRowCount} routes`}
                         </button>
                         {showRouteDetails && (
                           <div className="mt-2 space-y-1">
                             {swap.hasTegridyPair && swap.tegridyOutputFormatted && (
                               <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'tegridy' ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
-                                <span className="text-white/85">Tegridy DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-300 ml-1">Best</span>}</span>
-                                <span className="text-white font-mono">{formatTokenAmount(swap.tegridyOutputFormatted)}</span>
+                                <span className="text-white/85">
+                                  Tegridy DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-300 ml-1">Best</span>}
+                                  {tegridyIsLowLiquidity && <span className="text-amber-300 ml-1" title="The native pool is thin pre-seed — its quote isn't representative yet.">low liquidity</span>}
+                                </span>
+                                <span className="text-white font-mono">{formatTokenAmountGrouped(swap.tegridyOutputFormatted)}</span>
                               </div>
                             )}
                             {swap.uniOutputFormatted && (
                               <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'uniswap' ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
                                 <span className="text-white/85">Uniswap V2 {swap.selectedRoute === 'uniswap' && <span className="text-emerald-300 ml-1">Best</span>}</span>
-                                <span className="text-white font-mono">{formatTokenAmount(swap.uniOutputFormatted)}</span>
+                                <span className="text-white font-mono">{formatTokenAmountGrouped(swap.uniOutputFormatted)}</span>
                               </div>
                             )}
+                            {/* F227: aggregator amountOut is WEI — normalize to token units before formatting. */}
                             {swap.allAggQuotes.map((q: { source: string; amountOut: string }) => (
                               <div key={q.source} className="flex justify-between text-[10px] px-2 py-1 rounded"
                                 style={{ background: swap.selectedRoute === 'aggregator' && swap.bestAggregatorName === q.source ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
                                 <span className="text-white/85">{q.source} {swap.selectedRoute === 'aggregator' && swap.bestAggregatorName === q.source && <span className="text-emerald-300 ml-1">Best</span>}</span>
-                                <span className="text-white font-mono">{formatTokenAmount(q.amountOut)}</span>
+                                <span className="text-white font-mono">{formatTokenAmountGrouped(aggOutUnits(q.amountOut, toDecimals))}</span>
                               </div>
                             ))}
                           </div>

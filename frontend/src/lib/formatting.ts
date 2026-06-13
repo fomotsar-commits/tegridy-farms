@@ -38,6 +38,44 @@ export function formatTokenAmount(value: string | number, decimals = 4): string 
   return num.toFixed(decimals);
 }
 
+/**
+ * F207: like `formatTokenAmount` but groups the integer part with thousands
+ * separators so a 75M-TOWELI receive reads `75,000,000.0000` instead of the
+ * unreadable `75000000.0000`. Keeps the tiny/scientific branches identical so
+ * dust still renders distinctly. Additive — `formatTokenAmount` is unchanged
+ * for the many callers that don't want grouping.
+ */
+export function formatTokenAmountGrouped(value: string | number, decimals = 4): string {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (!isFinite(num) || isNaN(num)) return '–';
+  if (num === 0) return (0).toFixed(decimals);
+  if (num > 0 && num < 0.000001) return num.toExponential(2);
+  if (num > 0 && num < 0.0001) return num.toFixed(8);
+  // Group only the integer part; preserve the fixed fractional display.
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+/**
+ * F207: floor-aware balance formatting. A 0.00004-ETH balance rendered through
+ * `Number(x).toFixed(4)` collapses to a misleading `0.0000`; this shows
+ * `<0.0001` for any non-zero value below the display floor so dust reads as
+ * present-but-tiny rather than empty. Groups large balances for readability.
+ */
+export function formatBalance(value: string | number, decimals = 4): string {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (!isFinite(num) || isNaN(num)) return '0';
+  if (num === 0) return (0).toFixed(decimals);
+  const floor = Math.pow(10, -decimals);
+  if (num > 0 && num < floor) return `<${floor.toFixed(decimals)}`;
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
 export function formatPercent(value: number): string {
   if (value >= 10000) return `${formatNumber(value, 0)}%`;
   return `${value.toFixed(2)}%`;
