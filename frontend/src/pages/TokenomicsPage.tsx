@@ -51,7 +51,7 @@ export default function TokenomicsPage() {
   usePageTitle('Tokenomics', 'TOWELI token distribution, supply mechanics, and emission schedule.');
   const price = useTOWELIPrice();
   const pool = usePoolData();
-  const priceHistory = usePriceHistory(price.priceInUsd);
+  const priceHistory = usePriceHistory();
   const { history: priceData, error: priceError } = priceHistory;
 
   const rewardPerDay = Number.isFinite(parseFloat(pool.rewardRate)) ? parseFloat(pool.rewardRate) * 86400 : 0;

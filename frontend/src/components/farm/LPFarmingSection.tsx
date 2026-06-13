@@ -130,7 +130,13 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
             ) : (
               <>
                 <span className="stat-value text-[26px] font-bold text-white/70">&ndash;</span>
-                <span className="text-white/55 text-[10px]">{lpFarm.totalStaked === 0n ? 'be the first to stake LP to activate the live APR' : 'calculating&hellip;'}</span>
+                <span className="text-white/55 text-[10px]">
+                  {lpFarm.totalStaked === 0n
+                    ? 'be the first to stake LP to activate the live APR'
+                    : !lpFarm.isActive
+                      ? 'reward period ended — awaiting refill'
+                      : 'calculating&hellip;'}
+                </span>
               </>
             )}
           </div>
@@ -279,13 +285,29 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     >MAX</button>
                   </div>
                   <p className="text-white text-[10px] mb-2 font-mono">Staked: {formatTokenAmount(lpFarm.stakedBalanceFormatted)} LP</p>
-                  <button
-                    className="btn-secondary w-full py-2 text-sm rounded-lg"
-                    disabled={(parseFloat(lpWithdrawAmount) || 0) <= 0 || lpFarm.stakedBalance === 0n || lpFarm.isPending || lpFarm.isConfirming}
-                    onClick={() => { lpFarm.withdraw(lpWithdrawAmount); }}
-                  >
-                    {lpFarm.isPending || lpFarm.isConfirming ? 'Withdrawing...' : 'Withdraw'}
-                  </button>
+                  {(() => {
+                    // F111: pre-check against the staked balance so an over-staked
+                    // amount can't build a tx that reverts in-wallet (mirrors the
+                    // stake-side belowMin guard). parseEther is wrapped — a bad
+                    // shape just falls through to the normal disabled state.
+                    const wAmt = parseFloat(lpWithdrawAmount) || 0;
+                    let withdrawWei = 0n;
+                    try { withdrawWei = wAmt > 0 ? parseEther(lpWithdrawAmount) : 0n; } catch { withdrawWei = 0n; }
+                    const overStaked = withdrawWei > 0n && lpFarm.stakedBalance > 0n && withdrawWei > lpFarm.stakedBalance;
+                    return (
+                      <button
+                        className="btn-secondary w-full py-2 text-sm rounded-lg"
+                        disabled={wAmt <= 0 || lpFarm.stakedBalance === 0n || overStaked || lpFarm.isPending || lpFarm.isConfirming}
+                        onClick={() => { lpFarm.withdraw(lpWithdrawAmount); }}
+                      >
+                        {lpFarm.isPending || lpFarm.isConfirming
+                          ? 'Withdrawing...'
+                          : overStaked
+                            ? `Max ${formatTokenAmount(lpFarm.stakedBalanceFormatted)} LP`
+                            : 'Withdraw'}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
 

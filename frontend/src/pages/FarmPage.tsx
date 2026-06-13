@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link } from 'react-router-dom';
-import { JBAC_BONUS_BPS, CURRENT_SEASON } from '../lib/constants';
+import { JBAC_BONUS_BPS, CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -21,7 +21,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
-import { parseEther } from 'viem';
+import { safeParseEther } from '../lib/safeParseEther';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
@@ -36,17 +36,6 @@ import { LivePoolCard } from '../components/farm/LivePoolCard';
 import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 import { ArtImg } from '../components/ArtImg';
 
-/* ── Staking Lock Options ────────────────────────────────────────────── */
-const LOCK_OPTIONS = [
-  { label: '7 Days', seconds: 7 * 86400 },
-  { label: '30 Days', seconds: 30 * 86400 },
-  { label: '90 Days', seconds: 90 * 86400 },
-  { label: '6 Months', seconds: 180 * 86400 },
-  { label: '1 Year', seconds: 365 * 86400 },
-  { label: '2 Years', seconds: 730 * 86400 },
-  { label: '4 Years', seconds: 1460 * 86400 },
-];
-
 export default function FarmPage() {
   usePageTitle('Farm', 'Stake TOWELI and provide liquidity to earn boosted yield on Tegridy Farms.');
   const { isConnected } = useAccount();
@@ -57,9 +46,12 @@ export default function FarmPage() {
   const pos = useUserPosition();
   const actions = useFarmActions();
   const nft = useNFTBoost();
-  const points = usePoints();
+  // F108: the page no longer calls the deprecated points.logAction no-op, but we
+  // keep usePoints mounted so the on-chain points/streak state stays warm for the
+  // header/leaderboard surfaces that share the engine. (No binding — read-only.)
+  usePoints();
   const price = useTOWELIPrice();
-  const priceHistory = usePriceHistory(price.priceInUsd);
+  const priceHistory = usePriceHistory();
   const { history: priceData, error: priceError } = priceHistory;
 
   const { showReceipt } = useTransactionReceipt();
@@ -68,6 +60,9 @@ export default function FarmPage() {
   const receiptShownHashRef = useRef<string | null>(null);
   // Capture values at submission time to avoid stale closures in the receipt effect
   const submittedDataRef = useRef<{ stakeAmount: string; lockLabel: string; boostDisplay: string } | null>(null);
+  // F106: snapshot the claim/unstake amount at submit time so a 30s position
+  // poll landing mid-flight can't produce a "claimed 0 TOWELI" receipt.
+  const submittedAmountRef = useRef<string | null>(null);
 
   const [stakeAmount, setStakeAmount] = useState('');
   const [selectedLock, setSelectedLock] = useState(LOCK_OPTIONS[2]!); // Default 90 days
@@ -78,8 +73,12 @@ export default function FarmPage() {
     emergencyExit: false,
     extendLock: false,
   });
-  const setConfirm = (key: keyof ConfirmState, val: boolean) =>
-    setConfirms((prev) => ({ ...prev, [key]: val }));
+  // F118: stable identity so useAutoReset's effect (which lists the setter in
+  // its deps) doesn't clear + re-arm the 5s confirm-dismiss timer on every
+  // background-poll rerender — otherwise the withdraw confirm dismisses at an
+  // unpredictable time well past 5s.
+  const setConfirm = useCallback((key: keyof ConfirmState, val: boolean) =>
+    setConfirms((prev) => ({ ...prev, [key]: val })), []);
 
   const poolTVL = usePoolTVL();
   const lpFarm = useLPFarming();
@@ -87,8 +86,12 @@ export default function FarmPage() {
 
   // Auto-dismiss confirmation dialogs after 5 seconds (regular withdrawals only).
   // Emergency exit is a dangerous financial action — never auto-dismiss.
-  useAutoReset(confirms.withdraw, (v: boolean) => setConfirm('withdraw', v), 5000);
-  useAutoReset(confirms.earlyWithdraw, (v: boolean) => setConfirm('earlyWithdraw', v), 5000);
+  // F118: memoize the per-key setters so useAutoReset's effect (setter is a dep)
+  // doesn't re-arm the 5s timeout on every background-poll rerender.
+  const setWithdrawConfirm = useCallback((v: boolean) => setConfirm('withdraw', v), [setConfirm]);
+  const setEarlyWithdrawConfirm = useCallback((v: boolean) => setConfirm('earlyWithdraw', v), [setConfirm]);
+  useAutoReset(confirms.withdraw, setWithdrawConfirm, 5000);
+  useAutoReset(confirms.earlyWithdraw, setEarlyWithdrawConfirm, 5000);
 
   const boostBps = calculateBoost(selectedLock.seconds);
   const nftBonus = nft.holdsJBAC ? JBAC_BONUS_BPS : 0;
@@ -102,11 +105,27 @@ export default function FarmPage() {
   const seasonEnd = new Date(CURRENT_SEASON.endDate).getTime();
   const daysLeft = Math.max(0, Math.ceil((seasonEnd - Date.now()) / 86400000));
 
-  const stakeNeedsApproval = pos.allowance < (amtNum > 0 ? parseEther(stakeAmount) : 0n);
+  // F101/F123: surface the honest "rewards remaining" (balance − staked −
+  // unsettled) + runway on the Farm page itself, sourced from usePoolData (the
+  // same hook that powers /tokenomics). pool.rewardsRemaining is a decimal
+  // string; format it to a comma TOWELI figure, falling back to '–' when unread.
+  const rewardsRemainingNum = parseFloat(pool.rewardsRemaining);
+  const rewardsRemainingDisplay = pool.isDeployed && rewardsRemainingNum > 0
+    ? `${Math.round(rewardsRemainingNum).toLocaleString()} TOWELI`
+    : '–';
+
+  // F98 (R034 H4): never let raw parseEther throw in the render path — a dust
+  // balance routed through Max yields exponent notation that parseEther rejects,
+  // which would blank the whole page via ErrorBoundary. safeParseEther returns
+  // null instead; treat unparseable input as "no approval needed yet".
+  const stakeNeedsApproval = pos.allowance < (amtNum > 0 ? (safeParseEther(stakeAmount) ?? 0n) : 0n);
 
   const handleStake = () => {
     if (amtNum <= 0) return;
     if (stakeNeedsApproval) {
+      // F95: tag the approve so the success effect shows an approve receipt (or
+      // nothing) instead of fabricating a stake receipt + confetti.
+      lastActionRef.current = 'approve';
       actions.approve(stakeAmount);
     } else {
       lastActionRef.current = 'stake';
@@ -119,7 +138,11 @@ export default function FarmPage() {
   useEffect(() => {
     if (actions.isSuccess && actions.hash && receiptShownHashRef.current !== actions.hash) {
       receiptShownHashRef.current = actions.hash;
-      const actionType = lastActionRef.current ?? 'stake';
+      // F95: never assume 'stake'. When an action wasn't tagged (extendLock,
+      // toggleAutoMaxLock, revalidateBoost, claimUnsettled, emergencyExit) the
+      // ref is null — show no receipt + no confetti rather than a fabricated one.
+      const actionType = lastActionRef.current;
+      if (!actionType) return;
 
       if (actionType === 'stake') {
         const submitted = submittedDataRef.current;
@@ -135,30 +158,38 @@ export default function FarmPage() {
           },
         });
         submittedDataRef.current = null;
+      } else if (actionType === 'approve') {
+        // F95: approve gets its own receipt (RECEIPT_COPY.approve exists) — never
+        // a fake stake. No confetti (it's not a value-moving completion).
+        showReceipt({
+          type: 'approve',
+          data: { token: 'TOWELI', txHash: actions.hash },
+        });
       } else if (actionType === 'claim') {
         showReceipt({
           type: 'claim',
           data: {
-            rewardAmount: pos.pendingFormatted,
+            // F106: read the submit-time snapshot, not the live (possibly already
+            // refetched-to-0) position value.
+            rewardAmount: submittedAmountRef.current ?? pos.pendingFormatted,
             token: 'TOWELI',
             txHash: actions.hash,
           },
         });
+        submittedAmountRef.current = null;
       } else if (actionType === 'unstake') {
         showReceipt({
           type: 'unstake',
           data: {
-            amount: pos.stakedFormatted,
+            amount: submittedAmountRef.current ?? pos.stakedFormatted,
             token: 'TOWELI',
             txHash: actions.hash,
           },
         });
+        submittedAmountRef.current = null;
       }
 
-      // Log points for farm actions
-      points.logAction(actionType, nft.holdsGoldCard === true);
-
-      // Fire confetti on stake or claim success
+      // Fire confetti on stake or claim success (approve/unstake excluded).
       if (actionType === 'stake' || actionType === 'claim') {
         confetti.fire();
       }
@@ -177,7 +208,7 @@ export default function FarmPage() {
         </div>
         <div className="relative z-10 pt-20">
           <div className="max-w-[1100px] mx-auto px-4 md:px-6">
-            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
+            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} />
           </div>
           <ConnectPrompt surface="farm" />
         </div>
@@ -206,7 +237,7 @@ export default function FarmPage() {
         </m.div>
 
         {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
-        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} />
+        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} />
 
         {/* Stats */}
         <FarmStatsRow
@@ -278,6 +309,17 @@ export default function FarmPage() {
               )}
             </div>
             <div className="glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+              {/* F112 (R075): when an RPC quotes impossible reward numbers the hook
+                  zeroes the values — without this notice users just see 0.0000 with
+                  no explanation. Prompt them to verify on-chain instead. */}
+              {restaking.rewardSanityBreach && (
+                <div className="mb-4 px-3 py-2 rounded-lg flex items-start gap-2" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                  <span className="text-amber-300 text-[13px] leading-none" aria-hidden="true">⚠</span>
+                  <p className="text-amber-200 text-[11px] leading-snug">
+                    Reward data failed an on-chain sanity check and is being hidden. Verify your pending rewards directly on Etherscan before claiming.
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
                 <div>
                   <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Status</p>
@@ -364,6 +406,7 @@ export default function FarmPage() {
             }}
             handleStake={handleStake}
             lastActionRef={lastActionRef}
+            submittedAmountRef={submittedAmountRef}
           />
 
           {/* Boost Table */}

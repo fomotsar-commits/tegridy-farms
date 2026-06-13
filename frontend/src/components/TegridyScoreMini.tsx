@@ -82,7 +82,7 @@ export function TegridyScoreMini() {
         <p className="text-[13px] text-white font-medium">{rank}</p>
         <p className="text-[11px] text-white">{tier}</p>
         <p className="text-[10px] text-white mt-0.5">Tegridy Score</p>
-        <p className="text-[9px] text-white/15 mt-0.5 italic">On-chain verified</p>
+        <p className="text-[9px] text-white/55 mt-0.5 italic">On-chain verified</p>
       </div>
     </m.div>
   );

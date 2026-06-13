@@ -16,7 +16,7 @@ import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
-import { formatTokenAmount, formatCurrency, formatWholeNumber } from '../lib/formatting';
+import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
@@ -64,7 +64,9 @@ export default function DashboardPage() {
     else params.set('tab', next);
     setSearchParams(params, { replace: true });
   };
-  const { data: ethBalance, isLoading: isEthLoading, error: ethError } = useBalance({ address });
+  // R047 M1: chain-pin balance reads so a wrong-network wallet doesn't price
+  // another chain's native balance as mainnet ETH in the Portfolio Value.
+  const { data: ethBalance, isLoading: isEthLoading, error: ethError } = useBalance({ address, chainId: CHAIN_ID });
   // useToweliPrice already fetches from GeckoTerminal as fallback — no duplicate fetch needed
   const price = useTOWELIPrice();
   const farmActions = useFarmActions();
@@ -75,7 +77,7 @@ export default function DashboardPage() {
   const pos = useUserPosition();
   const lpPos = useLpPosition(address);
   const pool = usePoolData();
-  const { history: priceHistory } = usePriceHistory(price.priceInUsd);
+  const { history: priceHistory } = usePriceHistory();
   const revenueStats = useRevenueStats();
 
   const { data: toweliBalance, isLoading: isToweliLoading, error: toweliError } = useReadContract({
@@ -83,6 +85,7 @@ export default function DashboardPage() {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
+    chainId: CHAIN_ID,
     query: { enabled: !!address },
   });
 
@@ -182,10 +185,10 @@ export default function DashboardPage() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <Link to="/leaderboard" className="text-[12px] text-white hover:text-white transition-colors">
+              <Link to="/leaderboard" className="text-[12px] text-white/70 hover:text-white transition-colors">
                 Points &#8594;
               </Link>
-              <Link to="/history" className="text-[12px] text-white hover:text-white transition-colors">
+              <Link to="/history" className="text-[12px] text-white/70 hover:text-white transition-colors">
                 History &#8594;
               </Link>
             </div>
@@ -197,6 +200,18 @@ export default function DashboardPage() {
               <Skeleton width={120} height={32} />
             )}
             <span className="text-white text-[13px]">Portfolio Value</span>
+            {/* F135: when the oracle is stale the ETH/WETH legs are zeroed out of
+                the total — flag it so the user doesn't read the drop as a real
+                portfolio loss. Reuses the "Stale" chip from the price card. */}
+            {price.isLoaded && price.oracleStale && (
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
+                title="ETH price oracle is stale — ETH-denominated value is temporarily excluded"
+              >
+                Stale · excl. ETH
+              </span>
+            )}
           </div>
         </m.div>
 
@@ -205,7 +220,11 @@ export default function DashboardPage() {
           {[
             { l: 'TOWELI Balance', numVal: walletToweli, decimals: 0, sub: price.isLoaded ? formatCurrency(walletToweli * price.priceInUsd) : '–', art: pageArt('dashboard', 2), loading: isToweliLoading, error: toweliError },
             { l: 'ETH Balance', numVal: ethBal, decimals: 4, sub: ethBalance && price.ethUsd > 0 ? formatCurrency(ethBal * price.ethUsd) : '–', art: pageArt('dashboard', 3), loading: isEthLoading, error: ethError },
-            { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: !price.isLoaded },
+            // F141: the claimable TOWELI amount comes from useUserPosition, not
+            // the price feed — gate the value's skeleton on pos.isLoading so it
+            // doesn't flash "0.00" while the position loads, nor spin forever when
+            // only the price feed is unavailable (the USD sub-line still uses price).
+            { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
             { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: !price.isLoaded },
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -290,7 +309,7 @@ export default function DashboardPage() {
               </div>
               <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <TegridyScoreMini />
-                <Link to="/leaderboard" className="text-[11px] text-white hover:text-white transition-colors">
+                <Link to="/leaderboard" className="text-[11px] text-white/70 hover:text-white transition-colors">
                   View Breakdown &#8594;
                 </Link>
               </div>
@@ -321,7 +340,7 @@ export default function DashboardPage() {
                   <ArtImg pageId="dashboard" idx={10} alt="" loading="lazy" className="w-full h-full object-cover" />
                 </div>
                 <div className="relative z-10 p-4">
-                  <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active price alert{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
+                  <p className="text-white text-[13px] font-medium mb-1">{limitOrders.activeOrders.length} active limit order{limitOrders.activeOrders.length > 1 ? 's' : ''}</p>
                   <p className="text-white text-[11px]">Check Swap for details</p>
                 </div>
               </m.div>
@@ -416,7 +435,7 @@ export default function DashboardPage() {
                     {nft.boostLabel && (
                       <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
                     )}
-                    <Link to="/restake" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
+                    <Link to="/restake" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                       Restake for bonus yield &#8594;
                     </Link>
                   </div>
@@ -439,7 +458,7 @@ export default function DashboardPage() {
             {pos.hasPosition && (
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Earnings Projection</h3>
-                <Projections staked={stakedTotal} apr={pool.aprNum || 0} price={price.priceInUsd} boost={pos.boostMultiplier} />
+                <Projections staked={stakedTotal} apr={pool.aprNum || 0} price={price.priceInUsd} boost={pos.boostMultiplier} secondsRemaining={pool.secondsRemaining} aprDisclaimer={pool.aprDisclaimer} />
               </m.div>
             )}
 
@@ -481,11 +500,11 @@ export default function DashboardPage() {
                           : 'Held in your wallet as the TGLP token · earns a cut of swap fees'}
                       </span>
                       {lpPos.farmingDeployed && lpPos.stakedLp > 0n ? (
-                        <Link to="/farm" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
+                        <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                           Manage on Farm &#8594;
                         </Link>
                       ) : (
-                        <Link to="/liquidity" className="text-[11px] text-white hover:text-white transition-colors ml-auto">
+                        <Link to="/liquidity" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                           Manage liquidity &#8594;
                         </Link>
                       )}
@@ -501,7 +520,29 @@ export default function DashboardPage() {
         {tab === 'loans' && (
           <m.div role="tabpanel" aria-label="Loans" key="loans"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-            {myLoans.loans.length > 0 ? (
+            {myLoans.isLoading && myLoans.loans.length === 0 ? (
+              // F136: the chunked loan scan takes seconds — show a skeleton instead
+              // of flashing the "No outstanding loans" empty state + borrow CTAs.
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="relative z-10 p-5">
+                  <Skeleton width={180} height={20} />
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i}>
+                        <Skeleton width={60} height={12} />
+                        <div className="mt-2"><Skeleton width={80} height={22} /></div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {[...Array(2)].map((_, i) => (
+                      <Skeleton key={i} width="100%" height={44} />
+                    ))}
+                  </div>
+                </div>
+              </m.div>
+            ) : myLoans.loans.length > 0 ? (
               <OutstandingLoans loans={myLoans.loans} />
             ) : (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
@@ -541,8 +582,44 @@ export default function DashboardPage() {
               </m.div>
             )}
 
+            {/* F148: Unsettled rewards — surfaced here too (was Farm-page only).
+                On breach/rounding the staking contract can hold rewards that
+                getReward() won't sweep; claimUnsettled() recovers them. */}
+            {pos.unsettledRewards > 0n && (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <p className="text-white text-[13px] font-medium">Unsettled Rewards</p>
+                    <span className="stat-value text-[16px] text-white">{formatTokenAmount(pos.unsettledFormatted)} TOWELI</span>
+                  </div>
+                  <button onClick={() => farmActions.claimUnsettled()}
+                    disabled={farmActions.isPending || farmActions.isConfirming || isWrongNetwork}
+                    className="btn-secondary px-5 py-2.5 text-[13px] disabled:opacity-70">
+                    {farmActions.isPending || farmActions.isConfirming ? 'Claiming...' : 'Claim Unsettled'}
+                  </button>
+                </div>
+              </m.div>
+            )}
+
             {/* ETH Revenue Sharing (only renders when pending > 0) */}
             {address && <ETHRevenueClaim address={address} isWrongNetwork={isWrongNetwork} />}
+
+            {/* F148: friendly "all claimed" empty state when there's nothing
+                outstanding across staking, unsettled, ETH revenue, and referrals. */}
+            {pendingTotal < 0.01 && pos.unsettledRewards <= 0n && revenueStats.pendingRevenue < 0.000001 && revenueStats.referralPending < 0.000001 && (
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="relative z-10 p-6 text-center">
+                  <p className="text-white text-[14px] mb-1">All caught up — nothing to claim right now</p>
+                  <p className="text-white/60 text-[12px]">
+                    {pos.hasPosition
+                      ? 'Your staking rewards keep accruing. Check back as they build up.'
+                      : <>Stake TOWELI on the <Link to="/farm" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
+                  </p>
+                </div>
+              </m.div>
+            )}
 
             {/* Referral Widget */}
             {address && (
@@ -600,6 +677,24 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
     ethToastFiredRef.current.add(hash);
     toast.success('ETH revenue claimed successfully!');
   }, [isClaimSuccess, hash]);
+
+  // F142: a failed pendingETH read leaves `pending === 0`, which is otherwise
+  // indistinguishable from "nothing to claim" — the card would silently vanish.
+  // Surface a small error row so an RPC failure can't hide claimable ETH.
+  if (pendingError && !pending) {
+    return (
+      <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(239,68,68,0.25)' }}
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <div className="relative z-10 p-4 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-danger shrink-0" aria-hidden="true" />
+          <div>
+            <p className="text-white text-[13px] font-medium">ETH Revenue</p>
+            <p className="text-white/70 text-[11px]">Couldn&rsquo;t load your claimable ETH — retrying. Refresh if it persists.</p>
+          </div>
+        </div>
+      </m.div>
+    );
+  }
 
   if (pending > 0) {
     return (
@@ -665,12 +760,14 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Borrowing</p>
               <p className="stat-value text-[18px] text-white">{borrower.length}</p>
-              <p className="text-[10px] text-white/55 font-mono">{formatEther(owed)} ETH owed</p>
+              {/* F140: bound decimals via formatWei and label as "principal" — the
+                  figure is loan principal only (accrued interest not summed here). */}
+              <p className="text-[10px] text-white/55 font-mono">{formatWei(owed, 18, 4)} ETH principal</p>
             </div>
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Lending</p>
               <p className="stat-value text-[18px] text-success">{lender.length}</p>
-              <p className="text-[10px] text-success/70 font-mono">{formatEther(earning)} ETH out</p>
+              <p className="text-[10px] text-success/70 font-mono">{formatWei(earning, 18, 4)} ETH out</p>
             </div>
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Overdue</p>
@@ -704,12 +801,17 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
     return () => clearInterval(id);
   }, []);
   const remaining = Number(loan.deadline) - nowSec;
+  // F146: derive overdue locally from the live `remaining` (defense-in-depth) so
+  // a loan crossing its deadline while mounted flips to "Overdue" even before the
+  // useMyLoans status refreshes; show minutes under an hour instead of "0h".
+  const isOverdue = loan.status === 'overdue' || remaining <= 0;
   const days = Math.max(0, Math.floor(remaining / 86400));
   const hours = Math.max(0, Math.floor((remaining % 86400) / 3600));
-  const countdown = loan.status === 'overdue'
+  const minutes = Math.max(0, Math.floor((remaining % 3600) / 60));
+  const countdown = isOverdue
     ? 'Overdue'
-    : days > 0 ? `${days}d ${hours}h` : `${hours}h`;
-  const isUrgent = loan.status === 'active' && remaining < 86400;
+    : days > 0 ? `${days}d ${hours}h` : remaining < 3600 ? `${minutes}m` : `${hours}h`;
+  const isUrgent = !isOverdue && remaining < 86400;
   const roleLabel = loan.role === 'borrower' ? 'You owe' : 'You lent';
   const roleColor = loan.role === 'borrower' ? 'text-white' : 'text-success';
   const sourceBadge = loan.source === 'nft' ? 'NFT' : 'Token';
@@ -729,14 +831,14 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
           <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${roleBadgeClass}`}>{loan.role}</span>
           <span className="text-white text-[13px] font-semibold">#{loan.id}</span>
           <span className="text-white/60 text-[11px]">·</span>
-          <span className={`stat-value text-[13px] ${roleColor}`}>{roleLabel} {formatEther(loan.principal)} ETH</span>
+          <span className={`stat-value text-[13px] ${roleColor}`}>{roleLabel} {formatWei(loan.principal, 18, 4)} ETH</span>
           <span className="text-white/60 text-[11px]">@ {(Number(loan.aprBps) / 100).toFixed(2)}% APR</span>
         </div>
         <p className="text-white/70 text-[11px]">Token #{loan.tokenId.toString()}</p>
       </div>
-      <div className={`text-right shrink-0 ${loan.status === 'overdue' ? 'text-warning' : isUrgent ? 'text-warning' : 'text-white'}`}>
+      <div className={`text-right shrink-0 ${isOverdue ? 'text-warning' : isUrgent ? 'text-warning' : 'text-white'}`}>
         <p className="text-[10px] uppercase tracking-wider opacity-60">
-          {loan.status === 'overdue' ? 'Overdue' : 'Due in'}
+          {isOverdue ? 'Overdue' : 'Due in'}
         </p>
         <p className="stat-value text-[13px]">{countdown}</p>
       </div>
@@ -744,19 +846,37 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
   );
 }
 
-function Projections({ staked, apr, price, boost = 1 }: {
+function Projections({ staked, apr, price, boost = 1, secondsRemaining = 0, aprDisclaimer }: {
   staked: number; apr: number; price: number; boost?: number;
+  // F131: emission runway + the disclaimer the hook already computes, so a 1-year
+  // figure projected past the reward pool isn't presented as guaranteed.
+  secondsRemaining?: number; aprDisclaimer?: string;
 }) {
   const daily = (staked * apr / 100) / 365 * boost;
+  // F131: flag any horizon longer than the funded runway at the current rate.
+  const runwayDays = secondsRemaining > 0 ? secondsRemaining / 86400 : 0;
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-      {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => (
-        <div key={l} className="glass-card rounded-lg p-3 text-center card-hover">
-          <p className="text-white text-[10px] mb-1">{l}</p>
-          <AnimatedCounter value={daily * m} decimals={0} className="stat-value text-[14px] text-white" />
-          <p className="text-white text-[9px]">~{formatCurrency(daily * m * price)}</p>
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => {
+          const exceedsRunway = runwayDays > 0 && m > runwayDays;
+          return (
+            <div key={l} className="glass-card rounded-lg p-3 text-center card-hover" style={exceedsRunway ? { opacity: 0.6 } : undefined}>
+              <p className="text-white text-[10px] mb-1">{l}</p>
+              <AnimatedCounter value={daily * m} decimals={0} className="stat-value text-[14px] text-white" />
+              <p className="text-white text-[9px]">~{formatCurrency(daily * m * price)}</p>
+              {exceedsRunway && (
+                <p className="text-amber-300/80 text-[8px] mt-0.5 leading-tight" title="Exceeds the funded reward runway at the current rate">
+                  beyond ~{Math.round(runwayDays)}d runway
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {aprDisclaimer && (
+        <p className="text-white/40 text-[10px] mt-2">{aprDisclaimer}. Projections assume the current rate holds.</p>
+      )}
+    </>
   );
 }

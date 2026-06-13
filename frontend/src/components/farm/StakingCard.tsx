@@ -12,19 +12,9 @@ import { ArtImg } from '../ArtImg';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID } from '../../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS } from '../../lib/constants';
 
 const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
-
-const LOCK_OPTIONS = [
-  { label: '7 Days', seconds: 7 * 86400 },
-  { label: '30 Days', seconds: 30 * 86400 },
-  { label: '90 Days', seconds: 90 * 86400 },
-  { label: '6 Months', seconds: 180 * 86400 },
-  { label: '1 Year', seconds: 365 * 86400 },
-  { label: '2 Years', seconds: 730 * 86400 },
-  { label: '4 Years', seconds: 1460 * 86400 },
-];
 
 export interface ConfirmState {
   withdraw: boolean;
@@ -60,12 +50,14 @@ interface StakingCardProps {
   };
   handleStake: () => void;
   lastActionRef: React.MutableRefObject<string | null>;
+  /** F106: submit-time snapshot of the claim/unstake amount (avoids "claimed 0"). */
+  submittedAmountRef: React.MutableRefObject<string | null>;
 }
 
 export function StakingCard({
   isConnected, pos, actions, nft,
   input, confirms, setConfirm, pool, computed,
-  handleStake, lastActionRef,
+  handleStake, lastActionRef, submittedAmountRef,
 }: StakingCardProps) {
   const { amount: stakeAmount, setAmount: setStakeAmount, lock: selectedLock, setLock: setSelectedLock, extendLockDuration, setExtendLockDuration } = input;
   const { boostDisplay, amtNum, effectiveStake, stakeNeedsApproval, totalBoostBps } = computed;
@@ -124,7 +116,7 @@ export function StakingCard({
                 <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
                 {pos.hasPosition && !pos.isLocked && pos.boostMultiplier > 1 && (
                   <button
-                    onClick={() => actions.revalidateBoost(pos.tokenId)}
+                    onClick={() => { lastActionRef.current = null; actions.revalidateBoost(pos.tokenId); }}
                     disabled={actions.isPending || actions.isConfirming}
                     className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-70 disabled:cursor-not-allowed">
                     Revalidate Boost
@@ -197,7 +189,7 @@ export function StakingCard({
                         Cancel
                       </button>
                       <button
-                        onClick={() => { actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setConfirm('extendLock', false); }}
+                        onClick={() => { lastActionRef.current = null; actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setConfirm('extendLock', false); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="btn-secondary flex-1 py-1.5 rounded-lg text-[10px] disabled:opacity-70 disabled:cursor-not-allowed">
                         Extend {extendLockDuration.label}
@@ -209,7 +201,7 @@ export function StakingCard({
             </div>
 
             <div className="flex flex-col gap-2">
-              <button onClick={() => { lastActionRef.current = 'claim'; actions.claim(pos.tokenId); }}
+              <button onClick={() => { lastActionRef.current = 'claim'; submittedAmountRef.current = pos.pendingFormatted; actions.claim(pos.tokenId); }}
                 disabled={actions.isPending || actions.isConfirming || pos.isLoading || Number(pos.pendingFormatted) < 0.01}
                 className="btn-primary w-full py-3 text-[14px] disabled:opacity-70 disabled:cursor-not-allowed">
                 {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Rewards'}
@@ -218,7 +210,7 @@ export function StakingCard({
                 <div className="rounded-lg p-3 mt-2" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                   <p className="text-white text-[11px] mb-1.5">Unsettled: {pos.unsettledFormatted} TOWELI</p>
                   <button
-                    onClick={() => actions.claimUnsettled()}
+                    onClick={() => { lastActionRef.current = null; actions.claimUnsettled(); }}
                     disabled={actions.isPending || actions.isConfirming}
                     className="btn-secondary w-full py-2 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                     {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Unsettled'}
@@ -242,7 +234,7 @@ export function StakingCard({
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirm('withdraw', false); lastActionRef.current = 'unstake'; actions.withdraw(pos.tokenId); }}
+                      <button onClick={() => { setConfirm('withdraw', false); lastActionRef.current = 'unstake'; submittedAmountRef.current = pos.stakedFormatted; actions.withdraw(pos.tokenId); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-warning cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.25)' }}>
@@ -276,7 +268,7 @@ export function StakingCard({
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirm('earlyWithdraw', false); lastActionRef.current = 'unstake'; actions.earlyWithdraw(pos.tokenId); }}
+                      <button onClick={() => { setConfirm('earlyWithdraw', false); lastActionRef.current = 'unstake'; submittedAmountRef.current = pos.stakedFormatted; actions.earlyWithdraw(pos.tokenId); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -286,7 +278,7 @@ export function StakingCard({
                   </div>
                   );
                 })()}
-                <button onClick={() => actions.toggleAutoMaxLock(pos.tokenId)}
+                <button onClick={() => { lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
                   disabled={actions.isPending || actions.isConfirming}
                   className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                   {pos.autoMaxLock ? 'Disable Auto-Lock' : 'Enable Auto-Max Lock'}
@@ -309,7 +301,7 @@ export function StakingCard({
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirm('emergencyExit', false); actions.emergencyExit(pos.tokenId); }}
+                      <button onClick={() => { setConfirm('emergencyExit', false); lastActionRef.current = null; actions.emergencyExit(pos.tokenId); }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -445,7 +437,7 @@ export function StakingCard({
             </button>
 
             <p className="text-white text-[10px] text-center mt-3">
-              Early exit available — {EARLY_WITHDRAWAL_PENALTY_PCT}% {PENALTY_COPY.earlyExitLabel} redistributed to stakers still farming with tegridy
+              Early exit available — {EARLY_WITHDRAWAL_PENALTY_PCT}% {PENALTY_COPY.earlyExitLabel} sent to the treasury
             </p>
           </div>
         )}

@@ -1,19 +1,9 @@
 import { m } from 'framer-motion';
-import { JBAC_BONUS_BPS } from '../../lib/constants';
+import { JBAC_BONUS_BPS, LOCK_OPTIONS } from '../../lib/constants';
 import { calculateBoost } from '../../lib/boostCalculations';
 import { ArtImg } from '../ArtImg';
 
 const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
-
-const LOCK_OPTIONS = [
-  { label: '7 Days', seconds: 7 * 86400 },
-  { label: '30 Days', seconds: 30 * 86400 },
-  { label: '90 Days', seconds: 90 * 86400 },
-  { label: '6 Months', seconds: 180 * 86400 },
-  { label: '1 Year', seconds: 365 * 86400 },
-  { label: '2 Years', seconds: 730 * 86400 },
-  { label: '4 Years', seconds: 1460 * 86400 },
-];
 
 interface BoostScheduleTableProps {
   selectedLockLabel: string;
@@ -49,7 +39,7 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
                 <span className="text-white text-[12px] sm:text-[13px] flex-shrink-0">{opt.label}</span>
                 <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                   <span className="stat-value text-[13px] sm:text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(b / 10000).toFixed(2)}x</span>
-                  {baseApr > 0 && <span className="text-emerald-400 text-[10px] sm:text-[11px] font-mono">{(baseApr * b / 10000).toFixed(1)}% APY</span>}
+                  {baseApr > 0 && <span className="text-emerald-400 text-[10px] sm:text-[11px] font-mono">{(baseApr * b / 10000).toFixed(1)}% APR</span>}
                   {baseApr === 0 && <span className="text-[10px] sm:text-[11px]" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>({(withNft / 10000).toFixed(2)}x w/NFT)</span>}
                 </div>
               </div>
@@ -82,7 +72,7 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-white/60 text-[10px] uppercase tracking-wider">
-                    {baseApr > 0 ? 'APY' : 'With NFT'}
+                    {baseApr > 0 ? 'APR' : 'With NFT'}
                   </span>
                   {baseApr > 0 ? (
                     <span className="text-emerald-400 text-[12px] font-mono">{(baseApr * b / 10000).toFixed(1)}%</span>
@@ -102,7 +92,7 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
           <div className="relative z-10 p-4">
             <p className="text-warning/80 text-[12px] font-medium mb-1">Early Withdrawal</p>
             <p className="text-white text-[11px]">
-              You can exit your lock at any time with a {EARLY_WITHDRAWAL_PENALTY_PCT}% penalty. Penalty tokens are redistributed to remaining stakers — so diamond hands get rewarded.
+              You can exit your lock at any time with a {EARLY_WITHDRAWAL_PENALTY_PCT}% penalty. Penalty tokens are sent to the treasury — so locking in is the move.
             </p>
           </div>
         </div>

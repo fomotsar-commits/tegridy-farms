@@ -26,6 +26,7 @@ export function PriceAlertWidget() {
         {/* Header */}
         <button
           onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
           className="w-full flex items-center justify-between gap-2"
         >
           <div className="flex items-center gap-2">

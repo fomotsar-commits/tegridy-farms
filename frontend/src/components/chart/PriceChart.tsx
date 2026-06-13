@@ -43,7 +43,9 @@ async function fetchOHLCV(tf: Timeframe, signal?: AbortSignal): Promise<Candlest
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
   const cfg = TF_CONFIG[tf];
-  // Use same-origin proxy to avoid Edge/Safari tracking prevention blocking cross-origin API calls
+  // F152: direct cross-origin fetch to GeckoTerminal with retry/backoff. There is
+  // no same-origin proxy — on Safari ITP / Edge tracking-prevention failures the
+  // caller falls through to the embedded GeckoTerminal iframe instead.
   const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/ohlcv/${cfg.apiTf}?aggregate=${cfg.aggregate}&limit=${cfg.limit}&currency=usd`;
 
   const res = await fetchWithRetry(url, 5, 800, signal);
@@ -288,7 +290,7 @@ function PriceChartInner() {
             href={GECKOTERMINAL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-auto text-white hover:text-white text-[10px] transition-colors"
+            className="ml-auto text-white/60 hover:text-white text-[10px] transition-colors"
           >
             GeckoTerminal &#8599;
           </a>
@@ -319,8 +321,9 @@ function PriceChartInner() {
           <button
             key={key}
             onClick={() => setTf(key)}
+            aria-pressed={tf === key}
             className={`px-2.5 py-1 min-h-[44px] rounded text-[11px] font-medium transition-all ${
-              tf === key ? 'text-white' : 'text-white hover:text-white'
+              tf === key ? 'text-white' : 'text-white/55 hover:text-white'
             }`}
             style={tf === key ? { background: 'var(--color-purple-25)', border: '1px solid var(--color-purple-40)' } : { border: '1px solid transparent' }}
           >
@@ -331,7 +334,7 @@ function PriceChartInner() {
           href={GECKOTERMINAL_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-auto text-white hover:text-white text-[10px] transition-colors"
+          className="ml-auto text-white/60 hover:text-white text-[10px] transition-colors"
         >
           GeckoTerminal &#8599;
         </a>

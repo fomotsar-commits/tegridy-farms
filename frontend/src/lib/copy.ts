@@ -71,7 +71,7 @@ export const PENALTY_COPY = {
   earlyExitPct: '25%',
   earlyExitTagline: "For the kids' college fund.",
   earlyExitTooltip:
-    "Randy always said the farm needs to stay pure. Pull out early and the cops show up — 25% of your crop goes back to the collective, redistributed to stakers still farming with tegridy.",
+    "Randy always said the farm needs to stay pure. Pull out early and the cops show up — 25% of your crop goes to the treasury, funding the protocol that keeps the rest of the farm running.",
   liquidationLabel: 'The cops showed up',
   liquidationDescription: 'Your loan position crossed the liquidation threshold and was closed out by the protocol.',
   slippageLabel: 'Crop windstorm tolerance',

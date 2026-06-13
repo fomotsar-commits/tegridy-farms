@@ -5,6 +5,19 @@ interface IncentivesStripProps {
   aprNum?: number;
   rewardPool: string;
   dailyEmissions: string;
+  /** F101/F123: honest "rewards remaining" (balance − staked − unsettled), already formatted. */
+  rewardsRemaining?: string;
+  /** F123: seconds of emission runway left at the current rate (0 if unknown/dry). */
+  secondsRemaining?: number;
+}
+
+/** F123: humanize an emission-runway second count into "Xd"/"Yh" left. */
+function formatRunway(seconds: number): string {
+  if (seconds <= 0) return '';
+  const days = Math.floor(seconds / 86400);
+  if (days >= 1) return `${days.toLocaleString()}d`;
+  const hours = Math.floor(seconds / 3600);
+  return `${hours}h`;
 }
 
 /**
@@ -21,8 +34,15 @@ interface IncentivesStripProps {
  */
 const BOOTSTRAP_APR_THRESHOLD = 1000; // %
 
-export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions }: IncentivesStripProps) {
+export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining }: IncentivesStripProps) {
   const isBootstrap = (aprNum ?? 0) > BOOTSTRAP_APR_THRESHOLD;
+  // F101: prefer the honest "rewards remaining" figure (balance − staked −
+  // unsettled) over the cumulative totalFunded when it's available, and label it
+  // accordingly so the chip never implies a never-decreasing number is "remaining".
+  const hasRemaining = rewardsRemaining !== undefined && rewardsRemaining !== '–';
+  // F123: Synthetix-style runway countdown — surfaced from the same hook that
+  // already powers /tokenomics, so the Farm page no longer hides emission runway.
+  const runway = secondsRemaining && secondsRemaining > 0 ? formatRunway(secondsRemaining) : '';
   const items = [
     {
       l: 'Staking APR',
@@ -30,7 +50,12 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions }: Inc
       icon: '📈',
       sub: isBootstrap ? 'early-TVL bootstrap rate — normalizes as TVL grows' : undefined,
     },
-    { l: 'Reward Pool', v: rewardPool, icon: '💰' },
+    {
+      l: hasRemaining ? 'Rewards Remaining' : 'Reward Pool',
+      v: hasRemaining ? rewardsRemaining! : rewardPool,
+      icon: '💰',
+      sub: runway ? `≈ ${runway} of runway left at the current rate` : undefined,
+    },
     { l: 'Daily Emissions', v: dailyEmissions === '–' ? '–' : `${dailyEmissions} / day`, icon: '⚡' },
     { l: 'Max Boost', v: '4.0× · 4-yr lock', icon: '🚀' },
     { l: 'Fee Share', v: '100% to stakers', icon: '💎' },

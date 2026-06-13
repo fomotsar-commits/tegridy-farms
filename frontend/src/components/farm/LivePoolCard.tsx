@@ -26,7 +26,10 @@ export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePool
               <p className="text-white text-[11px]">Fee: 0.3%</p>
             </div>
           </div>
-          <PoolStatusBadge status="hot" />
+          {/* F117: derive the badge from live data instead of a hardcoded "HOT".
+              An unseeded/empty pool (dash TVL) shows no badge; once it has real
+              TVL it reads "LIVE" — no vaporware signal on an empty pool. */}
+          {poolData.isLoaded && poolData.tvl > 0 && <PoolStatusBadge status="live" />}
         </div>
 
         {/* Stats Grid -- live data */}
