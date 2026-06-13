@@ -172,10 +172,13 @@ export async function fulfillNativeOrder(order) {
     // AUDIT FIX D-FE-M2: bind fill signature to chainId + a 5-minute timestamp
     // so a captured signature cannot be replayed against staging or after the
     // server window expires. Same pattern as the cancel path.
+    // F631 (T5): the `signer.signMessage` notify prompt previously sat OUTSIDE
+    // the try below, so rejecting it threw to the outer catch and reported the
+    // already-confirmed on-chain fill as "cancelled" (and ShoppingCart's
+    // break-on-rejected then dropped a bought item). Move the sign inside the
+    // best-effort try so a rejected/failed notify never overturns the fill.
     const _fillTs = Math.floor(Date.now() / 1000);
     const _fillChainId = 1;
-    const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
-    const fillSignature = await signer.signMessage(fillMessage);
 
     // Retry the notification (same signature — it stays valid for the
     // server's 5-minute window, and re-signing would re-prompt the wallet).
@@ -183,6 +186,8 @@ export async function fulfillNativeOrder(order) {
     // moves; the pre-flight getOrderStatus check above keeps later buyers
     // from broadcasting against the stale row.
     try {
+      const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
+      const fillSignature = await signer.signMessage(fillMessage);
       await withRetry(async () => {
         const fillController = new AbortController();
         const fillTimeout = setTimeout(() => fillController.abort(), 30000);

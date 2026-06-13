@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Eth } from "./Icons";
 import { fetchTokenOffers, fetchBestOffer, acceptOffer } from "../api-offers";
+import { getFriendlyError } from "../lib/errorMessages";
 import { useActiveCollection } from "../contexts/CollectionContext";
 
 export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, ownerAddress }) {
@@ -9,24 +10,38 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
   const [bestOffer, setBestOffer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(null);
+  // F646 (T5): only the FIRST load shows skeletons. The 30s interval refetch +
+  // the post-accept refetch keep the previous offers on screen while refreshing
+  // (no skeleton flash over real data). A finally guard always settles loading.
+  const loadedOnceRef = useRef(false);
+
+  // F646: hoisted so handleAccept can refetch immediately after a successful
+  // accept (filled offer disappears without waiting for the 30s tick).
+  const load = useCallback(() => {
+    if (!tokenId) return;
+    if (!loadedOnceRef.current) setLoading(true);
+    Promise.all([
+      fetchTokenOffers(tokenId, collection.contract),
+      fetchBestOffer(tokenId, collection.openseaSlug || collection.slug),
+    ]).then(([allOffers, best]) => {
+      setOffers(allOffers);
+      setBestOffer(best);
+    }).catch(() => { /* keep previous data on a transient fetch error */ })
+      .finally(() => {
+        loadedOnceRef.current = true;
+        setLoading(false);
+      });
+  }, [tokenId, collection.contract, collection.slug, collection.openseaSlug]);
 
   useEffect(() => {
     if (!tokenId) return;
-    const load = () => {
-      setLoading(true);
-      Promise.all([
-        fetchTokenOffers(tokenId, collection.contract),
-        fetchBestOffer(tokenId, collection.openseaSlug || collection.slug),
-      ]).then(([allOffers, best]) => {
-        setOffers(allOffers);
-        setBestOffer(best);
-        setLoading(false);
-      }).catch(() => setLoading(false));
-    };
+    // Reset the first-load flag when the token/collection changes so the new
+    // token's offers show a skeleton rather than the previous token's list.
+    loadedOnceRef.current = false;
     load();
     const interval = setInterval(load, 30000);
     return () => clearInterval(interval);
-  }, [tokenId, collection.contract, collection.slug, collection.openseaSlug]);
+  }, [tokenId, load]);
 
   const handleAccept = useCallback(async (offer) => {
     if (!wallet) return;
@@ -42,17 +57,22 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
       const result = await acceptOffer(offerWithContract);
       if (result.success) {
         addToast?.("Offer accepted successfully!", "success");
+        // F646 (T5): refetch so the filled offer disappears immediately rather
+        // than lingering until the next 30s poll tick.
+        load();
       } else if (result.error === "rejected") {
         addToast?.("Offer acceptance was declined in your wallet.", "info");
       } else {
-        addToast?.("Failed to accept offer. Please try again.", "error");
+        // F646: surface the precise reason acceptOffer returned (e.g. expired,
+        // insufficient funds, approval failed) instead of a generic message.
+        addToast?.(result.message ? getFriendlyError(result.message) : "Failed to accept offer. Please try again.", "error");
       }
-    } catch {
-      addToast?.("Failed to accept offer — please try again", "error");
+    } catch (err) {
+      addToast?.(getFriendlyError(err), "error");
     } finally {
       setAccepting(null);
     }
-  }, [wallet, addToast, collection.contract]);
+  }, [wallet, addToast, collection.contract, load]);
 
   const timeLeft = (expiry) => {
     if (!expiry) return "";

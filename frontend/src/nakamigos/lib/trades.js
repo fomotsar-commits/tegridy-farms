@@ -593,14 +593,17 @@ export async function acceptTrade(trade) {
       txHash = tx.hash;
     }
 
-    // Notify backend (retried, same signature — no extra wallet prompt).
-    // The batch path's last receipt IS the atomic tx containing the
-    // OrderFulfilled event, so the server-side receipt check holds.
+    // Notify backend. The on-chain trade is ALREADY confirmed above, so this
+    // off-chain notify signature is best-effort only. F631 (T5): the
+    // `signer.signMessage` prompt previously sat outside this try, so rejecting
+    // it threw to the outer catch and falsely reported the confirmed trade as
+    // "cancelled". Wrap the whole notify (sign + POST) so a rejected/failed
+    // notify never overturns a successful on-chain fill.
     if (txHash) {
-      const ts = Math.floor(Date.now() / 1000);
-      const fillMessage = `Fill trade ${trade.id} tx ${txHash} | Chain: 1 | Time: ${ts}`;
-      const fillSignature = await signer.signMessage(fillMessage);
       try {
+        const ts = Math.floor(Date.now() / 1000);
+        const fillMessage = `Fill trade ${trade.id} tx ${txHash} | Chain: 1 | Time: ${ts}`;
+        const fillSignature = await signer.signMessage(fillMessage);
         await postOrderbook({
           action: "trade-fill",
           tradeId: trade.id,
@@ -883,11 +886,14 @@ export async function acceptOpenTrade(trade, selections) {
       txHash = tx.hash;
     }
 
+    // F631 (T5): best-effort off-chain notify. The on-chain trade is already
+    // confirmed above — wrap the sign+POST so rejecting the notify signature
+    // can't throw to the outer catch and mislabel a confirmed trade "cancelled".
     if (txHash) {
-      const ts = Math.floor(Date.now() / 1000);
-      const fillMessage = `Fill trade ${trade.id} tx ${txHash} | Chain: 1 | Time: ${ts}`;
-      const fillSignature = await signer.signMessage(fillMessage);
       try {
+        const ts = Math.floor(Date.now() / 1000);
+        const fillMessage = `Fill trade ${trade.id} tx ${txHash} | Chain: 1 | Time: ${ts}`;
+        const fillSignature = await signer.signMessage(fillMessage);
         await postOrderbook({
           action: "trade-fill",
           tradeId: trade.id,

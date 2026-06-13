@@ -136,6 +136,10 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
   const { switchChain } = useWalletActions();
   const [copied, setCopied] = useState(null);
   const [buying, setBuying] = useState(false);
+  // F794 (T5): after a confirmed buy, flip the CTA so a second click can't
+  // re-fire fulfill (which reverts with OrderAlreadyFilled). Holds the tx hash
+  // so the button can link to the confirmation on Etherscan.
+  const [purchasedHash, setPurchasedHash] = useState(null);
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [showTradeWindow, setShowTradeWindow] = useState(false);
   const [orderWarning, setOrderWarning] = useState(null); // { status, reason, warnings }
@@ -143,6 +147,12 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
   const showOfferModalRef = useRef(false);
   const { ensName: ownerEns } = useEns(nft?.owner);
   const { startTransaction, closeProgress, progressProps } = useTransactionProgress({ collectionName: collection.name });
+
+  // F794: reset the purchased latch when the modal switches to a different
+  // token/order so reopening on another NFT shows its Buy button.
+  useEffect(() => {
+    setPurchasedHash(null);
+  }, [nft?.id, nft?.orderHash]);
 
   // Run quick validation (Layer 1+2) when modal opens with a priced order
   useEffect(() => {
@@ -433,7 +443,26 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
 
           {/* Action Buttons */}
           <div style={{ display: "flex", gap: 10 }}>
-            {nft.orderHash && nft.price ? (
+            {purchasedHash ? (
+              // F794 (T5): post-buy CTA. Disabled so it can't re-fire fulfill;
+              // links to the confirmation on Etherscan when a hash is available.
+              typeof purchasedHash === "string" ? (
+                <a
+                  className="btn-primary"
+                  style={{ flex: 1, textAlign: "center", textDecoration: "none" }}
+                  href={`https://etherscan.io/tx/${purchasedHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Purchase confirmed — view transaction on Etherscan"
+                >
+                  {"Purchased ✓ — View on Etherscan ↗"}
+                </a>
+              ) : (
+                <button className="btn-primary" style={{ flex: 1 }} disabled aria-label="Purchase confirmed">
+                  {"Purchased ✓"}
+                </button>
+              )
+            ) : nft.orderHash && nft.price ? (
               <button
                 className="btn-primary"
                 style={{ flex: 1 }}
@@ -453,6 +482,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                       recordTransaction({ type: "buy", nft, price: nft.price, hash, wallet, slug: collection.slug });
                       addToast?.(`Success! Bought #${nft.id}`, "success");
                       setBuying(false);
+                      // F794 (T5): latch the buy so the CTA flips to "Purchased"
+                      // and a second click can't re-fire fulfill (OrderAlreadyFilled).
+                      setPurchasedHash(hash || true);
                     },
                     onError: () => {
                       setBuying(false);
