@@ -202,7 +202,7 @@ export function useSwap() {
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
 
   // ---- Allowance (delegated to useSwapAllowance) ----
-  const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, address, writeContract);
+  const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, quote.selectedOnChainRoute.source, address, writeContract);
 
   const lastActionRef = useRef<'approve' | 'swap' | null>(null);
   // F465: guard the receipt-success effect so it handles each confirmed hash

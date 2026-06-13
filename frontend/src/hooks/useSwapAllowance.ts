@@ -3,9 +3,10 @@ import { useReadContracts, useChainId } from 'wagmi';
 import { maxUint256 } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
-import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import type { RouteSource } from './useSwapQuote';
+import { swapSpenderFor } from '../lib/swapRouting';
 
 export interface SwapAllowanceResult {
   needsApproval: boolean;
@@ -27,6 +28,9 @@ export function useSwapAllowance(
   fromToken: TokenInfo | null,
   parsedAmount: bigint,
   selectedRoute: RouteSource,
+  /** The aggregator route's on-chain fallback venue (quote.selectedOnChainRoute.source).
+   *  Needed so the approval spender matches useSwap's executor on the aggregator path. */
+  onChainSource: 'tegridy' | 'uniswap',
   address: `0x${string}` | undefined,
   writeContract: (args: {
     chainId?: number;
@@ -62,7 +66,7 @@ export function useSwapAllowance(
         address: (fromToken?.address ?? WETH_ADDRESS) as `0x${string}`,
         abi: ERC20_ABI,
         functionName: 'allowance',
-        args: [address!, TEGRIDY_ROUTER_ADDRESS],
+        args: [address!, UNISWAP_V2_ROUTER],
         chainId: CHAIN_ID,
       },
     ],
@@ -71,11 +75,14 @@ export function useSwapAllowance(
     query: { enabled: onRightChain && !!address && !!fromToken && !fromToken.isNative },
   });
 
-  const uniAllowance = allowanceData?.[0]?.status === 'success' ? allowanceData[0].result as bigint : 0n;
-  const tegridyAllowance = allowanceData?.[1]?.status === 'success' ? allowanceData[1].result as bigint : 0n;
+  const sfrAllowance = allowanceData?.[0]?.status === 'success' ? allowanceData[0].result as bigint : 0n;
+  const uniV2Allowance = allowanceData?.[1]?.status === 'success' ? allowanceData[1].result as bigint : 0n;
 
-  // Allowance: target the correct router based on selected route
-  const activeAllowance = selectedRoute === 'tegridy' ? tegridyAllowance : uniAllowance;
+  // F186: the approval spender MUST equal the contract useSwap executes against
+  // for this route — SFR for tegridy (and aggregator→tegridy), UniswapV2Router
+  // for uniswap (and aggregator→uniswap). Single source of truth: swapSpenderFor().
+  const spender = swapSpenderFor(selectedRoute, onChainSource);
+  const activeAllowance = spender === SWAP_FEE_ROUTER_ADDRESS ? sfrAllowance : uniV2Allowance;
 
   const needsApproval = !!fromToken && !fromToken.isNative && parsedAmount > 0n && activeAllowance < parsedAmount;
 
@@ -109,8 +116,8 @@ export function useSwapAllowance(
     } else {
       approvalAmount = parsedAmount;
     }
-    // Approve the correct router based on selected route
-    const spender = selectedRoute === 'tegridy' ? TEGRIDY_ROUTER_ADDRESS : SWAP_FEE_ROUTER_ADDRESS;
+    // F186: approve the same contract useSwap will execute against — reuse the
+    // shared `spender` computed above via swapSpenderFor (matches the executor).
     const tokenAddr = fromToken.address as `0x${string}`;
 
     // R033 M-02: USDT-style two-step. If allowance is already non-zero AND
@@ -140,7 +147,7 @@ export function useSwapAllowance(
       functionName: 'approve',
       args: [spender, approvalAmount],
     });
-  }, [fromToken, parsedAmount, unlimitedApproval, selectedRoute, activeAllowance, onRightChain, writeContract]);
+  }, [fromToken, parsedAmount, unlimitedApproval, spender, activeAllowance, onRightChain, writeContract]);
 
   const continueMultiStepApprove = useCallback((): boolean => {
     // R-CHAINID: explicit chain re-check — function fires from a useEffect after
