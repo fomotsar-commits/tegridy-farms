@@ -7,6 +7,7 @@ import {
   shortenAddress,
   formatTimeAgo,
   formatTimeUntil,
+  sanitizeDecimalInput,
   formatWholeNumber,
 } from './formatting';
 
@@ -285,6 +286,31 @@ describe('formatTimeUntil', () => {
     expect(formatTimeUntil(1000 + 180)).toBe('3m left');
     expect(formatTimeUntil(1000 + 7200)).toBe('2h left');
     expect(formatTimeUntil(1000 + 172800)).toBe('2d left');
+  });
+});
+
+// ─── sanitizeDecimalInput ───────────────────────────────────────
+describe('sanitizeDecimalInput', () => {
+  it('terminates at scientific notation instead of concatenating digits', () => {
+    expect(sanitizeDecimalInput('1e5')).toBe('1');   // not '15'
+    expect(sanitizeDecimalInput('2e-3')).toBe('2');
+    expect(sanitizeDecimalInput('1E10')).toBe('1');
+  });
+
+  it('strips thousands separators and stray characters', () => {
+    expect(sanitizeDecimalInput('1,000.50')).toBe('1000.50');
+    expect(sanitizeDecimalInput('12abc')).toBe('12');
+    expect(sanitizeDecimalInput('-5')).toBe('5');
+  });
+
+  it('collapses to a single decimal point (extra dots removed, digits kept)', () => {
+    expect(sanitizeDecimalInput('1.2.3')).toBe('1.23');
+    expect(sanitizeDecimalInput('0.0001')).toBe('0.0001');
+  });
+
+  it('returns empty string for non-numeric input', () => {
+    expect(sanitizeDecimalInput('abc')).toBe('');
+    expect(sanitizeDecimalInput('')).toBe('');
   });
 });
 

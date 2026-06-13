@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { formatTokenAmount, formatPercent, formatNumber } from '../../lib/formatting';
+import { formatTokenAmount, formatPercent, formatNumber, sanitizeDecimalInput } from '../../lib/formatting';
 import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
 import { ILCalculator } from './ILCalculator';
@@ -206,10 +206,10 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                   <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Stake LP</p>
                   <div className="flex gap-2 mb-2">
                     <input
-                      type="number" inputMode="decimal"
+                      type="text" inputMode="decimal"
                       placeholder="0.0"
                       value={lpStakeAmount}
-                      onChange={e => setLpStakeAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                      onChange={e => setLpStakeAmount(sanitizeDecimalInput(e.target.value))}
                       className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button
@@ -267,10 +267,10 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                   <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Withdraw LP</p>
                   <div className="flex gap-2 mb-2">
                     <input
-                      type="number" inputMode="decimal"
+                      type="text" inputMode="decimal"
                       placeholder="0.0"
                       value={lpWithdrawAmount}
-                      onChange={e => setLpWithdrawAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                      onChange={e => setLpWithdrawAmount(sanitizeDecimalInput(e.target.value))}
                       className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button

@@ -35,7 +35,7 @@ export function ReferralWidget({
   isPending,
   isConfirming,
 }: ReferralWidgetProps) {
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [refInput, setRefInput] = useState('');
   const [refFromUrl, setRefFromUrl] = useState<string | null>(null);
   // R037: EOA verification — a contract address as referrer would either
@@ -74,7 +74,7 @@ export function ReferralWidget({
   );
   const tweetUrl = `https://twitter.com/intent/tweet?text=${tweetText}&url=${encodeURIComponent(referralLink)}`;
 
-  const handleCopy = async () => {
+  const handleCopy = async (key: string) => {
     try {
       await navigator.clipboard.writeText(referralLink);
     } catch {
@@ -86,9 +86,9 @@ export function ReferralWidget({
       document.execCommand('copy');
       document.body.removeChild(el);
     }
-    setCopied(true);
+    setCopiedKey(key);
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setCopied(false), 2000);
+    timerRef.current = setTimeout(() => setCopiedKey(null), 2000);
   };
 
   const truncatedLink = `tegridy.farm/?ref=${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -150,11 +150,11 @@ export function ReferralWidget({
               <p className="text-white text-[13px] truncate font-mono">{truncatedLink}</p>
             </div>
             <button
-              onClick={handleCopy}
+              onClick={() => handleCopy('compact')}
               aria-label="Copy referral link"
               className="flex-shrink-0 btn-primary px-4 py-2.5 text-[12px] min-w-[72px]"
             >
-              {copied ? 'Copied!' : 'Copy'}
+              {copiedKey === 'compact' ? 'Copied!' : 'Copy'}
             </button>
           </div>
         </div>
@@ -265,7 +265,7 @@ export function ReferralWidget({
               Tweet
             </a>
             <button
-              onClick={handleCopy}
+              onClick={() => handleCopy('full')}
               aria-label="Copy referral link"
               className="flex items-center gap-2 bg-black/40 hover:bg-black/60 border border-white/20 rounded-lg px-4 py-2.5 text-white hover:text-white text-[12px] transition-colors"
             >
@@ -273,7 +273,7 @@ export function ReferralWidget({
                 <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
                 <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
               </svg>
-              {copied ? 'Copied!' : 'Copy Link'}
+              {copiedKey === 'full' ? 'Copied!' : 'Copy Link'}
             </button>
           </div>
         </div>

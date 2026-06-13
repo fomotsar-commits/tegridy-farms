@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
-import { formatTokenAmount } from '../../lib/formatting';
+import { formatTokenAmount, sanitizeDecimalInput } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
 import { PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
@@ -352,8 +352,8 @@ export function StakingCard({
                   Balance: {formatTokenAmount(pos.walletBalanceFormatted, 0)}
                 </button>
               </div>
-              <input type="number" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
-                placeholder="0" min="0" step="any"
+              <input type="text" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(sanitizeDecimalInput(e.target.value))}
+                placeholder="0"
                 className="w-full rounded-lg p-4 min-h-[44px] font-mono text-xl text-white outline-none token-input"
                 style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }} />
               <p className="text-white/50 text-[10px] mt-1.5">

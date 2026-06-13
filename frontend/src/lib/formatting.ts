@@ -63,6 +63,20 @@ export function formatTimeUntil(timestamp: number): string {
   return `${Math.floor(seconds / 86400)}d left`;
 }
 
+/**
+ * Sanitize a user-typed token amount for a controlled decimal input.
+ * Strips thousands separators and TERMINATES at scientific notation, so "1e5"
+ * becomes "1" (visibly wrong, prompting the user) rather than the silently
+ * plausible "15" the old strip-every-invalid-char approach produced. Collapses
+ * to a single decimal point. Pair with `safeParseEther` for the parse step.
+ */
+export function sanitizeDecimalInput(raw: string): string {
+  return raw
+    .replace(/[eE].*$/, '')      // terminate at scientific notation
+    .replace(/[^0-9.]/g, '')     // drop separators / letters / signs
+    .replace(/(\..*)\./g, '$1'); // keep only the first decimal point
+}
+
 /** Format a large whole number with commas (e.g., 1234567 → "1,234,567") */
 export function formatWholeNumber(value: number): string {
   if (!isFinite(value) || isNaN(value)) return '–';
