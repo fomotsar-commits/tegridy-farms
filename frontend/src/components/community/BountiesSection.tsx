@@ -5,7 +5,7 @@ import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { MEME_BOUNTY_BOARD_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
-import { shortenAddress, formatTimeAgo, formatWei } from '../../lib/formatting';
+import { shortenAddress, formatTimeUntil, formatWei } from '../../lib/formatting';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 // R069: user-submitted text + URIs reach the contract verbatim and render
@@ -257,7 +257,7 @@ export function BountiesSection() {
                     </div>
                     <div className="flex items-center gap-4 text-[11px] text-white/70 mt-1">
                       <span>By {shortenAddress(creator)}</span>
-                      {deadlineNum > 0 && <span>{isPastDeadline ? 'Expired' : `${formatTimeAgo(deadlineNum).replace(' ago', ' left')}`}</span>}
+                      {deadlineNum > 0 && <span>{isPastDeadline ? 'Expired' : formatTimeUntil(deadlineNum)}</span>}
                     </div>
                   </button>
 

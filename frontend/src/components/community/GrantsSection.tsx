@@ -5,7 +5,7 @@ import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { COMMUNITY_GRANTS_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { COMMUNITY_GRANTS_ABI } from '../../lib/contracts';
-import { shortenAddress, formatTokenAmount, formatTimeAgo } from '../../lib/formatting';
+import { shortenAddress, formatTokenAmount, formatTimeUntil } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 // R069: sanitize freeform descriptions on write + render via SafeText.
 import { sanitizeUserText, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
@@ -283,7 +283,7 @@ export function GrantsSection() {
                   <div className="flex items-center gap-4 text-[11px] text-white/70">
                     <span>By {shortenAddress(proposer)}</span>
                     <span>To {shortenAddress(recipient)}</span>
-                    {deadlineNum > 0 && <span>{isPastDeadline ? 'Ended' : `Ends ${formatTimeAgo(deadlineNum).replace(' ago', ' left')}`}</span>}
+                    {deadlineNum > 0 && <span>{isPastDeadline ? 'Ended' : `Ends ${formatTimeUntil(deadlineNum)}`}</span>}
                   </div>
                   {/* Vote Bars */}
                   <div className="flex items-center gap-2">

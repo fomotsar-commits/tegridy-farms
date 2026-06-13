@@ -6,6 +6,7 @@ import {
   formatPercent,
   shortenAddress,
   formatTimeAgo,
+  formatTimeUntil,
   formatWholeNumber,
 } from './formatting';
 
@@ -254,6 +255,36 @@ describe('formatTimeAgo', () => {
     setNow(100000);
     expect(formatTimeAgo(100000 - 172800)).toBe('2d ago');
     expect(formatTimeAgo(100000 - 86400)).toBe('1d ago');
+  });
+});
+
+// ─── formatTimeUntil ────────────────────────────────────────────
+describe('formatTimeUntil', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function setNow(unixSeconds: number) {
+    vi.spyOn(Date, 'now').mockReturnValue(unixSeconds * 1000);
+  }
+
+  it('returns "Ended" for past or now timestamps (the "Ends just now" bug)', () => {
+    setNow(1000);
+    expect(formatTimeUntil(1000)).toBe('Ended');
+    expect(formatTimeUntil(900)).toBe('Ended');
+  });
+
+  it('returns "<1m left" for under a minute', () => {
+    setNow(1000);
+    expect(formatTimeUntil(1030)).toBe('<1m left');
+    expect(formatTimeUntil(1059)).toBe('<1m left');
+  });
+
+  it('returns minutes / hours / days left', () => {
+    setNow(1000);
+    expect(formatTimeUntil(1000 + 180)).toBe('3m left');
+    expect(formatTimeUntil(1000 + 7200)).toBe('2h left');
+    expect(formatTimeUntil(1000 + 172800)).toBe('2d left');
   });
 });
 

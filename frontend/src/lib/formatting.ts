@@ -48,6 +48,21 @@ export function formatTimeAgo(timestamp: number): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+/**
+ * Time remaining until a FUTURE unix timestamp, e.g. "5d left", "3h left",
+ * "12m left", "<1m left". Returns "Ended" once the timestamp is in the past.
+ * Use this for deadlines/countdowns — `formatTimeAgo` reports "just now" for any
+ * future timestamp (negative elapsed), which is why deadlines read "Ends just now".
+ */
+export function formatTimeUntil(timestamp: number): string {
+  const seconds = Math.floor(timestamp - Date.now() / 1000);
+  if (seconds <= 0) return 'Ended';
+  if (seconds < 60) return '<1m left';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m left`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h left`;
+  return `${Math.floor(seconds / 86400)}d left`;
+}
+
 /** Format a large whole number with commas (e.g., 1234567 → "1,234,567") */
 export function formatWholeNumber(value: number): string {
   if (!isFinite(value) || isNaN(value)) return '–';
