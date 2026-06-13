@@ -494,7 +494,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
     }));
   }, [offerCount]);
 
-  const { data: offersRaw, isLoading: offersLoading } = useReadContracts({
+  const { data: offersRaw, isLoading: offersLoading, refetch: refetchOffers } = useReadContracts({
     contracts: offerContracts,
     query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
@@ -636,6 +636,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
               offer={offer}
               isExpanded={expandedOffer === offer.id}
               onToggle={() => setExpandedOffer(expandedOffer === offer.id ? null : offer.id)}
+              onAccepted={refetchOffers}
             />
           ))}
         </div>
@@ -649,6 +650,7 @@ function OfferCard({
   offer,
   isExpanded,
   onToggle,
+  onAccepted,
 }: {
   offer: {
     id: number;
@@ -661,6 +663,7 @@ function OfferCard({
   };
   isExpanded: boolean;
   onToggle: () => void;
+  onAccepted?: () => void;
 }) {
   const { isConnected } = useAccount();
   const chainId = useChainId();
@@ -682,7 +685,11 @@ function OfferCard({
   useEffect(() => {
     if (acceptSuccess) {
       toast.success('Offer accepted! Loan created.');
+      // F257 (T5): refresh the offer list so the accepted offer leaves the
+      // available market immediately (it switches to inactive on-chain).
+      onAccepted?.();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onAccepted is a stable refetch handle; fire once per confirmed tx
   }, [acceptSuccess]);
 
   const handleApprove = () => {
@@ -851,7 +858,7 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
     }));
   }, [loanCount]);
 
-  const { data: loansRaw, isLoading: loansLoading } = useReadContracts({
+  const { data: loansRaw, isLoading: loansLoading, refetch: refetchLoans } = useReadContracts({
     contracts: loanContracts,
     query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
@@ -919,14 +926,14 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {myLoans.map((loan) => (
-        <LoanCard key={loan.id} loan={loan} userAddress={address!} />
+        <LoanCard key={loan.id} loan={loan} userAddress={address!} onLoanChanged={refetchLoans} />
       ))}
     </div>
   );
 }
 
 /* ─── Loan Card ─────────────────────────────────────────────────── */
-function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; userAddress: Address }) {
+function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id: number }; userAddress: Address; onLoanChanged?: () => void }) {
   const status = getLoanStatus(loan);
   const colors = STATUS_COLORS[status] ?? { text: 'text-white/80', border: 'border-white/20', bg: 'rgba(255,255,255,0.05)' };
   const isBorrower = loan.borrower.toLowerCase() === userAddress.toLowerCase();
@@ -965,11 +972,20 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
       toast.success('Loan repaid! Your NFT has been returned.');
       // AUDIT R011 (HIGH-049-3): invalidate cached quote post-confirmation.
       refetchRepayment();
+      // F257 (T5): refresh the loan list so the repaid loan flips to settled
+      // without a full reload.
+      onLoanChanged?.();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoanChanged is a stable refetch handle; fire once per confirmed tx
   }, [repaySuccess, refetchRepayment]);
 
   useEffect(() => {
-    if (claimSuccess) toast.success('Default claimed! NFT transferred to you.');
+    if (claimSuccess) {
+      toast.success('Default claimed! NFT transferred to you.');
+      // F257 (T5): refresh so the claimed loan reflects defaultClaimed.
+      onLoanChanged?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoanChanged is a stable refetch handle; fire once per confirmed tx
   }, [claimSuccess]);
 
   const handleRepay = () => {

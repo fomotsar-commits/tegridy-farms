@@ -705,7 +705,7 @@ function applyOfferFilters(
 // ═══════════════════════════════════════════════════════════════════
 // LEND TAB (Create Offer)
 // ═══════════════════════════════════════════════════════════════════
-function LendTab({ deployed }: { deployed: boolean }) {
+function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () => void }) {
   const { address } = useAccount();
   const { ethUsd } = useTOWELIPrice();
   const [principal, setPrincipal] = useState('');
@@ -736,7 +736,11 @@ function LendTab({ deployed }: { deployed: boolean }) {
       setAprBps('');
       setMinCollateral('');
       setMinCollateralETH('');
+      // F257 (T5): refresh the offer market so the new offer shows in Borrow
+      // without a full reload.
+      onCreated?.();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onCreated is a stable refetch handle; fire once per confirmed tx
   }, [isSuccess]);
 
   const aprPercent = aprBps ? (parseFloat(aprBps) / 100).toFixed(2) : '0.00';
@@ -987,11 +991,13 @@ function OfferRow({
   userAddress,
   deployed,
   idx,
+  onAccepted,
 }: {
   offer: Offer;
   userAddress?: string;
   deployed: boolean;
   idx: number;
+  onAccepted?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const chainId = useChainId();
@@ -1047,7 +1053,11 @@ function OfferRow({
     if (acceptSuccess) {
       toast.success('Loan accepted! Funds received.');
       setExpanded(false);
+      // F257 (T5): refresh offers + loans so the accepted offer leaves the
+      // available list and the new loan appears under My Loans without a reload.
+      onAccepted?.();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onAccepted is a stable refetch handle; fire once per confirmed tx
   }, [acceptSuccess]);
 
   const handleApprove = () => {
@@ -1339,7 +1349,7 @@ function OfferRow({
   );
 }
 
-function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; allOffers: Offer[]; offersLoading: boolean }) {
+function BorrowTab({ deployed, allOffers, offersLoading, onAccepted }: { deployed: boolean; allOffers: Offer[]; offersLoading: boolean; onAccepted?: () => void }) {
   const { address } = useAccount();
   const [sortKey, setSortKey] = useState<SortKey>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -1439,7 +1449,7 @@ function BorrowTab({ deployed, allOffers, offersLoading }: { deployed: boolean; 
               </thead>
               <tbody>
                 {sortedOffers.map((offer, idx) => (
-                  <OfferRow key={offer.id} offer={offer} userAddress={address} deployed={deployed} idx={idx} />
+                  <OfferRow key={offer.id} offer={offer} userAddress={address} deployed={deployed} idx={idx} onAccepted={onAccepted} />
                 ))}
               </tbody>
             </table>
@@ -1552,11 +1562,13 @@ function LoanRow({
   role,
   deployed,
   idx,
+  onLoanChanged,
 }: {
   loan: Loan;
   role: 'borrower' | 'lender';
   deployed: boolean;
   idx: number;
+  onLoanChanged?: () => void;
 }) {
   const status = getLoanStatus(loan);
   const countdown = useCountdown(loan.deadline);
@@ -1597,11 +1609,20 @@ function LoanRow({
       toast.success('Loan repaid successfully');
       // AUDIT R011 (HIGH-049-3): invalidate the cached repayment quote.
       refetchRepayment();
+      // F257 (T5): refresh the loan list so the repaid loan flips to settled
+      // (and leaves the outstanding view) without a full reload.
+      onLoanChanged?.();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoanChanged is a stable refetch handle; fire once per confirmed tx
   }, [repaySuccess, refetchRepayment]);
 
   useEffect(() => {
-    if (claimSuccess) toast.success('Collateral claimed');
+    if (claimSuccess) {
+      toast.success('Collateral claimed');
+      // F257 (T5): refresh so the defaulted loan reflects defaultClaimed.
+      onLoanChanged?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoanChanged is a stable refetch handle; fire once per confirmed tx
   }, [claimSuccess]);
 
   const handleRepay = () => {
@@ -1717,7 +1738,7 @@ function LoanRow({
   );
 }
 
-function MyLoansTab({ deployed, allLoans, loansLoading }: { deployed: boolean; allLoans: Loan[]; loansLoading: boolean }) {
+function MyLoansTab({ deployed, allLoans, loansLoading, onLoanChanged }: { deployed: boolean; allLoans: Loan[]; loansLoading: boolean; onLoanChanged?: () => void }) {
   const { address } = useAccount();
   const [subTab, setSubTab] = useState<LoanSubTab>('borrower');
 
@@ -1790,7 +1811,7 @@ function MyLoansTab({ deployed, allLoans, loansLoading }: { deployed: boolean; a
         <ArtPanel art={pageArt('lending-section', 13)} opacity={1} overlay={DARK_OVERLAY_HEAVY}>
           <div className="p-4">
             {displayed.map((loan, idx) => (
-              <LoanRow key={loan.id} loan={loan} role={subTab} deployed={deployed} idx={idx} />
+              <LoanRow key={loan.id} loan={loan} role={subTab} deployed={deployed} idx={idx} onLoanChanged={onLoanChanged} />
             ))}
           </div>
         </ArtPanel>
@@ -1804,7 +1825,7 @@ function MyLoansTab({ deployed, allLoans, loansLoading }: { deployed: boolean; a
 // ═══════════════════════════════════════════════════════════════════
 // ─── Hook: Batch-fetch all offers ──────────────────────────────
 function useAllOffers() {
-  const { data: offerCount } = useReadContract({
+  const { data: offerCount, refetch: refetchOfferCount } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'offerCount',
@@ -1824,7 +1845,7 @@ function useAllOffers() {
     }));
   }, [count]);
 
-  const { data: offerResults, isLoading } = useReadContracts({
+  const { data: offerResults, isLoading, refetch: refetchOffersData } = useReadContracts({
     contracts: offerContracts,
     query: { enabled: count > 0 },
   });
@@ -1852,12 +1873,18 @@ function useAllOffers() {
     return parsed;
   }, [offerResults]);
 
-  return { offers, isLoading, count };
+  // F257 (T5): expose a combined refetch so write handlers (create/accept) can
+  // refresh the market on confirmation instead of waiting for a full reload.
+  const refetch = useCallback(async () => {
+    await Promise.all([refetchOfferCount(), refetchOffersData()]);
+  }, [refetchOfferCount, refetchOffersData]);
+
+  return { offers, isLoading, count, refetch };
 }
 
 // ─── Hook: Batch-fetch all loans ───────────────────────────────
 function useAllLoans() {
-  const { data: loanCount } = useReadContract({
+  const { data: loanCount, refetch: refetchLoanCount } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'loanCount',
@@ -1877,7 +1904,7 @@ function useAllLoans() {
     }));
   }, [count]);
 
-  const { data: loanResults, isLoading } = useReadContracts({
+  const { data: loanResults, isLoading, refetch: refetchLoansData } = useReadContracts({
     contracts: loanContracts,
     query: { enabled: count > 0 },
   });
@@ -1906,7 +1933,13 @@ function useAllLoans() {
     return parsed;
   }, [loanResults]);
 
-  return { loans, isLoading, count };
+  // F257 (T5): expose a combined refetch so accept/repay/claim handlers can
+  // refresh My Loans on confirmation.
+  const refetch = useCallback(async () => {
+    await Promise.all([refetchLoanCount(), refetchLoansData()]);
+  }, [refetchLoanCount, refetchLoansData]);
+
+  return { loans, isLoading, count, refetch };
 }
 
 export function LendingSection({ address: _propAddress }: { address?: string }) {
@@ -1914,8 +1947,8 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
   const deployed = isDeployed(TEGRIDY_LENDING_ADDRESS);
 
   // Batch-fetch all offers and loans at the top level
-  const { offers: allOffers, isLoading: offersLoading } = useAllOffers();
-  const { loans: allLoans, isLoading: loansLoading } = useAllLoans();
+  const { offers: allOffers, isLoading: offersLoading, refetch: refetchOffers } = useAllOffers();
+  const { loans: allLoans, isLoading: loansLoading, refetch: refetchLoans } = useAllLoans();
 
   return (
     <section className="w-full space-y-6">
@@ -1949,9 +1982,9 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.2, ease: EASE as [number, number, number, number] }}
         >
-          {tab === 'lend' && <LendTab deployed={deployed} />}
-          {tab === 'borrow' && <BorrowTab deployed={deployed} allOffers={allOffers} offersLoading={offersLoading} />}
-          {tab === 'myloans' && <MyLoansTab deployed={deployed} allLoans={allLoans} loansLoading={loansLoading} />}
+          {tab === 'lend' && <LendTab deployed={deployed} onCreated={refetchOffers} />}
+          {tab === 'borrow' && <BorrowTab deployed={deployed} allOffers={allOffers} offersLoading={offersLoading} onAccepted={() => { refetchOffers(); refetchLoans(); }} />}
+          {tab === 'myloans' && <MyLoansTab deployed={deployed} allLoans={allLoans} loansLoading={loansLoading} onLoanChanged={refetchLoans} />}
         </m.div>
       </AnimatePresence>
     </section>
