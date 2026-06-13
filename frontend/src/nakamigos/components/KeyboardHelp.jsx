@@ -73,7 +73,7 @@ const descStyle = {
   color: "var(--text-muted, #888)",
 };
 
-export default function KeyboardHelp({ onClose }) {
+export default function KeyboardHelp({ onClose, onReplayTour }) {
   const panelRef = useRef(null);
   const closeButtonRef = useRef(null);
 
@@ -148,6 +148,21 @@ export default function KeyboardHelp({ onClose }) {
             ))}
           </div>
         ))}
+        {onReplayTour && (
+          <div style={{ textAlign: "center", marginTop: 20 }}>
+            <button
+              onClick={onReplayTour}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 11, cursor: "pointer",
+                color: "var(--naka-blue, #6fa8dc)", background: "none",
+                border: "1px solid var(--border, #333)", borderRadius: 8,
+                padding: "8px 18px", letterSpacing: "0.02em",
+              }}
+            >
+              {"↻"} Replay welcome tour
+            </button>
+          </div>
+        )}
         <div style={{ textAlign: "center", marginTop: 24, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}>
           Press <span style={keyStyle}>?</span> or <span style={keyStyle}>Esc</span> to close
         </div>

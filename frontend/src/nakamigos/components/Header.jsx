@@ -13,6 +13,9 @@ function Ticker({ activities }) {
   useEffect(() => {
     if (!activities.length) return;
     const iv = setInterval(() => {
+      // Skip the rotation while the tab is hidden — no point animating an
+      // off-screen ticker (F547). Consistent with useDmUnread's visibility gate.
+      if (document.hidden) return;
       setFade(false);
       setTimeout(() => {
         setIdx((p) => (p + 1) % activities.length);
@@ -73,7 +76,8 @@ function formatTimeAgo(ts) {
 function StaleIndicator({ lastRefresh }) {
   const [, setTick] = useState(0);
   useEffect(() => {
-    const iv = setInterval(() => setTick((t) => t + 1), 15000);
+    // Don't re-tick the "updated Xm ago" label while the tab is hidden (F547).
+    const iv = setInterval(() => { if (!document.hidden) setTick((t) => t + 1); }, 15000);
     return () => clearInterval(iv);
   }, []);
 
@@ -198,6 +202,20 @@ const cartBadgeStyle = {
   boxShadow: "0 0 6px var(--naka-blue)",
 };
 
+/* Account popover menu item — shared by copy / explorer / disconnect (F542) */
+const accountMenuItemStyle = {
+  width: "100%",
+  textAlign: "left",
+  padding: "9px 16px",
+  border: "none",
+  background: "none",
+  cursor: "pointer",
+  fontFamily: "var(--mono)",
+  fontSize: 11,
+  color: "var(--text-dim)",
+  letterSpacing: "0.02em",
+};
+
 /* ── Lite / Pro segmented toggle ── */
 const modeToggleWrapStyle = {
   display: "flex",
@@ -253,6 +271,7 @@ function TradingModeToggle() {
 export default memo(function Header({
   tab,
   setTab,
+  onPrefetch,
   wallet,
   setWallet,
   onConnect,
@@ -279,6 +298,10 @@ export default memo(function Header({
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtnRef = useRef(null);
   const [morePos, setMorePos] = useState({ top: 44, right: 16 });
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountBtnRef = useRef(null);
+  const [accountPos, setAccountPos] = useState({ top: 44, right: 16 });
+  const [copied, setCopied] = useState(false);
 
   // Filter nav items based on trading mode
   const visiblePrimary = useMemo(
@@ -303,24 +326,84 @@ export default memo(function Header({
     }
   }, [siwe.signIn]);
 
+  const repositionMore = useCallback(() => {
+    if (moreBtnRef.current) {
+      const r = moreBtnRef.current.getBoundingClientRect();
+      setMorePos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+  }, []);
+
   const toggleMore = useCallback(() => {
     setMoreOpen(prev => {
-      if (!prev && moreBtnRef.current) {
-        const r = moreBtnRef.current.getBoundingClientRect();
-        setMorePos({ top: r.bottom + 4, right: window.innerWidth - r.right });
-      }
+      if (!prev) repositionMore();
       return !prev;
     });
+  }, [repositionMore]);
+
+  // While the More menu is open: close on Escape, and keep the fixed-position
+  // portal anchored to the button on resize/scroll (it was captured once at open
+  // and would otherwise float away) — F541.
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setMoreOpen(false);
+        moreBtnRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", repositionMore);
+    window.addEventListener("scroll", repositionMore, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", repositionMore);
+      window.removeEventListener("scroll", repositionMore, true);
+    };
+  }, [moreOpen, repositionMore]);
+
+  const repositionAccount = useCallback(() => {
+    if (accountBtnRef.current) {
+      const r = accountBtnRef.current.getBoundingClientRect();
+      setAccountPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
   }, []);
 
   const handleConnect = () => {
     if (wallet) {
-      // Disconnect
-      setWallet();
+      // Open an account menu instead of disconnecting on a single click — a
+      // misclick on your own address used to instantly disconnect (F542).
+      setCopied(false);
+      repositionAccount();
+      setAccountOpen((v) => !v);
       return;
     }
     onConnect();
   };
+
+  const copyAddress = useCallback(async () => {
+    if (!wallet) return;
+    try {
+      await navigator.clipboard?.writeText(wallet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked — no-op */ }
+  }, [wallet]);
+
+  // Account menu: close on Escape, reposition the fixed portal on resize/scroll.
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") { setAccountOpen(false); accountBtnRef.current?.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", repositionAccount);
+    window.addEventListener("scroll", repositionAccount, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", repositionAccount);
+      window.removeEventListener("scroll", repositionAccount, true);
+    };
+  }, [accountOpen, repositionAccount]);
 
   const handleNav = (k) => {
     setTab(k);
@@ -385,7 +468,15 @@ export default memo(function Header({
         {/* Desktop Nav */}
         <nav className="nav-tabs desktop-nav" aria-label="Main navigation">
           {visiblePrimary.map(([k, v]) => (
-            <button key={k} onClick={() => handleNav(k)} className={`nav-tab ${tab === k ? "active" : ""}`}>
+            <button
+              key={k}
+              onClick={() => handleNav(k)}
+              onMouseEnter={() => onPrefetch?.(k)}
+              onFocus={() => onPrefetch?.(k)}
+              className={`nav-tab ${tab === k ? "active" : ""}`}
+              aria-current={tab === k ? "page" : undefined}
+              data-tour={k === "listings" ? "floor" : undefined}
+            >
               {v}
             </button>
           ))}
@@ -404,7 +495,7 @@ export default memo(function Header({
               <div onClick={() => setMoreOpen(false)} style={{
                 position: "fixed", inset: 0, zIndex: 9998,
               }} />
-              <div style={{
+              <div role="menu" aria-label="More navigation" style={{
                 position: "fixed",
                 top: morePos.top,
                 right: morePos.right,
@@ -420,7 +511,11 @@ export default memo(function Header({
                 {visibleMore.map(([key, label]) => (
                   <button
                     key={key}
+                    role="menuitem"
+                    aria-current={tab === key ? "page" : undefined}
                     className={`nav-tab${tab === key ? " active" : ""}`}
+                    onMouseEnter={() => onPrefetch?.(key)}
+                    onFocus={() => onPrefetch?.(key)}
                     onClick={() => { setTab(key); setMoreOpen(false); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "none", cursor: "pointer", fontFamily: "var(--pixel)", fontSize: 9, color: tab === key ? "var(--gold)" : "var(--text-dim)" }}
                   >
@@ -505,6 +600,7 @@ export default memo(function Header({
             onClick={onCartToggle}
             style={cartBtnStyle}
             aria-label="Shopping cart"
+            data-tour="cart"
           >
             <svg
               width="20"
@@ -532,10 +628,13 @@ export default memo(function Header({
               siwe.isAuthenticated (chat / profile / on-chain voting). Until then
               the button promises capabilities that don't exist. */}
           <button
+            ref={accountBtnRef}
             onClick={handleConnect}
             className={`wallet-btn ${wallet ? "connected" : "disconnected"}`}
-            title={wallet ? `${walletName || "Wallet"} \u00b7 Click to disconnect` : "Connect wallet"}
-            aria-label={wallet ? `Disconnect ${walletName || "wallet"}` : "Connect wallet"}
+            title={wallet ? `${walletName || "Wallet"} \u00b7 Account menu` : "Connect wallet"}
+            aria-label={wallet ? `Account menu for ${walletName || "wallet"}` : "Connect wallet"}
+            aria-haspopup={wallet ? "menu" : undefined}
+            aria-expanded={wallet ? accountOpen : undefined}
           >
             {wallet ? (
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -554,6 +653,53 @@ export default memo(function Header({
               "Connect"
             )}
           </button>
+
+          {/* Account menu — copy / explorer / disconnect, so a single click on
+              your own address opens a menu instead of disconnecting (F542). */}
+          {wallet && accountOpen && createPortal(
+            <>
+              <div onClick={() => setAccountOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
+              <div role="menu" aria-label="Account" style={{
+                position: "fixed",
+                top: accountPos.top,
+                right: accountPos.right,
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-lg, 12px)",
+                padding: "8px 0",
+                minWidth: 200,
+                zIndex: 9999,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+                backdropFilter: "blur(16px)",
+              }}>
+                <div style={{ padding: "6px 16px 10px", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text)", letterSpacing: "0.03em" }}>{shortenAddress(wallet)}</div>
+                  {walletName && <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>{walletName}</div>}
+                </div>
+                <button role="menuitem" onClick={copyAddress} style={accountMenuItemStyle}>
+                  {copied ? "Copied!" : "Copy address"}
+                </button>
+                <a
+                  role="menuitem"
+                  href={`https://etherscan.io/address/${wallet}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setAccountOpen(false)}
+                  style={{ ...accountMenuItemStyle, display: "block", textDecoration: "none" }}
+                >
+                  View on Etherscan
+                </a>
+                <button
+                  role="menuitem"
+                  onClick={() => { setAccountOpen(false); setWallet(); }}
+                  style={{ ...accountMenuItemStyle, color: "var(--red, #f87171)" }}
+                >
+                  Disconnect
+                </button>
+              </div>
+            </>,
+            document.body
+          )}
         </div>
       </div>
 

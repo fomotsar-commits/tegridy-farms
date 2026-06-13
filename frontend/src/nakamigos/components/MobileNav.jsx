@@ -79,6 +79,7 @@ export default function MobileNav({ tab, onTabChange }) {
               <button
                 key={t.key}
                 onClick={() => handleTab(t.key)}
+                aria-current={tab === t.key ? "page" : undefined}
                 style={{
                   padding: "12px 8px",
                   borderRadius: 10,
@@ -140,6 +141,7 @@ export default function MobileNav({ tab, onTabChange }) {
             <button
               key={t.key}
               onClick={() => handleTab(t.key)}
+              aria-current={tab === t.key ? "page" : undefined}
               style={{
                 display: "flex",
                 flexDirection: "column",

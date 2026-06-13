@@ -116,7 +116,7 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
   const loadedCount = allTokens?.length || tokens.length;
 
   return (
-    <section style={{ position: "relative", zIndex: 1, maxWidth: 1440, margin: "0 auto" }}>
+    <section data-tour="gallery" style={{ position: "relative", zIndex: 1, maxWidth: 1440, margin: "0 auto" }}>
       {/* Toolbar */}
       <div className="toolbar">
         <MobileFilterButton
