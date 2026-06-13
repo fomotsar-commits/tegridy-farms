@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
-import { parseEther, formatEther, type Address } from 'viem';
+import { formatEther, type Address } from 'viem';
 import { m, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -11,6 +11,7 @@ import {
   isDeployed,
 } from '../../lib/constants';
 import { TEGRIDY_LENDING_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
+import { safeParseEther } from '../../lib/safeParseEther';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
 import { pageArt, artStyle, type ArtPiece } from '../../lib/artConfig';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
@@ -165,7 +166,7 @@ function computeLTV(principal: bigint, positionValueEth: number): { ratio: numbe
   }
   const principalEth = parseFloat(formatEther(principal));
   const ratio = (principalEth / positionValueEth) * 100;
-  if (ratio < 50) return { ratio, color: 'text-black' };
+  if (ratio < 50) return { ratio, color: 'text-emerald-400' };
   if (ratio < 75) return { ratio, color: 'text-yellow-400' };
   return { ratio, color: 'text-red-400' };
 }
@@ -246,7 +247,7 @@ export function SkeletonLayout() {
 // ─── Status Badge ───────────────────────────────────────────────
 const STATUS_COLORS: Record<LoanStatus, { bg: string; text: string; dot: string }> = {
   active: { bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400' },
-  repaid: { bg: 'bg-emerald-500/30', text: 'text-black', dot: 'bg-emerald-400' },
+  repaid: { bg: 'bg-emerald-500/30', text: 'text-emerald-400', dot: 'bg-emerald-400' },
   overdue: { bg: 'bg-orange-500/10', text: 'text-orange-400', dot: 'bg-orange-400' },
   defaulted: { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-400' },
 };
@@ -307,7 +308,7 @@ function EmptyState({
     <ArtPanel art={art} opacity={1} overlay="none">
       <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
         <div className="w-10 h-10 rounded-full bg-purple-500/40 flex items-center justify-center mb-4">
-          <svg className="w-5 h-5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <svg className="w-5 h-5 text-purple-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
         </div>
@@ -448,7 +449,9 @@ export function ComingSoonState() {
 // STATS BAR
 // ═══════════════════════════════════════════════════════════════════
 function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[] }) {
-  const offerCountNum = allOffers.length;
+  // F264: the "Total Offers" tooltip claims "active loan offers available for
+  // borrowers" — count only active offers so the number matches the label.
+  const offerCountNum = allOffers.filter((o) => o.active).length;
   const activeLoansCount = allLoans.filter((l) => {
     const s = getLoanStatus(l);
     return s === 'active' || s === 'overdue';
@@ -458,6 +461,9 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'protocolFeeBps',
+    // F255: TEGRIDY_LENDING_ADDRESS is zeroed pre-deploy — without this gate the
+    // eth_call to 0x0 returns '0x', decode fails, and react-query retries on loop.
+    query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
   });
 
   // TVL = sum of principal from active offers + outstanding loan principal
@@ -714,6 +720,15 @@ function LendTab({ deployed }: { deployed: boolean }) {
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
+  // F268: the protocol fee is taken from the lender's interest (per the StatsBar
+  // tooltip), so the earnings preview must net it out rather than show gross.
+  const { data: protocolFeeBps } = useReadContract({
+    address: TEGRIDY_LENDING_ADDRESS as Address,
+    abi: TEGRIDY_LENDING_ABI,
+    functionName: 'protocolFeeBps',
+    query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
+  });
+
   useEffect(() => {
     if (isSuccess) {
       toast.success('Loan offer created successfully');
@@ -725,13 +740,16 @@ function LendTab({ deployed }: { deployed: boolean }) {
   }, [isSuccess]);
 
   const aprPercent = aprBps ? (parseFloat(aprBps) / 100).toFixed(2) : '0.00';
+  const feeFraction = protocolFeeBps !== undefined ? Number(protocolFeeBps) / 10000 : 0;
   const estimatedEarnings = useMemo(() => {
     if (!principal || !aprBps || !durationDays) return '0.0000';
     const p = parseFloat(principal);
     const rate = parseFloat(aprBps) / 10000;
     const years = durationDays / 365;
-    return formatTokenAmount(p * rate * years);
-  }, [principal, aprBps, durationDays]);
+    const gross = p * rate * years;
+    // F268: net the advertised protocol fee out of the preview earnings.
+    return formatTokenAmount(gross * (1 - feeFraction));
+  }, [principal, aprBps, durationDays, feeFraction]);
 
   const handleCreate = useCallback(() => {
     // AUDIT FIX M-8: refuse on wrong chain — createLoanOffer would burn the
@@ -745,9 +763,25 @@ function LendTab({ deployed }: { deployed: boolean }) {
       toast.error('Fill all fields');
       return;
     }
-    const principalWei = parseEther(principal);
+    // F267: route raw conversions through safeParseEther so a number-input value
+    // like '1e-19' or '1.' surfaces a toast instead of throwing in the handler.
+    const principalWei = safeParseEther(principal);
+    if (principalWei === null) {
+      toast.error('Enter a valid principal amount');
+      return;
+    }
     if (principalWei <= 0n) {
       toast.error('Principal must be greater than zero');
+      return;
+    }
+    const minCollateralWei = safeParseEther(minCollateral);
+    if (minCollateralWei === null) {
+      toast.error('Enter a valid minimum collateral amount');
+      return;
+    }
+    const minCollateralEthWei = safeParseEther(minCollateralETH || '0');
+    if (minCollateralEthWei === null) {
+      toast.error('Enter a valid minimum collateral ETH value');
       return;
     }
     const aprBpsNum = parseInt(aprBps, 10);
@@ -764,9 +798,9 @@ function LendTab({ deployed }: { deployed: boolean }) {
         BigInt(aprBpsNum),
         BigInt(durationDays * 86400),
         TEGRIDY_STAKING_ADDRESS as Address,
-        parseEther(minCollateral),
+        minCollateralWei,
         // Optional ETH floor (AUDIT critique 5.4) — 0 means the check is skipped.
-        parseEther(minCollateralETH || '0'),
+        minCollateralEthWei,
       ],
       value: principalWei,
     }, {
@@ -821,7 +855,7 @@ function LendTab({ deployed }: { deployed: boolean }) {
               step="1"
               className="flex-1 bg-transparent font-mono text-[16px] text-white outline-none px-0 py-2.5 border-b border-white/10 focus:border-purple-400/40 transition-colors duration-300"
             />
-            <span className="text-black font-mono text-sm whitespace-nowrap">
+            <span className="text-emerald-400 font-mono text-sm whitespace-nowrap">
               = {aprPercent}%
             </span>
           </div>
@@ -899,10 +933,13 @@ function LendTab({ deployed }: { deployed: boolean }) {
           style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.1)' }}
         >
           <div className="text-[11px] uppercase tracking-wider label-pill text-white mb-0.5">Estimated Earnings</div>
-          <div className="font-mono text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {estimatedEarnings} ETH
             <span className="text-white text-sm ml-2">over {durationDays} days</span>
           </div>
+          {feeFraction > 0 && (
+            <div className="text-[10px] text-white/60 mt-0.5">Net of {(feeFraction * 100).toFixed(1)}% protocol fee (full-term estimate)</div>
+          )}
         </div>
 
         {/* Transaction Summary */}
@@ -1046,7 +1083,12 @@ function OfferRow({
   // AUDIT R011 (HIGH-049-1): typed accessor + ETH conversion for LTV.
   const parsed = parsePosition(position);
   const positionAmount = parsed ? formatEther(parsed.toweliAmount) : '0';
-  const { priceInEth } = useTOWELIPrice();
+  // F260: when the TOWELI/ETH pool is empty (the current live state) the price
+  // context flags priceUnavailable/oracleStale. Without checking these, Position
+  // Value renders "0 ETH" and LTV "0.0%" — reading as zero-risk instead of
+  // "price unavailable".
+  const { priceInEth, priceUnavailable, oracleStale } = useTOWELIPrice();
+  const priceUsable = !priceUnavailable && !oracleStale;
   const positionEthValue = useMemo(() => {
     if (!parsed) return 0;
     const toweliFloat = parseFloat(formatEther(parsed.toweliAmount));
@@ -1067,7 +1109,7 @@ function OfferRow({
       <td className="py-3 pr-4 font-mono text-white text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
         {formatTokenAmount(formatEther(offer.principal))} ETH
       </td>
-      <td className="py-3 pr-4 font-mono text-black text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <td className="py-3 pr-4 font-mono text-emerald-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
         {bpsToPercent(offer.aprBps)}%
       </td>
       <td className="py-3 pr-4 text-white text-sm">{daysFromSeconds(offer.duration)}d</td>
@@ -1123,7 +1165,7 @@ function OfferRow({
             </div>
             <div>
               <span className="text-[10px] uppercase tracking-wider label-pill text-white">APR</span>
-              <div className="font-mono text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <div className="font-mono text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {bpsToPercent(offer.aprBps)}%
               </div>
             </div>
@@ -1188,37 +1230,45 @@ function OfferRow({
                             <InfoTooltip text="ETH-equivalent of your TOWELI collateral, computed from the live TOWELI/ETH spot price. LTV is calculated against this number." />
                           </span>
                           <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {positionEthValue > 0 ? positionEthValue.toFixed(6) : '0'} ETH
+                            {priceUsable
+                              ? `${positionEthValue > 0 ? positionEthValue.toFixed(6) : '0'} ETH`
+                              : <span className="text-amber-400/80 text-[13px]">price unavailable</span>}
                           </div>
                         </div>
                         <div>
                           <span className="text-[11px] uppercase tracking-wider label-pill text-white">Loan Amount</span>
-                          <div className="font-mono text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          <div className="font-mono text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatTokenAmount(formatEther(offer.principal))} ETH
                           </div>
                         </div>
                         <div>
                           <span className="text-[11px] uppercase tracking-wider label-pill text-white flex items-center gap-1">LTV Ratio <InfoTooltip text="Loan-to-Value ratio — your loan amount divided by your collateral value. Lower LTV is safer. Above 75% is high risk." /></span>
-                          <div className={`font-mono ${ltv.color}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {ltv.ratio.toFixed(1)}%
-                            {ltv.ratio >= 75 && (
-                              <span className="ml-1.5 text-[10px] text-red-400/80 uppercase">High Risk</span>
-                            )}
-                          </div>
+                          {priceUsable ? (
+                            <div className={`font-mono ${ltv.color}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {ltv.ratio.toFixed(1)}%
+                              {ltv.ratio >= 75 && (
+                                <span className="ml-1.5 text-[10px] text-red-400/80 uppercase">High Risk</span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="font-mono text-amber-400/80 text-[13px]">unavailable</div>
+                          )}
                         </div>
                       </div>
 
-                      {/* LTV bar */}
-                      <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${Math.min(ltv.ratio, 100)}%`,
-                            background: ltv.ratio < 50 ? '#34d399' : ltv.ratio < 75 ? '#facc15' : '#ef4444',
-                            transitionTimingFunction: `cubic-bezier(${EASE.join(',')})`,
-                          }}
-                        />
-                      </div>
+                      {/* LTV bar — suppressed when the TOWELI price is unavailable (F260) */}
+                      {priceUsable && (
+                        <div className="w-full h-1.5 rounded-full bg-black/60 overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${Math.min(ltv.ratio, 100)}%`,
+                              background: ltv.ratio < 50 ? '#34d399' : ltv.ratio < 75 ? '#facc15' : '#ef4444',
+                              transitionTimingFunction: `cubic-bezier(${EASE.join(',')})`,
+                            }}
+                          />
+                        </div>
+                      )}
 
                       {/* Total Repayment Preview */}
                       {(() => {
@@ -1444,15 +1494,18 @@ function PnlSummaryCard({
     <ArtPanel art={pageArt('lending-section', 11)} opacity={1} overlay="none">
       <div className="p-5">
         <div className="flex items-center gap-2 mb-4">
-          <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
           </svg>
           <span className="text-[11px] uppercase tracking-wider label-pill text-white font-medium">P&L Summary</span>
+          {/* F268: interest is computed over the full term (deadline − startTime),
+              not realized pro-rata, so flag these as max estimates. */}
+          <InfoTooltip text="Interest figures are full-term (maximum) estimates computed before the protocol fee. Early repayments accrue less pro-rata interest." />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <div>
             <span className="text-[10px] uppercase tracking-wider label-pill text-white block mb-1">Interest Earned</span>
-            <div className="font-mono text-black text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <div className="font-mono text-emerald-400 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>
               +{formatTokenAmount(interestEarned)} ETH
             </div>
           </div>
@@ -1465,7 +1518,7 @@ function PnlSummaryCard({
           <div>
             <span className="text-[10px] uppercase tracking-wider label-pill text-white block mb-1">Net PnL</span>
             <div
-              className={`font-mono text-sm ${netPnl >= 0 ? 'text-black' : 'text-red-400'}`}
+              className={`font-mono text-sm ${netPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
               style={{ fontVariantNumeric: 'tabular-nums' }}
             >
               {netPnl >= 0 ? '+' : ''}{formatTokenAmount(netPnl)} ETH
@@ -1598,7 +1651,7 @@ function LoanRow({
         <span className="font-mono text-sm text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {formatTokenAmount(formatEther(loan.principal))} ETH
         </span>
-        <span className="font-mono text-sm text-black" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <span className="font-mono text-sm text-emerald-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {bpsToPercent(loan.aprBps)}%
         </span>
         <span className="text-sm text-white">NFT #{Number(loan.tokenId)}</span>
@@ -1639,7 +1692,11 @@ function LoanRow({
             </button>
           </DisabledWrap>
         )}
-        {role === 'lender' && (defaulted || status === 'overdue') && !loan.defaultClaimed && (
+        {/* F254: only enable Claim once the contract reports the loan as
+            defaulted. While overdue-but-in-grace (defaulted=false) the on-chain
+            claimDefaultedCollateral would revert, so show a disabled grace badge
+            rather than a button that fails when clicked. */}
+        {role === 'lender' && defaulted === true && !loan.defaultClaimed && (
           <DisabledWrap deployed={deployed}>
             <button
               onClick={handleClaim}
@@ -1649,6 +1706,11 @@ function LoanRow({
               {claimLoading ? 'Claiming...' : 'Claim Collateral'}
             </button>
           </DisabledWrap>
+        )}
+        {role === 'lender' && status === 'overdue' && defaulted !== true && !loan.defaultClaimed && (
+          <span className="px-4 py-1.5 rounded-lg text-xs font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20 cursor-not-allowed">
+            Grace period — claimable once defaulted
+          </span>
         )}
       </div>
     </m.div>
@@ -1746,6 +1808,8 @@ function useAllOffers() {
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'offerCount',
+    // F255: gate the read while the lending contract is zeroed (pre-deploy).
+    query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
   });
 
   const count = offerCount ? Number(offerCount) : 0;
@@ -1797,6 +1861,8 @@ function useAllLoans() {
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'loanCount',
+    // F255: gate the read while the lending contract is zeroed (pre-deploy).
+    query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
   });
 
   const count = loanCount ? Number(loanCount) : 0;

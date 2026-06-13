@@ -157,7 +157,7 @@ export function NFTLendingSection() {
       >
         {[
           { label: 'Total Offers', value: offerCount.toString(), tooltip: 'Number of active loan offers available for borrowers', art: pageArt('nft-lending', 0) },
-          { label: 'Active Loans', value: loanCount.toString(), tooltip: 'Loans currently outstanding with locked NFT collateral', art: pageArt('nft-lending', 1) },
+          { label: 'Total Loans', value: loanCount.toString(), tooltip: 'All loans ever created in this market, including repaid and defaulted', art: pageArt('nft-lending', 1) },
           { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%`, tooltip: 'Fee taken from interest earned by lenders, paid to the protocol treasury', art: pageArt('nft-lending', 2) },
           { label: 'Collections', value: COLLECTIONS.length.toString(), tooltip: `Supported collections: ${COLLECTIONS.map(c => c.symbol).join(', ')}`, art: pageArt('nft-lending', 3) },
         ].map((s) => (
@@ -945,7 +945,10 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
     functionName: 'getRepaymentAmount',
     args: [BigInt(loan.id)],
     query: {
-      enabled: isBorrower && status === 'active',
+      // F253: keep the quote live through the on-chain grace period (overdue)
+      // so a borrower seconds past the deadline can still repay — mirrors
+      // LendingSection's (active || overdue) gate.
+      enabled: isBorrower && (status === 'active' || status === 'overdue'),
       refetchInterval: 12_000,
       refetchOnWindowFocus: true,
     },
@@ -1078,7 +1081,7 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
       )}
 
       {/* Repayment Amount */}
-      {isBorrower && status === 'active' && repaymentData && (
+      {isBorrower && (status === 'active' || status === 'overdue') && repaymentData && (
         <div className="rounded-lg p-2 text-center" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
           <p className="text-white/70 text-[11px]">Repayment Amount</p>
           <p className="text-emerald-400 text-[13px] font-semibold">
@@ -1087,8 +1090,8 @@ function LoanCard({ loan, userAddress }: { loan: LoanData & { id: number }; user
         </div>
       )}
 
-      {/* Actions */}
-      {isBorrower && status === 'active' && (
+      {/* Actions — F253: repay stays available through the grace period (overdue) */}
+      {isBorrower && (status === 'active' || status === 'overdue') && (
         <button
           onClick={handleRepay}
           disabled={repaying || repayConfirming}
