@@ -1,21 +1,27 @@
 import { useState } from 'react';
 import { m } from 'framer-motion';
-import { useAccount, useChainId } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { usePremiumAccess } from '../hooks/usePremiumAccess';
 import { useRevenueStats } from '../hooks/useRevenueStats';
-import { PREMIUM_ACCESS_ADDRESS, isDeployed } from '../lib/constants';
+import { PREMIUM_ACCESS_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 
+// F375: the PremiumAccess contract charges monthlyFee × months with NO discount
+// (subscribe() = `monthlyFeeToweli * months`), and the hook approves/passes the
+// full undiscounted cost. Advertising -10/-20/-30% here would show a discounted
+// total while the wallet approval + on-chain charge are full, and let canAfford
+// pass then revert on transferFrom. Until discounts exist contract-side, keep
+// all discounts at 0 so the displayed total always equals the actual charge.
 const PLANS = [
   { months: 1, label: '1 Month', discount: 0 },
-  { months: 3, label: '3 Months', discount: 10 },
-  { months: 6, label: '6 Months', discount: 20 },
-  { months: 12, label: '1 Year', discount: 30 },
+  { months: 3, label: '3 Months', discount: 0 },
+  { months: 6, label: '6 Months', discount: 0 },
+  { months: 12, label: '1 Year', discount: 0 },
 ];
 
 const ACTIVE_BENEFITS = [
@@ -37,10 +43,11 @@ function Skeleton({ className = '' }: { className?: string }) {
 
 /* Block explorer tx link */
 function TxLink({ hash }: { hash: string }) {
-  const chainId = useChainId();
+  // F390: revenue/claim txs are mainnet — pin the canonical chain so the link
+  // never resolves to a wrong-chain explorer when the wallet is elsewhere.
   return (
     <a
-      href={getTxUrl(chainId, hash)}
+      href={getTxUrl(CHAIN_ID, hash)}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex items-center gap-1 text-[12px] font-mono hover:underline"
@@ -483,7 +490,7 @@ export default function PremiumPage() {
         {/* Contract Link */}
         <div className="text-center">
           <a href={`https://etherscan.io/address/${PREMIUM_ACCESS_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-            className="text-white text-[11px] hover:text-white transition-colors font-mono">
+            className="text-white/70 text-[11px] hover:text-white transition-colors font-mono">
             Contract: {PREMIUM_ACCESS_ADDRESS.slice(0, 6)}...{PREMIUM_ACCESS_ADDRESS.slice(-4)} &#8599;
           </a>
         </div>

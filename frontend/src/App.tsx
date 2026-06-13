@@ -131,12 +131,30 @@ function NotFoundPage() {
 // restoration can return the user to their previous reading position; PUSH/REPLACE
 // navigations still scroll to top.
 function ScrollToTop() {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   const navType = useNavigationType();
   useEffect(() => {
     if (navType === 'POP') return;
+    // F397: honor #section deep-links instead of always jumping to the top.
+    // The native browser hash-scroll fires before Suspense + entrance
+    // animations mount the target, so it no-ops; re-run it on the next frame
+    // (and a short follow-up) once the content has had a chance to settle.
+    if (hash) {
+      const id = decodeURIComponent(hash.slice(1));
+      let raf2 = 0;
+      const scrollToTarget = () => document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      const raf1 = requestAnimationFrame(() => {
+        scrollToTarget();
+        // Second pass after lazy/animated content has likely mounted.
+        raf2 = window.setTimeout(scrollToTarget, 120) as unknown as number;
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        if (raf2) clearTimeout(raf2);
+      };
+    }
     window.scrollTo(0, 0);
-  }, [pathname, navType]);
+  }, [pathname, hash, navType]);
   return null;
 }
 

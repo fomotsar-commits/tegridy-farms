@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { m } from 'framer-motion';
-import { useBalance, useBlockNumber, useChainId, useReadContract } from 'wagmi';
+import { useBalance, useBlockNumber, useReadContract } from 'wagmi';
 import { formatEther } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoolTVL } from '../hooks/usePoolTVL';
@@ -10,6 +10,7 @@ import {
   POL_ACCUMULATOR_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS,
   TOWELI_WETH_LP_ADDRESS,
+  CHAIN_ID,
 } from '../lib/constants';
 import { SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { shortenAddress, formatTimeAgo } from '../lib/formatting';
@@ -45,11 +46,14 @@ const ERC20_BAL_ABI = [
   { type: 'function', name: 'balanceOf', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
-function formatUsd(n: number): string {
+// F451: distinguish "no data yet / read failed" (undefined → "–") from a
+// successful read of zero (0 → "$0.00"). Previously a real zero rendered "–",
+// which read as a failed load and disagreed with sibling cells.
+function formatUsd(n: number | undefined): string {
+  if (n === undefined) return '–';
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  if (n > 0) return `$${n.toFixed(2)}`;
-  return '–';
+  return `$${n.toFixed(2)}`;
 }
 
 function formatEth(wei: bigint): string {
@@ -81,12 +85,17 @@ function SourceLink({ chainId, address, label }: { chainId: number | undefined; 
 export default function TreasuryPage() {
   usePageTitle('Treasury', 'On-chain Tegridy Farms treasury holdings and protocol revenue flows.');
 
-  const chainId = useChainId();
+  // F390: all reads on this page are mainnet (treasury balance, fee router,
+  // /api/etherscan feed) — pin the canonical chain so explorer links never
+  // resolve to a wrong-chain explorer when the wallet is on another network.
+  const chainId = CHAIN_ID;
   const price = useTOWELIPrice();
   const pool = usePoolTVL();
   // R070: every reading on this page is "as of block N" — surface the latest
-  // block so a user can verify or pin a snapshot. `watch:true` keeps it live.
-  const { data: latestBlock } = useBlockNumber({ watch: true });
+  // block so a user can verify or pin a snapshot.
+  // F404: poll on the same 60s cadence as the data reads instead of holding a
+  // per-block (~12s) subscription just to render one caption line.
+  const { data: latestBlock } = useBlockNumber({ query: { refetchInterval: 60_000 } });
 
   // Treasury ETH balance
   const { data: treasuryBal } = useBalance({
@@ -157,18 +166,21 @@ export default function TreasuryPage() {
     { label: 'Treasury', bps: treasuryBps, color: SPLIT_COLORS.treasury },
   ];
 
-  const lifetimeFeesEth = totalFeesWei ? parseFloat(formatEther(totalFeesWei as bigint)) : 0;
-  const lifetimeFeesUsd = lifetimeFeesEth * (price.ethUsd || 0);
+  // F451: keep the underlying read's loaded/undefined state distinct so a
+  // successful zero shows "$0.00"/"0 ETH" and only a pending/failed read shows
+  // "–". `totalFeesWei`/`treasuryBal` are undefined until their read resolves.
+  const lifetimeFeesEth = totalFeesWei !== undefined ? parseFloat(formatEther(totalFeesWei as bigint)) : 0;
+  const lifetimeFeesUsd = totalFeesWei !== undefined ? lifetimeFeesEth * (price.ethUsd || 0) : undefined;
 
   const treasuryEthFormatted = treasuryBal ? formatEth(treasuryBal.value) : '–';
-  const treasuryUsd = treasuryBal ? parseFloat(formatEther(treasuryBal.value)) * (price.ethUsd || 0) : 0;
+  const treasuryUsd = treasuryBal ? parseFloat(formatEther(treasuryBal.value)) * (price.ethUsd || 0) : undefined;
 
   // POL LP value estimate: share of pool TVL owned by accumulator
   const polShare = useMemo(() => {
     if (!polLpBal || !pool.lpSupply || pool.lpSupply === 0n) return 0;
     return Number(polLpBal as bigint) / Number(pool.lpSupply);
   }, [polLpBal, pool.lpSupply]);
-  const polUsd = polShare * pool.tvl;
+  const polUsd = polLpBal !== undefined ? polShare * pool.tvl : undefined;
 
   const stats: { label: string; value: string; sub: string; idx: number }[] = [
     { label: 'Total Value Locked', value: pool.tvlFormatted, sub: 'TOWELI/WETH pool', idx: 1 },

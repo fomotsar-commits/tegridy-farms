@@ -10,8 +10,21 @@ import {
   SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS,
   TEGRIDY_RESTAKING_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS,
+  VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS,
+  TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, isDeployed,
 } from './constants';
+
+// F382: the set of protocol contracts the history feed tracks. Live contracts
+// only (zeroed/undeployed addresses are dropped so an undeployed feature's 0x0
+// never collides with a real `to`). Single source of truth for the fetch filter
+// + the footer's "all protocol contracts" claim.
+export const HISTORY_CONTRACTS: string[] = [
+  SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS,
+  TEGRIDY_RESTAKING_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
+  COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
+  VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS, TEGRIDY_LP_ADDRESS,
+  TOWELI_ADDRESS,
+].filter(isDeployed).map((a) => a.toLowerCase());
 
 const HEX_HASH = /^0x[a-fA-F0-9]{64}$/;
 const HEX_ADDR = /^0x[a-fA-F0-9]{40}$/;
@@ -79,10 +92,27 @@ export function categorizeTx(tx: TxRecord): { type: string; color: string } {
   const fn = tx.functionName?.split('(')[0] || '';
   const to = tx.to.toLowerCase();
 
-  // Swap routers
-  if (to === SWAP_FEE_ROUTER_ADDRESS.toLowerCase() || to === UNISWAP_V2_ROUTER.toLowerCase()) {
+  // Swap routers (native SwapFeeRouter, Uniswap V2, and the native Tegridy router)
+  if (
+    to === SWAP_FEE_ROUTER_ADDRESS.toLowerCase() ||
+    to === UNISWAP_V2_ROUTER.toLowerCase() ||
+    (isDeployed(TEGRIDY_ROUTER_ADDRESS) && to === TEGRIDY_ROUTER_ADDRESS.toLowerCase())
+  ) {
     if (fn.includes('swap') || fn.includes('Swap')) return { type: 'Swap', color: 'text-white' };
+    if (fn.includes('Liquidity')) return { type: 'Liquidity', color: 'text-white' };
     return { type: 'Router', color: 'text-white' };
+  }
+  // LP Farming (Synthetix-style boosted LP staking)
+  if (isDeployed(LP_FARMING_ADDRESS) && to === LP_FARMING_ADDRESS.toLowerCase()) {
+    if (fn === 'stake') return { type: 'Stake LP', color: 'text-success' };
+    if (fn === 'withdraw') return { type: 'Unstake LP', color: 'text-warning' };
+    if (fn === 'getReward' || fn === 'claimReward') return { type: 'Claim', color: 'text-white' };
+    return { type: 'Farm', color: 'text-white' };
+  }
+  // Native LP token (TOWELI/WETH pair) — direct transfers / approvals
+  if (isDeployed(TEGRIDY_LP_ADDRESS) && to === TEGRIDY_LP_ADDRESS.toLowerCase()) {
+    if (fn === 'approve') return { type: 'Approve', color: 'text-white' };
+    return { type: 'LP', color: 'text-white' };
   }
   // Staking
   if (to === TEGRIDY_STAKING_ADDRESS.toLowerCase()) {

@@ -1,81 +1,19 @@
-import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
+import { Fragment, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { m } from 'framer-motion';
-import { useAccount, useChainId } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { z } from 'zod';
 import { getTxUrl, getAddressUrl } from '../lib/explorer';
+import { CHAIN_ID } from '../lib/constants';
+// F383: import the shared, schema-validated history helpers instead of keeping
+// a diverging inline copy. lib/txHistory is the single validated path for both
+// HistoryPage and the Treasury activity feed.
 import {
-  TEGRIDY_STAKING_ADDRESS, TEGRIDY_RESTAKING_ADDRESS, UNISWAP_V2_ROUTER,
-  SWAP_FEE_ROUTER_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
-  TOWELI_ADDRESS, VOTE_INCENTIVES_ADDRESS,
-} from '../lib/constants';
+  type TxRecord, parseTxRecords, formatGasEth, categorizeTx, HISTORY_CONTRACTS,
+} from '../lib/txHistory';
 import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
-
-// R040 H1: zod schema for any externally-controlled JSON crossing the wire.
-// Replaces the typeof-only guard which let a poisoned proxy response slip
-// non-conforming `tx.hash` through to a clickable href. Each field carries a
-// regex (or bounded transform) so the parsed record is safe to render.
-const HEX_HASH = /^0x[a-fA-F0-9]{64}$/;
-const HEX_ADDR = /^0x[a-fA-F0-9]{40}$/;
-const DEC_DIGITS = /^\d+$/;
-
-const TxRecordSchema = z.object({
-  hash: z.string().regex(HEX_HASH),
-  to: z.string().regex(HEX_ADDR),
-  // Etherscan returns timeStamp as a digit-string, but other indexers may use
-  // numbers — accept both then normalise to a string of digits.
-  timeStamp: z.union([z.string().regex(DEC_DIGITS), z.number().int().nonnegative()])
-    .transform((v) => String(v)),
-  // value is a decimal-string wei amount.
-  value: z.string().regex(DEC_DIGITS).default('0'),
-  functionName: z.string().max(256).default(''),
-  isError: z.string().max(2).default('0'),
-  // Optional gas fields — bounded strings when present.
-  gasUsed: z.string().regex(DEC_DIGITS).max(20).optional(),
-  gasPrice: z.string().regex(DEC_DIGITS).max(32).optional(),
-});
-
-type TxRecord = z.infer<typeof TxRecordSchema>;
-
-/**
- * Parse a raw indexer response into a list of validated TxRecords. Every
- * entry runs through `safeParse`; failures are dropped silently so a single
- * malformed row can't break the page. Never throws.
- */
-function parseTxRecords(input: unknown): TxRecord[] {
-  if (!Array.isArray(input)) return [];
-  const out: TxRecord[] = [];
-  for (const raw of input) {
-    const parsed = TxRecordSchema.safeParse(raw);
-    if (parsed.success) out.push(parsed.data);
-  }
-  return out;
-}
-
-// Compute gas cost in ETH from decimal-string gasUsed * gasPrice (wei).
-// Returns empty string if either field is missing / malformed so the UI can
-// render "—" without special-casing. 6 decimals is enough to see sub-cent
-// tx costs without taking up a column worth of real estate.
-function formatGasEth(gasUsed?: string, gasPrice?: string): string {
-  if (!gasUsed || !gasPrice) return '';
-  try {
-    const cost = BigInt(gasUsed) * BigInt(gasPrice);
-    if (cost === 0n) return '';
-    // Convert wei → ETH with 6-decimal precision, no float precision loss.
-    const whole = cost / 1_000_000_000_000_000_000n;
-    const micro = (cost / 1_000_000_000_000n) % 1_000_000n;
-    const wholeStr = whole.toString();
-    const microStr = micro.toString().padStart(6, '0');
-    const trimmed = (wholeStr + '.' + microStr).replace(/\.?0+$/, '') || '0';
-    return trimmed;
-  } catch {
-    return '';
-  }
-}
 
 // Group by local calendar day. Returns stable sections in input order with
 // the first tx's date used for the label; "Today" / "Yesterday" are promoted
@@ -95,80 +33,13 @@ function dayLabel(unixSec: number, now: number = Date.now()): string {
   });
 }
 
-function categorizeTx(tx: TxRecord): { type: string; color: string } {
-  const fn = tx.functionName?.split('(')[0] || '';
-  const to = tx.to.toLowerCase();
-
-  // Swap routers
-  if (to === SWAP_FEE_ROUTER_ADDRESS.toLowerCase() || to === UNISWAP_V2_ROUTER.toLowerCase()) {
-    if (fn.includes('swap') || fn.includes('Swap')) return { type: 'Swap', color: 'text-white' };
-    return { type: 'Router', color: 'text-white' };
-  }
-  // Staking
-  if (to === TEGRIDY_STAKING_ADDRESS.toLowerCase()) {
-    if (fn === 'stake') return { type: 'Stake', color: 'text-success' };
-    if (fn === 'withdraw') return { type: 'Unstake', color: 'text-warning' };
-    if (fn === 'getReward') return { type: 'Claim', color: 'text-white' };
-    if (fn === 'earlyWithdraw') return { type: 'Early Exit', color: 'text-danger' };
-    if (fn === 'toggleAutoMaxLock') return { type: 'Auto-Lock', color: 'text-white' };
-    return { type: 'Farm', color: 'text-white' };
-  }
-  // Restaking
-  if (to === TEGRIDY_RESTAKING_ADDRESS.toLowerCase()) {
-    if (fn === 'restake') return { type: 'Restake', color: 'text-success' };
-    if (fn === 'unrestake') return { type: 'Unrestake', color: 'text-warning' };
-    if (fn === 'claimAll') return { type: 'Claim', color: 'text-white' };
-    return { type: 'Restake', color: 'text-white' };
-  }
-  // Revenue & Referrals
-  if (to === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase()) {
-    if (fn === 'register') return { type: 'Register', color: 'text-success' };
-    if (fn === 'claim') return { type: 'Revenue', color: 'text-white' };
-    return { type: 'Revenue', color: 'text-white' };
-  }
-  if (to === REFERRAL_SPLITTER_ADDRESS.toLowerCase()) {
-    if (fn === 'claimReferralRewards') return { type: 'Referral', color: 'text-white' };
-    if (fn === 'setReferrer') return { type: 'Referral', color: 'text-success' };
-    return { type: 'Referral', color: 'text-white' };
-  }
-  // Governance
-  if (to === COMMUNITY_GRANTS_ADDRESS.toLowerCase()) {
-    if (fn === 'createProposal') return { type: 'Proposal', color: 'text-white' };
-    if (fn === 'voteOnProposal') return { type: 'Vote', color: 'text-success' };
-    if (fn === 'finalizeProposal') return { type: 'Finalize', color: 'text-warning' };
-    return { type: 'Grants', color: 'text-white' };
-  }
-  // Bounties
-  if (to === MEME_BOUNTY_BOARD_ADDRESS.toLowerCase()) {
-    if (fn === 'createBounty') return { type: 'Bounty', color: 'text-white' };
-    if (fn === 'submitWork') return { type: 'Submit', color: 'text-success' };
-    if (fn === 'voteForSubmission') return { type: 'Vote', color: 'text-success' };
-    return { type: 'Bounty', color: 'text-white' };
-  }
-  // Premium
-  if (to === PREMIUM_ACCESS_ADDRESS.toLowerCase()) {
-    if (fn === 'subscribe') return { type: 'Subscribe', color: 'text-white' };
-    if (fn === 'claimNFTAccess') return { type: 'NFT Claim', color: 'text-success' };
-    return { type: 'Premium', color: 'text-white' };
-  }
-  // Vote Incentives (Bribes)
-  if (to === VOTE_INCENTIVES_ADDRESS.toLowerCase()) {
-    if (fn === 'depositBribe' || fn === 'depositBribeETH') return { type: 'Bribe', color: 'text-white' };
-    if (fn === 'claimBribes' || fn === 'claimBribesBatch') return { type: 'Claim Bribe', color: 'text-success' };
-    if (fn === 'advanceEpoch') return { type: 'Epoch', color: 'text-white' };
-    return { type: 'Bribes', color: 'text-white' };
-  }
-  // Token approvals
-  if (fn === 'approve') {
-    return { type: 'Approve', color: 'text-white' };
-  }
-  return { type: 'Other', color: 'text-white' };
-}
-
 export default function HistoryPage() {
   usePageTitle('History', 'Your transaction history — swaps, stakes, claims, and on-chain activity.');
   const { isConnected, address } = useAccount();
-  const chainId = useChainId();
+  // F390: tx data comes from the mainnet-only /api/etherscan proxy, so explorer
+  // links must always point at the canonical chain — not the wallet's current
+  // chain (a wallet on Base/Arbitrum would otherwise get dead basescan links).
+  const chainId = CHAIN_ID;
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -198,12 +69,10 @@ export default function HistoryPage() {
 
     setLoading(true);
     setError('');
-    const contracts = [
-      SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS,
-      TEGRIDY_RESTAKING_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
-      COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
-      TOWELI_ADDRESS, VOTE_INCENTIVES_ADDRESS,
-    ].map(a => a.toLowerCase());
+    // F382/F383: single source of truth for the tracked-contract filter (lib),
+    // now including live LP Farming + native Tegridy Router/LP so the footer's
+    // "all protocol contracts" claim holds.
+    const contracts = HISTORY_CONTRACTS;
 
     // SECURITY FIX: Route Etherscan calls through server-side proxy to keep API key hidden.
     // Previously used VITE_ETHERSCAN_API_KEY which was exposed in client-side bundle.
@@ -279,13 +148,23 @@ export default function HistoryPage() {
     return () => controller.abort();
   }, [address, fetchHistory]);
 
-  const handleRetry = useCallback(() => {
+  // F394: track the latest manual (retry / refresh) fetch controller so it can
+  // be aborted on unmount instead of leaking — the effect-driven fetch already
+  // aborts via its own controller, but manual ones previously had no cleanup.
+  const manualControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => manualControllerRef.current?.abort(), []);
+
+  const forceRefetch = useCallback(() => {
     if (!address) return;
     const cacheKey = `tegridy_tx_history_${address}`;
     try { localStorage.removeItem(cacheKey); } catch { /* ignore */ }
+    manualControllerRef.current?.abort();
     const controller = new AbortController();
+    manualControllerRef.current = controller;
     fetchHistory(address, controller.signal, true);
   }, [address, fetchHistory]);
+
+  const handleRetry = forceRefetch;
 
   const categorized = useMemo(() => txs.map(tx => ({
     ...tx,
@@ -390,12 +269,26 @@ export default function HistoryPage() {
               <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">History</h1>
               <p className="text-white text-[14px]">Your recent transactions on Tegridy Farms</p>
             </div>
-            {categorized.length > 0 && (
-              <button onClick={exportCSV} className="btn-primary flex items-center gap-2 px-4 py-2 text-[12px] shrink-0" title="Export transactions as CSV">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Export CSV
+            <div className="flex items-center gap-2 shrink-0">
+              {/* F394: force a fresh fetch (skipCache) so a user who just
+                  transacted isn't stuck on ≤5-min stale cache. */}
+              <button
+                onClick={forceRefetch}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-2 text-[12px] rounded-lg text-white/80 border border-white/15 hover:border-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Refresh transaction history"
+                aria-label="Refresh transaction history"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={loading ? 'animate-spin' : ''}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                Refresh
               </button>
-            )}
+              {categorized.length > 0 && (
+                <button onClick={exportCSV} className="btn-primary flex items-center gap-2 px-4 py-2 text-[12px]" title="Export transactions as CSV">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export CSV
+                </button>
+              )}
+            </div>
           </div>
         </m.div>
 

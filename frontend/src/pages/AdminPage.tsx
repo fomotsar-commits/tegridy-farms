@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useAccount, useChainId, useChains, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
   TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, SWAP_FEE_ROUTER_ADMIN_ADDRESS, PREMIUM_ACCESS_ADDRESS,
-  LP_FARMING_ADDRESS, CHAIN_ID,
+  LP_FARMING_ADDRESS, CHAIN_ID, isDeployed,
 } from '../lib/constants';
 import {
   TEGRIDY_STAKING_ABI, SWAP_FEE_ROUTER_ABI, PREMIUM_ACCESS_ABI, LP_FARMING_ABI,
@@ -53,7 +54,7 @@ function ContractCard({ name, address, explorerBaseUrl, items }: ContractCardPro
           href={`${explorerBaseUrl}/address/${address}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-white hover:text-white transition-colors font-mono"
+          className="text-xs text-white/70 hover:text-white transition-colors font-mono"
         >
           {shortenAddress(address)}
         </a>
@@ -73,26 +74,65 @@ function ContractCard({ name, address, explorerBaseUrl, items }: ContractCardPro
   );
 }
 
+// F376: card for a contract that isn't part of the current deployment — mirrors
+// the ContractsPage "pending deploy" treatment instead of surfacing a 0x0
+// Etherscan link and perpetual "..." reads.
+function PendingDeployCard({ name }: { name: string }) {
+  return (
+    <div className="glass-card p-6 rounded-2xl space-y-4 opacity-80">
+      <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="heading-luxury text-white text-[20px] tracking-tight">{name}</h2>
+        <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-300">
+          pending deploy
+        </span>
+      </div>
+      <p className="text-sm text-white/70">
+        Not part of the relaunch deployment. This card activates once the contract is deployed and its
+        address is restored in the app.
+      </p>
+    </div>
+  );
+}
+
 function PauseControls({
   isPaused,
   refetchOwner,
+  refetchReads,
 }: {
   isPaused: boolean;
   refetchOwner: () => Promise<unknown>;
+  refetchReads: () => Promise<unknown>;
 }) {
-  const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
+  const { writeContract, data: txHash, isPending: isSigning, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   // R007 Pattern B — fire the toast exactly once per `txHash` going confirmed,
   // no matter how many re-renders see `isSuccess: true`. Reads the dedup ref
   // inside the effect (not render) so React Compiler stays happy.
+  // F384: also refetch the read batch so the ACTIVE/PAUSED pill + Status row
+  // re-read immediately after a pause tx confirms (instead of waiting on a
+  // window-focus refetch).
   const lastSuccessHash = useRef<typeof txHash | null>(null);
   useEffect(() => {
     if (isSuccess && txHash && lastSuccessHash.current !== txHash) {
       lastSuccessHash.current = txHash;
       toast.success(isPaused ? 'Contract unpaused' : 'Contract paused');
+      void refetchReads();
     }
-  }, [isSuccess, txHash, isPaused]);
+  }, [isSuccess, txHash, isPaused, refetchReads]);
+
+  // F384: surface a wallet rejection / gas-estimate failure instead of failing
+  // silently (mirrors usePremiumAccess error toasting). Deduped per error.
+  const lastErrorRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (writeError && lastErrorRef.current !== writeError) {
+      lastErrorRef.current = writeError;
+      const msg = (writeError as { shortMessage?: string; message?: string }).shortMessage
+        || (writeError as { message?: string }).message
+        || 'Transaction failed.';
+      toast.error(msg.split('\n')[0]);
+    }
+  }, [writeError]);
 
   // R069: force a fresh owner() read before firing the write so a mid-session
   // ownership transfer can't slip through the UI. The contract reverts on
@@ -185,7 +225,7 @@ export default function AdminPage() {
   const explorerBaseUrl = canonicalChain?.blockExplorers?.default?.url ?? 'https://etherscan.io';
 
   // Read contract data (only when owner AND on the correct chain)
-  const { data: contractReads, error: contractReadsError } = useReadContracts({
+  const { data: contractReads, error: contractReadsError, refetch: refetchReads } = useReadContracts({
     contracts: [
       // SwapFeeRouter
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' },
@@ -230,12 +270,16 @@ export default function AdminPage() {
   const pendingTreasury = safeString(4);
   const feeRouterItems = [
     { label: 'Current Fee', value: feeBps != null ? `${Number(feeBps)} bps (${(Number(feeBps) / 100).toFixed(2)}%)` : '...' },
-    { label: 'Pending Fee', value: pendingFee != null ? `${Number(pendingFee)} bps` : 'None' },
+    { label: 'Pending Fee', value: pendingFee != null && Number(pendingFee) > 0 ? `${Number(pendingFee)} bps` : 'None' },
     { label: 'Pending Treasury', value: pendingTreasury ? shortenAddress(pendingTreasury) : 'None' },
     { label: 'Total Swaps', value: totalSwaps != null ? formatNumber(Number(totalSwaps), 0) : '...' },
     { label: 'Total ETH Fees', value: totalETHFees != null ? `${Number(formatEther(totalETHFees)).toFixed(4)} ETH` : '...' },
   ];
 
+  // F376: PremiumAccess isn't part of the relaunch deployment (address zeroed).
+  // Gate the card on isDeployed() so it renders a clean "pending deploy" state
+  // instead of three perpetual "..." rows and an Etherscan link to 0x0.
+  const premiumDeployed = isDeployed(PREMIUM_ACCESS_ADDRESS);
   const monthlyFee = safeBigInt(5);
   const totalSubs = safe(6);
   const totalRev = safeBigInt(7);
@@ -271,7 +315,14 @@ export default function AdminPage() {
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
           <div className="glass-card p-8 rounded-2xl text-center max-w-md">
             <h1 className="heading-luxury text-2xl text-white mb-3">Admin Panel</h1>
-            <p className="text-white text-sm">Connect your wallet to access this page.</p>
+            <p className="text-white text-sm mb-5">Connect your wallet to access this page.</p>
+            <ConnectButton.Custom>
+              {({ openConnectModal, mounted }) => (
+                <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
+                  <button onClick={openConnectModal} className="btn-primary px-7 py-2.5 text-[14px]">Connect Wallet</button>
+                </div>
+              )}
+            </ConnectButton.Custom>
           </div>
         </div>
       </div>
@@ -343,7 +394,7 @@ export default function AdminPage() {
           {/* AUDIT ADMIN-SEC: surface current role + chain + wallet so the operator
               always sees exactly which identity is authorized. Stale owner state
               (e.g. after a mid-session transferOwnership) is detected by the
-              30s refetch; Refresh forces it immediately. */}
+              10s refetch; Refresh forces it immediately. */}
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono">
             <span className="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
               OWNER
@@ -379,12 +430,16 @@ export default function AdminPage() {
             explorerBaseUrl={explorerBaseUrl}
             items={feeRouterItems}
           />
-          <ContractCard
-            name="Premium Access"
-            address={PREMIUM_ACCESS_ADDRESS}
-            explorerBaseUrl={explorerBaseUrl}
-            items={premiumItems}
-          />
+          {premiumDeployed ? (
+            <ContractCard
+              name="Premium Access"
+              address={PREMIUM_ACCESS_ADDRESS}
+              explorerBaseUrl={explorerBaseUrl}
+              items={premiumItems}
+            />
+          ) : (
+            <PendingDeployCard name="Premium Access" />
+          )}
           <ContractCard
             name="Tegridy Staking"
             address={TEGRIDY_STAKING_ADDRESS}
@@ -401,7 +456,7 @@ export default function AdminPage() {
 
         {/* Pause Controls — R069: refetchOwner threaded through so the write
             forces a fresh owner() read before signing. */}
-        <PauseControls isPaused={safe(10) === true} refetchOwner={refetchOwner} />
+        <PauseControls isPaused={safe(10) === true} refetchOwner={refetchOwner} refetchReads={refetchReads} />
 
         <div className="glass-card p-4 rounded-xl">
           <p className="text-xs text-white text-center">
