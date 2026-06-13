@@ -31,7 +31,7 @@ function bucketPrices(prices, count = 12) {
   return buckets;
 }
 
-function computeSpread(floorPrice, bestBid) {
+export function computeSpread(floorPrice, bestBid) {
   if (!floorPrice || !bestBid || floorPrice <= 0) return null;
   const abs = floorPrice - bestBid;
   const pct = (abs / floorPrice) * 100;
