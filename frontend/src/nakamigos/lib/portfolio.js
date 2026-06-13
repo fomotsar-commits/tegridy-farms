@@ -119,10 +119,16 @@ export function getCurrentValue(tokenId, contract, floorPrice) {
  * @param {Array} heldTokens - Array of token objects currently held
  * @returns {Promise<Object>} P&L summary
  */
-export async function calculatePnL(wallet, collection, heldTokens) {
+export async function calculatePnL(wallet, collection, heldTokens, forceRefresh = false) {
   const key = cacheKey(["pnl", wallet, collection.contract]);
-  const cached = readCache(key);
-  if (cached) return cached;
+  // The manual Refresh button passes forceRefresh to bypass the 5-min cache
+  // (which otherwise bakes in a stale floor price / currentValue) — F732.
+  if (forceRefresh) {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  } else {
+    const cached = readCache(key);
+    if (cached) return cached;
+  }
 
   const { contract, floorPrice } = collection;
 
@@ -185,7 +191,10 @@ export async function calculatePnL(wallet, collection, heldTokens) {
 
     totalCostBasis += costBasis;
     totalCurrentValue += currentValue;
-    totalGasSpent += GAS_ESTIMATE;
+    // Only attribute gas to tokens with a real purchase record — mints and
+    // airdrops carry no buy tx, so charging them a flat gas estimate inflated
+    // the "GAS (est.)" figure for every held token (F722).
+    if (purchase) totalGasSpent += GAS_ESTIMATE;
 
     tokenDetails.push({
       tokenId: token.id,
@@ -213,19 +222,29 @@ export async function calculatePnL(wallet, collection, heldTokens) {
     .filter(s => s.buyerAddress?.toLowerCase() === wallet.toLowerCase())
     .sort((a, b) => (a.blockNumber || 0) - (b.blockNumber || 0));
 
+  let realizedUnmatchedSells = 0;
   for (const sale of sellSales) {
     if (sale.sellerAddress?.toLowerCase() === wallet.toLowerCase()) {
       const sellPrice = saleToEth(sale);
       const tid = String(sale.tokenId);
-      // Find the earliest unmatched purchase for this token
+      // Find the earliest unmatched purchase for this token that happened
+      // BEFORE this sale — a buy can never be the cost basis for an earlier
+      // sale (sell-then-rebuy previously paired the later rebuy) — F723.
       const matchingBuy = sortedBuys.find(
-        s => String(s.tokenId) === tid && !matchedBuyHashes.has(s.transactionHash)
+        s => String(s.tokenId) === tid &&
+          !matchedBuyHashes.has(s.transactionHash) &&
+          (s.blockNumber || 0) < (sale.blockNumber || 0)
       );
       if (matchingBuy) {
         matchedBuyHashes.add(matchingBuy.transactionHash);
+        realizedPnL += sellPrice - saleToEth(matchingBuy);
+      } else {
+        // No known prior purchase (buy history truncated, mint/airdrop, or
+        // acquired off this contract): the cost basis is unknown. Don't count
+        // the full proceeds as pure profit — exclude it from realized P&L and
+        // surface the count separately.
+        realizedUnmatchedSells += 1;
       }
-      const buyPrice = matchingBuy ? saleToEth(matchingBuy) : 0;
-      realizedPnL += sellPrice - buyPrice;
     }
   }
 
@@ -233,6 +252,7 @@ export async function calculatePnL(wallet, collection, heldTokens) {
 
   const result = {
     realizedPnL,
+    realizedUnmatchedSells,
     unrealizedPnL,
     totalGasSpent,
     costBasis: totalCostBasis,

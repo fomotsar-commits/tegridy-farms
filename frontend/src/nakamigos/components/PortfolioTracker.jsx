@@ -139,7 +139,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
     setSnapshots(wallet ? loadSnapshots(wallet, collection.contract) : []);
   }, [wallet, collection.contract]);
 
-  const loadPortfolio = useCallback(async () => {
+  const loadPortfolio = useCallback(async (forceRefresh = false) => {
     if (!wallet) return;
     const gen = ++genRef.current;
     setLoading(true);
@@ -158,6 +158,14 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
 
       if (gen !== genRef.current) return;
 
+      // fetchWalletNfts returns { tokens:[], error } on an API outage — surface
+      // the retryable error state instead of a confident "0 NFTs" claim (F724).
+      if (nftData.error && nftData.tokens.length === 0) {
+        setError("Couldn't load this wallet's NFTs right now. Please try again.");
+        setLoading(false);
+        return;
+      }
+
       setTokens(nftData.tokens);
       setStats(statsData);
 
@@ -172,7 +180,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
         contract: collection.contract,
         name: collection.name,
         floorPrice: statsData.floor,
-      }, nftData.tokens);
+      }, nftData.tokens, forceRefresh);
 
       if (gen !== genRef.current) return;
 
@@ -204,9 +212,11 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
     const sorted = [...pnlData.tokenDetails]
       .filter(t => t.costBasis > 0)
       .sort((a, b) => b.pnlPercent - a.pnlPercent);
+    // Split by sign so a token never appears under both headers (and a
+    // positive-P&L token never renders as a "loser") when <6 tokens are priced.
     return {
-      topGainers: sorted.slice(0, 3),
-      topLosers: sorted.slice(-3).reverse(),
+      topGainers: sorted.filter(t => t.pnlPercent > 0).slice(0, 3),
+      topLosers: sorted.filter(t => t.pnlPercent < 0).slice(-3).reverse(),
     };
   }, [pnlData]);
 
@@ -259,7 +269,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
         </h2>
         <div className="error-banner">
           <span>{error}</span>
-          <button onClick={loadPortfolio}>Retry</button>
+          <button onClick={() => loadPortfolio(true)}>Retry</button>
         </div>
       </section>
     );
@@ -297,7 +307,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
           Portfolio P&L
         </h2>
         <button
-          onClick={loadPortfolio}
+          onClick={() => loadPortfolio(true)}
           style={{
             fontFamily: "var(--mono)", fontSize: 10, padding: "8px 16px",
             borderRadius: 8, border: "1px solid var(--border)",
@@ -332,8 +342,8 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
             {pnlSign(totalPnLUsd)}${Math.round(Math.abs(totalPnLUsd)).toLocaleString()}
           </div>
         </div>
-        <div className="analytics-stat-card">
-          <div className="analytics-stat-label">GAS SPENT</div>
+        <div className="analytics-stat-card" title="Estimated gas: ~0.003 ETH per purchased token (excludes mints/airdrops)">
+          <div className="analytics-stat-label">GAS (EST.)</div>
           <div className="analytics-stat-value" style={{ color: "var(--red, #f87171)" }}>
             <Eth size={14} /> {formatPrice(pnlData.totalGasSpent)}
           </div>
