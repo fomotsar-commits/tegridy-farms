@@ -256,6 +256,14 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
     setTimeout(() => onClose?.(), 320);
   }, [onClose]);
 
+  // F702: close the holder/profile drawer on Escape (overlay-click already
+  // works; keyboard parity was missing). Mirrors the WalletModal pattern.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") handleClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [handleClose]);
+
   if (!address) return null;
 
   const displayTokens = showAll ? tokens : tokens.slice(0, MAX_GRID);

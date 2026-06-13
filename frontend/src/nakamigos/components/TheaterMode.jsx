@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { trapFocus } from "../lib/trapFocus";
 import { rankTier } from "../constants";
 
 /* ─── Ambient Particle Canvas ─── */
@@ -126,6 +127,9 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
   const [showTraits, setShowTraits] = useState(false);
   const [visible, setVisible] = useState(false);
   const [dimensions, setDimensions] = useState({ w: window.innerWidth, h: window.innerHeight });
+  // F793: dialog container + close-button refs for focus management / trap.
+  const overlayRef = useRef(null);
+  const closeBtnRef = useRef(null);
 
   // Fade in on mount
   useEffect(() => {
@@ -134,7 +138,14 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
     // Ref-counted lock (shared with the underlying Modal) so closing Theater
     // over a still-open detail modal doesn't unlock the body behind it (F786).
     lockScroll();
-    return () => { unlockScroll(); };
+    // F793: move focus into the dialog so Tab cycles within it (and Escape /
+    // the close button are reachable for keyboard + screen-reader users).
+    const prevFocused = document.activeElement;
+    closeBtnRef.current?.focus();
+    return () => {
+      unlockScroll();
+      if (prevFocused instanceof HTMLElement) prevFocused.focus();
+    };
   }, []);
 
   // Window resize
@@ -162,6 +173,8 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
       }
       if (e.key === "t" || e.key === "T") setShowTraits((p) => !p);
       if (e.key === "f" || e.key === "F") onToggleFavorite?.(nft.id);
+      // F793: keep Tab cycling within the dialog (filters :disabled via F800).
+      trapFocus(overlayRef.current, e);
     };
     // useCapture: true so this runs before the document bubble-phase listeners
     // registered earlier by the underlying Modal.
@@ -390,7 +403,14 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
   };
 
   return (
-    <div style={overlay} onClick={handleClose}>
+    <div
+      ref={overlayRef}
+      style={overlay}
+      onClick={handleClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${nft.name} — theater view`}
+    >
       {/* Ambient Particles */}
       <AmbientParticles width={dimensions.w} height={dimensions.h} />
 
@@ -413,13 +433,17 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
           <button
             style={favBtn}
             onClick={() => onToggleFavorite?.(nft.id)}
+            aria-pressed={!!isFavorite}
+            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
             title={isFavorite ? "Remove from favorites (F)" : "Add to favorites (F)"}
           >
             {isFavorite ? "\u2665" : "\u2661"}
           </button>
           <button
+            ref={closeBtnRef}
             style={hudBtn}
             onClick={handleClose}
+            aria-label="Close theater view"
             title="Close (ESC)"
           >
             {"\u2715"}

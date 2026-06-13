@@ -700,7 +700,10 @@ export default function SplashScreen({ onComplete }) {
   const [clickPos, setClickPos] = useState({ x: "50%", y: "50%" });
 
   const handleEnter = (e) => {
-    if (phase !== "ready") return;
+    // F696: allow click/key skip from second 0 — during the loading phase too,
+    // not only once `ready`. First-time visitors and deep-links aren't held for
+    // the full ~4-12s intro. Already-exiting phases are ignored. Art unchanged.
+    if (phase !== "ready" && phase !== "loading") return;
     // Capture click position for shockwave origin
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect && e && e.clientX != null) {
@@ -736,10 +739,11 @@ export default function SplashScreen({ onComplete }) {
     }
   };
 
-  // Move focus onto the splash the moment it's enterable so a keyboard user can
-  // press Enter without first tabbing to it.
+  // Move focus onto the splash so a keyboard user can press Enter to skip
+  // without first tabbing to it. F696: focus on mount (not only once ready) so
+  // the from-second-0 skip is reachable by keyboard immediately.
   useEffect(() => {
-    if (phase === "ready") containerRef.current?.focus?.();
+    containerRef.current?.focus?.();
   }, [phase]);
 
   // Generate dark blocks for the cover phase
@@ -792,12 +796,12 @@ export default function SplashScreen({ onComplete }) {
     <div
       ref={containerRef}
       className={exitPhase === "glitch" ? "splash-glitch" : ""}
-      style={{ position: "fixed", inset: 0, zIndex: 9999, overflow: "hidden", cursor: phase === "ready" ? "pointer" : "default", outline: "none" }}
+      style={{ position: "fixed", inset: 0, zIndex: 9999, overflow: "hidden", cursor: "pointer", outline: "none" }}
       onClick={handleEnter}
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-label={phase === "ready" ? "Enter Tradermigos" : "Loading Tradermigos"}
+      aria-label={phase === "ready" ? "Enter Tradermigos" : "Skip intro and enter Tradermigos"}
     >
       {/* Shockwave ripple from click point */}
       {(exitPhase === "glitch" || exitPhase === "flash") && (

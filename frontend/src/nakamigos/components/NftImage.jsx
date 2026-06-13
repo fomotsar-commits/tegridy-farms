@@ -94,6 +94,15 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
 
   const src = dynamicSrc || primarySrc;
 
+  // F603: responsive srcset for the grid thumbnail. Only when we're showing the
+  // normalized primary src (not a resolved-fallback dynamicSrc) AND both a small
+  // thumbnail and a larger CDN size exist — map thumb -> 1x, large -> 2x so
+  // retina displays fetch the crisper variant without bloating 1x bandwidth.
+  const srcSet =
+    !large && !dynamicSrc && nft.imageThumb && nft.imageLarge && nft.imageThumb !== nft.imageLarge
+      ? `${nft.imageThumb} 1x, ${nft.imageLarge} 2x`
+      : undefined;
+
   // Re-arm the fade whenever the actual image source changes (e.g. a metadata
   // fetch resolves a real URL after the placeholder) so the new art fades in.
   useEffect(() => { setLoaded(false); }, [src]);
@@ -185,6 +194,7 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
   return (
     <img
       src={src}
+      srcSet={srcSet}
       alt={nft.name}
       width={300}
       height={300}

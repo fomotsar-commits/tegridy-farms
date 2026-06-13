@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { trapFocus } from "../lib/trapFocus";
 import { SHORTCUTS } from "../lib/shortcuts";
 
 const overlayStyle = {
@@ -92,25 +93,7 @@ export default function KeyboardHelp({ onClose, onReplayTour }) {
       return;
     }
 
-    if (e.key === "Tab") {
-      const panel = panelRef.current;
-      if (!panel) return;
-      const focusable = panel.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])');
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    }
+    trapFocus(panelRef.current, e); // F800: shared trap filters :disabled
   }, [onClose]);
 
   useEffect(() => {

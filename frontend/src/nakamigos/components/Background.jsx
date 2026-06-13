@@ -1,6 +1,7 @@
 import { useRef, useMemo, memo, useState, useEffect, useCallback } from "react";
 import React from "react";
 import { motion } from "framer-motion";
+import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion";
 
 // ═══ Theme-aware color palette ═══
 function useThemeColors() {
@@ -101,18 +102,25 @@ const BG_ART = [
   { src: "/splash/HA5Fd6kWMAAMqL_.jpg", pos: { left: "78vw", top: "84vh" }, w: "clamp(300px, 26vw, 460px)", rot: -3, drift: { x: -4, y: 3 }, dur: 27 },      // BIG-ish
 ];
 
-function GhostArt({ art, opacity }) {
+function GhostArt({ art, opacity, reduced }) {
   const [loaded, setLoaded] = useState(false);
+  // F543: under reduced-motion, render a STATIC frame (no infinite drift loop)
+  // while keeping all the art on screen — only the looping motion is suppressed.
+  const animateTo = loaded
+    ? (reduced
+        ? { opacity, x: 0, y: 0, rotate: art.rot }
+        : {
+            opacity,
+            x: [0, art.drift.x, art.drift.x * -0.4, 0],
+            y: [0, art.drift.y, art.drift.y * -0.5, 0],
+            rotate: [art.rot, art.rot + 1, art.rot - 0.8, art.rot],
+          })
+    : { opacity: 0 };
   return (
     <motion.div
       initial={{ opacity: 0 }}
-      animate={loaded ? {
-        opacity,
-        x: [0, art.drift.x, art.drift.x * -0.4, 0],
-        y: [0, art.drift.y, art.drift.y * -0.5, 0],
-        rotate: [art.rot, art.rot + 1, art.rot - 0.8, art.rot],
-      } : { opacity: 0 }}
-      transition={{
+      animate={animateTo}
+      transition={reduced ? { opacity: { duration: 0.4 } } : {
         opacity: { duration: 4, delay: 0.5 },
         x: { duration: art.dur, repeat: Infinity, ease: "easeInOut" },
         y: { duration: art.dur + 4, repeat: Infinity, ease: "easeInOut" },
@@ -123,6 +131,8 @@ function GhostArt({ art, opacity }) {
       <img
         src={art.src}
         alt=""
+        loading="lazy"
+        decoding="async"
         onLoad={() => setLoaded(true)}
         style={{
           width: "100%", height: "100%", objectFit: "contain", display: "block",
@@ -623,6 +633,7 @@ class BackgroundErrorBoundary extends React.Component {
 // ═══ Main Background ═══
 export default memo(function Background() {
   const colors = useThemeColors();
+  const reduced = usePrefersReducedMotion(); // F543/F558
 
   return (
     <BackgroundErrorBoundary>
@@ -637,7 +648,7 @@ export default memo(function Background() {
 
       {/* Layer 3: Ghost art — barely visible images deeply embedded */}
       {BG_ART.map((art, i) => (
-        <GhostArt key={i} art={art} opacity={colors.artOpacity} />
+        <GhostArt key={i} art={art} opacity={colors.artOpacity} reduced={reduced} />
       ))}
 
       {/* Layer 4: Floating dust motes */}

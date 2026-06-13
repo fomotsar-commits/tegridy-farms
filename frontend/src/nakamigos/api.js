@@ -128,6 +128,9 @@ function normalizeToken(nft, metadataBase = METADATA_BASE) {
     id: nft.tokenId,
     name: nft.name || nft.raw?.metadata?.name || `#${nft.tokenId}`,
     image: resolvedImage,
+    // F603: carry the small CDN thumbnail explicitly so NftImage can emit a
+    // responsive srcset (thumbnail -> 1x, larger CDN size -> 2x) on retina.
+    imageThumb: nft.image?.thumbnailUrl || null,
     imageLarge: nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || rawMetaImage || fallbackImage,
     attributes: attrs
       .filter(a => a.trait_type != null && a.trait_type !== "" && a.value != null && a.value !== ""

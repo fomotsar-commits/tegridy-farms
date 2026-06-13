@@ -790,6 +790,10 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                   <div
                                     key={nft.id}
                                     title={nft.name}
+                                    // F702: shimmer behind each lazy cell so
+                                    // blank cells pulse instead of showing empty
+                                    // boxes while thumbnails stream in.
+                                    className="skeleton"
                                     style={{
                                       width: 52,
                                       height: 52,
@@ -803,6 +807,8 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                       src={nft.image}
                                       alt={nft.name}
                                       loading="lazy"
+                                      decoding="async"
+                                      onLoad={(e) => { e.currentTarget.parentElement?.classList.remove("skeleton"); }}
                                       style={{
                                         width: "100%",
                                         height: "100%",

@@ -384,15 +384,40 @@ function ScatterPlot({ deals, allListedNfts, onPick }) {
 
   if (data.length === 0) return null;
 
+  // F660: the scatter canvas is mouse-only. Provide an a11y summary + a
+  // visually-hidden data table so keyboard/screen-reader users can reach the
+  // same rarity-vs-price information.
+  const dealCount = data.filter((d) => d.isDeal).length;
+  const a11ySummary = `Rarity versus price scatter plot of ${data.length} listed item${data.length === 1 ? "" : "s"}, ${dealCount} flagged as deal${dealCount === 1 ? "" : "s"}. Each point plots an item's rarity rank against its listing price.`;
+
   return (
     <div style={S.canvasWrap}>
       <div style={S.canvasLabel}>RARITY vs PRICE</div>
       <canvas
         ref={canvasRef}
+        role="img"
+        aria-label={a11ySummary}
         style={{ width: "100%", height: "calc(100% - 36px)", display: "block" }}
         onClick={handleCanvasClick}
         onMouseMove={handleCanvasMove}
       />
+      {/* Visually-hidden equivalent of the scatter data for AT users. */}
+      <table className="sr-only">
+        <caption>{a11ySummary}</caption>
+        <thead>
+          <tr><th scope="col">Item</th><th scope="col">Rarity rank</th><th scope="col">Price (ETH)</th><th scope="col">Deal</th></tr>
+        </thead>
+        <tbody>
+          {data.slice(0, 100).map((d, i) => (
+            <tr key={d.nft?.id ?? i}>
+              <td>#{d.nft?.id}</td>
+              <td>{d.nft?.rank ?? "—"}</td>
+              <td>{d.nft?.price != null ? d.nft.price.toFixed(4) : "—"}</td>
+              <td>{d.isDeal ? "Yes" : "No"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <div
         ref={tooltipRef}
         style={{

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useWallet, HAS_WC_PROJECT_ID } from "../contexts/WalletContext";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { trapFocus } from "../lib/trapFocus";
 
 const CONNECTOR_ICONS = {
   metaMask: "\u{1F98A}",
@@ -30,18 +31,7 @@ export default function WalletModal({ onClose, addToast }) {
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === "Escape") { onClose(); return; }
-      // Focus trap
-      if (e.key === "Tab" && modalRef.current) {
-        const focusable = modalRef.current.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey) {
-          if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-        } else {
-          if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-        }
-      }
+      trapFocus(modalRef.current, e); // F800: shared trap filters :disabled
     };
     document.addEventListener("keydown", handleKey);
     lockScroll();

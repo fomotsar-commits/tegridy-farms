@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { MotionConfig } from "framer-motion";
 import { fetchTokensByIds } from "./api";
 // CSS imported eagerly in main.tsx to avoid Vite CSS preload errors on lazy chunks
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
@@ -1060,9 +1061,14 @@ export default function App() {
         <ThemeProvider>
           <TradingModeProvider>
             <ToastProvider>
-              <div className="nakamigos-app">
-                <AppInner />
-              </div>
+              {/* F558: app-wide reduced-motion gate — all framer `motion.*`
+                  descendants auto-respect the OS preference. The looping
+                  canvas/physics layers consult usePrefersReducedMotion. */}
+              <MotionConfig reducedMotion="user">
+                <div className="nakamigos-app">
+                  <AppInner />
+                </div>
+              </MotionConfig>
             </ToastProvider>
           </TradingModeProvider>
         </ThemeProvider>

@@ -273,6 +273,11 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
           viewBox={`0 0 ${CHART_W} ${CHART_H}`}
           className="depth-chart-svg"
           preserveAspectRatio="xMidYMid meet"
+          // F660: expose the chart to AT — role=img + the visible auto-summary
+          // as its accessible description (it's mouse-only otherwise).
+          role="img"
+          aria-label="Order book depth chart"
+          aria-describedby="depth-chart-summary"
         >
           {/* Grid lines */}
           {yTicks.map((t, i) => (
@@ -418,7 +423,7 @@ export default function DepthChart({ listings = [], offers = [], floorPrice, col
       )}
 
       {/* Auto-generated summary */}
-      <div className="depth-summary">{summary}</div>
+      <div className="depth-summary" id="depth-chart-summary">{summary}</div>
     </div>
   );
 }

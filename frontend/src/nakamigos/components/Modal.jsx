@@ -15,6 +15,7 @@ import { fulfillNativeOrder } from "../lib/orderbook";
 import { validateOrderQuick } from "../lib/orderValidator";
 import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { trapFocus } from "../lib/trapFocus";
 import { formatPrice } from "../lib/formatPrice";
 import useEns from "../hooks/useEns";
 
@@ -195,18 +196,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
         }
         onClose();
       }
-      // Focus trap
-      if (e.key === "Tab" && modalRef.current) {
-        const focusable = modalRef.current.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey) {
-          if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-        } else {
-          if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-        }
-      }
+      // Focus trap (F800: shared util filters :disabled controls so Tab
+      // can't escape the dialog while e.g. Buy is disabled mid-purchase).
+      trapFocus(modalRef.current, e);
     };
     document.addEventListener("keydown", handleKey);
     lockScroll();
