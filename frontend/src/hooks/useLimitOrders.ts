@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
-import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
-import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
+import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 
 export interface LimitOrder {
@@ -316,10 +316,15 @@ export function useLimitOrders() {
     // had at last poll. Mirrors the readContract pattern used in useDCA.ts.
     let onChainOut = 0n;
     try {
+      // F188: this swap EXECUTES through SwapFeeRouter on the native Tegridy
+      // pool, so the execute-time quote MUST come from the native router
+      // (TegridyRouter), not Uniswap. A Uniswap-priced minOut sent to the native
+      // pool is mispriced and reverts. (The trigger poller below still tracks the
+      // Uniswap/market price for the user's target condition.)
       const result = await readWithTimeout(
         publicClient.readContract({
-          address: UNISWAP_V2_ROUTER,
-          abi: UNISWAP_V2_ROUTER_ABI,
+          address: TEGRIDY_ROUTER_ADDRESS,
+          abi: TEGRIDY_ROUTER_ABI,
           functionName: 'getAmountsOut',
           args: [parsedAmount, path],
         }),
@@ -350,7 +355,12 @@ export function useLimitOrders() {
     // Take the lesser of (a) target-derived floor and (b) on-chain price minus
     // slippage. This guarantees we never sign for less than the user wanted
     // AND never sign for more than the AMM can actually deliver.
-    const onChainMinOut = onChainOut - (onChainOut * SLIPPAGE_BPS / 10000n);
+    // F188: SFR deducts its fee from the input before swapping on the native
+    // pool, so haircut the native quote by the fee cap (MAX_FEE_BPS) before
+    // deriving minOut — otherwise the fee pushes real output below minOut and the
+    // swap reverts. Conservative linear haircut (never under-shoots, by concavity).
+    const onChainAfterFee = (onChainOut * (10000n - MAX_FEE_BPS)) / 10000n;
+    const onChainMinOut = onChainAfterFee - (onChainAfterFee * SLIPPAGE_BPS / 10000n);
     const minOut = targetDerivedMinOut < onChainMinOut ? targetDerivedMinOut : onChainMinOut;
 
     sendNotification(

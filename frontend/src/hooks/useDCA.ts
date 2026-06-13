@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
-import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
-import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
+import { SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 
 const DCA_CHANNEL = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('tegridy_dca_sync') : null;
@@ -431,15 +431,29 @@ export function useDCA() {
     let minOut = 0n;
     const slippageBps = BigInt(clampSlippageBps(schedule.slippageBps));
     try {
+      // F188: the swap EXECUTES through SwapFeeRouter on the native Tegridy pool,
+      // so the quote MUST come from the native router (TegridyRouter) — NOT
+      // Uniswap. A Uniswap-priced minOut sent to the native pool is mispriced and
+      // reverts. SFR deducts its fee from the input before swapping, so haircut
+      // the quoted output by the fee cap (MAX_FEE_BPS) — the same conservative
+      // linear haircut useSwapQuote uses (never under-shoots, by AMM concavity).
       const result = await publicClient.readContract({
-        address: UNISWAP_V2_ROUTER,
-        abi: UNISWAP_V2_ROUTER_ABI,
+        address: TEGRIDY_ROUTER_ADDRESS,
+        abi: TEGRIDY_ROUTER_ABI,
         functionName: 'getAmountsOut',
         args: [parsedAmount, path],
       });
       const amountsOut = result as bigint[];
       const expectedOut = amountsOut[amountsOut.length - 1] ?? 0n;
-      minOut = expectedOut - (expectedOut * slippageBps / 10000n);
+      if (expectedOut <= 0n) {
+        // Native pool can't price this swap yet (e.g. unseeded/empty). Skip
+        // rather than submit a minOut=0 swap with no slippage protection.
+        executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
+        toast.error(`DCA: No native liquidity to price ${schedule.fromToken.symbol} → ${schedule.toToken.symbol} yet. Swap skipped.`);
+        return;
+      }
+      const expectedAfterFee = (expectedOut * (10000n - MAX_FEE_BPS)) / 10000n;
+      minOut = expectedAfterFee - (expectedAfterFee * slippageBps / 10000n);
     } catch {
       // If quote fails, do not proceed with 0 slippage -- abort
       executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
