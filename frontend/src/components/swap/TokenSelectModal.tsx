@@ -259,7 +259,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
             boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 1px var(--color-purple-30)',
           }}
           initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1 }}
+          animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
           transition={{ duration: 0.15 }}
         >

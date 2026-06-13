@@ -87,7 +87,7 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
           <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
 
           <m.div className="relative z-10 max-w-4xl w-full"
-            initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+            initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
             transition={{ type: 'spring', damping: 25 }} onClick={(e) => e.stopPropagation()}>
 
             <div className="rounded-xl overflow-hidden">
