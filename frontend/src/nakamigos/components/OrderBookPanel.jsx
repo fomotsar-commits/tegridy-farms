@@ -6,6 +6,7 @@ import { fetchNativeListings, fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS } from "../constants";
 import { getProvider } from "../api";
+import { cancelSeaportOrder } from "../lib/seaportCancel";
 
 // ═══ ORDER BOOK PANEL ═══
 // Two sections:
@@ -61,13 +62,15 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       const browserProvider = new ethers.BrowserProvider(provider);
       const signer = await browserProvider.getSigner();
 
-      // On-chain cancel via Seaport if parameters available
+      // On-chain cancel via Seaport if parameters available.
+      // F630: shared helper reads the live counter + rebuilds OrderComponents so
+      // the cancel targets the real order hash (not a phantom that stays fillable).
       if (order.parameters) {
-        const seaportABI = [
-          "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
-        ];
-        const seaport = new ethers.Contract(order.protocol_address || SEAPORT_ADDRESS, seaportABI, signer);
-        const tx = await seaport.cancel([order.parameters]);
+        const tx = await cancelSeaportOrder({
+          ethers, signer,
+          params: order.parameters,
+          seaportAddress: order.protocol_address || SEAPORT_ADDRESS,
+        });
         await tx.wait();
       }
 

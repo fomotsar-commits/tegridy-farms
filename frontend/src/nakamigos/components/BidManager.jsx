@@ -7,6 +7,7 @@ import { SEAPORT_ADDRESS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { openseaGet } from "../lib/proxy";
+import { cancelSeaportOrder } from "../lib/seaportCancel";
 import EmptyState from "./EmptyState";
 
 const TABS = ["My Bids", "Received Offers", "Bid History"];
@@ -275,15 +276,12 @@ async function cancelBid(order) {
     const browserProvider = new ethers.BrowserProvider(provider);
     const signer = await browserProvider.getSigner();
 
-    const seaportABI = [
-      "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
-    ];
-    const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
-
     const params = order.rawOrder?.protocol_data?.parameters || order.protocol_data?.parameters;
     if (!params) return { error: "failed", message: "Missing order parameters" };
 
-    const tx = await seaport.cancel([params]);
+    // F630: shared helper reads the live counter + rebuilds OrderComponents so
+    // the cancel hits the real order hash (not a phantom that leaves it live).
+    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: SEAPORT_ADDRESS });
     await tx.wait();
     return { success: true, hash: tx.hash };
   } catch (err) {

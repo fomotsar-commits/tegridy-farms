@@ -3,6 +3,7 @@ import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPO
 import { getProvider, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
+import { cancelSeaportOrder } from "./lib/seaportCancel";
 
 // AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
 // on-chain action when the wallet is connected to a chain != SEAPORT_DOMAIN.chainId.
@@ -664,15 +665,14 @@ export async function cancelOrder(order) {
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
 
-    const seaportABI = [
-      "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
-    ];
-    const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
-
     const params = order.rawOrder?.protocol_data?.parameters || order.protocol_data?.parameters;
     if (!params) return { error: "failed", message: "Missing order parameters" };
 
-    const tx = await seaport.cancel([params]);
+    // F630: cancel via the shared helper — reads the offerer's live counter and
+    // rebuilds OrderComponents so cancel() targets the REAL order hash (the old
+    // inline ABI put totalOriginalConsiderationItems in the counter slot and
+    // cancelled a phantom order while the real one stayed fillable).
+    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: SEAPORT_ADDRESS });
     await tx.wait();
     return { success: true, hash: tx.hash };
   } catch (err) {

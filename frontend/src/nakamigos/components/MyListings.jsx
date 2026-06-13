@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { getProvider } from "../api";
 import { SEAPORT_ADDRESS, PLATFORM_FEE_BPS } from "../constants";
+import { cancelSeaportOrder } from "../lib/seaportCancel";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import EmptyState from "./EmptyState";
@@ -349,11 +350,9 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
         setCancelling(null);
         return;
       }
-      const seaportABI = [
-        "function cancel(tuple(address offerer, address zone, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, tuple(uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders) returns (bool)",
-      ];
-      const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
-      const tx = await seaport.cancel([listing.rawParameters]);
+      // F630: shared helper reads the live counter + rebuilds OrderComponents so
+      // the cancel targets the real order hash (not a phantom that stays fillable).
+      const tx = await cancelSeaportOrder({ ethers, signer, params: listing.rawParameters, seaportAddress: SEAPORT_ADDRESS });
       await tx.wait();
 
       // Step 2: Update native orderbook backend status
