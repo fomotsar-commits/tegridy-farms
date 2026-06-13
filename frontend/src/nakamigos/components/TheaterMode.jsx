@@ -148,12 +148,21 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape") handleClose();
+      if (e.key === "Escape") {
+        // Theater is the topmost overlay — it must win Escape so it doesn't
+        // orphan over a still-open detail modal. Capture phase + stop
+        // propagation intercepts the key before the modal's handler runs (F616).
+        e.stopImmediatePropagation();
+        handleClose();
+        return;
+      }
       if (e.key === "t" || e.key === "T") setShowTraits((p) => !p);
       if (e.key === "f" || e.key === "F") onToggleFavorite?.(nft.id);
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // useCapture: true so this runs before the document bubble-phase listeners
+    // registered earlier by the underlying Modal.
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [nft, handleClose, onToggleFavorite]);
 
   if (!nft) return null;
@@ -384,7 +393,9 @@ export default function TheaterMode({ nft, onClose, isFavorite, onToggleFavorite
       <div style={hudBar} onClick={(e) => e.stopPropagation()}>
         <div style={hudLeft}>
           <span style={nftName}>{nft.name}</span>
-          <span style={tokenId}>#{nft.id}</span>
+          {/* The name already includes "#<id>" — show the trait count here
+              instead of repeating the id (F624). */}
+          {attrs.length > 0 && <span style={tokenId}>{attrs.length} traits</span>}
           {hasRank && <span style={rankBadge}>RANK #{nft.rank}</span>}
         </div>
         <div style={hudRight}>

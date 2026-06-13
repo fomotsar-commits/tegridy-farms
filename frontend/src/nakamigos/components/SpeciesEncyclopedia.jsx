@@ -286,7 +286,7 @@ const S = {
 /* ═══════════════════════════════════════════════════════
    SpeciesEncyclopedia — GNSS Art Species deep-dive
    ═══════════════════════════════════════════════════════ */
-export default function SpeciesEncyclopedia() {
+export default function SpeciesEncyclopedia({ onNavigateGallery }) {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(null);
   const [hoveredCard, setHoveredCard] = useState(null);
@@ -325,8 +325,17 @@ export default function SpeciesEncyclopedia() {
   const atomicNumbers = TRAIT_LORE.gnssart?.atomicNumbers || {};
 
   const handleViewInGallery = useCallback((speciesName) => {
-    navigate(`/nakamigos/gnssart/gallery?species=${encodeURIComponent(speciesName)}`);
-  }, [navigate]);
+    // Previously navigated with ?species= — a param nothing reads, so the user
+    // landed on the unfiltered gallery (F567). Route through the working
+    // onNavigateGallery callback (used by JungleBay legendaries): it opens the
+    // gallery and seeds the search with the species name, which the gallery's
+    // name/trait-value search then matches. Fall back to plain navigation.
+    if (onNavigateGallery) {
+      onNavigateGallery(speciesName);
+    } else {
+      navigate(`/nakamigos/gnssart/gallery`);
+    }
+  }, [navigate, onNavigateGallery]);
 
   return (
     <div style={S.wrapper}>

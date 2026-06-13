@@ -281,7 +281,10 @@ export default memo(function NotificationCenter({
     setOpen(prev => {
       if (!prev && bellRef.current) {
         const r = bellRef.current.getBoundingClientRect();
-        setPanelPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right - 40) });
+        // Align the panel's right edge with the bell's right edge so it opens
+        // directly under the bell. The old `- 40` fudge shifted it ~40px left,
+        // anchoring it over the sales ticker instead of the bell (F626).
+        setPanelPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
       }
       return !prev;
     });

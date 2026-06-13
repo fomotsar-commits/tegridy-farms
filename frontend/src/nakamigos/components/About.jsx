@@ -248,7 +248,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
       )}
 
       {/* ═══ GNSS: Species Encyclopedia ═══ */}
-      {isGnssArt && <SpeciesEncyclopedia />}
+      {isGnssArt && <SpeciesEncyclopedia onNavigateGallery={onNavigateGallery} />}
 
       {/* ═══ JUNGLE BAY: Full Showcase ═══ */}
       {isJungleBay && (

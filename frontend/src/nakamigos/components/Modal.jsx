@@ -451,7 +451,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             )}
             <button
               className="btn-secondary"
-              style={{ flex: 0, whiteSpace: "nowrap", padding: "0 16px" }}
+              // flex:0 (= 0 1 0%) gave basis 0 + allowed shrink, clipping the
+              // label to "Mak"; 0 0 auto sizes the button to its content (F612).
+              style={{ flex: "0 0 auto", flexShrink: 0, whiteSpace: "nowrap", padding: "0 16px" }}
               aria-label="Make an offer on this NFT"
               onClick={() => setShowOfferModal(true)}
             >
