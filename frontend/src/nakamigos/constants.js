@@ -177,19 +177,26 @@ export const FALLBACK_STATS = {
   supply: 20000,
 };
 
+// Sample data shown ONLY when live endpoints are unavailable (the DEMO badge is
+// up). Uses obviously-synthetic ENS handles — not real, named collectors — so a
+// fallback render never fabricates activity by an identifiable person (F540).
 export const FALLBACK_WHALES = [
-  { addr: "0xd8dA...6045", ens: "vitalik.eth", held: 12, act: "Bought 3", time: "4m ago", d: "+3" },
-  { addr: "0x1234...aBcD", ens: "franklinisbored.eth", held: 47, act: "Listed 2", time: "11m ago", d: "-2" },
-  { addr: "0xBEEF...c0de", ens: "pranksy.eth", held: 89, act: "Swept 8", time: "23m ago", d: "+8" },
-  { addr: "0xCAFE...bAbE", ens: "dingaling.eth", held: 156, act: "Transferred 5", time: "1h ago", d: "5" },
-  { addr: "0xDEAD...F00D", ens: "punk6529.eth", held: 34, act: "Bid on #7762", time: "2h ago", d: "bid" },
+  { addr: "0xd8dA...6045", ens: "sample-whale-1.eth", held: 12, act: "Bought 3", time: "—", d: "+3" },
+  { addr: "0x1234...aBcD", ens: "sample-whale-2.eth", held: 47, act: "Listed 2", time: "—", d: "-2" },
+  { addr: "0xBEEF...c0de", ens: "sample-whale-3.eth", held: 89, act: "Swept 8", time: "—", d: "+8" },
+  { addr: "0xCAFE...bAbE", ens: "sample-whale-4.eth", held: 156, act: "Transferred 5", time: "—", d: "5" },
+  { addr: "0xDEAD...F00D", ens: "sample-whale-5.eth", held: 34, act: "Bid on #7762", time: "—", d: "bid" },
 ];
 
+// Anchored to a FIXED timestamp (not Date.now() - offset) so sample sales don't
+// perpetually re-render as "2 minutes ago" and masquerade as fresh live trades.
+// 2026-01-01T00:00:00Z — a stable, obviously-past reference point (F540).
+const FALLBACK_ACTIVITY_REF = 1767225600000;
 export const FALLBACK_ACTIVITY = [
-  { type: "sale", token: { id: "11007", name: "#11007" }, price: 0.11, from: "0xd5a1...c442", to: "0x8cFe...91ab", time: Date.now() - 120000, hash: null },
-  { type: "sale", token: { id: "16630", name: "#16630" }, price: 0.1101, from: "0xBb22...c1a8", to: "0x13dF...e70b", time: Date.now() - 1860000, hash: null },
-  { type: "sale", token: { id: "3183", name: "#3183" }, price: 0.1123, from: "0xfC12...d8e3", to: "0x55Ab...19c0", time: Date.now() - 5400000, hash: null },
-  { type: "sale", token: { id: "2894", name: "#2894" }, price: 0.1099, from: "0x8812...eF03", to: "0xBb22...c1a8", time: Date.now() - 9000000, hash: null },
+  { type: "sale", token: { id: "11007", name: "#11007" }, price: 0.11, from: "0xd5a1...c442", to: "0x8cFe...91ab", time: FALLBACK_ACTIVITY_REF - 120000, hash: null, sample: true },
+  { type: "sale", token: { id: "16630", name: "#16630" }, price: 0.1101, from: "0xBb22...c1a8", to: "0x13dF...e70b", time: FALLBACK_ACTIVITY_REF - 1860000, hash: null, sample: true },
+  { type: "sale", token: { id: "3183", name: "#3183" }, price: 0.1123, from: "0xfC12...d8e3", to: "0x55Ab...19c0", time: FALLBACK_ACTIVITY_REF - 5400000, hash: null, sample: true },
+  { type: "sale", token: { id: "2894", name: "#2894" }, price: 0.1099, from: "0x8812...eF03", to: "0xBb22...c1a8", time: FALLBACK_ACTIVITY_REF - 9000000, hash: null, sample: true },
 ];
 
 // ═══ COLLECTION LORE ═══
