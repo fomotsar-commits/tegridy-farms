@@ -15,6 +15,7 @@ import { usePriceHistory } from '../hooks/usePriceHistory';
 import { formatCurrency } from '../lib/formatting';
 import { FlashValue } from '../components/FlashValue';
 import { ReferralWidget } from '../components/ReferralWidget';
+import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES, FAQ_INTRO } from '../lib/copy';
@@ -261,6 +262,14 @@ export default function HomePage() {
             </div>
           )}
 
+          {/* F94 (T9): when a connected wallet is on the wrong network the hero
+              stats still read mainnet (every read hook is chain-pinned to
+              CHAIN_ID), so flag the mismatch additively. Reuses the shared
+              WrongChainBanner (renders null when disconnected or on-chain — its
+              own mt is only applied when it actually renders), so there's no new
+              copy surface and behaviour matches Farm/Community. */}
+          <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+
           <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {([
               // F85: USD-primary TVL with the TOWELI count secondary when a price
@@ -269,18 +278,24 @@ export default function HomePage() {
               { l: 'TVL', v: stats.tvlUsd || stats.tvl, sub: stats.tvlUsd && stats.tvl !== '–' ? stats.tvl : undefined },
               { l: 'TOWELI Price', v: effectiveToweliPrice || '–', showSparkline: true },
               { l: 'Base APR', v: pool.isDeployed && pool.apr !== '0' ? `${pool.apr}%` : '–' },
-              { l: 'ETH Distributed', v: revenueStats.totalDistributed > 0 ? `${revenueStats.totalDistributed.toFixed(4)} ETH` : '–' },
-            ] as { l: string; v: string; sub?: string; showSparkline?: boolean }[]).map((s) => (
+              // F47 (T7 + T11): the global lifetime-ETH read now fires logged-out
+              // (useRevenueStats split the global query off the wallet gate), and
+              // we stop conflating loaded-zero with loading: shimmer ONLY while
+              // genuinely loading; once resolved, render the honest "0.0000 ETH"
+              // (the value that backs the on-chain-verifiable pitch) instead of an
+              // eternal skeleton. `loading: true` forces the shimmer branch below.
+              { l: 'ETH Distributed', v: `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading },
+            ] as { l: string; v: string; sub?: string; showSparkline?: boolean; loading?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
                 {/* Kyle green on stats text over black pill for maximum visibility on brown/purple art. */}
                 <span className="text-[12px] flex items-center gap-1.5" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}{s.showSparkline && <PulseDot size={5} />}</span>
                 {s.showSparkline ? (
                   <FlashValue value={price.priceInUsd}>
-                    <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
+                    <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(s.loading || !s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                   </FlashValue>
                 ) : (
-                  <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
+                  <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(s.loading || !s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                 )}
                 {/* F85: TOWELI count as a secondary figure under the USD TVL. */}
                 {s.sub && (

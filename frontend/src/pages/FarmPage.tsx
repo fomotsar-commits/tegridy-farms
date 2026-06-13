@@ -215,8 +215,51 @@ export default function FarmPage() {
           <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.55)' }} aria-hidden="true" />
         </div>
         <div className="relative z-10 pt-20">
-          <div className="max-w-[1100px] mx-auto px-4 md:px-6">
+          {/* F115 / F169 (T7): render the public read-only data for logged-out
+              visitors instead of hiding the whole farm behind the connect wall.
+              All of these read from connection-independent hooks already
+              instantiated above; only the stake/claim/LP actions stay gated
+              (LPFarmingSection renders its own "Connect to stake" CTA, and the
+              ConnectPrompt below remains the action-card slot). Additive — the
+              jungle art hero and ConnectPrompt are untouched. */}
+          <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
             <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} />
+
+            <FarmStatsRow
+              stats={stats}
+              pool={pool}
+              price={price}
+              priceData={priceData}
+              priceError={priceError}
+              daysLeft={daysLeft}
+            />
+
+            {/* Native LP Pools — read-only pool cards (TVL, reserves, fees). */}
+            <div className="mb-10 mt-2">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
+                  <p className="text-white text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
+                </div>
+                <Link to="/liquidity" className="text-white/60 text-[12px] hover:text-white transition-colors">
+                  View all pools &#8594;
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <LivePoolCard poolData={poolTVL} />
+                {UPCOMING_POOLS.map((p) => (
+                  <UpcomingPoolCard key={p.id} pool={p} />
+                ))}
+              </div>
+            </div>
+
+            {/* LP Farming — section renders read-only stats + a Connect-to-stake CTA. */}
+            <LPFarmingSection lpFarm={lpFarm} isConnected={false} />
+
+            {/* Boost schedule — pure lock-multiplier table, no wallet needed. */}
+            <div className="mb-2">
+              <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
+            </div>
           </div>
           <ConnectPrompt surface="farm" />
         </div>

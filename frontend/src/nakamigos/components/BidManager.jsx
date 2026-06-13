@@ -9,6 +9,7 @@ import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { openseaGet } from "../lib/proxy";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import EmptyState from "./EmptyState";
+import CollectionOffersPanel from "./CollectionOffersPanel";
 
 const TABS = ["My Bids", "Received Offers", "Bid History"];
 
@@ -495,16 +496,23 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
   }, [myBids, bidSort]);
 
   // ═══ NOT CONNECTED ═══
+  // F698 (T7): the public collection bid book is read-only data (it needs no
+  // wallet — useCollectionOffers gates on the collection slug, not an address),
+  // so show the Blur-style bid wall to everyone. Only the "manage MY bids" half
+  // stays behind the connect prompt below. Additive — the gate is unchanged, it
+  // now just sits under a public bid ladder.
   if (!wallet) {
     return (
       <div style={styles.container}>
+        <div style={styles.title}>Collection Bids</div>
+        <CollectionOffersPanel wallet={wallet} onConnect={onConnect} addToast={addToast} />
         <div className="wallet-connect-prompt">
           <div className="wallet-connect-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" /><path d="M3 5v14a2 2 0 0 0 2 2h16v-5" /><path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
             </svg>
           </div>
-          <h3 className="wallet-connect-title">Connect Your Wallet</h3>
+          <h3 className="wallet-connect-title">Connect to manage your bids</h3>
           <p className="wallet-connect-desc">
             Connect your wallet to manage bids, view received offers, and track your {collection.name} bid history.
           </p>

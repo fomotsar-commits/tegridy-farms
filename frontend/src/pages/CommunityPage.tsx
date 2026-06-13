@@ -17,6 +17,7 @@ const VoteIncentivesSection = lazy(() => import('../components/community/VoteInc
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_ADDRESS, GAUGE_CONTROLLER_ADDRESS, isDeployed } from '../lib/constants';
+import { COMMUNITY_TAB_INTRO } from '../lib/copy';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
@@ -120,13 +121,67 @@ export default function CommunityPage() {
           ))}
         </m.div>
 
-        {!isConnected ? (
+        {/* F322 / F356 / F357 (T7): the tabpanel always renders — public contract
+            reads (proposals, bounty list, gauge weights, bribe leaderboard) and
+            the honest pre-deploy "isn't live yet" status are no longer hidden
+            behind a generic connect-wall. Each section's write buttons already
+            guard on `address`/chain; for logged-out visitors we add a per-tab
+            one-liner (what it is + what connecting unlocks) and a single inline
+            Connect CTA below the panel. Logged-in behaviour is unchanged. */}
+        {!isConnected && (
           <m.div
-            className="max-w-md mx-auto rounded-2xl p-8 text-center relative overflow-hidden"
-            style={{ border: '1px solid rgba(16,185,129,0.08)' }}
-            initial={{ opacity: 0, y: 20 }}
+            className="max-w-2xl mx-auto mb-6 text-center"
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            transition={{ delay: 0.08 }}
+          >
+            <p className="text-white/75 text-[13px] leading-relaxed">{COMMUNITY_TAB_INTRO[section]}</p>
+          </m.div>
+        )}
+
+        <m.div
+          key={section}
+          role="tabpanel"
+          id={`community-panel-${section}`}
+          aria-labelledby={`community-tab-${section}`}
+          tabIndex={0}
+          className="outline-none"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <ErrorBoundary>
+            <Suspense fallback={
+              <div className="space-y-4 animate-pulse">
+                <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                  <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                  <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
+                </div>
+              </div>
+            }>
+              {section === 'grants' && (isDeployed(COMMUNITY_GRANTS_ADDRESS)
+                ? <GrantsSection />
+                : <FeatureNotDeployed pageId="community" idx={1} title="Community governance isn't live yet" subtitle="On-chain grants and proposals open once the governance contract is deployed for the relaunch." />)}
+              {section === 'bounties' && (isDeployed(MEME_BOUNTY_BOARD_ADDRESS)
+                ? <BountiesSection />
+                : <FeatureNotDeployed pageId="community" idx={2} title="The bounty board isn't live yet" subtitle="Meme bounties open once the bounty contract is deployed for the relaunch." />)}
+              {section === 'bribes' && (isDeployed(VOTE_INCENTIVES_ADDRESS)
+                ? <VoteIncentivesSection />
+                : <FeatureNotDeployed pageId="community" idx={3} title="Vote incentives aren't live yet" subtitle="Cartman's Market opens once the vote-incentives contract is deployed for the relaunch." />)}
+              {section === 'gauges' && (isDeployed(GAUGE_CONTROLLER_ADDRESS)
+                ? <GaugeVoting />
+                : <FeatureNotDeployed pageId="community" idx={4} title="Gauge voting isn't live yet" subtitle="Vote on gauge emissions once the gauge controller is deployed for the relaunch." />)}
+            </Suspense>
+          </ErrorBoundary>
+        </m.div>
+
+        {!isConnected && (
+          <m.div
+            className="max-w-md mx-auto mt-8 rounded-2xl p-6 text-center relative overflow-hidden"
+            style={{ border: '1px solid rgba(16,185,129,0.08)' }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
           >
             <div className="absolute inset-0">
               <ArtImg pageId="community" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -141,42 +196,6 @@ export default function CommunityPage() {
               <p className="text-white mb-5 text-[14px]">Connect your wallet to participate</p>
               <ConnectButton />
             </div>
-          </m.div>
-        ) : (
-          <m.div
-            key={section}
-            role="tabpanel"
-            id={`community-panel-${section}`}
-            aria-labelledby={`community-tab-${section}`}
-            tabIndex={0}
-            className="outline-none"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <ErrorBoundary>
-              <Suspense fallback={
-                <div className="space-y-4 animate-pulse">
-                  <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
-                    <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
-                    <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
-                  </div>
-                </div>
-              }>
-                {section === 'grants' && (isDeployed(COMMUNITY_GRANTS_ADDRESS)
-                  ? <GrantsSection />
-                  : <FeatureNotDeployed pageId="community" idx={1} title="Community governance isn't live yet" subtitle="On-chain grants and proposals open once the governance contract is deployed for the relaunch." />)}
-                {section === 'bounties' && (isDeployed(MEME_BOUNTY_BOARD_ADDRESS)
-                  ? <BountiesSection />
-                  : <FeatureNotDeployed pageId="community" idx={2} title="The bounty board isn't live yet" subtitle="Meme bounties open once the bounty contract is deployed for the relaunch." />)}
-                {section === 'bribes' && (isDeployed(VOTE_INCENTIVES_ADDRESS)
-                  ? <VoteIncentivesSection />
-                  : <FeatureNotDeployed pageId="community" idx={3} title="Vote incentives aren't live yet" subtitle="Cartman's Market opens once the vote-incentives contract is deployed for the relaunch." />)}
-                {section === 'gauges' && (isDeployed(GAUGE_CONTROLLER_ADDRESS)
-                  ? <GaugeVoting />
-                  : <FeatureNotDeployed pageId="community" idx={4} title="Gauge voting isn't live yet" subtitle="Vote on gauge emissions once the gauge controller is deployed for the relaunch." />)}
-              </Suspense>
-            </ErrorBoundary>
           </m.div>
         )}
       </div>

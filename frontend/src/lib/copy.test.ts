@@ -4,6 +4,7 @@ import {
   LOCK_DURATIONS,
   PENALTY_COPY,
   GOVERNANCE_COPY,
+  COMMUNITY_TAB_INTRO,
   FAQ_INTRO,
   TOWELIE_QUOTES,
   ERROR_COPY,
@@ -98,6 +99,35 @@ describe('GOVERNANCE_COPY', () => {
   it('re-brands bribes as "Cartman\'s Market"', () => {
     expect(GOVERNANCE_COPY.bribesSectionTitle).toMatch(/Cartman/);
     expect(GOVERNANCE_COPY.bribesSectionTag).toMatch(/Not Bribes/i);
+  });
+});
+
+describe('COMMUNITY_TAB_INTRO', () => {
+  // F357: each logged-out community tab must read distinctly (what it is +
+  // what connecting unlocks) instead of one generic "connect to participate".
+  const KEYS = ['grants', 'bounties', 'bribes', 'gauges'] as const;
+
+  it('provides an intro for every community tab', () => {
+    for (const k of KEYS) {
+      expect(COMMUNITY_TAB_INTRO).toHaveProperty(k);
+      expect(COMMUNITY_TAB_INTRO[k]).toBeTruthy();
+    }
+  });
+
+  it('every intro is a distinct, descriptive sentence', () => {
+    const values = KEYS.map((k) => COMMUNITY_TAB_INTRO[k]);
+    // all distinct
+    expect(new Set(values).size).toBe(values.length);
+    // each long enough to actually describe the tab
+    for (const v of values) {
+      expect(v.length).toBeGreaterThan(40);
+    }
+  });
+
+  it('each intro tells the user what connecting unlocks', () => {
+    for (const k of KEYS) {
+      expect(COMMUNITY_TAB_INTRO[k]).toMatch(/connect/i);
+    }
   });
 });
 

@@ -212,10 +212,50 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
           <ArtImg pageId="dashboard" idx={0} fallbackPosition="center 5%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
+        {/* F138 / F170 (T7): render the wallet-independent protocol data for
+            logged-out visitors instead of an empty connect void. TOWELI price,
+            TVL, APR and lifetime ETH distributed all read from connection-
+            independent hooks; the price chart needs no account. Additive over
+            the camo art — the ConnectPrompt stays as the action slot below. */}
+        <div className="relative z-10 max-w-[1100px] mx-auto px-4 md:px-6 pt-20 pb-10">
+          <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Dashboard</h1>
+            <p className="text-white text-[13px]">Live protocol metrics &middot; connect to track your position</p>
+          </m.div>
+
+          {/* Public protocol-stats strip — same data the connected dashboard shows. */}
+          <div className="flex flex-wrap gap-3 mb-6">
+            {([
+              { l: 'TOWELI Price', v: price.isLoaded && price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : '–', showSparkline: true },
+              { l: 'TVL', v: pool.isDeployed && Number(pool.totalStaked) > 0 ? `${formatWholeNumber(Number(pool.totalStaked))} TOWELI` : '–' },
+              { l: 'Base APR', v: pool.isDeployed && pool.aprNum > 0 ? `${pool.apr}%` : '–' },
+              { l: 'ETH Distributed', v: revenueStats.isDataLoading ? null : `${revenueStats.totalDistributed.toFixed(4)} ETH` },
+            ] as { l: string; v: string | null; showSparkline?: boolean }[]).map((s) => (
+              <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
+                style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+                <span className="text-[12px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}</span>
+                <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+                  {s.v === null ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}
+                </span>
+                {s.showSparkline && priceHistory.length > 1 && (
+                  <Sparkline data={priceHistory} width={48} height={16} />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* TOWELI price chart — wallet-independent. */}
+          <div className="rounded-xl glass-card-animated p-4 mb-2" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}>
+            <div className="h-[260px]">
+              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
+            </div>
+          </div>
+        </div>
+
         {/* F519: use the shared dark-card ConnectPrompt (same as /farm) so the
             wallet-gate stays legible over the busy camo art instead of the bare
             text-center block that dissolved into the camouflage at 820px+. */}
-        <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
+        <div className="relative z-10 flex items-center justify-center px-6 pb-16">
           <ConnectPrompt surface="dashboard" />
         </div>
       </div>

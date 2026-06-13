@@ -135,19 +135,22 @@ export default function GalleryPage() {
                         <p className="text-white text-[11px] mt-0.5">{piece.description}</p>
                       )}
                     </div>
-                    {isConnected && (
-                      <>
-                        {/* Fix #5: vote keyed by stable id, Fix #2: voted state visually distinct */}
-                        <button onClick={(e) => { e.stopPropagation(); vote(piece.id); }}
-                          disabled={voteCooldown}
-                          aria-label={`Vote for ${piece.title}`}
-                          className={`flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-md text-[11px] font-medium transition-all disabled:opacity-70 ${userVotes[piece.id] ? 'text-purple-400' : 'text-white'}`}
-                          style={{ background: 'rgba(0,0,0,0.65)' }}>
-                          ▲ {votes[piece.id] || 0}
-                        </button>
-                        <span className="sr-only">Votes are for fun only — not verified on-chain.</span>
-                      </>
-                    )}
+                    {/* F335 (T7): show the vote count always (social proof) — only
+                        the click is gated. Disconnected → the button is disabled
+                        with a "connect to vote" hint, so logged-out visitors still
+                        see the tally instead of an empty corner. */}
+                    <>
+                      {/* Fix #5: vote keyed by stable id, Fix #2: voted state visually distinct */}
+                      <button onClick={(e) => { e.stopPropagation(); if (isConnected) vote(piece.id); }}
+                        disabled={voteCooldown || !isConnected}
+                        aria-label={isConnected ? `Vote for ${piece.title}` : `${votes[piece.id] || 0} votes — connect your wallet to vote for ${piece.title}`}
+                        title={isConnected ? undefined : 'Connect your wallet to vote'}
+                        className={`flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-md text-[11px] font-medium transition-all disabled:opacity-70 ${userVotes[piece.id] ? 'text-purple-400' : 'text-white'}`}
+                        style={{ background: 'rgba(0,0,0,0.65)' }}>
+                        ▲ {votes[piece.id] || 0}
+                      </button>
+                      <span className="sr-only">Votes are for fun only — not verified on-chain.</span>
+                    </>
                   </div>
                 </div>
               </div>

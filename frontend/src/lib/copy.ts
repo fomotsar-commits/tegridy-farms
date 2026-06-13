@@ -94,6 +94,19 @@ export const GOVERNANCE_COPY = {
 } as const;
 
 // ═══════════════════════════════════════════════════════════════
+// F357: one-sentence per-tab intro so the Community tabs read
+// distinctly when rendered logged-out (each says what it is + what
+// connecting unlocks), instead of one generic "connect to participate".
+// ═══════════════════════════════════════════════════════════════
+
+export const COMMUNITY_TAB_INTRO = {
+  grants: 'On-chain governance: propose and vote on how the community treasury funds builders. Connect to vote and submit proposals.',
+  bounties: 'Meme bounties: fund a task, builders ship, the best work gets paid on-chain. Connect to post or claim a bounty.',
+  bribes: "Cartman's Market: incentivize voters to back your pool with token rewards. Connect to deposit or claim incentives.",
+  gauges: 'Gauge voting: direct TOWELI emissions toward the pools you want deepened. Connect to cast your gauge weights.',
+} as const;
+
+// ═══════════════════════════════════════════════════════════════
 // FAQ opener — the first thing visitors read.
 // ═══════════════════════════════════════════════════════════════
 

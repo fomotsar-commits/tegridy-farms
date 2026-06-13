@@ -8,7 +8,6 @@ import { LendingSection } from '../components/nftfinance/LendingSection';
 import { AMMSection } from '../components/nftfinance/AMMSection';
 import { NFTLendingSection } from '../components/nftfinance/NFTLendingSection';
 import { LaunchpadSection } from '../components/nftfinance/LaunchpadSection';
-import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../lib/constants';
@@ -250,32 +249,46 @@ export default function LendingPage() {
           ))}
         </m.div>
 
-        {!isConnected ? (
-          <ConnectPrompt
-            surface="lending"
-            title={SECTION_PROMPTS[section].title}
-            description={SECTION_PROMPTS[section].description}
-          />
-        ) : (
+        {/* F299 / F300 / F313 (T7): the tabpanel always renders. Every section
+            already shows its honest pre-deploy "being audited / not deployed"
+            banner + StatsBar + HowItWorks + offer/pool/collection explorer using
+            reads gated on `deployed` (no eth_call against zero addresses), and
+            every write action (Lend/Borrow/Accept/Repay/Deploy) handles
+            `!address` internally with its own connect affordance. So the honest
+            status + read-only browsing is no longer hidden behind a generic
+            connect-wall. For disconnected visitors we add a slim per-section
+            intro banner above the panel; logged-in behaviour is unchanged. */}
+        {!isConnected && (
           <m.div
-            key={section}
-            role="tabpanel"
-            id={`nft-finance-panel-${section}`}
-            aria-labelledby={`nft-finance-tab-${section}`}
-            tabIndex={0}
-            className="outline-none"
+            className="max-w-2xl mx-auto mb-6 rounded-xl px-4 py-3 text-center"
+            style={{ background: 'rgba(6,12,26,0.72)', border: '1px solid rgba(245,228,184,0.12)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ delay: 0.08 }}
           >
-            {section === 'lending' && <LendingSection address={address} />}
-            {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
-              ? <NFTLendingSection />
-              : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
-            {section === 'amm' && <AMMSection />}
-            {section === 'launchpad' && <LaunchpadSection />}
+            <p className="text-white text-[13px] font-semibold mb-0.5">{SECTION_PROMPTS[section].title}</p>
+            <p className="text-white/70 text-[12px] leading-relaxed">{SECTION_PROMPTS[section].description}</p>
           </m.div>
         )}
+
+        <m.div
+          key={section}
+          role="tabpanel"
+          id={`nft-finance-panel-${section}`}
+          aria-labelledby={`nft-finance-tab-${section}`}
+          tabIndex={0}
+          className="outline-none"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        >
+          {section === 'lending' && <LendingSection address={address} />}
+          {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
+            ? <NFTLendingSection />
+            : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
+          {section === 'amm' && <AMMSection />}
+          {section === 'launchpad' && <LaunchpadSection />}
+        </m.div>
       </div>
     </div>
   );
