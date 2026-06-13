@@ -63,7 +63,7 @@ export default function LorePage() {
       </div>
 
       {/* Timeline */}
-      <ol className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pb-16 list-none m-0 p-0" style={{ paddingLeft: 0 }}>
+      <ol className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pb-16 list-none my-0">
         {TIMELINE.map((item, i) => (
           <m.li key={item.phase} className="mb-10"
             initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
@@ -86,12 +86,13 @@ export default function LorePage() {
           </m.li>
         ))}
 
-        {/* Call to action */}
-        <m.div className="text-center mt-12" initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
+        {/* Call to action — wrapped in <li> so it's a valid child of <ol>
+            (only li/script/template are allowed as direct <ol> children). */}
+        <m.li className="list-none text-center mt-12" initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}>
           <p className="text-white text-[13px] uppercase tracking-wider label-pill mb-2">DM+T = Memetic Finance</p>
           <p className="text-white text-[14px] mb-1">We came for the art. We stayed to FAFO.</p>
           <p className="heading-luxury text-2xl text-white">This is Jungle Bay.</p>
-        </m.div>
+        </m.li>
       </ol>
     </div>
   );

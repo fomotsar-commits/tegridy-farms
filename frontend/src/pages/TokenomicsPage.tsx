@@ -32,16 +32,19 @@ const SUPPLY_DATA = [
   { name: 'Team (locked by policy — on-chain vesting pending)', value: 5, color: '#3b82f6' },
 ];
 
+// F388: dropped the per-row `live` flag — it had drifted (POLAccumulator was
+// flagged live:false although it deployed in the relaunch). Live/Pending now
+// derives solely from isDeployed(), which is the single source of truth.
 const CONTRACTS = [
-  { label: 'TOWELI Token', address: TOWELI_ADDRESS, live: true },
-  { label: 'TegridyStaking', address: TEGRIDY_STAKING_ADDRESS, live: true },
-  { label: 'SwapFeeRouter', address: SWAP_FEE_ROUTER_ADDRESS, live: true },
-  { label: 'RevenueDistributor', address: REVENUE_DISTRIBUTOR_ADDRESS, live: true },
-  { label: 'CommunityGrants', address: COMMUNITY_GRANTS_ADDRESS, live: true },
-  { label: 'MemeBountyBoard', address: MEME_BOUNTY_BOARD_ADDRESS, live: true },
-  { label: 'ReferralSplitter', address: REFERRAL_SPLITTER_ADDRESS, live: true },
-  { label: 'PremiumAccess', address: PREMIUM_ACCESS_ADDRESS, live: true },
-  { label: 'POLAccumulator', address: POL_ACCUMULATOR_ADDRESS, live: false },
+  { label: 'TOWELI Token', address: TOWELI_ADDRESS },
+  { label: 'TegridyStaking', address: TEGRIDY_STAKING_ADDRESS },
+  { label: 'SwapFeeRouter', address: SWAP_FEE_ROUTER_ADDRESS },
+  { label: 'RevenueDistributor', address: REVENUE_DISTRIBUTOR_ADDRESS },
+  { label: 'CommunityGrants', address: COMMUNITY_GRANTS_ADDRESS },
+  { label: 'MemeBountyBoard', address: MEME_BOUNTY_BOARD_ADDRESS },
+  { label: 'ReferralSplitter', address: REFERRAL_SPLITTER_ADDRESS },
+  { label: 'PremiumAccess', address: PREMIUM_ACCESS_ADDRESS },
+  { label: 'POLAccumulator', address: POL_ACCUMULATOR_ADDRESS },
 ];
 
 export default function TokenomicsPage() {
@@ -158,7 +161,7 @@ export default function TokenomicsPage() {
               {[
                 { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
                 { l: 'Rewards / Second', v: pool.isDeployed ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
-                { l: 'Funded (lifetime)', v: pool.isDeployed ? `${formatNumber(totalFunded, 0)} TOWELI` : '–' },
+                { l: 'Funded (lifetime)', v: pool.isDeployed ? `${formatNumber(totalFunded, 1)} TOWELI` : '–' },
                 { l: 'Emissions End In', v: pool.isDeployed && daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : pool.isDeployed ? 'Period ended' : '–' },
               ].map((r) => (
                 <div key={r.l} className="flex items-center justify-between">
@@ -188,7 +191,7 @@ export default function TokenomicsPage() {
               {/* HONESTY PASS 2026-06-11: link points at the actual treasury Safe,
                   not the staking contract. */}
               <a href={`https://etherscan.io/address/${TREASURY_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-                className="text-[11px] text-white hover:text-white transition-colors">
+                className="text-[11px] text-white/70 hover:text-white transition-colors">
                 View on Etherscan &#8599;
               </a>
             </div>
@@ -202,7 +205,7 @@ export default function TokenomicsPage() {
                   contract's own periodFinish clock. */}
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Rewards Remaining</p>
-                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{rewardsRemaining > 0 ? `${formatNumber(rewardsRemaining, 0)} TOWELI` : '–'}</p>
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{rewardsRemaining > 0 ? `${formatNumber(rewardsRemaining, 1)} TOWELI` : '–'}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Emission Rate</p>
@@ -232,12 +235,10 @@ export default function TokenomicsPage() {
                     style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)', opacity: deployed ? 1 : 0.6 }}>
                     <div className="flex items-center gap-2">
                       <span className="text-white text-[13px]">{c.label}</span>
-                      {deployed && c.live ? (
+                      {deployed ? (
                         <span className="badge badge-success text-[9px]">Live</span>
-                      ) : !deployed ? (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'var(--color-purple-75)', color: '#000000' }}>Pending</span>
                       ) : (
-                        <span className="badge badge-warning text-[9px]">Deployed</span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: 'var(--color-purple-75)', color: '#000000' }}>Pending</span>
                       )}
                     </div>
                     {deployed ? (
@@ -263,8 +264,8 @@ export default function TokenomicsPage() {
             <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
               className="rounded-xl p-3.5 flex items-center justify-between group"
               style={{ background: 'rgba(6,12,26,0.82)', border: '1px solid var(--color-purple-75)', backdropFilter: 'blur(8px)' }}>
-              <span className="text-white text-[13px] group-hover:text-white transition-colors">{l.label}</span>
-              <span className="text-white text-[12px] group-hover:text-white transition-colors">→</span>
+              <span className="text-white/80 text-[13px] group-hover:text-white transition-colors">{l.label}</span>
+              <span className="text-white/80 text-[12px] group-hover:text-white transition-colors">→</span>
             </a>
           ))}
         </div>

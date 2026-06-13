@@ -57,7 +57,7 @@ export default function InfoPage() {
       >
         <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
           <div
-            className="flex gap-1 md:gap-1.5 p-1 rounded-2xl"
+            className="flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
             style={{
               // F509: bumped 0.72 -> 0.92 so underlying H1s / footer links no
               // longer ghost through the translucent pill bar (matches BottomNav's
@@ -74,7 +74,11 @@ export default function InfoPage() {
                 key={t}
                 onClick={() => handleTab(t)}
                 aria-pressed={tab === t}
-                className="flex-1 px-2 md:px-4 py-2 min-h-[40px] rounded-xl text-[11.5px] md:text-[14px] font-medium text-white transition-all whitespace-nowrap"
+                /* F402: min-w + overflow-x-auto on the row lets the 5 labels
+                   scroll horizontally on very narrow phones (<380px) instead of
+                   clipping, while flex-1 keeps the equal-width look on wider
+                   screens. */
+                className="flex-1 min-w-[64px] px-2 md:px-4 py-2 min-h-[40px] rounded-xl text-[11.5px] md:text-[14px] font-medium text-white transition-all whitespace-nowrap"
                 style={
                   tab === t
                     ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }

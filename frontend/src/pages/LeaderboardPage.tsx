@@ -44,7 +44,7 @@ export default function LeaderboardPage() {
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
         <div className="rounded-xl p-4 mb-6" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}>
           <p className="text-yellow-400 text-[13px] font-semibold mb-1">On-Chain Verified Points</p>
-          <p className="text-white/60 text-[12px]">Points and badges are derived from on-chain activity (swaps, staking, LP, referrals). The streak counter is computed locally from your visit cadence.</p>
+          <p className="text-white/60 text-[12px]">Points and badges are derived entirely from on-chain activity (swaps, staking, lock duration, LP, referrals) — nothing is awarded for off-chain actions like daily visits.</p>
         </div>
 
         <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -156,7 +156,7 @@ export default function LeaderboardPage() {
                 <ArtImg pageId="leaderboard" idx={2} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
               </div>
               <div className="relative z-10 p-8 text-center" style={{ background: 'rgba(6,12,26,0.55)' }}>
-                <p className="text-white text-[14px] font-medium mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>No participants yet. Stake TOWELI to earn your first points!</p>
+                <p className="text-white text-[14px] font-medium mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Ranking goes live once the indexer is public — be early: stake now to start earning.</p>
                 <p className="text-white/85 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to start earning points, badges, and tier rewards.</p>
               </div>
             </div>
@@ -171,23 +171,29 @@ export default function LeaderboardPage() {
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">How Points Work</h2>
+            {/* F377: these are the actual on-chain scoring components computed by
+                computeOnChainPoints() — per swap, per active stake (plus a lock-
+                duration bonus), per active LP position (plus a balance bonus),
+                and per referral. The previously-listed "Claim Rewards" / "Daily
+                Visit" rows never accrued (no on-chain visit recorder exists), so
+                they're replaced with the real formula. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {[
-                { action: 'Swap', pts: 10 },
-                { action: 'Stake / Unstake', pts: 25 },
-                { action: 'Provide LP', pts: 50 },
-                { action: 'Claim Rewards', pts: 15 },
-                { action: 'Daily Visit', pts: 5 },
-                { action: 'Referral Swap', pts: 5 },
+                { action: 'Each Swap', pts: '+10' },
+                { action: 'Active Stake', pts: '+25' },
+                { action: 'Lock Duration', pts: '+2 / day' },
+                { action: 'Provide LP', pts: '+50' },
+                { action: 'LP Balance Bonus', pts: 'up to +200' },
+                { action: 'Each Referral', pts: '+5' },
               ].map(r => (
                 <div key={r.action} className="flex items-center justify-between px-3 py-2 rounded-lg"
                   style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                   <span className="text-white text-[12px]">{r.action}</span>
-                  <span className="stat-value text-[12px] text-white">+{r.pts}</span>
+                  <span className="stat-value text-[12px] text-white">{r.pts}</span>
                 </div>
               ))}
             </div>
-            <p className="text-white text-[10px] mt-3">Streak multipliers: 7d = 1.5x, 14d = 2x, 30d = 3x. Streaks are local; points and badges read from on-chain activity.</p>
+            <p className="text-white text-[10px] mt-3">Points and badges are read entirely from on-chain activity (swaps, staking, lock duration, LP balance, referrals). The lock-duration bonus accrues +2 points per day of lock, up to 1,460 days.</p>
           </div>
         </m.div>
 
@@ -216,21 +222,32 @@ export default function LeaderboardPage() {
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="absolute inset-0">
             <ArtImg pageId="leaderboard" idx={5} alt="" loading="lazy" className="w-full h-full object-cover" />
+            {/* F421: solid scrim + blur behind the badge grid so locked-badge
+                titles/descriptions stay legible over the bright character art.
+                The art still bleeds through the border + tile translucency. */}
+            <div aria-hidden="true" className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(3px)' }} />
           </div>
           <div className="relative z-10 p-5">
             <h2 className="text-white text-[15px] font-semibold mb-3">All Badges</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {BADGES.map(b => {
                 const earned = (points.badges ?? []).some(eb => eb.id === b.id);
+                // F421: represent the locked state with a lock affordance + a
+                // light desaturation instead of double-dimming the text to
+                // illegibility (was opacity-30 over bright art).
                 return (
-                  <div key={b.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${earned ? '' : 'opacity-30'}`}
-                    style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                    <span className="text-[18px]">{b.icon}</span>
-                    <div>
-                      <p className="text-white text-[12px] font-medium">{b.name}</p>
-                      <p className="text-white text-[10px]">{b.description}</p>
+                  <div key={b.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
+                    style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid var(--color-purple-75)' }}>
+                    <span className={`text-[18px] ${earned ? '' : 'grayscale opacity-60'}`}>{b.icon}</span>
+                    <div className="min-w-0">
+                      <p className={`text-[12px] font-medium ${earned ? 'text-white' : 'text-white/75'}`}>{b.name}</p>
+                      <p className={`text-[10px] ${earned ? 'text-white/80' : 'text-white/55'}`}>{b.description}</p>
                     </div>
-                    {earned && <span className="ml-auto text-success text-[12px]">✓</span>}
+                    {earned ? (
+                      <span className="ml-auto text-success text-[12px]" aria-label="Earned">✓</span>
+                    ) : (
+                      <svg aria-label="Locked" className="ml-auto text-white/45 shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+                    )}
                   </div>
                 );
               })}
