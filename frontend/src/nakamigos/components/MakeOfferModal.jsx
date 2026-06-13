@@ -5,6 +5,7 @@ import { createItemOffer, createTraitOffer, createCollectionOffer, fetchMyOffers
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { sanitizeDecimalInput } from "../../lib/formatting";
 
 const EXPIRATION_OPTIONS = [
   { label: "1 hour", hours: 1 },
@@ -272,13 +273,11 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
                 <Eth size={14} />
                 <input
                   id="offer-price-input"
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  step="0.001"
-                  min="0"
                   placeholder="0.00"
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(e) => setPrice(sanitizeDecimalInput(e.target.value))}
                   disabled={step === "submitting"}
                   style={{
                     flex: 1, background: "transparent", border: "none", outline: "none",
@@ -289,7 +288,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
               </div>
               {price && wethBal !== null && parseFloat(price) > 0 && (() => {
                 const [whole = "0", frac = ""] = price.split(".");
-                const priceWei = BigInt(whole) * BigInt(1e18) + BigInt((frac + "000000000000000000").slice(0, 18));
+                const priceWei = BigInt(whole || "0") * BigInt(1e18) + BigInt((frac + "000000000000000000").slice(0, 18));
                 const needsWrap = priceWei > wethBal;
                 return (
                 <div style={{
@@ -307,7 +306,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
             {/* Overcommitment warning */}
             {price && wethBal !== null && parseFloat(price) > 0 && (() => {
               const [whole = "0", frac = ""] = price.split(".");
-              const priceWei = BigInt(whole) * BigInt(1e18) + BigInt((frac + "000000000000000000").slice(0, 18));
+              const priceWei = BigInt(whole || "0") * BigInt(1e18) + BigInt((frac + "000000000000000000").slice(0, 18));
               const totalCommitted = activeOfferTotal + priceWei;
               const gasBuffer = BigInt(Math.floor(0.01 * 1e18));
               const availableBal = wethBal + (ethBal || 0n) - gasBuffer;
