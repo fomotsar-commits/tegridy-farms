@@ -5,7 +5,7 @@ import { formatPrice } from "../lib/formatPrice";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import EmptyState from "./EmptyState";
 
-export default memo(function Favorites({ tokens, favorites, onPick, onToggleFavorite }) {
+export default memo(function Favorites({ tokens, favorites, onPick, onToggleFavorite, setTab }) {
   const collection = useActiveCollection();
   const safeFavorites = favorites || [];
 
@@ -21,7 +21,11 @@ export default memo(function Favorites({ tokens, favorites, onPick, onToggleFavo
   if (safeFavorites.length === 0) {
     return (
       <section className="favorites-section">
-        <EmptyState type="favorites" collectionName={collection?.name} />
+        <EmptyState
+          type="favorites"
+          collectionName={collection?.name}
+          onAction={setTab ? (t) => setTab(t) : undefined}
+        />
       </section>
     );
   }

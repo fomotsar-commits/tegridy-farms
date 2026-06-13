@@ -10,19 +10,13 @@
  *   - Prediction market results
  *   - Points milestone achievements
  *
- * --- Required Supabase table (run in SQL editor): ---
- *
- *   CREATE TABLE push_subscriptions (
- *     wallet text NOT NULL,
- *     endpoint text NOT NULL,
- *     keys jsonb NOT NULL,
- *     preferences jsonb DEFAULT '{"floor_alerts": true, "outbid": true, "whale_activity": true, "sales": true}',
- *     created_at timestamptz DEFAULT now(),
- *     PRIMARY KEY (wallet, endpoint)
- *   );
- *
- *   ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
- *   CREATE POLICY "Anyone can manage own subs" ON push_subscriptions FOR ALL USING (true);
+ * The push_subscriptions table is defined and secured by the SQL migrations in
+ * `frontend/supabase/migrations/` — that directory is the source of truth.
+ * (The earlier inline `keys jsonb` + `preferences jsonb` + permissive
+ * "Anyone can manage own subs" schema documented here was superseded: the code
+ * writes flat p256dh/auth fields through /api/supabase-proxy under SIWE, and the
+ * USING(true) policy was dropped — see migration 004. Don't re-derive the
+ * schema from this comment.)
  */
 
 // VAPID public key — generate with: npx web-push generate-vapid-keys

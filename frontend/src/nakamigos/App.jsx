@@ -348,13 +348,24 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   }, [nfts.allTokens, collection.contract, collection.metadataBase]);
   const { listings, listingsLoading, listingsError, listingsSource, refreshListings, lastRefresh } = useListings();
   const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
-  const [showOnboarding, setShowOnboarding] = useState(() => { try { return !localStorage.getItem(`${collectionSlug}_onboarded`); } catch { return true; } });
+  // Onboarding is keyed once per marketplace ("tradermigos_onboarded") rather
+  // than per collection (F767); the legacy per-collection key is still honored
+  // so prior completers aren't re-shown the tour.
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    try {
+      return !localStorage.getItem("tradermigos_onboarded") &&
+        !localStorage.getItem(`${collectionSlug}_onboarded`);
+    } catch { return true; }
+  });
 
-  // Re-entry point for the onboarding tour (F561): clearing the per-collection
-  // "onboarded" flag lets the freshly-mounted Onboarding re-detect a first visit.
-  // Onboarding keys off collection.slug, which equals collectionSlug here.
+  // Re-entry point for the onboarding tour (F561): clearing the onboarded flag
+  // lets the freshly-mounted Onboarding re-detect a first visit. Clear both the
+  // marketplace key and the legacy per-collection key so a replay always fires.
   const replayOnboarding = useCallback(() => {
-    try { localStorage.removeItem(`${collectionSlug}_onboarded`); } catch { /* no-op */ }
+    try {
+      localStorage.removeItem("tradermigos_onboarded");
+      localStorage.removeItem(`${collectionSlug}_onboarded`);
+    } catch { /* no-op */ }
     setShowOnboarding(false);
     // Remount on the next tick so the first-visit effect re-runs from scratch.
     setTimeout(() => setShowOnboarding(true), 0);
@@ -705,7 +716,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       case "activity":
         return <ActivityFeed activities={activities} isLive={isLive} isWebSocketConnected={isWebSocketConnected} addToast={addToast} />;
       case "favorites":
-        return <Favorites tokens={nfts.allTokens} favorites={favorites} onPick={setSelected} onToggleFavorite={toggleFavorite} />;
+        return <Favorites tokens={nfts.allTokens} favorites={favorites} onPick={setSelected} onToggleFavorite={toggleFavorite} setTab={handleTabChange} />;
       case "trade":
         return <NftCompare tokens={nfts.allTokens} onPick={setSelected} wallet={wallet} onConnect={handleConnect} addToast={addToast} />;
       case "watchlist":

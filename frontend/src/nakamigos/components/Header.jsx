@@ -475,7 +475,7 @@ export default memo(function Header({
               onFocus={() => onPrefetch?.(k)}
               className={`nav-tab ${tab === k ? "active" : ""}`}
               aria-current={tab === k ? "page" : undefined}
-              data-tour={k === "listings" ? "floor" : undefined}
+              data-tour={k === "listings" ? "floor" : k === "gallery" ? "gallery" : undefined}
             >
               {v}
             </button>

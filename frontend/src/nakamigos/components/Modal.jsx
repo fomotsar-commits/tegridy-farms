@@ -310,7 +310,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                       role="button"
                       tabIndex={0}
                     >
-                      {"\u00b7"} {ownerEns || `${nft.owner.slice(0, 6)}...${nft.owner.slice(-4)}`} {copied === "owner" ? "\u2713" : ""}
+                      {"\u00b7"} Owner: {ownerEns || `${nft.owner.slice(0, 6)}...${nft.owner.slice(-4)}`} {copied === "owner" ? "\u2713" : ""}
                     </span>
                     {onViewProfile && (
                       <span

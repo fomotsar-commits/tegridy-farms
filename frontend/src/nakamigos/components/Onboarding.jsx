@@ -127,7 +127,14 @@ function resolveTarget(selectorGroup) {
 
 export default function Onboarding({ onComplete }) {
   const collection = useActiveCollection();
-  const storageKey = `${collection.slug}_onboarded`;
+  // The tour steps (Gallery/Floor/Wallet/Cart/Shortcuts) are not
+  // collection-specific, so key it once per marketplace instead of per
+  // collection — previously completing one collection re-fired the identical
+  // tour on every other collection (F767).
+  const storageKey = "tradermigos_onboarded";
+  // Honor the legacy per-collection key so anyone who already completed the
+  // tour under the old scheme isn't shown it again.
+  const legacyKey = `${collection.slug}_onboarded`;
   const [active, setActive] = useState(false);
   const [step, setStep] = useState(0);
   const [tooltipPos, setTooltipPos] = useState(null);
@@ -136,12 +143,15 @@ export default function Onboarding({ onComplete }) {
 
   // ── First-visit detection ──
   useEffect(() => {
-    try { if (localStorage.getItem(storageKey) === "true") return; } catch { return; }
+    try {
+      if (localStorage.getItem(storageKey) === "true") return;
+      if (localStorage.getItem(legacyKey) === "true") return;
+    } catch { return; }
     injectKeyframes();
     // small delay so the page has time to render target elements
     const timer = setTimeout(() => setActive(true), 600);
     return () => clearTimeout(timer);
-  }, [storageKey]);
+  }, [storageKey, legacyKey]);
 
   // ── Position tooltip relative to target ──
   const positionTooltip = useCallback(() => {
