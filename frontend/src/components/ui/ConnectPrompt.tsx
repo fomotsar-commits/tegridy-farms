@@ -38,7 +38,7 @@ const DEFAULTS: Record<Surface, { title: string; description: string; cta: strin
   lending: {
     title: 'Connect to borrow or lend',
     description:
-      'Supply TOWELI for yield, borrow against your staking NFT, or use JBAC / JBAY Gold NFTs as collateral. 1-hour grace period, no liquidation auctions — peer-to-peer.',
+      'Lend ETH against staked-TOWELI position NFTs, borrow against your staking NFT, or use JBAC / Nakamigos / GNSS NFTs as collateral. 1-hour grace period, no liquidation auctions — peer-to-peer.',
     cta: 'Open Lending',
   },
   governance: {

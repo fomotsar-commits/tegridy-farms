@@ -311,7 +311,7 @@ export function StakingCard({
                   </div>
                 )}
               </div>
-              <Link to="/restake" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
+              <Link to="/farm" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
                 Restake for bonus yield &#8594;
               </Link>
             </div>

@@ -435,7 +435,7 @@ export default function DashboardPage() {
                     {nft.boostLabel && (
                       <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
                     )}
-                    <Link to="/restake" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                    <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                       Restake for bonus yield &#8594;
                     </Link>
                   </div>

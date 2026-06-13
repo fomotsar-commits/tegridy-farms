@@ -27,9 +27,9 @@ const SECTIONS: { key: Section; label: string; subtitle?: string }[] = [
 // body never changed). Each section now reflects what that surface does.
 const SECTION_PROMPTS: Record<Section, { title: string; description: string }> = {
   lending: {
-    title: 'Connect to lend & borrow TOWELI',
+    title: 'Connect to lend ETH against staking positions',
     description:
-      'Supply TOWELI for yield, borrow against your staking NFT, or restake for bonus rewards. 1-hour grace period, no liquidation auctions — peer-to-peer.',
+      'Lend ETH against staked-TOWELI position NFTs, borrow against your own staking NFT, or restake for bonus rewards. 1-hour grace period, no liquidation auctions — peer-to-peer.',
   },
   nftlending: {
     title: 'Connect to borrow against your NFTs',
@@ -70,6 +70,13 @@ const INTRO_CARDS = [
     icon: 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z',
     art: pageArt('nft-finance', 3),
   },
+  {
+    key: 'launchpad' as Section,
+    title: 'Launchpad',
+    desc: 'Mint and launch new NFT collections with built-in bonding-curve liquidity from day one.',
+    icon: 'M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z',
+    art: pageArt('nft-finance', 4),
+  },
 ];
 
 const INTRO_DISMISSED_KEY = 'tegridy-nft-finance-intro-dismissed';
@@ -86,14 +93,16 @@ export default function LendingPage() {
   const { isConnected, address } = useAccount();
   const [searchParams, setSearchParams] = useSearchParams();
   // R007 Pattern A — derive `section` directly from ?section=. URL is the
-  // source of truth, so deep-links + Back/Forward stay correct without an
-  // effect.
+  // source of truth, so deep-links resolve to the right tab without an effect.
   const section: Section = sectionFromQuery(searchParams.get('section')) ?? 'lending';
 
   const handleSectionChange = (next: Section) => {
     const params = new URLSearchParams(searchParams);
     if (next === 'lending') params.delete('section');
     else params.set('section', next);
+    // F278: tab clicks use `replace` (not push), so Back/Forward step over tab
+    // changes rather than walking through them — deep links still resolve, but
+    // the tab history is intentionally replace-not-push.
     setSearchParams(params, { replace: true });
   };
   const [introDismissed, setIntroDismissed] = useState(() => {
@@ -119,7 +128,10 @@ export default function LendingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Finance</h1>
+          {/* F306: the backdrop gallery art is dark in BOTH themes, but light-mode
+              .heading-luxury turns the title dark navy (#1e1b4b) and it sinks into
+              the painting. Force white + a dark scrim inline so it stays legible. */}
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight" style={{ color: '#ffffff', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Finance</h1>
           <p className="text-white max-w-md mx-auto text-[14px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
             Lend, borrow, and trade NFTs — institutional-grade tools, all in one place.
           </p>
@@ -135,11 +147,12 @@ export default function LendingPage() {
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
             >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
                 {INTRO_CARDS.map((card, i) => (
                   <m.button
                     key={card.key}
                     onClick={() => handleSectionChange(card.key)}
+                    aria-label={`Open ${card.title}`}
                     className={`relative text-left rounded-xl transition-all duration-300 group overflow-hidden ${
                       section === card.key ? 'ring-1 ring-emerald-500/40' : ''
                     }`}
@@ -172,7 +185,7 @@ export default function LendingPage() {
               <div className="flex justify-center">
                 <button
                   onClick={dismissIntro}
-                  className="text-[10px] text-white/30 hover:text-white/70 transition-colors"
+                  className="text-[12px] text-white/60 hover:text-white transition-colors px-3 py-1 rounded-full bg-black/40 border border-white/10"
                 >
                   Dismiss overview
                 </button>
@@ -196,7 +209,7 @@ export default function LendingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
         >
-          {SECTIONS.map(({ key, label }) => (
+          {SECTIONS.map(({ key, label, subtitle }) => (
             <button
               key={key}
               role="tab"
@@ -205,7 +218,7 @@ export default function LendingPage() {
               className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap snap-start flex-shrink-0 ${
                 section === key
                   ? 'text-white'
-                  : 'text-white hover:text-white'
+                  : 'text-white/70 hover:text-white hover:bg-white/5'
               }`}
               onClick={() => handleSectionChange(key)}
             >
@@ -216,7 +229,16 @@ export default function LendingPage() {
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 />
               )}
-              <span className="relative z-10">{label}</span>
+              {/* F309: surface the section subtitle on desktop — "Staking + Restake"
+                  under Token Lending is the only hint restaking lives here. */}
+              <span className="relative z-10 flex flex-col items-center leading-tight">
+                <span>{label}</span>
+                {subtitle && (
+                  <span className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
+                    {subtitle}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </m.div>

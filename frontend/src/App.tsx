@@ -194,7 +194,7 @@ function AnimatedRoutes() {
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community?section=bounties" replace />} />
-        <Route path="restake" element={<Navigate to="/nft-finance" replace />} />
+        <Route path="restake" element={<Navigate to="/farm" replace />} />
         <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community?section=bribes" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
