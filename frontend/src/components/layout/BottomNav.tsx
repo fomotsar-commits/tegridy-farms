@@ -52,9 +52,10 @@ const TABS = ALL_TABS.filter((t) => t.to !== '/nft-finance' || NFT_FINANCE_LIVE)
 
 export const BottomNav = React.memo(function BottomNav() {
   return (
-    // R038: was hidden at `md:hidden` (≥768px), but iPad portrait at 820px
-    // hid it too — the portrait viewport is mobile-shaped and needs the
-    // bottom nav. Switching to `sm:hidden` restores it for ≥640px tablets.
+    // R038 / F13: `sm:hidden` hides the bar at ≥640px, where the TopNav primary
+    // nav switches in (TopNav uses `sm:flex`). The content padding band
+    // (index.css safe-area-content-bottom, AppLayout pb) ends at 639px to match,
+    // so 640-767px reserves no dead space for a nav that isn't rendered.
     // safe-area-inset-bottom keeps the bar above the home indicator on
     // notched iOS devices. 44px tap target floor is enforced via min-h.
     <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 sm:hidden"
@@ -69,7 +70,11 @@ export const BottomNav = React.memo(function BottomNav() {
         {TABS.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             className={({ isActive }) =>
-              `flex flex-col items-center justify-center gap-0.5 flex-1 min-w-0 min-h-[48px] min-w-[44px] px-1 py-2 transition-colors ${
+              // F27: `min-w-0` (lets the label truncate) and `min-w-[44px]`
+              // contradicted each other — winner was order-dependent. Keep
+              // `min-w-0`; the 44px tap floor comes from `flex-1` (each of ≤5
+              // tabs gets ≥44px on a phone) + `min-h-[48px]` + padding.
+              `flex flex-col items-center justify-center gap-0.5 flex-1 min-w-0 min-h-[48px] px-1 py-2 transition-colors ${
                 isActive ? 'text-purple-400' : 'text-white/60'
               }`
             }>

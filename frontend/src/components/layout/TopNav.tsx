@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
+import { safeGetItem } from '../../lib/storage';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -18,7 +19,9 @@ export const TopNav = React.memo(function TopNav() {
 
   // Admin link visibility — only show if flag set in localStorage. Keeps the
   // kebab menu empty (and hidden) for ordinary users.
-  const showAdmin = typeof window !== 'undefined' && !!window.localStorage?.getItem('tegridy_admin');
+  // F23: read through safeGetItem — touching `window.localStorage` directly
+  // throws SecurityError when site data is blocked, and `?.` doesn't guard that.
+  const showAdmin = !!safeGetItem('tegridy_admin');
 
   // Close kebab on outside click
   useEffect(() => {
@@ -88,22 +91,35 @@ export const TopNav = React.memo(function TopNav() {
 
   // Audit H-F10: body scroll lock while drawer open so the page behind the overlay
   // doesn't scroll when the user drags. Also restore focus to the menu button on close.
+  // F12: only restore focus on an actual open→closed transition. The else-branch
+  // used to run on first mount (open=false), so on <640px viewports page load
+  // programmatically focused the hamburger (SR announced "Open navigation menu").
+  const wasOpenRef = useRef(false);
   useEffect(() => {
     if (open) {
+      wasOpenRef.current = true;
       const prev = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       return () => { document.body.style.overflow = prev; };
-    } else {
-      // Return focus to the menu-open button on close (if it was the opener)
+    } else if (wasOpenRef.current) {
+      // Return focus to the menu-open button only after a real close.
+      wasOpenRef.current = false;
       menuButtonRef.current?.focus();
     }
   }, [open]);
 
   return (
     <>
+      {/* F8: the app opts into iOS standalone (apple-mobile-web-app-capable +
+          viewport-fit=cover), so on a notched home-screen launch the status bar
+          would overlay this fixed header. Reserve env(safe-area-inset-top) above
+          the 3.5rem bar (the inner row keeps h-14 so it stays below the notch).
+          AppLayout's content offset matches with the same calc(). */}
       <header
-        className="fixed top-0 left-0 right-0 z-50 h-14"
+        className="fixed top-0 left-0 right-0 z-50"
         style={{
+          height: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+          paddingTop: 'env(safe-area-inset-top, 0px)',
           background: isDark
             ? 'linear-gradient(180deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.86) 100%)'
             : 'linear-gradient(180deg, rgba(255,140,26,0.92) 0%, rgba(255,111,0,0.86) 100%)',
@@ -122,7 +138,7 @@ export const TopNav = React.memo(function TopNav() {
         <div className="absolute top-0 left-0 right-0 h-[1px]" style={{
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
-        <div className="max-w-[1200px] mx-auto h-full px-4 md:px-6 flex items-center justify-between">
+        <div className="max-w-[1200px] mx-auto h-14 px-4 md:px-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -253,11 +269,13 @@ export const TopNav = React.memo(function TopNav() {
             </ConnectButton.Custom>
 
             {/* Theme toggle — desktop only; mobile has it in the BottomNav. */}
+            {/* F63: in light mode the header is Kenny orange — the secondary-toned
+                glyph reads weakly on it, so the toggle flips to near-black there. */}
             <button
               onClick={toggleTheme}
               aria-label={isDark ? 'Toggle light mode' : 'Toggle dark mode'}
               title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="hidden sm:flex w-8 h-8 flex-shrink-0 items-center justify-center rounded-lg text-text-secondary hover:text-primary transition-colors"
+              className={`hidden sm:flex w-8 h-8 flex-shrink-0 items-center justify-center rounded-lg transition-colors ${isDark ? 'text-text-secondary hover:text-primary' : 'text-[#1a0f00] hover:text-black'}`}
               style={{ background: 'var(--color-purple-10)', border: '1px solid var(--color-purple-15)' }}
             >
               {isDark ? (

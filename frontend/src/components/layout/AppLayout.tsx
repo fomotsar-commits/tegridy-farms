@@ -88,13 +88,34 @@ export function AppLayout() {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
   }, [isConnected, connector?.name]);
 
+  // F7: gate the first-visit OnboardingModal on splash completion. Otherwise the
+  // modal mounts open UNDER the splash, its document-level Escape handler fires
+  // on the same ESC the user presses to skip the splash (silently marking
+  // onboarding "seen"), and its focus trap steals focus while the splash still
+  // covers it. AppLoader calls onComplete exactly once — whether the splash
+  // plays or is skipped (repeat visit / reduced-motion) — so this flips true the
+  // moment the splash is gone.
+  const [splashDone, setSplashDone] = useState(false);
+
+  // F44: announce route changes to screen readers. SPA navigations are otherwise
+  // silent — title changes aren't reliably announced on route change. We read
+  // document.title (set by usePageTitle) one tick after navigation so the new
+  // page's title is in place, then push it into a polite live region.
+  const [routeAnnouncement, setRouteAnnouncement] = useState('');
+  useEffect(() => {
+    const id = window.setTimeout(() => setRouteAnnouncement(document.title), 120);
+    return () => window.clearTimeout(id);
+  }, [location.pathname]);
+
   return (
-    <AppLoader>
+    <AppLoader onComplete={() => setSplashDone(true)}>
     <PriceProvider>
     <ConfettiProvider>
     <TransactionReceiptProvider>
     <TowelieProvider>
       <a href="#main-content" className="skip-link">Skip to main content</a>
+      {/* F44: visually-hidden polite live region announcing the current page. */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">{routeAnnouncement}</div>
       <Background />
       <Suspense fallback={null}>
         <ParticleBackground />
@@ -129,9 +150,21 @@ export function AppLayout() {
       )}
 
 
-      {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices */}
-      <div className="min-h-screen relative z-10 pt-14 pb-20 md:pb-0 safe-area-content-bottom">
-        <main id="main-content">
+      {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices.
+          F13: drop the reserved band at `sm:` (640px) to match BottomNav's
+          `sm:hidden` — `md:pb-0` left dead padding at 640-767px where the nav
+          is already hidden.
+          F8: the content top-offset matches the header's safe-area-aware height
+          (calc(3.5rem + env(safe-area-inset-top))) so nothing tucks under the
+          fixed header on a notched standalone launch. */}
+      <div
+        className="min-h-screen relative z-10 pb-20 sm:pb-0 safe-area-content-bottom"
+        style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
+      >
+        {/* F29: tabIndex={-1} so the skip-link target reliably receives focus —
+            without it some browsers scroll but leave focus in the nav, sending
+            the next Tab back to the header instead of into the content. */}
+        <main id="main-content" tabIndex={-1}>
           <div key={location.pathname}>
             <ErrorBoundary resetKeys={[location.pathname]}>
               <Outlet />
@@ -144,15 +177,19 @@ export function AppLayout() {
       <BottomNav />
       <LiveActivity />
       <TowelieAssistant />
-      <OnboardingModal />
+      {/* F7: only after the splash finishes (see splashDone above). */}
+      {splashDone && <OnboardingModal />}
       {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
           (consent === 'pending'); analytics + error reporting are blocked
           until the user clicks Accept or Decline. */}
       <ConsentBanner />
 
+      {/* F28: clear the fixed 56px header (+ notch inset) so top-right toasts
+          don't render behind/flush with the header on small screens. */}
       <Toaster
         position="top-right"
         theme={isDark ? 'dark' : 'light'}
+        offset="calc(4.5rem + env(safe-area-inset-top, 0px))"
         toastOptions={{
           style: {
             background: 'var(--color-bg-elevated)',
