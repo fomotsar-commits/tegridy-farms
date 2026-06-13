@@ -16,6 +16,16 @@ const CARD_ART = Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards',
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'June 6, 2026',
+    title: 'Mainnet Relaunch',
+    items: [
+      'Relaunched the live protocol from a brand-new deployer wallet — every contract running on mainnet today carries fresh bytecode with all previously-merged fixes (DeployMVP)',
+      '14 contracts deployed and wired: TOWELI, TegridyStaking (+ admin/view sisters), the native TOWELI/WETH DEX (Factory/Router/Pair), RevenueDistributor, SwapFeeRouter (+ admin), POLAccumulator, TegridyTWAP, ReferralSplitter, and the TokenURIReader',
+      'Addresses wired into the app from frontend/src/lib/constants.ts; staking seeded with a one-time 6.4M TOWELI emissions pool',
+      'Deferred from the relaunch (not deployed; their pages stay gated until each clears a pre-deploy audit wave and goes live): gauge voting, vote incentives, community grants, premium / Gold Card, lending, NFT pools, and the launchpad',
+    ],
+  },
+  {
     date: 'May 4, 2026',
     title: 'Pass-7 Adversarial Multi-Agent Audit + Remediation',
     items: [
@@ -83,6 +93,7 @@ const CHANGELOG: ChangelogEntry[] = [
     date: 'April 14, 2026',
     title: 'NFT Lending & AMM Deployment',
     items: [
+      'Note: this was a superseded deployment — these NFT-finance contracts were NOT redeployed in the June 2026 relaunch and are not live today. Their pages un-gate when the contracts ship.',
       'Deployed TegridyNFTLending contract (generic NFT collateral)',
       'Deployed TegridyNFTPool & TegridyNFTPoolFactory (bonding curve AMM)',
       'Whitelisted JBAC, Nakamigos, GNSS collections for lending',

@@ -41,7 +41,10 @@ import {
 // AUDIT R035: org was previously `tegridyfarms` (404). Source of truth per
 // `git remote -v` is `fomotsar-commits/tegridy-farms`. All per-contract source
 // links and the tracked-issues badge below now resolve.
-const GITHUB_BASE = 'https://github.com/fomotsar-commits/tegridy-farms/blob/main';
+// F452: point at the default/deploy branch `mvp-launch` (the repo ships from it
+// and it is hundreds of commits ahead of `main`) so source links serve current
+// content rather than a stale snapshot.
+const GITHUB_BASE = 'https://github.com/fomotsar-commits/tegridy-farms/blob/mvp-launch';
 
 interface ContractEntry {
   label: string;
@@ -50,7 +53,7 @@ interface ContractEntry {
   // AUDIT LAUNCHPAD-SEC: optional status surfaces placeholder/deprecated
   // entries so users aren't presented with a zero address that looks live.
   // 'redeploy' marks live addresses whose source has been patched and is
-  // queued for a Wave 0 redeploy; 'multisig' marks live addresses whose
+  // queued for a redeploy; 'multisig' marks live addresses whose
   // ownership transfer hasn't been accepted yet.
   status?: 'pending' | 'deprecated' | 'redeploy' | 'multisig';
   note?: string; // shown under the label when status is redeploy/multisig
@@ -70,7 +73,7 @@ const GROUPS: ContractGroup[] = [
       { label: 'TOWELI Token', address: TOWELI_ADDRESS, source: 'contracts/src/TOWELI.sol' },
       { label: 'Tegridy Staking', address: TEGRIDY_STAKING_ADDRESS, source: 'contracts/src/TegridyStaking.sol' },
       { label: 'Tegridy Restaking', address: TEGRIDY_RESTAKING_ADDRESS, source: 'contracts/src/TegridyRestaking.sol' },
-      { label: 'Treasury', address: TREASURY_ADDRESS, source: 'contracts/src/Treasury.sol' },
+      { label: 'Treasury', address: TREASURY_ADDRESS, source: 'external (Safe multisig)' },
     ],
   },
   {
@@ -85,7 +88,7 @@ const GROUPS: ContractGroup[] = [
         address: LP_FARMING_ADDRESS,
         source: 'contracts/src/TegridyLPFarming.sol',
         status: 'multisig',
-        note: 'Wave 0 redeploy live. Awaiting multisig acceptOwnership() before admin functions work.',
+        note: 'Relaunch redeploy live. Awaiting protocol Safe acceptOwnership() before admin functions work.',
       },
       { label: 'Tegridy TWAP Oracle', address: TEGRIDY_TWAP_ADDRESS, source: 'contracts/src/TegridyTWAP.sol' },
       {
@@ -93,7 +96,7 @@ const GROUPS: ContractGroup[] = [
         address: TEGRIDY_FEE_HOOK_ADDRESS,
         source: 'contracts/src/TegridyFeeHook.sol',
         status: 'redeploy',
-        note: 'Owner stranded on Arachnid CREATE2 proxy. Constructor patched to accept _owner — redeploy queued.',
+        note: 'Owner stranded on Arachnid CREATE2 proxy. Constructor patched to accept _owner — redeploy queued before activation.',
       },
     ],
   },
@@ -115,14 +118,14 @@ const GROUPS: ContractGroup[] = [
         address: GAUGE_CONTROLLER_ADDRESS,
         source: 'contracts/src/GaugeController.sol',
         status: 'multisig',
-        note: 'Wave 0 redeploy live (H-2 commit-reveal). Awaiting multisig acceptOwnership().',
+        note: 'Relaunch redeploy live (H-2 commit-reveal). Awaiting protocol Safe acceptOwnership().',
       },
       {
         label: 'Vote Incentives',
         address: VOTE_INCENTIVES_ADDRESS,
         source: 'contracts/src/VoteIncentives.sol',
         status: 'redeploy',
-        note: 'Wave 0 redeploy queued to partner the new commit-reveal GaugeController.',
+        note: 'Redeploy queued to partner the new commit-reveal GaugeController.',
       },
       { label: 'Community Grants', address: COMMUNITY_GRANTS_ADDRESS, source: 'contracts/src/CommunityGrants.sol' },
       { label: 'Meme Bounty Board', address: MEME_BOUNTY_BOARD_ADDRESS, source: 'contracts/src/MemeBountyBoard.sol' },
@@ -139,7 +142,7 @@ const GROUPS: ContractGroup[] = [
         address: TEGRIDY_LENDING_ADDRESS,
         source: 'contracts/src/TegridyLending.sol',
         status: 'redeploy',
-        note: 'Part of the V3Features bundle redeploy (DeployV3Features.s.sol) queued for Wave 0.',
+        note: 'Part of the V3Features bundle redeploy (DeployV3Features.s.sol) queued before activation.',
       },
       {
         label: 'Tegridy Launchpad',
@@ -152,14 +155,14 @@ const GROUPS: ContractGroup[] = [
         address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
         source: 'contracts/src/TegridyNFTPoolFactory.sol',
         status: 'redeploy',
-        note: 'Part of the V3Features bundle redeploy queued for Wave 0.',
+        note: 'Part of the V3Features bundle redeploy queued before activation.',
       },
       {
         label: 'NFT Lending',
         address: TEGRIDY_NFT_LENDING_ADDRESS,
         source: 'contracts/src/TegridyNFTLending.sol',
         status: 'multisig',
-        note: 'Wave 0 redeploy live (C-02 grace period). Awaiting multisig acceptOwnership().',
+        note: 'Relaunch redeploy live (C-02 grace period). Awaiting protocol Safe acceptOwnership().',
       },
       { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TokenURIReader.sol' },
       { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay Apes)' },
@@ -211,7 +214,7 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
           {isRedeploy && (
             <span
               className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-orange-500/40 bg-orange-500/10 text-orange-300"
-              title="Source patched; live address queued for a Wave 0 redeploy"
+              title="Source patched; live address queued for a redeploy"
             >
               redeploy queued
             </span>
@@ -307,8 +310,8 @@ export default function ContractsPage() {
         <header className="mb-8 md:mb-12">
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
           <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-            Canonical, on-chain addresses for every Tegridy Farms contract, grouped by role. All
-            contracts are verified on Etherscan. Source mirrored from the repo{' '}
+            Canonical, on-chain addresses for every Tegridy Farms contract, grouped by role. Source
+            for every contract is linked below. Source mirrored from the repo{' '}
             <a
               href={`${GITHUB_BASE}/CONTRACTS.md`}
               target="_blank"
@@ -320,52 +323,36 @@ export default function ContractsPage() {
             .
           </p>
 
-          {/* Wave 0 outstanding-work legend. Mirrors docs/WAVE_0_RUNBOOK.md so
-              readers can map badges below to the remaining deploy queue. */}
+          {/* Relaunch closure — outstanding deploy work. The June 6, 2026
+              relaunch redeployed the live protocol from a fresh deployer and
+              superseded the earlier "Wave 0" plan; the badges below map to what
+              is still being finished after the relaunch. */}
           <div
             role="status"
             className="rounded-xl p-4 md:p-5 max-w-[860px]"
             style={{ border: '1px solid rgba(245, 158, 11, 0.35)', background: 'rgba(245, 158, 11, 0.07)' }}
           >
             <p className="text-amber-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-              Wave 0 closure — outstanding deploy work
+              Relaunch closure — outstanding deploy work
             </p>
             <ul className="text-white/80 text-[12px] leading-relaxed space-y-1.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.85)' }}>
               <li className="flex items-start gap-2">
                 <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-300 mt-0.5 shrink-0">pending deploy</span>
-                <span>Not yet broadcast. Frontend falls back to V1 or reads are gated on <code className="font-mono text-white/90">isDeployed()</code>.</span>
+                <span>Not part of the relaunch deployment. Reads are gated on <code className="font-mono text-white/90">isDeployed()</code> and each feature un-gates when its contract clears a pre-deploy audit wave and goes live.</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-orange-500/40 bg-orange-500/10 text-orange-300 mt-0.5 shrink-0">redeploy queued</span>
-                <span>Live on-chain, but source has been patched for an audit finding and a Wave 0 redeploy is queued. Admin-side flows may rely on the newer bytecode.</span>
+                <span>Source has been patched for an audit finding and a redeploy is queued before the feature goes live.</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-300 mt-0.5 shrink-0">awaiting multisig</span>
-                <span>Wave 0 address is live, but the multisig <code className="font-mono text-white/90">0x0c41…8bfe</code> still has to call <code className="font-mono text-white/90">acceptOwnership()</code> before any owner-only function works.</span>
+                <span>Address is live, but the protocol Safe still has to call <code className="font-mono text-white/90">acceptOwnership()</code> before any owner-only function works (2-step ownership transfer).</span>
               </li>
             </ul>
             <p className="text-white/60 text-[11px] mt-3 leading-relaxed">
               Full remaining-task checklist:{' '}
               <a
-                href={`${GITHUB_BASE}/docs/WAVE_0_TODO.md`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-white/80 underline hover:text-white transition-colors"
-              >
-                docs/WAVE_0_TODO.md
-              </a>
-              {' '}·{' '}
-              <a
-                href={`${GITHUB_BASE}/docs/WAVE_0_RUNBOOK.md`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-white/80 underline hover:text-white transition-colors"
-              >
-                runbook
-              </a>
-              {' '}·{' '}
-              <a
-                href="https://github.com/fomotsar-commits/tegridy-farms/issues?q=is%3Aissue+is%3Aopen+label%3Await-wave0"
+                href="https://github.com/fomotsar-commits/tegridy-farms/issues?q=is%3Aissue+is%3Aopen"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/80 underline hover:text-white transition-colors"
@@ -415,6 +402,7 @@ export default function ContractsPage() {
         <div className="mt-12 text-center text-white/35 text-[11px]">
           Chain ID 1 (Ethereum mainnet). Last regenerated from{' '}
           <code className="font-mono text-white/55">frontend/src/lib/constants.ts</code>.
+          {' '}Last reviewed: June 2026.
         </div>
       </m.div>
     </div>

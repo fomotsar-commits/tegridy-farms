@@ -1,6 +1,11 @@
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { SWAP_FEE_BPS } from '../lib/constants';
+
+// Render the swap fee straight from the on-chain-mirrored constant so Terms can
+// never drift from the Risks page / contract again (F373/F440).
+const SWAP_FEE_PCT = (SWAP_FEE_BPS / 100).toFixed(2).replace(/\.?0+$/, '');
 
 const SECTIONS = [
   {
@@ -29,7 +34,7 @@ const SECTIONS = [
   },
   {
     title: '7. Fees',
-    body: 'The Protocol charges the following fees: a 0.30% fee on token swaps routed through the SwapFeeRouter (SWAP_FEE_BPS = 30; capped at 1.00% / MAX_FEE_BPS = 100 by contract); a 25% early withdrawal penalty on staked positions withdrawn before their lock period expires; and protocol fees on NFT lending transactions as determined by the lending contract parameters. Fee structures may be modified through DAO governance proposals subject to the on-chain timelock. All fees are transparently enforced by the smart contracts and cannot be altered outside of the governance process.',
+    body: `The Protocol charges the following fees: a ${SWAP_FEE_PCT}% fee on token swaps routed through the SwapFeeRouter (SWAP_FEE_BPS = ${SWAP_FEE_BPS}; capped at 1.00% / MAX_FEE_BPS = 100 by contract); a 25% early withdrawal penalty on staked positions withdrawn before their lock period expires; and protocol fees on NFT lending transactions as determined by the lending contract parameters. Fee structures may be modified by the protocol admin subject to the on-chain timelock. All fees are transparently enforced by the smart contracts and cannot be altered outside of the timelocked admin process.`,
   },
   {
     title: '8. Intellectual Property',
@@ -41,7 +46,7 @@ const SECTIONS = [
   },
   {
     title: '10. Governing Law',
-    body: 'The governance of these Terms and any disputes arising from the use of the Protocol shall be determined by the Tegridy Farms DAO through its governance mechanisms. As a decentralized protocol, traditional jurisdictional governance may not apply. Users agree to participate in good faith in any dispute resolution process established by the DAO. The Protocol strives to operate in compliance with applicable laws across all jurisdictions where it is accessible.',
+    body: 'As a decentralized protocol, traditional jurisdictional governance may not apply to disputes arising from the use of the Protocol. The Protocol is administered by its operator subject to the on-chain timelock, and community governance is being built out incrementally; there is no formal DAO entity today. Users agree to participate in good faith in any dispute-resolution process the Protocol may establish. The Protocol strives to operate in compliance with applicable laws across all jurisdictions where it is accessible.',
   },
   {
     title: '11. Changes to Terms',
@@ -105,7 +110,7 @@ export default function TermsPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: April 2026
+            Last updated: June 2026
           </p>
         </m.div>
       </div>

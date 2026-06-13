@@ -1,8 +1,8 @@
 import { m } from 'framer-motion';
-import { useState } from 'react';
 import { pageArt, artStyle, type ArtPiece } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { CopyButton } from '../components/ui/CopyButton';
 import {
   TEGRIDY_STAKING_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
@@ -10,6 +10,7 @@ import {
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+  TREASURY_ADDRESS,
   isDeployed,
 } from '../lib/constants';
 
@@ -97,9 +98,6 @@ function PauseIcon() {
 function CheckIcon() {
   return (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>);
 }
-function CopyIcon() {
-  return (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>);
-}
 
 const iconMap: Record<string, () => React.ReactNode> = {
   shield: ShieldIcon, lock: LockIcon, clock: ClockIcon,
@@ -108,13 +106,6 @@ const iconMap: Record<string, () => React.ReactNode> = {
 
 export default function SecurityPage() {
   usePageTitle('Security', 'Smart contract audits, bug bounty program, and security practices.');
-  const [copied, setCopied] = useState<string | null>(null);
-
-  const copyAddr = (addr: string) => {
-    navigator.clipboard.writeText(addr);
-    setCopied(addr);
-    setTimeout(() => setCopied(null), 1500);
-  };
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -136,7 +127,7 @@ export default function SecurityPage() {
             <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Our internal security audit employed red team testing across the full protocol surface. The final audit round included comprehensive re-testing of every previously identified finding.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
-                '38,794 lines of test code across 34 test files',
+                '90+ Foundry test files, 1,500+ tests across the suite',
                 'Reentrancy attack simulations',
                 'Sandwich attack simulations',
                 'Fuzz testing & invariant testing',
@@ -180,7 +171,7 @@ export default function SecurityPage() {
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
-                Pass-7 audit + remediation (May 4)
+                Pass-7 audit + remediation (May 3)
               </a>
               <a
                 href="https://github.com/fomotsar-commits/tegridy-farms/blob/main/.audit_101/PASS6_2026_05_03.md"
@@ -262,11 +253,8 @@ export default function SecurityPage() {
                     </div>
                     {deployed ? (
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] text-emerald-400 flex items-center gap-1">&#10003; Verified</span>
                         <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-300 hover:text-purple-200 transition-colors">Etherscan</a>
-                        <button onClick={() => copyAddr(c.address)} className="text-[#22c55e] hover:text-white transition-colors p-2 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Copy address" aria-label="Copy address">
-                          {copied === c.address ? <span className="text-green-400 text-xs">Copied</span> : <CopyIcon />}
-                        </button>
+                        <CopyButton text={c.address} display="" className="text-[#22c55e] hover:text-white transition-colors p-2 min-w-[44px] min-h-[44px] justify-center" />
                       </div>
                     ) : (
                       <span className="text-[10px] uppercase tracking-wider text-amber-300/70 shrink-0 px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10">Soon</span>
@@ -299,11 +287,8 @@ export default function SecurityPage() {
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.25 }} className="mb-14">
           <h2 className="text-2xl font-bold mb-6">Bug Bounty</h2>
           <ArtCard art={pageArt('security', 16)}>
-            <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>We partner with Immunefi, the leading Web3 bug bounty platform, for responsible disclosure. Report vulnerabilities via Immunefi or contact us directly via Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200">@junglebayac</a>.</p>
-            <a href="https://immunefi.com/bug-bounty/tegridyfarms/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors mb-5">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              Submit on Immunefi
-            </a>
+            <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Bug bounties are paid case-by-case as the treasury allows — we don&rsquo;t run a third-party platform program. Report vulnerabilities directly via Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200">@junglebayac</a> or the disclosure channel in our community footer.</p>
+            <p className="text-[#22c55e]/80 text-sm mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Indicative severity bands below — actual payouts are negotiated per report and paid as treasury funds allow:</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {BOUNTY_TIERS.map((t, i) => {
                 const artPiece = pageArt('security', 17 + i);
@@ -330,7 +315,7 @@ export default function SecurityPage() {
           <ArtCard art={pageArt('security', 21)}>
             <div className="space-y-3">
               {[
-                'Protocol admin controlled by team multisig',
+                'Single-operator admin key today (one EOA); multisig migration in progress',
                 'All parameter changes require 24-48h timelock',
                 'Users have time to exit before any admin change takes effect',
                 'Ownership transfer requires 2-step confirmation',
@@ -338,8 +323,19 @@ export default function SecurityPage() {
                 <div key={item} className="flex items-start gap-2 text-[#22c55e]" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}><span className="mt-0.5"><CheckIcon /></span>{item}</div>
               ))}
             </div>
+            {/* Honesty pass: admin is a single EOA today; the protocol treasury Safe
+                is on-chain and linkable. The owner-key multisig migration is the
+                next operational milestone (see the Risks page). */}
+            <div className="mt-4 pt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <a href={`https://etherscan.io/address/${TREASURY_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200 transition-colors">Treasury Safe ↗</a>
+              <span className="text-white/40">Transitioning to multisig control · as of June 2026</span>
+            </div>
           </ArtCard>
         </m.section>
+
+        <p className="text-center text-white/40 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+          Last reviewed: June 2026
+        </p>
 
       </div>
     </div>

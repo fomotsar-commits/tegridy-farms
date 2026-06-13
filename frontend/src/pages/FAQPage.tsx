@@ -56,7 +56,7 @@ const FAQ_DATA: FAQSection[] = [
     category: 'Security',
     items: [
       { q: 'Are the contracts audited?', a: 'There is no paid third-party audit yet — we don’t claim one. The contracts have undergone extensive internal security review: multi-agent AI audit waves, red team testing, fuzz and invariant testing, Slither on every CI run, and a 1,500+ test suite. Visit the Security page for the artifacts and the Risks page for the honest gap list.' },
-      { q: 'Can the admin rug pull?', a: 'The TOWELI token itself cannot be rugged: fixed supply, no mint function, no pause, no blocklist — and staked tokens can only ever be withdrawn by their owner. Admin powers are real but bounded: every parameter change goes through a 24-48 hour timelock, with emergency pauses held by a 3-of-5 pause guardian, so you always have time to review and exit. A compromised admin who waited out the timelock could redirect fee flows, pause staking indefinitely (emergency withdrawal still works), or add a malicious NFT collection to lending — but could not mint tokens or take your stake. The full threat model is in GOVERNANCE.md and on the Risks page.' },
+      { q: 'Can the admin rug pull?', a: 'The TOWELI token itself cannot be rugged: fixed supply, no mint function, no pause, no blocklist — and staked tokens can only ever be withdrawn by their owner. Admin powers are real but bounded: every parameter change goes through a 24-48 hour timelock, so you always have time to review and exit. Admin functions are held by a single operator key (EOA) today, with a multisig migration in progress — until it lands, size deposits as if the single-key assumption holds. A compromised admin who waited out the timelock could redirect fee flows, pause staking indefinitely (emergency withdrawal still works), or add a malicious NFT collection to lending — but could not mint tokens or take your stake. The full threat model is on the Risks page.' },
       { q: 'What are the risks?', a: 'Smart contract risk, market volatility, impermanent loss for liquidity providers, and early withdrawal penalties. Always do your own research and never invest more than you can afford to lose.' },
     ],
   },
@@ -94,6 +94,14 @@ export default function FAQPage() {
   }, []);
 
   const toggle = (key: string) => setOpenIndex(openIndex === key ? null : key);
+
+  // Stable, filter-independent key for accordion open-state + a slug-safe id for
+  // aria-controls/labelledby. Keying by positional index into the *filtered*
+  // arrays meant a search that reshaped the list could transfer the open state
+  // to a different question (F385); the question text is stable across filters.
+  const stableKey = (category: string, q: string) => `${category}|${q}`;
+  const slugId = (category: string, q: string) =>
+    `${category}-${q}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
   const filtered = FAQ_DATA.map((section) => ({
     ...section,
@@ -141,6 +149,7 @@ export default function FAQPage() {
             </svg>
             <input
               type="text"
+              aria-label="Search questions"
               placeholder="Search questions..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -156,8 +165,18 @@ export default function FAQPage() {
 
         {/* FAQ Sections */}
         {filtered.length === 0 && (
-          <div className="text-center text-gray-500 py-16 text-sm">
-            No questions match your search.
+          <div
+            className="rounded-xl px-5 py-10 text-center"
+            style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
+          >
+            <p className="text-white text-sm mb-1">No questions match your search.</p>
+            <p className="text-gray-400 text-xs mb-4">Try a different term, or browse all questions.</p>
+            <button
+              onClick={() => setSearch('')}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-white border border-white/15 hover:border-white/30 transition-colors"
+            >
+              Clear search
+            </button>
           </div>
         )}
 
@@ -169,18 +188,22 @@ export default function FAQPage() {
             transition={{ delay: 0.15 + sIdx * 0.05 }}
             className="mb-6"
           >
-            <h2 className="text-purple-400 text-xs font-semibold uppercase tracking-widest mb-3 px-1">
+            {/* F434: translucent dark chip so the label stays legible over the
+                bright watercolor art (same treatment as the accordion rows). */}
+            <h2 className="inline-block text-purple-300 text-xs font-semibold uppercase tracking-widest mb-3 px-2.5 py-1 rounded-md"
+              style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}>
               {section.category}
             </h2>
             <div
               className="rounded-xl overflow-hidden divide-y divide-white/5"
               style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
             >
-              {section.items.map((item, qIdx) => {
-                const key = `${sIdx}-${qIdx}`;
+              {section.items.map((item) => {
+                const key = stableKey(section.category, item.q);
+                const id = slugId(section.category, item.q);
                 const isOpen = openIndex === key;
-                const panelId = `faq-panel-${key}`;
-                const buttonId = `faq-q-${key}`;
+                const panelId = `faq-panel-${id}`;
+                const buttonId = `faq-q-${id}`;
                 return (
                   <div key={key}>
                     {/* AUDIT FAQ-A11Y: accordion-button pattern. aria-expanded
@@ -231,6 +254,10 @@ export default function FAQPage() {
             </div>
           </m.div>
         ))}
+
+        <p className="text-center text-white/40 text-xs mt-10" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          Last reviewed: June 2026
+        </p>
       </div>
     </div>
   );

@@ -96,7 +96,7 @@ const ROUTE_TIPS: Record<string, string> = {
   '/nft-finance': "Lend, borrow, trade NFTs. No oracles, no rugs.",
   '/lore':        "The story of how Tegridy was lost and found.",
   '/tokenomics':  "1B supply. 100% of fees flow back to stakers.",
-  '/security':    "Audited and bug-bountied. Safer than my last job.",
+  '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
   '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
   '/changelog':   "Every shipped feature, with Tegridy.",
   '/premium':     "Randy's Gold Card. Bonus rewards for the loyal.",
