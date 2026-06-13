@@ -129,6 +129,44 @@ describe("opensea — body cap (10 KB)", () => {
   });
 });
 
+describe("opensea — collection stats path allowlist (F514)", () => {
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.OPENSEA_API_KEY = "test-key";
+    process.env.NODE_ENV = "test";
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ total: { volume: 1234 } }),
+    }));
+    handler = (await import("../opensea.js")).default;
+  });
+
+  it("accepts the plural collections/{slug}/stats path (OpenSea v2 form)", async () => {
+    const req = makeReq({ method: "GET", query: { path: "collections/nakamigos/stats" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    // Reaches OpenSea (200) instead of 400-ing in the allowlist.
+    expect(statusSpy).toHaveBeenCalledWith(200);
+  });
+
+  it("still accepts the singular collection/{slug}/stats path", async () => {
+    const req = makeReq({ method: "GET", query: { path: "collection/nakamigos/stats" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+  });
+
+  it("rejects collections/{slug}/stats for a non-allowlisted slug", async () => {
+    const req = makeReq({ method: "GET", query: { path: "collections/evilcollection/stats" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+  });
+});
+
 describe("opensea — query param validation", () => {
   let handler;
 

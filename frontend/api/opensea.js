@@ -85,7 +85,9 @@ function sanitizeOpenseaResponse(obj) {
 function selectCacheControl({ method, path, params }) {
   if (method === "POST") return "private, no-store";
   if (params && params.maker) return "private, no-store";
-  if (typeof path === "string" && /^collection\/[^/]+\/stats$/.test(path)) {
+  // F514: match both collection/{slug}/stats and the plural collections/{slug}/stats
+  // (OpenSea v2's canonical form) so the longer stats cache TTL applies to both.
+  if (typeof path === "string" && /^collections?\/[^/]+\/stats$/.test(path)) {
     return "public, s-maxage=60, stale-while-revalidate=120";
   }
   return "s-maxage=15, stale-while-revalidate=30";
@@ -105,8 +107,11 @@ const ALLOWED_CONTRACTS = new Set([
   "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
 ]);
 
-// Whitelist of allowed path prefixes — reject anything that doesn't start with one of these
-const ALLOWED_PATH_PREFIXES = ["orders/", "listings/", "offers/", "collection/", "events/"];
+// Whitelist of allowed path prefixes — reject anything that doesn't start with one of these.
+// F514: "collections/" (plural) is the canonical OpenSea v2 stats prefix — the
+// client calls collections/{slug}/stats, so the plural prefix must be admitted
+// or the proxy 400s before ever reaching OpenSea (stats stuck as skeletons).
+const ALLOWED_PATH_PREFIXES = ["orders/", "listings/", "offers/", "collection/", "collections/", "events/"];
 
 // Build allowed paths dynamically from allowed slugs
 function isAllowedPath(path) {
@@ -135,6 +140,9 @@ function isAllowedPath(path) {
   for (const slug of ALLOWED_SLUGS) {
     if (path === `listings/collection/${slug}/best`) return true;
     if (path === `collection/${slug}/stats`) return true;
+    // F514: OpenSea v2's stats endpoint is collections/{slug}/stats (plural).
+    // The client calls this form; the singular above stays for back-compat.
+    if (path === `collections/${slug}/stats`) return true;
     if (path === `events/collection/${slug}`) return true;
     if (path === `offers/collection/${slug}`) return true;
     if (path.startsWith(`offers/collection/${slug}/`)) return true;
