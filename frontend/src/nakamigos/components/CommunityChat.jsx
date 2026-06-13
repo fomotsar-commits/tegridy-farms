@@ -12,6 +12,7 @@ import {
 } from "../lib/supabase";
 
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { useSiweAuth } from "../hooks/useSiweAuth";
 import DirectMessages from "./DirectMessages";
 
 const MAX_CHARS = 280;
@@ -351,6 +352,32 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
   const collection = useActiveCollection();
   const [chatView, setChatView] = useState("room"); // room | dms
 
+  const { signIn } = useSiweAuth();
+  // Chat writes go through the SIWE proxy (lib/supabase.js); an unauthenticated
+  // write throws err.needsAuth. Sign in, then retry the action once so a single
+  // click → sign prompt → action completes. (F711/F713/F714 auth path — chat
+  // had no sign-in affordance before, so every send/like/react silently failed.)
+  const runAuthed = useCallback(async (action) => {
+    try {
+      return await action();
+    } catch (err) {
+      if (!err?.needsAuth) throw err;
+      addToast?.("Sign in to chat — check your wallet to sign.", "info");
+      try {
+        await signIn();
+      } catch {
+        addToast?.("Sign-in is required to post in chat.", "info");
+        return null;
+      }
+      try {
+        return await action(); // retry once now that the cookie is set
+      } catch (e2) {
+        if (e2?.needsAuth) return null;
+        throw e2;
+      }
+    }
+  }, [signIn, addToast]);
+
   // Header envelope button (and any future deep link) lands directly on DMs
   useEffect(() => {
     if (openDmsSignal > 0) setChatView("dms");
@@ -437,13 +464,13 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
   const handleReaction = useCallback(async (msgId, emoji) => {
     if (!wallet) { addToast?.("Connect wallet to react", "info"); return; }
     setPickerFor(null);
-    const updated = await toggleReaction({ messageId: msgId, wallet, emoji, slug: collection.slug });
+    const updated = await runAuthed(() => toggleReaction({ messageId: msgId, wallet, emoji, slug: collection.slug }));
     if (updated) {
       setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
     } else if (CHAT_ENABLED) {
       addToast?.("Reactions aren't enabled yet", "info");
     }
-  }, [wallet, addToast, collection.slug]);
+  }, [wallet, addToast, collection.slug, runAuthed]);
 
   /* ── Sync from localStorage on focus (local mode, other tabs) ─── */
   useEffect(() => {
@@ -514,12 +541,12 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
     lastMessageTime[wallet] = Date.now();
 
     if (CHAT_ENABLED) {
-      const msg = await sendMessage({
+      const msg = await runAuthed(() => sendMessage({
         author: wallet,
         text: trimmed,
         tokenId: isTokenMode ? tokenId : null,
         slug: collection.slug,
-      });
+      }));
       if (msg) {
         // Optimistically add; realtime will deduplicate
         setMessages((prev) =>
@@ -546,7 +573,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
       setText("");
       if (addToast) addToast("Message sent!", "success");
     }
-  }, [text, wallet, tokenId, isTokenMode, messages, addToast, collection.slug]);
+  }, [text, wallet, tokenId, isTokenMode, messages, addToast, collection.slug, runAuthed]);
 
   /* ── Like handler ──────────────────────────────────────────────── */
   const handleLike = useCallback(
@@ -557,7 +584,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
       }
 
       if (CHAT_ENABLED) {
-        const updated = await toggleLike({ messageId: msgId, wallet, slug: collection.slug });
+        const updated = await runAuthed(() => toggleLike({ messageId: msgId, wallet, slug: collection.slug }));
         if (updated) {
           setMessages((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
@@ -580,7 +607,7 @@ export default function CommunityChat({ tokenId, wallet, onConnect, addToast, ho
         });
       }
     },
-    [wallet, addToast, collection.slug]
+    [wallet, addToast, collection.slug, runAuthed]
   );
 
   const handleKeyDown = (e) => {

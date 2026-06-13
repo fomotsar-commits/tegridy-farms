@@ -52,6 +52,14 @@ export const config = {
 
 const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_watchlist", "votes", "dm_messages", "push_subscriptions"];
 
+// RPCs the proxy may forward (POST /rest/v1/rpc/{fn}). These are atomic
+// chat-interaction toggles. The JWT-verified wallet is injected server-side
+// (see the RPC case below) so a caller can NEVER act as another wallet — this
+// is what closes the toggle_reaction spoof (F714) even though the function body
+// still takes a `wallet` arg. anon EXECUTE on these is revoked in migration
+// 005 so the proxy (authenticated) is the only call path.
+const ALLOWED_RPCS = new Set(["toggle_like", "toggle_reaction"]);
+
 // SELECT through the proxy exists ONLY for DMs: their RLS hides rows from
 // the anon key, and the SIWE JWT lives in the httpOnly cookie this proxy
 // holds. Every other table stays write-only here (public reads go straight
@@ -128,19 +136,25 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Not authenticated" });
   }
 
-  const { table, method, match } = req.body || {};
+  const { table, method, match, fn } = req.body || {};
   let body = req.body?.body;
 
-  // Validate table name (prevent injection)
-  if (!table || !ALLOWED_TABLES.includes(table)) {
-    return res.status(400).json({ error: "Invalid table" });
-  }
-
-  if (!method || !["INSERT", "UPDATE", "DELETE", "UPSERT", "SELECT"].includes(method)) {
+  if (!method || !["INSERT", "UPDATE", "DELETE", "UPSERT", "SELECT", "RPC"].includes(method)) {
     return res.status(400).json({ error: "Invalid method" });
   }
-  if (method === "SELECT" && !SELECT_TABLES.has(table)) {
-    return res.status(400).json({ error: "Invalid method" });
+  if (method === "RPC") {
+    // RPC calls validate the function name against an allowlist instead of a table.
+    if (!fn || !ALLOWED_RPCS.has(fn)) {
+      return res.status(400).json({ error: "Invalid function" });
+    }
+  } else {
+    // Validate table name (prevent injection)
+    if (!table || !ALLOWED_TABLES.includes(table)) {
+      return res.status(400).json({ error: "Invalid table" });
+    }
+    if (method === "SELECT" && !SELECT_TABLES.has(table)) {
+      return res.status(400).json({ error: "Invalid method" });
+    }
   }
 
   // AUDIT API-M8: decode the SIWE JWT so we can enforce wallet/author match
@@ -320,6 +334,17 @@ export default async function handler(req, res) {
       params.set("order", "created_at.asc");
       params.set("limit", String(SELECT_MAX_ROWS));
       url += `?${params.toString()}`;
+      break;
+    }
+    case "RPC": {
+      // Forward to PostgREST's RPC endpoint. The JWT-verified wallet is injected
+      // (overriding anything the client sent) so the function can never be
+      // invoked on behalf of another wallet — this closes the toggle_reaction
+      // spoof (F714). msg_id / emoji pass through; the function validates them.
+      fetchMethod = "POST";
+      const rpcArgs = { ...(req.body?.args || {}), wallet: verifiedWallet };
+      fetchBody = JSON.stringify(rpcArgs);
+      url = `${supabaseUrl}/rest/v1/rpc/${fn}`;
       break;
     }
   }

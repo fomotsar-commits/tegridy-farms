@@ -81,6 +81,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { proxyWrite, proxyRpc, firstRow } from "./supabaseProxy";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -213,17 +214,22 @@ export async function sendMessage({ author, text, tokenId = null, slug }) {
     return msg;
   }
 
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({ author, text, token_id: tokenId, slug })
-    .select()
-    .single();
-
-  if (error) {
-    if (import.meta.env.DEV) console.error("[supabase] sendMessage error:", error);
+  // F711: route the write through the SIWE proxy. The anon client's insert is
+  // rejected by the messages RLS (author must equal the JWT wallet), so chat
+  // send failed for everyone. The proxy attaches the cookie JWT server-side.
+  try {
+    const data = await proxyWrite({
+      table: "messages",
+      method: "INSERT",
+      body: { author, text, token_id: tokenId, slug },
+    });
+    const row = firstRow(data);
+    return row ? rowToMsg(row) : null;
+  } catch (err) {
+    if (err.needsAuth) throw err; // caller prompts SIWE sign-in
+    if (import.meta.env.DEV) console.error("[supabase] sendMessage error:", err.message);
     return null;
   }
-  return rowToMsg(data);
 }
 
 /**
@@ -250,20 +256,19 @@ export async function toggleLike({ messageId, wallet, slug }) {
     return msg || null;
   }
 
-  // Use atomic RPC function to avoid race conditions when
-  // multiple users like the same message simultaneously.
-  const { data, error } = await supabase
-    .rpc("toggle_like", { msg_id: messageId, wallet })
-    .single();
-
-  if (error) {
-    // The RPC function is the only safe way to toggle likes atomically.
-    // A read-then-write fallback would have a TOCTOU race condition where
-    // concurrent likes could overwrite each other. Fail gracefully instead.
-    if (import.meta.env.DEV) console.error("[supabase] toggleLike RPC unavailable:", error.message);
+  // F713: route through the SIWE proxy. toggle_like requires the JWT wallet
+  // (anon EXECUTE revoked in migration 004), so the anon client's call was a
+  // silent no-op. The proxy injects the verified wallet server-side; the RPC is
+  // still atomic so concurrent likes can't clobber each other.
+  try {
+    const data = await proxyRpc("toggle_like", { msg_id: messageId });
+    const row = firstRow(data);
+    return row ? rowToMsg(row) : null;
+  } catch (err) {
+    if (err.needsAuth) throw err; // caller prompts SIWE sign-in
+    if (import.meta.env.DEV) console.error("[supabase] toggleLike unavailable:", err.message);
     return null;
   }
-  return rowToMsg(data);
 }
 
 // Fixed set, mirrored in the toggle_reaction RPC's allowlist.
@@ -292,14 +297,19 @@ export async function toggleReaction({ messageId, wallet, emoji, slug }) {
     saveLocal(updated, slug);
     return updated.find((m) => m.id === messageId) || null;
   }
-  const { data, error } = await supabase
-    .rpc("toggle_reaction", { msg_id: messageId, wallet: w, emoji })
-    .single();
-  if (error) {
-    if (import.meta.env.DEV) console.error("[supabase] toggleReaction RPC unavailable:", error.message);
+  // F714: route through the SIWE proxy, which injects the JWT-verified wallet —
+  // the anon RPC trusted its `wallet` arg (spoofable as any wallet) and migration
+  // 005 revokes anon EXECUTE so the proxy is the only call path. `w` (the local
+  // lower-cased wallet) is still used for the local-mode fallback above.
+  try {
+    const data = await proxyRpc("toggle_reaction", { msg_id: messageId, emoji });
+    const row = firstRow(data);
+    return row ? rowToMsg(row) : null;
+  } catch (err) {
+    if (err.needsAuth) throw err; // caller prompts SIWE sign-in
+    if (import.meta.env.DEV) console.error("[supabase] toggleReaction unavailable:", err.message);
     return null;
   }
-  return rowToMsg(data);
 }
 
 /**
