@@ -22,15 +22,24 @@ export interface NavItem {
  * feature earns back. Feature surfaces stay routable by URL (and reappear
  * in the nav automatically the moment their relaunch addresses land in
  * constants.ts) but are not promoted while 100% dark.
+ *
+ * PRE-DEPLOY STAGING (2026-06-12): the NFT-finance and governance contracts
+ * are being deployed now, so both surfaces are promoted in the nav ahead of
+ * the address wiring. PROMOTE_PENDING forces them visible; until the real
+ * addresses land in constants.ts the pages render their "Contract Not
+ * Deployed" placeholder. Set PROMOTE_PENDING back to false to restore pure
+ * isDeployed-driven gating (the address lists below stay the source of truth).
  */
-export const NFT_FINANCE_LIVE = [
+const PROMOTE_PENDING: boolean = true;
+
+export const NFT_FINANCE_LIVE = PROMOTE_PENDING || [
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 ].some(isDeployed);
 
-export const COMMUNITY_LIVE = [
+export const COMMUNITY_LIVE = PROMOTE_PENDING || [
   COMMUNITY_GRANTS_ADDRESS,
   MEME_BOUNTY_BOARD_ADDRESS,
   VOTE_INCENTIVES_ADDRESS,
