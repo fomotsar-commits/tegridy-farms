@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther, type Address } from 'viem';
 import { m } from 'framer-motion';
@@ -8,6 +8,8 @@ import { MEME_BOUNTY_BOARD_ABI } from '../../lib/contracts';
 import { shortenAddress, formatTimeUntil, formatWei } from '../../lib/formatting';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
+// F321: classify wallet-rejection vs revert for the write effect.
+import { surfaceTxError } from '../../lib/txErrors';
 // R069: user-submitted text + URIs reach the contract verbatim and render
 // back to other users. Sanitise on write; allowlist URI scheme; render
 // stored content via SafeText to harden against pre-fix payloads.
@@ -40,17 +42,17 @@ export function BountiesSection() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
     return true;
   };
-  const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
+  const { writeContract, data: txHash, isPending: isSigning, reset, error: writeError } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const { data: bountyCount, isLoading: countLoading } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount' });
-  const { data: totalPosted } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalBountiesPosted' });
-  const { data: totalPaidOut } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalPaidOut' });
-  const { data: pendingPayout } = useReadContract({
+  const { data: bountyCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount' });
+  const { data: totalPosted, refetch: refetchPosted } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalBountiesPosted' });
+  const { data: totalPaidOut, refetch: refetchPaidOut } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalPaidOut' });
+  const { data: pendingPayout, refetch: refetchPayout } = useReadContract({
     address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'pendingPayouts', args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
-  const { data: pendingRefund } = useReadContract({
+  const { data: pendingRefund, refetch: refetchRefund } = useReadContract({
     address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'pendingRefund', args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
@@ -66,11 +68,34 @@ export function BountiesSection() {
     return contracts;
   }, [count, bbAddr, pageSize]);
 
-  const { data: bountyResults, isLoading: resultsLoading } = useReadContracts({ contracts: bountyContracts, query: { enabled: count > 0 } });
+  const { data: bountyResults, isLoading: resultsLoading, refetch: refetchBounties } = useReadContracts({ contracts: bountyContracts, query: { enabled: count > 0 } });
 
   // F326 (T11): separate loading from empty so "No bounties yet" doesn't flash
   // while bountyCount is still in flight.
   const isListLoading = countLoading || bountyCount === undefined || (count > 0 && resultsLoading);
+
+  // F321 (T5): on a confirmed write refetch the bounty list + payout/refund reads
+  // so a new bounty, a fresh submission, or a claimed payout reflects immediately
+  // without a window refocus. On rejection/revert surface a classified toast.
+  useEffect(() => {
+    if (isSuccess) {
+      toast.success('Transaction confirmed!');
+      refetchCount();
+      refetchPosted();
+      refetchPaidOut();
+      refetchPayout();
+      refetchRefund();
+      refetchBounties();
+      const t = setTimeout(reset, 0);
+      return () => clearTimeout(t);
+    }
+    if (isTxError || writeError) {
+      if (writeError) surfaceTxError(writeError, toast, { component: 'BountiesSection' });
+      else toast.error('Transaction failed');
+      const t = setTimeout(reset, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isSuccess, isTxError, writeError, refetchCount, refetchPosted, refetchPaidOut, refetchPayout, refetchRefund, refetchBounties, reset]);
 
   const handleCreate = () => {
     if (!_ensureChain()) return;
@@ -110,7 +135,11 @@ export function BountiesSection() {
       args: [clean, deadlineSecs],
       value: rewardWei,
     });
-    toast.info('Creating bounty...');
+    // F321: clear the form on submit; the success effect confirms + refetches.
+    setNewDescription('');
+    setNewReward('');
+    setNewDeadlineDays('7');
+    setShowCreate(false);
   };
 
   const handleSubmit = (bountyId: number) => {
@@ -126,7 +155,9 @@ export function BountiesSection() {
       address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'submitWork',
       args: [BigInt(bountyId), submitURI.trim()],
     });
-    toast.info('Submitting work...');
+    // F321: clear the submission field on submit; the success effect confirms
+    // + refetches the bounty list so the new submission count appears.
+    setSubmitURI('');
   };
 
   const submitURIInvalid = submitURI.length > 0 && !isAllowedSubmissionUri(submitURI);

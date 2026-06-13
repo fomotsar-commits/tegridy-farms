@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { formatEther, parseEther, isAddress, type Address } from 'viem';
 import { m } from 'framer-motion';
@@ -10,6 +10,8 @@ import { ArtImg } from '../ArtImg';
 // R069: sanitize freeform descriptions on write + render via SafeText.
 import { sanitizeUserText, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
 import { SafeText } from '../ui/SafeText';
+// F321: classify wallet-rejection vs revert for the write effect.
+import { surfaceTxError } from '../../lib/txErrors';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 
@@ -37,13 +39,13 @@ export function GrantsSection() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
     return true;
   };
-  const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
+  const { writeContract, data: txHash, isPending: isSigning, reset, error: writeError } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const { data: proposalCount, isLoading: countLoading } = useReadContract({
+  const { data: proposalCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({
     address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'proposalCount',
   });
-  const { data: totalGranted } = useReadContract({
+  const { data: totalGranted, refetch: refetchGranted } = useReadContract({
     address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'totalGranted',
   });
 
@@ -60,7 +62,7 @@ export function GrantsSection() {
     return contracts;
   }, [count, gcAddr, startIdx]);
 
-  const { data: proposalResults, isLoading: resultsLoading } = useReadContracts({ contracts: proposalContracts, query: { enabled: count > 0 } });
+  const { data: proposalResults, isLoading: resultsLoading, refetch: refetchProposals } = useReadContracts({ contracts: proposalContracts, query: { enabled: count > 0 } });
 
   // F326 (T11): separate loading from empty. proposalCount is undefined while
   // the first read is in flight; rendering "No proposals yet" then would be a
@@ -77,7 +79,29 @@ export function GrantsSection() {
     }));
   }, [address, count, pageSize, gcAddr]);
 
-  const { data: voteChecks } = useReadContracts({ contracts: voteCheckContracts, query: { enabled: voteCheckContracts.length > 0 } });
+  const { data: voteChecks, refetch: refetchVoteChecks } = useReadContracts({ contracts: voteCheckContracts, query: { enabled: voteCheckContracts.length > 0 } });
+
+  // F321 (T5): on a confirmed write, refetch the proposal/vote reads so vote bars,
+  // "you have already voted", and counts update without a window refocus. On a
+  // wallet rejection or revert, surface a classified toast. Defer reset() to the
+  // next tick (mirrors useBribes.ts) so consumers see isSuccess this render.
+  useEffect(() => {
+    if (isSuccess) {
+      toast.success('Transaction confirmed!');
+      refetchCount();
+      refetchGranted();
+      refetchProposals();
+      refetchVoteChecks();
+      const t = setTimeout(reset, 0);
+      return () => clearTimeout(t);
+    }
+    if (isTxError || writeError) {
+      if (writeError) surfaceTxError(writeError, toast, { component: 'GrantsSection' });
+      else toast.error('Transaction failed');
+      const t = setTimeout(reset, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isSuccess, isTxError, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset]);
 
   const handleVote = (proposalId: number, support: boolean) => {
     if (!_ensureChain()) return;
@@ -86,7 +110,6 @@ export function GrantsSection() {
       address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'voteOnProposal',
       args: [BigInt(proposalId), support],
     });
-    toast.info(support ? 'Voting FOR...' : 'Voting AGAINST...');
   };
 
   const handleFinalize = (proposalId: number) => {
@@ -147,7 +170,11 @@ export function GrantsSection() {
       address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'createProposal',
       args: [newRecipient as Address, amt, cleanDescription],
     });
-    toast.info('Creating proposal...');
+    // F321: clear the form on submit; the success effect confirms + refetches.
+    setNewRecipient('');
+    setNewAmount('');
+    setNewDescription('');
+    setShowCreate(false);
   };
 
   const descriptionRemaining = DEFAULT_DESCRIPTION_LIMIT - newDescription.length;
