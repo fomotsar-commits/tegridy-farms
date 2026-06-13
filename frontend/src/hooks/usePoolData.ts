@@ -1,24 +1,28 @@
-import { useReadContracts } from 'wagmi';
+import { useReadContracts, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 
 export function usePoolData() {
   const addr = TEGRIDY_STAKING_ADDRESS;
   const isDeployed = checkDeployed(addr);
+  const chainId = useChainId();
+  const onMainnet = chainId === CHAIN_ID;
 
+  // R043 H-062-02: chainId pin on every entry, gate on onMainnet — a wrong-chain
+  // wallet must not read another chain's storage and render fabricated figures.
   const { data, isLoading } = useReadContracts({
     contracts: [
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked' },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalBoostedStake' },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalLocked' },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate' },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded' },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalPenaltiesCollected' },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalUnsettledRewards' },
-      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [addr] },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalBoostedStake', chainId: CHAIN_ID },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalLocked', chainId: CHAIN_ID },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalPenaltiesCollected', chainId: CHAIN_ID },
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalUnsettledRewards', chainId: CHAIN_ID },
+      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [addr], chainId: CHAIN_ID },
     ],
-    query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { enabled: isDeployed && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   // Safely extract results — if contract call fails, use 0n

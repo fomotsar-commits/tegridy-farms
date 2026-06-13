@@ -22,11 +22,10 @@ export interface PriceHistoryResult {
   isLoading: boolean;
 }
 
-// F74: `_currentPrice` is unused — the hook fetches its own 24h series. Kept
-// OPTIONAL so the other surfaces still passing PriceContext's price (Farm /
-// Dashboard / Tokenomics) keep compiling; HomePage now calls it with no arg.
-// Don't pass an argument from new call sites.
-export function usePriceHistory(_currentPrice?: number): PriceHistoryResult {
+// F152: the hook fetches its own 24h close series — it never consumed a
+// current-price argument (the sparkline doesn't append live ticks). The dead
+// optional param was removed; all call sites now invoke it with no argument.
+export function usePriceHistory(): PriceHistoryResult {
   const [history, setHistory] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);

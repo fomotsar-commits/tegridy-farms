@@ -5,10 +5,14 @@ import { TEGRIDY_LENDING_ADDRESS, TEGRIDY_NFT_LENDING_ADDRESS, CHAIN_ID, isDeplo
 import { TEGRIDY_LENDING_ABI, TEGRIDY_NFT_LENDING_ABI } from '../lib/contracts';
 
 // R044: chunk large loan-id sweeps into batches of 50 so a 5000-loan
-// system doesn't fire one giant multicall. 60s refetch — loan state
-// (repaid / defaulted) doesn't move per-block.
+// system doesn't fire one giant multicall. 60s refetch (F130) — loan state
+// (repaid / defaulted / overdue) doesn't move per-block but must not freeze
+// for the whole session either.
 const LOAN_CHUNK_SIZE = 50;
 const REFETCH_MS = 60_000;
+// F130: re-evaluate overdue status on a 60s minute-tick so a loan crossing its
+// deadline while the dashboard is open flips to "overdue" without a reload.
+const STATUS_TICK_MS = 60_000;
 
 /** Which lending contract the loan came from — drives routing + UI labels. */
 export type LoanSource = 'token' | 'nft';
@@ -73,6 +77,19 @@ export function useMyLoans() {
   const [nftResults, setNftResults] = useState<ReadResult[]>([]);
   const [tokenLoading, setTokenLoading] = useState(false);
   const [nftLoading, setNftLoading] = useState(false);
+  // F130: a real refresh tick (the old `setTokenLoading((p) => p)` interval was a
+  // no-op identity setState that React bailed out of, so loans never re-scanned).
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  // F130: per-minute tick consumed by the `outstanding` memo so overdue status
+  // recomputes live against a fresh `now` even between full re-scans.
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setRefreshNonce((n) => n + 1);
+      setStatusTick((n) => n + 1);
+    }, STATUS_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
 
   // R044: chunk loan IDs into batches of 50 via Promise.all. Avoids one
   // giant multicall for high-id contracts and lets a single bad loan in
@@ -114,13 +131,9 @@ export function useMyLoans() {
         setTokenLoading(false);
       }
     })();
-    const id = setInterval(() => {
-      if (cancelled) return;
-      // Re-trigger by toggling state — kept simple for the recovery pass.
-      setTokenLoading((p) => p);
-    }, REFETCH_MS);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [publicClient, onMainnet, tokenDeployed, tokenCount, address]);
+    return () => { cancelled = true; };
+    // F130: refreshNonce in deps re-runs the scan every REFETCH_MS via the shared tick.
+  }, [publicClient, onMainnet, tokenDeployed, tokenCount, address, refreshNonce]);
 
   useEffect(() => {
     if (!publicClient || !onMainnet || !nftDeployed || nftCount === 0 || !address) {
@@ -160,7 +173,8 @@ export function useMyLoans() {
       }
     })();
     return () => { cancelled = true; };
-  }, [publicClient, onMainnet, nftDeployed, nftCount, address]);
+    // F130: refreshNonce in deps gives the NFT scan its own 60s refresh (it had none).
+  }, [publicClient, onMainnet, nftDeployed, nftCount, address, refreshNonce]);
 
   const outstanding = useMemo<MyLoan[]>(() => {
     if (!address) return [];
@@ -223,7 +237,9 @@ export function useMyLoans() {
       return Number(a.deadline - b.deadline);
     });
     return result;
-  }, [tokenResults, nftResults, address]);
+    // F130: statusTick re-evaluates `now` (and therefore overdue) on the minute tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- statusTick is the intentional time dep
+  }, [tokenResults, nftResults, address, statusTick]);
 
   return {
     loans: outstanding,

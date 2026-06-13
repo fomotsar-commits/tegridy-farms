@@ -68,8 +68,11 @@ export function usePoolTVL() {
     let volIsEstimated = true;
 
     const totalETHFees = hasFeeRouter && data?.[3]?.status === 'success' ? data[3].result as bigint : 0n;
-    // totalSwaps read at index 4 — reserved for future volume tracking
+    // F119: totalSwaps gates the synthetic-volume fallback — with zero observed
+    // swaps we must NOT fabricate a 24h volume from a guessed turnover ratio.
+    const totalSwaps = hasFeeRouter && data?.[4]?.status === 'success' ? data[4].result as bigint : 0n;
     const feeBps = hasFeeRouter && data?.[5]?.status === 'success' ? data[5].result as bigint : 0n;
+    const hasVolumeData = totalETHFees > 0n || totalSwaps > 0n;
 
     if (totalETHFees > 0n && tvl > 0) {
       const totalFeesUsd = parseFloat(formatEther(totalETHFees)) * price.ethUsd;
@@ -97,9 +100,13 @@ export function usePoolTVL() {
       else if (tvl < 1_000_000) dailyVolumeRatio = 0.03;
       else dailyVolumeRatio = 0.04;
 
-      vol24h = tvl * dailyVolumeRatio;
-      const annualFees = vol24h * 365 * 0.003;
+      const estVol = tvl * dailyVolumeRatio;
+      const annualFees = estVol * 365 * 0.003;
       aprNum = (annualFees / tvl) * 100;
+      // F119: only surface a 24h-volume number when there is actual on-chain
+      // swap activity. Without it the figure is a pure turnover guess — show
+      // the "no volume data yet" sentinel instead of a fabricated $ value.
+      vol24h = hasVolumeData ? estVol : 0;
     }
 
     if (aprNum > MAX_APR) aprNum = MAX_APR;

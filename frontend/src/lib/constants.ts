@@ -96,6 +96,20 @@ export const TOWELI_TOTAL_SUPPLY = 1_000_000_000; // 1B TOWELI
 // Staking constants (mirrors TegridyStaking.sol)
 export const MIN_LOCK_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
 export const MAX_LOCK_DURATION = 4 * 365 * 24 * 60 * 60; // 4 years in seconds
+
+// F113: single source of truth for the staking lock tiers. Previously copy-pasted
+// in FarmPage, StakingCard, and BoostScheduleTable — a tier edit in one desynced
+// the form, the extend-lock picker, and the schedule table. Edit here only.
+export interface LockOption { label: string; seconds: number }
+export const LOCK_OPTIONS: LockOption[] = [
+  { label: '7 Days', seconds: 7 * 86400 },
+  { label: '30 Days', seconds: 30 * 86400 },
+  { label: '90 Days', seconds: 90 * 86400 },
+  { label: '6 Months', seconds: 180 * 86400 },
+  { label: '1 Year', seconds: 365 * 86400 },
+  { label: '2 Years', seconds: 730 * 86400 },
+  { label: '4 Years', seconds: 1460 * 86400 },
+];
 export const MIN_BOOST_BPS = 4000; // 0.4x
 export const MAX_BOOST_BPS = 40000; // 4.0x
 export const JBAC_BONUS_BPS = 5000; // +0.5x

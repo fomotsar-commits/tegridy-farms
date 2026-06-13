@@ -25,6 +25,11 @@ export function PriceProvider({ children }: { children: ReactNode }) {
       price.displayPriceStale,
       price.apiPriceDiscrepant,
       price.priceDiscrepancy,
+      // F144: include the TWAP/swap-safety flags so consumers (swap surfaces)
+      // don't read a stale memoized object when only these flip.
+      price.twapPriceInEth,
+      price.twapOverrideActive,
+      price.priceSafeForSwaps,
     ],
   );
   return <PriceContext.Provider value={value}>{children}</PriceContext.Provider>;

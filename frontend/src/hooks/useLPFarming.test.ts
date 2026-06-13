@@ -56,13 +56,26 @@ describe('useLPFarming', () => {
     expect(result.current.isActive).toBe(false);
   });
 
-  it('rewardRatePerDay = rewardRate (as bigint, 18 decimals) * 86400 seconds', () => {
-    // 1 TOWELI/sec = 1e18/sec → 86400 TOWELI/day
+  it('rewardRatePerDay = rewardRate (as bigint, 18 decimals) * 86400 seconds while the period is active', () => {
+    // 1 TOWELI/sec = 1e18/sec → 86400 TOWELI/day. F100: per-day/per-year rates are
+    // only positive while periodFinish is in the future (matches earned() clamping).
     wagmiMock.setReadResult({ functionName: 'rewardRate', result: 10n ** 18n });
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) + 100000) });
     const { result } = renderHook(() => useLPFarming());
     expect(result.current.rewardRatePerDay).toBe(86400);
     // 86400 * 365
     expect(result.current.rewardRatePerYear).toBe(86400 * 365);
+  });
+
+  it('F100: rewardRatePerDay/Year are zero once the funded period has lapsed', () => {
+    // Raw storage rewardRate stays non-zero after periodFinish, but earned() stops
+    // accruing — the headline rate must read 0, not advertise a dead schedule.
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 10n ** 18n });
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) - 3600) });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.isActive).toBe(false);
+    expect(result.current.rewardRatePerDay).toBe(0);
+    expect(result.current.rewardRatePerYear).toBe(0);
   });
 
   it('propagates every read field from the useReadContracts batch', () => {

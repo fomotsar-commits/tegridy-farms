@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAccount, useReadContracts, usePublicClient } from 'wagmi';
+import { useAccount, useReadContracts, usePublicClient, useChainId } from 'wagmi';
 import { parseAbiItem } from 'viem';
 import {
   getPointsData, recordAction,
@@ -10,7 +10,7 @@ import {
 import { TEGRIDY_STAKING_ABI, ERC20_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import {
   TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TEGRIDY_LP_ADDRESS,
-  SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
+  SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID,
   isDeployed as checkDeployed,
 } from '../lib/constants';
 
@@ -23,19 +23,23 @@ const SWAP_EXECUTED_EVENT = parseAbiItem(
 export function usePoints() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
+  const chainId = useChainId();
+  const onMainnet = chainId === CHAIN_ID;
   const [data, setData] = useState<PointsData | null>(null);
   const [swapCount, setSwapCount] = useState(0);
   const [onChainMetrics, setOnChainMetrics] = useState<OnChainMetrics | null>(null);
 
   const userAddr = address ?? ZERO_ADDR;
   const stakingDeployed = checkDeployed(TEGRIDY_STAKING_ADDRESS);
-  const enabled = stakingDeployed && !!address;
+  const enabled = stakingDeployed && !!address && onMainnet;
 
+  // R043 H-062-02: chainId pin on every entry so a wrong-chain wallet doesn't
+  // read another chain's balances into the points computation.
   const { data: contractData } = useReadContracts({
     contracts: [
-      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr] },
-      { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
-      { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'getReferralInfo', args: [userAddr] },
+      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr], chainId: CHAIN_ID },
+      { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
+      { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'getReferralInfo', args: [userAddr], chainId: CHAIN_ID },
     ],
     query: { enabled, refetchInterval: 30_000 },
   });
@@ -53,7 +57,7 @@ export function usePoints() {
   const hasTokenId = tokenId > 0n;
   const { data: posData } = useReadContracts({
     contracts: [
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n] },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
     ],
     query: { enabled: enabled && hasTokenId, refetchInterval: 30_000 },
   });

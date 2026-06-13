@@ -15,22 +15,24 @@ export function useRestaking() {
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
 
-  // Read user's staking position + restaking state in parallel
+  // Read user's staking position + restaking state in parallel.
+  // R043 H-062-02: chainId pin on every entry, gate on the canonical chain.
+  const onMainnet = chainId === CHAIN_ID;
   const { data, refetch, isLoading: isDataLoading } = useReadContracts({
     contracts: [
       // Staking: get user's tokenId
-      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr] },
+      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr], chainId: CHAIN_ID },
       // Restaking: user's restaker info
-      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'restakers', args: [userAddr] },
+      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'restakers', args: [userAddr], chainId: CHAIN_ID },
       // Restaking: pending rewards
-      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'pendingTotal', args: [userAddr] },
+      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'pendingTotal', args: [userAddr], chainId: CHAIN_ID },
       // Global stats
-      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalRestaked' },
-      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalBonusFunded' },
-      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalBonusDistributed' },
-      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'bonusRewardPerSecond' },
+      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalRestaked', chainId: CHAIN_ID },
+      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalBonusFunded', chainId: CHAIN_ID },
+      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalBonusDistributed', chainId: CHAIN_ID },
+      { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'bonusRewardPerSecond', chainId: CHAIN_ID },
     ],
-    query: { enabled: !!address && isDeployed, refetchInterval: 30_000 },
+    query: { enabled: !!address && isDeployed && onMainnet, refetchInterval: 30_000 },
   });
 
   // Parse results

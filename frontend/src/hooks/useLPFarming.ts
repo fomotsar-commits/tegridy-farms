@@ -69,10 +69,14 @@ export function useLPFarming() {
 
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
+  // F100: the raw Synthetix-style `rewardRate` storage value stays non-zero
+  // after `periodFinish`, but the contract's earned() stops accruing then.
+  // Zero the per-day/per-year figures once the period has lapsed so the UI
+  // never advertises a live APR/reward-rate on a dead emission schedule.
   const rewardRatePerDay = useMemo(() => {
-    if (rewardRate === 0n) return 0;
+    if (rewardRate === 0n || !isActive) return 0;
     return parseFloat(formatEther(rewardRate)) * 86400;
-  }, [rewardRate]);
+  }, [rewardRate, isActive]);
 
   const rewardRatePerYear = rewardRatePerDay * 365;
 

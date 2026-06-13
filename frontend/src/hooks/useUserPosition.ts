@@ -1,26 +1,30 @@
-import { useAccount, useReadContracts } from 'wagmi';
+import { useAccount, useReadContracts, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TOWELI_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 
 // Dummy address for disabled queries (wagmi needs valid args shape)
 const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
 
 export function useUserPosition() {
   const { address } = useAccount();
+  const chainId = useChainId();
+  const onMainnet = chainId === CHAIN_ID;
   const stakingAddr = TEGRIDY_STAKING_ADDRESS;
   const isDeployed = checkDeployed(stakingAddr);
-  const enabled = isDeployed && !!address;
+  const enabled = isDeployed && !!address && onMainnet;
   const userAddr = address ?? ZERO_ADDR;
 
-  // Batch read: tokenId, wallet balance, allowance
+  // Batch read: tokenId, wallet balance, allowance.
+  // R043 H-062-02: chainId pin on every entry so a wrong-chain wallet with a real
+  // mainnet position never reads the wrong chain and renders the empty stake form.
   const { data, refetch, isLoading } = useReadContracts({
     contracts: [
-      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr] },
-      { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
-      { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, stakingAddr] },
-      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'paused' },
-      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'unsettledRewards', args: [userAddr] },
+      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr], chainId: CHAIN_ID },
+      { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
+      { address: TOWELI_ADDRESS as `0x${string}`, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, stakingAddr], chainId: CHAIN_ID },
+      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'paused', chainId: CHAIN_ID },
+      { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'unsettledRewards', args: [userAddr], chainId: CHAIN_ID },
     ],
     query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
@@ -36,8 +40,8 @@ export function useUserPosition() {
   // EIP-170 split: getPosition + earned live on StakingMonitorView, not the host staking contract.
   const { data: posData, refetch: refetchPos } = useReadContracts({
     contracts: [
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n] },
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n] },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
     ],
     query: { enabled: enabled && hasTokenId, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
