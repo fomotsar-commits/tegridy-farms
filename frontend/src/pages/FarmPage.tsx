@@ -193,6 +193,14 @@ export default function FarmPage() {
       if (actionType === 'stake' || actionType === 'claim') {
         confetti.fire();
       }
+
+      // F102 (T5): a confirmed write must refresh the section immediately instead
+      // of waiting up to 30s for the next poll — otherwise the approve CTA stays
+      // "Approve TOWELI" and "Your Position" lags. A single targeted refetch is
+      // not a poll storm. Clear the typed amount only after a stake completes
+      // (not approve — F105 keeps the amount so the user can stake next).
+      pos.refetchAll();
+      if (actionType === 'stake') setStakeAmount('');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stakeAmount/selectedLock/boostDisplay captured via submittedDataRef at submission time
   }, [actions.isSuccess, actions.hash, showReceipt, confetti, pool.isDeployed, pool.apr, pos.pendingFormatted, pos.stakedFormatted]);

@@ -21,13 +21,17 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
   const [lpStakeAmount, setLpStakeAmount] = useState('');
   const [lpWithdrawAmount, setLpWithdrawAmount] = useState('');
 
-  // Clear LP inputs only after transaction confirms
+  // Clear LP inputs only after a stake/withdraw confirms — not after an approve.
+  // F105 (T5): the prior guard cleared both inputs on ANY success, which fires for
+  // the approve leg too, wiping the amount the user just typed and was about to
+  // stake. Read the last-action tag from the hook and only clear on stake/exit/
+  // withdraw (the value-moving legs that consume the input).
   useEffect(() => {
-    if (lpFarm.isSuccess) {
-      setLpStakeAmount('');
-      setLpWithdrawAmount('');
-    }
-  }, [lpFarm.isSuccess]);
+    if (!lpFarm.isSuccess) return;
+    const action = lpFarm.lastActionRef.current;
+    if (action === 'stake' || action === 'exit') setLpStakeAmount('');
+    if (action === 'withdraw' || action === 'exit') setLpWithdrawAmount('');
+  }, [lpFarm.isSuccess, lpFarm.lastActionRef]);
 
   const poolTVL = usePoolTVL();
   const price = useTOWELIPrice();

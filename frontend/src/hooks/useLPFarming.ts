@@ -28,6 +28,10 @@ export function useLPFarming() {
   // for a wallet that swapped between submit and confirm.
   const txAddressRef = useRef<`0x${string}` | undefined>(undefined);
   const lastHandledHashRef = useRef<`0x${string}` | undefined>(undefined);
+  // F105 (T5): track which write is in flight so the section can clear the typed
+  // amount only after stake/withdraw — not after an approve (where the user still
+  // wants to stake next).
+  const lastActionRef = useRef<'approve' | 'stake' | 'withdraw' | 'claim' | 'exit' | 'emergencyWithdraw' | 'refreshBoost' | null>(null);
 
   // R034 H2: account-switch reset block.
   useEffect(() => {
@@ -95,9 +99,13 @@ export function useLPFarming() {
       id: hash,
       action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
     });
-    // R043 H-062-04: removed manual refetch() here — 60s poll drives convergence.
+    // F102 (T5): a single targeted refetch on confirmation, gated once-per-hash by
+    // the lastHandledHashRef guard above. The 60s poll is the *background* refresh;
+    // relying on it alone leaves the approve CTA, balances, and pending rewards
+    // stale for up to a minute after a confirmed write. One read is not a poll storm.
+    refetch();
     setTimeout(() => reset(), 4000);
-  }, [isSuccess, hash, address, chainId, reset]);
+  }, [isSuccess, hash, address, chainId, reset, refetch]);
 
   useEffect(() => {
     if (!isTxError || !hash) return;
@@ -128,6 +136,7 @@ export function useLPFarming() {
     const wei = safeParseEtherPositive(amount);
     if (wei === null) return;
     txAddressRef.current = address;
+    lastActionRef.current = 'approve';
     writeContract({
       chainId: CHAIN_ID,
       address: TEGRIDY_LP_ADDRESS,
@@ -149,6 +158,7 @@ export function useLPFarming() {
       return;
     }
     txAddressRef.current = address;
+    lastActionRef.current = 'stake';
     writeContract({
       chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
@@ -166,6 +176,7 @@ export function useLPFarming() {
     const wei = safeParseEtherPositive(amount);
     if (wei === null) return;
     txAddressRef.current = address;
+    lastActionRef.current = 'withdraw';
     writeContract({
       chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
@@ -181,6 +192,7 @@ export function useLPFarming() {
       return;
     }
     txAddressRef.current = address;
+    lastActionRef.current = 'claim';
     writeContract({
       chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
@@ -195,6 +207,7 @@ export function useLPFarming() {
       return;
     }
     txAddressRef.current = address;
+    lastActionRef.current = 'exit';
     writeContract({
       chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
@@ -209,6 +222,7 @@ export function useLPFarming() {
       return;
     }
     txAddressRef.current = address;
+    lastActionRef.current = 'emergencyWithdraw';
     writeContract({
       chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
@@ -230,6 +244,7 @@ export function useLPFarming() {
     const acct = (target ?? address) as `0x${string}` | undefined;
     if (!acct) return;
     txAddressRef.current = address;
+    lastActionRef.current = 'refreshBoost';
     writeContract({
       chainId: CHAIN_ID,
       address: LP_FARMING_ADDRESS,
@@ -275,5 +290,8 @@ export function useLPFarming() {
     hash,
     reset,
     refetch,
+    // F105: the section reads this in its isSuccess effect to decide whether to
+    // clear the typed amount (stake/withdraw) or keep it (approve).
+    lastActionRef,
   };
 }

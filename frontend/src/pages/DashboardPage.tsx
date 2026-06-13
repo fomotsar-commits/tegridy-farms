@@ -16,7 +16,7 @@ import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
-import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei } from '../lib/formatting';
+import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei, formatTimeAgo } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
@@ -99,14 +99,45 @@ export default function DashboardPage() {
   const lpUsd = useMemo(() => price.isLoaded
     ? (lpPos.toweliAmount * price.priceInUsd) + (price.oracleStale ? 0 : lpPos.wethAmount * price.ethUsd)
     : 0, [lpPos.toweliAmount, lpPos.wethAmount, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
+  // F153: claimable legs shown elsewhere on this same page but previously omitted
+  // from Portfolio Value — pending ETH revenue + referral ETH (ETH-denominated,
+  // zeroed when the oracle is stale like the other ETH legs) and unsettled TOWELI.
+  const unsettledTotal = useMemo(() => Number(pos.unsettledFormatted) || 0, [pos.unsettledFormatted]);
+  const claimableUsd = useMemo(() => price.isLoaded ? (
+    (price.oracleStale ? 0 : (revenueStats.pendingRevenue + revenueStats.referralPending) * price.ethUsd) +
+    (unsettledTotal * price.priceInUsd)
+  ) : 0, [revenueStats.pendingRevenue, revenueStats.referralPending, unsettledTotal, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
   const portfolioUsd = useMemo(() => price.isLoaded ? (
     (walletToweli * price.priceInUsd) +
     (stakedTotal * price.priceInUsd) +
     (pendingTotal * price.priceInUsd) +
     (price.oracleStale ? 0 : ethBal * price.ethUsd) +
     lpUsd +
-    (lpPos.pendingRewards * price.priceInUsd)
-  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, lpUsd, lpPos.pendingRewards, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
+    (lpPos.pendingRewards * price.priceInUsd) +
+    claimableUsd
+  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, lpUsd, lpPos.pendingRewards, claimableUsd, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
+
+  // F155: manual refresh affordance + "updated Xs ago" stamp. The page already
+  // polls in the background; this gives the user an explicit re-read and a sense
+  // of data freshness. `nowTick` re-renders the relative label ~every 10s so the
+  // stamp doesn't sit stale between background polls.
+  const [lastRefreshed, setLastRefreshed] = useState(() => Math.floor(Date.now() / 1000));
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((n) => n + 1), 10_000);
+    return () => clearInterval(id);
+  }, []);
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await Promise.all([pos.refetchAll(), revenueStats.refetch()]);
+    } finally {
+      setLastRefreshed(Math.floor(Date.now() / 1000));
+      setIsRefreshing(false);
+    }
+  };
 
   // Claim handler
   const handleClaim = () => {
@@ -124,7 +155,12 @@ export default function DashboardPage() {
     if (claimToastFiredRef.current.has(key)) return;
     claimToastFiredRef.current.add(key);
     toast.success('Rewards claimed successfully!');
-  }, [farmActions.isSuccess, farmActions.hash]);
+    // F137 (T5): refetch the position immediately so the Claimable card and the
+    // Claim button drop to ~0 within a block instead of staying re-clickable for
+    // up to 30s. Gated once-per-hash by claimToastFiredRef above.
+    pos.refetchAll();
+    revenueStats.refetch();
+  }, [farmActions.isSuccess, farmActions.hash]); // eslint-disable-line react-hooks/exhaustive-deps -- pos/revenueStats refetch handles are stable; intentionally fire once per confirmed hash
 
   // Towelie nudge: surface unclaimed yield. Dedup by `key` so the bubble
   // doesn't re-fire on every price tick or remount — once per page load.
@@ -233,7 +269,30 @@ export default function DashboardPage() {
                 Stale · excl. ETH
               </span>
             )}
+            {/* F155: manual refresh + last-updated stamp. */}
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              aria-label="Refresh portfolio data"
+              title="Refresh"
+              className="text-white/55 hover:text-white transition-colors disabled:opacity-50"
+            >
+              <svg
+                className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+              >
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <polyline points="21 3 21 9 15 9" />
+              </svg>
+            </button>
+            <span className="text-white/45 text-[10px]" aria-live="polite">updated {formatTimeAgo(lastRefreshed)}</span>
           </div>
+          {/* F153: surface the claimable legs now folded into Portfolio Value. */}
+          {price.isLoaded && claimableUsd > 0.005 && (
+            <p className="text-white/50 text-[11px] mt-1">incl. {formatCurrency(claimableUsd)} claimable</p>
+          )}
         </m.div>
 
         {/* Summary Stats */}
@@ -674,7 +733,7 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   const chainId = useChainId();
   const onCorrectChain = chainId === CHAIN_ID;
 
-  const { data: pendingETH, error: pendingError } = useReadContract({
+  const { data: pendingETH, error: pendingError, refetch: refetchPendingETH } = useReadContract({
     address: REVENUE_DISTRIBUTOR_ADDRESS,
     abi: REVENUE_DISTRIBUTOR_ABI,
     functionName: 'pendingETH',
@@ -697,7 +756,11 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
     if (ethToastFiredRef.current.has(hash)) return;
     ethToastFiredRef.current.add(hash);
     toast.success('ETH revenue claimed successfully!');
-  }, [isClaimSuccess, hash]);
+    // F137 (T5): refetch pendingETH so the claimable amount drops to 0 and the
+    // claim card collapses immediately, rather than the button staying clickable
+    // until the next background poll. Gated once-per-hash by ethToastFiredRef.
+    refetchPendingETH();
+  }, [isClaimSuccess, hash]); // eslint-disable-line react-hooks/exhaustive-deps -- refetchPendingETH is stable; fire once per confirmed hash
 
   // F142: a failed pendingETH read leaves `pending === 0`, which is otherwise
   // indistinguishable from "nothing to claim" — the card would silently vanish.
