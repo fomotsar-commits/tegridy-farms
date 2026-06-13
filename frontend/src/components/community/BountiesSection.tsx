@@ -43,7 +43,7 @@ export function BountiesSection() {
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const { data: bountyCount } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount' });
+  const { data: bountyCount, isLoading: countLoading } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount' });
   const { data: totalPosted } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalBountiesPosted' });
   const { data: totalPaidOut } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalPaidOut' });
   const { data: pendingPayout } = useReadContract({
@@ -66,7 +66,11 @@ export function BountiesSection() {
     return contracts;
   }, [count, bbAddr, pageSize]);
 
-  const { data: bountyResults } = useReadContracts({ contracts: bountyContracts, query: { enabled: count > 0 } });
+  const { data: bountyResults, isLoading: resultsLoading } = useReadContracts({ contracts: bountyContracts, query: { enabled: count > 0 } });
+
+  // F326 (T11): separate loading from empty so "No bounties yet" doesn't flash
+  // while bountyCount is still in flight.
+  const isListLoading = countLoading || bountyCount === undefined || (count > 0 && resultsLoading);
 
   const handleCreate = () => {
     if (!_ensureChain()) return;
@@ -269,7 +273,22 @@ export function BountiesSection() {
         <div className="px-5 py-4 border-b border-white/10">
           <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Active Bounties</h3>
         </div>
-        {count === 0 ? (
+        {isListLoading ? (
+          /* F326 (T11): shape-matching skeleton rows during loading. */
+          <div className="divide-y divide-white/[0.04]" role="status" aria-label="Loading bounties">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="px-5 py-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="h-4 w-40 rounded bg-white/10 animate-pulse" />
+                  <div className="h-4 w-16 rounded bg-white/10 animate-pulse" />
+                </div>
+                <div className="h-3 w-2/3 rounded bg-white/5 animate-pulse" />
+                <div className="h-2 w-full rounded bg-white/5 animate-pulse" />
+              </div>
+            ))}
+            <span className="sr-only">Loading bounties…</span>
+          </div>
+        ) : count === 0 ? (
           <p className="px-5 py-8 text-center text-white/60 text-sm" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>No bounties yet. Post the first one.</p>
         ) : (
           <div className="divide-y divide-white/[0.04]">

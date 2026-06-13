@@ -40,7 +40,7 @@ export function GrantsSection() {
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
   const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const { data: proposalCount } = useReadContract({
+  const { data: proposalCount, isLoading: countLoading } = useReadContract({
     address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'proposalCount',
   });
   const { data: totalGranted } = useReadContract({
@@ -60,7 +60,13 @@ export function GrantsSection() {
     return contracts;
   }, [count, gcAddr, startIdx]);
 
-  const { data: proposalResults } = useReadContracts({ contracts: proposalContracts, query: { enabled: count > 0 } });
+  const { data: proposalResults, isLoading: resultsLoading } = useReadContracts({ contracts: proposalContracts, query: { enabled: count > 0 } });
+
+  // F326 (T11): separate loading from empty. proposalCount is undefined while
+  // the first read is in flight; rendering "No proposals yet" then would be a
+  // bait-and-switch. Show shape-matching skeleton rows during loading; show the
+  // empty copy only once the count read has resolved to 0.
+  const isListLoading = countLoading || proposalCount === undefined || (count > 0 && resultsLoading);
 
   // Check if user has voted on each proposal
   const voteCheckContracts = useMemo(() => {
@@ -247,7 +253,23 @@ export function GrantsSection() {
         <div className="px-5 py-4 border-b border-white/10">
           <h3 className="text-sm font-semibold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Proposals</h3>
         </div>
-        {count === 0 ? (
+        {isListLoading ? (
+          /* F326 (T11): shape-matching skeleton rows so loading isn't mistaken
+             for "empty". Mirrors the bribes leaderboard skeleton. */
+          <div className="divide-y divide-white/[0.04]" role="status" aria-label="Loading proposals">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="px-5 py-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="h-4 w-40 rounded bg-white/10 animate-pulse" />
+                  <div className="h-4 w-16 rounded bg-white/10 animate-pulse" />
+                </div>
+                <div className="h-3 w-2/3 rounded bg-white/5 animate-pulse" />
+                <div className="h-2 w-full rounded bg-white/5 animate-pulse" />
+              </div>
+            ))}
+            <span className="sr-only">Loading proposals…</span>
+          </div>
+        ) : count === 0 ? (
           <p className="px-5 py-8 text-center text-white/60 text-sm" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>No proposals yet. Be the first to create one.</p>
         ) : (
           <div className="divide-y divide-white/[0.04]">

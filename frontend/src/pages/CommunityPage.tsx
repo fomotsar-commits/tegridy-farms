@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
@@ -7,13 +7,16 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 
-import { GaugeVoting } from '../components/GaugeVoting';
-import { GrantsSection } from '../components/community/GrantsSection';
-import { BountiesSection } from '../components/community/BountiesSection';
-import { VoteIncentivesSection } from '../components/community/VoteIncentivesSection';
+// F337 (T11): lazy-load the section components so the <Suspense> fallback below
+// is live code (it was dead before — static imports never suspend) and each
+// section is code-split. Named exports are mapped to default for React.lazy.
+const GaugeVoting = lazy(() => import('../components/GaugeVoting').then((m) => ({ default: m.GaugeVoting })));
+const GrantsSection = lazy(() => import('../components/community/GrantsSection').then((m) => ({ default: m.GrantsSection })));
+const BountiesSection = lazy(() => import('../components/community/BountiesSection').then((m) => ({ default: m.BountiesSection })));
+const VoteIncentivesSection = lazy(() => import('../components/community/VoteIncentivesSection').then((m) => ({ default: m.VoteIncentivesSection })));
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
-import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_ADDRESS, isDeployed } from '../lib/constants';
+import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_ADDRESS, GAUGE_CONTROLLER_ADDRESS, isDeployed } from '../lib/constants';
 
 type Section = 'grants' | 'bounties' | 'bribes' | 'gauges';
 
@@ -157,7 +160,9 @@ export default function CommunityPage() {
                 {section === 'bribes' && (isDeployed(VOTE_INCENTIVES_ADDRESS)
                   ? <VoteIncentivesSection />
                   : <FeatureNotDeployed pageId="community" idx={3} title="Vote incentives aren't live yet" subtitle="Cartman's Market opens once the vote-incentives contract is deployed for the relaunch." />)}
-                {section === 'gauges' && <GaugeVoting />}
+                {section === 'gauges' && (isDeployed(GAUGE_CONTROLLER_ADDRESS)
+                  ? <GaugeVoting />
+                  : <FeatureNotDeployed pageId="community" idx={4} title="Gauge voting isn't live yet" subtitle="Vote on gauge emissions once the gauge controller is deployed for the relaunch." />)}
               </Suspense>
             </ErrorBoundary>
           </m.div>

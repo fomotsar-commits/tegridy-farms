@@ -53,7 +53,7 @@ function dashTabFromQuery(v: string | null): DashTab | null {
 
 export default function DashboardPage() {
   usePageTitle('Dashboard', 'Real-time protocol analytics, TVL, and TOWELI token metrics.');
-  const { isConnected, address } = useAccount();
+  const { isConnected, address, isReconnecting, isConnecting } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
   const [searchParams, setSearchParams] = useSearchParams();
   // R007 Pattern A — derive `tab` directly from ?tab=. URL is source of truth.
@@ -145,6 +145,27 @@ export default function DashboardPage() {
   const priceChangeStr = price.priceChange !== 0
     ? `${price.priceChange > 0 ? '+' : ''}${(price.priceChange ?? 0).toFixed(2)}%`
     : '';
+
+  // F173 (T11): during wallet auto-reconnect on cold reload, `isConnected` is
+  // briefly false-then-true (or true-then-false), which made the connected
+  // skeleton grid flash and collapse to the connect gate — a bait-and-switch.
+  // Gate on the resolving signal: while reconnecting/connecting and not yet
+  // connected, show a neutral resolving state instead of either extreme.
+  if (!isConnected && (isReconnecting || isConnecting)) {
+    return (
+      <div className="-mt-14 relative min-h-screen">
+        <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+          <ArtImg pageId="dashboard" idx={0} fallbackPosition="center 5%" alt="" loading="lazy" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 min-h-screen flex items-center justify-center px-6" role="status" aria-label="Reconnecting wallet">
+          <div className="flex flex-col items-center gap-3 px-6 py-8 rounded-2xl" style={{ background: 'rgba(6, 12, 26, 0.82)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 228, 184, 0.12)' }}>
+            <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
+            <p className="text-white/70 text-[13px]">Reconnecting your wallet…</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return (
