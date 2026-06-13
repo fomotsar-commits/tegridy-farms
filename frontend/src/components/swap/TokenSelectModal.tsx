@@ -4,6 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useReadContract, useChainId } from 'wagmi';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
+import { CHAIN_ID } from '../../lib/constants';
 import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
 import { getTokenUrl } from '../../lib/explorer';
 
@@ -166,10 +167,14 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   // For custom token import: read on-chain data
   const isImporting = isValidAddress(importAddress) && !allTokens.find(t => t.address.toLowerCase() === importAddress.toLowerCase());
 
+  // F198: pin the import reads to CHAIN_ID so a wallet on the wrong network
+  // can't read a different chain's contract at the same address and seed a
+  // bogus symbol/decimals into the mainnet-scoped custom-token store.
   const { data: importSymbol } = useReadContract({
     address: importAddress as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'symbol',
+    chainId: CHAIN_ID,
     query: { enabled: isImporting },
   });
 
@@ -177,6 +182,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
     address: importAddress as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'decimals',
+    chainId: CHAIN_ID,
     query: { enabled: isImporting },
   });
 

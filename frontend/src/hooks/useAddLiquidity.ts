@@ -40,12 +40,19 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // Get pair address from Tegridy Factory
   const tokensSelected = !!tokenA && !!tokenB && addrA.toLowerCase() !== addrB.toLowerCase();
 
+  // F201: pin reads to CHAIN_ID. Without this, a wrong-network wallet queries
+  // TEGRIDY_FACTORY on the connected chain → getPair returns nothing →
+  // LiquidityTab shows the misleading "No pool exists … plant one" + zero
+  // balances instead of a switch-network prompt.
+  const onRightChain = chainId === CHAIN_ID;
+
   const { data: pairAddress, refetch: refetchPair } = useReadContract({
     address: TEGRIDY_FACTORY_ADDRESS,
     abi: TEGRIDY_FACTORY_ABI,
     functionName: 'getPair',
     args: [addrA, addrB],
-    query: { enabled: tokensSelected },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && tokensSelected },
   });
 
   const pairExists = !!pairAddress && pairAddress !== ZERO_ADDR;
@@ -68,7 +75,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       { address: addrB, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
       { address: addrB, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS] },
     ],
-    query: { enabled: !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
+    chainId: CHAIN_ID,
+    query: { enabled: onRightChain && !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   const reserves = data?.[0]?.status === 'success' ? data[0].result as readonly [bigint, bigint, number] : undefined;
@@ -323,6 +331,9 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   }
 
   return {
+    // F201: surface chain state so LiquidityTab can show a "switch network"
+    // banner instead of the misleading "No pool exists" empty state.
+    onRightChain,
     // Pair info
     pairAddress: pairExists ? pairAddress : null,
     pairExists,

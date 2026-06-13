@@ -32,10 +32,23 @@ export function MevProtectionPanel() {
           {label}
         </button>
       </div>
-      <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-        Routes your transactions through MEV Blocker&apos;s protected RPC to block sandwich attacks, and
-        returns 90% of any backrun profit to you. One-time, user-confirmed wallet setup.
-      </p>
+      {status === 'added' ? (
+        // F204: steady state once the user has completed setup (persisted per
+        // wallet). Remind them to actually select the protected network — we
+        // can't detect the live RPC from the dapp — and keep a re-add path.
+        <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+          Added &mdash; select the &ldquo;Ethereum (MEV Blocker)&rdquo; network in your wallet to route
+          transactions through the protected RPC.{' '}
+          <button type="button" onClick={enable} className="underline underline-offset-2 hover:text-white">
+            Re-add
+          </button>
+        </p>
+      ) : (
+        <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+          Routes your transactions through MEV Blocker&apos;s protected RPC to block sandwich attacks, and
+          returns 90% of any backrun profit to you. One-time, user-confirmed wallet setup.
+        </p>
+      )}
 
       {status === 'manual' && (
         <div

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { toast } from 'sonner';
 import {
@@ -8,6 +8,37 @@ import {
 } from '../lib/mevProtection';
 
 export type MevProtectionStatus = 'idle' | 'pending' | 'added' | 'manual';
+
+// F204: persist the per-wallet "completed setup" bit. We can't detect the live
+// RPC from the dapp, but the local "user added the protected network" flag is
+// persistable so we stop re-offering "Add to wallet" every session.
+const MEV_ADDED_KEY = 'tegridy_mev_added';
+
+function readAddedSet(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(MEV_ADDED_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function wasAdded(address: string | undefined): boolean {
+  if (!address) return false;
+  return readAddedSet()[address.toLowerCase()] === true;
+}
+
+function rememberAdded(address: string | undefined) {
+  if (!address) return;
+  try {
+    const set = readAddedSet();
+    set[address.toLowerCase()] = true;
+    localStorage.setItem(MEV_ADDED_KEY, JSON.stringify(set));
+  } catch {
+    /* storage full / unavailable — non-fatal */
+  }
+}
 
 interface Eip1193Provider {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -30,8 +61,17 @@ function hasRequest(p: unknown): p is Eip1193Provider {
  *   'manual'  — wallet refused the one-tap add; show manual setup details
  */
 export function useMevProtection() {
-  const { connector, isConnected } = useAccount();
-  const [status, setStatus] = useState<MevProtectionStatus>('idle');
+  const { connector, isConnected, address } = useAccount();
+  const [status, setStatus] = useState<MevProtectionStatus>(() => (wasAdded(address) ? 'added' : 'idle'));
+
+  // F204: rehydrate the "added" steady state when the connected wallet changes
+  // (e.g. account switch or late connect), without clobbering an in-flight
+  // 'pending'/'manual' state for the current wallet.
+  useEffect(() => {
+    if (status === 'pending' || status === 'manual') return;
+    setStatus(wasAdded(address) ? 'added' : 'idle');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
 
   const enable = useCallback(async () => {
     if (!isConnected || !connector) {
@@ -47,6 +87,7 @@ export function useMevProtection() {
         params: [buildMevBlockerChainParams()],
       });
       setStatus('added');
+      rememberAdded(address);
       toast.success('MEV protection added', {
         description:
           'Select the "Ethereum (MEV Blocker)" network in your wallet to route transactions through the protected RPC.',
@@ -65,7 +106,7 @@ export function useMevProtection() {
         duration: 11000,
       });
     }
-  }, [connector, isConnected]);
+  }, [connector, isConnected, address]);
 
   return { status, enable };
 }

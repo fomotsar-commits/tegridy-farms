@@ -503,11 +503,20 @@ export function useSwap() {
     const prev = fromToken;
     setFromToken(toToken);
     setToToken(prev);
-    setInputAmount('');
+    // F240: carry the entered amount across the flip (Uniswap transposes it)
+    // instead of clearing to placeholder. A fresh quote loads for the reversed
+    // pair from the unchanged input. We still reset() the tx state.
     reset();
   }, [fromToken, toToken, reset]);
 
   const addCustomToken = useCallback(async (token: TokenInfo) => {
+    // F198: refuse import on the wrong chain. The custom-token store is
+    // mainnet-scoped and on-chain verification can't run, so previously a
+    // wrong-chain import slipped an unverified entry into the mainnet list.
+    if (chainId !== CHAIN_ID) {
+      toast.error('Switch to Ethereum Mainnet to import tokens');
+      return;
+    }
     toast.warning('Unverified token', {
       description: `${token.symbol} is not on the default token list. Only import tokens you trust — scam tokens may steal your funds.`,
       duration: 8000,
@@ -517,7 +526,7 @@ export function useSwap() {
     // its own read via useReadContract, but a programmatic caller could skip
     // that path. Defensive double-check; mismatches are silently rejected
     // (TokenSelectModal already surfaced its own error UI in that case).
-    if (publicClient && chainId === CHAIN_ID) {
+    if (publicClient) {
       const ok = await verifyCustomTokenOnChain(token, publicClient);
       if (!ok) {
         toast.error('Token verification failed', {

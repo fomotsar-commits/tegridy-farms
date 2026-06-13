@@ -36,6 +36,11 @@ export function LimitOrderTab() {
   const fromToken = DEFAULT_TOKENS.find(t => t.symbol === 'ETH')!;
   const toToken = DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI')!;
 
+  // F231: the HTML max=100 only constrains spinner arrows; a typed "200" was
+  // accepted. Surface an inline error and disable submit when over the cap
+  // (createOrder / handleCreateCow already reject as a backstop).
+  const amountExceedsCap = !!amount && Number.isFinite(parseFloat(amount)) && parseFloat(amount) > MAX_AMOUNT_ETH;
+
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     const num = parseFloat(val);
@@ -52,6 +57,7 @@ export function LimitOrderTab() {
 
   const handleCreate = () => {
     if (!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0) return;
+    if (parseFloat(amount) > MAX_AMOUNT_ETH) return; // F231: UI cap guard
     createOrder({
       fromToken: { symbol: fromToken.symbol, address: fromToken.address, decimals: fromToken.decimals, ...(fromToken.isNative && { isNative: true }) },
       toToken: { symbol: toToken.symbol, address: toToken.address, decimals: toToken.decimals, ...(toToken.isNative && { isNative: true }) },
@@ -119,8 +125,14 @@ export function LimitOrderTab() {
         <input id="limit-amount" type="number" inputMode="decimal" value={amount} onChange={handleAmountChange}
           onKeyDown={blockNegativeKey}
           placeholder="0.1" min="0" max={MAX_AMOUNT_ETH} step="0.01"
+          aria-invalid={amountExceedsCap}
           className="w-full font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
+          style={{ background: 'rgba(0,0,0,0.55)', border: amountExceedsCap ? '1px solid rgba(239,68,68,0.65)' : '1px solid rgba(255,255,255,0.18)' }} />
+        {amountExceedsCap && (
+          <p role="alert" className="mt-1 text-[10px] text-red-300" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+            Max {MAX_AMOUNT_ETH} ETH per order.
+          </p>
+        )}
       </div>
 
       {/* Target Price */}
@@ -154,8 +166,8 @@ export function LimitOrderTab() {
 
       {isConnected ? (
         <button type="button" onClick={handleCreate}
-          disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
-          aria-disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
+          disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
+          aria-disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
           className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
           Create Limit Order
         </button>
@@ -176,8 +188,8 @@ export function LimitOrderTab() {
             &#10003; Real on-chain order via CoW Protocol &mdash; settles when your price is met and <strong>survives closing the tab</strong> (no keeper; gasless to place). CoW sells ERC-20s, so this sells <strong>WETH</strong> &mdash; wrap your ETH first.
           </p>
           <button type="button" onClick={handleCreateCow}
-            disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
-            aria-disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || parseFloat(targetPrice) <= 0}
+            disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
+            aria-disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
             className="w-full py-3 min-h-[44px] text-[13px] rounded-lg font-medium text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             style={{ background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.55)' }}>
             {cow.isPlacing ? 'Placing on CoW…' : `Place CoW Order (WETH → ${toToken.symbol})`}

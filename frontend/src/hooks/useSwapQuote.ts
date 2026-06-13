@@ -244,7 +244,11 @@ export function useSwapQuote(
       // AUDIT R045 H1: pass the connected wallet's chainId so the meta-
       // aggregator short-circuits on unsupported chains (no HTTP calls go
       // out and "best route" never returns mainnet liquidity for an L2 user).
-      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, chainId, undefined, fromDecimals, abortController.signal)
+      // F199: forward the user's slippage tolerance to the aggregator quote
+      // (was hardcoded undefined → always DEFAULT_MAX_SLIPPAGE_PCT). The
+      // downstream clampSlippage bounds it, so venues that consume slippage at
+      // quote time reflect the user's actual setting.
+      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, chainId, slippage, fromDecimals, abortController.signal)
         .then(q => {
           // Only apply if this is still the latest request
           if (!abortController.signal.aborted && quoteRequestIdRef.current === currentRequestId) {
@@ -263,7 +267,8 @@ export function useSwapQuote(
     }, 800);
     return () => { abortController.abort(); clearTimeout(timer); };
     // F467: aggRequestId in the deps lets refreshQuote re-fire this effect.
-  }, [fromToken, toToken, parsedAmount, address, fromDecimals, chainId, aggRequestId]);
+    // F199: slippage in the deps re-quotes when the user changes tolerance.
+  }, [fromToken, toToken, parsedAmount, address, fromDecimals, chainId, aggRequestId, slippage]);
 
   // Stamp on every wagmi on-chain leg arrival.
   useEffect(() => {
@@ -394,10 +399,21 @@ export function useSwapQuote(
       if (reserveIn <= 0n || reserveOut <= 0n) return 0;
 
       const midPriceScaled = (reserveOut * 10n ** 18n) / reserveIn;
-      const execPriceScaled = (outputAmount * 10n ** 18n) / parsedAmount;
-      const diff = midPriceScaled > execPriceScaled
-        ? midPriceScaled - execPriceScaled
-        : execPriceScaled - midPriceScaled;
+      // F197: derive the exec price from the EXECUTING on-chain route's own
+      // output, not the headline `outputAmount` (which may be the higher,
+      // unexecutable aggregator estimate). Mixing an aggregator price above the
+      // pool mid-price with Uniswap reserves produced a positive "impact" for a
+      // favorable quote. Fall back to outputAmount only when the on-chain leg
+      // hasn't resolved.
+      const execOut = activeAmountsOut && activeAmountsOut.length >= 2
+        ? (activeAmountsOut[activeAmountsOut.length - 1] ?? outputAmount)
+        : outputAmount;
+      if (execOut === 0n) return 0;
+      const execPriceScaled = (execOut * 10n ** 18n) / parsedAmount;
+      // Clamp favorable diffs (exec better than mid) to 0 — only adverse
+      // movement is "price impact".
+      if (execPriceScaled >= midPriceScaled) return 0;
+      const diff = midPriceScaled - execPriceScaled;
       const impactBps = (diff * 10000n) / midPriceScaled;
       return Number(impactBps) / 100;
     } catch {

@@ -35,6 +35,13 @@ export function DCATab() {
   const fromToken = DEFAULT_TOKENS.find(t => t.symbol === 'ETH')!;
   const toToken = DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI')!;
 
+  // F231: the HTML max=100 only constrains spinner arrows, so a typed "200"
+  // was accepted and the summary computed "Total cost 6000 ETH". Show an inline
+  // error when the typed amount exceeds the cap; createSchedule already rejects
+  // out-of-range as a backstop. We keep the raw value (don't silently rewrite
+  // the user's keystrokes) and surface the error + disable Start.
+  const amountExceedsCap = !!amount && Number.isFinite(parseFloat(amount)) && parseFloat(amount) > MAX_AMOUNT_ETH;
+
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     const num = parseFloat(val);
@@ -52,6 +59,8 @@ export function DCATab() {
   const handleCreate = () => {
     const parsed = parseInt(totalSwaps);
     if (!amount || parseFloat(amount) <= 0 || !totalSwaps || !Number.isFinite(parsed) || parsed <= 0) return;
+    // F231: hard-stop over-cap amounts (UI guard; createSchedule re-validates).
+    if (parseFloat(amount) > MAX_AMOUNT_ETH) return;
     // AUDIT FIX FE-HIGH-4: clamp slippage to bps and forward; createSchedule
     // re-validates server-side as a defensive backstop.
     const slippageBps = Math.max(
@@ -87,8 +96,14 @@ export function DCATab() {
         <input id="dca-amount" type="number" inputMode="decimal" value={amount} onChange={handleAmountChange}
           onKeyDown={blockNegativeKey}
           placeholder="0.01" min="0" max={MAX_AMOUNT_ETH} step="0.001"
+          aria-invalid={amountExceedsCap}
           className="w-full font-mono text-[16px] text-white outline-none px-3 py-2.5 min-h-[44px] rounded-lg token-input"
-          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
+          style={{ background: 'rgba(0,0,0,0.55)', border: amountExceedsCap ? '1px solid rgba(239,68,68,0.65)' : '1px solid rgba(255,255,255,0.18)' }} />
+        {amountExceedsCap && (
+          <p role="alert" className="mt-1 text-[10px] text-red-300" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+            Max {MAX_AMOUNT_ETH} ETH per swap.
+          </p>
+        )}
       </div>
 
       {/* Interval */}
@@ -171,8 +186,9 @@ export function DCATab() {
           style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }} />
       </div>
 
-      {/* Summary */}
-      {amount && parseFloat(amount) > 0 && totalSwaps && parseInt(totalSwaps) > 0 && (
+      {/* Summary — hidden while the amount is over the cap (F231) so we don't
+          show a "Total cost 6000 ETH" for an amount that won't be accepted. */}
+      {amount && parseFloat(amount) > 0 && !amountExceedsCap && totalSwaps && parseInt(totalSwaps) > 0 && (
         <div className="rounded-lg p-3 mb-4" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}
           aria-live="polite">
           <div className="flex items-center justify-between mb-1">
@@ -192,8 +208,8 @@ export function DCATab() {
 
       {isConnected ? (
         <button type="button" onClick={handleCreate}
-          disabled={!amount || parseFloat(amount) <= 0 || !totalSwaps || parseInt(totalSwaps) <= 0}
-          aria-disabled={!amount || parseFloat(amount) <= 0 || !totalSwaps || parseInt(totalSwaps) <= 0}
+          disabled={!amount || parseFloat(amount) <= 0 || amountExceedsCap || !totalSwaps || parseInt(totalSwaps) <= 0}
+          aria-disabled={!amount || parseFloat(amount) <= 0 || amountExceedsCap || !totalSwaps || parseInt(totalSwaps) <= 0}
           className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
           Start DCA
         </button>

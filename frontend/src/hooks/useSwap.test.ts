@@ -242,14 +242,16 @@ describe('useSwap', () => {
     expect(result.current.slippage).toBe(2.5);
   });
 
-  it('flipDirection swaps from/to and clears inputAmount', () => {
+  it('flipDirection swaps from/to and carries the entered amount (F240)', () => {
     const { result } = renderHook(() => useSwap());
     act(() => result.current.setInputAmount('1.5'));
     expect(result.current.inputAmount).toBe('1.5');
     act(() => result.current.flipDirection());
     expect(result.current.fromToken?.symbol).toBe('TOWELI');
     expect(result.current.toToken?.symbol).toBe('ETH');
-    expect(result.current.inputAmount).toBe('');
+    // F240: the amount is transposed across the flip (Uniswap behavior) instead
+    // of being cleared to placeholder, so the trade intent is preserved.
+    expect(result.current.inputAmount).toBe('1.5');
   });
 
   it('swapType reflects token selection (tokensForEth)', () => {

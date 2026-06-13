@@ -294,6 +294,21 @@ export function LiquidityTab() {
           </div>
         )}
 
+        {/* F201: wrong-network banner — the reads are pinned to mainnet, so on
+            another chain pool data is empty by design. Tell the user to switch
+            rather than letting them read "No pool exists" as the pair's truth. */}
+        {isConnected && !liq.onRightChain && (
+          <div className="mb-3 px-3 py-2 rounded-lg flex items-start gap-2"
+            style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}
+            role="alert">
+            <span className="text-warning text-[14px] leading-none mt-0.5" aria-hidden="true">&#9888;</span>
+            <div className="text-warning text-[11px] leading-snug">
+              <strong className="font-semibold">Wrong network</strong>{' — '}
+              switch to Ethereum Mainnet to view pool data and add or remove liquidity.
+            </div>
+          </div>
+        )}
+
         {!isConnected ? (
           <div className="text-center py-8">
             <p className="text-white/70 text-[13px] mb-4">Gotta connect a wallet to farm liquidity.</p>
