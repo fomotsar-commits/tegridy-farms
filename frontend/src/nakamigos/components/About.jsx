@@ -5,6 +5,8 @@ import {
 } from "../constants";
 import SpeciesEncyclopedia from "./SpeciesEncyclopedia";
 import JungleBayShowcase from "./JungleBayShowcase";
+import { SHORTCUTS_FLAT } from "../lib/shortcuts";
+import { formatPrice } from "../lib/formatPrice";
 
 function formatVol(n) {
   if (n == null) return null;
@@ -67,7 +69,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
 
   const displaySupply = stats?.supply ?? collection.supply ?? null;
   const statCards = [
-    { label: "Floor Price", value: stats?.floor != null ? Number(stats.floor).toFixed(4) : null, suffix: " ETH", color: "var(--gold)" },
+    { label: "Floor Price", value: stats?.floor != null ? formatPrice(Number(stats.floor)) : null, suffix: " ETH", color: "var(--gold)" },
     { label: "Total Volume", value: stats?.volume != null ? formatVol(stats.volume) : null, suffix: " ETH", color: "var(--naka-blue)" },
     { label: "Owners", value: stats?.owners != null ? formatNumber(stats.owners) : null, suffix: "", color: "var(--green)" },
     { label: "Supply", value: displaySupply != null ? formatNumber(displaySupply) : null, suffix: "", color: "var(--purple)" },
@@ -344,15 +346,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
       <div className="about-shortcuts">
         <SectionHeading>KEYBOARD SHORTCUTS</SectionHeading>
         <div className="shortcuts-grid">
-          {[
-            ["1-7", "Switch tabs"],
-            ["Esc", "Close modal"],
-            ["S", "Focus search"],
-            ["/", "Focus search"],
-            ["G", "Go to Gallery"],
-            ["F", "Go to Floor"],
-            ["T", "Go to Traits"],
-          ].map(([key, desc]) => (
+          {SHORTCUTS_FLAT.map(([key, desc]) => (
             <div key={key} className="shortcut-item">
               <kbd className="shortcut-key">{key}</kbd>
               <span className="shortcut-desc">{desc}</span>

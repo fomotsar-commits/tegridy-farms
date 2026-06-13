@@ -1,22 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
-
-const SHORTCUTS = [
-  ["Navigation", [
-    ["j / k", "Next / previous item"],
-    ["Enter", "Open selected item"],
-    ["Escape", "Close modal / deselect"],
-    ["g", "Go to Gallery"],
-    ["1\u20139, 0", "Switch tabs"],
-  ]],
-  ["Actions", [
-    ["f", "Toggle favorite (focused card)"],
-    ["c", "Add to cart (focused card)"],
-    ["s or /", "Focus search"],
-    ["m", "Toggle sound"],
-    ["?", "Toggle this help"],
-  ]],
-];
+import { SHORTCUTS } from "../lib/shortcuts";
 
 const overlayStyle = {
   position: "fixed",
@@ -37,6 +21,9 @@ const panelStyle = {
   padding: "32px 40px",
   maxWidth: 520,
   width: "90vw",
+  // Scroll on short (e.g. landscape phone) viewports instead of clipping.
+  maxHeight: "85vh",
+  overflowY: "auto",
   boxShadow: "0 0 60px rgba(200,168,80,0.15)",
 };
 

@@ -15,6 +15,7 @@ import { fulfillNativeOrder } from "../lib/orderbook";
 import { validateOrderQuick } from "../lib/orderValidator";
 import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { formatPrice } from "../lib/formatPrice";
 import useEns from "../hooks/useEns";
 
 const ComparableSales = lazy(() => import("./ComparableSales").catch(() => ({ default: () => null })));
@@ -37,7 +38,7 @@ function FairValueBadge({ nft, floorPrice, supply }) {
       fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)",
       marginTop: 8, display: "flex", alignItems: "center", gap: 8,
     }}>
-      <span>Est. Fair Value: <Eth size={10} /> {fairValue.toFixed(4)}</span>
+      <span>Est. Fair Value: <Eth size={10} /> {formatPrice(fairValue)}</span>
       {label && (
         <span style={{
           fontSize: 8, fontWeight: 700, color, background: `${color}15`,
@@ -65,7 +66,15 @@ function PriceHistoryChart({ tokenId, contract }) {
     return () => { cancelled = true; };
   }, [tokenId, contract]);
 
-  if (!sales) return null;
+  // Reserve space while loading instead of returning null, so the price box
+  // and content below don't shift when the chart pops in (F804).
+  if (!sales) return (
+    <div
+      style={{ marginTop: 12, height: 110, borderRadius: 8, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}
+      aria-busy="true"
+      aria-label="Loading price history"
+    />
+  );
   if (sales.length === 0) return (
     <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
       No sales history for this token
@@ -89,7 +98,7 @@ function PriceHistoryChart({ tokenId, contract }) {
       <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 8 }}>
         PRICE HISTORY ({sales.length} sale{sales.length !== 1 ? "s" : ""})
       </div>
-      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block", opacity: 0.8, maxWidth: w }}>
+      <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Price history sparkline, ${sales.length} sale${sales.length !== 1 ? "s" : ""}`} style={{ display: "block", opacity: 0.8, maxWidth: w }}>
         <polyline
           fill="none"
           stroke="var(--gold)"
@@ -99,13 +108,22 @@ function PriceHistoryChart({ tokenId, contract }) {
         {sales.map((s, i) => {
           const x = pad + (i / Math.max(sales.length - 1, 1)) * (w - pad * 2);
           const y = pad + (1 - (s.price - minP) / range) * (h - pad * 2);
-          return <circle key={i} cx={x} cy={y} r="2.5" fill="var(--gold)" opacity="0.7" />;
+          // Native hover tooltip: date · price (· marketplace) (F804).
+          const dateLabel = s.time
+            ? new Date(s.time).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+            : null;
+          const tip = [dateLabel, `${formatPrice(s.price)} ETH`, s.marketplace].filter(Boolean).join(" · ");
+          return (
+            <circle key={i} cx={x} cy={y} r="2.5" fill="var(--gold)" opacity="0.7">
+              <title>{tip}</title>
+            </circle>
+          );
         })}
       </svg>
       <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>
-        <span><Eth size={9} /> {minP.toFixed(4)}</span>
-        <span>Avg: <Eth size={9} /> {prices.length > 0 ? (prices.reduce((a, b) => a + b, 0) / prices.length).toFixed(4) : "0"}</span>
-        <span><Eth size={9} /> {maxP.toFixed(4)}</span>
+        <span><Eth size={9} /> {formatPrice(minP)}</span>
+        <span>Avg: <Eth size={9} /> {prices.length > 0 ? formatPrice(prices.reduce((a, b) => a + b, 0) / prices.length) : "0"}</span>
+        <span><Eth size={9} /> {formatPrice(maxP)}</span>
       </div>
     </div>
   );
@@ -359,12 +377,12 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Eth size={20} />
                 <span style={{ fontFamily: "var(--display)", fontSize: 34, fontWeight: 700, color: "var(--text)" }}>
-                  {Number(nft.price).toFixed(4)}
+                  {formatPrice(Number(nft.price))}
                 </span>
               </div>
               {nft.lastSale != null && nft.lastSale > 0 && (
                 <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
-                  Last sale: <Eth size={11} /> {Number(nft.lastSale).toFixed(4)}
+                  Last sale: <Eth size={11} /> {formatPrice(Number(nft.lastSale))}
                 </div>
               )}
             </div>
@@ -442,7 +460,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                   });
                 }}
               >
-                {buying ? "Confirming..." : !wallet ? "Connect Wallet to Buy" : `Buy for ${Number(nft.price ?? 0).toFixed(4)} ETH`}
+                {buying ? "Confirming..." : !wallet ? "Connect Wallet to Buy" : `Buy for ${formatPrice(Number(nft.price ?? 0))} ETH`}
               </button>
             ) : (
               <button className="btn-primary" style={{ flex: 1 }} aria-label="Buy this NFT" onClick={() => window.open(openSeaUrl, "_blank", "noopener,noreferrer")}>

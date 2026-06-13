@@ -3,7 +3,12 @@
 export function exportCSV(rows, filename = "export") {
   if (!rows.length) return;
 
-  const headers = Object.keys(rows[0]);
+  // Union keys across all rows — Object.keys(rows[0]) alone silently drops any
+  // column that only appears on a later (heterogeneous) row.
+  const headers = [...rows.reduce((set, row) => {
+    Object.keys(row).forEach((k) => set.add(k));
+    return set;
+  }, new Set())];
   const csvContent = [
     headers.join(","),
     ...rows.map((row) =>
@@ -11,8 +16,8 @@ export function exportCSV(rows, filename = "export") {
         let val = String(row[h] ?? "");
         // Prevent formula injection in Excel/Sheets
         if (/^[=+\-@|%]/.test(val)) val = "'" + val;
-        // Escape commas, quotes, newlines
-        return val.includes(",") || val.includes('"') || val.includes("\n")
+        // Escape commas, quotes, newlines, and bare CRs (a lone \r breaks rows in Excel)
+        return val.includes(",") || val.includes('"') || val.includes("\n") || val.includes("\r")
           ? `"${val.replace(/"/g, '""')}"`
           : val;
       }).join(",")
