@@ -1,0 +1,308 @@
+{
+ "group": "g02_home",
+ "sourceAgents": [
+  "code:home"
+ ],
+ "findings": [
+  {
+   "id": "F64",
+   "src": "code:home",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Home (landing) — ReferralWidget",
+   "title": "Referral links are minted on a domain the app doesn't use anywhere else (tegridy.farm)",
+   "evidence": "ReferralWidget.tsx:71 `const referralLink = \\`https://tegridy.farm/?ref=${encodeURIComponent(address)}\\`;` and :94 truncated display. The canonical site URL everywhere else is different: usePageTitle.ts:4 `const SITE_URL = 'https://tegridyfarms.vercel.app'`, index.html:28 canonical, TransactionReceipt.tsx:231 falls back to a THIRD domain `https://tegridyfarms.io`, and usePoints.ts:129 builds referral links from `window.location.origin + '/swap?ref='`. Verified inconsistency across 4 surfaces; whether tegridy.farm is owned/aliased is unverified from code, but if it is not, every referral link shared from the home page dead-ends. Related funnel leak: the ?ref= param is only consumed by ReferralWidget, which mounts only when CONNECTED on Home (HomePage.tsx:452), and the 'Buy TOWELI' Link to=\"/swap\" drops the query string — a referred visitor who clicks Buy before connecting loses the attribution.",
+   "suggestion": "Single source of truth for the share origin (window.location.origin or the SITE_URL constant); persist ?ref= (sessionStorage) on first load so attribution survives navigation/connect ordering; unify with usePoints' /swap?ref= scheme."
+  },
+  {
+   "id": "F65",
+   "src": "code:home",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Home (landing) — YieldCalculator",
+   "title": "YieldCalculator parses the comma-formatted APR display string, violating usePoolData's documented contract — projections silently wrong/inconsistent with the hero pill",
+   "evidence": "usePoolData.ts:50-52: \"Consumers MUST use this [aprNum], not parseFloat(apr): once apr >= 10000 the display string is comma-formatted ('28,567') and parseFloat would silently truncate\". YieldCalculator.tsx:70 does `const liveApr = Number(poolData.apr);`. At today's bootstrap TVL (APR >= 10,000%), Number('28,567') = NaN, so aprIsLive=false and the calculator labels itself 'Baseline 12% APR' while the hero stat pill on the SAME screen shows the real astronomic 'Base APR 28,567%' (HomePage.tsx:180) — direct on-screen contradiction. For APR between 1,000-9,999%, the calculator instead multiplies a bootstrap-inflated APR by up to 4.5x boost with no cap, because the intended guard never fires: usePoolData.ts:53 `const aprCapped = false;` is hardcoded, so YieldCalculator.tsx:72 `!poolData.aprCapped` is always true.",
+   "suggestion": "Use poolData.aprNum, and decide an explicit sanity ceiling for the calculator (e.g. fall back to baseline above N%), since aprCapped no longer exists as a real signal."
+  },
+  {
+   "id": "F66",
+   "src": "code:home",
+   "severity": "high",
+   "category": "improve",
+   "page": "Home (landing) — LCP / index.html",
+   "title": "index.html preloads three NON-hero images while the actual LCP hero art is not preloaded",
+   "evidence": "index.html:70-72 `<link rel=\"preload\" as=\"image\" href=\"/art/mfers-heaven.jpg\">` + mumu-bull.jpg + bobowelie.jpg (166+143+185 = ~494 KB measured on disk). The real hero/LCP image is the home:0 art override → iph_0148 → /art/iphone/IMG_0148.jpg (artOverrides.ts:76, artConfig.ts:100), 268 KB / 2048x1448 measured, rendered full-viewport at HomePage.tsx:77-79. None of the three preloaded files is the hero: mfers-heaven appears below the fold in The Collection, bobowelie is the token logo. The stale preloads compete with the LCP fetch at highest priority. ArtImg (ArtImg.tsx:62-72) emits no fetchpriority, srcset, or sizes, so phones also download the full 2048px asset.",
+   "suggestion": "Preload /art/iphone/IMG_0148.jpg (ideally generated from the artOverrides map at build time so it can't go stale again), add fetchpriority=\"high\" on the hero ArtImg, drop or demote the three stale preloads, and add responsive variants for the hero."
+  },
+  {
+   "id": "F67",
+   "src": "code:home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Home (landing) — ProtocolStats",
+   "title": "Evergreen Security card claims 'bounty live', contradicting the 2026-06-11 honesty pass on the same page",
+   "evidence": "ProtocolStats.tsx:47 `{ l: 'Security', v: '82+', sub: 'findings resolved · bounty live', icon: '🛡️' }`. HomePage.tsx:349-356 comment for the trust badges directly below: \"'Bug Bounty Active' → 'Responsible Disclosure' (the bounty has no funded pool yet)\". Two surfaces on one page disagree about whether a bounty exists; the honesty pass (commit 7639fdf) missed this card.",
+   "suggestion": "Change sub to 'findings resolved · responsible disclosure' to match the trust badge."
+  },
+  {
+   "id": "F68",
+   "src": "code:home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Home (landing) — ProtocolStats vs hero copy",
+   "title": "'Fee Share 100% → stakers' hardcoded in two cards contradicts the hero's stakers/liquidity/ops split — and the real split is a live on-chain parameter",
+   "evidence": "ProtocolStats.tsx:44 `{ l: 'Fee Share', v: '100%', sub: 'of protocol fees → stakers, in ETH' }` and :36 sub '100% to stakers, in ETH'. Hero copy (post honesty pass) at HomePage.tsx:96-97: \"Every protocol fee flows on-chain — to stakers, the liquidity engine, and operations.\" These cannot both be true. The split is configurable on-chain: TreasuryPage.tsx:117-151 reads `stakerShareBps` live (with 10_000 only as a read-failure fallback), and abi-supplement.ts:11491 has proposeFeeSplit/_stakerShareBps. ProtocolStats freezes a governable parameter into marketing copy.",
+   "suggestion": "Read stakerShareBps the way TreasuryPage does and render the live percentage, or reword to match the hero's three-way framing."
+  },
+  {
+   "id": "F69",
+   "src": "code:home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Home (landing) — social share meta",
+   "title": "Static OG/Twitter meta still carries the pre-honesty-pass '100% of protocol revenue goes to stakers' claim",
+   "evidence": "index.html:31 `og:description content=\"... 100% of protocol revenue goes to stakers.\"` and :45 `og:image:alt content=\"... where 100% of swap fees flow to stakers\"`. The 2026-06-11 honesty pass rewrote the rendered hero (HomePage.tsx:96-97) but crawlers/social cards read the static index.html, so every shared link re-publishes the inflated claim.",
+   "suggestion": "Align og:description/og:image:alt (and twitter:description, index.html:52) with the honesty-pass wording."
+  },
+  {
+   "id": "F70",
+   "src": "code:home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Home (landing) — hero stats",
+   "title": "'ETH Distributed' hero pill shows a loading shimmer forever for disconnected visitors — its data source is gated on wallet connection",
+   "evidence": "HomePage.tsx:181 `{ l: 'ETH Distributed', v: revenueStats.totalDistributed > 0 ? ... : '–' }` renders via :192 `(!s.v || s.v === '–') ? <span ... shimmer/>`. useRevenueStats.ts:37 `query: { enabled: !!address, ... }` — the query never runs without a wallet, so totalDistributed stays 0 and the pill shimmers indefinitely for exactly the first-time visitors the hero targets. The same global value is already fetched wallet-lessly elsewhere on the page: RealYieldProof.tsx:25-29 reads totalDistributed chainId-pinned with `enabled: deployed` (no address gate).",
+   "suggestion": "Source the pill from a wallet-less read (the RealYieldProof pattern), and reserve the shimmer for genuinely in-flight queries — render an honest '—' for 'no data yet' states (Base APR pre-stake hits the same forever-shimmer path)."
+  },
+  {
+   "id": "F71",
+   "src": "code:home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Home (landing) — data hooks",
+   "title": "usePoolData and useRevenueStats reads lack the chainId pin / mainnet gate that useFarmStats got in R043 — wrong-network users see partial/false stats",
+   "evidence": "useFarmStats.ts:16 comment 'R043 H-062-02: chainId pin on every entry, gate on onMainnet' with `chainId: CHAIN_ID` on each read and `enabled: isDeployed && onMainnet`. usePoolData.ts:10-22 has NO chainId on any of its 8 reads and no network gate; useRevenueStats.ts:21-37 likewise (its writes ARE pinned, :62/:72/:83). A user connected to Base gets failed/foreign-chain reads → APR falls to '–' (perpetual shimmer) while the pinned TVL pill renders, an inconsistent half-broken hero.",
+   "suggestion": "Add `chainId: CHAIN_ID` to every read in both hooks, matching the R043 pattern."
+  },
+  {
+   "id": "F72",
+   "src": "code:home",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Home (landing) — hero stats",
+   "title": "TVL renders a false '0 TOWELI' when its reads are disabled or failing",
+   "evidence": "useFarmStats.ts:36 `tvl: isDeployed ? (totalStaked > 0n ? \\`${...} TOWELI\\` : '0 TOWELI') : '–'` — when the query is disabled (wrong network) or the multicall fails, totalStaked defaults to 0n (:26) and the hero confidently prints 'TVL 0 TOWELI'. This is the exact 'wall of zeros reads as a dead protocol' failure the ProtocolStats credibility fix (ProtocolStats.tsx:23-30 comment) was written to ban.",
+   "suggestion": "Distinguish 'read failed/disabled' (render '–') from a true on-chain zero using the per-call status already available."
+  },
+  {
+   "id": "F73",
+   "src": "code:home",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Home (landing) — Ecosystem",
+   "title": "'$JBM on Base' card links to a generic Uniswap swap page, not the JBM token",
+   "evidence": "HomePage.tsx:394 `href=\"https://app.uniswap.org/swap?chain=base\"` — no outputCurrency/token param, so users land on Uniswap's default ETH swap on Base and must find JBM themselves. Both sibling cards deep-link correctly (OpenSea collection :382, /lore :406).",
+   "suggestion": "Append the JBM token address (e.g. ?outputCurrency=0x...&chain=base)."
+  },
+  {
+   "id": "F74",
+   "src": "code:home",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Home (landing)",
+   "title": "Dead fallback in effectiveToweliPrice — both branches resolve from the same PriceContext value",
+   "evidence": "HomePage.tsx:63 `const effectiveToweliPrice = price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : stats.toweliPrice;` but useFarmStats.ts:14,37 computes toweliPrice as `effectivePrice > 0 ? formatCurrency(effectivePrice, 6) : '–'` from the SAME useTOWELIPrice() context — the fallback can never yield anything but '–' when the primary is 0. Also usePriceHistory.ts:25 takes `_currentPrice` which is unused; HomePage:59 passes price.priceInUsd into it for nothing.",
+   "suggestion": "Simplify to one expression; drop the dead hook parameter."
+  },
+  {
+   "id": "F75",
+   "src": "code:home",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Home (landing) — The Collection",
+   "title": "'54 original pieces' count includes the same artwork twice in different file formats",
+   "evidence": "HomePage.tsx:424 renders `{GALLERY_ORDER.length} original pieces` (= 54). artConfig.ts:46-76: naka01=/splash/new/1.avif vs naka08=/splash/new/1.jpg, naka03=7.avif vs naka31=7.jpg, naka04=28.avif vs naka24=28.jpg ('Naka #28' and 'Naka #28b') — 3 works double-counted, so 51 unique pieces. Additive fix only: correct the count, keep all art.",
+   "suggestion": "Either dedupe the count (display unique works) or keep both files but title/count them as one piece."
+  },
+  {
+   "id": "F76",
+   "src": "code:home",
+   "severity": "low",
+   "category": "improve",
+   "page": "Home (landing)",
+   "title": "Six overlapping read-hook batches refetch the same contract values every 30-60s",
+   "evidence": "On one mount HomePage runs useFarmStats (3 reads), usePoolData (8, also re-mounted inside YieldCalculator — that one dedupes via identical query key), useProtocolStats (6), useRevenueStats (8), useToweliPrice (4) and RealYieldProof (3). totalStaked, rewardRate and totalRewardsFunded are each fetched in 3 separate useReadContracts batches (useFarmStats.ts:19-21, usePoolData.ts:12-16, useProtocolStats.ts:30-32); totalDistributed/totalClaimed/epochCount in 2 (useRevenueStats.ts:24-26, RealYieldProof.tsx:25-27). Distinct contract arrays → distinct tanstack keys → no dedupe across hooks.",
+   "suggestion": "Fold the public protocol aggregates into one shared hook/context (like PriceContext already does for price) and derive the per-surface shapes from it."
+  },
+  {
+   "id": "F77",
+   "src": "code:home",
+   "severity": "low",
+   "category": "improve",
+   "page": "Home (landing) — hero",
+   "title": "aria-live on the rotating Towelie quote announces a joke to screen readers every 7 seconds, forever",
+   "evidence": "HomePage.tsx:128 `<div className=\"mt-4 min-h-[22px]\" aria-live=\"polite\">` wrapping the AnimatePresence quote that rotates on a 7s interval (:68-73). aria-live is for meaningful updates; a perpetual decorative ticker is an SR annoyance. The interval also keeps firing in hidden tabs.",
+   "suggestion": "Drop aria-live (keep the quotes visually), pause rotation on document.hidden, and skip rotation under prefers-reduced-motion."
+  },
+  {
+   "id": "F78",
+   "src": "code:home",
+   "severity": "low",
+   "category": "improve",
+   "page": "Home (landing) — YieldCalculator",
+   "title": "role=\"radio\" buttons without the radio-group keyboard pattern; amount label contradicts itself",
+   "evidence": "YieldCalculator.tsx:151-169: six `<button role=\"radio\" aria-checked>` inside role=\"radiogroup\" but no roving tabindex or arrow-key handling — SR users are told it's a radio group whose arrow keys do nothing. Also :117-118 label reads 'TOWELI amount (USD equivalent)' over a $-prefixed input — it is a USD amount, not a TOWELI amount; the hint (:136) says 'USD-equivalent amount' confirming the label is wrong.",
+   "suggestion": "Either implement the WAI-ARIA radio pattern or use plain pressed-state buttons; rename the label 'Amount to stake (USD)'."
+  },
+  {
+   "id": "F79",
+   "src": "code:home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Home (landing)",
+   "title": "No global prefers-reduced-motion handling for framer-motion",
+   "evidence": "No MotionConfig anywhere in src (grep for MotionConfig|reducedMotion matches only ParticleBackground.tsx and PulseDot's manual useReducedMotion). All HomePage whileInView springs, the hero entrance, FlashValue scale bumps and the quote cross-fade animate regardless of the OS setting.",
+   "suggestion": "Wrap the LazyMotion tree (App.tsx:221) in <MotionConfig reducedMotion=\"user\"> — one line, app-wide."
+  },
+  {
+   "id": "F80",
+   "src": "code:home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Home (landing) — ProtocolStats",
+   "title": "Pre-volume state leaves a lopsided grid: 4 cards in a 6-column row",
+   "evidence": "ProtocolStats.tsx:50 `const items = [...live, ...evergreen].slice(0, 6);` with 0 live items today yields 4 evergreen cards inside :53 `grid-cols-2 md:grid-cols-3 lg:grid-cols-6` — on lg the row renders 4 filled + 2 empty columns, left-aligned.",
+   "suggestion": "Derive the lg column count from items.length (or justify-center the short row)."
+  },
+  {
+   "id": "F81",
+   "src": "code:home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Home (landing) — hero",
+   "title": "Quote line reserves one line of height but long quotes wrap — rhythmic layout shift on mobile every 7s",
+   "evidence": "HomePage.tsx:128 `min-h-[22px]` under the CTAs; TOWELIE_QUOTES (copy.ts:111-119) includes 56-char lines ('Wanna get high? Oh wait, wrong farm. Wanna get yield?') that wrap to two lines at 12px italic inside the max-w-xl hero at ~360px width, so the security badge below jumps up/down as quotes rotate.",
+   "suggestion": "Reserve two lines (min-h-[40px]) or clamp quotes to one line on mobile."
+  },
+  {
+   "id": "F82",
+   "src": "code:home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Home (landing)",
+   "title": "Theme toggle has no visible effect on the landing page; gold CTA lacks hover/focus affordance; core-loop microcopy repeats itself",
+   "evidence": "(1) HomePage hardcodes the dark shell — :77 `style={{ background: '#060c1a' }}`, white text and rgba(0,0,0,.78) pills — while index.css ships [data-theme=\"light\"] variants for the same utilities (index.css:592-680) and TopNav.tsx:257 exposes toggleTheme; flipping to light changes only the nav. Likely intentional for the art-first page but undocumented. (2) :119-123 'Buy TOWELI' Link has transition-all but no hover/focus style that actually changes. (3) :26 step label 'Every swap skims a fee' with sub 'a protocol fee on each swap' says the same thing twice — the sub could carry the fee number instead.",
+   "suggestion": "Document the theme-invariance decision in a comment; add hover brightness + focus-visible ring to the gold CTA; put the actual fee bps in the core-loop sub line."
+  },
+  {
+   "id": "F83",
+   "src": "code:home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Home (landing) — art rotation",
+   "title": "4 of 15 home art surfaces ride the deterministic rotation — collision-free today but silently reshuffled by any pool edit",
+   "evidence": "artOverrides.ts:76-86 covers home:0,1,2,4,5,6,7,10,11,13,14; indexes 3, 8, 9, 12 fall back to pageArt rotation, which (computed: djb2('home')=offset 58 into the 74-piece ART_POOL_ALL) currently resolves to naka19, naka24, naka25, naka28 — no duplicates against the overrides today. But artConfig.ts:243-244's no-duplicate guarantee only holds when ALL of a page's indexes come from rotation; any insertion/removal in ART_POOL_ALL re-derives these 4 picks and can collide with an override (e.g. naka26 already used at home:10). Verified-correct-now, fragile-by-design.",
+   "suggestion": "Pin the remaining 4 home surfaces via /art-studio (additive — assigns art, removes none)."
+  },
+  {
+   "id": "F84",
+   "src": "code:home",
+   "severity": "low",
+   "category": "improve",
+   "page": "Home (landing) — hero copy",
+   "title": "Two swap descriptions on the page disagree about which DEX you trade on; 'Verifiable on Etherscan' predates source-verification landing",
+   "evidence": "(1) HOW_IT_WORKS step 1 (HomePage.tsx:35): 'Swap ETH for TOWELI on the Tegridy DEX. Nine routes checked' — the nine-route claim itself checks out (aggregator.ts:44 has 7 sources + useSwapQuote.ts:9 tegridy/uniswap = 9, matching TradePage.tsx:411 'Compare all N+2 routes'). But the Protocol Overview Swap card (:291) says 'Trade ETH ↔ TOWELI via Uniswap V2' with stat 'Uniswap V2 / Router' — same page, two different stories about the venue. (2) Hero :97 and the meta description (:53 'verifiable on Etherscan') — per the deploy record the Etherscan source-verify was still pending at relaunch; fee flows are visible as txs, but 'verify the contracts' reads stronger than what an Etherscan visitor finds until verification lands. Unverified hypothesis on current verify status — flagging the dependency, not asserting the claim is false.",
+   "suggestion": "Align the Swap card with the smart-front-door story ('best of 9 routes' / native DEX + aggregators); confirm source-verify completion before leaning harder on the Etherscan language."
+  },
+  {
+   "id": "F85",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "USD-denominated TVL: the hero 'TVL' pill shows a raw TOWELI count only (useFarmStats.ts:36) — Uniswap/Aave-grade pages always show USD with the token figure secondary; the price needed for the conversion is already in PriceContext.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F86",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "24h price change % next to the price pill — priceChange exists in the context (useToweliPrice returns it) and a 24h OHLCV series is already fetched for the sparkline, but no percent badge is rendered; the sparkline also has no tooltip or 24h label (Dexscreener-grade affordance).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F87",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "Token contract address strip with copy button + 'Add TOWELI to wallet' (wallet_watchAsset) — the single most common buy-page affordance; the address exists in constants but is never surfaced on the landing page (only on /contracts).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F88",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "Market stats strip (market cap / holders / liquidity) with a GeckoTerminal/Dexscreener link-out — GECKOTERMINAL_URL is already built in constants.ts:134 but unused on Home.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F89",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "Live activity feed or 'recent swaps/stakes' ticker (even simple Etherscan link-outs pre-indexer) — best-in-class landing pages prove liveness with motion in the data, which matters double for a just-relaunched protocol whose stats are honestly small.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F90",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "FAQ teaser/accordion and a docs/litepaper CTA above the footer — the FAQ page and FAQ_INTRO copy exist (copy.ts:100-104) but Home never funnels to them.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F91",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "Community/social proof above the footer: no Twitter/Telegram/Discord links anywhere in the hero or trust-badge row (Telegram only lives in the Footer).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F92",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "Referral deep-link continuity: ?ref= should persist across navigation and be honored by the Buy TOWELI CTA (carry the param to /swap), instead of only being read if the visitor connects while still on the home route.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F93",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "Share/export: no 'share this protocol' or OG-card preview affordance beyond the referral tweet button (which only renders for connected users).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F94",
+   "src": "code:home",
+   "severity": "low",
+   "category": "missing",
+   "page": "g02_home",
+   "title": "Network-mismatch banner on the landing stats: competitors show 'viewing Ethereum data' or auto-mainnet reads regardless of wallet chain; here a wrong-chain wallet silently degrades parts of the hero (see chainId-pin finding).",
+   "evidence": "(missingVsBestInClass)"
+  }
+ ]
+}

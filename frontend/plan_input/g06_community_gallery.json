@@ -1,0 +1,569 @@
+{
+ "group": "g06_community_gallery",
+ "sourceAgents": [
+  "code:community-gallery",
+  "live:community-gallery"
+ ],
+ "findings": [
+  {
+   "id": "F315",
+   "src": "code:community-gallery",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/community (bribes + gauges tabs)",
+   "title": "Commit-reveal commitIndex is guessed and persisted before tx confirmation — failed commits poison reveal indices; promised reconciliation is never implemented",
+   "evidence": "VoteIncentivesSection.tsx:1290-1302 — handleCommitVote calls bribes.commitVote(...) then immediately saves a record with `const tentativeIndex = existing.length; // contract pushes to same array so index ≈ current length` and the comment at :1295 says \"we'll reconcile by reading voterCommits.length on next refetch\" — but `voterCommits` is never read anywhere in the frontend (grep: only the ABI entry at contracts.ts:286 and this comment match). If the commit tx is rejected/fails, a phantom record persists in localStorage with no UI to delete it, and every subsequent commit gets an off-by-N commitIndex. revealVote(epoch, commitIndex, pair, power, salt) (useBribes.ts:218-228) with a wrong index reverts; per the UI's own copy (\"Commits not revealed before the deadline lose their bond to treasury\", VoteIncentivesSection.tsx:901) the 10 TOWELI bond is then forfeit. Reveal also never removes the record on success, allowing double-reveal attempts.",
+   "suggestion": "Read voterCommits length/entries (or watch the commit event for the emitted index) on confirmation, assign the real commitIndex then, only persist records after receipt success (keep the salt staged separately pre-broadcast like GaugeVoting does), and add a 'dismiss stale commit' affordance."
+  },
+  {
+   "id": "F316",
+   "src": "code:community-gallery",
+   "severity": "high",
+   "category": "missing",
+   "page": "/community (bounties tab)",
+   "title": "Bounty funnel is broken end-to-end: no UI to view submissions, vote on them, complete, cancel, or refund a bounty",
+   "evidence": "MEME_BOUNTY_BOARD_ABI (contracts.ts:134-152) exposes voteForSubmission, getSubmission, submissionCount, completeBounty, cancelBounty, refundStaleBounty, hasVotedOnBounty — none are used in BountiesSection.tsx (only createBounty, submitWork, withdrawPayout/Refund, getBounty reads). The card copy promises \"Community votes on submissions. Winner takes the reward.\" (BountiesSection.tsx:181) and rows show \"{Number(submCount)} submissions\" (:247), but submissions can never be listed, voted on, or finalized from the UI, so no winner can ever be picked without raw Etherscan calls.",
+   "suggestion": "Add an expanded-row submissions list (getSubmission × submissionCount) with vote buttons, a Complete button when conditions are met, plus creator-facing Cancel and permissionless refundStaleBounty actions."
+  },
+  {
+   "id": "F317",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/bounties, /bribes (legacy deep links)",
+   "title": "Legacy routes redirect to bare /community so /bounties and /bribes land on the wrong tab (Governance)",
+   "evidence": "App.tsx:150 `<Route path=\"bounties\" element={<Navigate to=\"/community\" replace />} />` and :153 `<Route path=\"bribes\" element={<Navigate to=\"/community\" replace />} />` drop the section; CommunityPage.tsx:43 defaults to 'grants' when ?section= is absent. The page's own comment (:29-30) promises deep-links \"land on the right tab\", and no internal link anywhere uses /community?section= (grep across src), so old bookmarks/external links to /bounties and /bribes silently open the Governance tab. /grants and /governance only work by coincidence of the default.",
+   "suggestion": "Redirect path=\"bounties\" → /community?section=bounties and path=\"bribes\" → /community?section=bribes."
+  },
+  {
+   "id": "F318",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/community (governance + bounties tabs)",
+   "title": "Active deadlines render as 'Ends just now' / 'just now' — formatTimeAgo returns 'just now' for every future timestamp",
+   "evidence": "formatting.ts:42-44 — `const seconds = Math.floor(Date.now() / 1000 - timestamp); if (seconds < 5) return 'just now';` — a future deadline yields negative seconds, which always satisfies `< 5`. GrantsSection.tsx:286 `Ends ${formatTimeAgo(deadlineNum).replace(' ago', ' left')}` and BountiesSection.tsx:260 use this for non-expired items, so every live proposal/bounty shows \"Ends just now\" / \"just now\" instead of \"6d left\". The .replace(' ago',' left') hack never matches because 'just now' contains no ' ago'.",
+   "suggestion": "Add a formatTimeLeft/formatCountdown helper for future timestamps (one already exists in VoteIncentivesSection.tsx:54) instead of string-replacing formatTimeAgo output."
+  },
+  {
+   "id": "F319",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/community (bribes tab)",
+   "title": "Claimables panel formats every bribe token with formatEther (18 decimals) and shows raw addresses instead of known symbols",
+   "evidence": "VoteIncentivesSection.tsx:474-478 — `{formatTokenAmount(formatEther(c.amounts[i] ?? 0n), 4)} {tok.toLowerCase() === ZERO_ADDRESS ? 'ETH' : shortenAddress(tok)}`. A 6-decimal whitelisted token (e.g. USDC-like) would display 10^12× too small. GaugeRow does this correctly with whitelistMap meta (`formatUnits(b.amount, meta.decimals)`, :615), but whitelistMap is never passed to ClaimablesPanel, which also degrades symbols to 0x-short addresses.",
+   "suggestion": "Pass whitelistMap into ClaimablesPanel and format with formatUnits(amount, meta.decimals) + meta.symbol, falling back to formatEther/shortenAddress only for unknown tokens."
+  },
+  {
+   "id": "F320",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/community (gauges tab)",
+   "title": "GaugeVoting transaction errors are never surfaced — the try/catch around writeContract is dead code and the hook's error field is ignored",
+   "evidence": "GaugeVoting.tsx:109 destructures `const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();` (no `error`), and :217-225 / :252-260 / :269-277 wrap `writeContract(...)` in try/catch → surfaceTxError. wagmi v2's non-async writeContract reports failures via the hook's error state, not by throwing synchronously, so a wallet rejection or revert produces no toast and no UI state change — the button just snaps back. Contrast useBribes.ts:344-348, which handles `writeError` with a toast.",
+   "suggestion": "Read `error` from useWriteContract (and isError from useWaitForTransactionReceipt) and surface via surfaceTxError/toast in an effect, mirroring useBribes."
+  },
+  {
+   "id": "F321",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/community (governance + bounties tabs)",
+   "title": "No tx success/error feedback and no refetch after writes — votes/creates leave stale UI and a dangling 'Voting FOR...' toast",
+   "evidence": "GrantsSection.tsx:40-41 and BountiesSection.tsx:43-44 use useWriteContract/useWaitForTransactionReceipt but never read error/isSuccess; handleVote fires `toast.info(support ? 'Voting FOR...' : ...)` (GrantsSection.tsx:83) before the wallet prompt and nothing follows on confirm/reject. None of the reads (proposalCount, getProposal, hasVotedOnProposal, bounty reads) set refetchInterval or refetch on receipt, so after a successful vote the \"You have already voted\" state and vote bars stay stale until window refocus.",
+   "suggestion": "Add an isSuccess/isError effect (success toast + targeted refetch of proposals/voteChecks) and an error toast for rejection, like useBribes does."
+  },
+  {
+   "id": "F322",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/community (all tabs)",
+   "title": "Entire Community page is connect-walled — public read-only data (proposals, bounties, bribe leaderboard, gauge weights) is invisible without a wallet",
+   "evidence": "CommunityPage.tsx:111-133 — `{!isConnected ? (<ConnectButton card>) : (<tab panels>)}` hides all four sections behind useAccount().isConnected, even though every list is a public contract read that works with no address (the sections already handle `address` being undefined, e.g. GrantsSection voteCheckContracts returns [] at :67). Disconnected users can't even see the FeatureNotDeployed \"coming soon\" panels. Hidden Hand/Votium/Snapshot all render markets and proposals read-only.",
+   "suggestion": "Render the section content always; gate only the write affordances (vote/deposit/create buttons) behind connection with inline Connect CTAs."
+  },
+  {
+   "id": "F323",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/community (governance tab)",
+   "title": "Proposal lifecycle actions missing: no Execute, Cancel, or Lapse UI despite ABI support and '24h execution delay' copy",
+   "evidence": "COMMUNITY_GRANTS_ABI (contracts.ts:128-130) includes executeProposal, cancelProposal, lapseProposal; GrantsSection only wires voteOnProposal + finalizeProposal (:76-93). The form copy says \"Quorum-based approval with 24h execution delay\" (:198) but a Passed (status 1) proposal shows no Execute button — STATUS_LABELS knows 'Passed'/'Executed'/'Lapsed' (:16-23) yet nothing in the UI can move a proposal between them.",
+   "suggestion": "Add Execute (when status=Passed and delay elapsed), proposer Cancel, and permissionless Lapse buttons on the relevant statuses."
+  },
+  {
+   "id": "F324",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/community (governance + bounties tabs)",
+   "title": "Lists are capped at the latest 10 items with no pagination — older proposals/bounties become unreachable",
+   "evidence": "GrantsSection.tsx:51-52 `const pageSize = Math.min(count, 10); const startIdx = Math.max(0, count - pageSize);` and BountiesSection.tsx:59-63 build read arrays for only the last 10 ids. There is no Load-more, page controls, or per-id deep link, so item #0-#N-11 of an active board can never be viewed.",
+   "suggestion": "Add a 'Load older' cursor that extends the multicall window, or numbered pagination."
+  },
+  {
+   "id": "F325",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/community (gauges tab)",
+   "title": "Banner instructs users to 'export the salt' but no export affordance exists",
+   "evidence": "GaugeVoting.tsx:410 — \"Keep this browser's localStorage intact, or export the salt before then.\" There is no copy/download/QR button anywhere in the component; loadCommitment/saveCommitment (:31-47) are localStorage-only. A user following the UI's own advice has to open devtools. Losing the salt is explicitly fatal per :413 (\"Without the salt this vote cannot be revealed\").",
+   "suggestion": "Add a 'Copy reveal backup' button that serializes the CommitmentRecord (and a paste-to-restore input on the reveal panel). Same applies to the bribes-tab CommitRecord store."
+  },
+  {
+   "id": "F326",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/community (governance + bounties tabs)",
+   "title": "Loading state is conflated with empty state — 'No proposals yet' / 'No bounties yet' flashes while reads are in flight",
+   "evidence": "GrantsSection.tsx:50 `const count = proposalCount !== undefined ? Number(proposalCount) : 0;` then :250 `{count === 0 ? (<p>No proposals yet. Be the first to create one.</p>) : ...}` — while proposalCount is undefined (loading) the empty copy renders. Same in BountiesSection.tsx:58 + :223. Also, when count>0 but proposalResults is still undefined, the list body renders blank with no skeleton. The CommunityPage Suspense skeleton (CommunityPage.tsx:143-150) never shows because the sections are statically imported, not React.lazy, and wagmi hooks don't suspend.",
+   "suggestion": "Branch on `proposalCount === undefined` to show a row skeleton (the bribes leaderboard at VoteIncentivesSection.tsx:1431-1451 is the in-house pattern to copy)."
+  },
+  {
+   "id": "F327",
+   "src": "code:community-gallery",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/community (gauges tab)",
+   "title": "Gauge rows show only truncated addresses — pair labels exist in useGaugeList but GaugeVoting doesn't use them",
+   "evidence": "GaugeVoting.tsx:368 `<p className=\"text-[13px] font-mono text-purple-300\">{shortenAddress(gauge, 6)}</p>` and the ballot summary at :483 also shows shortenAddress. The sibling bribes tab resolves human labels (\"TOWELI / WETH\") via useGaugeList (useGaugeList.ts:157-159), so the same epoch's gauges read as friendly names on one tab and as 0x1234…abcd on the next — voters can't tell which pool they're weighting.",
+   "suggestion": "Reuse useGaugeList for labels in GaugeVoting (it already memoizes and event-refreshes)."
+  },
+  {
+   "id": "F328",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/community (gauges tab)",
+   "title": "Duplicate 'Transaction confirmed' toasts possible from the isSuccess effect re-running",
+   "evidence": "GaugeVoting.tsx:281-291 — effect deps are `[isSuccess, hasVotedThisEpoch, commitmentKey, refetchRevealWindow]`; after a reveal confirms, isSuccess stays true (no reset() is ever called on useWriteContract) and when the lastVotedEpoch read later flips hasVotedThisEpoch to true the effect re-runs, firing toast.success a second time before clearing the commitment. Also means the cleanup of the localStorage record is deferred until that read refreshes (no explicit refetch of lastVotedEpoch).",
+   "suggestion": "Track the toasted hash (or call reset() after handling, as useBribes.ts:341 does) and explicitly refetch lastVotedEpoch on receipt."
+  },
+  {
+   "id": "F329",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/community (bounties tab)",
+   "title": "Nested <button> inside <button>: SafeText 'show more' renders inside the row-expand button (invalid HTML, a11y hazard)",
+   "evidence": "BountiesSection.tsx:241 `<button onClick={() => setExpandedBounty(...)} className=\"w-full text-left\">` wraps :250 `<SafeText value={description} previewChars={180} />`; SafeText.tsx:42-53 renders its own `<button>` when text exceeds 180 chars (descriptions can be 1000, textSafety.ts:55). Nested interactive controls are invalid HTML — browsers may re-parent the inner button, and screen readers/keyboard focus get a control inside a control. GrantsSection avoids this (SafeText sits in a plain div).",
+   "suggestion": "Make the row header a div with role=button/tabIndex like the gallery cards, or move SafeText outside the toggle button."
+  },
+  {
+   "id": "F330",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/community (bounties tab)",
+   "title": "handleCreate calls parseEther/Number on unvalidated inputs — '1e5'-style reward throws uncaught in the click handler; 0 or negative deadline passes to chain",
+   "evidence": "BountiesSection.tsx:86 `value: parseEther(newReward)` has no try/catch (viem throws InvalidDecimalNumberError on exponent notation, which number inputs permit), unlike GrantsSection.tsx:121-127 which guards the same call. :81 `Number(newDeadlineDays) * 86400` accepts '0' or negative ('0' is truthy so the `!newDeadlineDays` guard passes), producing an in-past deadline that reverts on-chain after gas. No belowMin/insufficient-balance checks either, unlike the bribes DepositCard.",
+   "suggestion": "Mirror GrantsSection's validation: try/catch parseEther with toast, require deadlineDays >= 1, and disable the submit button on invalid values."
+  },
+  {
+   "id": "F331",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/gallery",
+   "title": "Header copy '54 original hand-drawn pieces from the Tegridy universe' misdescribes the collection — 31 of 54 are the Nakamigos drop",
+   "evidence": "GalleryPage.tsx:88 `{GALLERY_ORDER.length} original hand-drawn pieces from the Tegridy universe`; GALLERY_ORDER (artConfig.ts:276-302) interleaves 23 Tegridy pieces with naka01–naka31, whose entries are titled 'Naka #x' / 'Fresh from the deck' (artConfig.ts:46-76) — an external NFT collection's images, not original hand-drawn Tegridy art.",
+   "suggestion": "Adjust the copy additively (e.g. 'original Tegridy art plus the Nakamigos drop') — keep all art per the owner's constraint."
+  },
+  {
+   "id": "F332",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/community (all tabs)",
+   "title": "Tablist lacks the ARIA tabs keyboard pattern and tab/panel wiring; selected-state ternary is dead code",
+   "evidence": "CommunityPage.tsx:84-108 — role=\"tablist\"/role=\"tab\" with aria-selected, but no arrow-key roving tabindex, no id/aria-controls linking tabs to the role=\"tabpanel\" (:136), and when disconnected the tablist renders with no tabpanel at all. :95 `section === key ? 'text-white' : 'text-white hover:text-white'` — both branches are identical, so the inactive-tab dimming this clearly intended never happens (the emerald pill is the only indicator).",
+   "suggestion": "Add ArrowLeft/ArrowRight handling + aria-controls/id pairs, and make the inactive branch text-white/60."
+  },
+  {
+   "id": "F333",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "All 54 grid images are loading=\"lazy\" including the above-the-fold first rows, and the 800×800 size hint mismatches real aspect ratios (CLS in the masonry columns)",
+   "evidence": "GalleryPage.tsx:117-126 — every card img gets `width={800} height={800} loading=\"lazy\"`. Lazy-loading first-viewport images delays LCP; the square aspect-ratio hint reserves the wrong box for non-square pieces so the CSS-columns layout (`columns-1 sm:columns-2 md:columns-3`, :101) reflows as each image decodes.",
+   "suggestion": "Eager-load (+fetchpriority=\"high\") the first ~6 items and store real intrinsic dimensions per piece in artConfig for accurate aspect-ratio reservation."
+  },
+  {
+   "id": "F334",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/gallery (lightbox)",
+   "title": "Lightbox doesn't restore focus to the opener on close, has no touch swipe, and doesn't preload adjacent images",
+   "evidence": "ArtLightbox.tsx:42-74 implements a solid focus trap and arrow/Escape keys, but onClose never returns focus to the triggering grid card (focus drops to <body> — WCAG 2.4.3 concern); there are no touch/swipe handlers for mobile prev/next (buttons only); navigating waits on a fresh network fetch of pieces[selectedIndex±1].",
+   "suggestion": "Store the opener element and .focus() it on close; add pointer/swipe navigation; render hidden <link rel=preload>/Image() for neighbors."
+  },
+  {
+   "id": "F335",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "Vote affordance is invisible to disconnected users and live re-sorting teleports the card you just voted for",
+   "evidence": "GalleryPage.tsx:138 `{isConnected && (...vote button...)}` — vote counts are hidden entirely without a wallet, so the social-proof layer disappears. sortedPieces re-sorts on every vote (:74-77), so upvoting a piece can instantly move it to a different column position under the cursor. Also the card wrapper is role=\"button\" containing the real vote <button> (:104-141) — nested interactive controls in the a11y tree (the comment at :103 only solved literal button-in-button).",
+   "suggestion": "Show counts (disabled button + 'connect to vote' tooltip) when disconnected; defer re-sort until next mount or add layout animation (framer layout prop) so movement is legible."
+  },
+  {
+   "id": "F336",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/community (bribes tab)",
+   "title": "Heavy per-render read fan-out: ~17+ contract reads per gauge across 6 polling intervals; event watchers only refresh hook-level queries",
+   "evidence": "VoteIncentivesSection.tsx — per gauge: 2 vote reads @30s (:1040-1064), token list @60s (:1080-1090), per-token amounts @60s (:1109-1115), 10 history epochs @120s (:1126-1136), 5 claimable epochs @60s (:1178-1190), plus useBribes' own 9 global + 6-per-whitelisted-token reads @60s. useBribes' refetchAll (useBribes.ts:294-298) triggered by its 5 event watchers refetches only the hook's queries, not these section-level ones, which rely solely on their intervals. Multicall batching makes this workable but it scales linearly with gauge count and runs even when the tab content is unchanged.",
+   "suggestion": "Consolidate into fewer useReadContracts batches keyed by epoch, drop history lookback to on-demand (expand row), and pipe the event-watcher refresh through the section queries via queryClient invalidation."
+  },
+  {
+   "id": "F337",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/community",
+   "title": "Suspense fallback is dead code and the gauges tab bypasses the FeatureNotDeployed pattern used by the other three tabs",
+   "evidence": "CommunityPage.tsx:10-13 imports all sections statically (no React.lazy), so the Suspense fallback at :143-150 can never render. :160 `{section === 'gauges' && <GaugeVoting />}` has no page-level isDeployed gate; GaugeVoting falls back to a bespoke minimal card (\"Gauge controller not deployed yet\", GaugeVoting.tsx:298-308) instead of the standard FeatureNotDeployed SOON panel with title/subtitle that grants/bounties/bribes get (:151-159). Bribes is double-gated (page + VoteIncentivesSection.tsx:1341-1351 has a second, plainer guard that is now unreachable).",
+   "suggestion": "Either lazy() the section imports so the skeleton works, or remove the fallback; gate gauges with FeatureNotDeployed for consistency."
+  },
+  {
+   "id": "F338",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "/community (bribes tab)",
+   "title": "RescueBanner tells depositors to call refundOrphanedBribe and advanceEpoch 'below' but provides no refund button",
+   "evidence": "VoteIncentivesSection.tsx:217-221 — banner copy: \"any depositor can pull their own bribes back via refundOrphanedBribe(epoch, pair, token). Trigger advanceEpoch below…\". advanceEpoch has a footer chip (:1533-1537) but no UI anywhere calls refundOrphanedBribe (grep: only the two copy mentions). A depositor in the rescue window must use Etherscan.",
+   "suggestion": "When the window is open, render per-(pair, token) Refund buttons for the connected depositor's net contributions."
+  },
+  {
+   "id": "F339",
+   "src": "code:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/community (gauges tab)",
+   "title": "Stat card hardcodes 'per epoch (7 days)' while EPOCH_DURATION is read from chain",
+   "evidence": "GaugeVoting.tsx:328 `sub: 'per epoch (7 days)'` is a literal; :129 reads `EPOCH_DURATION` with a 604800 fallback into `duration`, which is used for the countdown but not the copy — a redeploy with a different duration would show a wrong label.",
+   "suggestion": "Derive the label from `duration` (e.g. `per epoch (${duration/86400} days)`)."
+  },
+  {
+   "id": "F340",
+   "src": "code:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/community",
+   "title": "Art-index reuse and premature toasts",
+   "evidence": "CommunityPage.tsx:153 and :159 both pass `pageId=\"community\" idx={1}` to FeatureNotDeployed, so the Governance and Vote-Incentives placeholders show the identical backdrop while idx 2 is used for bounties. GrantsSection.tsx:83/144 and BountiesSection.tsx:88/104 fire toast.info('Voting FOR…' / 'Creating…') before the wallet prompt — a rejected signature strands an optimistic toast. useBribes.ts:345 toasts 'Transaction failed' for user rejections too (writeError doesn't distinguish), which reads as a protocol failure.",
+   "suggestion": "Use distinct art idx values; move toasts to post-signature (hash available) and special-case UserRejectedRequestError with a neutral 'Transaction cancelled'."
+  },
+  {
+   "id": "F341",
+   "src": "code:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/community (bribes tab)",
+   "title": "Zero-fee and pending-fee-to-zero states render as missing data; first-voter advantage not surfaced",
+   "evidence": "OverviewStrip (VoteIncentivesSection.tsx:282) shows '--' when `feeBps > 0` is false, so a legitimately 0% fee displays as no-data; PendingFeeBanner (:163) hides when `pending === 0`, so a queued fee cut to 0% is invisible. GaugeRow's marginal-earn badge requires `totalVotes > 0n` (:555), so the single most attractive state — a bribed gauge with zero votes where 1k votes takes the whole pot — shows no earn hint at all.",
+   "suggestion": "Treat fee as loaded-vs-unloaded (undefined) rather than zero-vs-nonzero, and show 'first voter takes the full pot' on bribed zero-vote gauges."
+  },
+  {
+   "id": "F342",
+   "src": "code:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/community (bribes tab)",
+   "title": "DepositCard approve→deposit is a two-click flow with no step indicator; one-at-a-time button label is the only signal",
+   "evidence": "VoteIncentivesSection.tsx:710-717 — handleSubmit calls onApprove when needsApproval, then the user must click again after the allowance refetch flips the label (:822-824 'Approve TOKEN' → 'Deposit …'). The codebase already ships a StepIndicator component for multi-tx flows (InfoTooltip.tsx:207-249) that is unused here.",
+   "suggestion": "Drop in StepIndicator (Approve → Deposit) above the button so projects depositing ERC20 bribes see the two-step shape upfront."
+  },
+  {
+   "id": "F343",
+   "src": "code:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/community + /gallery",
+   "title": "InfoTooltip can clip at viewport edges; tab switches use replace so Back doesn't traverse tabs",
+   "evidence": "InfoTooltip.tsx:63-67 positions a fixed w-56 bubble centered on the icon with translate only — icons near the screen edge (e.g. the leaderboard header tooltips on a 390px iPhone) will overflow horizontally; there is no collision detection (unverified at runtime — code-level assessment). CommunityPage.tsx:50 `setSearchParams(params, { replace: true })` means tab changes create no history entries, so browser Back leaves the page rather than returning to the prior tab (consistent with LendingPage, but worth a deliberate decision).",
+   "suggestion": "Add a simple edge-flip/clamp to InfoTooltip; consider push semantics for tab changes or document the choice."
+  },
+  {
+   "id": "F344",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "USD values everywhere (Hidden Hand/Votium standard): bribes, claimables, emissions and TVL are denominated only in ETH/raw tokens — no $ per vote, no $/veTOWELI, no projected APR per gauge, which is THE headline number on every competitor bribe market.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F345",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Round/epoch history explorer: no past-epoch table (who bribed what, total paid, your earnings history, claim history) — only a 'lifetime ~ETH' micro-label per gauge; Hidden Hand and Votium both expose per-round archives.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F346",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Claim-all across gauges in one tx (claimBribesBatch exists per gauge, but a voter with 4 gauges clicks 4 times).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F347",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Snapshot integration is entirely absent (not even a stub): no snapshot.org space link, no delegation UI, no off-chain proposal mirror — the roadmap's Tier-1 'Snapshot delegation' item has no surface here (repo-wide grep confirms).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F348",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Per-entity deep links: no ?gauge=, ?proposal=, ?bounty= or /community?section=bounties#12 anchors — items can't be shared or linked from Discord/Twitter.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F349",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Notifications/alerts: no 'you have unclaimed bribes' badge on nav, no reveal-deadline reminder (bond forfeiture is time-critical), no push/email hooks.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F350",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Tx simulation/preview and gas context before writes (Uniswap-grade): votes, deposits and claims fire blind with no expected-outcome panel beyond the bribe earn estimate.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F351",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Bounty board basics vs any grants/quest platform: submission gallery with previews, submission voting, winner display, creator dashboards, status filters (Open/Completed/Expired), my-bounties view.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F352",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Gallery vs OpenSea/Blur-grade galleries: no sort/filter controls (votes/newest/title), no search, no per-piece permalink or share button, no download/full-resolution view, no pinch-zoom in lightbox, no swipe navigation on mobile.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F353",
+   "src": "code:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "g06_community_gallery",
+   "title": "Voting-power acquisition funnel: the bribes tab links to /farm to stake, but there's no inline 'how much would X TOWELI staked earn from current bribes' calculator (Votium-style ROI calculator).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F354",
+   "src": "live:community-gallery",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "/gallery (prod AND dev HEAD)",
+   "title": "Lightbox opens permanently invisible — entrance animation frozen at opacity 0",
+   "evidence": "Clicking any artwork card dims the page but shows NOTHING: no image, no Prev/Close/Next. DOM inspection shows the lightbox container (fixed inset-0 z-50) mounted with image complete (sword-of-love.jpg, naturalWidth 945, centered rect 508-1404px) and buttons present, but the content wrapper `.relative.z-10.max-w-4xl` has inline style `opacity: 0; transform: scale(0.95)` that never advances. Polled 6x over 3s on localhost:5173: stuck at `opacity: 0; transform: scale(0.975546)` — animation starts then freezes mid-flight. Reproduced 3x on prod and on dev HEAD. Escape/backdrop-click do close it, so users just see a dim flash and a dead screen.",
+   "suggestion": "The framer-motion (or similar) enter animation on the lightbox content wrapper never completes — check for a stalled `animate` (e.g., whileInView on a fixed element, a paused animation frame loop, or a transition with no progress driver). The core interaction of the gallery is unusable; fix before anything else on this page."
+  },
+  {
+   "id": "F355",
+   "src": "live:community-gallery",
+   "severity": "high",
+   "category": "missing",
+   "page": "/community",
+   "title": "Page is unreachable from any navigation surface (orphaned)",
+   "evidence": "Header nav = Dashboard, Farm, Trade, More, Tradermigos. More menu (read via accessibility tree) = Gallery, Tegridy Score(/leaderboard), Tokenomics, Treasury. Footer Product/Resources columns list Dashboard, Farm, Trade, Points, Tradermigos, Tokenomics, Gallery, Lore, History, Changelog, FAQ, Contracts, Treasury — /community appears nowhere. Only direct URL reaches it.",
+   "suggestion": "Add Community to the More menu (an 'Engage' group already exists there) and to the footer Product column."
+  },
+  {
+   "id": "F356",
+   "src": "live:community-gallery",
+   "severity": "high",
+   "category": "improve",
+   "page": "/community",
+   "title": "All four tabs are a hard connect-wall logged-out — zero read-only content",
+   "evidence": "Governance, Bounties, Vote Incentives (?section=bribes), and Gauge Voting all render the identical small card 'Connect your wallet to participate' + Connect Wallet button. Total page body text is 793 characters. No proposals list, no bounty board preview, no bribe-market data, no gauge weights — nothing to evaluate before connecting.",
+   "suggestion": "Best-in-class governance/vote-market UIs (Tally, Snapshot, Votium, Hidden Hand) show all market/proposal data read-only and only gate ACTIONS behind connect. Render each tab's data publicly and gate just the vote/claim/post buttons."
+  },
+  {
+   "id": "F357",
+   "src": "live:community-gallery",
+   "severity": "high",
+   "category": "improve",
+   "page": "/community",
+   "title": "Identical gate message on every tab — no tab-specific explanation of what each feature IS",
+   "evidence": "Switching tabs changes only the URL param (?section=bounties|bribes|gauges); the card copy 'Connect your wallet to participate' never changes. A vote-market newcomer cannot learn what Vote Incentives or Gauge Voting do, what token is used, or why they'd connect.",
+   "suggestion": "Per-tab gate copy: one sentence of what the section does + what connecting unlocks (e.g. 'Deposit incentives to attract gauge votes; voters claim after the epoch'). Also clarifies the bribes-UI objective, which currently has zero explanation."
+  },
+  {
+   "id": "F358",
+   "src": "live:community-gallery",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/community and /gallery (site-wide header/RPC)",
+   "title": "Primary RPC eth.llamarpc.com is down — repeated 521 preflight failures",
+   "evidence": "read_network_requests captured 6 total OPTIONS https://eth.llamarpc.com/ → 521 across both pages. No user-visible breakage observed (failover worked), but every page load pays for a dead-host round trip.",
+   "suggestion": "Deprioritize or health-check llamarpc in the transport list so a dead provider isn't attempted first on every load."
+  },
+  {
+   "id": "F359",
+   "src": "live:community-gallery",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/gallery (light mode)",
+   "title": "Light mode: page heading and footer legal links become dark-on-dark (contrast failure)",
+   "evidence": "With light theme toggled, the body/background art stays dark but 'The Collection' h1 renders dark navy on near-black (barely visible in screenshot); on /community the footer disclaimer links 'Risk Disclosure · Security' render dark purple on the dark navy footer — illegible. Header bar itself turns orange while everything else stays dark, so the theme reads half-applied.",
+   "suggestion": "Keep heading/link foregrounds light wherever the dark art background persists in light mode, or scope the light palette to surfaces that actually lighten."
+  },
+  {
+   "id": "F360",
+   "src": "live:community-gallery",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/gallery",
+   "title": "Mascot button + tooltip overlap and occlude the 'Protocol Active' price chip",
+   "evidence": "Bottom-right: the Towelie mascot button sits on top of the status chip — zoom shows 'Protocol Active $0' with the rest of the price hidden under the sprite; when the tooltip ('You good? Take your time. I'm just a towel.') or the Ask-me chat opens, it also covers the chip text ('Don't show again' rendered over 'Protocol Active').",
+   "suggestion": "Stack the mascot above the chip (column layout) or offset the chip left so the price ($0.00004132) is always readable."
+  },
+  {
+   "id": "F361",
+   "src": "live:community-gallery",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "Fast scrolling shows whole viewports of empty placeholder cells for 1s+",
+   "evidence": "Multiple screenshots mid-scroll show 3-6 blank dark cards at once; one post-scroll frame was almost entirely empty. After Back-navigation (scroll restored to 1500px) the surrounding cells were blank again and popped in late. Images pop in abruptly with no shimmer/blur-up.",
+   "suggestion": "Increase the lazy-load rootMargin so images start decoding a viewport ahead, and add a skeleton shimmer or blur-up placeholder to soften pop-in."
+  },
+  {
+   "id": "F362",
+   "src": "live:community-gallery",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "Prod banner promises votes but no voting UI exists in the prod build",
+   "evidence": "Prod shows the purple banner 'Votes are for fun only — stored locally in your browser, not on-chain.' yet no vote control exists anywhere (DOM contains no ▲; hover overlay = title+caption only; lightbox = Prev/Close/Next). Dev HEAD cards DO show a '▲ 0' vote affordance — prod is a stale build relative to HEAD.",
+   "suggestion": "Redeploy prod so the vote feature matches the banner (or the banner reads as a broken promise)."
+  },
+  {
+   "id": "F363",
+   "src": "live:community-gallery",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/community + /gallery (first visit)",
+   "title": "Splash screen is very long (~18-20s prod, longer on dev) with no visible skip affordance",
+   "evidence": "First visit ran a multi-stage art film (NAKA art → glitch → starfield → gold-burst → CLICK TO ENTER gate). My mid-splash click only advanced/entered it; nothing on screen says 'click to skip/enter' until the final frame. Good: repeat visits within the session skip it entirely, and a 'Replay splash screen' control exists.",
+   "suggestion": "Show a persistent 'Skip / Click to enter' hint from second 1, and consider capping total runtime ~5s. (Keep the art — it's excellent — just let users through faster.)"
+  },
+  {
+   "id": "F364",
+   "src": "live:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "Ultrawide layout: grid capped ~1150px wide on a 1912px viewport — 40% dead margins, only 3 columns",
+   "evidence": "Grid spans x≈375-1530 of 1912 CSS px; the 54-piece collection forces ~18 rows of scrolling while huge side margins sit empty. /community is worse: a single ~450px card floats in the page center.",
+   "suggestion": "Add a wider breakpoint (4-5 masonry columns at ≥1600px). For /community, let the eventual data tables/cards use the width."
+  },
+  {
+   "id": "F365",
+   "src": "live:community-gallery",
+   "severity": "low",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "Full-resolution images served into ~374px slots; no srcset/thumbnails",
+   "evidence": "DOM audit: bobowelie.jpg natural 1470x2048 displayed at 374px (5.5x oversampled); art served as single .jpg files (some splash .avif reused). All 54 load eventually (0 broken images after full scroll - good).",
+   "suggestion": "Generate ~600px-wide thumbnails (avif/webp + srcset) for grid cells; keep originals for the lightbox."
+  },
+  {
+   "id": "F366",
+   "src": "live:community-gallery",
+   "severity": "low",
+   "category": "missing",
+   "page": "/gallery",
+   "title": "No search, filter, sort, or category controls for a 54-piece collection",
+   "evidence": "Interactive-elements dump shows only artwork buttons + global nav; no input fields exist on the page. Items mix named pieces and 'Naka #NN' card pulls with no way to browse by series.",
+   "suggestion": "Add a series filter (Originals / Naka deck), a sort (newest, most-voted once votes ship), and a text filter."
+  },
+  {
+   "id": "F367",
+   "src": "live:community-gallery",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/gallery",
+   "title": "Metadata sloppiness: duplicate 'Naka #7', inconsistent numbering, copy-paste captions",
+   "evidence": "Page text lists 'Naka #07' early and a second 'Naka #7' as the final item; numbering mixes zero-padded (#01) and bare (#1, #2) plus a '#28b'; every Naka shares the caption 'Fresh from the deck'; 'The Sword of Love' card's caption is just 'The sword of love'.",
+   "suggestion": "Dedupe/normalize titles and write one-line unique captions — the lore is the product here."
+  },
+  {
+   "id": "F368",
+   "src": "live:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/community",
+   "title": "Vote Incentives tab maps to ?section=bribes — naming mismatch in shareable URLs",
+   "evidence": "Clicking 'Vote Incentives' sets /community?section=bribes (deep links work, which is good); the param leaks internal 'bribes' naming the UI deliberately avoids.",
+   "suggestion": "Accept both but emit ?section=incentives for consistency."
+  },
+  {
+   "id": "F369",
+   "src": "live:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "Grid order appears to reshuffle between visits/re-renders",
+   "evidence": "First load row 1 = Sword of Love / Window Watch / Sunset Beach; after scroll-to-top re-render row 1 = Sword of Love / jungle beach / zebras; after reload it changed again. Disorienting if a user wants to relocate a piece (no permalinks/anchors to items either).",
+   "suggestion": "Keep a stable default order (or make shuffle an explicit control) and give each piece a #anchor or /gallery/:slug route."
+  },
+  {
+   "id": "F370",
+   "src": "live:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/gallery",
+   "title": "Mascot chat input is tiny and pinned into the corner",
+   "evidence": "The 'Ask me anything…' chat opens as a ~180px-wide box at the extreme bottom-right corner with truncated intro text ('I'm ju…' while typing out); on a 1912px viewport it is nearly invisible.",
+   "suggestion": "Give the chat a proper min-width (~320px) panel and anchor it above the mascot, not under it."
+  },
+  {
+   "id": "F371",
+   "src": "live:community-gallery",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/community + /gallery",
+   "title": "Page content fade-in after splash/navigation takes ~3-4s and renders text over unloaded art",
+   "evidence": "At T+3s after reload, the Community heading/tabs were visible at ~40% opacity over a black background; the skull background art painted ~4s later. The blank→dim→art sequence reads as jank rather than a transition.",
+   "suggestion": "Gate the fade-in on the hero image's onload, or use a fast (300ms) fade so content never appears half-transparent."
+  }
+ ]
+}

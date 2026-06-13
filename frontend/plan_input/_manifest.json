@@ -1,0 +1,99 @@
+{
+ "g01_shell_nav_splash": {
+  "count": 63,
+  "keys": [
+   "code:shell",
+   "live:shell-home"
+  ]
+ },
+ "g02_home": {
+  "count": 31,
+  "keys": [
+   "code:home"
+  ]
+ },
+ "g03_farm_dashboard": {
+  "count": 91,
+  "keys": [
+   "code:farm",
+   "code:dashboard",
+   "live:farm-dashboard"
+  ]
+ },
+ "g04_trade": {
+  "count": 63,
+  "keys": [
+   "code:trade",
+   "live:swap-liquidity"
+  ]
+ },
+ "g05_nftfinance": {
+  "count": 66,
+  "keys": [
+   "code:nftfinance",
+   "live:nft-finance"
+  ]
+ },
+ "g06_community_gallery": {
+  "count": 57,
+  "keys": [
+   "code:community-gallery",
+   "live:community-gallery"
+  ]
+ },
+ "g07_learn_activity_info": {
+  "count": 91,
+  "keys": [
+   "code:learn-activity-info",
+   "live:learn-activity",
+   "live:info-admin-perf"
+  ]
+ },
+ "g08_shared_lib": {
+  "count": 40,
+  "keys": [
+   "code:shared-lib"
+  ]
+ },
+ "g09_responsive_main": {
+  "count": 22,
+  "keys": [
+   "viewport:mobile-main",
+   "viewport:tablet-desktop"
+  ]
+ },
+ "g10_naka_shell": {
+  "count": 37,
+  "keys": [
+   "code:naka-shell"
+  ]
+ },
+ "g11_naka_browse": {
+  "count": 68,
+  "keys": [
+   "code:naka-browse",
+   "live:naka-browse"
+  ]
+ },
+ "g12_naka_market": {
+  "count": 81,
+  "keys": [
+   "code:naka-market",
+   "live:naka-market"
+  ]
+ },
+ "g13_naka_analytics_social": {
+  "count": 74,
+  "keys": [
+   "code:naka-analytics-social",
+   "live:naka-social"
+  ]
+ },
+ "g14_naka_ux_misc": {
+  "count": 57,
+  "keys": [
+   "code:naka-ux-misc",
+   "viewport:mobile-naka"
+  ]
+ }
+}

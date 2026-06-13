@@ -1,0 +1,570 @@
+{
+ "group": "g14_naka_ux_misc",
+ "sourceAgents": [
+  "code:naka-ux-misc",
+  "viewport:mobile-naka"
+ ],
+ "findings": [
+  {
+   "id": "F785",
+   "src": "code:naka-ux-misc",
+   "severity": "high",
+   "category": "wrong",
+   "page": "nakamigos modal stack (Modal.jsx + TheaterMode.jsx + ShareCard.jsx + WalletModal.jsx)",
+   "title": "Escape key closes the WRONG modal in every stacked-overlay combination",
+   "evidence": "Modal.jsx:162-168 registers a document keydown handler that on Escape calls `e.stopImmediatePropagation()` then `onClose()`. TheaterMode (App.jsx:769 `onTheater={() => setTheaterNft(selected)}`), ShareCard (App.jsx:770) and WalletModal (Modal.jsx:425 `onConnect?.()` -> App.jsx:509-511) all mount as SIBLINGS while `selected` stays set, so the NFT Modal remains mounted underneath (App.jsx:754-778 vs 799-847). Document listeners fire in registration order: Modal's older handler runs first, stops immediate propagation (TheaterMode.jsx:150-151, ShareCard.jsx:151, WalletModal.jsx:32 handlers never run) and closes the BOTTOM modal — the theater/share/wallet overlay on top stays open with its parent gone. Worse, Modal's effect deps are `[nft, onClose]` (Modal.jsx:195) and onClose is an inline arrow recreated every AppInner render (App.jsx:759-763), so the listener re-registers on any state change (toast, poll), flipping the order — then a single Escape closes BOTH layers (TheaterMode doesn't stop propagation). Verified by code reading; behavior depends only on registration order, both orders are wrong.",
+   "suggestion": "Introduce a tiny modal-stack registry (push on mount, pop on unmount; only the top entry handles Escape), or have each overlay handler check it is topmost before acting and always stopImmediatePropagation. Stabilize Modal's onClose with useCallback in App.jsx."
+  },
+  {
+   "id": "F786",
+   "src": "code:naka-ux-misc",
+   "severity": "high",
+   "category": "wrong",
+   "page": "nakamigos scroll lock (TheaterMode.jsx, ShareCard.jsx)",
+   "title": "TheaterMode/ShareCard bypass the ref-counted scrollLock and unlock body scroll behind the still-open NFT modal",
+   "evidence": "lib/scrollLock.js implements a ref-counted lock used by Modal.jsx:184/192 and WalletModal.jsx:47/53, but TheaterMode.jsx:132-133 and ShareCard.jsx:165-168 write `document.body.style.overflow = \"hidden\"` / `\"\"` directly (also BulkListingWizard.jsx:553-554 and BundleListing.jsx:63-68). Repro path: open NFT Modal (lockScroll, count=1) -> open Theater from it -> close Theater (cleanup sets overflow=\"\") -> body scrolls behind the still-open Modal, and the lock count is desynced.",
+   "suggestion": "Replace all four direct `body.style.overflow` writes with lockScroll()/unlockScroll() from lib/scrollLock.js."
+  },
+  {
+   "id": "F787",
+   "src": "code:naka-ux-misc",
+   "severity": "high",
+   "category": "improve",
+   "page": "nakamigos/TheaterMode",
+   "title": "Theater mode has zero mobile adaptation — 300px trait sidebar and paddingRight crush the image on phones",
+   "evidence": "TheaterMode.jsx:189 `paddingRight: showTraits ? 300 : 0` and :291-307 sidebar `width: 300` are fixed inline styles with no media queries anywhere in the component; on a 375px iPhone, opening TRAITS leaves ~75px for the artwork, and the vertical writing-mode toggle button (:349-370) sits at the right edge. The project mandate (project_responsive.md) requires flawless iPhone 14+/iPad behavior. HUD bar `padding: \"14px 28px\"` (:223) is also desktop-sized.",
+   "suggestion": "Additively: at <=640px make the trait panel a bottom sheet (full-width, max-height 50vh) and drop the image paddingRight; keep the desktop layout untouched."
+  },
+  {
+   "id": "F788",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos mobile overlay layering (App.css + MobileNav.jsx)",
+   "title": "Mobile bottom nav (z 9997-9999) floats above the NFT/Wallet modal overlay (z 1000) and stays tappable",
+   "evidence": "App.css:662 `.modal-bg { z-index: 1000 }` while MobileNav.jsx:60/109/123 uses fixed position with zIndex 9997-9999 and is rendered unconditionally (App.jsx:866). On phones the bottom nav bar paints over the open modal's backdrop/bottom edge (modal-content is 90-95vh per App.css:3604-3618), and tapping a nav tab switches tabs underneath while the modal stays open. The z-map comment at App.css:14-32 itself documents modal=1000 < mobile nav=9997.",
+   "suggestion": "Hide MobileNav while any overlay is open (it already receives app state), or raise .modal-bg above 9999 to match Theater/Share which already use 9999."
+  },
+  {
+   "id": "F789",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos keyboard shortcuts (KeyboardHelp.jsx + About.jsx vs App.jsx)",
+   "title": "Both shortcut listings shown to users are wrong vs the actual handler",
+   "evidence": "Actual TAB_KEYS map is only \"1\"-\"6\" (App.jsx:114-121) and the switch handles g/f/c/s,//m/?/escape (App.jsx:452-503). KeyboardHelp.jsx:10 advertises `[\"1–9, 0\", \"Switch tabs\"]` (7,8,9,0 do nothing), and About.jsx:347-355 lists `[\"1-7\",\"Switch tabs\"]`, `[\"F\",\"Go to Floor\"]` and `[\"T\",\"Go to Traits\"]` — F actually toggles favorite on the focused card and there is no T shortcut at all. About also omits j/k, c, m and ?.",
+   "suggestion": "Derive both lists from one shared SHORTCUTS constant (export from a lib module) so they cannot drift; fix the tab range to 1-6."
+  },
+  {
+   "id": "F790",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "frontend global (nakamigos/App.css leaking into main app)",
+   "title": "Unscoped selectors in nakamigos App.css apply to the entire Tegriddy app (eagerly bundled via main.tsx)",
+   "evidence": "main.tsx:15 `import './nakamigos/App.css'` loads it on every page. Unscoped rules: App.css:3663-3667 `@media (max-width:768px) { button, a, select, input { min-height: 44px; min-width: 44px; } }` forces 44px boxes on every main-app control on mobile; :1862 `details summary::-webkit-details-marker { display:none }` hides all disclosure markers app-wide; :3535-3538 `*:focus-visible { outline: 2px solid var(--naka-blue) }` — `--naka-blue` is only defined on `.nakamigos-app`, so outside it the var is invalid-at-computed-value and the focus outline degrades; :3545-3552 reduced-motion kill + `.splash-screen{display:none}` and :4419 `main, [role=\"main\"] { padding-bottom: 68px }` (inside max-390px) also apply app-wide; :3678-3687 forced-colors button rule unscoped.",
+   "suggestion": "Prefix all of these with `.nakamigos-app` (the file's own button rules at :239 already document this exact leak having happened before)."
+  },
+  {
+   "id": "F791",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos/Modal",
+   "title": "Unstable onClose dependency makes the modal re-register listeners and yank keyboard focus back to the close button on every app re-render",
+   "evidence": "Modal.jsx:159-195 effect has deps `[nft, onClose]`; App.jsx:759 passes an inline `onClose={() => {...}}` recreated each render. Every AppInner re-render (toast appearing, stats/listings poll, price alerts at App.jsx:566-569) tears down and re-runs the effect, whose body refocuses the close button (`closeBtn?.focus()` Modal.jsx:188-189) and re-captures `previouslyFocused`. A keyboard user who tabbed to 'Make Offer' gets focus snapped back to ✕ whenever a toast fires.",
+   "suggestion": "Wrap the App.jsx onClose in useCallback and/or move focus-trap setup into a mount-only effect separate from the Escape handler."
+  },
+  {
+   "id": "F792",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos/TheaterMode",
+   "title": "Global shortcuts still fire under theater mode; pressing F can double-toggle the favorite (net no-op)",
+   "evidence": "TheaterMode.jsx:149-157 handles t/f/Escape on document without stopping propagation and without suppressing the app-level window handler (App.jsx:405-507). With a card keyboard-focused via j/k, pressing F in theater runs `onToggleFavorite?.(nft.id)` (TheaterMode.jsx:153) AND App.jsx:454-463 toggles the focused card's favorite — same token toggled twice = no visible change. Digits 1-6/g also switch tabs underneath the open theater.",
+   "suggestion": "In TheaterMode's keydown handler call e.stopPropagation() (it is on document, app handler is on window, so it runs first when theater registered later — also gate the app handler on overlay-open state)."
+  },
+  {
+   "id": "F793",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "improve",
+   "page": "nakamigos/TheaterMode",
+   "title": "Theater overlay has no dialog semantics, no focus management, no focus trap",
+   "evidence": "TheaterMode.jsx:372-441: the root div has no role=\"dialog\"/aria-modal/aria-label (Modal, ShareCard, KeyboardHelp, WalletModal all have them); focus is never moved into the overlay on open and Tab walks the page behind it; fav/close buttons rely on title only (no aria-pressed on the favorite toggle, though Modal.jsx:259 does set it).",
+   "suggestion": "Add role=dialog aria-modal aria-label, focus the close button on mount, add the same Tab trap used in KeyboardHelp.jsx:108-126."
+  },
+  {
+   "id": "F794",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "improve",
+   "page": "nakamigos/Modal",
+   "title": "After a successful buy the modal still shows the stale 'Buy for X ETH' button",
+   "evidence": "Modal.jsx:434-438 onSuccess records the tx and toasts but never clears nft.orderHash/price, closes the modal, or refetches; the primary CTA continues to offer the just-filled order (a second click would revert with 'OrderAlreadyFilled', mapped at errorMessages.js:19).",
+   "suggestion": "On success, flip the CTA to a disabled 'Purchased ✓ — view on Etherscan (hash)' state and/or trigger a listings refetch."
+  },
+  {
+   "id": "F795",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "improve",
+   "page": "nakamigos app-wide (Toast.jsx vs sonner)",
+   "title": "Two parallel toast systems live in one app",
+   "evidence": "Main app uses sonner (grep: components/GaugeVoting.tsx, community/*, swap/* import sonner) while nakamigos ships its own Toast.jsx + ToastContext.jsx mounted at App.jsx:863. Visual language, positioning (bottom-right fixed at App.css:848-853) and behavior (no pause-on-hover, errors auto-dismiss in the same 3500ms as successes, Toast.jsx:35) differ from the rest of the site.",
+   "suggestion": "Keep the nakamigos skin but add pause-on-hover and a longer/persistent duration for type=\"error\"; longer-term, theme sonner with the nakamigos classes to converge."
+  },
+  {
+   "id": "F796",
+   "src": "code:naka-ux-misc",
+   "severity": "medium",
+   "category": "improve",
+   "page": "nakamigos/ShareCard",
+   "title": "Tweet intent contains no link back to the app and the generated image is never shared — only downloadable",
+   "evidence": "ShareCard.jsx:183-188 builds `twitter.com/intent/tweet?text=...` with name+rank only (no url param), while Modal.jsx:343 already has a canonical deep link (`/nakamigos/${slug}/gallery?token=${id}`) with per-NFT OG cards per its own comment. There is no navigator.share (Web Share API Level 2 can attach the PNG on mobile) and no copy-image-to-clipboard (ClipboardItem).",
+   "suggestion": "Append the deep-link URL to the tweet text, and add Web Share / copy-image buttons when supported."
+  },
+  {
+   "id": "F797",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos/ShareCard",
+   "title": "Collection name header drawn with no maxWidth — long names overflow the 1200x630 canvas",
+   "evidence": "ShareCard.jsx:41-43 `ctx.fillText(collection.name.toUpperCase(), rx, 80)` omits the maxWidth argument that the NFT-name line uses (`ctx.fillText(name, rx, 135, rw)` at :49). In Press Start 2P at 20px, 'GENERATIVE NATURE SYNTHETIC SPECIES'-length names paint past x=1160.",
+   "suggestion": "Pass `rw` as maxWidth for the header fillText too."
+  },
+  {
+   "id": "F798",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos/About + ShareCard",
+   "title": "Pseudo-domain branding and supply copy drift",
+   "evidence": "ShareCard.jsx:105 prints `${collection.slug}.gallery` (e.g. 'nakamigos.gallery') as the card footer — a domain the project does not appear to own — instead of the real share URL. About.jsx:154 says final population '~9,697' while constants.js:33 says supply 9696 ('On-chain totalSupply').",
+   "suggestion": "Print the real host (window.location.host) on the card; align the GNSS number with constants."
+  },
+  {
+   "id": "F799",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos/App.css",
+   "title": "390px rule flattens section bottom padding contrary to its own comment",
+   "evidence": "App.css:4386-4396: comment says '/* Sections: tighter horizontal padding */' but the rule `.activity-section, .analytics-section, .my-collection-section, .listings-section, .trait-explorer, .favorites-section, .footer-full { padding: 14px 10px; }` also collapses the 60px bottom padding these sections get at 768px (e.g. :2455-2457) down to 14px, so content butts against the footer/bottom nav on small iPhones (partially masked by `main { padding-bottom: 68px }` at :4419).",
+   "suggestion": "Use padding-left/right only in that block."
+  },
+  {
+   "id": "F800",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos focus traps (Modal/ShareCard/WalletModal/KeyboardHelp)",
+   "title": "Focus traps include disabled buttons, so the Tab cycle can no-op at the edges",
+   "evidence": "All four traps use `querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])')` (Modal.jsx:172, ShareCard.jsx:153, WalletModal.jsx:35, KeyboardHelp.jsx:111) without filtering `:disabled`. While buying, Modal's Buy button is disabled (Modal.jsx:422) — if it is first/last, `first.focus()` silently fails and Tab escapes the modal.",
+   "suggestion": "Add `:not([disabled])` to the button selector in the shared pattern (ideally extract one trapFocus util — the same 10 lines are copy-pasted in 4 files)."
+  },
+  {
+   "id": "F801",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos/lib/csv.js",
+   "title": "CR-only and CRLF values are not quoted; rows with heterogeneous keys silently lose columns",
+   "evidence": "csv.js:15 quotes only on `val.includes(\",\") || val.includes('\"') || val.includes(\"\\n\")` — a value containing a bare `\\r` breaks the row in Excel; csv.js:6 takes headers from `Object.keys(rows[0])` only, so keys present on later rows are dropped.",
+   "suggestion": "Add `\\r` to the quote condition and union keys across rows (or document the contract)."
+  },
+  {
+   "id": "F802",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos/lib/formatPrice.js + Modal/About",
+   "title": "The 'one formatter' exists but Modal, About, ShareCard and PriceHistoryChart bypass it; dust values render as '0.0000'",
+   "evidence": "formatPrice is used by 11 components (Card, VirtualGalleryGrid, Watchlist, etc.) but Modal.jsx:364/367/445, About.jsx:70, FairValueBadge (Modal.jsx:40) and PriceHistoryChart (:106-108) use raw `.toFixed(4)` — a 1234.5 ETH value would show '1234.5000' instead of '1,234.50'. Also formatPrice.js:21: any non-zero value < 0.00005 renders '0.0000', indistinguishable from zero (Blur/OpenSea show '<0.0001').",
+   "suggestion": "Route the modal/about price strings through formatPrice and add a `< 0.0001` floor display."
+  },
+  {
+   "id": "F803",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos/Icons.jsx",
+   "title": "Eth icon is unit-bearing but invisible to screen readers",
+   "evidence": "Icons.jsx:1-10: the SVG has no role/aria-label/title and no aria-hidden; it is used as the ETH unit next to bare numbers (e.g. Modal.jsx:360 `<Eth size={20} /> 0.1234`), so SR users hear a unitless number.",
+   "suggestion": "Add `role=\"img\" aria-label=\"ETH\"` (or aria-hidden plus a visually-hidden 'ETH' text next to prices)."
+  },
+  {
+   "id": "F804",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos/Modal (PriceHistoryChart)",
+   "title": "Price history chart pops in with no skeleton, no dates, no tooltips, no SVG a11y",
+   "evidence": "Modal.jsx:68 `if (!sales) return null` — content appears after fetch causing layout shift below the price box; points (:99-103) carry no date/tx info and no hover affordance; the svg (:92) has no aria-label/title. Each modal open refetches (`useEffect` on tokenId/contract at :55-66; caching unverified in api.js).",
+   "suggestion": "Render a fixed-height skeleton while null, add <title> per point with date+price, aria-label on the svg."
+  },
+  {
+   "id": "F805",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos/Toast.jsx",
+   "title": "No pause-on-hover and errors share the 3.5s auto-dismiss of successes",
+   "evidence": "Toast.jsx:35 `const duration = t.duration || 3500` applies uniformly; there are no mouseenter handlers to pause timers, and undo toasts (UNDO button, :71-81) give users only 3.5s to react. Sonner (the main app's system) pauses on hover by default.",
+   "suggestion": "Pause the timer on container hover/focus; default error/undo types to 6-8s."
+  },
+  {
+   "id": "F806",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos/WalletModal",
+   "title": "JS-driven hover styles stick on touch devices; 'terms of use' has no link; unknown connectors get no description",
+   "evidence": "WalletModal.jsx:131-138 set styles in onMouseEnter/onMouseLeave — on iOS a tap fires mouseenter and the highlight persists; :285 'By connecting, you agree to the terms of use.' links nowhere; :172-176 description lines only exist for 6 hardcoded connector ids, others render an empty row.",
+   "suggestion": "Move hover to a CSS class (the file's own buttons elsewhere do), link the terms, add a generic 'Browser wallet' fallback description."
+  },
+  {
+   "id": "F807",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos/useSound + smart alerts",
+   "title": "Programmatic alert sounds may be silent until the next user gesture",
+   "evidence": "useSound.js:143-151 creates/resumes the AudioContext inside play(), but useSmartAlerts/usePriceAlerts (App.jsx:566-569) can call play() with no preceding gesture; `ctxRef.current.resume()` is fire-and-forget so the first alert chirp can be dropped by autoplay policy. Not a crash — sounds resume after any click.",
+   "suggestion": "Pre-warm the context on first pointer/keydown (one-shot listener), or queue the alert sound until the context state is 'running'."
+  },
+  {
+   "id": "F808",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos/lib/scrollLock.js",
+   "title": "Scroll lock causes scrollbar layout shift on Windows and is unreliable on older iOS Safari",
+   "evidence": "scrollLock.js:8-11 only sets `overflow: hidden` — desktop Windows loses the ~15px scrollbar (content jumps behind every modal open), and body overflow:hidden does not fully lock scroll on iOS Safari < 16 (the documented position:fixed technique is absent).",
+   "suggestion": "Add `padding-right: <scrollbarWidth>` compensation or `scrollbar-gutter: stable`, and the position:fixed/top:-scrollY fallback for iOS."
+  },
+  {
+   "id": "F809",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos rank badges (Modal vs ShareCard vs TheaterMode)",
+   "title": "Three different rank-tier semantics across surfaces",
+   "evidence": "Modal.jsx:229 shows a rank badge only for top 25%; ShareCard.jsx:57-61 colors gold at top 0.5% and blue at top 2.5%; TheaterMode.jsx:162 shows RANK for any `rank <= supply`. Card.css has a separate `.card-rank-top` top-25% style. Same NFT reads as 'special' on one surface and unremarkable on another.",
+   "suggestion": "Centralize tier thresholds in constants (e.g. rankTier(rank, supply) -> gold/blue/plain) and reuse everywhere."
+  },
+  {
+   "id": "F810",
+   "src": "code:naka-ux-misc",
+   "severity": "polish",
+   "category": "improve",
+   "page": "nakamigos/App.css",
+   "title": "Reduced-motion blanket freezes spinners; sovereign card shimmer is likely occluded; dead empty media blocks",
+   "evidence": "App.css:3545-3551 `* { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important }` freezes `.spinner` (:653-658) into a static arc for reduced-motion users (a frozen 'loading' indicator reads as hung). App.css:3424-3435 sovereign `.nft-card::before` shimmer uses `inset:-2px; z-index:-1` while `.nft-card` has `overflow:hidden` (:537) and an opaque image/footer covering it — shimmer is mostly/fully invisible (unverified hypothesis, needs a visual check). Empty blocks at :3512-3513, :3600-3601, :3650-3651 are dead code; `.activity-filter-btn.active` is defined twice with competing palettes (:2033 vs :2488).",
+   "suggestion": "Swap spinners to an opacity pulse under reduced motion; verify the sovereign shimmer visually and move it above the background if intended; delete empty blocks."
+  },
+  {
+   "id": "F811",
+   "src": "code:naka-ux-misc",
+   "severity": "polish",
+   "category": "improve",
+   "page": "nakamigos/KeyboardHelp + Toast positioning",
+   "title": "Help panel can overflow short viewports; toasts overlap the mobile bottom nav",
+   "evidence": "KeyboardHelp.jsx:33-41 panel has fixed padding and no max-height/overflow — on landscape phones (~370px height) the ~500px content clips with no scroll. App.css:848-853 `.toast-container { bottom: 24px }` sits on top of the 56px mobile bottom nav (z 10500 > 9999), covering nav buttons while visible.",
+   "suggestion": "Add `max-height: 85vh; overflow-y: auto` to the panel; bump toast bottom offset to ~72px under 767px."
+  },
+  {
+   "id": "F812",
+   "src": "code:naka-ux-misc",
+   "severity": "polish",
+   "category": "missing",
+   "page": "nakamigos theming/print",
+   "title": "No light theme and no print styles in the nakamigos surface",
+   "evidence": "App.css defines three dark themes only (default/midnight/sovereign, :101-135) with no prefers-color-scheme: light handling; there is no `@media print` block anywhere in App.css (the main app's index.css:817 has one). Printing the About/lore page or a share card yields dark-on-dark output.",
+   "suggestion": "Additively add a minimal print block (white bg, black text, hide nav/marquee) — no need for a full light theme given the art direction."
+  },
+  {
+   "id": "F813",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "TheaterMode: no zoom/pan (pinch or scroll-zoom), no prev/next navigation between NFTs from within theater (j/k dead there), no image download button, no Fullscreen API usage — OpenSea/Blur lightboxes have all four",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F814",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "ShareCard: no Web Share API with file attach (mobile-native share sheet), no copy-image-to-clipboard, no link in the tweet intent, no Farcaster/Lens share targets, single fixed 1200x630 layout (no story/square format toggle)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F815",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "Price surfaces: no USD equivalents in the NFT modal price box or share card (listing cards elsewhere show listing-card-usd, so the FX data exists); PriceHistoryChart has no time axis, no marketplace source per sale, no hover tooltips",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F816",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "Success toasts after buy don't deep-link the tx hash to Etherscan even though recordTransaction already has it",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F817",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "Sound: binary mute only — no volume control; no distinct sound when an offer is received",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F818",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "Keyboard: no arrow-key grid navigation (j/k is linear only), no 'b' buy shortcut on focused card, no Escape-to-clear search affordance from within the input",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F819",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "CSV export: no column selection or current-filter-aware export, no JSON option",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F820",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "No print stylesheet and no light theme anywhere in the nakamigos surface",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F821",
+   "src": "code:naka-ux-misc",
+   "severity": "low",
+   "category": "missing",
+   "page": "g14_naka_ux_misc",
+   "title": "Help modal: shortcut list is static text — best-in-class (Linear/Notion-style) highlights the key just pressed and stays accurate by deriving from the real keymap",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F822",
+   "src": "viewport:mobile-naka",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/nft/3 (NFT detail modal)",
+   "title": "NFT detail modal never displays the artwork on iPhone — letter placeholder + broken image geometry",
+   "evidence": "pass9/iphone14_theater_mode.png and pass9/iphone14_modal_after_wait.png show a solid black area above 'Nakamigos #3' after 24+ seconds; DOM probe confirms .modal-image-side contains only <div class=\"nft-placeholder\">N #3</div> (zero <img> elements) while the same token's thumbnail renders in the grid. Geometry is also broken: probe measured .modal-image-wrap at y:-34, 348x348 inside a 220px-tall .modal-image-side — frontend/src/nakamigos/App.css:3612 forces .modal-image-side { max-height: 280px !important } while App.css:691 .modal-image-wrap stays square (width:100%), so even when an image loads it is center-cropped/overflowing. Placeholder bg is rgba(255,255,255,0.02) — invisible on the dark theme, reading as pure black. Hero image also fell back to placeholder 'N #28' in the same session.",
+   "suggestion": "In src/nakamigos/components/Modal.jsx + App.css mobile media query: give .modal-image-wrap max-height matching .modal-image-side (e.g. max-height:240px with object-fit:contain on the img) and pass priority/self-fetch to NftImage in the modal so the large image URL is fetched when nft.imageLarge/nft.image is missing; make .nft-placeholder visibly styled on dark bg."
+  },
+  {
+   "id": "F823",
+   "src": "viewport:mobile-naka",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/nft/3 (NFT detail modal)",
+   "title": "'Make Offer' button clipped off the right edge of the 390px viewport in the modal buy row",
+   "evidence": "pass9/iphone14_theater_mode.png and pass9/iphone14_modal_after_wait.png both show the gold 'Buy on OpenSea' button spanning nearly the full width with the secondary button cut mid-label ('Make (') at the right viewport edge; page scrollWidth stayed 390 so the rest of the button is unreachable. Source: frontend/src/nakamigos/components/Modal.jsx:417 `<div style={{ display: \"flex\", gap: 10 }}>` with primary flex:1 and Modal.jsx:452-459 'Make Offer' using `flex: 0, whiteSpace: \"nowrap\"`. Intermittent (a later DOM probe of a fresh session measured the row fitting), so likely tied to a specific modal layout state, but reproduced twice on screen in one session.",
+   "suggestion": "Add flexWrap:'wrap' to the action row and minWidth:0 on the primary button (Modal.jsx:417-460) so the offer CTA can never be pushed past the viewport."
+  },
+  {
+   "id": "F824",
+   "src": "viewport:mobile-naka",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/listings (Floor & Listings grid)",
+   "title": "Buy-grid cards render as letter placeholders instead of NFT images below the fold",
+   "evidence": "pass6/iphone14_nakamigos-nakamigos-listings_2.png: 8 of 9 visible cards show the 'N + #tokenId' placeholder (e.g. #1643, #2349, #6296, #7499, #11915) instead of artwork, ~6s after page load; first-viewport rows (pass6 deals_2) do render. Matches the documented prod incident in src/nakamigos/components/NftImage.jsx:57-61 ('Sixty cards mounting at once... locked the buy grid into letter placeholders for minutes (prod 2026-06-11)').",
+   "suggestion": "Verify the batch fetchTokensByIds path covers all 60 rendered cards and stagger/batch the metadata fetches; placeholders pulsing for minutes on the purchase surface directly blocks buying."
+  },
+  {
+   "id": "F825",
+   "src": "viewport:mobile-naka",
+   "severity": "high",
+   "category": "wrong",
+   "page": "NFT detail modal + hub + junglebay listings",
+   "title": "Prod /api/opensea endpoints failing: offers 502, collection stats 400 — skeletons and em-dash stats never resolve",
+   "evidence": "Playwright network log on /nakamigos/nakamigos/nft/3: '502 https://tegridyfarms.vercel.app/api/opensea?path=orders%2Fethereum%2Fseaport%2Foffers&asset_contract_address=0xd774557b6...' and '400 .../api/opensea?path=collections%2Fnakamigos%2Fstats'. Visible effects: OFFERS section shows three empty skeleton rows indefinitely (pass9/iphone14_nft_deeplink_modal_bottom.png), hub cards show VOLUME '—' (pass6/iphone14_nakamigos_2.png), and junglebay shows FLOOR/OWNERS/SUPPLY all '—' (pass6/iphone14_nakamigos-junglebay-listings_1.png).",
+   "suggestion": "Fix the opensea proxy paths/keys server-side; add a visible error/'unavailable' state instead of permanent skeletons."
+  },
+  {
+   "id": "F826",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "improve",
+   "page": "9 Lite-hidden tabs (deals, analytics, portfolio, sniper, trade, watchlist, bids, my-listings, alerts)",
+   "title": "Deep links to 9 tabs silently dump Lite-mode users (the default) on Floor & Listings with zero explanation",
+   "evidence": "All 9 routes screenshot identically as the Floor page in default Lite mode (e.g. pass6/iphone14_nakamigos-nakamigos-sniper_1.png, ...portfolio_1.png, ...bids_1.png show 'FLOOR & LISTINGS'). Source: frontend/src/nakamigos/App.jsx:316 `if (isLite && LITE_HIDDEN_ALL.has(tab)) navigate('/nakamigos/'+collectionSlug, {replace:true})` with LITE_HIDDEN sets in src/nakamigos/contexts/TradingModeContext.jsx:15-23. A shared /sniper or /portfolio link looks broken to a new user.",
+   "suggestion": "On redirect, show a toast ('Pro feature — switch to Pro in the header') or render the tab with a Pro-upsell gate instead of a silent replace."
+  },
+  {
+   "id": "F827",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Every full page load (all routes)",
+   "title": "Two stacked interstitials before content on mobile deep links: click-gated splash on EVERY entry + first-visit 5-step tour",
+   "evidence": "All 23 routes showed the 'CLICK TO ENTER' splash on every full page load (pass1/pass2/pass3 screenshots, e.g. iphone14_nakamigos-nakamigos-chat_1.png); per src/nakamigos/App.jsx:138-143 splash persistence is deliberately per-mount ('the user asked that every entry... plays the splash'). On first collection visit the '1 OF 5 Gallery' tour modal then also blocks content (pass4/iphone14_nakamigos-nakamigos-deals_1.png). A shared listing link on iPhone = wait ~4-6s, tap splash, skip tour, then content.",
+   "suggestion": "Keep the splash per standing decision, but consider: shorter ready-time on mobile, auto-advance after ready, and not stacking the tour on the same visit a deep link is resolving (defer tour one navigation)."
+  },
+  {
+   "id": "F828",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/nakamigos/nakamigos/gallery",
+   "title": "4-column gallery grid at 390px makes names and traits unreadable and crops the art",
+   "evidence": "pass6/iphone14_nakamigos-nakamigos-gallery_2.png: cards ~90px wide show 'Nakamig…#0' / 'Nakamig…#1' and trait lines truncated to 'Type:…', 'Hat/H…', 'Facia…', 'West…' (zero information); square pixel-art is displayed in tall portrait tiles so the sides of each character are cut off. Same on gnssart (pass6/iphone14_nakamigos-gnssart-gallery_2.png 'Stabl…', 'Atomi…').",
+   "suggestion": "Use 2 columns at <=480px (or make the existing 'gallery view' toggle default to 2-col on mobile), show '#tokenId' as primary label, drop the trait line under ~110px card width."
+  },
+  {
+   "id": "F829",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/nakamigos/nakamigos/listings + /nakamigos/junglebay/listings",
+   "title": "Listing card titles ellipsize away the token number — the only identifier — at 390px",
+   "evidence": "pass6/iphone14_nakamigos-nakamigos-deals_2.png shows rows of 'Nakamigos …' with the #id truncated on every 3-col card; pass6/iphone14_nakamigos-junglebay-listings_2.png shows 'Jungle Bay…' likewise. Buyers cannot tell which token they are tapping without opening each card.",
+   "suggestion": "Render '#1234' (id) instead of the collection name on cards, or truncate from the left ('…#1234')."
+  },
+  {
+   "id": "F830",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/whales",
+   "title": "Right-edge text clipping: holder-concentration total and whale-alert prices cut off",
+   "evidence": "pass6/iphone14_nakamigos-nakamigos-whales_2.png shows 'TOTAL HELD BY TOP 25  4,990 / 20,' with the supply denominator clipped at the right edge; pass6/iphone14_nakamigos-nakamigos-whales_3.png shows RECENT WHALE TRANSACTIONS and Whale Alerts rows with prices truncated ('0.1510' partially cut, alert prices ellipsized mid-value).",
+   "suggestion": "Let these rows wrap to two lines at <=480px or drop the address midsection further to free space for the numeric values."
+  },
+  {
+   "id": "F831",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/activity",
+   "title": "Activity feed is serving cached example data in prod (live API unavailable) with duplicated rows",
+   "evidence": "pass6/iphone14_nakamigos-nakamigos-activity_1.png shows the banner 'Showing cached example data — live API unavailable'; pass6/iphone14_nakamigos-nakamigos-activity_2.png shows duplicate entries (#16971 twice, #8949 twice, #4228 twice). Banner honesty is good, but the marketplace's live pulse is down on prod.",
+   "suggestion": "Investigate the activity API outage (matches the 2026-06-09 Upstash rate-limiter incident pattern)."
+  },
+  {
+   "id": "F832",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/sniper (Pro)",
+   "title": "Sniper reports 'No Nakamigos listings available' while the Floor tab shows 778 live listings",
+   "evidence": "pass7/iphone14_PRO_nakamigos-nakamigos-sniper_1.png: '0 sniping opportunities found' + 'No Nakamigos listings available — Waiting for Nakamigos listings to appear'; pass7/iphone14_PRO_nakamigos-nakamigos-analytics_2.png (same session, minutes apart) shows ACTIVE LISTINGS 778. The sniper consumes a different (broken/empty) feed than the floor grid.",
+   "suggestion": "Point the sniper at the same listings source as the Floor tab or surface the actual fetch error."
+  },
+  {
+   "id": "F833",
+   "src": "viewport:mobile-naka",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/nft/:id deep links",
+   "title": "NFT deep-link modal open is slow and flaky — gated on the full first gallery page load",
+   "evidence": "Across 3 sessions the modal appeared 2.5s after splash dismissal once, ~7-10s once, and had not appeared at 12s in another (probe3 run: zero modal elements at 12s). Source: frontend/src/nakamigos/App.jsx:301-308 only fetches the deep-linked token after nfts.allTokens has loaded ('waiting for the first page proves the API path is up').",
+   "suggestion": "Fire fetchTokensByIds for the deep-linked id immediately in parallel with the first page load, and show a dedicated loading state for the modal."
+  },
+  {
+   "id": "F834",
+   "src": "viewport:mobile-naka",
+   "severity": "low",
+   "category": "wrong",
+   "page": "All routes (console)",
+   "title": "CSP/CORS noise on every page: eth.merkle.io blocked by connect-src, eth.llamarpc.com CORS-fails, Press Start 2P font stylesheet blocked by style-src",
+   "evidence": "Console on all 23 routes (results JSON): 'Fetch API cannot load https://eth.merkle.io/... violates Content Security Policy' x4 per page, 'Access to fetch at https://eth.llamarpc.com/ ... blocked by CORS' x3-4 per page, and 'Loading the stylesheet https://fonts.googleapis.com/css2?family=Press+Start+2P... violates style-src'. RPC reads burn retries against blocked endpoints on mobile; the pixel font silently falls back.",
+   "suggestion": "Remove eth.merkle.io/llamarpc from the RPC fallback list or add them to connect-src; self-host the Press Start 2P font or add fonts.googleapis.com to style-src."
+  },
+  {
+   "id": "F835",
+   "src": "viewport:mobile-naka",
+   "severity": "low",
+   "category": "improve",
+   "page": "Splash (all entries), favorites empty state",
+   "title": "'CLICK TO ENTER' / 'Click the heart' wording on a touch device",
+   "evidence": "pass1/iphone14_nakamigos_splash.png shows 'CLICK TO ENTER'; src/nakamigos/components/SplashScreen.jsx:1381 hardcodes it, while the main Tegridy loader already does the right thing (src/components/loader/phases/hold.ts:153 `isMob ? 'TAP TO ENTER' : 'CLICK TO ENTER'`). Favorites empty state says 'Click the heart on any Nakamigos NFT' (pass6/iphone14_nakamigos-nakamigos-favorites_1.png).",
+   "suggestion": "Reuse the isMobile ternary from hold.ts in SplashScreen.jsx and the favorites copy."
+  },
+  {
+   "id": "F836",
+   "src": "viewport:mobile-naka",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nakamigos/nakamigos/about",
+   "title": "Keyboard Shortcuts section (Esc, S, /, G, F, T) rendered on touch-only devices",
+   "evidence": "pass6/iphone14_nakamigos-nakamigos-about_3.png shows a full KEYBOARD SHORTCUTS panel ('1-7 Switch tabs', 'Esc Close modal', etc.) at 390px where no keyboard exists.",
+   "suggestion": "Hide the section under a hover/pointer media query (e.g. @media (hover:hover) and (pointer:fine))."
+  },
+  {
+   "id": "F837",
+   "src": "viewport:mobile-naka",
+   "severity": "low",
+   "category": "improve",
+   "page": "Gallery/Floor (bottom bar)",
+   "title": "Floating 'Back to top' button sits 1px from the Gallery tab — mis-tap risk",
+   "evidence": "tap_metrics.json from the live gallery page: Back-to-top at x:28 w:44 (right edge 72), Gallery tab at x:73 — a 1px gap between two 44px+ targets on the most-used row of the screen.",
+   "suggestion": "Raise the back-to-top button ~60px above the tab bar or add horizontal margin."
+  },
+  {
+   "id": "F838",
+   "src": "viewport:mobile-naka",
+   "severity": "low",
+   "category": "improve",
+   "page": "Bottom-nav More menu (Pro)",
+   "title": "'Trade' and 'P2P Trades' coexist as near-duplicate items in the More menu",
+   "evidence": "pass7/iphone14_INTERACT_pro_more_menu.png shows both 'P2P Trades' and 'Trade' tiles; /trade renders 'Connect your wallet to swap Nakamigos directly with other holders through peer-to-peer trades' (pass7 PRO trade_1) and /trades renders 'P2P Trades — send and receive NFT-for-NFT trade offers' (pass6 trades_1) — two confusingly-named entries for near-identical flows (both 'trade' and 'trades' are in VALID_TABS, constants.js:68-73).",
+   "suggestion": "Merge into one entry or rename to distinguish (e.g. 'Swap NFTs' vs 'Trade Offers')."
+  },
+  {
+   "id": "F839",
+   "src": "viewport:mobile-naka",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Footer on every collection page",
+   "title": "Footer marketplace card renders text and link pills over a busy NFT collage with very low contrast",
+   "evidence": "pass6/iphone14_nakamigos-nakamigos-deals_3.png, ...favorites_1.png, ...whales_3.png all show the 'NAKAMIGOS Marketplace' footer block with OpenSea/Blur/Etherscan pills and ERC-721/ETHEREUM chips barely readable against the collage art behind it.",
+   "suggestion": "Add a darker scrim behind the footer card (keep the art per the preserve-art rule, just raise overlay opacity)."
+  },
+  {
+   "id": "F840",
+   "src": "viewport:mobile-naka",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Splash at 390px",
+   "title": "Splash subtitle 'THE DIGITAL ART GALLERY' is ~7px and partially lost in the title glow",
+   "evidence": "pass1/iphone14_nakamigos_splash.png and pass1/iphone14_nakamigos_1.png: the subtitle under TRADERMIGOS is tiny and low-contrast; the stats plaque (20,000 WORKS / ERC-721 / ETHEREUM) sub-labels are similarly at the edge of legibility at 390px.",
+   "suggestion": "Bump subtitle to >=10px and increase its color contrast on mobile."
+  },
+  {
+   "id": "F841",
+   "src": "viewport:mobile-naka",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nakamigos/nakamigos/gallery (mobile ticker)",
+   "title": "Vertical live-sales ticker consumes ~250px of prime viewport above the grid and rows look tappable but only highlight",
+   "evidence": "pass8/iphone14_card_first_tap.png and card_second_tap.png: six stacked ticker rows (Nakamigos #28/#3/#33/#39/#38 with trait lines) sit above Filters/search; tapping a row only toggles a highlight (two taps in test produced no navigation or modal).",
+   "suggestion": "Cap the mobile ticker at 2-3 rows or make it horizontally scrollable, and make row taps open the token."
+  }
+ ]
+}

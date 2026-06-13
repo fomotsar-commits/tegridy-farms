@@ -1,0 +1,910 @@
+{
+ "group": "g07_learn_activity_info",
+ "sourceAgents": [
+  "code:learn-activity-info",
+  "live:learn-activity",
+  "live:info-admin-perf"
+ ],
+ "findings": [
+  {
+   "id": "F372",
+   "src": "code:learn-activity-info",
+   "severity": "high",
+   "category": "wrong",
+   "page": "SecurityPage + ContractsPage",
+   "title": "'Verified on Etherscan' claims are false — live contracts are NOT source-verified",
+   "evidence": "SecurityPage.tsx:265 renders a hardcoded '✓ Verified' badge for every deployed contract; ContractsPage.tsx:310-311 says 'All contracts are verified on Etherscan.' Live check (curl of etherscan.io/address/...) returned the 'Are you the contract creator' (unverified) prompt for TegridyStaking 0xcaDc93E9...046D and SwapFeeRouter 0x6d57...956E. This matches the deploy record (source-verify was pending because the API key was invalid at deploy). A security page asserting verification that doesn't exist is the worst kind of trust bug.",
+   "suggestion": "Drop the hardcoded badge or derive it live (etherscan getsourcecode via the existing /api/etherscan proxy) and show 'Verification pending' honestly until the operator verifies sources."
+  },
+  {
+   "id": "F373",
+   "src": "code:learn-activity-info",
+   "severity": "high",
+   "category": "wrong",
+   "page": "TermsPage",
+   "title": "Terms of Service states the wrong protocol fee (0.30% vs actual 0.5%)",
+   "evidence": "TermsPage.tsx:32: 'a 0.30% fee on token swaps routed through the SwapFeeRouter (SWAP_FEE_BPS = 30; capped at 1.00% / MAX_FEE_BPS = 100 by contract)'. lib/constants.ts:108: `export const SWAP_FEE_BPS = 50; // 0.5%` and RisksPage.tsx:93 says 'Protocol fee 0.5% (1% hard cap)'. The legal document misstates the live fee by 40%. Page footer says 'Last updated: April 2026' (pre-relaunch).",
+   "suggestion": "Update section 7 to 0.5%/50 bps (or reference the live on-chain feeBps), and refresh the Last-updated date. Also reconsider 'modified through DAO governance' — RisksPage states admin is a single EOA, no DAO exists."
+  },
+  {
+   "id": "F374",
+   "src": "code:learn-activity-info",
+   "severity": "high",
+   "category": "wrong",
+   "page": "ContractsPage",
+   "title": "Linked CONTRACTS.md still lists pre-relaunch (abandoned) addresses as 'Live'",
+   "evidence": "ContractsPage.tsx:313-319 links 'Source mirrored from the repo CONTRACTS.md'. `git show origin/main:CONTRACTS.md` (and origin/mvp-launch — identical) lists TegridyStaking 0x6266...4819, TegridyFactory 0x8B78...dCB6, TegridyRouter 0xCBCF...863F, SwapFeeRouter 0xea13...37A0 as 'Live' and TegridyRestaking 0xfba4...aEe4 as 'Live' — all superseded by the 2026-06-06 relaunch (constants.ts has 0xcaDc..., 0xa24C..., 0xE9F8..., 0x6d57..., and Restaking zeroed). A user following the page's own 'source of truth' link gets the dead deployment.",
+   "suggestion": "Regenerate CONTRACTS.md from constants.ts (the page footer even says 'Last regenerated from frontend/src/lib/constants.ts') and mark the old addresses Deprecated. Consider linking blob/mvp-launch (the default branch the deploy ships from) — origin/main is 234 commits behind."
+  },
+  {
+   "id": "F375",
+   "src": "code:learn-activity-info",
+   "severity": "high",
+   "category": "wrong",
+   "page": "PremiumPage (Gold Card)",
+   "title": "Latent mispricing: UI advertises -10/-20/-30% plan discounts the contract does not implement",
+   "evidence": "PremiumPage.tsx:14-19 defines discounts; lines 63-66/253-258 display discounted totals and a struck-through full price. But contracts/src/PremiumAccess.sol:250 charges `uint256 cost = monthlyFeeToweli * months;` — no discount — and usePremiumAccess.ts:79-107 approves/passes maxCost = full undiscounted cost. So the user is shown e.g. a 30%-off '1 Year' total, the Approve button label shows the discounted figure (PremiumPage.tsx:365), yet the wallet approval and on-chain charge are the full amount. Also `canAfford` (line 67) checks the discounted figure, so a user can pass the check and still revert on transferFrom. Currently unreachable (PREMIUM_ACCESS_ADDRESS zeroed, FeatureNotDeployed renders), but this goes live the day the address is restored.",
+   "suggestion": "Remove the discount tiers from PLANS (or implement discounts contract-side before redeploy). Make displayed total = monthlyFee × months exactly."
+  },
+  {
+   "id": "F376",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "AdminPage",
+   "title": "Premium Access card reads the zero address — perpetual '...' and an Etherscan link to 0x0000…",
+   "evidence": "constants.ts:42 zeroes PREMIUM_ACCESS_ADDRESS ('ZEROED 2026-05-31'), but AdminPage.tsx:197-200 includes three PremiumAccess reads in useReadContracts with no isDeployed gate, and lines 382-387 always render the 'Premium Access' ContractCard whose header links to `${explorerBaseUrl}/address/0x0000000000000000000000000000000000000000`. Monthly Fee / Subscribers / Revenue show '...' forever. usePremiumAccess.ts:52 got exactly this gate ('without this the reads fire against 0x0'); AdminPage didn't.",
+   "suggestion": "Gate the PremiumAccess reads and card on isDeployed(PREMIUM_ACCESS_ADDRESS), rendering a 'pending deploy' card state like ContractsPage does."
+  },
+  {
+   "id": "F377",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "LeaderboardPage (Points tab)",
+   "title": "Advertised points mechanics are dead code: streaks, daily visits, and claim points can never accrue",
+   "evidence": "LeaderboardPage.tsx:171-185 advertises 'Claim Rewards +15', 'Daily Visit +5' and 'Streak multipliers: 7d = 1.5x, 14d = 2x, 30d = 3x', and the banner (line 42) says 'The streak counter is computed locally from your visit cadence.' But lib/pointsEngine.ts:190-197 makes recordAction/recordDailyVisit deprecated no-ops, nothing anywhere calls recordDailyVisit (grep confirmed), and computeOnChainPoints (lines 136-156) has no claim or visit component. So Streak renders permanently '0d 🔥', Multiplier permanently '1x', and two of the six listed earn-actions award nothing — while the real scoring (+2/day of lock duration, up to +200 from LP balance) is undocumented. FarmPage.tsx:159's points.logAction() is also a no-op.",
+   "suggestion": "Either remove streak/daily-visit/claim rows from 'How Points Work' and the streak stat tiles, or reinstate a visit recorder. Document the actual formula (lock-days and LP-balance bonuses)."
+  },
+  {
+   "id": "F378",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "ContractsPage",
+   "title": "Obsolete 'Wave 0' framing and stale multisig address 0x0c41…8bfe in the legend and row notes",
+   "evidence": "ContractsPage.tsx:330-345 'Wave 0 closure — outstanding deploy work' legend says the multisig '0x0c41…8bfe still has to call acceptOwnership()'. The relaunch (2026-06-06) superseded Wave 0 entirely and constants.ts:28 says LP Farming's owner is 'pending the 0xA360 Safe' — a different Safe. The LP Farming row note (line 88) 'Wave 0 redeploy live. Awaiting multisig acceptOwnership()' renders (LP_FARMING_ADDRESS is live, status:'multisig'), as does the Fee Hook 'redeploy queued' note (line 96) describing the pre-relaunch plan. Linked docs/WAVE_0_TODO.md / WAVE_0_RUNBOOK.md exist on origin/main but describe the superseded plan.",
+   "suggestion": "Rewrite the legend/notes in relaunch terms (correct Safe address, acceptOwnership deadline) and retire the Wave 0 vocabulary; the badges' isDeployed gating itself is sound."
+  },
+  {
+   "id": "F379",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "ChangelogPage",
+   "title": "Changelog is 5+ weeks stale and omits the June 6 relaunch — and contradicts other pages",
+   "evidence": "ChangelogPage.tsx:17-124 is a hardcoded array whose newest entry is 'May 4, 2026' (today is June 12). The mainnet relaunch with all-new addresses (the most user-relevant event in the app's history) is absent. Older entries assert 'Deployed TegridyNFTLending contract' and 'Deployed TegridyNFTPool & TegridyNFTPoolFactory' (lines 86-87) while SecurityPage's contract list renders those same contracts as 'Not deployed — deferred from the relaunch' (SecurityPage.tsx:260) — directly contradictory to a reader.",
+   "suggestion": "Add a June 2026 'Relaunch' entry (new deployer, 14 contracts, what was deferred), and annotate pre-relaunch 'Deployed' entries as referring to the superseded deployment. Longer term, generate entries from a data file so freshness is a content edit, not a code edit."
+  },
+  {
+   "id": "F380",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "SecurityPage + FAQPage",
+   "title": "Multisig/pause-guardian claims contradict the app's own RisksPage (single-EOA reality)",
+   "evidence": "SecurityPage.tsx:333 'Protocol admin controlled by team multisig'; FAQPage.tsx:59 'emergency pauses held by a 3-of-5 pause guardian'. RisksPage.tsx:14-16 (updated June 11, the honesty pass) says: 'Single-operator admin key (no multisig yet) — Active: Administrative functions are held by one EOA today… A multisig migration is the next operational milestone.' The repo's pending-ops state (Safe signer sets being rebuilt, acceptOwnership not yet called) matches RisksPage; SecurityPage/FAQ describe the target design as if it were live.",
+   "suggestion": "Align SecurityPage/FAQ to the RisksPage phrasing ('multisig migration in progress; single key today') until acceptOwnership lands, then flip all three at once."
+  },
+  {
+   "id": "F381",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "SecurityPage",
+   "title": "Immunefi partnership + $10k bounty tiers likely overstated (unverified hypothesis)",
+   "evidence": "SecurityPage.tsx:302-306: 'We partner with Immunefi, the leading Web3 bug bounty platform' linking https://immunefi.com/bug-bounty/tegridyfarms/ with $10,000/$5,000/$1,000/$500 tiers (lines 40-45). I could not fetch Immunefi to confirm the listing exists; however the project's treasury Safe is documented empty and RisksPage:51 says bug-bounty triage is bounded by a single maintainer with no mention of Immunefi. If the listing doesn't exist, this is a fabricated partnership claim on the security page; flagged for one-click verification by the operator.",
+   "suggestion": "Verify the Immunefi program URL resolves; if not, replace with the SECURITY.md disclosure channel and bounty terms you can actually fund."
+  },
+  {
+   "id": "F382",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "HistoryPage",
+   "title": "Filter list omits live contracts (LP Farming, native Tegridy Router/LP) while footer claims full coverage",
+   "evidence": "HistoryPage.tsx:201-206 filters txs to a contract list that excludes LP_FARMING_ADDRESS (live at 0x1171…e149 since 2026-06-08 per constants.ts:28), TEGRIDY_ROUTER_ADDRESS, TEGRIDY_LP_ADDRESS, and the staking/SFR admin sisters — yet line 559 claims 'Showing interactions with all Tegridy Farms protocol contracts.' LP-farm stakes/claims and native-router liquidity adds silently never appear.",
+   "suggestion": "Add LP_FARMING_ADDRESS + TEGRIDY_ROUTER_ADDRESS (+ admin sisters) to the filter and categorizeTx, or soften the footer claim."
+  },
+  {
+   "id": "F383",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "improve",
+   "page": "HistoryPage",
+   "title": "~140 lines duplicated from lib/txHistory.ts — already diverging",
+   "evidence": "lib/txHistory.ts:1-7 says it was 'Extracted from HistoryPage… so HistoryPage and the Treasury activity feed share ONE validated path… rather than two diverging copies', but HistoryPage.tsx:22-166 still contains its own private copies of TxRecordSchema, parseTxRecords, formatGasEth and categorizeTx. They have already diverged: the lib schema has an optional `from` field (txHistory.ts:26), the HistoryPage copy doesn't.",
+   "suggestion": "Finish the extraction: import the lib versions into HistoryPage and delete the inline copies."
+  },
+  {
+   "id": "F384",
+   "src": "code:learn-activity-info",
+   "severity": "medium",
+   "category": "improve",
+   "page": "AdminPage",
+   "title": "Pause/unpause success never refetches contract state; write errors are silent",
+   "evidence": "AdminPage.tsx:188-210 useReadContracts has no refetchInterval and nothing invalidates it after a pause tx confirms — PauseControls (lines 90-95) only fires a toast. The ACTIVE/PAUSED pill and the 'Status' row keep showing the pre-tx value until a window-refocus refetch happens to land. Also PauseControls destructures only {writeContract, data, isPending} — a wallet rejection or gas-estimate failure produces no toast or error UI (compare usePremiumAccess.ts:154-171 which toasts every error path).",
+   "suggestion": "Thread a refetch of the read batch into the success effect, and surface useWriteContract's error via toast."
+  },
+  {
+   "id": "F385",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "FAQPage",
+   "title": "Accordion open-state keyed by filtered indices — search transfers 'open' to a different question",
+   "evidence": "FAQPage.tsx:179-181: `const key = `${sIdx}-${qIdx}`` where sIdx/qIdx are indices into the *filtered* arrays (lines 98-105). Open '0-1', then type a search that changes which sections/items survive: a different question now has key '0-1' and renders expanded.",
+   "suggestion": "Key the open state by the question text or a stable id instead of positional indices."
+  },
+  {
+   "id": "F386",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "FAQPage",
+   "title": "FAQ cites GOVERNANCE.md, which doesn't exist in the repo",
+   "evidence": "FAQPage.tsx:59: 'The full threat model is in GOVERNANCE.md and on the Risks page.' `git ls-files | grep GOVERNANCE` finds no tracked GOVERNANCE.md at the repo root on either branch (only audit-pass files like .audit_101/DEEP_2026_05_01/08_governance.md).",
+   "suggestion": "Point to the doc that actually holds the threat model (or create GOVERNANCE.md)."
+  },
+  {
+   "id": "F387",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "ContractsPage",
+   "title": "Treasury source link 404s — contracts/src/Treasury.sol doesn't exist (Treasury is a Safe)",
+   "evidence": "ContractsPage.tsx:73: `{ label: 'Treasury', address: TREASURY_ADDRESS, source: 'contracts/src/Treasury.sol' }` renders a GitHub link; Test-Path and `git cat-file -e origin/main:contracts/src/Treasury.sol` both confirm the file does not exist on disk or on main. constants.ts:80-81 says the treasury is a '2-of-2 Safe (protocol funds)', not a custom contract.",
+   "suggestion": "Mark it `source: 'external (Safe multisig)'` like the JBAC/WETH rows so it renders as a non-link."
+  },
+  {
+   "id": "F388",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "TokenomicsPage",
+   "title": "POLAccumulator flagged live:false although it was deployed in the relaunch",
+   "evidence": "TokenomicsPage.tsx:44: `{ label: 'POLAccumulator', address: POL_ACCUMULATOR_ADDRESS, live: false }` — but constants.ts:23 shows POL_ACCUMULATOR_ADDRESS = 0x2A5f… deployed 'RELAUNCH 2026-06-06 (DeployMVP)'. The badge logic (lines 233-239) therefore renders the amber 'Deployed' badge instead of 'Live' for a contract that is as live as the rest.",
+   "suggestion": "Flip live:true (or drop the redundant flag and rely solely on isDeployed)."
+  },
+  {
+   "id": "F389",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "LorePage",
+   "title": "Invalid DOM nesting (div inside ol) and asymmetric left padding from inline paddingLeft:0",
+   "evidence": "LorePage.tsx:66 `<ol className=\"… px-4 md:px-6 pb-16 list-none m-0 p-0\" style={{ paddingLeft: 0 }}>` — the inline style beats px-4's padding-inline, so the list has 0 left padding but 16/24px right padding (timeline cards hug the left screen edge on mobile; visual check recommended). And line 90 places `<m.div className=\"text-center mt-12\">` (the CTA) as a direct child of the `<ol>` — invalid HTML (only li/script/template allowed).",
+   "suggestion": "Drop the inline paddingLeft (px-4 + list-none already handles it) and wrap the CTA in an `<li>` or move it after the list."
+  },
+  {
+   "id": "F390",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "HistoryPage + PremiumPage + TreasuryPage",
+   "title": "Explorer links derived from the wallet's chainId while data is always mainnet",
+   "evidence": "HistoryPage.tsx:171 `const chainId = useChainId()` feeds getTxUrl for rows fetched from the mainnet-only /api/etherscan proxy (line 216); PremiumPage TxLink (lines 39-52) does the same. A wallet sitting on Base/Arbitrum produces basescan/arbiscan links for mainnet txs — dead links. AdminPage.tsx:181-185 already solved this by pinning the canonical chain.",
+   "suggestion": "Pin CHAIN_ID (or the AdminPage canonicalChain pattern) for all Etherscan-proxy-sourced links."
+  },
+  {
+   "id": "F391",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "SecurityPage",
+   "title": "Hardcoded test-suite stats are stale (~3x undercount)",
+   "evidence": "SecurityPage.tsx:139: '38,794 lines of test code across 34 test files' — the repo currently has 95 *.t.sol files under contracts/test (counted), and memory records a 1,500+ test suite which the FAQ itself cites (FAQPage.tsx:58 '1,500+ test suite').",
+   "suggestion": "Update the figures or replace with an order-of-magnitude phrase that won't rot."
+  },
+  {
+   "id": "F392",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "LeaderboardPage (Points tab)",
+   "title": "Swap-count log scan likely fails silently on public RPCs (4.7M-block eth_getLogs)",
+   "evidence": "usePoints.ts:73-84 calls publicClient.getLogs({ fromBlock: 18000000n, toBlock: 'latest' }) — a ~4.7M block range. Most public/free RPC providers cap getLogs ranges (commonly 10k blocks) and the .catch() maps any failure to swapCount 0, so swap points and the First Swap/Degen badges silently never trigger. Environment-dependent (depends on the configured RPC's limits) — unverified at runtime but the hardcoded fromBlock also predates the June 2026 relaunch deployment by years.",
+   "suggestion": "Start from the SwapFeeRouter deploy block and chunk the range, or read a per-user counter from the contract/indexer instead."
+  },
+  {
+   "id": "F393",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "wrong",
+   "page": "FAQPage vs RisksPage",
+   "title": "Penalty-destination copy conflict: FAQ says 100% to stakers, RisksPage says a portion reaches treasury",
+   "evidence": "FAQPage.tsx:32: penalty 'is distributed proportionally to all remaining stakers as a bonus.' RisksPage.tsx:26 (treasury risk): the treasury 'receives … the non-recycled portion of early-withdrawal penalties.' One of these is imprecise.",
+   "suggestion": "Check TegridyStaking's penalty split and make both pages state the same split."
+  },
+  {
+   "id": "F394",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "improve",
+   "page": "HistoryPage",
+   "title": "No manual refresh while the 5-minute cache is fresh",
+   "evidence": "HistoryPage.tsx:184-196 serves localStorage cache (<5 min) with no refresh affordance outside the error state's Retry button — a user who just transacted sees stale history with no way to force a refetch. Also handleRetry (lines 282-288) creates an AbortController it never aborts on unmount.",
+   "suggestion": "Add a small refresh icon next to Export CSV that calls fetchHistory(skipCache=true); tie retry's controller to the component lifecycle."
+  },
+  {
+   "id": "F395",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "improve",
+   "page": "LearnPage/ActivityPage/InfoPage",
+   "title": "Tab bars use aria-pressed buttons, not tabs semantics; every tab click pushes history",
+   "evidence": "All three hosts (e.g. LearnPage.tsx:62-76) render plain buttons with aria-pressed inside a styled div — no role=tablist/tab/tabpanel, no arrow-key navigation. handleTab uses navigate(..., { replace: false }) so flipping through 5 tabs leaves 5 history entries; Back cycles tabs instead of leaving the page.",
+   "suggestion": "Adopt the WAI-ARIA tabs pattern and consider replace:true for intra-host tab switches (deep links still work since URL is the state)."
+  },
+  {
+   "id": "F396",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "improve",
+   "page": "PremiumPage",
+   "title": "No renew/extend path for active subscribers; shared tx state across the two claim buttons",
+   "evidence": "PremiumPage.tsx:245 hides the entire subscribe section when premium.hasPremium, but PremiumAccess.sol's subscribe explicitly supports extensions (TOO_SOON_TO_EXTEND branch, line 266) — an active subscriber can't extend before expiry from the UI. Also both 'Claim ETH' (line 413) and 'Claim Referral ETH' (line 438) share revenue.isPending/hash/isSuccess from useRevenueStats's single useWriteContract, so clicking one disables both and the success TxLink renders under both cards.",
+   "suggestion": "Show an 'Extend' variant of the plan picker for active monthly subscribers; track the two claim writes separately."
+  },
+  {
+   "id": "F397",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "improve",
+   "page": "PrivacyPage",
+   "title": "Section anchor deep-links are declared but almost certainly don't scroll",
+   "evidence": "PrivacyPage.tsx:5 'Stable anchor slugs so sections can be deep-linked' with ids + scroll-mt-24, but App.tsx:109-113 ScrollToTop does window.scrollTo(0,0) on every pathname change and the page content mounts after lazy Suspense + entry animations — the browser's native #hash scroll fires before the target exists and is then overridden. Unverified in-browser, but the mechanism for hash scrolling is absent (no hash handling anywhere in App.tsx).",
+   "suggestion": "In ScrollToTop, when location.hash is present, scrollIntoView the target after mount instead of scrolling to top."
+  },
+  {
+   "id": "F398",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "improve",
+   "page": "FAQPage",
+   "title": "Search input lacks an accessible name",
+   "evidence": "FAQPage.tsx:142-148: the input has only placeholder='Search questions...' — placeholders are not labels for screen readers; the clear button has an aria-label but the input doesn't.",
+   "suggestion": "Add aria-label=\"Search questions\" (the page is otherwise a strong a11y example)."
+  },
+  {
+   "id": "F399",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "improve",
+   "page": "TokenomicsPage",
+   "title": "FDV counts burned supply; pie's 'Circulating 45%' is policy, not measured",
+   "evidence": "TokenomicsPage.tsx:80 computes FDV as TOWELI_TOTAL_SUPPLY (1B, constants.ts:94) × price even though ~25.8% of supply is burned (live ground-truth memo) — overstating FDV ~35% vs burn-adjusted; SUPPLY_DATA (lines 27-33) shows the launch-policy split, not current reality.",
+   "suggestion": "Additively show a 'Burned' stat (dead-address balance is one read) and a burn-adjusted market cap next to FDV — the 25.8% burn is a marketing asset the page currently hides."
+  },
+  {
+   "id": "F400",
+   "src": "code:learn-activity-info",
+   "severity": "polish",
+   "category": "improve",
+   "page": "SecurityPage",
+   "title": "copyAddr ignores the clipboard promise; CopyButton primitive exists but isn't used here",
+   "evidence": "SecurityPage.tsx:113-117: navigator.clipboard.writeText(addr) with no .catch — on a permissions-denied/insecure context this is an unhandled rejection and the 'Copied' state still shows. Tokenomics/Treasury/Contracts pages all use the shared CopyButton instead.",
+   "suggestion": "Swap to the shared CopyButton for consistency and error handling."
+  },
+  {
+   "id": "F401",
+   "src": "code:learn-activity-info",
+   "severity": "polish",
+   "category": "improve",
+   "page": "AdminPage",
+   "title": "Pending Fee renders '0 bps' instead of 'None'; comment says 30s refetch but code is 10s",
+   "evidence": "AdminPage.tsx:233 `pendingFee != null ? `${Number(pendingFee)} bps` : 'None'` — a successful read of 0 (cleared timelock) shows '0 bps' where 'None' is meant. Lines 343-346 comment says 'detected by the 30s refetch' while line 171 sets refetchInterval: 10_000.",
+   "suggestion": "Treat 0 as 'None'; fix the stale comment."
+  },
+  {
+   "id": "F402",
+   "src": "code:learn-activity-info",
+   "severity": "polish",
+   "category": "improve",
+   "page": "InfoPage",
+   "title": "5-tab bar is extremely tight on small phones",
+   "evidence": "InfoPage.tsx:74 uses text-[11.5px] px-2 with whitespace-nowrap across 5 flex-1 buttons; at 390px (iPhone 14) the math barely fits (~354px of buttons in ~358px of space) and on anything narrower (older SE-class devices) labels will clip with no overflow handling.",
+   "suggestion": "Allow horizontal scroll (overflow-x-auto + snap) on the pill row below ~380px, keeping the current look elsewhere."
+  },
+  {
+   "id": "F403",
+   "src": "code:learn-activity-info",
+   "severity": "polish",
+   "category": "improve",
+   "page": "TokenomicsPage + PremiumPage",
+   "title": "No-op hover styles (text-white hover:text-white) on multiple links",
+   "evidence": "TokenomicsPage.tsx:189, 264-265 ('text-white … group-hover:text-white'), AdminPage.tsx:56 ('text-white hover:text-white'), PremiumPage.tsx:486 — hover transitions declared but start and end colors are identical, so links give zero hover feedback.",
+   "suggestion": "Use a dimmed rest state (text-white/70 hover:text-white) like ContractsPage rows do."
+  },
+  {
+   "id": "F404",
+   "src": "code:learn-activity-info",
+   "severity": "polish",
+   "category": "improve",
+   "page": "TreasuryPage",
+   "title": "useBlockNumber({watch:true}) keeps a per-block subscription alive for one caption line",
+   "evidence": "TreasuryPage.tsx:89 watches every mainnet block (~12s polling/WS) solely to render 'as of block #N' (line 205-209); all data reads refresh on 60s intervals anyway.",
+   "suggestion": "Poll the block number on the same 60s cadence instead of watch:true."
+  },
+  {
+   "id": "F405",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Tokenomics: no circulating supply / market cap (only FDV), no burned-supply stat despite 25.8% burned being a headline asset, no holders count, no 'Add TOWELI to wallet' (wallet_watchAsset) button, no emissions-over-time chart, no links to CoinGecko/DEXTools alongside GeckoTerminal — table stakes on a Dexscreener-grade token page.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F406",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Leaderboard: no actual multi-user ranking (honestly acknowledged, gated on the Ponder indexer becoming publicly queryable) — until then there is no social comparison loop at all; competitors ship at least a top-N snapshot or percentile estimate.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F407",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "History: no type/status filter chips, no date-range filter, no ERC-20 token-transfer view (only normal txs), no USD value column, no pending-transaction surfacing; CSV export and pagination exist (good) but Blur/OpenSea-grade activity feeds offer filtering and live updates.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F408",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Changelog: no per-release deep links/anchors, no RSS/atom or subscribe affordance, no data source (hardcoded TSX array) — best-in-class changelogs are generated from markdown/releases and link to the shipped artifacts.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F409",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Security page: no live verification-status read, no security.txt, no direct security contact (email/PGP), no link to on-chain monitoring/alerting status, no audit-firm engagement timeline; the page is static prose where Aave/Uniswap-grade pages show living status.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F410",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Treasury: ETH-only balance — treasury TOWELI/other token holdings absent, no historical treasury-balance chart, no inflow/outflow categorization or runway-vs-opex view (notable since self-sustain economics are the stated strategy).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F411",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Contracts: no ABI download/copy links, no deployment date + deploy-tx link per contract, no per-contract 'add to wallet/watch' helpers, no diff/changelog when an address rotates.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F412",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Admin: no timelock queue viewer (page literally says 'Pending timelock operations are managed via direct contract interaction'), no recent-admin-events log, pause control covers only TegridyStaking with no multi-contract pause panel.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F413",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "FAQ: no per-question URL anchors for sharing, no related-question links, no 'was this helpful' feedback loop, no contact CTA at the bottom of a failed search.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F414",
+   "src": "code:learn-activity-info",
+   "severity": "low",
+   "category": "missing",
+   "page": "g07_learn_activity_info",
+   "title": "Cross-cutting: no last-reviewed/updated stamps on Security/Contracts/FAQ pages (Terms/Risks/Privacy have them), so users cannot tell which trust surfaces are fresh — the root condition that let the Verified-badge and fee-number rot go unnoticed.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F415",
+   "src": "live:learn-activity",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "/security",
+   "title": "Immunefi bug-bounty program does not exist — 'Submit on Immunefi' links to a 404",
+   "evidence": "Page claims \"We partner with Immunefi, the leading Web3 bug bounty platform\" and the purple 'Submit on Immunefi' button links to https://immunefi.com/bug-bounty/tegridyfarms/ which returns HTTP 404 (curl-verified). Same href present at localhost HEAD, so not fixed. This sits next to $10,000/$5,000/$1,000/$500 reward tiers, and directly contradicts the site's own FAQ honesty stance (\"There is no paid third-party audit yet — we don't claim one\").",
+   "suggestion": "Either stand up the actual Immunefi program, or change copy to 'Bug bounty paid case-by-case — report via Twitter DM / security email' until it exists. A fake partnership claim on the trust page is the single worst credibility hit on the site."
+  },
+  {
+   "id": "F416",
+   "src": "live:learn-activity",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/changelog",
+   "title": "Changelog is 5+ weeks stale and contradicts the Security page",
+   "evidence": "Latest entry is 'May 4, 2026 — Pass-7 Adversarial Multi-Agent Audit' (today is June 11, 2026). The June 2026 relaunch and mainnet MVP redeploy — which Tokenomics itself references (\"rebuilt fresh at the June 2026 relaunch\") — are absent. Worse, the April 14 entry says 'NFT Lending & AMM Deployment / Deployed TegridyNFTLending...' while /security lists TegridyLending, TegridyNFTLending, TegridyNFTPoolFactory as 'Not deployed — deferred from the relaunch'. Same content at localhost HEAD.",
+   "suggestion": "Add a June 2026 'Relaunch' entry (new addresses, what was deferred, why) at the top. Without it the page reads as abandoned and the deploy-history contradiction looks like dishonesty rather than staleness."
+  },
+  {
+   "id": "F417",
+   "src": "live:learn-activity",
+   "severity": "high",
+   "category": "improve",
+   "page": "all (first visit)",
+   "title": "First-load splash runs ~18-20 seconds with no visible skip affordance",
+   "evidence": "Cold navigation to /tokenomics played a multi-stage intro (dim art slideshow → RGB-glitch art → particle ring → glass-shatter) lasting ~18-20s before any content. A click mid-splash did not visibly skip (shatter stage continued). Only control shown is a mute toggle top-right. Splash is correctly session-scoped (no replay on later loads).",
+   "suggestion": "Keep the art (it's great) but add a visible 'Skip' / click-anywhere-to-skip and cap default duration to ~4-6s. 20s before first paint is bounce territory for first-time visitors clicking a tokenomics link."
+  },
+  {
+   "id": "F418",
+   "src": "live:learn-activity",
+   "severity": "high",
+   "category": "missing",
+   "page": "/leaderboard",
+   "title": "Page named 'leaderboard' contains no leaderboard, ranks, or my-rank affordance",
+   "evidence": "Content is 'Your Tegridy Score' + How Points Work (+10 swap/+25 stake/+50 LP), tiers, and badges. No table, no ranks, no top-wallets, no 'your rank' placeholder. Banner honestly says 'A cross-wallet ranking goes live when the Ponder indexer is publicly queryable.'",
+   "suggestion": "Additively: show a 'Top stakers (on-chain)' preview readable directly via RPC (staking contract events/balances) so the page has at least one real ranked list pre-indexer, plus a disabled 'Your rank — connect wallet' row as the my-rank affordance."
+  },
+  {
+   "id": "F419",
+   "src": "live:learn-activity",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/leaderboard",
+   "title": "Empty state asserts 'No participants yet' as fact while the data source isn't live",
+   "evidence": "Card reads 'No participants yet. Stake TOWELI to earn your first points!' — but the same page says cross-wallet data awaits the Ponder indexer, and staking has live stakers on-chain (staking contract is seeded and earning). Zero is being displayed where the truthful state is 'unknown/not indexed yet'. Same copy at localhost HEAD.",
+   "suggestion": "Change to 'Ranking goes live once the indexer is public — be early: stake now to start your streak.' Don't render an unverifiable zero; it advertises emptiness."
+  },
+  {
+   "id": "F420",
+   "src": "live:learn-activity",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/leaderboard (day mode)",
+   "title": "Light/day mode renders 'Your Tegridy Score' heading dark-on-dark (unreadable)",
+   "evidence": "After toggling the sun icon, only the navbar switched to Kenny-orange; the page body stayed near-black but the H1 'Your Tegridy Score' switched to a dark navy color — virtually invisible in the screenshot. Day mode on Activity pages is effectively navbar-only.",
+   "suggestion": "Audit day-mode tokens on LearnPage/ActivityPage: headings must keep a light-on-dark pair while the art-panel backgrounds remain dark, or flip the panel scrims with the theme."
+  },
+  {
+   "id": "F421",
+   "src": "live:learn-activity",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/leaderboard",
+   "title": "'All Badges' grid is borderline unreadable — dim locked-badge text over bright busy art",
+   "evidence": "Zoom-verified: badge titles ('First Swap', 'Farmer', 'Week Warrior') and descriptions are mid-gray on a translucent card over bright orange/purple character art; double-dimming (locked state + low scrim opacity) makes several badges illegible.",
+   "suggestion": "Additive fix: raise the card scrim opacity / add backdrop-blur behind the badge grid (keep the art behind it). Locked state can use a lock icon instead of further text dimming."
+  },
+  {
+   "id": "F422",
+   "src": "live:learn-activity",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/premium",
+   "title": "Gold Card page has zero value proposition — entire content is a 3-line SOON banner",
+   "evidence": "Full page text: 'SOON / Gold Card isn't live yet / Premium memberships and revenue-share perks return once the PremiumAccess contract is deployed for the relaunch.' Nothing about what the Gold Card is, perks, pricing, or the JBAC free-access policy (those answers exist only in FAQ → PREMIUM). For the record, the prior art issue is gone: the page now renders a hand-drawn extreme close-up of an ape's eye with lens-flare sparkles, fully on-style.",
+   "suggestion": "Additively add: perks preview cards (revenue share, boosts), 'JBAC holders get free access' callout, link to the two FAQ premium answers, and a notify-me / follow-X CTA so the page captures demand instead of dead-ending."
+  },
+  {
+   "id": "F423",
+   "src": "live:learn-activity",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/history",
+   "title": "Logged-out History is a pure connect-gate — no protocol activity feed, no preview",
+   "evidence": "Page shows only 'Transaction History / Connect your wallet to view your history.' + Connect Wallet button over the (excellent) newspaper-ape art. None of the page objectives (feed realness, tx links, filtering, pagination) exist without a wallet.",
+   "suggestion": "Additively show a protocol-wide recent-activity feed (stakes, swaps, claims from the indexer or direct RPC logs) with Etherscan tx links below the connect CTA, plus a faded sample-row preview of what personal history looks like."
+  },
+  {
+   "id": "F424",
+   "src": "live:learn-activity",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/security",
+   "title": "Multisig/timelock claims have no on-chain proof links and no 'as of' state",
+   "evidence": "'Protocol admin controlled by team multisig', 'All admin changes require 24-48h timelock', 'Multisig & Governance' section — none link to the Safe address or timelock contract on Etherscan (the three contract rows above do have links). Given ownership acceptance is still mid-rotation operationally, the claims are currently unverifiable from the page.",
+   "suggestion": "Add Etherscan links for the Safe + timelock (like the contract rows), and an 'as of <date>' stamp. Verify the multisig-control claim matches current on-chain owner before the acceptOwnership wave completes — until then a softer 'transitioning to multisig control' is more honest."
+  },
+  {
+   "id": "F425",
+   "src": "live:learn-activity",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/faq",
+   "title": "FAQ search matches question titles only — terms inside answers return nothing",
+   "evidence": "Typing 'uniswap' returned zero results even though the 'How do I get TOWELI tokens?' answer says 'Buy TOWELI on Uniswap V2...'. Typing 'rug' correctly found 'Can the admin rug pull?'.",
+   "suggestion": "Index answer bodies in the filter, and highlight the matched term in results."
+  },
+  {
+   "id": "F426",
+   "src": "live:learn-activity",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/faq",
+   "title": "'No questions match your search' empty state is nearly invisible",
+   "evidence": "With query 'zzzqqq', the no-results message renders as small dark text directly over the bright pink watercolor art (and is partially overlapped by the character's head) — zoom needed to read it at all. No 'clear search' action in the empty state.",
+   "suggestion": "Put the message inside the same dark panel style as the accordions and add a 'Clear search' button."
+  },
+  {
+   "id": "F427",
+   "src": "live:learn-activity",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/tokenomics",
+   "title": "Emission numbers disagree on the same page and round away 6% of the seed",
+   "evidence": "'Emissions End In ~89 days' (Emission Schedule card) vs 'ENDS IN 90 days' (Community Treasury strip). 'Funded (lifetime) 6M TOWELI' and 'REWARDS REMAINING 6M TOWELI' — actual seed is ~6.41M (71,219.52/day × 90d; rewardRate 0.8243/s), so the compact format truncates 410k tokens, and 'remaining' equals 'funded' (no decay shown).",
+   "suggestion": "Use one rounding source for both cards, display '6.4M', and compute Rewards Remaining from periodFinish-now × rate so it visibly ticks down."
+  },
+  {
+   "id": "F428",
+   "src": "live:learn-activity",
+   "severity": "low",
+   "category": "improve",
+   "page": "/tokenomics",
+   "title": "'Live' vs 'Deployed' badge taxonomy unexplained",
+   "evidence": "Contracts list: most rows green 'Live', pending rows gray 'Pending / Not yet deployed', but POLAccumulator gets a unique orange 'Deployed' badge (0x2A5f65...ED11D2) with no tooltip explaining how Deployed differs from Live.",
+   "suggestion": "Add a tooltip or legend ('Deployed = on-chain, not yet activated'), or collapse to one term."
+  },
+  {
+   "id": "F429",
+   "src": "live:learn-activity",
+   "severity": "low",
+   "category": "improve",
+   "page": "all",
+   "title": "eth.llamarpc.com is down and tried on every load",
+   "evidence": "Network log: OPTIONS https://eth.llamarpc.com/ → 521 and POST → 503 on multiple page loads; failover to rpc.ankr.com and ethereum-rpc.publicnode.com (both 200) works with zero console errors.",
+   "suggestion": "Failover works, but deprioritize/health-check llamarpc to avoid the dead first hop latency on cold loads."
+  },
+  {
+   "id": "F430",
+   "src": "live:learn-activity",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/security",
+   "title": "Keyboard jump-scroll (End / Ctrl+Home) shows fully blank frames until a wheel scroll",
+   "evidence": "Pressing End and Ctrl+Home on /security both produced screenshots of a pure dark page (no navbar, no content) ~2s after the keypress; content reappeared immediately on the next mouse-wheel scroll. Reproduced twice; likely the scroll-reveal animation system not firing on instant jumps. Low confidence on root cause but the captures were real.",
+   "suggestion": "Check IntersectionObserver-driven reveal animations on programmatic/keyboard scroll; ensure sections default to visible after a timeout."
+  },
+  {
+   "id": "F431",
+   "src": "live:learn-activity",
+   "severity": "low",
+   "category": "improve",
+   "page": "/changelog",
+   "title": "Entries are raw audit jargon with no reader-level summary",
+   "evidence": "Bullets like '13 stateful invariants × 1.664M total calls, zero reverts' and 'V4 hook fee delta never settled — every V4 swap would have reverted CurrencyNotSettled'. Transparency is great; comprehension for a normal user is near zero.",
+   "suggestion": "Additively add a one-line plain-English TL;DR chip per entry ('What this means for you: ...') above the technical bullets."
+  },
+  {
+   "id": "F432",
+   "src": "live:learn-activity",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/security",
+   "title": "Mascot tooltip overstates security posture vs FAQ",
+   "evidence": "Mascot bubble on /security reads 'Audited and bug-bountied. Safer than my last job.' while the FAQ answer carefully says 'There is no paid third-party audit yet — we don't claim one' and the bounty link 404s.",
+   "suggestion": "Soften to 'Internally red-teamed to hell and back' — keeps the joke, drops the over-claim."
+  },
+  {
+   "id": "F433",
+   "src": "live:learn-activity",
+   "severity": "polish",
+   "category": "improve",
+   "page": "all",
+   "title": "Mascot bubble covers the 'Protocol Active' price ticker",
+   "evidence": "Bottom-right ticker ('● Protocol Active $0.0…132') is overlapped by the mascot avatar and its speech bubble whenever a tip shows (zoom-verified on /history and /premium).",
+   "suggestion": "Stack the ticker above the mascot or shift the bubble up so both are readable."
+  },
+  {
+   "id": "F434",
+   "src": "live:learn-activity",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/faq",
+   "title": "Category labels low-contrast over bright art",
+   "evidence": "Section labels 'GETTING STARTED', 'REWARDS', 'NFT FINANCE', 'SECURITY' are small dark-purple caps directly on the bright pink/lavender watercolor background — readable only on the darker patches.",
+   "suggestion": "Give the labels the same translucent dark chip treatment as the accordion rows."
+  },
+  {
+   "id": "F435",
+   "src": "live:learn-activity",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/security",
+   "title": "Audit chip label dates drift from linked filenames",
+   "evidence": "'Pass-7 audit + remediation (May 4)' links to PASS7_2026_05_03.md; 'Pass-6 fresh-eyes audit (May 3)' to PASS6_2026_05_03.md. One-day drift between label and artifact name on the page whose whole point is precision.",
+   "suggestion": "Make labels match the artifact dates exactly."
+  },
+  {
+   "id": "F436",
+   "src": "live:learn-activity",
+   "severity": "polish",
+   "category": "missing",
+   "page": "/changelog",
+   "title": "No per-entry anchors or subscribe affordance",
+   "evidence": "Timeline entries have no anchor links (can't share '#may-4-2026'), and there's no RSS/notify option for protocol updates.",
+   "suggestion": "Add anchor ids per entry and a 'follow updates on X/Telegram' chip at top."
+  },
+  {
+   "id": "F437",
+   "src": "live:learn-activity",
+   "severity": "polish",
+   "category": "missing",
+   "page": "/tokenomics",
+   "title": "No time-axis emission chart",
+   "evidence": "Emission data is presented as four static numbers (Rewards/Day, Rewards/Second, Funded, Ends In) — there is no chart showing the 90-day emission runway or what happens at the cliff, even though the page has chart real estate (the donut).",
+   "suggestion": "Additively add a small area chart 'emissions remaining over time' with the end-date marked — this also pre-answers the September cliff question."
+  },
+  {
+   "id": "F438",
+   "src": "live:info-admin-perf",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/swap (Liquidity/DCA/Alerts tab panes)",
+   "title": "Tab-pane entrance animation freezes permanently mid-fade — forms render ghosted/unreadable",
+   "evidence": "The .glass-card pane wrapper gets stuck mid-tween: computed opacity 0.636536 with transform matrix(1,0,0,1,0,-0.34459) unchanged after 5+ s (prod, click-switch to Liquidity); 0.506454 unchanged across two samples 3 s apart (prod, DIRECT load of /swap?tab=liquidity); 0.721235 (dev localhost:5173 at HEAD — NOT fixed). Result: 'Grow the Crop'/'Pull Crop Out', labels, and even the Connect Wallet button sit at ~50-70% opacity over high-detail artwork — fails contrast, looks disabled/broken. DCA pane completed its fade only on one direct load; froze when reached via tab click.",
+   "suggestion": "Find the interrupted tween (likely AnimatePresence/entrance animation racing the tab-switch height/layout change) and make panes settle to opacity:1 deterministically (e.g. animation fill-forwards or onAnimationComplete fallback that force-sets final style). Also give the Liquidity gate card the same solid backdrop the Swap pane has."
+  },
+  {
+   "id": "F439",
+   "src": "live:info-admin-perf",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nakamigos",
+   "title": "Prod /api/opensea rejects the stats path the frontend sends → 3x 400, volume shows '–', hub drops to DEMO fallback",
+   "evidence": "GET https://tegridyfarms.vercel.app/api/opensea?path=collections%2Fjunglebay%2Fstats → 400 {\"error\":\"Invalid or missing path\"} (3 occurrences on hub load, one per collection). Header shows status badge 'DEMO' with accessible label 'Using demo/fallback data — some features may be limited'; collection cards show Volume '–'. The SAME request on localhost:5173 (HEAD) returns 200 with real OpenSea stats (volume 1034.43, floor 0.08875) — the prod serverless function's path allowlist is stale relative to HEAD.",
+   "suggestion": "Redeploy prod from HEAD (CLI deploy from repo root per the documented procedure). The fix already exists at HEAD — this is a stale-deployment issue, matching the 06-09 'stale prod build' diagnosis."
+  },
+  {
+   "id": "F440",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/terms vs /risks",
+   "title": "Swap protocol fee contradicts itself across legal pages: 0.30% (Terms) vs 0.5% (Risks)",
+   "evidence": "Terms §7: 'a 0.30% fee on token swaps routed through the SwapFeeRouter (SWAP_FEE_BPS = 30; capped at 1.00% / MAX_FEE_BPS = 100 by contract)'. Risks 'Protocol limits & parameters' table: 'Swap — Protocol fee: 0.5% (1% hard cap) — Revenue to stakers; fee routing being finalized'.",
+   "suggestion": "Read the live SWAP_FEE_BPS on-chain and make both pages quote the same number (or render it from constants the way /contracts does)."
+  },
+  {
+   "id": "F441",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/risks vs /contracts vs /treasury",
+   "title": "Treasury described as 'an EOA / multisig, not a smart contract' on Risks, but listed as a deployed contract (Treasury.sol) on Contracts",
+   "evidence": "Risks card: 'Treasury is an EOA / multisig, not a smart contract … There is no on-chain treasury policy.' Contracts page Core section lists 'Treasury — contracts/src/Treasury.sol — 0x7D2620...A4Bd7d — Etherscan' with a #code link; /treasury page links the same 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d as 'source ↗'.",
+   "suggestion": "One of the two is stale. If the receive address is genuinely a Safe/EOA, drop it from the contract index (or label it 'external'); if Treasury.sol is deployed at that address, update the Risks card."
+  },
+  {
+   "id": "F442",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/treasury",
+   "title": "'Recent Treasury Transactions' permanently shows 'momentarily unavailable' (prod AND dev HEAD)",
+   "evidence": "Every load of /treasury (multiple reloads, prod + localhost:5173) renders 'Treasury activity is momentarily unavailable. All activity remains auditable on the block explorer ↗.' No /api/ call for a ledger is even attempted in the network log — the feature appears hard-disabled, while the copy claims a transient outage. Dev additionally shows a 'Price oracle is stale' banner.",
+   "suggestion": "Either wire the ledger (it presumably needs the rotated Etherscan key) or change the copy to an honest 'coming soon — view on Etherscan' state. 'Momentarily' that never ends erodes the page's transparency promise."
+  },
+  {
+   "id": "F443",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "improve",
+   "page": "all pages (first visit)",
+   "title": "First-visit splash is ~15-25 s, not skippable, ends in a mandatory CLICK TO ENTER, and replays every new browser session — including on deep links to /terms and /privacy",
+   "evidence": "Deep link to /terms played the full sequence (art reveal → particle field → ring → kaleidoscope burst) before showing content (~16 s). On dev a mid-splash click did NOT skip; the sequence ended at 'TEGRIDY FARMS — CLICK TO ENTER', then a further multi-second shatter transition. Gating is per-session (replayed on the fresh localhost session despite tegridy_first_visit existing in localStorage; prod reloads within the session skip it).",
+   "suggestion": "Keep the art (constraint respected) but: add a visible Skip button from second 1, make any click/keypress fast-forward, auto-enter without the click gate, and remember entry once-ever in localStorage. Consider bypassing entirely for legal/info deep links — a user sent to /terms from a wallet prompt should not sit through 20 s of cinema."
+  },
+  {
+   "id": "F444",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/nakamigos",
+   "title": "Tradermigos has a second entry gate: CLICK TO ENTER splash + ~4 s black transition on EVERY full page load",
+   "evidence": "Both visits (fresh + reload) showed the 'TRADERMIGOS / THE DIGITAL ART GALLERY / CLICK TO ENTER' screen with progress bar; after clicking, ~4 s of near-black (single light line) before the hub renders. No remembered-entry flag — repeat visitors pay the full cost each time.",
+   "suggestion": "Remember entry (localStorage) and auto-enter on repeat visits with a quick 300-500 ms fade; keep the full cinematic for first-timers."
+  },
+  {
+   "id": "F445",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/swap",
+   "title": "Logged-out Swap tab shows zero market data — entire form replaced by a connect gate",
+   "evidence": "Swap pane shows only 'Connect your wallet to swap' + Connect Wallet button. No token pair selector, no price, no quote preview, no chart, no pool stats. Uniswap/Cow/1inch all render the full quote flow logged-out and only gate the final action. Ironically the DCA tab DOES render its full form logged-out (amount input accepted '0.05', computed 'Total cost 1.5000 ETH'), proving the pattern works.",
+   "suggestion": "Render the swap form with live quoting while disconnected; make the action button the connect CTA (RainbowKit standard). Also fixes the gate-card layout: the Connect Wallet button sits left-aligned against the card edge while the message above is centered."
+  },
+  {
+   "id": "F446",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "improve",
+   "page": "site-wide",
+   "title": "Dead RPC (eth.llamarpc.com) is retried on every page — 503/OPTIONS 521 noise on each navigation",
+   "evidence": "Every page load logged eth.llamarpc.com POST 503 or OPTIONS 521 (often 2-4 attempts); failover to ethereum-rpc.publicnode.com / rpc.ankr.com (both 200) works, so data loads, but each page pays failed-preflight latency and console/network noise.",
+   "suggestion": "Health-check and demote a failing RPC for the session (circuit breaker) instead of re-trying it first on every page; or reorder the fallback list since llamarpc has been 5xx all session."
+  },
+  {
+   "id": "F447",
+   "src": "live:info-admin-perf",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/contracts",
+   "title": "'All contracts are verified on Etherscan' claim could not be confirmed for the Wave-0 redeploys — risk of overstating",
+   "evidence": "Page header asserts: 'All contracts are verified on Etherscan.' Blockscout (proxy check; Etherscan API requires a key) has source for TOWELI ('Towelie', partial match) but returns NO name/source for TegridyStaking (0xcaDc93...), LP Farming Wave-0 redeploy (0x117126...), and SwapFeeRouter (0x6d5791...). The 06-06 deploy record states Etherscan source-verify was pending because the API key was invalid at deploy time.",
+   "suggestion": "Spot-check each address on Etherscan after rotating the API key; until then soften to 'Source for every contract is linked below' (the GitHub links already provide this)."
+  },
+  {
+   "id": "F448",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/terms (and any page, keyboard scroll)",
+   "title": "Jump-scroll (End key) leaves the viewport completely blank — in-view fade-ins only fire on wheel scroll",
+   "evidence": "Pressing End on /terms scrolled to scrollY 2650 and the screenshot was 100% empty navy; footer (top:3225, h:732) and last content section existed in DOM but were invisible. One wheel tick later everything faded in.",
+   "suggestion": "Trigger reveal animations from IntersectionObserver (fires on any scroll type) or force-complete animations for elements already in view on scroll-end; also matters for find-in-page and anchor links."
+  },
+  {
+   "id": "F449",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/terms, /security (theme toggle)",
+   "title": "Light theme is incomplete: only the header restyles; page content stays dark over a light body",
+   "evidence": "After toggling, localStorage tegridy-theme='light' and body background became rgb(245,243,255), but every content section still painted dark backgrounds — net effect is an orange header bolted onto the dark site. Nav links (purple on orange) have weak contrast.",
+   "suggestion": "Either finish light-theme coverage for the info pages or hide the toggle on pages that don't support it; current state reads as a bug."
+  },
+  {
+   "id": "F450",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "wrong",
+   "page": "site-wide (bottom-right)",
+   "title": "Mascot avatar overlaps the 'Protocol Active' price status chip",
+   "evidence": "Zoomed screenshot on /admin and / shows the floating Towelie avatar covering the right end of the 'Protocol Active $0.0000...' chip — the price value is partially hidden behind the mascot at default position.",
+   "suggestion": "Offset the status chip left of the mascot or stack them; both elements are pinned to the same corner."
+  },
+  {
+   "id": "F451",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "improve",
+   "page": "/treasury",
+   "title": "Stat cards mix em-dash and zero for the same meaning",
+   "evidence": "LIFETIME FEES shows '–' as the headline but '0.0000 ETH routed' as the subtitle; TREASURY BALANCE shows '0 ETH' with '–' beneath; POL HOLDINGS '–' with '0.00% of LP supply'. Dash conventionally signals 'failed to load', which undermines the 'live on-chain view' framing when the real value is just zero.",
+   "suggestion": "Show explicit zeros ('0 ETH', '$0.00') when the read succeeded and reserve '–' for read failures."
+  },
+  {
+   "id": "F452",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "improve",
+   "page": "/risks, /contracts (GitHub doc links)",
+   "title": "Doc links point at /blob/main/ while the repo default branch is mvp-launch",
+   "evidence": "FIX_STATUS.md, AUDITS.md, CONTRACTS.md, docs/WAVE_0_TODO.md etc. all link to github.com/fomotsar-commits/tegridy-farms/blob/main/...; gh API confirms repo is public, the files exist on main, but default branch is mvp-launch — main can drift stale and silently serve outdated audit/status info.",
+   "suggestion": "Point doc links at the default branch (or pin to a commit SHA regenerated at build time, matching the 'Last regenerated from constants.ts' pattern)."
+  },
+  {
+   "id": "F453",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "improve",
+   "page": "/ and /farm",
+   "title": "21,434% APR displayed raw as the headline number",
+   "evidence": "Home ticker 'Base APR 21,434%' (with small 'early-stage' tag) and /farm stat card 'STAKING APR 21,434%' with sub-caption 'early-TVL bootstrap rate — normalizes as TVL grows'. The caption is honest, but a 5-digit APR is the classic rug-signal heuristic for experienced DeFi users.",
+   "suggestion": "Additionally show the projected APR at a reference TVL (e.g. 'at $100k TVL: ~X%') or cap the headline with a '>999%' style treatment plus the explainer tooltip."
+  },
+  {
+   "id": "F454",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nakamigos vs footer",
+   "title": "Revenue-destination copy conflicts: 'every fee funds the treasury' vs '100% of protocol revenue goes to stakers'",
+   "evidence": "Tradermigos hub subtitle: 'Native listings: one flat 1% fee, every fee funds the treasury'. Site footer (every page): '100% of protocol revenue goes to stakers.' Treasury page shows Revenue Distribution = Stakers 100% (10000 bps), Treasury 0% (inactive).",
+   "suggestion": "Align the Tradermigos line with the actual split ('1% fee — routed to stakers via the revenue distributor') or qualify which fees differ."
+  },
+  {
+   "id": "F455",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nakamigos",
+   "title": "Hub fires 9 sequential /api/alchemy calls and /api/orderbook takes ~2.4 s",
+   "evidence": "Resource timing: 9x /api/alchemy (200, 0.8-1.3 s each), 3x /api/orderbook (200, ~2.38 s each), total page ~250 requests / ~6.8 MB compressed — the heaviest page audited.",
+   "suggestion": "Batch the alchemy reads (multicall or one serverless fan-out) and cache orderbook stats server-side; would cut hub time-to-data roughly in half."
+  },
+  {
+   "id": "F456",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "missing",
+   "page": "/farm (logged out)",
+   "title": "Connect gate hides all pool/tier data from prospective stakers",
+   "evidence": "Logged-out /farm shows 5 stat chips + 'Connect to farm with tegridy' card; no lock-tier table (7d-4yr multipliers exist — the home calculator proves the data is client-side), no current pool TVL breakdown, no reward schedule.",
+   "suggestion": "Render the tier/boost table and live pool stats read-only below the gate; gate only the position widgets. (Additive — keeps the existing art and card.)"
+  },
+  {
+   "id": "F457",
+   "src": "live:info-admin-perf",
+   "severity": "low",
+   "category": "missing",
+   "page": "/treasury",
+   "title": "No historical dimension on a transparency page",
+   "evidence": "Page is a snapshot only ('as of block #25299228'): no fees-over-time chart, no TVL history, no distribution history, and the tx ledger is down (see separate finding).",
+   "suggestion": "Add a small fees/TVL sparkline once the indexer is live; even 7-day history materially strengthens the 'public transparency' framing."
+  },
+  {
+   "id": "F458",
+   "src": "live:info-admin-perf",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/swap tabs",
+   "title": "Tab naming mismatch: 'Alerts' tab → URL ?tab=limit → page title 'Price Alert'",
+   "evidence": "Clicking the 'Alerts' tab navigates to /swap?tab=limit and sets document.title 'Price Alert | Tegridy Farms'; heading says 'Price Alert'.",
+   "suggestion": "Pick one name (Alerts or Limit) across tab label, URL param, and title for shareable-URL clarity."
+  },
+  {
+   "id": "F459",
+   "src": "live:info-admin-perf",
+   "severity": "polish",
+   "category": "improve",
+   "page": "footer (all pages)",
+   "title": "Contract-address copy chip gives minimal feedback",
+   "evidence": "Clicking the copy icon next to 0x420698...278F9D swaps the glyph briefly; no toast/checkmark color change was clearly visible in zoom — at a glance the user cannot tell the copy happened.",
+   "suggestion": "Brief green check + 'Copied' tooltip (the pattern already common in DeFi UIs)."
+  },
+  {
+   "id": "F460",
+   "src": "live:info-admin-perf",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/privacy",
+   "title": "Repo file paths cited inline in user-facing legal text without links",
+   "evidence": "'see frontend/src/lib/errorReporting.ts for the exact scrub regex', 'preserved in the frontend/src/pages/PrivacyPage.tsx git history', 'docs/SECRET_ROTATION.md', plus a stray 'Basescan' mention though the app is Ethereum-mainnet only.",
+   "suggestion": "Hyperlink the file references to GitHub (the transparency is great — make it one click) and drop/justify the Basescan mention."
+  },
+  {
+   "id": "F461",
+   "src": "live:info-admin-perf",
+   "severity": "polish",
+   "category": "improve",
+   "page": "info pages on ultrawide (3432x1308)",
+   "title": "Data-dense pages keep a narrow center column; ultrawide width is mostly art/empty margin",
+   "evidence": "Terms/Privacy/Risks use a comfortable reading column (good line length — correct call). But /contracts (31 address rows) and /treasury also confine to the same ~half-width column, leaving very large side margins on a 3432px display; the contracts list scrolls long while the sides sit empty.",
+   "suggestion": "At >2000px, let /contracts go two-column per section (name+source left, address+links right already exist — two cards side by side) and widen /treasury stat row. Additive; background art untouched."
+  },
+  {
+   "id": "F462",
+   "src": "live:info-admin-perf",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/admin",
+   "title": "Gate card has no inline connect action",
+   "evidence": "'Admin Panel — Connect your wallet to access this page.' renders with no button; the user must find the header Connect. (Gate itself is clean: 693 chars in DOM, zero admin controls leaked, no console errors, no spinner.)",
+   "suggestion": "Add a Connect Wallet button inside the card, mirroring /farm's gate."
+  }
+ ]
+}

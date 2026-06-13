@@ -1,0 +1,807 @@
+{
+ "group": "g12_naka_market",
+ "sourceAgents": [
+  "code:naka-market",
+  "live:naka-market"
+ ],
+ "findings": [
+  {
+   "id": "F630",
+   "src": "code:naka-market",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "Cancel order — BidManager / MyListings / MyCollection / OrderBookPanel (api-offers.js)",
+   "title": "Seaport cancel() ABI encodes totalOriginalConsiderationItems into the counter slot — cancels a phantom order; the real listing/bid stays live and fillable while UI reports success",
+   "evidence": "Four copies of the same broken ABI end the OrderComponents tuple with `uint256 totalOriginalConsiderationItems` instead of `uint256 counter`: api-offers.js:668 (cancelOrder), BidManager.jsx:279 (cancelBid), MyListings.jsx:353, OrderBookPanel.jsx:66 — e.g. \"function cancel(tuple(... bytes32 conduitKey, uint256 totalOriginalConsiderationItems)[] orders)\". Seaport's cancel() takes OrderComponents whose last field is the signer's counter and derives the order hash from it. ethers v6 encodes object values for named tuple components BY NAME, so `seaport.cancel([params])` (api-offers.js:675, BidManager.jsx:286, MyListings.jsx:356, OrderBookPanel.jsx:69) pulls params.totalOriginalConsiderationItems (2 or 3) into the counter slot — params.counter (OpenSea orders) is ignored, and native-order params (built in orderbook.js:271-313) have no counter at all. With a real counter of 0, the derived hash never matches the signed order; the cancel tx mines successfully (gas burned, OrderCancelled emitted for a phantom hash), the UI optimistically removes the row and toasts 'cancelled successfully' (BidManager.jsx:442-444, MyListings.jsx:389-390), but the WETH bid / listing remains 100% fillable. Observable symptom: the 'cancelled' bid reappears on the next 30s refresh. The repo already contains the correct pattern — trades.js:955-972 cancelTradeOnChain uses `uint256 counter` in the ABI and fetches the live `getCounter(address)` before encoding.",
+   "suggestion": "Replace the four broken cancel paths with the trades.js cancelTradeOnChain pattern: ABI tuple ending in `uint256 counter`, fetch `getCounter(offerer)` live, and build the components object explicitly. Add a regression test asserting the derived hash equals order_hash/seaportOrderHash before sending. Until fixed, every 'Cancel' button in BidManager/MyListings/MyCollection/OrderBookPanel is a silent no-op that costs gas."
+  },
+  {
+   "id": "F631",
+   "src": "code:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Trade accept + native buy (trades.js, orderbook.js)",
+   "title": "Rejecting the post-success backend-notify signature makes a CONFIRMED on-chain trade/purchase report as 'cancelled' (and ShoppingCart keeps the bought item)",
+   "evidence": "After fulfillOrder confirms, the code prompts a second wallet signMessage to notify the backend, OUTSIDE any local try/catch: trades.js:602 `const fillSignature = await signer.signMessage(fillMessage);` (acceptTrade), trades.js:889 (acceptOpenTrade), orderbook.js:178 (fulfillNativeOrder). If the user rejects this informational prompt, the outer catch maps it to rejection — trades.js:618-619 returns `{ error: \"rejected\", message: \"Trade cancelled by user\" }`, orderbook.js:215-216 returns \"Transaction cancelled by user\" — even though the swap/purchase already settled on-chain. Consumers then mislead: TradeCard.run silences 'rejected' and never refreshes (TradesPanel.jsx:217-222), ShoppingCart breaks the sweep loop and leaves the now-OWNED item in the cart (ShoppingCart.jsx:264-266), and recordTransaction is never called.",
+   "suggestion": "Wrap the notify signMessage in its own try/catch that swallows rejection and still returns `{ success: true, hash }` (the backend already self-heals via the pre-flight getOrderStatus check). Better: drop the second prompt entirely by letting the server verify the fill from the tx receipt/OrderFulfilled event, as the code comments already contemplate."
+  },
+  {
+   "id": "F632",
+   "src": "code:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "BundleListing (My Collection → Bundle)",
+   "title": "Bundle listing is a fake flow — no order is created, but the user gets a success-style toast and fee breakdown",
+   "evidence": "BundleListing.jsx:108-122 handleSubmit: `await new Promise((r) => setTimeout(r, 600)); addToast(\"Bundle listing submitted! Your NFTs will be listed as a package.\", \"info\"); onListingCreated?.(); onClose();` — no wallet interaction, no Seaport order, no API call. The modal shows price input, duration selector, platform-fee breakdown and 'You Receive' (lines 296-335) for a listing that never exists. This directly contradicts the project's honesty-pass mandate (commit 7639fdf 'honesty pass across every promise surface').",
+   "suggestion": "Either wire it to a real Seaport bundle order (one order with N ERC-721 offer items — createNativeListing already has every building block) or gate the button behind a 'Coming soon' state. Do not ship a simulated success toast on a money surface."
+  },
+  {
+   "id": "F633",
+   "src": "code:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "RaritySniper → ShoppingCart",
+   "title": "Sniper '+ Cart' adds raw listing objects (no id/name/image) — items render blank, dedupe collides on undefined, and the sweep ALWAYS skips them as 'no longer listed'",
+   "evidence": "RaritySniper.jsx:333 `onAddToCart?.(item.listing)` passes the raw fetchListings shape ({tokenId, price, orderHash…}, no `id`) — App.jsx:662-666 confirms `listings={listings}` (raw) and `onAddToCart={addToCart}`. CartContext.jsx:24 dedupes on `String(n.id)` so a second sniper-add silently no-ops (\"undefined\" === \"undefined\") and removeFromCart(undefined) removes every sniper item at once. ShoppingCart then can never match them: ShoppingCart.jsx:40 and :242 `listings.find(l => String(l.tokenId) === String(item.id))` never matches (item.id undefined) → staleItems always flags them and handleConfirmSweep hits `if (!currentListing) { addToast(\"…no longer listed — skipping\"); onRemove(item.id); }` (ShoppingCart.jsx:243-247) — sniper-added items are unbuyable by construction. Contrast: Listings.jsx builds enriched `listedNfts` with id/name/image before any cart/sweep use (Listings.jsx:156-191).",
+   "suggestion": "In RaritySniper, add `{...item.listing, id: item.tokenId, name: item.token.name, image: item.token.image}` (it already has `item.token`), or normalize inside addToCart to key on tokenId."
+  },
+  {
+   "id": "F634",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "MakeOfferModal",
+   "title": "Typing exponential notation ('1e-8', '2e3') into the offer price crashes the render via BigInt()",
+   "evidence": "MakeOfferModal.jsx:290-292 (and again 308-310): `const [whole = \"0\", frac = \"\"] = price.split(\".\"); const priceWei = BigInt(whole) * BigInt(1e18) + …` — type=\"number\" inputs accept 'e' notation, so price=\"1e-8\" passes the `parseFloat(price) > 0` guard but `BigInt(\"1e-8\")` throws a SyntaxError inside the render IIFE, crashing the modal (caught only by the route error boundary).",
+   "suggestion": "Use viem's parseEther inside a try/catch (already imported in api-offers.js) or sanitize with a decimal regex before the BigInt math; reject 'e/E' in onChange like the trade window inputs should too."
+  },
+  {
+   "id": "F635",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "BulkListingWizard",
+   "title": "'Trait Floor' pricing strategy is dead code — attr.traitFloor is never populated, so it silently prices everything at collection floor",
+   "evidence": "BulkListingWizard.jsx:138 and :501 `const tf = attr.traitFloor || 0;` — repo-wide grep shows no code ever sets `traitFloor` on token attributes (Deals.jsx and TraitExplorer.jsx compute their own separate maps). normalizeToken (api.js:114-120) maps attributes to {key, value} only. Result: a seller choosing 'Price each by highest trait floor' (PRICING_MODES desc, line 23) gets `base = maxTraitFloor > 0 ? maxTraitFloor : floor` → always floor — rare NFTs are listed at floor price with no warning.",
+   "suggestion": "Feed the wizard the trait-floor map Deals.jsx already computes from live listings (Deals.jsx:479-505), or disable the mode with an explanatory tooltip until wired."
+  },
+  {
+   "id": "F636",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "BulkListingWizard (ladder mode)",
+   "title": "Ladder pricing gives the RAREST NFT the START price — with the suggested placeholders (0.10 → 0.50) the rarest item lists cheapest",
+   "evidence": "BulkListingWizard.jsx:148-152 (dup at 510-514): `const sorted = [...selectedNfts].sort((a,b) => (a.rank||99999)-(b.rank||99999));` then `price = start + ((end - start) * i) / (count - 1)` — i=0 is the rarest (rank 1) and receives `start`. Input placeholders are START '0.10' and END '0.50' (lines 241, 258), so following the UI's own example prices the rarest token at 0.10 and the most common at 0.50 — inverted from the 'Distribute prices by rarity' expectation.",
+   "suggestion": "Either reverse the assignment (rarest gets END/highest) or relabel inputs explicitly ('Rarest item price' / 'Most common item price') and swap the placeholders. Show the resulting min/max next to the rarest/commonest thumbnails in the table for confirmation."
+  },
+  {
+   "id": "F637",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "SweepCalculator",
+   "title": "Gas estimate hardcodes 30 gwei — 'EST. GAS' is ~30-300× too high at current ~0.1-1 gwei basefees",
+   "evidence": "SweepCalculator.jsx:13-16 `function estimateGas(count, gasPriceGwei = 30)` is only ever called as `estimateGas(effectiveCount)` (lines 224, 234) — never with a live gas price. ShoppingCart fetches live feeData (ShoppingCart.jsx:111-118) but its fallback uses the same stale `0.0045 // ~150k gas * 30 gwei` constant (line 104). This is the same class of stale-gas display the project already diagnosed in the swap-gas investigation (project_2026_06_07_swap_gas_diagnosis).",
+   "suggestion": "Reuse ShoppingCart's provider.getFeeData() path (or a cached eth_gasPrice via the Alchemy proxy) and fall back to a clearly-labeled 'rough estimate' only when no provider exists."
+  },
+  {
+   "id": "F638",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "DepthChart.jsx (Listings page)",
+   "title": "Bid-side cumulative depth accumulates in ascending price order — inverted bid-depth curve that contradicts the other depth chart on the same page",
+   "evidence": "DepthChart.jsx:28-31 bucketPrices accumulates `cum` over buckets built low→high price for BOTH sides; bid depth should be 'bids at or above price' (cumulative grows as price falls). OrderBookPanel's embedded chart does it correctly: OrderBookPanel.jsx:415 `bucketize(bidPrices, 8).reverse()` then accumulates (lines 419-420), so the highest bid has the smallest cumulative. Listings.jsx renders BOTH (line 485 OrderBookPanel, line 488 standalone DepthChart) — the two visualizations disagree about the same bids.",
+   "suggestion": "In DepthChart.jsx, accumulate bid buckets from highest price down (mirror OrderBookPanel.jsx:415-420), and consider extracting one shared bucketize/cumulate helper so the two charts can't drift again."
+  },
+  {
+   "id": "F639",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "CollectionOffersPanel / TraitBidPanel (deriveTraitOffers)",
+   "title": "Collection/trait offer prices likely show the offer's TOTAL value, not per-item — quantity is fetched but never used",
+   "evidence": "api-offers.js:115-122 maps `price: safePriceFromWei(o.price.value)` and explicitly captures `quantity: o.protocol_data?.parameters?.offer?.[0]?.startAmount || \"1\"`, but no consumer divides by it: CollectionOffersPanel.jsx:96/114 renders offer.price directly as 'BEST COLLECTION OFFER', deriveTraitOffers (api-offers.js:138-148) compares raw o.price. For a 10-unit criteria offer of 1 WETH total, the panel would advertise a 1.0 WETH best offer when the per-item bid is 0.1. UNVERIFIED HYPOTHESIS regarding OpenSea's price.value semantics for multi-quantity criteria offers — verify against a live multi-quantity offer before patching.",
+   "suggestion": "Confirm semantics against the OpenSea API, then display `price / Number(quantity)` with a 'xN' badge like OpenSea's own offers table."
+  },
+  {
+   "id": "F640",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "BidManager — Received Offers tab",
+   "title": "Expired/cancelled/finalized offers are not filtered out and show live Accept buttons",
+   "evidence": "BidManager.jsx:368-375 maps fetchTokenOffers results straight into receivedOffers; fetchTokenOffers (api-offers.js:74-87) returns normalizeOffer objects including `cancelled`/`finalized`/`expiry` but applies no filter. Contrast OfferPanel.jsx:135-139 which filters `o.expiry … ms > Date.now()` before rendering. Accepting a dead offer walks into setApprovalForAll + a fulfillment_data error ('Could not get fulfillment data').",
+   "suggestion": "Apply the same `!o.cancelled && !o.finalized && !expired` filter OfferPanel uses, and show timeLeft coloring (expiryColor already exists in the file)."
+  },
+  {
+   "id": "F641",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "TradesPanel",
+   "title": "API failure renders as 'No active trades' — fetch error is silently discarded",
+   "evidence": "TradesPanel.jsx:414 `const { trades: rows } = await fetchTrades({ wallet, role: direction, status: statusFilter });` — fetchTrades returns `{ trades: [], error }` on non-OK/network failure (trades.js:422-426) but `error` is never read; the panel then shows the 'No … trades' empty state (TradesPanel.jsx:502-511). During an /api/orderbook outage a user with live incoming trades sees an empty inbox with no retry affordance — exactly the misleading-emptiness pattern the 2026-06-09 magnetism review flagged.",
+   "suggestion": "Capture the error and render the error-banner + Retry pattern MyCollection uses (MyCollection.jsx:362-367) instead of the empty state."
+  },
+  {
+   "id": "F642",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "ShoppingCart + SweepCalculator",
+   "title": "Sweeps are N sequential wallet transactions — no Seaport batch fill and no reuse of the existing EIP-5792 atomic-batch helper",
+   "evidence": "ShoppingCart.jsx:237-258 and SweepCalculator.jsx:288-293 loop `await fulfillNativeOrder(...) / fulfillSeaportOrder(...)` once per item — one wallet confirmation and one base-tx gas overhead per NFT. Seaport natively supports fulfillAvailableAdvancedOrders (already allowlisted in SEAPORT_FULFILLMENT_FUNCTIONS, api.js:13-14), and trades.js:120-168 already implements tryAtomicBatch (wallet_sendCalls) used by acceptTrade — neither is used for sweeps.",
+   "suggestion": "Batch native+OpenSea fills into one fulfillAvailableAdvancedOrders call (skip-on-fail semantics built into Seaport), or at minimum wrap the sequential calls in tryAtomicBatch for 5792 wallets. This is the single biggest UX/gas gap vs Blur/Gem."
+  },
+  {
+   "id": "F643",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "BidManager — Received Offers tab",
+   "title": "Polling storm: ~21 OpenSea proxy calls every 30 seconds, bypassing the app's own React Query rate-limit policy",
+   "evidence": "fetchReceivedOffers (BidManager.jsx:355-382) calls fetchWalletNfts then fetchTokenOffers for 20 tokens in parallel, and the interval re-runs it every 30s (BidManager.jsx:428-432 REFRESH_INTERVAL = 30_000). queryConfig.js:47-52 documents that 30s 'was too aggressive for rate-limited API' and sets offers staleTime to 2 minutes — BidManager ignores that layer entirely (raw openseaGet, no cache).",
+   "suggestion": "Move these fetches into React Query with the offersQuery config (shared cache with OfferPanel), or lengthen the interval and skip refetch when document.hidden (TradesPanel already does the hidden check, line 424)."
+  },
+  {
+   "id": "F644",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Deals",
+   "title": "'Fair Value' / 'Total Savings' methodology is gameable by a single outlier ask — no sample-size or sanity guard on trait floors",
+   "evidence": "Deals.jsx:479-505 builds per-trait floors from the two lowest ASKS sharing the trait, and discount = (maxTraitFloor - price)/maxTraitFloor (line 572). For a sparse trait with only one other listing, that one ask IS the 'fair value' — anyone listing a rare-trait token at 100 ETH makes every other listing with that trait a '90%+ deal'. The header even labels the column 'Fair Value' (line 901) and sums `maxTraitFloor - price` as 'Total Savings' (line 682). Asks-only, no sales data, no minimum cohort.",
+   "suggestion": "Additive guardrails: require ≥3 listings per trait before a trait floor counts, cap maxTraitFloor at e.g. 5× collection floor (valuation.js already caps at 5× for the same reason), and blend recent sales (fetchTokenSalesHistory exists). Label the column 'Trait floor' instead of 'Fair Value'."
+  },
+  {
+   "id": "F645",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "RaritySniper",
+   "title": "Snipe score saturates at 999 and is dominated by price index near the floor — ordering is barely rarity-driven where it matters",
+   "evidence": "RaritySniper.jsx:10-14: `priceScore = Math.max(0.01, pricePercentile)` floors the cheapest listing at 0.01, so score = rarityScore/0.01*10 = rarity×1000, capped `Math.min(…, 999)` — any token rarer than ~the bottom 0.1% pins at 999 when it's among the cheapest, and ties are broken arbitrarily. The 'deal score' is thus not defensible as a ranking near the floor.",
+   "suggestion": "Score = actual price vs expected price for that rank (residual from the rank-price regression Deals' ScatterPlot already computes, Deals.jsx:298-316). Keep the current score as a fallback when fewer than ~10 listings exist."
+  },
+  {
+   "id": "F646",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "OfferPanel (NFT detail modal)",
+   "title": "30-second poll resets the panel to skeletons every cycle and successful accepts surface generic errors / stale lists",
+   "evidence": "OfferPanel.jsx:15-27: every interval tick calls `setLoading(true)` then replaces state, so `{loading ? skeleton : …}` (line 121) flashes skeletons over real offers every 30s. handleAccept discards the specific failure reason — line 48 `addToast?.(\"Failed to accept offer. Please try again.\", \"error\")` while acceptOffer returns precise messages ('Could not get fulfillment data', 'Unexpected transaction target — aborting for safety', api-offers.js:732/745/753); success doesn't trigger an immediate refetch (accepted offer lingers until next poll).",
+   "suggestion": "Keep previous data while refetching (only show skeletons when offers.length===0), pass result.message through getFriendlyError, and call load() after a successful accept."
+  },
+  {
+   "id": "F647",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "TradeWindow / OpenTradeAccept / MyCollection / BidManager",
+   "title": "Wallet inventory is silently truncated at 100 NFTs (no pagination) across every trade/list surface",
+   "evidence": "fetchWalletNfts (api.js:598-614) requests `pageSize: \"100\"` and never follows a pageKey. TradeWindow.loadInventory (137-151), OpenTradeAccept (TradesPanel.jsx:75-91), MyCollection (98-108, while displaying full `totalCount` at line 209), and BidManager.fetchReceivedOffers (359) all consume it. A 150-NFT whale cannot offer/select/list 50 of their tokens and gets no notice.",
+   "suggestion": "Loop pageKey until exhausted (cap ~500 like MAX_MY_PAGES) or show 'showing first 100 of N' with a load-more control when totalCount > tokens.length."
+  },
+  {
+   "id": "F648",
+   "src": "code:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "SweepCalculator / Deals buy paths",
+   "title": "Pre-flight order validation is inconsistent: cart validates (3 layers), sweep and deals buys do not",
+   "evidence": "ShoppingCart runs validateOrderFillability on every item and auto-removes red ones before confirming (ShoppingCart.jsx:132-187). SweepCalculator.handleSweep (266-315) and Deals.handleBuy (640-674) call fulfill* directly with no Layer-1/2/3 checks — stale/cancelled listings reach the wallet and fail with a revert mid-sweep (SweepCalculator stops the whole sweep on first generic failure, line 304-307).",
+   "suggestion": "Run validateOrderQuick over the sweep list first (it's cheap and already written), drop reds with a toast, and in SweepCalculator continue past per-item failures the way ShoppingCart does instead of break-ing."
+  },
+  {
+   "id": "F649",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "OrderBookPanel — Native Listings header",
+   "title": "'Save 0.5% vs OpenSea' badge markets a fee discount built on an assumed ~0.5% royalty — contradicts the standing 'don't market a fee discount' decision",
+   "evidence": "OrderBookPanel.jsx:16 `const OPENSEA_FEE_PCT = 1.5; // OS 1% + ~0.5% avg creator royalty` and line 208 renders `Save {savingsPerEth}% vs OpenSea`. Project memory (2026-06-09 Tradermigos) records 'OpenSea fee is 1% now (don't market a fee discount)'. The comparison also omits that native fills pay NO creator royalty (createNativeListing consideration is seller+platform only, orderbook.js:281-298) — a material disclosure for royalty-respecting collections.",
+   "suggestion": "Reframe additively as 'flat 1% — fees fund the Tegridy treasury' (the framing orderbook.js:4-6 already prescribes) and disclose that creator royalties are not collected on native fills."
+  },
+  {
+   "id": "F650",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "lib/orderbook.js",
+   "title": "Stale comment still claims 'vs OpenSea 2.5%'",
+   "evidence": "orderbook.js:227 `// List an NFT on our orderbook at 1% fee (vs OpenSea 2.5%)` — contradicts the corrected header at orderbook.js:4-6 ('OpenSea has charged ~1% since Sep 2025 — don't market this as a fee discount') and constants.js:143-144 (OPENSEA_FEE_BPS = 100).",
+   "suggestion": "Fix the comment so the next copy-paste doesn't resurrect the 2.5% claim in UI copy."
+  },
+  {
+   "id": "F651",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "TransactionHistory",
+   "title": "Empty-state copy promises offers and bids, but only purchases are ever recorded",
+   "evidence": "TransactionHistory.jsx:103 'Purchases, offers, and bids you make for this collection will appear here.' — every recordTransaction caller uses type:\"buy\" only (Listings.jsx:324, Modal.jsx:435, OrderBookPanel.jsx:146, SweepCalculator.jsx:297, ShoppingCart.jsx:261, Deals.jsx:657). TYPE_LABELS for offer/bid/list/cancel (lines 38-42) are dead.",
+   "suggestion": "Record 'list' in createNativeListing/BulkListingWizard success, 'offer/bid' in MakeOfferModal success, 'cancel' in the cancel paths — or soften the copy to 'Purchases you make…'."
+  },
+  {
+   "id": "F652",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "TradesPanel — board tab",
+   "title": "Board tab's empty state shows inbox/outbox copy ('Trades you send will appear here…') instead of board copy",
+   "evidence": "TradesPanel.jsx:506-510: the empty-state ternary only branches on `direction === \"incoming\"`, so direction \"board\" falls into the outgoing text 'Trades you send will appear here. Start one with \"New trade offer\".' — wrong call-to-action for the public board (should point at '+ Post to board'). Also the status filter (line 490) lacks an 'expired' option though STATUS_COLOR styles it (line 198).",
+   "suggestion": "Add a board branch ('Open trades anyone can accept will appear here — post the first one') and an 'expired' filter option."
+  },
+  {
+   "id": "F653",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "lib/orderbook.js — fetchNativeListings",
+   "title": "Retry wrapper shares one 15s AbortController across attempts and clears the timeout after attempt 1 — later retries have no timeout (or get pre-aborted)",
+   "evidence": "orderbook.js:40-51: `const timeout = setTimeout(() => controller.abort(), 15000)` is created once outside withRetry; `clearTimeout(timeout)` runs inside the first attempt after fetch resolves (line 45) even when `!res.ok` throws to trigger a retry — retries 2-3 then run with no timeout, and if the first attempt itself hung >15s the shared controller aborts all subsequent retries immediately.",
+   "suggestion": "Create the controller+timeout inside the retried function (the pattern postOrderbook in trades.js:46-70 already gets right)."
+  },
+  {
+   "id": "F654",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "BidManager — My Bids",
+   "title": "My Bids fetch is unpaginated (default page size) while the overcommitment math elsewhere paginates — heavy bidders see a truncated list",
+   "evidence": "BidManager.jsx:336-341 calls openseaGet('orders/ethereum/seaport/offers', {maker, …}) once with no limit/cursor handling; api-offers.js fetchMyOffers (557-594) paginates up to 500 with `MAX_MY_PAGES`. A user with >20-50 open bids manages only the first page from the Bid Manager.",
+   "suggestion": "Reuse fetchMyOffers (it already normalizes + filters expiry) instead of the bespoke fetch in BidManager."
+  },
+  {
+   "id": "F655",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "MyListings — Cancel All",
+   "title": "Cancel All signs one backend message per listing after the single incrementCounter tx — N sequential wallet popups",
+   "evidence": "MyListings.jsx:430-451: after `seaport.incrementCounter()` the loop does `await signer.signMessage(cancelMessage)` + POST per listing. 15 listings = 15 surprise signature prompts; a rejection mid-loop leaves the DB half-synced (rows stay 'active' though on-chain dead).",
+   "suggestion": "One signed message covering all orderHashes (server verifies the list), or have the server watch the CounterIncremented event and bulk-expire rows without client signatures."
+  },
+  {
+   "id": "F656",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "BulkListingWizard",
+   "title": "Bulk listing = 2 wallet prompts per NFT with no upfront warning, and Escape closes the progress UI mid-flight",
+   "evidence": "Each createNativeListing performs an EIP-712 sign + an auth signMessage (orderbook.js:323, 351) — 10 NFTs ≈ 20+ prompts, never disclosed in the review step. The Escape handler (BulkListingWizard.jsx:538-539) calls onClose() without checking `submitting` (backdrop and ✕ button do check, lines 641/655), so Esc during submission hides the progress bar while the loop keeps firing toasts.",
+   "suggestion": "Add 'you will be asked to sign ~2N times' to StepReview, gate Escape on !submitting, and consider folding the auth message into the EIP-712 payload server-side to halve prompts."
+  },
+  {
+   "id": "F657",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "BidManager — Counter button",
+   "title": "'Counter' doesn't counter — it just opens the token detail modal",
+   "evidence": "BidManager.jsx:474-478 handleCounter: `const token = resolveToken(offer.tokenId); if (token && onPick) onPick(token);` — no prefilled counter-offer amount, no link to the received offer; if the token isn't in the loaded map it does nothing at all (silent no-op). TradesPanel has a real counter flow with prefilled sides (TradesPanel.jsx:430-435) — inconsistent affordance.",
+   "suggestion": "Open MakeOfferModal prefilled (or a relist-at-price dialog) and disable the button with a tooltip when resolveToken fails."
+  },
+  {
+   "id": "F658",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "TransactionProgress (Modal buys only)",
+   "title": "The polished tx-progress overlay is wired into just 1 of 5 buy surfaces; speed-up failures are silent; approve step never activates",
+   "evidence": "Only Modal.jsx uses it (Modal.jsx:127, 652) — ShoppingCart/SweepCalculator/Deals/OrderBookPanel buys are toast-only. handleSpeedUp swallows errors with console.warn (TransactionProgress.jsx:623-625) so a wallet that refuses custom-nonce replacement gives zero feedback. The APPROVE step is marked COMPLETED whenever phase==='signing' (lines 734-737) — it never shows an active 'approving…' state even when approval is actually running inside onExecute. Note also fulfill* helpers internally `tx.wait()` before returning, so the overlay's 'Pending' phase starts after confirmation — PendingMonitor resolves instantly, making the stepper's pending estimate cosmetic.",
+   "suggestion": "Adopt the overlay for cart/sweep/deals/orderbook buys (it accepts an onExecute), toast on speed-up failure, and have onExecute resolve at broadcast (return the tx, let PendingMonitor own confirmation) so the pending phase is real."
+  },
+  {
+   "id": "F659",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "CollectionOffersPanel",
+   "title": "Fixed two-column grid has no mobile breakpoint",
+   "evidence": "CollectionOffersPanel.jsx:77 `display: \"grid\", gridTemplateColumns: \"1fr 1fr\"` with no media query or auto-fit — at iPhone widths each column is ~150px and trait rows ('Shirt/Jacket: Hoodie Orange … 3 offers … Ξ0.1234') wrap awkwardly. Project requirement: flawless on iPhone 14+ (project_responsive).",
+   "suggestion": "Use `repeat(auto-fit, minmax(260px, 1fr))` so the columns stack on narrow viewports."
+  },
+  {
+   "id": "F660",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "Deals / DepthChart canvases",
+   "title": "Canvas/SVG market visualizations are mouse-only — no keyboard or screen-reader path to the data",
+   "evidence": "Deals.jsx ScatterPlot canvas (390-395) exposes points only via mousemove/click; DepthChart.jsx tooltip only via onMouseMove (263). Neither has role/aria-label/focusable fallbacks or a data-table alternative. (Contrast: TradeWindow tiles correctly use role=checkbox + tabIndex + keydown, TradeWindow.jsx:52-55 — the pattern exists in-repo.)",
+   "suggestion": "Add aria-label summaries (the DepthChart auto-summary text already exists — link it via aria-describedby) and a visually-hidden table of deal points."
+  },
+  {
+   "id": "F661",
+   "src": "code:naka-market",
+   "severity": "polish",
+   "category": "improve",
+   "page": "MyListings rows",
+   "title": "Floor-distance is printed twice per row in two formats",
+   "evidence": "MyListings.jsx:603-605 renders `+12.3% from floor` in cardMeta and lines 612-616 render `12% above floor` again in the row below, computed two different ways (toFixed(1) vs Math.round) — same fact, two numbers that can disagree after rounding.",
+   "suggestion": "Keep one (the health badge already encodes the same signal) and let the second row show something additive, e.g. expiry date."
+  },
+  {
+   "id": "F662",
+   "src": "code:naka-market",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Deals — new deals badge",
+   "title": "'Click to refresh view' badge doesn't refresh anything — the table is already live",
+   "evidence": "Deals.jsx:800-806 onClick only does `setNewDealsCount(0); window.scrollTo(...)` — deals recompute reactively the moment listings change (useMemo at 527), so the copy promises an action that already happened.",
+   "suggestion": "Copy: 'N new deals — jump to top'. Consider holding new rows out of the table until clicked (true Dexscreener-style pause) if the intent was stability."
+  },
+  {
+   "id": "F663",
+   "src": "code:naka-market",
+   "severity": "polish",
+   "category": "improve",
+   "page": "BidManager / TransactionHistory theming",
+   "title": "var(--border) used as card BACKGROUND token",
+   "evidence": "BidManager.jsx styles.card `background: \"var(--border)\"` (line 55) and TransactionHistory.jsx:128 `background: \"var(--border)\", border: \"1px solid var(--border)\"` — border-color token doubling as surface fill; other panels use var(--surface-glass). Any theme that darkens borders silently changes these cards.",
+   "suggestion": "Switch to var(--surface-glass)/var(--card) for fills to match TradesPanel cards."
+  },
+  {
+   "id": "F664",
+   "src": "code:naka-market",
+   "severity": "polish",
+   "category": "improve",
+   "page": "ShoppingCart / SweepCalculator hover states",
+   "title": "Hover styling via onMouseEnter style mutation instead of CSS classes",
+   "evidence": "ShoppingCart.jsx:407-408, 518-527, 769-770, 789-796 mutate e.currentTarget.style on every hover; these bypass the app's CSS layer (no touch/focus-visible equivalents, no reduced-motion respect) and add re-entrant listeners on a hot list.",
+   "suggestion": "Move to the existing class-based hover patterns (listing-card-actions et al. in App.css) — also gives keyboard :focus-visible parity for free."
+  },
+  {
+   "id": "F665",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "ShoppingCart / OfferPanel / Deals / TradesPanel (all money surfaces)",
+   "title": "No USD values anywhere on the trading surface",
+   "evidence": "Every price render across the audited files is ETH-only (e.g. ShoppingCart total ShoppingCart.jsx:572-574, OfferPanel best offer 104-106, Deals table 929-937, TradeWindow balance meter 463-476). fetchOpenSeaListings even stubs `priceUsd: null` (api.js:649) and nothing fills it. Blur/OpenSea/Gem show fiat context on every order row.",
+   "suggestion": "One cached ETH/USD feed (Coingecko via proxy or Chainlink read through the existing Alchemy RPC route) + a small <Usd value={eth}/> helper used beside totals, offer amounts, and trade cash legs."
+  },
+  {
+   "id": "F666",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "OfferPanel / BidManager accept flows",
+   "title": "No net-proceeds preview when accepting an offer",
+   "evidence": "handleAccept (OfferPanel.jsx:31-55, BidManager.jsx:453-472) jumps straight to approval+fulfillment with no 'You will receive X WETH after OpenSea 1% fee (+ royalty)' confirmation — the seller learns their net only from the wallet popup. MyListings/BulkListingWizard DO show revenue-after-fee for listings (MyListings.jsx:619-625), so the pattern exists.",
+   "suggestion": "Pre-compute net from the offer's consideration items (fees are explicit in protocol_data) and show a one-line confirm before the approval tx."
+  },
+  {
+   "id": "F667",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "Trade window (TradeWindow.jsx)",
+   "title": "Counterparty input lacks ENS resolution and identity preview — a classic trade-scam vector the rest of the app already has tools for",
+   "evidence": "TradeWindow.jsx:289-301 accepts only raw 0x addresses (validCounterparty regex line 113-114); hooks/useEns.jsx exists in the codebase but isn't used here. There's no avatar/ENS/holdings preview of who you're about to trade with beyond their NFT grid; lookalike-address scams rely on exactly this.",
+   "suggestion": "Resolve ENS names in the input (accept 'name.eth'), show reverse-ENS + first-seen/holdings summary chip once an address validates."
+  },
+  {
+   "id": "F668",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "Deals / RaritySniper",
+   "title": "No deep links, sharing, or export for scanner results",
+   "evidence": "Deals rows (Deals.jsx:909-1006) and sniper rows (RaritySniper.jsx:484-527) only call onPick(modal) — no per-token URL, no copy-link, no CSV export of the deals table (lib/csv.js exportCSV exists and is already used by MyCollection.jsx:72-84). Dexscreener-grade scanners make every row shareable.",
+   "suggestion": "Add ?token= deep links (the router exists) and an Export CSV button reusing lib/csv.js."
+  },
+  {
+   "id": "F669",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "ShoppingCart",
+   "title": "Sweep progress is lost on reload — no pending-state persistence or resume",
+   "evidence": "Buying state lives only in component state (ShoppingCart.jsx:27-28, progress 237-277). Mid-sweep refresh forgets which items were bought (cart items removed only after each success) and any in-flight tx is orphaned — there's no localStorage pending-tx record despite recordTransaction/localStorage infra existing (lib/transactions.js).",
+   "suggestion": "Persist {orderHash, txHash, status} per attempt to localStorage and reconcile on mount (PendingMonitor logic in TransactionProgress.jsx:559-599 is reusable for this)."
+  },
+  {
+   "id": "F670",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "True single-transaction sweep (Seaport fulfillAvailableAdvancedOrders or EIP-5792 batch) — Blur/Gem fill N items in one confirm; this app does N sequential wallet transactions in both ShoppingCart and SweepCalculator.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F671",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "USD values beside every ETH amount (cart totals, offers, deals, trade cash legs) — priceUsd is stubbed null and never populated.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F672",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Net-proceeds preview when accepting an offer (price minus 1% OS fee/royalty) — sellers see net only in the wallet popup.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F673",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Floor-relative context on bids ('92% of floor') in offer panels and MakeOfferModal — standard on OpenSea/Blur offer tables.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F674",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Pending-transaction persistence/resume across reloads (Blur-style) — sweep and buy state is all in-memory.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F675",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Per-row deep links and share/export from Deals and RaritySniper scanners (CSV export helper exists but is only wired to MyCollection).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F676",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "ENS support in the trade counterparty field plus counterparty identity preview (reverse ENS, holdings) — lookalike-address scam mitigation.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F677",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Incoming-trade notification badge in global nav (polling exists only inside the TradesPanel tab; Blur surfaces actionable counts globally).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F678",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Surfacing the existing tx-simulation capability as a visible 'Simulated ✓' pre-trade badge on single buys (the staticCall layer exists but is invisible outside the cart).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F679",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Royalty/fee transparency table on the native orderbook (explicitly stating creator royalties are not collected on native fills).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F680",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Collection-offer quantity display ('0.1 WETH ×10') — quantity is fetched but never shown.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F681",
+   "src": "code:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "g12_naka_market",
+   "title": "Price-history sparkline / last-sale column in Deals and sniper tables (sales-history API already exists in api.js).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F682",
+   "src": "live:naka-market",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "listings — Order Book & Offers panel",
+   "title": "Order book is nonsense: best bid 4.52 ETH vs best ask 0.1045, spread -4.4155 ETH (-4225.4%) labeled 'Healthy'",
+   "evidence": "Expanding ORDER BOOK & OFFERS shows BEST BID 4.5200 / BEST ASK 0.1045, 'Spread -4.4155 (-4225.4%)' with a green 'Healthy' dot and insight copy 'Price gap is narrow (-4225.4%), suggesting healthy trading.' Bid ladder rows are 4.4475/4.3025/4.1575/3.8675... — ~43x the 0.1045 floor. COLLECTION OFFERS panel repeats it: BEST COLLECTION OFFER 4.5200 with a ladder of 4.52/4.49/4.44/4.41 from two addresses. These are almost certainly multi-quantity collection-offer TOTALS not per-item prices (4.52/43 = 0.105 = the real per-item offer, which the cards correctly show as 'Best offer: 0.1020').",
+   "suggestion": "Normalize collection offers to per-item price (offer total / remaining quantity) before feeding the order book, best-bid card, and offers panel. Add a sanity invariant: if bestBid > bestAsk, treat the book as crossed/dirty and suppress the 'Healthy' verdict. Fix the spread insight logic so negative/absurd spreads never read 'narrow ... healthy trading'."
+  },
+  {
+   "id": "F683",
+   "src": "live:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "token detail modal (deals + listings) and theater mode",
+   "title": "NFT image never loads in token detail modal or theater mode — fallback 'N #id' placeholder shown",
+   "evidence": "Opened #1170 (from deals) and #10219 (from listings): the left image pane stays blank with the small 'N #1170'/'N #10219' fallback card, while the SAME tokens' grid/table thumbnails load fine. Theater mode for #10219 displays a black void with the tiny 'N' fallback. Reproduced on two tokens minutes apart; localhost modal also blank (inconclusive there due to missing env keys — prod is the proof).",
+   "suggestion": "The modal/theater uses a different (full-res) image source than the grid thumbnails. Point it at the same proxied/cached image used by cards, with the full-res as progressive upgrade and the thumbnail as fallback — never an empty pane."
+  },
+  {
+   "id": "F684",
+   "src": "live:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "sniper",
+   "title": "Rarity Sniper is permanently empty: '0/0 opportunities — No Nakamigos listings available' while 786 listings exist; NOT fixed at HEAD",
+   "evidence": "Prod sniper shows 'No Nakamigos listings available. Waiting for Nakamigos listings to appear. Hit Refresh...'; clicking Refresh changes nothing after 8s+. Meanwhile /listings shows '786 Nakamigos currently listed' and Deals scans dozens of live listings. localhost:5173/nakamigos/nakamigos/sniper (HEAD) shows the identical 0/0 empty state — same bug at HEAD.",
+   "suggestion": "The sniper appears to only ingest NEW listing events after page load instead of seeding from the existing listing snapshot the Floor page already has. Seed it from the same active-listings store on mount, then stream updates."
+  },
+  {
+   "id": "F685",
+   "src": "live:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "wallet connect modal (all tabs)",
+   "title": "Connect Wallet modal lists WalletConnect three times and uses identical generic icons for Safe/Base/MetaMask",
+   "evidence": "Clicking Connect Wallet on /trade: list = Safe, WalletConnect ('QR code · Mobile wallets'), Base Account, MetaMask, WalletConnect, WalletConnect, Phantom — 3 duplicate WalletConnect rows; Safe, Base Account and MetaMask all show the same money-bag emoji icon instead of brand marks.",
+   "suggestion": "De-duplicate connectors by id when building the list (multiple WC-based connectors are collapsing into identical rows) and wire real wallet brand icons; duplicates plus generic icons read as a phishing red flag on the single most trust-sensitive surface."
+  },
+  {
+   "id": "F686",
+   "src": "live:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "analytics",
+   "title": "Trait/rarity analytics computed from only 40 of 20,000 tokens — 'Rarest Traits' is meaningless (every trait = 1, '2.5%*')",
+   "evidence": "Stat card 'LOADED 40'; Trait Distribution header '40 of 20,000 loaded'; Rarest Traits grid shows 16 traits ALL with count 1 and '2.5% *', footnote '* Percentages based on 40 loaded tokens'. The Deals page on the same visit progressively scanned 3,600+ tokens, so deeper data exists in-app.",
+   "suggestion": "Share the progressive token-scan cache the Deals page builds (or precompute trait counts server-side once — they are static for a fixed collection) and keep the honest footnote only while genuinely loading."
+  },
+  {
+   "id": "F687",
+   "src": "live:naka-market",
+   "severity": "high",
+   "category": "wrong",
+   "page": "analytics",
+   "title": "'Rarity vs Price' chart never renders: 'Need at least 3 listed items with rarity data' despite 786 active listings",
+   "evidence": "Panel body shows only the message 'Need at least 3 listed items with rarity data to render scatter plot. Load more tokens or wait for listing data.' while the Listing Velocity card on the same page shows ACTIVE LISTINGS 786.",
+   "suggestion": "Join the listings feed with the rarity ranks already computed for the Deals table (which shows ranks for the same listed tokens) — the data exists, the join is missing."
+  },
+  {
+   "id": "F688",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "whales + analytics",
+   "title": "Trend labels contradict their own numbers: 'Whales are ACCUMULATING' at Net +0; 'Accumulation phase' at 1.0:1 buyers/sellers",
+   "evidence": "Whales page: '↑ Whales are ACCUMULATING — 1 inflows · 1 outflows · Net +0' (green, up arrow). Analytics Buyer vs Seller (24h): '13 buyers vs 13 sellers / 1.0:1' labeled 'Accumulation phase ▲'.",
+   "suggestion": "Add a NEUTRAL state for net = 0 / ratio = 1 (e.g. 'Balanced flow') and only show ACCUMULATING/DISTRIBUTING beyond a +/- threshold. Right now the page invents a bullish signal from zero data, which undermines the whole intelligence surface."
+  },
+  {
+   "id": "F689",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "deals + listings (charts)",
+   "title": "Outlier troll listings (up to ~1650 ETH) destroy every linear price axis: deals scatter, floor-depth histogram, ask ladder",
+   "evidence": "Deals RARITY vs PRICE Y-axis read 0.12 → 1650.00 ETH with every deal dot squashed onto the bottom line. Sweep panel FLOOR DEPTH axis: '0.10 ... 1500.00 ETH' with all bars crammed in the first ~10%. Order-book ask ladder buckets: '93.8480: 782 asks' then 281/468/656/.../1406.2565 — 782 of 786 asks land in bucket 1, so the ladder carries zero information.",
+   "suggestion": "Clamp chart domains at p95 of listings (or floor x3) with a '+N outliers' annotation, or use a log scale. One 1650 ETH listing currently blinds four separate visualizations."
+  },
+  {
+   "id": "F690",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "listings — Order Book & Offers panel",
+   "title": "Stale fee claim 'Save 0.5% vs OpenSea / OpenSea: ~1.5%' — OpenSea fee is 1% now",
+   "evidence": "NATIVE LISTINGS card shows 'Direct Seaport orders · 1% fee', badge 'Save 0.5% vs OpenSea', comparison chips 'Native: 1% Platform fee only' vs 'OpenSea: ~1.5% Marketplace + royalty'. Project memory (2026-06-09 Tradermigos note) explicitly recorded OpenSea's fee is 1% now and 'don't market a fee discount'.",
+   "suggestion": "Update the comparison to '1% vs 1%' parity messaging or remove the savings badge; a checkably false fee claim is a trust liability on a trading product."
+  },
+  {
+   "id": "F691",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "token detail modal",
+   "title": "Secondary 'Make Offer' button next to Buy is clipped to 'Mak'/'Ma' — present in prod AND at HEAD",
+   "evidence": "In the #1170 and #10219 modals, the button right of 'Connect Wallet to Buy' renders ~30px wide showing only 'Mak'. Same clipped 'Ma' next to 'Buy for 0.1045 ETH' on localhost:5173 (HEAD) — so not env-specific.",
+   "suggestion": "Fix the flex layout (min-width / flex-shrink) so the secondary CTA renders fully; it currently looks broken on the primary conversion surface. The separate '+ Make Offer' button further down works as a stopgap."
+  },
+  {
+   "id": "F692",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "token detail modal",
+   "title": "Offers and Comparable Sales sections show skeleton rows that never resolve",
+   "evidence": "#1170 modal: OFFERS shows BEST OFFER 0.1580 followed by 3 grey skeleton bars; COMPARABLE SALES shows 3 skeleton bars. Both still skeletons after 60+ seconds and repeated scrolling. #10219 modal showed 3 offer skeletons with no best-offer card at all in prod.",
+   "suggestion": "Replace永-skeletons with real rows or an explicit empty state ('No other offers' / 'No comparable sales in 30d') once the fetch settles; skeletons that never resolve read as broken."
+  },
+  {
+   "id": "F693",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "deals vs token modal",
+   "title": "Two contradictory fair-value/rank models for the same token on the same click path",
+   "evidence": "Deals table listed #1170 at fair value 0.3880→0.9000 ('32% below', rank ~#1103-#1782 refining); opening its modal shows 'Est. Fair Value 0.2502' with a 'FAIR' badge (i.e., NOT a deal) and 'RANK #3332'. A user clicks a '32% below' deal and the detail view tells them it's fairly priced at a different rank.",
+   "suggestion": "Use one fair-value and one rank source on both surfaces (or show both metrics labeled 'trait-floor value' vs 'sale-history value'); the contradiction kills confidence in the deals engine."
+  },
+  {
+   "id": "F694",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "analytics",
+   "title": "Floor Depth 'Depth Chart' renders an essentially blank box; floor 24h delta shows ↓35.0% with empty 1h/7d deltas",
+   "evidence": "Depth Chart panel is an empty red-bordered rectangle with a single tiny line top-left (zoomed to verify). FLOOR PRICE health card shows '1h: %' and '7d: %' with no values and '24h: ↓35.0%' in red while the floor sat at ~0.1045-0.1048 throughout the session (sales 0.0967-0.85) — a -35% day is implausible.",
+   "suggestion": "Fix the depth chart rendering (likely the same outlier-domain problem) and hide delta rows when the baseline is missing instead of rendering bare '%' glyphs; verify the 24h floor baseline source."
+  },
+  {
+   "id": "F695",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "listings",
+   "title": "Documented 'c = add to cart' keyboard shortcut does nothing; Escape fails to close the Trait Offer popover (it persisted across Lite/Pro remount)",
+   "evidence": "KeyboardHelp lists 'c — Add to cart (focused card)'. Pressed j (card #11481 visibly focused with highlight) then c: no toast, no cart badge (bag icon zoomed — empty). Separately, the PICK A TRAIT popover from 'Trait Offer' stayed open after Escape, after clicking elsewhere, and was still in the DOM after toggling Lite mode.",
+   "suggestion": "Wire the c handler to the focused card's cart action and add Escape/outside-click dismissal to the trait-offer popover."
+  },
+  {
+   "id": "F696",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "all tabs (splash)",
+   "title": "Click-to-enter splash (~10-14s before CLICK TO ENTER appears) replays on EVERY full page load / deep link",
+   "evidence": "Hard navigations to /deals, /trade, /portfolio, /analytics and localhost each replayed the full TRADERMIGOS card animation; clicking before the animation finishes does nothing (had to wait ~12s then click on /portfolio and /analytics). No sessionStorage memory — a bookmarked deep link always pays the toll.",
+   "suggestion": "Keep the splash (it's great brand art) but remember entry per session, make it click-skippable from second 0, and auto-skip for deep links with a query param/referrer check. Do not remove the art — just gate the replay."
+  },
+  {
+   "id": "F697",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "trade vs trades",
+   "title": "Two near-identical connect-gated tabs ('Trade' and 'P2P Trades') with no preview of the trade flow",
+   "evidence": "/trade: 'Connect your wallet to swap Nakamigos directly with other holders through peer-to-peer trades.' /trades: 'Connect your wallet to send and receive NFT-for-NFT trade offers.' Both are bare gates; nothing shows what the trade builder looks like, what's offered, or recent public P2P trades.",
+   "suggestion": "Merge or clearly differentiate (builder vs inbox); show a read-only mock of the two-sided trade window with disabled controls and a feed of recent public trades behind the gate, like Trader.xyz/Sudoswap OTC do."
+  },
+  {
+   "id": "F698",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "missing",
+   "page": "bids",
+   "title": "No public collection bid book for logged-out users",
+   "evidence": "/bids is purely 'Connect your wallet to manage bids...'. The data to show a public bid wall exists in-app (listings page renders COLLECTION OFFERS (50) ladder).",
+   "suggestion": "Show the collection-wide bid ladder (Blur-style bid wall: price x quantity x bidders) on /bids for everyone, gating only the 'manage MY bids' half behind connect."
+  },
+  {
+   "id": "F699",
+   "src": "live:naka-market",
+   "severity": "medium",
+   "category": "improve",
+   "page": "deals",
+   "title": "Fair-value outliers produce unbelievable headline claims (95% off, 18 ETH fair value, 'TOTAL SAVINGS 20.13 ETH')",
+   "evidence": "Deal row #669: listed 0.9000, 'fair value' 18.0000, '95% below' (Crocodile trait floor inflated by one thin listing). Header stats reached 'TOTAL SAVINGS 20.13 ETH' on a 0.104-floor collection. BEST DEAL '91% off / 92% off' rotated through similar thin-trait tokens.",
+   "suggestion": "Cap trait-floor fair value (e.g., min(trait floor, k x collection floor) or require >=3 listings/sales per trait), and badge low-confidence estimates. One absurd row makes users discount the legitimate 20-50% finds."
+  },
+  {
+   "id": "F700",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "all tabs",
+   "title": "eth.llamarpc.com RPC returns 521 (origin down) on repeated OPTIONS preflights",
+   "evidence": "read_network_requests captured https://eth.llamarpc.com/ OPTIONS -> 521 on deals, sniper, whales and listings; it retries continuously in the background. App functions via other providers; /api/alchemy calls returned 200.",
+   "suggestion": "Drop or demote llamarpc in the fallback list (or health-check before use) to stop burning requests on a dead endpoint."
+  },
+  {
+   "id": "F701",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "wrong",
+   "page": "header (all tabs)",
+   "title": "LIVE sales ticker intermittently renders empty (dot with no text)",
+   "evidence": "After ~5 minutes on /listings the ticker pill showed only the green dot and '5m ago' with empty sale text (zoomed screenshot); it recovered on the next cycle.",
+   "suggestion": "Keep the last sale rendered until the next one is ready instead of clearing mid-cycle."
+  },
+  {
+   "id": "F702",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "whales",
+   "title": "Profile drawer is excellent but Escape doesn't close it; expanded holder grid lazy-loads with many blank cells initially",
+   "evidence": "Holder profile drawer (0x0220...60EE: 596 owned, est. value 62.282, WHALE + DIAMOND HANDS badges, View all 596) only closes via the X; Escape press did nothing. Holder #1 expanded '100 NAKAMIGOS HELD' grid showed ~half empty cells for several seconds before images arrived.",
+   "suggestion": "Add Escape/overlay-click to close, and a shimmer placeholder in grid cells while thumbnails lazy-load."
+  },
+  {
+   "id": "F703",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "activity",
+   "title": "Type filter offers only All/Sale and search ignores the selected timeframe; stats don't react to search",
+   "evidence": "Filter chips are 24h/7d/30d/All Time + All/Sale only (subtitle says 'Live on-chain transfers' but no Transfer/Mint/List types exist). With 24h selected, searching '2346' returned rows '1d ago' and '2d ago'; header still showed '17 SALES 2.5338 VOLUME' while 2 rows displayed.",
+   "suggestion": "Either drop the redundant All/Sale pair or add real event types (listings, transfers, mints like OpenSea); scope search to the active window or visibly switch to 'all time' when searching, and recompute the header stats."
+  },
+  {
+   "id": "F704",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "analytics",
+   "title": "Top Holder Distribution histogram buckets are misleading (top-100 only, so 1/2-5/6-10/11-25 rows are always 0)",
+   "evidence": "Rows: '1 NFT: 0', '2-5: 0', '6-10: 0', '11-25: 0', '26-50: 58', '51-100: 28', '100+: 22' with footnote 'Showing top 100 holders of 5,212 total'. Four permanently-empty rows under a title implying full-collection distribution.",
+   "suggestion": "Either compute the real full-holder distribution (5,212 owners) or retitle to 'Top 100 holders by position size' and drop the empty buckets."
+  },
+  {
+   "id": "F705",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "trade/trades/portfolio/bids/my-listings/history",
+   "title": "Six connect-gates share the same visual with no 'demo/preview' affordance the app already has elsewhere",
+   "evidence": "All six gated tabs render the identical wallet-icon + copy + Connect Wallet block; the deals loading screen briefly flashed a 'DEMO' badge concept, but no gate offers demo data or a screenshot of the connected experience.",
+   "suggestion": "Additive: add a 'Preview with demo wallet' link rendering the real components with sample data — converts better than a wall and exercises the gated code paths in prod."
+  },
+  {
+   "id": "F706",
+   "src": "live:naka-market",
+   "severity": "polish",
+   "category": "improve",
+   "page": "my-listings + token modal + theater",
+   "title": "Microcopy nits: 'Nakamigos - My-listings' title casing; '- 0xbluemoon.eth · Profile' stray leading hyphen; theater bottom bar repeats '#10219' twice",
+   "evidence": "document.title = 'Nakamigos - My-listings | Tradermigos'; modal owner row renders '- 0xbluemoon.eth · Profile'; theater bar shows 'Nakamigos #10219  #10219'.",
+   "suggestion": "Humanize route-derived titles ('My Listings'), drop the dangling separator when collection name is absent, and dedupe the theater label."
+  },
+  {
+   "id": "F707",
+   "src": "live:naka-market",
+   "severity": "polish",
+   "category": "improve",
+   "page": "header (all tabs)",
+   "title": "Theme toggle (moon/sun) only swaps blue/gold accent colors — there is no light theme; header alternates 1-row/2-row layout on scroll causing nav targets to jump",
+   "evidence": "Clicking the moon icon re-tinted card borders/CTAs gold and swapped the icon, background stayed near-black (screenshots before/after). The nav row collapses from two rows to one as you scroll, moving Floor/More by hundreds of px — three of my clicks landed on the wrong control after a layout switch.",
+   "suggestion": "If light mode isn't planned, use a palette icon instead of moon/sun; consider pinning the header to one layout to keep click targets stable."
+  },
+  {
+   "id": "F708",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "cart + MakeOffer modal",
+   "title": "No USD values or fee/gas breakdown in cart and offer modal; offer modal lacks floor/best-offer context",
+   "evidence": "Cart shows '2 ITEMS 0.2091' with no USD, no marketplace fee or royalty line (sweep panel DOES show EST. GAS ~0.0180 — inconsistent). MakeOffer modal has only a WETH input + expiration chips; no floor price, current best offer, or 'your offer is X% below floor' hint (OpenSea shows all three).",
+   "suggestion": "Add USD conversion + fee/royalty/gas line to the cart summary and floor/best-offer context inside the offer modal."
+  },
+  {
+   "id": "F709",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "missing",
+   "page": "deals/sniper/analytics",
+   "title": "No wash-trade/self-sale flagging anywhere on the trading surface",
+   "evidence": "Activity feed shows '#16971 0xf46a...6feb → 0xf46a...6feb 0.0967' (same address both sides) rendered as a normal sale; sales stats and price history include it.",
+   "suggestion": "Badge same-wallet and round-trip sales ('possible wash') and exclude them from avg-sale and price-history stats — table-stakes for a 'pro' trading tool."
+  },
+  {
+   "id": "F710",
+   "src": "live:naka-market",
+   "severity": "low",
+   "category": "improve",
+   "page": "deals",
+   "title": "Rank values silently shift while the scan runs (#434 went #910→#982→#994) with no 'approximate' marker in the table",
+   "evidence": "Same row re-screenshotted ~30s apart showed three different ranks as 'Scanning: X / 20,000' progressed; only the page subtitle hints at refinement, the rank cells look authoritative.",
+   "suggestion": "Suffix ranks with '~' (the sniper already says 'ranks approximate') or freeze displayed ranks until the scan completes a checkpoint."
+  }
+ ]
+}

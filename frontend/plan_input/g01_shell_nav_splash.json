@@ -1,0 +1,629 @@
+{
+ "group": "g01_shell_nav_splash",
+ "sourceAgents": [
+  "code:shell",
+  "live:shell-home"
+ ],
+ "findings": [
+  {
+   "id": "F1",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "App shell / tab indicators (Community, NFT Finance, AMM, Lending)",
+   "title": "layoutId shared-element tab animations are dead under LazyMotion domAnimation",
+   "evidence": "App.tsx:221 wraps the app in `<LazyMotion features={domAnimation} strict>` and the comment at App.tsx:214-220 claims 'the app only uses basic opacity/y/scale/transition... not layout, not drag'. But 5 callsites use layout animations: CommunityPage.tsx:100-104 `<m.div layoutId=\"community-tab\" ... transition={{ type: 'spring', stiffness: 400, damping: 30 }}/>`, LendingPage.tsx:209 layoutId=\"nft-finance-tab\", AMMSection.tsx:472 layoutId=\"amm-tab-underline\", NFTLendingSection.tsx:205 and LendingSection.tsx:583 layoutId=\"lending-tab-indicator\". Layout animations require the domMax feature bundle; under domAnimation the layoutId prop is silently ignored, so the active-tab pill/underline teleports instead of springing. Visual state still renders correctly — only the configured animation never runs.",
+   "suggestion": "Either switch LazyMotion to domMax (~10kb more) or accept and delete the layoutId/spring props so the code matches reality; also fix the stale App.tsx comment."
+  },
+  {
+   "id": "F2",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Splash (AppLoader)",
+   "title": "Stalled image preload = indefinite black screen with all skip paths inert",
+   "evidence": "AppLoader.tsx:205-218 — the RAF loop only starts inside `preloadImages(srcs).then(...)` (`rafId = requestAnimationFrame(tick)` is the last line of the .then). preload.ts:1-16 has no timeout: an image request that hangs (slow network, stalled CDN) keeps the promise pending forever. During this 'loading' phase the overlay is opaque black (#000, AppLoader.tsx:618). The ESC handler (AppLoader.tsx:131-144) only sets `s.phase='skip'` and the click handler (AppLoader.tsx:109-128) only acts in hold/textForm/vortex — with no tick running, neither escape path does anything. User is stuck on a black screen until the network resolves.",
+   "suggestion": "Add a Promise.race timeout (e.g. 3-4s) around preloadImages that falls through to the no-images textForm path, and make ESC/click during 'loading' call finalize() directly."
+  },
+  {
+   "id": "F3",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Splash (AppLoader)",
+   "title": "Mobile users cannot skip the first ~11 s of the splash; ESC is the only early skip and is keyboard-only/undiscoverable",
+   "evidence": "AppLoader.tsx:112 — `if (!s.clicked && (s.phase === 'hold' || s.phase === 'textForm' || s.phase === 'vortex'))`: taps are ignored during void (0-1.5s, constants.ts T_VOID_END=1500) and the 4-piece art gallery (4×2600 ms, T_ART_DURATION=2600/T_ART_COUNT=4), i.e. roughly the first 11 s. The early skip is Escape-only (AppLoader.tsx:131-144) which doesn't exist on touch devices, and there is no visible 'Skip' control anywhere (only the mute button, AppLoader.tsx:634-657). 'TAP TO ENTER' only appears in the hold phase (phases/hold.ts:153). This replays every new tab/session (sessionStorage 'tf_loaded').",
+   "suggestion": "Additive: render a small 'Skip ▸' button (like the existing mute button) that triggers the existing 'skip' dissolve from any phase. Keeps all the art, gives every device an out."
+  },
+  {
+   "id": "F4",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "App shell / SeasonalEventBanner",
+   "title": "Seasonal event banner advertises reward multipliers nothing implements — Ape Month auto-activates 2026-07-01",
+   "evidence": "SeasonalEvent.tsx:4-23 hardcodes events: 'Harvest Season — 2x points on all staking activity' (ended 2026-06-05) and 'Ape Month — NFT boost bonus +10% for all holders' (2026-07-01→07-31, multiplier 1.1). Grep of lib/pointsEngine.ts finds no seasonal/event multiplier hook (only STREAK_MULTIPLIERS at pointsEngine.ts:60), and the on-chain JBAC boost is a fixed +0.5x (constants.ts:101 JBAC_BONUS_BPS=5000). When Ape Month flips active on July 1 the shell will banner a '+10% NFT boost for all holders' that neither the points engine nor the contracts apply — directly against the repo's 'nothing should render a number the chain can't back' rule (constants.ts:118-122).",
+   "suggestion": "Before 2026-07-01: either wire an event multiplier into pointsEngine and the banner copy to what's real, or empty the SEASONAL_EVENTS array until a backed event exists."
+  },
+  {
+   "id": "F5",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "improve",
+   "page": "App shell / route transitions",
+   "title": "1000 ms full-screen pointer-blocking glitch overlay fires on every navigation — including in-page tab switches — on top of a full page remount",
+   "evidence": "AppLayout.tsx:48-53 — every GlitchConfig has `duration: 1000`; the overlay is `fixed inset-0` zIndex 10000 with pointer events enabled for skip (GlitchTransition.tsx:675, 289-298), so it eats clicks for up to 1 s per nav. ActivityPage.tsx:45-48 and LearnPage.tsx:39-42 implement tabs via `navigate(TAB_PATHS[t])`, so switching Points→History or Tokenomics→FAQ triggers the full route glitch AND a complete remount (AppLayout.tsx:135 `<div key={location.pathname}>` wraps the Outlet), losing all tab state and re-running every query.",
+   "suggestion": "Additive tuning, not removal: exempt same-host tab navigations (e.g. compare tabFromPath buckets in RouteGlitch), or drop duration to ~400 ms for 'light' transitions. Consider removing the key={pathname} remount for same-component routes so tab switches keep state."
+  },
+  {
+   "id": "F6",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "improve",
+   "page": "App shell / GlitchTransition (desktop)",
+   "title": "Desktop glitch can fetch up to 16 full-resolution art images mid-transition with no preloading",
+   "evidence": "GlitchTransition.tsx:350-370 generateSlices picks `config.sliceCount` (up to 16, AppLayout.tsx:48) distinct images from the 40-entry ART_IMAGES list and renders each as FOUR full-bleed `backgroundImage: url(...)` layers (AnimatedSlice, GlitchTransition.tsx:435-459 — base + R/B/G channel divs). Unlike the mobile path (which preloads 3 images, GlitchTransition.tsx:76-97), the desktop path never preloads — a cold cache triggers a burst of up to 16 image downloads (art JPGs are ~150-200 KB each) for a 1 s effect, and slices render blank until each image arrives.",
+   "suggestion": "Preload a small fixed pool (3-5 images) like the mobile path, or reuse the splash-preloaded images; serve downsized variants for slices."
+  },
+  {
+   "id": "F7",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "App shell / first-visit flow",
+   "title": "Escape during the splash also permanently dismisses the OnboardingModal the user has never seen",
+   "evidence": "On first visit OnboardingModal mounts open (OnboardingModal.tsx:43-45, localStorage 'tegridy-onboarding-seen' unset) underneath the splash overlay. Modal.tsx:71-77 registers a document-level keydown listener: `if (e.key === 'Escape') { onClose(); return; }` and OnboardingModal's onClose (close, OnboardingModal.tsx:49-52) writes the seen flag. AppLoader.tsx:131-144 has its own window keydown ESC handler. Both fire on one keypress: ESC to skip the splash silently marks onboarding seen — the first-run education flow is destroyed by the most natural skip gesture. Also note the modal's focus trap (Modal.tsx:108-121) grabs focus while the splash is still covering it.",
+   "suggestion": "Gate OnboardingModal mounting on splash completion (e.g. render it only after AppLoader's onComplete), or have Modal ignore Escape while an element with z-index 9999 splash is present."
+  },
+  {
+   "id": "F8",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "TopNav / iOS standalone",
+   "title": "Fixed header ignores env(safe-area-inset-top) while the app explicitly opts into iOS standalone mode",
+   "evidence": "index.html:10 sets `<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">`, index.html:21 sets viewport-fit=cover, and manifest.webmanifest declares `\"display\": \"standalone\"`. TopNav.tsx:104-105 renders `<header className=\"fixed top-0 left-0 right-0 z-50 h-14\">` with no safe-area-top padding, and AppLayout.tsx:133 hardcodes `pt-14`. In an installed/home-screen launch on a notched iPhone the status bar overlays the top of the header. Notably the wrong-network banner DOES handle it (AppLayout.tsx:113 `top: 'calc(56px + env(safe-area-inset-top, 0px))'`) — the header it sits under doesn't. Unverified on device; grounded in the meta/manifest + CSS combination.",
+   "suggestion": "Add `padding-top: env(safe-area-inset-top)` to the header and `calc(3.5rem + env(safe-area-inset-top))` to the content offset, or drop the standalone meta if PWA install isn't a supported path."
+  },
+  {
+   "id": "F9",
+   "src": "code:shell",
+   "severity": "medium",
+   "category": "improve",
+   "page": "ActivityPage tab host",
+   "title": "Credibility gating not applied to the ActivityPage tab strip — 'Gold Card' tab promoted while PREMIUM_ACCESS is zeroed",
+   "evidence": "navConfig.ts:40 `PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS)` is false (constants.ts:42 zero address), which hides Gold Card from Footer (Footer.tsx:23) per the 2026-06-09 credibility-gating policy. But ActivityPage.tsx:7-19 hardcodes the four tabs including `gold: 'Gold Card'` and renders all of them (ActivityPage.tsx:67-81), so every visit to /leaderboard, /history or /changelog shows a promoted Gold Card tab that dead-ends in a not-deployed surface.",
+   "suggestion": "Filter TAB_LABELS/TAB_PATHS through PREMIUM_LIVE the same way navConfig/Footer/BottomNav do — the tab reappears automatically on redeploy."
+  },
+  {
+   "id": "F10",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "App shell / TransactionReceipt",
+   "title": "sanitize() HTML-escapes strings that React renders as text → visible &amp;/&#x27; entities",
+   "evidence": "TransactionReceipt.tsx:17-25 replaces & < > \" ' with HTML entities, then every value is rendered via JSX text nodes, e.g. line 383 `<span ...>{row.value}</span>` and lines 368/372 `{sanitize(receipt.data.fromToken)}`. React already escapes text content, so a pool named \"Randy's Pool\" renders literally as `Randy&#x27;s Pool` on the receipt card (and in the shared/copied image via html2canvas). The escaping provides no security benefit in this render path — it only corrupts display.",
+   "suggestion": "Drop the entity escaping for React-rendered values (keep length capping / hash validation); reserve escaping for any future innerHTML path."
+  },
+  {
+   "id": "F11",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "App shell / TransactionReceipt",
+   "title": "Share-to-X fallback URL points at tegridyfarms.io — not the production domain",
+   "evidence": "TransactionReceipt.tsx:231 `const url = etherscanUrl ?? 'https://tegridyfarms.io';` — production is https://tegridyfarms.vercel.app (usePageTitle.ts:4, index.html:28). For synthetic receipts without a tx hash, the tweet links to a domain the project may not own.",
+   "suggestion": "Use the canonical SITE_URL constant."
+  },
+  {
+   "id": "F12",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "TopNav",
+   "title": "Drawer focus-restore effect steals focus to the hamburger button on initial page load",
+   "evidence": "TopNav.tsx:91-100 — `useEffect(... if (open) {...} else { menuButtonRef.current?.focus(); } }, [open])`. The else-branch runs on the very first mount (open=false), not only after a close. On <640 px viewports the hamburger is visible, so page load programmatically focuses it (screen readers announce 'Open navigation menu', and :focus-visible may outline it). On desktop it's display:none so focus() is a no-op.",
+   "suggestion": "Track a wasOpen ref and only restore focus when transitioning open→closed."
+  },
+  {
+   "id": "F13",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "App shell / BottomNav + layout padding",
+   "title": "640-767 px viewports get 80 px of dead bottom padding for a bottom nav that is hidden there; code comment contradicts the class",
+   "evidence": "BottomNav.tsx:60 uses `sm:hidden` (hidden ≥640 px) while its comment (lines 55-58) claims R038 'restores it for ≥640px tablets' — sm:hidden does the opposite. Meanwhile AppLayout.tsx:133 applies `pb-20 md:pb-0` and index.css:143-147 forces `.safe-area-content-bottom { padding-bottom: calc(5rem + ...) !important }` at max-width:767px — so between 640 and 767 px the page reserves ~80 px for a nav bar that isn't rendered.",
+   "suggestion": "Align the breakpoints: either show BottomNav to <768 (md:hidden + matching TopNav switch) or change the padding rules to max-width:639px."
+  },
+  {
+   "id": "F14",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Footer (light theme)",
+   "title": "Light-mode override paints the copyright line dark purple on the footer's permanently dark background",
+   "evidence": "Footer.tsx:74 hardcodes `background: 'rgba(6,12,26,0.78)'` in both themes, but index.css:651-653 `[data-theme=\"light\"] footer .text-white\\/60 { color: var(--color-text-secondary); }` (#4c1d95) targets the '© 2026 Tegridy Farms' span (Footer.tsx:175 `text-white/60`). Deep purple on near-black navy is ~1.5:1 — effectively invisible in light mode. (The other light footer overrides at index.css:648-659 assume a light footer background that no longer exists.)",
+   "suggestion": "Either remove the light-mode footer text overrides (footer is dark in both themes) or theme the footer surface."
+  },
+  {
+   "id": "F15",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "App shell / usePageTitle",
+   "title": "Meta description / og:description go stale on pages that don't pass one",
+   "evidence": "usePageTitle.ts:61-67 sets description tags only `if (description)` and registers no cleanup — FarmPage.tsx:51 `usePageTitle('Farm')`, AdminPage.tsx:149, ContractsPage.tsx:291 and TreasuryPage.tsx:82 pass no description, so navigating Lore → Farm leaves Farm tagged with 'The origin story of Tegridy Farms…'. Similarly title/OG cleanup at usePageTitle.ts:58 resets only document.title, and the Nakamigos sub-app (nakamigos/App.jsx:148 sets document.title directly) inherits whatever og:url/canonical the last main-app page wrote.",
+   "suggestion": "Add a cleanup that restores the index.html default description, and give Farm/Contracts/Treasury real descriptions; have the nakamigos titles route through the same helper."
+  },
+  {
+   "id": "F16",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "App shell / SeasonalEventBanner",
+   "title": "animate-pulse-border class has no definition — intended pulsing border never renders",
+   "evidence": "SeasonalEvent.tsx:99 applies `animate-pulse-border` but no `@keyframes pulse-border` or `--animate-pulse-border` theme token exists in index.css (only pulse-ring/border-glow/skeleton-pulse, index.css:448-470 & 519-522). In Tailwind v4 an unknown utility generates no CSS, so the class is inert.",
+   "suggestion": "Define the keyframes/animation token or reuse the existing border-glow animation."
+  },
+  {
+   "id": "F17",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "App shell / LiveActivity + TowelieAssistant",
+   "title": "Likely visual collision: Protocol-Active pill and Towelie avatar share fixed bottom-4 right-4 on desktop",
+   "evidence": "LiveActivity.tsx:43 `className=\"fixed bottom-4 right-4 z-40 hidden md:block\"` (pill, maxWidth 200, pointer-events none) and TowelieAssistant.tsx:329 `className=\"fixed right-4 ... bottom-20 md:bottom-4\"` z-[60] (56-64 px avatar). At ≥768 px both anchor to the same corner — the avatar overlaps/covers the right end of the pill. Unverified visually (code coordinates only), but both mount unconditionally in AppLayout.tsx:145-146.",
+   "suggestion": "Offset the pill (e.g. right-24 on md+) or stack it above the avatar."
+  },
+  {
+   "id": "F18",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "App shell / scroll restoration",
+   "title": "Back/forward navigation always scrolls to top — no scroll restoration on POP",
+   "evidence": "App.tsx:109-113 ScrollToTop runs `window.scrollTo(0, 0)` on every pathname change with no distinction between PUSH and POP (useNavigationType is not consulted). Browser-native scroll restoration is also defeated because the route content remounts (AppLayout.tsx:135 key={pathname}). Users returning from a detail page lose their reading position — Uniswap/OpenSea-grade apps restore it.",
+   "suggestion": "Use useNavigationType() and skip the scroll reset on 'POP' (or store per-key scroll offsets)."
+  },
+  {
+   "id": "F19",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "index.html",
+   "title": "Three splash art JPGs (~500 KB) are preloaded on every page view but the splash picks 4 random images out of 41",
+   "evidence": "index.html:70-72 preloads /art/mfers-heaven.jpg (166 KB), /art/mumu-bull.jpg (143 KB), /art/bobowelie.jpg (185 KB). loader/constants.ts ART_COLLECTION has 41 entries and AppLoader.tsx:201 does `shuffle(ART_COLLECTION).slice(0, T_ART_COUNT)` (4 of 41) — so each preloaded splash image has <10% chance of being used (bobowelie is justified — it's the TopNav button and Towelie avatar). Repeat visitors skip the splash entirely (sessionStorage) yet still preload all three; browsers also log 'preloaded but not used' warnings.",
+   "suggestion": "Keep bobowelie; drop the other two preloads or preload at fetchpriority=low only when tf_loaded is absent."
+  },
+  {
+   "id": "F20",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "Splash (AppLoader)",
+   "title": "Splash references /audio/ambient-loop.mp3 which does not exist — guaranteed 404 per splash interaction",
+   "evidence": "AppLoader.tsx:106 `audio.playAmbient('/audio/ambient-loop.mp3')`; Test-Path on frontend/public/audio returns False (directory absent). audio.ts:112-131 catches the failure silently, so no crash — but every first click/ESC on the splash fires a dead network request, and the mute button (AppLoader.tsx:634-657) mostly toggles audio that never plays (only the synthesized crack/shatter SFX are real).",
+   "suggestion": "Ship the loop file or remove the playAmbient call; keep the WebAudio SFX."
+  },
+  {
+   "id": "F21",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "App shell / LiveActivity",
+   "title": "'Protocol Active' status pill is unconditional copy, not a health signal",
+   "evidence": "LiveActivity.tsx:59-60 renders `<PulseDot color=\"#22c55e\"/> Protocol Active` whenever the route allows, regardless of RPC health, price availability, or pause state — it shows green even during a full provider outage (the price portion is the only live part). Given the repo's honesty-pass standard, a static 'Active' claim is a promise surface.",
+   "suggestion": "Drive the dot/label from something real (e.g. last successful RPC read or price fetch age: Active / Degraded)."
+  },
+  {
+   "id": "F22",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "App shell / tab hosts a11y",
+   "title": "Inconsistent and incomplete tabs semantics across the three tab patterns",
+   "evidence": "ActivityPage.tsx:71 and LearnPage.tsx:66 use `aria-pressed` on plain buttons (toggle-button semantics) for what are tabs; CommunityPage.tsx:92-93 uses role=\"tab\"/aria-selected but without a role=\"tablist\" wrapper, roving tabindex, or arrow-key navigation. None of the three follows the WAI-ARIA tabs pattern, and they disagree with each other.",
+   "suggestion": "Standardize one accessible tab primitive (tablist/tab/tabpanel + arrow keys) and reuse it in all hosts."
+  },
+  {
+   "id": "F23",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "App.tsx / TopNav",
+   "title": "Raw localStorage access in render/effect paths despite having safeGetItem",
+   "evidence": "App.tsx:205 `if (!localStorage.getItem('tegridy_first_visit'))` (write goes through safeSetItem but the read is raw) and TopNav.tsx:21 `window.localStorage?.getItem('tegridy_admin')` — accessing window.localStorage itself throws SecurityError when site data is blocked (Chrome 'block third-party/site data' configurations); the optional chaining doesn't guard the property access. lib/storage.ts:113-119 exports safeGetItem for exactly this; most other shell code uses try/catch.",
+   "suggestion": "Route both reads through safeGetItem."
+  },
+  {
+   "id": "F24",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "App shell / 404",
+   "title": "NotFoundPage canonicalizes the bogus URL and the SPA serves it with HTTP 200",
+   "evidence": "App.tsx:88 `usePageTitle('404 — Page Not Found')` → usePageTitle.ts:52-56 sets `<link rel=canonical>` and og:url to window.location.pathname, i.e. the garbage path itself. Combined with Vercel SPA rewrites returning 200, crawlers see a canonicalized soft-404.",
+   "suggestion": "Skip canonical/og:url emission on the 404 page (add a `noCanonical` option) and add a noindex meta there."
+  },
+  {
+   "id": "F25",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "public/sitemap.xml",
+   "title": "Sitemap lists a redirect-only URL, omits /nakamigos, and lastmod is frozen at 2026-04-19",
+   "evidence": "sitemap.xml includes https://tegridyfarms.vercel.app/lending which App.tsx:156 client-redirects to /nft-finance, omits the /nakamigos marketplace entirely, and every entry says `<lastmod>2026-04-19</lastmod>` (pre-relaunch). It also still promotes gated surfaces (/premium, /community, /nft-finance) whose pages are placeholder-gated today.",
+   "suggestion": "Regenerate: drop /lending, add /nakamigos, refresh lastmod as part of the deploy script."
+  },
+  {
+   "id": "F26",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "lib/navConfig.ts",
+   "title": "Dead exports + comment drift in the nav single-source-of-truth",
+   "evidence": "navConfig.ts:102-106 ALL_NAV ('used by the mobile drawer fallback') is consumed by zero components — TopNav.tsx:363 uses MORE_NAV_SECTIONS and BottomNav hardcodes tabs; only navConfig.test.ts asserts on ALL_NAV (and its comment at line 5 claims 'MORE_NAV / MORE_PATHS were removed' while MORE_NAV still exists at navConfig.ts:95 and is used by TopNav.tsx:165). navConfig.ts:64-65 also says 'Three sections of three items' but MORE_NAV_SECTIONS has 2 sections of 2-3.",
+   "suggestion": "Delete ALL_NAV (and its tests) or actually use it for the drawer; fix the comments so future agents don't trust stale IA docs."
+  },
+  {
+   "id": "F27",
+   "src": "code:shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "BottomNav",
+   "title": "Conflicting min-width utilities on tab links",
+   "evidence": "BottomNav.tsx:72 `flex-1 min-w-0 min-h-[48px] min-w-[44px]` — min-w-0 (for truncation) and min-w-[44px] (tap target) are contradictory; which wins depends on Tailwind's generated order, not author intent.",
+   "suggestion": "Keep min-w-0 on the link and enforce the 44px floor via min-h + padding (already present), or move truncation onto the inner span only."
+  },
+  {
+   "id": "F28",
+   "src": "code:shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "App shell / Toaster",
+   "title": "Toast position never accounts for the fixed 56 px header or mobile bottom nav",
+   "evidence": "AppLayout.tsx:153-164 `<Toaster position=\"top-right\" .../>` with no offset/mobileOffset props — default sonner offset is 24-32 px, so toasts render partially behind/flush with the fixed h-14 header region on small screens. Style theming via CSS vars is otherwise well wired.",
+   "suggestion": "Add offset=\"72px\" (and mobileOffset) so toasts clear the header."
+  },
+  {
+   "id": "F29",
+   "src": "code:shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "App shell / skip link",
+   "title": "#main-content lacks tabindex=\"-1\" for reliable skip-link focus",
+   "evidence": "AppLayout.tsx:97 renders the skip link and AppLayout.tsx:134 `<main id=\"main-content\">` — without tabindex=\"-1\" some browsers scroll but don't move sequential focus into the target, sending the next Tab back to the nav.",
+   "suggestion": "Add tabindex={-1} to the main element."
+  },
+  {
+   "id": "F30",
+   "src": "code:shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "index.html",
+   "title": "Standalone-PWA finish is partial: no apple status-bar-style, no iOS startup images, no noscript fallback",
+   "evidence": "index.html:10 enables apple-mobile-web-app-capable and manifest.webmanifest declares standalone with valid icons (icon-192/512 verified present), but there is no `apple-mobile-web-app-status-bar-style`, no apple-touch-startup-image set, and no `<noscript>` message anywhere in index.html:77-80 — a JS-disabled visitor gets a blank #root.",
+   "suggestion": "Add the status-bar-style meta, a one-line noscript notice, and (optionally) startup images."
+  },
+  {
+   "id": "F31",
+   "src": "code:shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "GlitchTransition",
+   "title": "Duplicate entry and per-frame getImageData without willReadFrequently",
+   "evidence": "GlitchTransition.tsx:19+21 list both '/splash/new/28.avif' and '/splash/new/28.jpg' (same artwork twice in the slice pool; both files exist). MobileGlitchTransition's canvas context (GlitchTransition.tsx:107 `canvas.getContext('2d')`) does per-frame getImageData/putImageData block displacement (lines 203-214) without `{ willReadFrequently: true }`, which Chrome flags and slow-paths.",
+   "suggestion": "Dedupe #28 and pass willReadFrequently:true to both glitch canvases."
+  },
+  {
+   "id": "F32",
+   "src": "code:shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "index.css",
+   "title": "btn-primary disabled state still carries the old purple inset highlight on a green button",
+   "evidence": "index.css:280 `.btn-primary:disabled { ... box-shadow: inset 0 1px 0 rgba(167, 139, 250, 0.15); }` — the button was rethemed to the Kyle-green gradient (index.css:254-258) but the disabled shadow still references the purple (#a78bfa) palette. Similarly the light-mode nav-link comment at index.css:664 says 'against the cream backdrop' while the light header is Kenny orange (TopNav.tsx:108-109).",
+   "suggestion": "Update the disabled inset to a green/neutral tone and fix the comment."
+  },
+  {
+   "id": "F33",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "Splash (AppLoader) placement",
+   "title": "Splash plays on first session entry to ANY main-app route, including deep links to legal/info pages",
+   "evidence": "AppLoader wraps the entire AppLayout (AppLayout.tsx:92), not just '/'. A user deep-linking to /terms or /risks in a fresh tab gets the full ~14.5 s art experience (constants.ts T_TEXT_END=14500) before the legal text. sessionStorage 'tf_loaded' gating means this repeats per tab/session.",
+   "suggestion": "Additive: keep the splash everywhere if intended, but at minimum add the visible Skip control (see related finding); alternatively gate auto-play to '/' and let other routes skip straight in (replay stays available via the TopNav bobowelie button, TopNav.tsx:127-139)."
+  },
+  {
+   "id": "F34",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "TowelieAssistant route tips",
+   "title": "Route tips overpromise gated features",
+   "evidence": "TowelieAssistant.tsx:84 '/nft-finance': \"Lend, borrow, trade NFTs. No oracles, no rugs.\", line 83 '/community': \"Vote, post bounties, propose grants...\", line 90 '/premium': \"Randy's Gold Card. Bonus rewards for the loyal.\" — all three surfaces are currently isDeployed-gated to FeatureNotDeployed placeholders (constants.ts zeroes; navConfig.ts:26-40), so the first-visit greeting promises functionality the page immediately denies.",
+   "suggestion": "Gate these three tips on the same *_LIVE flags so Towelie's copy and the page state agree."
+  },
+  {
+   "id": "F35",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Global pending-transaction indicator in the header (Uniswap-style spinner/count on the wallet chip while txs are in flight) — receipts exist but nothing in the shell shows in-progress state across pages",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F36",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Real protocol/network health surface: gas price widget and RPC/health-driven status (the existing pill is static copy) — Aave/Dexscreener-grade apps show degraded-mode banners automatically",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F37",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Command palette / global search (Cmd+K) for routes, tokens, and docs — standard in best-in-class DeFi shells",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F38",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Scroll restoration on back/forward navigation (currently always scroll-to-top, state lost by keyed remounts)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F39",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Per-page OG images: the hook supports ogImage overrides but every route ships the same gallery collage — competitor pages generate per-page (even per-position) share cards",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F40",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "'Add TOWELI to wallet' (wallet_watchAsset) quick action in the header/footer next to the contract-address copy chip",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F41",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Session continuity affordances: no recent-transactions dropdown in the header, no per-device 'skip intro permanently' preference (splash is per-session only)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F42",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "PWA completeness if standalone stays enabled: apple status-bar-style, iOS startup images, install prompt handling, offline fallback page; plus a <noscript> message for JS-disabled visitors",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F43",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Locale/number-format awareness (all copy and meta are en-US only; no i18n scaffolding) — acceptable now, but Blur/OpenSea ship at least number-format localization",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F44",
+   "src": "code:shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g01_shell_nav_splash",
+   "title": "Live region announcing route changes for screen readers (SPA navigations are silent; best-in-class shells announce the new page title via an aria-live region)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F45",
+   "src": "live:shell-home",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Global (light theme)",
+   "title": "Light theme is broken app-wide: navy headings on dark backgrounds are illegible",
+   "evidence": "Toggled the sun icon. On Home, 'Yield with' and 'Protocol Overview'/'By the Numbers' render dark-navy (~rgb(42,42,110)) on the dark brown mural — zoomed screenshots show the text nearly invisible. On /farm the h1 'Farm', 'Liquidity Pools', 'LP Farming' are the same navy-on-near-black; the 4 art stat cards (TVL/PRICE/APR/SEASON) and the Season 3 banner get flat washed-out GRAY overlays that bury the art. Only the header turns orange — page backgrounds stay dark. Reproduced identically on localhost:5173 (HEAD), so NOT fixed.",
+   "suggestion": "Either make light mode actually light (light page background + dark text) or scope heading colors so they stay light-on-dark wherever the mural/dark backgrounds persist. Audit every text-on-art combination in light mode."
+  },
+  {
+   "id": "F46",
+   "src": "live:shell-home",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Home (Referral Program)",
+   "title": "Referral links point to dead domain tegridy.farm",
+   "evidence": "Referral box displays tegridy.farm/?ref=0x1489...456E; the Tweet intent href contains url=https%3A%2F%2Ftegridy.farm%2F%3Fref%3D0x14898258...456E. fetch('https://tegridy.farm/',{mode:'no-cors'}) fails with 'Failed to fetch' (network/DNS-level — site unreachable). Hardcoded at HEAD in frontend/src/components/ReferralWidget.tsx:71 (`https://tegridy.farm/?ref=${...}`), so every shared referral link and tweet 404s/dead-ends.",
+   "suggestion": "Point referral links at the canonical live origin (tegridyfarms.vercel.app or window.location.origin) until tegridy.farm is actually registered + aliased; fix ReferralWidget.tsx:71 and :94."
+  },
+  {
+   "id": "F47",
+   "src": "live:shell-home",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Home (hero stats)",
+   "title": "'ETH Distributed' hero stat never loads — permanent skeleton shimmer",
+   "evidence": "The 4th hero chip shows label 'ETH Distributed' with an empty dark shimmer pill. Watched 30+ seconds across 4 separate page loads (prod) and on localhost HEAD — it never resolves to a value. DOM check: the chip's parent textContent is just 'ETH Distributed', no value node. TVL/Price/APR chips next to it all resolve.",
+   "suggestion": "Wire the value (RevenueDistributor lifetime ETH) or show an honest '0 ETH — fees start at pool seed' state. A permanently-loading stat directly under the 'Every protocol fee flows on-chain — verifiable' claim is a trust hole; it is the one number that proves the pitch."
+  },
+  {
+   "id": "F48",
+   "src": "live:shell-home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Header nav (prod)",
+   "title": "'Dashboard' shown as active nav item while on Home (/)",
+   "evidence": "On https://tegridyfarms.vercel.app/ after a session that visited /dashboard, the nav 'Dashboard' link renders green rgb(34,197,94) with underline while location.pathname is '/' (zoom screenshot + getComputedStyle both confirm). Could NOT reproduce on localhost:5173 HEAD with the same flow (link stays cream rgb(245,228,184)) — appears already fixed at HEAD; verify after next deploy.",
+   "suggestion": "Redeploy and re-verify; stale prod build seems to carry an active-match bug HEAD no longer has."
+  },
+  {
+   "id": "F49",
+   "src": "live:shell-home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Global (bottom-right overlay)",
+   "title": "Towelie mascot covers the fixed 'Protocol Active + price' status pill",
+   "evidence": "DOM: div.fixed.bottom-4.right-4.z-40 contains 'Protocol Active$0.00004237'; elementFromPoint over it returns the Towelie IMG — the mascot (higher z) sits directly on top, hiding the pill ('$0...' peeks out from behind the avatar in zoomed screenshots). On localhost before the mascot mounts, the pill is fully visible — confirming the collision.",
+   "suggestion": "Offset the pill left of the mascot (e.g. right-24) or raise its z-index and shift the mascot; both elements are bottom-right fixed."
+  },
+  {
+   "id": "F50",
+   "src": "live:shell-home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Tokenomics",
+   "title": "Supply Distribution chart renders empty — legend only, no pie/donut",
+   "evidence": "On /tokenomics (prod AND localhost HEAD) the 'Supply Distribution' card is a large empty black area with only the legend (Circulating 45%, LP Seed 30%, Treasury 10%, Community 10%, Team 5%) rendered at the bottom. Zoomed screenshot shows zero chart pixels.",
+   "suggestion": "Fix the chart render (canvas/SVG likely sized 0 or data not passed); the legend proves the data is present."
+  },
+  {
+   "id": "F51",
+   "src": "live:shell-home",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Splash screen",
+   "title": "Splash has a long black hold, no skip affordance hint, and tiny art labels",
+   "evidence": "First visit (cleared storage): ~1-2.5s of pure black before any art, then 2 art pieces (~2s each, labels 'MUMU THE BULL' / 'NAKA #19' in very small low-contrast caps), a ~3-4s particle dissolve, then an indefinite 'CLICK TO ENTER' gate — ~9-10s minimum before any content plus a required click. Clicking mid-slideshow does skip ahead (verified), but nothing tells the user that. Repeat visits correctly skip the splash (sessionStorage tf_loaded) — good.",
+   "suggestion": "Additive: show a subtle 'click to skip' hint + a progress dot per art piece, start the first art frame sooner (preload), and consider making the gate auto-advance with 'click to enter early' rather than blocking."
+  },
+  {
+   "id": "F52",
+   "src": "live:shell-home",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Route transitions",
+   "title": "Inconsistent transition quality: Swap shows a blank-dark flash with a stray orange line; Dashboard has proper skeletons",
+   "evidence": "Farm->Swap: first frame after click is an almost-empty dark screen with a faint floating orange horizontal divider and ghost footer (~1-2s) before the swap card pops in. Dashboard shows real shimmer skeleton cards (good). Home repeat-load shows a 'Loading...' spinner page where the footer is already visible, then the hero mural image pops in 3-5s AFTER the text content with no fade/placeholder — a jarring late background swap.",
+   "suggestion": "Add the Dashboard-style skeleton to the Swap route chunk, fade the hero mural in (blur-up/LQIP), and hide the footer during the route-loading state."
+  },
+  {
+   "id": "F53",
+   "src": "live:shell-home",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Header nav",
+   "title": "Primary nav covers a fraction of the app; naming inconsistencies",
+   "evidence": "Header: Dashboard, Farm, Trade, More(Gallery, Tegridy Score, Tokenomics, Treasury), Tradermigos. Footer exposes 13+ destinations (Points, Lore, History, Changelog, FAQ, Contracts, Security, Risks...) not reachable from the header. Same route /leaderboard is called 'Tegridy Score' in More but 'Points' in footer; nav says 'Trade' while the route/h1 say 'Swap'; /nft-finance (a whole product area with Lending/AMM/Launchpad) is not in the header at all.",
+   "suggestion": "Additive: expand More into grouped sections (Engage/Stats/Docs+Legal) including NFT Finance and Community, and unify 'Points'/'Tegridy Score' naming."
+  },
+  {
+   "id": "F54",
+   "src": "live:shell-home",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "NFT Finance (via /restake)",
+   "title": "document.title not set on NFT Finance page + raw '--%' placeholder stat",
+   "evidence": "After /restake -> /nft-finance, document.title stays the generic 'Tegridy Farms | TOWELI Yield Farm' (every other audited page sets 'X | Tegridy Farms'). Stats row shows PROTOCOL FEE '--%' as raw double-dash beside TOTAL OFFERS 0 / TVL 0.0000.",
+   "suggestion": "Set 'NFT Finance | Tegridy Farms' and render the known protocol fee constant (or 'TBD at deploy') instead of '--%'."
+  },
+  {
+   "id": "F55",
+   "src": "live:shell-home",
+   "severity": "low",
+   "category": "improve",
+   "page": "Ultrawide layout (3432x1308)",
+   "title": "Non-art pages waste the ultrawide canvas",
+   "evidence": "Home/Farm fill the width with the mural (excellent). But /swap is a single ~600px card centered in a void of flat black; /community and /tokenomics similarly float a narrow column with enormous empty side margins — viewport is 3046 CSS px wide, content uses ~1100px.",
+   "suggestion": "Additive: on xl+ widths, give Swap a side panel (chart/recent trades/route detail) and let stat pages use 2-column layouts; or extend the mural/starfield art to these routes so the void feels intentional."
+  },
+  {
+   "id": "F56",
+   "src": "live:shell-home",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Home (Referral Program)",
+   "title": "Both 'Copy' and 'Copy Link' buttons flip to 'Copied!' when only one is clicked",
+   "evidence": "Clicked the main Copy button (ref_295); screenshot shows BOTH the top 'Copy' button and the SHARE-row 'Copy Link' button simultaneously showing 'Copied!' — shared state.",
+   "suggestion": "Track copied state per button."
+  },
+  {
+   "id": "F57",
+   "src": "live:shell-home",
+   "severity": "low",
+   "category": "improve",
+   "page": "Home (hero)",
+   "title": "Rotating Towelie quote under CTAs is near-illegible and sometimes absent",
+   "evidence": "Quote line ('Remember: always bring a towel. And your LP tokens.' — Towelie) renders ~11px italic dark-gray over the busy mural; required zoom to read. On one load the slot was empty, shifting the trust badge up.",
+   "suggestion": "Bump contrast/size slightly or add a subtle backdrop blur pill behind it; reserve the line height to avoid layout shift."
+  },
+  {
+   "id": "F58",
+   "src": "live:shell-home",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Network (all pages)",
+   "title": "eth.llamarpc.com returns 503 on page load",
+   "evidence": "read_network_requests: POST https://eth.llamarpc.com/ -> 503, alongside publicnode 200 and rpc.ankr.com 200. Failover absorbs it (no console error), but it adds dead latency on every load that races it.",
+   "suggestion": "Demote or health-check llamarpc in the transport list."
+  },
+  {
+   "id": "F59",
+   "src": "live:shell-home",
+   "severity": "low",
+   "category": "missing",
+   "page": "Header nav (a11y)",
+   "title": "No aria-current on active nav items",
+   "evidence": "All header links return ariaCurrent:null even when visually active (green underline). Active state is color-only.",
+   "suggestion": "Add aria-current='page' to the active link; also pair the green with the underline everywhere (it is there) — keep both."
+  },
+  {
+   "id": "F60",
+   "src": "live:shell-home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Dashboard",
+   "title": "ETH balance card shows bare em-dash for USD value",
+   "evidence": "Cards: TOWELI BALANCE 553,141 / $22.86, but ETH BALANCE 0.00401106 with '—' where its USD value should be (TOWELI gets a USD line, ETH does not).",
+   "suggestion": "Price ETH via the same feed (or omit the line) for consistency."
+  },
+  {
+   "id": "F61",
+   "src": "live:shell-home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Splash screen",
+   "title": "Art piece labels deserve more presentation",
+   "evidence": "'MUMU THE BULL' / 'NAKA #19' render in ~8px letter-spaced caps at the bottom — barely visible against black during the slideshow.",
+   "suggestion": "Slightly larger label + artist/collection line; it's a free brand moment for the 54-piece collection."
+  },
+  {
+   "id": "F62",
+   "src": "live:shell-home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "404 page",
+   "title": "404 could route users better",
+   "evidence": "Clean page: starfield, '404 Page Not Found', 'Back to Home' button, full header/footer, correct title '404 — Page Not Found | Tegridy Farms'. No links to Farm/Swap/Dashboard or a fuzzy suggestion for the typo'd path.",
+   "suggestion": "Additive: add 3 quick links (Farm, Trade, Dashboard) and keep the art."
+  },
+  {
+   "id": "F63",
+   "src": "live:shell-home",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Header (light mode)",
+   "title": "Theme toggle icon nearly invisible on orange header",
+   "evidence": "In light mode the white sun/moon glyph sits on the orange header bar with very low contrast (zoom screenshot); 'Tradermigos' navy-on-orange is also weaker than the cream-on-dark version.",
+   "suggestion": "Darken header icon/link colors when the orange header is active."
+  }
+ ]
+}

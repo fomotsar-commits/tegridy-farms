@@ -1,0 +1,625 @@
+{
+ "group": "g04_trade",
+ "sourceAgents": [
+  "code:trade",
+  "live:swap-liquidity"
+ ],
+ "findings": [
+  {
+   "id": "F186",
+   "src": "code:trade",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "Approval spender is inverted vs the executing router — every ERC20 sell reverts",
+   "evidence": "useSwapAllowance.ts:113 picks the spender as `const spender = selectedRoute === 'tegridy' ? TEGRIDY_ROUTER_ADDRESS : SWAP_FEE_ROUTER_ADDRESS;` and needsApproval (line 78) checks the same mapping. But useSwap.ts executes the OPPOSITE way: the 'tegridy' route goes through SwapFeeRouter (useSwap.ts:415-434, `address: SWAP_FEE_ROUTER_ADDRESS ... maxFeeBps`), while the 'uniswap' route and the aggregator-with-uniswap-fallback go to the real router (useSwap.ts:402-407 and 466-484, `address: UNISWAP_V2_ROUTER`). SwapFeeRouter pulls from the caller (SwapFeeRouter.sol:747 `IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn)`) so its required spender is SFR; UniswapV2Router02 requires allowance to itself. Net effect, reachable today: selling TOWELI/USDC/etc (route='uniswap' since the native pool is empty) shows 'Approve TOWELI' which approves SFR (0x6d5791…), then 'Swap' calls UNISWAP_V2_ROUTER (0x7a250d…) → transferFrom fails → guaranteed revert at gas estimation. Conversely once the deep pool is seeded, route='tegridy' approves TegridyRouter (0xE9F8…) but executes via SFR → also reverts. Only the aggregator-route-with-tegridy-fallback combination matches by accident. ETH-input swaps are unaffected (no approval). The two execution-side fixes (fee-capture rerouting 'tegridy'→SFR, deep-pool fix 'uniswap'→real Uniswap) were never mirrored into useSwapAllowance.ts.",
+   "suggestion": "Make the spender derive from the venue that executes: 'tegridy' → SWAP_FEE_ROUTER_ADDRESS; 'uniswap' → UNISWAP_V2_ROUTER; 'aggregator' → selectedOnChainRoute.source ('tegridy'→SFR, 'uniswap'→UNISWAP_V2_ROUTER). Add a third allowance read for UNISWAP_V2_ROUTER in the useReadContracts batch and select activeAllowance with the same function used to pick the execution address, ideally a single shared `executionSpenderFor(route, fallback)` helper imported by both hooks so they can never drift again. Add a test asserting approve-spender === writeContract-target per route."
+  },
+  {
+   "id": "F187",
+   "src": "code:trade",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "Post-receipt success effect re-fires every second: duplicate 'WAGMI! Swap confirmed' toasts, false swap toast after a mere approval, reset timer never fires, duplicate analytics",
+   "evidence": "useSwap.ts:246-286 — the success effect's deps include `allowance` (line 286), and useSwapAllowance.ts:195-204 returns a fresh object literal every render (no useMemo). useSwapQuote.ts:261-265 runs a 1-second ticker (`setInterval(() => setNow(Date.now()), 1000)`) once any quote has landed, so the page re-renders every second. While isSuccess && hash stay truthy (until reset()), the effect re-runs each second: the cleanup `clearTimeout(t)` cancels the pending 4s `reset(); setInputAmount('')` timer (line 284) before it can ever fire, then the body fires `toast.success('WAGMI! Swap confirmed'...)` and `trackSwap(...)` again (lines 268-278). Worse, after an APPROVE receipt the first run returns after 'Token approved' WITHOUT scheduling reset (lines 260-266), so the next 1s re-run sees `lastActionRef.current === null` and falls into the swap branch — firing 'WAGMI! Swap confirmed' + trackSwap for a swap that never happened, looping every second. allowance.refetchAllowance() + refetchFromBalance() also re-fire each tick (refetch storm).",
+   "suggestion": "Latch the receipt handling on the hash: keep a `handledHashRef` and bail if `hash === handledHashRef.current`; set it before toasting. Also memoize useSwapAllowance's return object (useMemo) and give the toasts stable ids (toast.success(..., { id: hash })) as defense in depth."
+  },
+  {
+   "id": "F188",
+   "src": "code:trade",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Trade (DCA + Alerts tabs)",
+   "title": "DCA and price-alert keepers still have the SFR/TegridyRouter mismatch: minOut quoted from Uniswap but execution via SwapFeeRouter on the (empty) native pool — every triggered swap reverts today",
+   "evidence": "useDCA.ts:434-441 quotes `publicClient.readContract({ address: UNISWAP_V2_ROUTER, ... 'getAmountsOut' })` and computes minOut from that, then lines 496-530 execute `writeContract({ address: SWAP_FEE_ROUTER_ADDRESS, ... 'swapExactETHForTokens', args: [minOut, ...] })`. Identical pattern in useLimitOrders.ts: trigger + floor quoted on UNISWAP_V2_ROUTER (lines 319-330, 481-494) but execution on SWAP_FEE_ROUTER_ADDRESS (lines 400-435). DeployMVP.s.sol:253-254 wires `new SwapFeeRouter(d.router, ...)` where d.router is the TegridyRouter, i.e. SFR executes on the native TOWELI/WETH pool, which is EMPTY post-relaunch (2026-06-07 live diagnosis). So when a DCA tick or alert fires, the wallet prompt fails gas estimation and the user gets 'DCA swap failed' — and after the pool is seeded, the Uniswap-priced minOut against thin native-pool execution will revert whenever the venues diverge by more than slippage (the exact bug the main swap path was patched for on 2026-06-09, see useSwap.ts:395-399 comment). The main Swap tab is fixed (executes 'uniswap' on the real router) and the route-details panel naturally hides the Tegridy row while its output is 0 — but the keepers were never updated.",
+   "suggestion": "Quote and execute on the same venue in both keepers: either route keeper executions to UNISWAP_V2_ROUTER (matching their quote source, accepting no fee capture until the native pool is deep), or quote via SFR/TegridyRouter getAmountsOut and skip-with-toast when the native pool can't fill. Mirror the useSwap venue-selection logic instead of hardcoding SFR."
+  },
+  {
+   "id": "F189",
+   "src": "code:trade",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "Headline 'You Receive', 'Best rate via X' and 'Route Savings' advertise an aggregator price the app cannot execute — user can never receive the displayed amount",
+   "evidence": "useSwapQuote.ts:319 `const outputAmount = aggBetter ? aggComparison.userReceives : selectedOnChainRoute.output;` — the headline output is the full aggregator quote (e.g. CowSwap/Odos), but there is no aggregator execution path anywhere: executeSwap (useSwap.ts:379-408) executes an aggregator-selected quote on the on-chain fallback (SFR or Uniswap) with `onChainMin` derived from the ON-CHAIN venue's output. The route label says 'Best rate via CowSwap' (useSwapQuote.ts:423) and TradePage.tsx:384-388 shows 'Route Savings +x% vs worst venue' (computed at TradePage.tsx:98-108 across all quoted venues), yet the user receives roughly selectedOnChainRoute.output — the entire spread above the on-chain venue is fictional. The 'Min. Received' row is (correctly) anchored to the on-chain venue (useSwapQuote.ts:401-406, R033 H-01 amendment), so the visible Min Received can sit far below 'You Receive × (1-slippage)', which is internally inconsistent on the same panel.",
+   "suggestion": "Until real aggregator execution (Odos/Kyber build endpoints or CoW order placement) is wired, display the executing venue's output as 'You Receive' and demote aggregator quotes to an informational 'market comparison' row (additive — keep the comparison panel). Relabel 'Best rate via X' to something honest like 'Executes on Uniswap V2 (best executable route)'."
+  },
+  {
+   "id": "F190",
+   "src": "code:trade",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "Custom slippage input is unusable for fractional values — value re-formats with toFixed(2) on every keystroke",
+   "evidence": "TradePage.tsx:314 `value={isPreset ? '' : swap.slippage.toFixed(2)}` with onChange (317-325) immediately parsing and clamping each keystroke. Typing '0', '.', '3' produces: '0' → state 0 → field re-renders as '0.00'; appending '3' makes the string '0.003' → state 0.003 → renders '0.00' again. The comment at TradePage.tsx:274-276 says the input exists for 'users who need 0.3% or 3.5%', but exactly those values cannot be typed (each keystroke is reformatted before the decimal can be completed).",
+   "suggestion": "Keep a local string state for the field and commit the parsed/clamped number on blur or after a valid parse, only syncing the string from swap.slippage when the field is not focused (the pattern DCATab's slippage input already uses: raw number kept, clamp on blur)."
+  },
+  {
+   "id": "F191",
+   "src": "code:trade",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "refreshQuote() does not re-fetch aggregator quotes despite its comment, and resets the staleness clock so the stale gate passes vacuously",
+   "evidence": "useSwapQuote.ts:437-446 — comment says 'Aggregator is a fetch effect — bumping the requestId triggers re-fetch', but `quoteRequestIdRef.current += 1` is a ref mutation and `setAggQuoteResult(null)` is not a dependency of the aggregator effect (deps at line 251 are [fromToken, toToken, parsedAmount, address, fromDecimals, chainId]); nothing re-runs the fetch. So after the R033 H-02 stale-quote bounce ('Quote is stale — refreshing now', useSwap.ts:343-347), the aggregator quote is wiped and never re-fetched until the user edits the input — a previously aggregator-best quote silently downgrades to the on-chain venue. Additionally `setQuoteFetchedAt(0)` makes `isQuoteStale` false immediately (lines 432-435 require quoteFetchedAt > 0), so a second Swap click passes the freshness gate before any refetch has actually settled.",
+   "suggestion": "Drive the aggregator effect off a `refreshNonce` state included in its dependency array, and stamp quoteFetchedAt only when fresh data lands (treat quoteFetchedAt===0 with a non-empty input as 'not fresh')."
+  },
+  {
+   "id": "F192",
+   "src": "code:trade",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Trade (Swap tab) — aggregator ladder",
+   "title": "Odos quotes for native-ETH legs use the 0xEeee sentinel where Odos expects the zero address — 'zero' normalization style returns the wrong constant",
+   "evidence": "aggregator.ts:31-40 — `case 'zero': return '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';` is byte-identical to the 'native' case, contradicting the style name; getOdosQuote (lines 116-117) is the only caller of 'zero'. Odos's documented native-token convention is 0x0000000000000000000000000000000000000000. If Odos rejects the 0xEeee form, getOdosQuote returns null silently (catch → null) and Odos never participates for ETH→TOWELI, the app's primary pair. Live verification attempt against api.odos.xyz returned HTTP 429 (rate limited), so this is code-vs-documented-API analysis, not a confirmed live failure — high-confidence but unverified at runtime.",
+   "suggestion": "Change the 'zero' branch to return the zero address and add a unit test pinning each aggregator's native-address convention; verify with one live Odos quote for ETH→TOWELI."
+  },
+  {
+   "id": "F193",
+   "src": "code:trade",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Trade (Swap tab)",
+   "title": "On-chain quote reads fire per keystroke with no debounce, and quotes never auto-refresh — after 30s idle the first Swap click always bounces",
+   "evidence": "useSwapQuote.ts:88-95 — getAmountsOut useReadContract re-queries on every parsedAmount change (each keystroke creates a new query key; only the aggregator leg has the 800ms debounce at lines 229-249). Meanwhile the same read has no refetchInterval (only the reserves reads at lines 166/182/198 refresh every 30s), so a user who waits >30s hits the QUOTE_MAX_AGE_MS gate: executeSwap returns with toast 'Quote is stale — refreshing now' (useSwap.ts:343-347) — a guaranteed extra click on every considered trade. Uniswap auto-refreshes quotes (~per block) and debounces input.",
+   "suggestion": "Debounce parsedAmount (~300-500ms) before it reaches the read hooks, and add refetchInterval (10-15s) to the two getAmountsOut reads so a visible quote is always executable; optionally add a small countdown/refresh control (additive)."
+  },
+  {
+   "id": "F194",
+   "src": "code:trade",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Trade (Swap tab)",
+   "title": "Slippage and deadline are not persisted, and the deadline has state but no UI at all",
+   "evidence": "useSwap.ts:80-86 — `const [slippageRaw, setSlippageRaw] = useState(1.0)` and `const [deadline, setDeadline] = useState(5)` are plain state; nothing writes them to storage (grep: setDeadline is returned at useSwap.ts:532 but never called by any component). Every visit resets slippage to 1% and there is no way to change the 5-minute deadline. The codebase already persists far less important things (recent tokens, TokenSelectModal.tsx:33-49).",
+   "suggestion": "Persist slippage (and the FoT toggle) per-wallet in localStorage like recent tokens, and either render a deadline control in the settings cluster or remove the dead state; Uniswap persists both."
+  },
+  {
+   "id": "F195",
+   "src": "code:trade",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "ETH→WETH wrap is a dead flow: the pair is selectable but produces a 0 quote, and execution path would reject it as self-swap",
+   "evidence": "buildPath (useSwapQuote.ts:25-36) maps ETH→WETH to path [WETH, WETH]; getAmountsOut on an identical-token path reverts so output stays '0.0' and the button stays disabled; if a quote existed, executeSwap's guard (useSwap.ts:355-360) fires 'Cannot swap a token for itself'. TokenSelectModal only disables the literal other address (TradePage.tsx:524 disabledAddress), and ETH (0xEeee…) ≠ WETH (0xC02a…), so users can select the pair and get a silent dead form with no explanation — and the CoW limit flow explicitly tells users to 'wrap your ETH first' (LimitOrderTab.tsx:176) with no way to do it in-app.",
+   "suggestion": "Add a wrap/unwrap branch (WETH.deposit/withdraw) when the pair is ETH↔WETH — one writeContract, no router, no slippage — like Uniswap's wrap mode; at minimum show copy explaining wrap isn't supported."
+  },
+  {
+   "id": "F196",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "'Compare all N+2 routes' count is wrong when a venue has no quote",
+   "evidence": "TradePage.tsx:411 `Compare all ${swap.allAggQuotes.length + 2} routes` hardcodes +2 for Tegridy and Uniswap, but the rows render conditionally (line 415 `swap.hasTegridyPair && swap.tegridyOutputFormatted &&` and line 421 `swap.uniOutputFormatted &&`). Today the Tegridy pool is empty so tegridyOutputFormatted is null — the button says e.g. 'Compare all 7 routes' and shows 6.",
+   "suggestion": "Compute the count from the actual renderable rows: allAggQuotes.length + (tegridyOutputFormatted ? 1 : 0) + (uniOutputFormatted ? 1 : 0)."
+  },
+  {
+   "id": "F197",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "Price impact can show a positive % when the aggregator quote is BETTER than the pool mid-price (absolute diff)",
+   "evidence": "useSwapQuote.ts:381-387 single-hop branch: `const diff = midPriceScaled > execPriceScaled ? midPriceScaled - execPriceScaled : execPriceScaled - midPriceScaled;` — outputAmount here is the headline (possibly aggregator) output (line 319), so an aggregator quote above the Uniswap mid-price produces a positive 'Price Impact' even though the price is favorable; mixing the aggregator's exec price with Uniswap reserves is also venue-inconsistent.",
+   "suggestion": "Compute impact from the executing on-chain route's own output (activeAmountsOut last element) rather than the headline outputAmount, and clamp favorable diffs to 0 (or show them as positive-green like Uniswap)."
+  },
+  {
+   "id": "F198",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Trade (Swap tab)",
+   "title": "addCustomToken skips on-chain verification when the wallet is on the wrong chain, but still stores the token into the mainnet-scoped list",
+   "evidence": "useSwap.ts:506-515 — `if (publicClient && chainId === CHAIN_ID) { ...verify... }` — when chainId !== CHAIN_ID the verification block is skipped entirely and execution falls through to `setCustomTokens(...)` (line 516), persisting into `tegridy_custom_tokens_v2_1` (the mainnet-scoped key, lines 94/135). TokenSelectModal's import reads also run on the connected chain (no chainId on the useReadContract at TokenSelectModal.tsx:169-181), so symbol/decimals can come from a different chain's contract. The FE-HIGH-6 rehydrate sweep would only evict it on a later mainnet load.",
+   "suggestion": "Refuse import when chainId !== CHAIN_ID (toast 'switch to mainnet to import tokens') or pin the modal's reads and the verification to chainId: CHAIN_ID."
+  },
+  {
+   "id": "F199",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (Swap tab)",
+   "title": "User's slippage setting is not forwarded to aggregator quote requests",
+   "evidence": "useSwapQuote.ts:233 — `getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, chainId, undefined, fromDecimals, ...)` passes undefined so every aggregator quote uses DEFAULT_MAX_SLIPPAGE_PCT 0.5% (aggregator.ts:19) regardless of the user's 0.1-20% setting, even though the hook receives `slippage` as a parameter and uses it for minimumReceived. Quotes whose venues consume slippage at quote time (SwapAPI/Odos/LiFi) therefore don't reflect the user's tolerance.",
+   "suggestion": "Pass the hook's `slippage` argument through (clampSlippage already bounds it); if uniform 0.5% ranking is the deliberate intent, document that and drop the unused parameter."
+  },
+  {
+   "id": "F200",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (Swap tab)",
+   "title": "SWAP_FEE_BPS hardcoded — fee display and route comparison silently wrong if the owner retunes feeBps on-chain",
+   "evidence": "constants.ts:104-108 `export const SWAP_FEE_BPS = 50; // 0.5%` with comment 'MUST stay in sync with … SwapFeeRouter.feeBps() (read on-chain if the owner ever retunes it)'. useSwapQuote.ts:274-276 nets the native-route quote with this constant and routeLabel discloses '(incl. 0.5% fee)' (line 426). A fee change on-chain would make the netting, the route choice, and the disclosure all wrong with no runtime check.",
+   "suggestion": "Read feeBps once via useReadContract (single view call, cacheable for the session) and fall back to the constant."
+  },
+  {
+   "id": "F201",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (Liquidity tab)",
+   "title": "useAddLiquidity reads are not chain-gated — wrong-network users see 'No pool exists … plant one' and zero balances",
+   "evidence": "useAddLiquidity.ts:42-48 (getPair, `query: { enabled: tokensSelected }`) and lines 54-71 (the 9-read batch, `query: { enabled: !!address … }`) have no chainId pin or onRightChain gate, unlike useSwapQuote.ts:81-82 which gates every read. On an L2, getPair targets TEGRIDY_FACTORY_ADDRESS on the wrong chain → pairExists false → LiquidityTab.tsx:501-504 renders 'No pool exists for this pair yet. Switch to Grow the Crop to plant one.' — misleading; writes are protected only by _ensureChain at lines 169-172.",
+   "suggestion": "Add `chainId: CHAIN_ID` to each read or gate enabled on chainId === CHAIN_ID and show a 'switch network' banner like the swap card does."
+  },
+  {
+   "id": "F202",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (Swap + Liquidity)",
+   "title": "Two separate custom-token stores: tokens imported in Swap don't appear in the Liquidity picker (and vice versa), and the liquidity store skips on-chain verification",
+   "evidence": "useSwap.ts:94 uses key `tegridy_custom_tokens_v2_${CHAIN_ID}` (with FE-HIGH-6 on-chain re-verification), while LiquidityTab.tsx:23 uses `tegridy_liquidity_custom_tokens` (no chain scoping, shape-only validation at lines 41-53, no on-chain symbol/decimals check). Same TokenSelectModal, different memories and different security posture.",
+   "suggestion": "Unify on the swap store (chain-scoped + verified) and pass it to both surfaces so the anti-spoof guarantees stay consistent."
+  },
+  {
+   "id": "F203",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (Alerts tab)",
+   "title": "CoW path auto-approves unlimited (maxUint256) without the warning the swap surface mandates",
+   "evidence": "useCowLimitOrder.ts:147-153 — `args: [COW_VAULT_RELAYER_ADDRESS, maxUint256]` fires whenever allowance < sellAmount, preceded only by toast.info('Approve CoW to spend your sell token (one-time)'). The swap surface treats unlimited approval as opt-in with an explicit warning (useSwapAllowance.ts:185-193) and blocks it for custom tokens; here it's silent and mandatory. Vault-relayer unlimited approval is CoW's standard pattern, but it's inconsistent with the app's own stated stance.",
+   "suggestion": "Approve the exact sellAmount by default with an opt-in 'approve once for all future CoW orders' toggle, or at least reuse the unlimited-approval warning copy."
+  },
+  {
+   "id": "F204",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (Swap tab)",
+   "title": "MEV protection status not persisted — shows 'Add to wallet' every session even after adding",
+   "evidence": "useMevProtection.ts:34 `const [status, setStatus] = useState<MevProtectionStatus>('idle')` — plain state; nothing in the hook or MevProtectionPanel.tsx persists 'added', so the one-time setup is re-offered indefinitely. (Detecting the active RPC from the dapp is impossible, but the local 'user completed this' bit is persistable.)",
+   "suggestion": "Persist an 'added' flag per wallet address in localStorage and render 'Added ✓ — select the MEV Blocker network in your wallet' as the steady state, with a small re-add link."
+  },
+  {
+   "id": "F205",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (a11y)",
+   "title": "Tab bar mixes role=tab/aria-selected with aria-pressed and has no arrow-key navigation; quote updates have no aria-live",
+   "evidence": "TradePage.tsx:151-154 — each button has both `aria-selected={tab === t}` and `aria-pressed={tab === t}` under `role=\"tab\"` (aria-pressed is invalid on tabs), there's no roving tabindex/Arrow-key handler for the tablist (WAI-ARIA tabs pattern), and the 'You Receive' value (lines 265-267) plus the route panel have no aria-live region, so screen readers never hear quote results. The token-select modal, by contrast, is fully wired (dialog role, focus trap, esc).",
+   "suggestion": "Drop aria-pressed on the tabs, add ArrowLeft/ArrowRight roving focus, and put aria-live=\"polite\" on the receive amount + route summary."
+  },
+  {
+   "id": "F206",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "improve",
+   "page": "Trade (Swap tab)",
+   "title": "useSwapQuote's R042 HIGH-2 return memoization is defeated by unmemoized `path`/`routeDescription` arrays",
+   "evidence": "useSwapQuote.ts:75 `const path = fromToken && toToken ? buildPath(fromToken, toToken) : [];` builds a fresh array every render; `path` is in the return useMemo deps (line 496) and in priceImpact deps (line 391), so the 'wrap entire return in useMemo so consumers don't see a fresh identity' comment (lines 463-465) is ineffective — identity flips every render anyway (and the 1s ticker renders every second).",
+   "suggestion": "useMemo the path on [fromToken?.address, toToken?.address] (routeDescription then stabilizes too); cheap win that makes the existing memo wrapper actually work."
+  },
+  {
+   "id": "F207",
+   "src": "code:trade",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Trade (Swap tab)",
+   "title": "Big TOWELI numbers render without thousands separators; quote loading is a bare '...' not a skeleton; tiny balances show as 0.0000",
+   "evidence": "formatting.ts:23-30 formatTokenAmount returns num.toFixed(4) for anything ≥ 0.0001 — a 75M TOWELI receive renders as '75000000.0000' (TradePage.tsx:266, 399, 418-431). The receive field while loading shows the literal string '...' (TradePage.tsx:266) rather than a shimmer/skeleton, and balances use raw Number(x).toFixed(4) (lines 206/251) so 0.00004 ETH displays as '0.0000'.",
+   "suggestion": "Add toLocaleString grouping (or compact 75.0M with a full-precision title tooltip) in formatTokenAmount, a small skeleton shimmer for the receive value, and floor-aware balance formatting ('<0.0001')."
+  },
+  {
+   "id": "F208",
+   "src": "code:trade",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Trade (chart) / Dashboard",
+   "title": "PriceChart comment claims a same-origin proxy but fetches GeckoTerminal cross-origin — the Safari/Edge tracking-prevention problem the comment cites is still live; flip button hover is JS-only",
+   "evidence": "PriceChart.tsx:46-47 — comment 'Use same-origin proxy to avoid Edge/Safari tracking prevention blocking cross-origin API calls' sits directly above `const url = \"https://api.geckoterminal.com/api/v2/...\"` (direct cross-origin; CSP allows it). On ITP-aggressive browsers the fetch can fail and the component falls back to the GeckoTerminal iframe embed after 2 retries — functional but slower and contradicts the comment. Also TradePage.tsx:240-241 animates the flip button via onMouseEnter/onMouseLeave inline style mutation, so keyboard focus gets no equivalent affordance.",
+   "suggestion": "Either route OHLCV through the existing aggregator-proxy pattern (it can join the [provider] catchall without spending a Vercel function slot) or fix the comment; move the flip-button rotation to a CSS :hover/:focus-visible rule."
+  },
+  {
+   "id": "F209",
+   "src": "code:trade",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Trade (Alerts tab)",
+   "title": "Target-price field gives no market context — placeholder 25000000 is ~3x off current market and there's no live price reference",
+   "evidence": "LimitOrderTab.tsx:129-133 — placeholder=\"25000000\" (TOWELI per ETH) with no current-price display anywhere in the tab; at current market (~$33k mcap / ~$0.000033 TOWELI) the real rate is roughly 70-80M TOWELI/ETH, so users must leave the app to know what a sane target is. The keeper fires on `currentPrice >= targetPrice` (useLimitOrders.ts:497) — without a reference, users will set already-met targets and trigger instant wallet prompts.",
+   "suggestion": "Show the live rate (one getAmountsOut for 1 ETH, already implemented in the poller) above the input with a 'use market' chip and ±1/5/10% quick buttons; the same helper benefits the CoW order builder."
+  },
+  {
+   "id": "F210",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "USD value estimates under both amount fields and on Min Received (Uniswap/CoW show fiat everywhere; the app already has useToweliPrice + a Chainlink ETH/USD feed wired elsewhere).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F211",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Max / 25-50-75% balance buttons on the swap and liquidity inputs (with gas-reserve logic for native ETH).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F212",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "No price chart on the Trade page itself — PriceChart exists but only renders on DashboardPage; an additive collapsible chart for the selected pair is table stakes (Dexscreener/Uniswap token view).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F213",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Pre-trade confirmation/simulation step: rate, route diagram, fee breakdown (protocol fee vs LP fee), gas estimate, and a typed-confirm gate for extreme price impact (Uniswap blocks >15% without explicit intent).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F214",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Exchange-rate row with invert toggle ('1 ETH = 75.2M TOWELI ↔ 1M TOWELI = 0.0133 ETH') and a quote auto-refresh countdown indicator.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F215",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Gas estimate display (aggregator quotes already return estimatedGas — it's fetched and then never shown anywhere).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F216",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Token-pair deep links (?inputCurrency/&outputCurrency like Uniswap) and persistence of the last-used pair; only the tab is in the URL today.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F217",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "ETH↔WETH wrap/unwrap mode (currently a dead flow, see findings) and a one-tap 'wrap ETH' helper in the CoW order path which explicitly requires WETH.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F218",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "EIP-5792 one-click approve+swap batching — the 38ac420 foundation (lib/eip5792.ts) is complete and tested but wired into nothing on the trade surface; wallets supporting atomic batch still get two prompts.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F219",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Recent-trades / transaction-history panel on the trade surface (lib/txHistory.ts exists; the success toast with explorer link is the only record).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F220",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Quote-while-disconnected: the entire swap form is replaced by the connect CTA, so prospects can't see pricing before connecting (Uniswap quotes without a wallet; the on-chain reads here don't need an address — only the aggregator leg does).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F221",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Pool stats on the Liquidity tab: TVL, 24h volume/fees, fee APR for the pair, and USD value of the user's position (Uniswap/Balancer-grade position cards).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F222",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Current-market-price reference + 'use market' helper in the Alerts/CoW limit flow, and a '% from market' indicator on the entered target.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F223",
+   "src": "code:trade",
+   "severity": "low",
+   "category": "missing",
+   "page": "g04_trade",
+   "title": "Real aggregator/sell-side execution: quotes are compared across 7 venues but only on-chain venues are executable; CoW order placement code already exists (useCowLimitOrder) and could honestly capture the displayed aggregator savings as a market-order path.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F224",
+   "src": "live:swap-liquidity",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "/swap (prod API layer)",
+   "title": "Aggregator proxy function missing from prod deploy — all 7 quote sources silently dead",
+   "evidence": "Fired the exact quote calls the connected UI makes (1 ETH -> TOWELI): GET /api/swapapi/..., /api/lifi/v1/quote, /api/kyber/.../routes, /api/openocean/v4/eth/quote, /api/paraswap/prices ALL return the SPA's index.html (HTTP 200, 7667-byte HTML, starts '<!doctype'); POST /api/odos/sor/quote/v2 and /api/cow/mainnet/api/v1/quote return 405. The function path itself /api/aggregator/paraswap/prices also returns index.html, while sibling functions /api/etherscan (400 'Module not allowed') and /api/v1 (400 'Missing route parameter') ARE live. HEAD has api/aggregator/[provider]/[...path].js + vercel.json rewrites (frontend/vercel.json:70-77) and api/SERVERLESS_BUDGET.md lists the catchall as deployed function #9 — so prod is a stale deploy missing it. Frontend catches every failure ('catch { return null; }' in src/lib/aggregator.ts) so connected users silently lose CoW/Odos/Kyber/LiFi/OpenOcean/ParaSwap/SwapAPI routing with zero error surfaced.",
+   "suggestion": "Redeploy prod from HEAD (repo root, per your deploy procedure) and verify /api/aggregator/paraswap/prices returns JSON. Add a one-line health/telemetry signal when 0 aggregators respond so this class of silent regression is visible (the 'smart front-door' revenue architecture depends on these quotes)."
+  },
+  {
+   "id": "F225",
+   "src": "live:swap-liquidity",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "/swap (HEAD, dev cross-check)",
+   "title": "Token selector modal never becomes visible — token selection is unusable",
+   "evidence": "On localhost:5173 with a connected session, clicking the ETH/TOWELI token chips does nothing visible (tested physical click, ref click, and programmatic btn.click()). The dialog DOES mount ([role=dialog] present, search input 'Search name, symbol, or paste address' in DOM) but computed styles stay opacity:0 on the outer container and opacity:0 + scale(0.95) on the card — the framer-motion entrance animation never runs (prefers-reduced-motion: false). Compounding bug in code: TokenSelectModal.tsx:261-263 inner m.div has initial={{ scale: 0.95, opacity: 0 }} but animate={{ scale: 1 }} — opacity is omitted from the animate target, so even a running animation leaves the card invisible. Forcing inline opacity showed only the backdrop; framer re-stomped the card styles.",
+   "suggestion": "Add opacity: 1 to the inner m.div animate target, and debug why the AnimatePresence subtree's animations never start (LazyMotion feature loading vs late-mounted m components is the likely culprit). Add an e2e assertion that the dialog is VISIBLE (opacity/visibility), not just present in the DOM."
+  },
+  {
+   "id": "F226",
+   "src": "live:swap-liquidity",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/swap (HEAD, dev cross-check)",
+   "title": "Route Savings renders raw scientific notation: '+4.6032354236937436e+21% vs worst venue'",
+   "evidence": "Typed 1 ETH: the Route panel showed 'Route Savings +4.6032354236937436e+21% vs worst venue'. Root cause is a unit mismatch in TradePage.tsx:98-108 (routeSavingsPct): allAggQuotes[].amountOut is in WEI (smallest unit, per AggregatorQuote docs in src/lib/aggregator.ts:48) while tegridyOutputFormatted/uniOutputFormatted are human-formatted token amounts; parseFloat over both mixes 3.5e25 wei with 770318.6 tokens, producing an astronomic percentage that toFixed(2) renders in exponential form.",
+   "suggestion": "Normalize aggregator amountOut with formatUnits(amountOut, toToken.decimals) before comparing/displaying, and clamp/sanity-cap the displayed savings percent."
+  },
+  {
+   "id": "F227",
+   "src": "live:swap-liquidity",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/swap (HEAD, dev cross-check)",
+   "title": "Route-details venue rows display raw wei: 'kyberswap 3.545958182079852e+25'",
+   "evidence": "'Compare all 5 routes' expanded to: Tegridy DEX 770318.6684, Uniswap V2 35459581.8208 (Best), kyberswap 3.545958182079852e+25, openocean 3.545958182079852e+25, cowswap 3.544348978063256e+25. The three aggregator rows are the same ~35.4M TOWELI price shown in raw wei because TradePage.tsx:431 calls formatTokenAmount(q.amountOut) on the wei string without dividing by decimals. Users cannot compare venues, and it looks like aggregators offer 10^18 better prices.",
+   "suggestion": "Same fix as the savings bug: convert aggregator amountOut to token units before formatTokenAmount."
+  },
+  {
+   "id": "F228",
+   "src": "live:swap-liquidity",
+   "severity": "high",
+   "category": "improve",
+   "page": "/swap and /liquidity (prod)",
+   "title": "Everything is gated behind wallet connect — no quotes, tokens, prices, or pool data logged out",
+   "evidence": "Prod /swap shows only 'Connect your wallet to swap' + ConnectButton (TradePage.tsx:173 '!isConnected ?'); the Liquidity tab shows 'Gotta connect a wallet to farm liquidity.'; DCA/Alerts show forms but Connect CTAs. Zero /api/ or quote traffic fires logged out. e2e/trade-page.spec.ts:31 asserts this gate, so it is intentional at HEAD. Uniswap/Aave/Blur all let visitors browse tokens, type amounts, and see live quotes/pool stats pre-connect — connect is only required to execute.",
+   "suggestion": "Render the full swap form disconnected: quotes need no wallet (default sender to a placeholder address — the code already supports zero-address senders for price-only endpoints), show balances as '—', and swap the CTA to 'Connect Wallet'. Same for liquidity: show reserves/pool composition read from public RPC. This is the single biggest conversion/trust gap on these pages."
+  },
+  {
+   "id": "F229",
+   "src": "live:swap-liquidity",
+   "severity": "high",
+   "category": "improve",
+   "page": "/swap (prod, first visit)",
+   "title": "~30s unskippable splash + 'CLICK TO ENTER' gate before a deep-linked /swap renders",
+   "evidence": "Fresh tab -> https://tegridyfarms.vercel.app/swap: 'PORCH CHILL' art scene (~5s) -> starfield (~9s) -> particle ring (~16s) -> 'TEGRIDY FARMS — CLICK TO ENTER' (~22s) -> click -> golden shatter transition -> swap page at ~28-32s. A click at 16s did NOT skip. It replays for every new tab (sessionStorage 'tf_loaded' is per-session) even though localStorage had 'tegridy_first_visit' — returning users eat the full sequence. In-session reloads correctly skip it. A 'Replay splash screen (full reload)' button exists (title attr) — good additive control.",
+   "suggestion": "Keep the art (it is genuinely good) but add a visible 'Skip' button from second 1, honor a localStorage 'seen' flag for repeat visitors (with the existing replay button for fans), and never gate deep links behind CLICK TO ENTER — auto-enter after the animation."
+  },
+  {
+   "id": "F230",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/liquidity and /swap (prod, light mode)",
+   "title": "Light mode renders dark heading text over the unchanged dark art — near invisible",
+   "evidence": "Toggled the header sun icon: header went orange (works), but the 'Liquidity' h1 + subtitle became dark navy ink over the night-time café art (zoom screenshot shows the heading barely distinguishable). The fixed page background art does not change with theme, so the light-ink text palette fails contrast on it.",
+   "suggestion": "Force the light-on-dark text treatment (or the existing textShadow scrim) for any text layered over page art regardless of theme, since the art is always dark here."
+  },
+  {
+   "id": "F231",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/swap?tab=dca (prod)",
+   "title": "'Max: 100 ETH' is not enforced — 200 ETH accepted and summarized",
+   "evidence": "Set Amount per Swap to 200 (input has max=100): no error, no clamp; the summary panel computed 'Per swap 200 ETH -> TOWELI / Schedule Daily x 30 / Total cost 6000.0000 ETH'. The HTML max attribute only constrains spinner arrows, not typed values. Same pattern exists on the Alerts amount input (max=100).",
+   "suggestion": "Clamp in onChange (the swap tab's custom slippage already does exactly this — Math.max/Math.min) and show an inline error when the entered amount exceeds the cap or the wallet balance."
+  },
+  {
+   "id": "F232",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/swap and /liquidity (prod, network)",
+   "title": "eth.llamarpc.com is down and still first in rotation (521/503 on every load)",
+   "evidence": "Every page load: OPTIONS https://eth.llamarpc.com/ -> 521 (x2), later POST -> 503/pending, while ethereum-rpc.publicnode.com and rpc.ankr.com/eth return 200. Failover works (good) but each load pays latency/noise probing a dead provider.",
+   "suggestion": "Reorder transports so a healthy provider is primary, or add a cached health check that demotes a provider after consecutive 5xx for the session."
+  },
+  {
+   "id": "F233",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/swap and /liquidity (prod)",
+   "title": "Towelie avatar occludes the 'Protocol Active $0.00004132' status pill",
+   "evidence": "Zoom of the bottom-right corner shows the price text partially hidden behind the mascot avatar ('$0...' cut off). The pill also has no label or unit — '$0.00004132' with no indication it is the TOWELI/USD price.",
+   "suggestion": "Offset the pill left of the mascot's hover zone and label it (e.g. 'TOWELI $0.00004132') with a tooltip for source/refresh time."
+  },
+  {
+   "id": "F234",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/swap and /liquidity (prod)",
+   "title": "Background and card art pops in 5-10s late with no placeholder",
+   "evidence": "After reload and after navigating to /liquidity, the page sat on a flat #060c1a background for the whole first viewing (5+ s) before the Van Gogh café art appeared; the DCA card's bear art likewise popped in mid-interaction (it shifted perceived contrast of form labels). No skeleton, blur-up, or fade placeholder.",
+   "suggestion": "Additive: give ArtImg a low-res blurred placeholder (LQIP) or a fade-in transition, and preload the trade-page art when the route is hovered/prefetched."
+  },
+  {
+   "id": "F235",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/swap (HEAD, dev cross-check)",
+   "title": "'Savings vs worst venue' is computed against the protocol's own near-empty pool",
+   "evidence": "Route details: Tegridy DEX quotes 770,318 TOWELI for 1 ETH vs ~35.4M everywhere else (the native pool was never seeded post-relaunch — known operational item). The savings receipt therefore compares best vs an empty pool, which even after the wei fix would advertise '+4500% savings' — not credible, and the degenerate venue carries no 'low liquidity' flag in the list.",
+   "suggestion": "Exclude venues whose output deviates >X% below median from the savings denominator (or compare best vs second-best), and badge the native pool row 'low liquidity' until it is seeded."
+  },
+  {
+   "id": "F236",
+   "src": "live:swap-liquidity",
+   "severity": "low",
+   "category": "improve",
+   "page": "/swap, /liquidity (prod)",
+   "title": "Towelie nag bubbles re-open every ~15-20s",
+   "evidence": "Within ~3 minutes on the trade pages, 4+ distinct auto-popups appeared after being closed: 'Trade TOWELI here. Or whatever — I'm just a towel.', 'Don't forget to bring a towel. Or do. I'm not your boss.', 'Still there? I'll be right here if you need me.', 'Add liqu...'. Close X and 'Don't show again' exist (good).",
+   "suggestion": "Cap proactive bubbles to 1 per page visit (the personality lands better when it is scarce); keep the urgent price-impact nudge as the exception."
+  },
+  {
+   "id": "F237",
+   "src": "live:swap-liquidity",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/swap (prod, Towelie chat)",
+   "title": "Towelie chat answer typewriters at ~5 chars/sec with no instant-complete",
+   "evidence": "Asked 'how do I swap': the (good, correct) answer 'Trade page -> Swap tab. Pick tokens, amounts, slippage. Hit Swap. Wal...' took ~15s to finish typing inside a one-line bubble that truncates while typing.",
+   "suggestion": "3-4x the type speed and complete instantly on click; let the bubble grow to show the full answer."
+  },
+  {
+   "id": "F238",
+   "src": "live:swap-liquidity",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/swap (prod, network)",
+   "title": "Own-origin HEAD /swap returned 503",
+   "evidence": "Network log captured 'HEAD https://tegridyfarms.vercel.app/swap -> 503' during the session. No HEAD fetch exists in src (grep), so it originates from a library/extension probe — but Vercel answering 503 for HEAD on a page URL is worth a curl check (link unfurlers and uptime monitors use HEAD).",
+   "suggestion": "curl -I the prod URLs; if Vercel's SPA rewrite 503s HEAD requests, add a HEAD-friendly response (affects link previews/uptime checks)."
+  },
+  {
+   "id": "F239",
+   "src": "live:swap-liquidity",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/swap?tab=dca (prod)",
+   "title": "First keystroke into the DCA amount field was swallowed (one-off)",
+   "evidence": "Clicked the Amount per Swap input and typed '200' — value stayed empty (verified via DOM: value=''). Retry via triple-click + type worked. Possibly focus stolen by the Towelie bubble or the late art-image render.",
+   "suggestion": "Low-confidence flake; if reproducible, check whether the auto-appearing Towelie bubble steals focus on mount."
+  },
+  {
+   "id": "F240",
+   "src": "live:swap-liquidity",
+   "severity": "low",
+   "category": "improve",
+   "page": "/swap (HEAD, dev cross-check)",
+   "title": "Flip-direction button clears the entered amount",
+   "evidence": "With 1 ETH entered and a live quote, clicking the flip arrows swapped ETH/TOWELI correctly but reset the amount to placeholder '0.0' and the route panel to 'Enter an amount'. Uniswap transposes the amount on flip.",
+   "suggestion": "Carry the input (or the quoted output) across the flip."
+  },
+  {
+   "id": "F241",
+   "src": "live:swap-liquidity",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/swap?tab=dca and ?tab=limit (prod)",
+   "title": "Custom slippage input is an unlabeled bare field; ranges differ per tab",
+   "evidence": "DCA tab: below the 0.1/0.5/1/2% presets sits a borderless input showing '0.5' with no label or % suffix (zoom evidence); its tooltip says range 0.1%-3% while the Swap tab's custom slippage allows 0-20% with a 'Custom %' affordance. The '?' tooltip is a native title attribute — 1-2s hover delay, unusable on iPhone/iPad (your responsive mandate).",
+   "suggestion": "Reuse the Swap tab's labeled Custom-% control on DCA/Alerts and replace title-attr tooltips with the tap-friendly tooltip component."
+  },
+  {
+   "id": "F242",
+   "src": "live:swap-liquidity",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/swap (prod)",
+   "title": "Feature named three ways: 'Alerts' tab, 'Price Alert' heading, ?tab=limit URL",
+   "evidence": "Tab button 'Alerts' -> h1 'Price Alert' -> URL param 'limit' (document.title 'Price Alert | Tegridy Farms'). Minor, but the URL leaks the old 'limit order' framing the honesty pass renamed.",
+   "suggestion": "Accept tab=alerts as the canonical param (keep limit as legacy synonym)."
+  },
+  {
+   "id": "F243",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/swap (prod + HEAD)",
+   "title": "No exchange rate, no USD values, no gas estimate in the quote panel",
+   "evidence": "With a live 1-ETH quote (dev), the route panel shows Route/Route Savings/Price Impact/Min. Received only. There is no '1 ETH = 35.46M TOWELI' rate line, no fiat (USD) equivalents on either amount, and no network-fee estimate — even though every aggregator response already carries estimatedGas (src/lib/aggregator.ts collects it; the UI never displays it). Uniswap shows all three on every quote.",
+   "suggestion": "Add a rate line under the You Receive field and a fee row (gas estimate x current gas price, USD-converted via the price feed you already have for the status pill)."
+  },
+  {
+   "id": "F244",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/swap (prod)",
+   "title": "No price chart or market context on the swap page",
+   "evidence": "No chart anywhere on /swap; the footer links out to GeckoTerminal instead. The CSP already allowlists frame-src https://www.geckoterminal.com, so an embed is pre-authorized but unused.",
+   "suggestion": "Additive: collapsible GeckoTerminal embed (or a lightweight sparkline from your existing tegridy_price_history localStorage data) beside/below the swap card — the ultrawide layout has a full empty column to the left of the centered card for it."
+  },
+  {
+   "id": "F245",
+   "src": "live:swap-liquidity",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/liquidity (prod + HEAD)",
+   "title": "Liquidity page has zero pool data: no TVL/reserves/volume/APR — and the APR claim has no number",
+   "evidence": "Logged out: only the connect gate. Connected (per LiquidityTab.tsx code): pair tokens, user LP balance, position value, pool share — but no pool-level reserves/TVL/volume/fee-APR display and no pool list. The copy promises 'earn a cut of every swap that routes through your pool' with no quantification anywhere.",
+   "suggestion": "Show pool reserves + TVL + trailing fee APR (computable from on-chain reserves and your indexer/Dune volume) and a one-row pool list — this is the minimum a Uniswap-pool-page user expects before depositing."
+  },
+  {
+   "id": "F246",
+   "src": "live:swap-liquidity",
+   "severity": "low",
+   "category": "missing",
+   "page": "/swap (HEAD)",
+   "title": "No quote auto-refresh indicator despite 30s staleness machinery",
+   "evidence": "useSwapQuote.ts implements QUOTE_MAX_AGE_MS=30s, isQuoteStale and refreshQuote (R033 H-02), but during the dev quote session no countdown, 'updated Xs ago', or refresh affordance was visible on the card.",
+   "suggestion": "Surface the existing freshness state: a small circular countdown next to the rate line (Uniswap pattern) wired to refreshQuote."
+  },
+  {
+   "id": "F247",
+   "src": "live:swap-liquidity",
+   "severity": "low",
+   "category": "missing",
+   "page": "/swap (prod)",
+   "title": "No recent-trades or pool-activity module",
+   "evidence": "Neither swap nor liquidity surfaces recent swaps/LP events (Blur/Uniswap-grade pages show live activity to prove the venue is alive — especially important given the ~$266/day volume trust problem).",
+   "suggestion": "Additive module fed by the indexer once it ships; even 'last 5 swaps' from logs would combat the empty-protocol feel."
+  },
+  {
+   "id": "F248",
+   "src": "live:swap-liquidity",
+   "severity": "low",
+   "category": "missing",
+   "page": "/swap (prod)",
+   "title": "No transaction deadline setting",
+   "evidence": "Settings cover slippage, fee-on-transfer, MEV protection — no deadline control (Uniswap exposes tx deadline; your router uses a default).",
+   "suggestion": "Add deadline to the slippage panel (default 20 min, clamped)."
+  }
+ ]
+}

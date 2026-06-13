@@ -1,0 +1,367 @@
+{
+ "group": "g10_naka_shell",
+ "sourceAgents": [
+  "code:naka-shell"
+ ],
+ "findings": [
+  {
+   "id": "F525",
+   "src": "code:naka-shell",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "nakamigos shell / routing (all tabs)",
+   "title": "Clicking 'Gallery' in any nav lands on the Floor/listings tab — gallery is unreachable from every nav surface",
+   "evidence": "App.jsx:358 builds the gallery URL as empty segment: navigate(`/nakamigos/${collectionSlug}/${newTab === \"gallery\" ? \"\" : newTab}`) → pathname '/nakamigos/nakamigos/'. parseRoute (App.jsx:91) maps a bare collection path to listings: `const second = segments[1] || \"listings\";`. So every gallery navigation — Header PRIMARY_NAV 'Gallery' (Header.jsx:128), MobileNav gallery icon (MobileNav.jsx:5), keyboard '1'/'g' (App.jsx:114-121,453), header logo click (Header.jsx:367), About.onNavigateGallery and TraitExplorer.onFilterGallery 'filter then jump to gallery' flows (App.jsx:629,647) — resolves to tab 'listings', and the 'Floor' nav item lights up active instead. /nakamigos/<slug>/gallery typed directly works (VALID_TABS includes 'gallery', constants.js:69), proving the tab itself renders. navRouting.test.jsx only asserts nav keys ∈ VALID_TABS, not URL construction, so the guard missed it. Likely regression from flipping the default tab to 'listings' without updating the gallery→'' shorthand.",
+   "suggestion": "In handleTabChange, navigate to the explicit segment (`/nakamigos/${slug}/gallery`), or make parseRoute's default segment 'gallery' again — and add a unit test that round-trips handleTabChange URL building through parseRoute for every VALID_TABS entry."
+  },
+  {
+   "id": "F526",
+   "src": "code:naka-shell",
+   "severity": "high",
+   "category": "wrong",
+   "page": "nakamigos NFT detail share links (?token=)",
+   "title": "Shared ?token= links never open the modal: the URL-sync effect deletes the param before the reader effect runs",
+   "evidence": "Modal.jsx:343 copies `${origin}/nakamigos/${slug}/gallery?token=${nft.id}` as the share link. In CollectionView, the URL↔modal sync effect is declared first (App.jsx:280-288): on mount selected is null so `next = null`, `current = '<id>'`, they differ → `url.searchParams.delete(\"token\"); window.history.replaceState(...)`. The param-reading effect is declared after it (App.jsx:291-309) and reads `new URLSearchParams(window.location.search).get(\"token\")` — by then the param is already gone, so it sets tokenParamHandled=true and never opens the modal or calls fetchTokensByIds. React runs same-component effects in declaration order, so this is deterministic: human recipients land on the gallery tab with no modal (unfurl bots still get the OG card from the edge middleware, masking the breakage).",
+   "suggestion": "Read the token param ONCE before the sync effect can touch the URL (e.g. capture window.location.search in a module-level/useRef initializer at mount, or move the reader effect above the sync effect and guard the sync effect until the param has been consumed)."
+  },
+  {
+   "id": "F527",
+   "src": "code:naka-shell",
+   "severity": "high",
+   "category": "wrong",
+   "page": "nakamigos splash screen",
+   "title": "Keyboard and assistive-tech users cannot enter the app — 'CLICK TO ENTER' is a click-only gate on a non-focusable div, on every visit",
+   "evidence": "SplashScreen.jsx:749-755: the only path to onComplete is `onClick={handleEnter}` on a plain <div> with no role, tabIndex, or keydown handler; the 'CLICK TO ENTER' element is a <motion.span> (SplashScreen.jsx:1372-1381), also non-focusable. App.jsx:161-163 renders nothing but the splash until splashDone, and the splash replays on every entry to /nakamigos (App.jsx:138-143, intentional per the comment). There is no skip control. Net effect: a keyboard-only or switch-access user is hard-blocked from the entire Tradermigos sub-app.",
+   "suggestion": "Additive fix that keeps the splash exactly as designed: add tabIndex={0}, role=\"button\", an aria-label, autofocus when phase==='ready', and an Enter/Space keydown that calls handleEnter."
+  },
+  {
+   "id": "F528",
+   "src": "code:naka-shell",
+   "severity": "high",
+   "category": "wrong",
+   "page": "nakamigos responsive shell (iPad portrait)",
+   "title": "At exactly 768px viewport width every navigation surface is hidden (iPad Mini/9.7\"/10.2\" portrait = 768 CSS px)",
+   "evidence": "App.css:1370 hides desktop tabs at ≤768 (`@media (max-width: 768px) { .desktop-nav { display: none; } }`); App.css:1437 hides the hamburger at ≥768 with !important; App.css:3704-3707 only shows .mobile-bottom-nav at ≤767. At width == 768 all three rules apply → no desktop nav, no hamburger, no bottom nav. Conflicts with the standing 'flawless on iPads' requirement.",
+   "suggestion": "Align the boundaries: make the bottom-nav breakpoint ≤768 (or desktop-nav hide ≤767) so the two ranges share an edge."
+  },
+  {
+   "id": "F529",
+   "src": "code:naka-shell",
+   "severity": "high",
+   "category": "wrong",
+   "page": "nakamigos error states (all tabs)",
+   "title": "ErrorBoundary 'Go Home' sets window.location.hash on a BrowserRouter app — it does not navigate, so a deterministically-crashing tab is an inescapable loop",
+   "evidence": "ErrorBoundary.jsx:134: `window.location.hash = \"#/nakamigos/\"` — but the app mounts under BrowserRouter (nakamigos/main.jsx:13 standalone; the embedded app uses the parent's BrowserRouter via frontend/src/App.tsx:121). Hash changes don't change pathname, so the route — and the crashing tab — re-renders; the button also does setState({hasError:false}) first, so render-time crashes are immediately re-caught and the user is back on the same error screen. The tab boundary deliberately passes no onReset (App.jsx:743-745: 'the Go Home button is the escape hatch') — i.e., the documented escape hatch is broken. NotFound.jsx:31 has the same dead hash fallback (mitigated because both App.jsx call sites pass onGoHome).",
+   "suggestion": "Replace the hash write with a hard `window.location.href = '/nakamigos'` (matching the app-level boundary at App.jsx:967) or accept a navigate callback prop."
+  },
+  {
+   "id": "F530",
+   "src": "code:naka-shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos tab transitions",
+   "title": "PageTransition is dead code at runtime — the key={tab} error-latch fix remounts it on every tab change, so its tabKey-change detector never fires",
+   "evidence": "App.jsx:745-749: `<ErrorBoundary key={tab}> <Suspense> <PageTransition tabKey={tab}>`. A key change unmounts and remounts the whole subtree, so PageTransition mounts fresh with `prevKeyRef.current = tabKey` (PageTransition.jsx:147) and its transition effect bails at PageTransition.jsx:167 (`if (prevKeyRef.current === tabKey) return;`). The entire glitch/cover/reveal choreography (PageTransition.jsx:14-142 injected styles, 3-phase state machine) never executes; tabs now hard-swap. The latch fix itself works (errors don't persist across tabs) — but it silently disabled the transition feature the component exists for, and injectStyles() still runs per mount (PageTransition.jsx:161-163, removes+re-adds the style tag).",
+   "suggestion": "Either accept and delete-route the transition (owner decision), or keep the boundary keyed while hoisting PageTransition ABOVE the keyed boundary so it survives tab changes and animates the swap."
+  },
+  {
+   "id": "F531",
+   "src": "code:naka-shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos ↔ main app (theme system collision)",
+   "title": "Two theme systems write the same documentElement data-theme attribute — visiting Tradermigos permanently clobbers the main app's light/dark theme until reload or manual toggle",
+   "evidence": "nakamigos/contexts/ThemeContext.jsx:105 sets `document.documentElement.setAttribute(\"data-theme\", themeId)` with values default|midnight|sovereign, plus body classes (lines 103-104) and meta theme-color (108-111), with NO unmount cleanup. The main app's ThemeContext.tsx:30 sets the same attribute with dark|light and only re-applies inside a [theme] effect — it stays mounted across routes, so leaving /nakamigos never restores it. A light-mode user who visits /nakamigos returns to a main app where every `[data-theme=\"light\"]` selector (index.css:551-680) stops matching — the UI silently reverts to dark and the mobile browser chrome keeps the nakamigos theme-color.",
+   "suggestion": "Scope the nakamigos attribute to the .nakamigos-app element only (App.css already supports `.nakamigos-app[data-theme=…]`, App.css:101-135) and add a ThemeProvider unmount cleanup that restores the main app's data-theme + meta theme-color."
+  },
+  {
+   "id": "F532",
+   "src": "code:naka-shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos onboarding tour",
+   "title": "4 of 5 tour steps anchor to selectors that don't exist anywhere in the codebase — the tour degrades to floating centered tooltips with no spotlight",
+   "evidence": "Onboarding.jsx STEPS selectors vs grep over frontend/src/nakamigos: step 1 `.gallery-grid, .virtual-gallery-grid` — .gallery-grid exists only in Favorites.jsx:56 and MyCollection.jsx:370/394, not on the default tab, and no element has class virtual-gallery-grid (VirtualGalleryGrid renders .nft-card items only, VirtualGalleryGrid.jsx:276); steps 2/4/5 reference `[data-tour=…]`, `.tab-floor`, `.listings-tab`, `button[data-tab='floor']`, `.cart-icon`, `.cart-btn` — zero matches (the Header cart button has no className, Header.jsx:504-508; nav buttons are `.nav-tab` only, Header.jsx:388). Only step 3 (.wallet-btn) anchors. resolveTarget falls back to a centered tooltip with setSpotlightRect(null) (Onboarding.jsx:154-162), and step 1's copy ('Browse the … collection with rarity scores') shows over the Floor tab since the default route is listings. The well-built spotlight/pulse machinery effectively never runs.",
+   "suggestion": "Add the data-tour attributes to Header's cart button, the Floor nav-tab, and the 'Keys' button, and a data-tour='gallery' on VirtualGalleryGrid's container — purely additive, makes the existing spotlight code light up."
+  },
+  {
+   "id": "F533",
+   "src": "code:naka-shell",
+   "severity": "medium",
+   "category": "improve",
+   "page": "nakamigos all collection pages (API load)",
+   "title": "Three independent always-on pollers fetch the same stats/activity endpoints — up to ~6 requests/min per idle visitor, none gated on tab visibility",
+   "evidence": "useSmartAlerts.js:7,328-331 polls fetchCollectionStats + fetchActivity every 30s unconditionally (floor alerts are enabled by default, DEFAULT_CONFIG line 14); PriceAlerts.jsx:8,58-71 polls fetchCollectionStats every 30s (usePriceAlerts is mounted at App.jsx:566 on every tab); useCollection.js:9-10,80-85 polls stats+activity every 60s (5min with WS). Only useDmUnread checks document.hidden (useDmUnread.js:32). No shared cache: react-query is used only for listings (useListings.js). Given the prod Upstash rate-limiter incident in memory, this is the first thing to consolidate.",
+   "suggestion": "Route stats/activity through react-query with a shared queryKey + refetchInterval, and gate refetchIntervalInBackground off; alert engines can subscribe to the same cache."
+  },
+  {
+   "id": "F534",
+   "src": "code:naka-shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos splash / accessibility CSS",
+   "title": "The reduced-motion rule `.splash-screen { display:none }` targets a class the splash never applies — and if it ever matched it would soft-lock the app",
+   "evidence": "App.css:3551 (`@media (prefers-reduced-motion: reduce) { .splash-screen { display: none; } }`) and App.css:1988 style a .splash-screen class, but SplashScreen.jsx:752 renders className={exitPhase === \"glitch\" ? \"splash-glitch\" : \"\"} — 'splash-screen' is never applied (grep confirms only App.css references it). So reduced-motion users still get the full rAF physics + framer-motion splash (framer animates inline styles; the CSS animation-duration kill at App.css:3545-3550 doesn't affect it). Worse, if someone 'fixed' the class without reading App.jsx:161-163, display:none would hide the only element whose click calls onComplete → permanent black screen for reduced-motion users.",
+   "suggestion": "Honor the preference in JS instead: in SplashScreen, if matchMedia('(prefers-reduced-motion: reduce)').matches, skip physics/exit choreography and show a static title + Enter button (keeps the art, drops the motion); delete or rewrite the dead CSS rule."
+  },
+  {
+   "id": "F535",
+   "src": "code:naka-shell",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "nakamigos /:collection/nft/:id deep links",
+   "title": "Deep link to a token outside the loaded pages opens an empty placeholder modal (no image, no traits) — it never fetches the token, unlike the ?token= path",
+   "evidence": "App.jsx:330-338: when the deep-linked id isn't in nfts.allTokens it does `setSelected({ id: deepLinkTokenId, name: `#${deepLinkTokenId}`, attributes: [], image: null })` with no fetch. The ?token= handler right above it (App.jsx:301-308) calls fetchTokensByIds for exactly this case. Modal.jsx has no metadata self-fetch (only sales history + order validation, Modal.jsx:55,130). With 40 tokens per page (useNfts.js:29), virtually any shared /nft/:id link beyond the first page shows a blank shell.",
+   "suggestion": "Reuse the fetchTokensByIds fallback from the ?token= handler in the /nft/:id effect."
+  },
+  {
+   "id": "F536",
+   "src": "code:naka-shell",
+   "severity": "medium",
+   "category": "improve",
+   "page": "nakamigos shell (context/provider performance)",
+   "title": "Confirmed: every cart/favorite/toast/activity change re-renders the entire CollectionView tree — the fine-grained context split is defeated by top-level consumption + prop drilling",
+   "evidence": "CollectionView (App.jsx:250-267) consumes useToast, useFavorites, useCart, useCollection (activities update on every poll/WS event), useListings, useNfts at the top and passes slices down as props to Header and every tab. One addToCart → CartContext value changes → CollectionView re-renders → renderTab() re-renders the active tab and Header's memo (Header.jsx:253) is defeated because activities/cartCount/lastRefresh props change anyway. The contexts themselves are well-memoized (CartContext.jsx:46-49 etc.) but no leaf consumes them directly.",
+   "suggestion": "Have leaf components (Header badge, cart drawer, tab bodies) consume the contexts directly, and split the high-churn activities feed out of useCollection's return object so ticker updates don't ripple through renderTab."
+  },
+  {
+   "id": "F537",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos PWA install prompt",
+   "title": "Clicking Install a second time after dismissing the native prompt throws — deferredPrompt isn't cleared on 'dismissed' outcome",
+   "evidence": "InstallPrompt.jsx:22-29: `await deferredPrompt.prompt(); const { outcome } = await deferredPrompt.userChoice; if (outcome === \"accepted\") setDeferredPrompt(null);` — a BeforeInstallPromptEvent's prompt() can only be called once; on 'dismissed' the stale event stays in state, the banner stays visible, and the next click rejects with InvalidStateError inside an un-try/catch'd async handler (and the embedded app doesn't install nakamigos/main.jsx's global unhandledrejection hook).",
+   "suggestion": "setDeferredPrompt(null) regardless of outcome (Chrome may re-fire beforeinstallprompt later), and wrap in try/catch."
+  },
+  {
+   "id": "F538",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos NFT modal close behavior",
+   "title": "Closing a deep-linked modal (X or Escape) silently switches the underlying tab from Gallery to Floor",
+   "evidence": "App.jsx:762 and App.jsx:496: onClose/Escape do `navigate(`/nakamigos/${collectionSlug}`, { replace: true })` when pathname includes '/nft/'. parseRoute maps the bare collection path to 'listings' (App.jsx:91), but /:collection/nft/:id renders tab 'gallery' (App.jsx:95) — so the content under the modal swaps from gallery to listings on close. Same root cause family as the gallery-segment bug.",
+   "suggestion": "Navigate to `/nakamigos/${slug}/gallery` (or whatever segment the gallery fix lands on)."
+  },
+  {
+   "id": "F539",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "wrong",
+   "page": "nakamigos header (mobile)",
+   "title": "The hamburger button and .mobile-nav drawer are dead UI — CSS hides the hamburger at every viewport width",
+   "evidence": "Base .hamburger is display:none (App.css:1023-1027); shown at ≤768 (App.css:1371) but re-hidden with !important at ≤767 (App.css:3713) and at ≥768 (App.css:1437) — the show rule can never win at any width (no other stylesheet defines .hamburger; grep outside nakamigos returns nothing). Header.jsx still ships the button (438-442), the mobileOpen state, and the visibleAll drawer (561-569) — unreachable code paths that also confused the 768px nav-gap picture.",
+   "suggestion": "Owner call: either revive the drawer for the tablet width band (fixing the 768px gap) or excise the dead state/markup; don't leave both."
+  },
+  {
+   "id": "F540",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos demo/fallback mode",
+   "title": "Fallback data fabricates activity by real, named wallets with fresh fake timestamps — a trust risk that contradicts the project's honesty-pass standard",
+   "evidence": "constants.js:176-182 FALLBACK_WHALES invents 'vitalik.eth Bought 3, 4m ago', 'pranksy.eth Swept 8, 23m ago' etc.; constants.js:184-189 FALLBACK_ACTIVITY generates sales stamped `Date.now() - 120000` so they always render as '2 minutes ago'; api.js:504 and api.js:585 serve these when live endpoints fail. The only disclosure is the small DEMO badge (Header.jsx:446-453), which is hidden entirely at ≤390px (App.css:4294-4297 hides .header-status-group).",
+   "suggestion": "Watermark fallback rows inline ('sample data') or use obviously-synthetic ENS names; keep the badge visible at all widths."
+  },
+  {
+   "id": "F541",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos header 'More' dropdown",
+   "title": "More menu lacks Escape-close, focus management, and recomputes its fixed position only at open",
+   "evidence": "Header.jsx:306-314 captures getBoundingClientRect once in toggleMore; the portal (402-433) is position:fixed with that stale top/right, so a resize/scroll while open leaves it floating; no keydown handler (Escape doesn't close; App.jsx's global Escape handler doesn't know about it), no focus trap or arrow-key navigation despite aria-haspopup/aria-expanded being set.",
+   "suggestion": "Close on Escape + focus the first item on open + reposition on resize (or anchor with position:absolute inside the relative wrapper that already exists at Header.jsx:392)."
+  },
+  {
+   "id": "F542",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos header wallet button",
+   "title": "Clicking the connected-wallet address instantly disconnects with no menu or confirm",
+   "evidence": "Header.jsx:316-323 handleConnect: `if (wallet) { setWallet(); return; }` where setWallet is handleDisconnect (App.jsx:513-516). One misclick on your own address = disconnect + toast. Best-in-class headers (OpenSea/Uniswap/RainbowKit's own ConnectButton) open an account menu (copy address / explorer / disconnect).",
+   "suggestion": "Swap the bare onClick for a small account popover; the disconnect toast already exists."
+  },
+  {
+   "id": "F543",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos background layer (all pages)",
+   "title": "Background mounts 20 full-res ghost-art JPEGs (~2.3 MB, two files >400 KB) plus 6 always-animating blur(60-100px) layers with no lazy/idle loading and no reduced-motion gating outside Starfield",
+   "evidence": "Background.jsx:72-102 BG_ART lists 20 /splash/*.jpg images (measured: G8jE1EcWMAAvHTy.jpg 454 KB, G-AVjGGakAAuW7Z.jpg 425 KB; total ≈2.3 MB) rendered as <img> with no loading=\"lazy\"/decoding=\"async\" (GhostArt, 104-136); MeshGradient/LightRays/GlassOrbs/DustMotes run infinite framer-motion loops over filter:blur(30-100px) surfaces (139-296); only Starfield checks prefers-reduced-motion (Background.jsx:365). Renders on every nakamigos page including landing.",
+   "suggestion": "Keep all the art (owner constraint) — add loading=\"lazy\" decoding=\"async\", defer GhostArt mounting to requestIdleCallback after first paint, serve webp/avif variants, and skip the infinite motion loops (render static frames) under prefers-reduced-motion."
+  },
+  {
+   "id": "F544",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos splash screen",
+   "title": "Splash entry costs ~7s of forced wait per visit: 4s purely synthetic progress, a mandatory click, then a 2.65s exit chain",
+   "evidence": "SplashScreen.jsx:647 TOTAL_DURATION=4000 drives a timer-only progress bar (no real loading is measured); phase 'ready' requires a click (677); the exit chain is glitch 900 + flash 150 + cover 1200 + collapse 400 = 2650ms desktop (688-700) before onComplete. The splash replays on every entry to /nakamigos by explicit owner request (App.jsx:138-143) — the duration, not the existence, is the cost.",
+   "suggestion": "Keep the splash; tie the progress bar to actual chunk/data readiness so it can finish early, and trim the desktop exit to the mobile timings (400/100/600/300 = 1.4s) which already feel complete."
+  },
+  {
+   "id": "F545",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos error states",
+   "title": "Non-chunk errors render the raw stack trace to end users",
+   "evidence": "ErrorBoundary.jsx:102-104 prints `(this.state.error?.message …) + \"\\n\\n\" + (this.state.error?.stack || \"\")` in the user-facing card (wordBreak:break-all, maxHeight 300). Useful in dev, hostile in prod for a retail marketplace.",
+   "suggestion": "Show the message only, gate the stack behind import.meta.env.DEV or a 'details' disclosure."
+  },
+  {
+   "id": "F546",
+   "src": "code:naka-shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "nakamigos splash screen",
+   "title": "Splash stats plaque and loading messages are hardcoded to the default collection regardless of destination",
+   "evidence": "SplashScreen.jsx:1409-1414 always reads COLLECTIONS[DEFAULT_COLLECTION] ('20,000 WORKS / ERC-721 / ETHEREUM') even when entering via a junglebay/gnssart deep link; the status line concatenates LOADING_MESSAGES of all three collections (1389) so a Nakamigos visitor sees 'Swinging through the jungle canopy…'. Charming but imprecise — the per-collection LOADING_MESSAGES sets in constants.js:419-447 were clearly written to be collection-scoped.",
+   "suggestion": "Parse the target collection from location.pathname inside SplashScreen and feed the matching messages/stats."
+  },
+  {
+   "id": "F547",
+   "src": "code:naka-shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "nakamigos shell",
+   "title": "Assorted polish: 'x' dismiss glyph, parseInt-lenient token ids, Ticker interval runs while tab hidden, IS_MOBILE frozen at module load",
+   "evidence": "InstallPrompt.jsx:71 dismiss button renders the letter 'x' (not × / an SVG); parseRoute App.jsx:94 parseInt('12abc')=12 so /nft/12abc resolves to token 12; Header.jsx Ticker setInterval (13-23) and StaleIndicator (76-78) keep firing when document.hidden; SplashScreen.jsx:5 computes IS_MOBILE once at module load so a rotated tablet keeps the wrong piece set until reload.",
+   "suggestion": "Each is a one-line fix; bundle them into the next UX batch."
+  },
+  {
+   "id": "F548",
+   "src": "code:naka-shell",
+   "severity": "polish",
+   "category": "improve",
+   "page": "nakamigos toasts vs main app",
+   "title": "Two toast systems live in one product: nakamigos hand-rolled Toast vs the main app's sonner",
+   "evidence": "nakamigos ToastContext.jsx + Toast.jsx implement a custom queue (well: 500ms dedupe ToastContext.jsx:12, undo buttons, aria-live), while the rest of Tegridy Farms uses sonner — duplicated behavior, slightly different look/stacking. Not a bug; an consistency/maintenance note.",
+   "suggestion": "Long-term: adapt addToast to wrap sonner with the nakamigos skin so dedupe/undo semantics live in one place."
+  },
+  {
+   "id": "F549",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "improve",
+   "page": "nakamigos constants / Seaport",
+   "title": "Seaport domain pinned to v1.5 with the code's own 'verify if OpenSea migrates to 1.6' note still unresolved (unverified runtime impact)",
+   "evidence": "constants.js:95-105 pins SEAPORT_ADDRESS to 1.5 (0x…aF14dC) and SEAPORT_DOMAIN version '1.5' described as 'use this everywhere for Seaport signing'; the comment itself flags 1.6 (0x…3eB395). OpenSea's default protocol has been Seaport 1.6 since 2024. Whether fulfillment paths honor each order's own protocolAddress was not verified in this pass — flagging as a must-verify before relying on native listing/offer signing, not as a confirmed bug.",
+   "suggestion": "Audit api.js/orderbook.js signing + fulfillment to confirm protocolAddress is taken from the order, and add a 1.6 domain constant if native orders should match OpenSea's current protocol."
+  },
+  {
+   "id": "F550",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "nakamigos gallery / shell",
+   "title": "Filter, sort, search, and scroll state are not URL-persisted or restored — tab switches destroy context",
+   "evidence": "Gallery.jsx:20-26 holds search/viewMode/priceRange in local state; useNfts.js:13 holds activeFilters/sortBy in hook state; handleTabChange always window.scrollTo top (App.jsx:360); the key={tab} boundary plus renderTab component swap remount tabs, so returning to Gallery loses filters, search, sort, and scroll position. Blur/OpenSea keep filter state in the querystring and restore scroll.",
+   "suggestion": "Serialize activeFilters/sortBy/search into searchParams (the router is already there) and skip the scroll-to-top when navigating back to a previously-visited tab."
+  },
+  {
+   "id": "F551",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "Browser back/forward does not close or restore the NFT detail modal — selected state and the ?token=/nft/:id URL are synced one-way only (no popstate handling); OpenSea/Blur treat item views as history entries so Back closes the modal.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F552",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No shareable/persistent gallery state: filters, sort, search, and Lite/Pro mode never reach the URL, so users can't deep-link a filtered view and lose all of it on tab switch (Dexscreener/Blur keep this in the querystring).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F553",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No scroll-position restoration when returning to a tab — every navigation scrolls to top (App.jsx:360), so browsing position in a 20k-item gallery is always lost.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F554",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No data cache across tab switches: only listings use react-query; stats, activity, tokens, trades, portfolio all refetch from zero each time a tab remounts. Best-in-class apps make tab switches instant from cache with background revalidation.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F555",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No prefetch of lazy tab chunks on nav hover/idle — first visit to each tab pays chunk download + skeleton; trivial win with import() on mouseenter.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F556",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No USD values at the shell level: header ticker, cart badge area, and floor stats are ETH-only; every comparable marketplace (OpenSea/Blur/Magic Eden) shows fiat equivalents inline.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F557",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No aria-current on active nav tabs in Header/MobileNav (active state is color+weight only) and the More dropdown lacks menu semantics/keyboard support — competitor navs are fully keyboard-operable.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F558",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No app-wide reduced-motion strategy for the JS-driven motion layers (framer-motion loops, splash physics, canvas systems) — a single MotionConfig reducedMotion='user' plus a JS matchMedia gate would cover what the CSS rule cannot.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F559",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No visible skip/fast-path on the splash for repeat visitors (an additive 'press Enter / skip' affordance would keep the owner's splash-every-entry intent while unblocking keyboard users).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F560",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No collection switcher inside a collection view — moving from Nakamigos to Jungle Bay requires going back to the landing page; competitor headers offer an inline collection dropdown.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F561",
+   "src": "code:naka-shell",
+   "severity": "low",
+   "category": "missing",
+   "page": "g10_naka_shell",
+   "title": "No onboarding re-entry point: once dismissed, the tour is unreachable (no 'replay tour' in the Keys/help overlay), so the (currently broken) anchors will be invisible even after they're fixed.",
+   "evidence": "(missingVsBestInClass)"
+  }
+ ]
+}

@@ -1,0 +1,677 @@
+{
+ "group": "g11_naka_browse",
+ "sourceAgents": [
+  "code:naka-browse",
+  "live:naka-browse"
+ ],
+ "findings": [
+  {
+   "id": "F562",
+   "src": "code:naka-browse",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Gallery (VirtualGalleryGrid.jsx)",
+   "title": "Infinite scroll yanks the user back to the top on every page append",
+   "evidence": "VirtualGalleryGrid.jsx:115-122 — `const tokensKey = tokens.length + \"-\" + (tokens[0]?.id ?? \"\"); useEffect(() => { if (prevKeyRef.current && prevKeyRef.current !== tokensKey) { if (parentRef.current) parentRef.current.scrollTop = 0; } ... }, [tokensKey]);`. The key includes tokens.length, so a loadMore append (40→80 tokens, same first id) changes the key exactly like a filter change and resets scrollTop to 0. The load-more effect (lines 139-148) fires 5 rows from the bottom, so every page-2+ load while scrolling jumps the viewport to the top. Reachable on Nakamigos/gnssart/junglebay (all >1000 supply, so useNfts.js:84-98 auto-load is disabled and pagination is scroll-driven).",
+   "suggestion": "Reset scroll only when the change is a filter/sort (e.g. compare first AND last token id, or have Gallery pass an explicit `resetKey` derived from activeFilters/sortBy/search instead of inferring from tokens.length)."
+  },
+  {
+   "id": "F563",
+   "src": "code:naka-browse",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Gallery (VirtualGalleryGrid.jsx)",
+   "title": "Column count frozen at the default 4 — ResizeObserver never attaches because first render is the skeleton branch",
+   "evidence": "VirtualGalleryGrid.jsx:41-46 — `useEffect(() => { recalc(); const ro = new ResizeObserver(recalc); if (containerRef.current) ro.observe(containerRef.current); ... }, [recalc, containerRef]);` with recalc=useCallback([containerRef, viewMode]). On mount, loading=true/tokens=[] (useNfts.js:7-8) so the component returns the SkeletonGrid branch (lines 150-162) which never attaches `ref={parentRef}` — observe() is skipped and recalc() no-ops. When data arrives the ref attaches but the effect deps haven't changed, so columns stays at `useState(4)` (line 30) until the user toggles view mode or remounts the tab. On a 390px iPhone that renders `repeat(4, 1fr)` (~85px-wide cards at 340px row height); inline style, no CSS override (App.css only collapses .gallery-layout, not the inner row grid).",
+   "suggestion": "Use a ref-callback that (re)attaches the ResizeObserver when the node appears, or add `loading`/`tokens.length>0` to the effect deps so it re-runs once the scroll container exists."
+  },
+  {
+   "id": "F564",
+   "src": "code:naka-browse",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Gallery (useNfts.js + FilterSidebar.jsx + constants.js)",
+   "title": "Gallery price sort and price-range filter operate on a price field that is always null — price filter returns zero results, price sort is a no-op",
+   "evidence": "api.js normalizeToken:123 sets `price: null` and nothing ever merges listing prices into useNfts tokens (useNfts.js takes no listings input; App.jsx:580 passes `tokens={nfts.tokens}` raw). Yet constants.js:86-87 exposes `{ value: \"price\", label: \"Price: High → Low\" }` / `price-asc` in the gallery sort dropdown (sorted at useNfts.js:153-154 via `(b.price || 0) - (a.price || 0)` — all zeros), and FilterSidebar's Min/Max ETH inputs feed Gallery.jsx:52-59 `if (p === 0 || p === null || p === undefined) return false;` — with every p null, ANY price range filters out the entire collection and shows the \"No NFTs Match These Filters\" empty state. Listed-prices exist in the `listings` prop (used for listedOnly at Gallery.jsx:47-50) but are never joined onto tokens.",
+   "suggestion": "Merge listings prices into tokens (a Map join in Gallery or useNfts using the already-available `listings` prop) so price sort/filter work, and gallery cards gain price display for free (Card/VirtualCard already render nft.price when non-null)."
+  },
+  {
+   "id": "F565",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Gallery (FilterSidebar.jsx)",
+   "title": "Filter sidebar accordion + trait-search state wiped every time a new token page loads",
+   "evidence": "FilterSidebar.jsx:403-407 — `useEffect(() => { setExpanded(new Set()); setTraitSearch({}); setHoveredRow(null); }, [traitFilters]);` with the comment \"(i.e., new collection loaded)\". But useNfts.js:49 calls `setTraitFilters(extractTraitFilters(all))` with a brand-new array on EVERY appended page, so during scroll pagination the user's expanded accordions and in-trait searches collapse repeatedly. Collection switches already remount the whole tree (App.jsx:184 `key={collectionSlug}`), so this reset effect only ever fires spuriously.",
+   "suggestion": "Drop the effect (remount already handles collection changes) or key it on collection.slug instead of the traitFilters array identity."
+  },
+  {
+   "id": "F566",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Gallery (FilterSidebar.jsx)",
+   "title": "Trait rarity percentages divide loaded-sample counts by full supply — every trait reads <5% and shows the gold 'rare' color until the whole collection loads",
+   "evidence": "FilterSidebar.jsx:571 `const pct = totalTokens > 0 ? parseFloat((v.count / totalTokens * 100).toFixed(1)) : 0;` where totalTokens = totalSupply (Gallery.jsx:68 `totalSupply || allTokens?.length`, App.jsx:597 passes stats.supply) but v.count comes only from loaded tokens (extractTraitFilters over loaded pages). With 40-80 of 20,000 Nakamigos loaded, every value computes ~0.1-0.4% → rarityColor(pct<5)=\"var(--gold)\" (lines 4-8) paints ALL traits as ultra-rare. TraitExplorer.jsx:397-402 explicitly fixed this same bug (\"dividing by full supply would understate every trait's incidence... Sample incidence is the unbiased estimate\") — FilterSidebar was not given the fix.",
+   "suggestion": "Divide by the loaded-token count like TraitExplorer does (with its \"~\" sampled marker), keeping supply only for the absolute count column."
+  },
+  {
+   "id": "F567",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "GNSS About page (SpeciesEncyclopedia.jsx)",
+   "title": "\"View in Gallery\" species deep-link navigates with a ?species= param that nothing reads — button silently does nothing useful",
+   "evidence": "SpeciesEncyclopedia.jsx:327-329 `navigate(`/nakamigos/gnssart/gallery?species=${encodeURIComponent(speciesName)}`)`. A repo-wide grep for `species` shows no consumer: App.jsx only reads the `token` search param (App.jsx:282,293) and parseRoute ignores the query string entirely. The user lands on the unfiltered gallery. Compare JungleBayShowcase/CharacterTypeExplorer which correctly use the onFilterGallery callback (App.jsx:647).",
+   "suggestion": "Pass an onFilterGallery prop through About.jsx (it already exists for JungleBay at About.jsx) and call nfts.changeFilter with the species trait key, or implement reading ?species= in the gallery."
+  },
+  {
+   "id": "F568",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Listings (recent-sales path) + api.js",
+   "title": "Nakamigos metadataBase/<id>.png fallback URL verifiably 404s, yet three code paths still emit it — broken-image flash plus per-card metadata fetch burst on the sales grid",
+   "evidence": "Verified live: `curl -I https://alchemy.mypinata.cloud/ipfs/QmaN1jRPtmzeqhp6s3mR1SRK4q1xWPvFvwqW1jyN6trir9/1.png` → 404 (gnss assets.mgxs.co/1.png → 200 image/png, junglebay ipfs path → 206 image/png). Listings.jsx:167-172's own comment says \"No deterministic image URL exists (Nakamigos metadata points at per-token IPFS CIDs)\" and leaves listing images null — but recentSales (Listings.jsx:239-246) still sets `image: token?.image || fallbackImg` with `fallbackImg = `${collection.metadataBase}/${a.token.id}.png``, listedNfts imageLarge uses the same fullResImg (lines 161-163,175), and api.js normalizeToken:105-108 uses it as last-resort `fallbackImage`. Sales cards aren't flagged imagePending (Listings.jsx:784 `noSelfFetch={nft.imagePending}` — undefined for sales objects), so each 404 fires NftImage.handleError's per-card /api/alchemy fetch (NftImage.jsx:100-127) — up to 24 parallel calls, the exact pattern the 2026-06-11 fix was eliminating.",
+   "suggestion": "For Nakamigos set the sales-path fallback to null + imagePending like the listings path (the batch enrichment at Listings.jsx:124-145 already covers saleIds), and gate normalizeToken's fallbackImage per collection."
+  },
+  {
+   "id": "F569",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Listings (Listings.jsx)",
+   "title": "Token-metadata enrichment refetches the same IDs on every activities/tokens update — periodic batch-fetch storm",
+   "evidence": "Listings.jsx:124-145 — `const knownIds = new Set(tokens.map(t => String(t.id)));` then `missingIds = allNeededIds.filter(id => !knownIds.has(id))`. Already-fetched `extraTokens` are never added to knownIds, and the effect deps include `activities` and `tokens`. useCollection polls activities every 60s (fallback) producing a new array each cycle (useCollection.js:68,81), and gallery pagination grows `tokens` — each change re-runs the effect and re-issues fetchTokensByIds for ALL non-gallery listed+sale IDs (up to ~787 listings = 8 batch POSTs of 100, api.js:809-829) even though nothing is missing.",
+   "suggestion": "Include extraTokens ids in knownIds (or keep a fetched-ids ref) so only genuinely new ids are requested."
+  },
+  {
+   "id": "F570",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Gallery (VirtualGalleryGrid.jsx + useNfts.js)",
+   "title": "On API failure while scrolled near the bottom, load-more retries in an unthrottled loop",
+   "evidence": "VirtualGalleryGrid.jsx:134-136 resets the guard on every loading flip (`useEffect(() => { loadMoreCalledRef.current = false; }, [rowCount, loading])`), and the trigger effect (lines 139-148) re-runs because `onLoadMore` (useNfts.js:77-80, useCallback deps [loading, hasMore, load]) gets a new identity each load cycle. On error, useNfts.js:54-56 sets the error message but leaves hasMore=true, so the cycle load→error→loading false→guard reset→effect re-fires→load repeats continuously with no backoff while the user sits near the bottom — hammering the proxy that has already rate-limited once in prod.",
+   "suggestion": "On error, suppress auto-retrigger (e.g. set hasMore false until the user clicks the error banner's Retry, or add exponential backoff in useNfts)."
+  },
+  {
+   "id": "F571",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Listings (mobile)",
+   "title": "Batch-selection bar (fixed bottom, z-index 100) is covered by the mobile bottom nav (fixed bottom, z-index 9999)",
+   "evidence": "Listings.jsx:900-907 — sticky bar `position: \"fixed\", bottom: 0, left: 0, right: 0, zIndex: 100`. MobileNav.jsx:117-128 — `.mobile-bottom-nav { position: \"fixed\", bottom: 0, zIndex: 9999, padding: \"6px 0 max(6px, env(safe-area-inset-bottom))\" }`. Both occupy the same strip; on phones the \"N selected / Add All to Cart\" bar renders underneath the nav, hiding the action buttons. (Stacking math verified from code; not screen-verified.)",
+   "suggestion": "On <768px offset the selection bar above the nav (e.g. bottom: calc(nav height + safe-area)) or raise its z-index above 9999 while keeping it below modals."
+  },
+  {
+   "id": "F572",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Traits (TraitExplorer.jsx + useNfts.js)",
+   "title": "Visiting the Traits tab silently kicks off loading ALL 20,000 Nakamigos tokens — ~500 sequential API pages with O(n²) trait re-extraction",
+   "evidence": "TraitExplorer.jsx:379-381 `useEffect(() => { if (loadAll && hasMore) loadAll(); }, [loadAll, hasMore]);` drives useNfts.js:107-121 (one 40-token page per 200ms). For 20k supply that's ~500 proxy calls over ~100s, and every page re-runs extractTraitFilters over the full accumulated array (useNfts.js:49) plus computeRarity/filter/sort useMemos over a growing 20k array — sustained jank and exactly the API pressure profile that previously tripped the Upstash limiter. Leaving the tab doesn't stop it (loadingAll state lives in useNfts at App level).",
+   "suggestion": "Add a server/precomputed trait-summary path for Nakamigos (rarity.json already exists per api.js:744), or cap auto-loadAll and show an explicit \"Load all 20,000 (may take a minute)\" progress affordance with a cancel."
+  },
+  {
+   "id": "F573",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Traits (TraitExplorer.jsx)",
+   "title": "\"Rarest First\" category sort compares each category's MOST COMMON value, not its rarest",
+   "evidence": "TraitExplorer.jsx:490-495 — `const aMin = a.values[0]?.pct ?? 100;` but values are sorted by count DESC (line 421 `.sort((a, b) => b.count - a.count)`), so values[0] is the most common value. The variable named aMin is actually the max pct; the resulting order is \"most evenly distributed categories first\", not rarest-first.",
+   "suggestion": "Use the minimum pct (`a.values[a.values.length - 1]?.pct` or Math.min over values) for the rarest-first comparator."
+  },
+  {
+   "id": "F574",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Gallery (search)",
+   "title": "Search only matches the loaded pages — searching a valid token ID that isn't loaded yields 'No Results Found'",
+   "evidence": "Gallery.jsx:40-44 filters `tokens` (loaded pages only) by name/id; for Nakamigos only ~80 of 20,000 tokens are loaded before scrolling. Searching \"15000\" shows the empty state even though the token exists. The codebase already has the fix pattern: the ?token= deep link falls back to fetchTokensByIds for unloaded ids (App.jsx:301-308).",
+   "suggestion": "When a numeric search has zero loaded matches and is within supply, fetch that token by id (fetchTokensByIds) and surface it as a result."
+  },
+  {
+   "id": "F575",
+   "src": "code:naka-browse",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Gallery / Listings / Traits (NftImage.jsx)",
+   "title": "Failure-sentinel cache never actually suppresses refetches — failed entries are indistinguishable from cache misses",
+   "evidence": "NftImage.jsx:36-45 — for a failed entry within TTL, getCachedUrl skips the eviction branch and `return entry.url;` which is null (setCachedFailed stores `{ url: null, ... failed: true }`). Callers treat null as \"no cache\" (line 80 `if (!cached && !primarySrc ...)` re-fires the metadata fetch; handleError never consults the cache), so the 5-minute failure TTL and the failed flag are dead code — every remount of a known-bad token re-hits /api/alchemy.",
+   "suggestion": "Return a sentinel (e.g. {failed:true}) from getCachedUrl and short-circuit straight to the placeholder (failCount=3) for cached failures."
+  },
+  {
+   "id": "F576",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Traits (TraitExplorer.jsx)",
+   "title": "Search placeholder renders the literal text '…' to users",
+   "evidence": "TraitExplorer.jsx:716 — `placeholder=\"Search traits or values…\"`. JSX attribute string literals do not process JS unicode escapes, so the input shows `Search traits or values…`. Every other escape in the file correctly uses a JS expression (e.g. line 713 `{\"⌕\"}`).",
+   "suggestion": "Change to placeholder={\"Search traits or values…\"} or just use the … character."
+  },
+  {
+   "id": "F577",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Tradermigos landing (CollectionLanding.jsx)",
+   "title": "Floor prices ≥1 ETH are rounded to whole numbers — a 1.5 ETH floor displays as '2 ETH'",
+   "evidence": "CollectionLanding.jsx:334-340 — `if (typeof val === \"number\" && suffix === \" ETH\" && val < 1) return val.toFixed(4) + suffix; if (... suffix === \" ETH\") return val.toLocaleString(undefined, { maximumFractionDigits: 0 }) + suffix;` — used for the FLOOR stat (line 578). Fine for volume, wrong for floors between 1 and ~100 ETH.",
+   "suggestion": "Use the shared lib/formatPrice.js (4 decimals < 1000) for the Floor stat."
+  },
+  {
+   "id": "F578",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Tradermigos landing (CollectionLanding.jsx)",
+   "title": "Token-ID search assumes ids are 1..supply — wrong for burn/sparse collections per the project's own config notes",
+   "evidence": "CollectionLanding.jsx:98-105 — `if (id > 0 && id <= col.supply)` builds a deep link. constants.js:33 says gnssart \"supply 9696 // On-chain totalSupply (token IDs go up to 9000+)\" and constants.js:49 junglebay \"supply 5555 ... (reflects burns)\" — so ids above supply can exist (excluded from search) and ids below supply can be burned (search links to a dead token). Also `id > 0` excludes a token #0 if the collection is 0-indexed.",
+   "suggestion": "Treat the bound as a heuristic hint in the UI copy, or validate by fetching the token before navigating."
+  },
+  {
+   "id": "F579",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Gallery (Gallery.jsx + VirtualGalleryGrid.jsx)",
+   "title": "Two stacked empty states: full-height 'No items found' from the grid plus the styled empty-state card below it",
+   "evidence": "Gallery.jsx:197-208 always renders VirtualGalleryGrid; with tokens=[] and !loading it returns its own `calc(100vh - 200px)` centered \"No items found\" div (VirtualGalleryGrid.jsx:164-179). Gallery.jsx:211-231 then ALSO renders its `.empty-state` block for the same condition — the user sees a plain viewport-height message and must scroll past it to reach the real empty state (which itself duplicates EmptyState.jsx copy by hand instead of using the shared component).",
+   "suggestion": "Skip rendering VirtualGalleryGrid when displayed.length===0 && !loading, and use the shared <EmptyState> component for the copy."
+  },
+  {
+   "id": "F580",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Jungle Bay About (JungleBayShowcase.jsx)",
+   "title": "Timeline is out of chronological order and embeds a hardcoded market stat as 'Present'",
+   "evidence": "JungleBayShowcase.jsx:29-39 — TIMELINE_EVENTS places \"Nov 2021 — Sandbox Land Secured\" (index 5) after \"May 2022 — Otherside Land Acquired\" (index 4); the rendered timeline is positional, so the dates appear shuffled. The final event hardcodes \"Only 0.98% of supply listed.\" — a point-in-time stat that will silently rot under a 'Present' label.",
+   "suggestion": "Reorder the array chronologically; compute listed % live from listings/supply (both already in props upstream) or drop the number."
+  },
+  {
+   "id": "F581",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "All tabs (lib/queryConfig.js + hooks/useTradingMutations.js)",
+   "title": "queryKeys.traitOffers does not exist but is called in two mutation callbacks — a TypeError landmine in a currently-dead module",
+   "evidence": "queryConfig.js:56-62 defines only listings/collectionOffers/collectionStats/ownedNfts/nftMetadata, but useTradingMutations.js:55 and :101 call `queryKeys.traitOffers(slug)` in onSettled — would throw `queryKeys.traitOffers is not a function` and skip the subsequent ['offers'] invalidation. Grep confirms no component currently imports any useTradingMutations hook, so it is unreachable today — but it is the designated mutation layer and will detonate the first time someone wires it up.",
+   "suggestion": "Add `traitOffers: (slug) => [\"trait-offers\", slug]` to queryKeys (or remove the dead module if the inline mutation paths are canonical)."
+  },
+  {
+   "id": "F582",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Gallery hero / header (useCollection.js + constants.js)",
+   "title": "Hardcoded FALLBACK_STATS (floor 0.1048 ETH, 5,238 owners) render as live data on first paint and on API failure with no staleness marker in the Hero",
+   "evidence": "useCollection.js:17-19 initializes Nakamigos stats to FALLBACK_STATS (constants.js:169-174 `floor: 0.1048, volume: 52200, owners: 5238`), and api.js:218 returns `{ ...FALLBACK_STATS, fallback: true }` on double failure. Hero.jsx:146-153 renders stats.floor as \"FLOOR\" with no fallback/stale indicator (the isLive flag exists but only feeds the header dot). A wrong floor on a trading surface misleads buyers.",
+   "suggestion": "Show a subtle 'cached' / 'approx' marker on Hero stat cards when stats.fallback (additive badge, no removal)."
+  },
+  {
+   "id": "F583",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "NFT deep links (App.jsx)",
+   "title": "/:collection/nft/:id deep link opens a bare placeholder modal (no image/attributes) for unloaded tokens, unlike the ?token= path which fetches",
+   "evidence": "App.jsx:330-338 — `else if (nfts.allTokens.length > 0) { setSelected({ id: deepLinkTokenId, name: `#${deepLinkTokenId}`, attributes: [], image: null }); }` with no fetchTokensByIds call, while the ?token= handler (App.jsx:301-308) does fetch the token. For Nakamigos (no auto-load) most shared /nft/:id links hit the placeholder. Caveat: Modal.jsx may self-enrich — not verified (Modal outside this audit's scope).",
+   "suggestion": "Reuse the ?token= fetch-by-id fallback for the /nft/:id path."
+  },
+  {
+   "id": "F584",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "Gallery (FilterSidebar.jsx)",
+   "title": "Dead isMobile state with a resize listener that re-renders the sidebar on every window resize",
+   "evidence": "FilterSidebar.jsx:400 `const [isMobile, setIsMobile] = useState(false);` and 410-415 attach a resize listener calling setIsMobile — but isMobile is never read (line 459 `const renderAsMobile = !!isMobileOverlay;` uses only the prop). Pure re-render churn during resize/orientation changes.",
+   "suggestion": "Delete the state and listener."
+  },
+  {
+   "id": "F585",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "Favorites / My Collection (Card.jsx)",
+   "title": "Card.jsx ignores rankApproximate — approximate ranks display as authoritative, inconsistent with VirtualCard and Hero",
+   "evidence": "Card.jsx:44 `{nft.rank && (` shows the badge unconditionally, while VirtualGalleryGrid.jsx:316 gates with `!nft.rankApproximate` and Hero.jsx:43 with `!cur.rankApproximate`. computeRarity (api.js:795-797) marks ranks approximate when <80% of a non-Nakamigos collection is loaded; Favorites/MyCollection render Card via AnimatedCard (Favorites.jsx:58, MyCollection.jsx:396), so gnssart/junglebay favorites show unreliable ranks as real.",
+   "suggestion": "Add the same !nft.rankApproximate gate (or an '~' prefix) in Card.jsx."
+  },
+  {
+   "id": "F586",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "Gallery / Traits / About (a11y)",
+   "title": "Interactive rows and cards in TraitExplorer, SpeciesEncyclopedia, CharacterTypeExplorer and the JungleBay timeline are mouse-only (no role/tabIndex/keydown), inconsistent with the rest of the app",
+   "evidence": "TraitExplorer.jsx:777-785 trait value rows are plain divs with onClick only; same for detail-grid items (575-582), SpeciesEncyclopedia.jsx:352-361 species cards, CharacterTypeExplorer.jsx:359-371 type cards, JungleBayShowcase.jsx:264-271 timeline items. Contrast: FilterSidebar rows have role=checkbox/tabIndex/onKeyDown (FilterSidebar.jsx:579-590) and Card/VirtualCard/MarqueeItem all implement role=button + Enter/Space.",
+   "suggestion": "Apply the existing role+tabIndex+onKeyDown pattern from FilterSidebar to these click targets."
+  },
+  {
+   "id": "F587",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "Tradermigos landing (CollectionLanding.jsx)",
+   "title": "Cross-collection search dropdown lacks keyboard navigation and combobox semantics",
+   "evidence": "CollectionLanding.jsx:149-265 — input has no onKeyDown (no ArrowDown/ArrowUp/Enter selection, Escape only closes via outside-click handler at 111-119), no role=combobox/aria-expanded/aria-activedescendant, results are plain buttons. Also <h3>/<p> nested inside the CollectionCard <button> (lines 347, 489, 515) is invalid HTML content for a button.",
+   "suggestion": "Add arrow-key/Enter handling + combobox ARIA; swap inner headings for styled divs."
+  },
+  {
+   "id": "F588",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "Gallery (mobile/touch)",
+   "title": "Add-to-cart on gallery cards is hover-gated — unreachable on touch devices",
+   "evidence": "VirtualGalleryGrid.jsx:358 — `{onAddToCart && !inCart && hovered && (<button ...>` with hovered set only by onMouseEnter/onMouseLeave (296-297). iPhone/iPad users cannot add to cart from the gallery grid (only via modal/listings).",
+   "suggestion": "On coarse pointers always render the button (media (hover: none) check or a persistent compact button)."
+  },
+  {
+   "id": "F589",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "Gallery (Gallery.jsx)",
+   "title": "No 'loading more' indicator during scroll pagination; mobile filter count can also double-count",
+   "evidence": "VirtualGalleryGrid renders nothing at the bottom while a next page loads (loading=true with tokens present has no UI; Gallery.jsx:119-128 only swaps the toolbar counter). Minor: Gallery.jsx:75 badge `Object.values(activeFilters).reduce((c, v) => c + v.length, 0) + (listedOnly ? 1 : 0)` omits the price filter while FilterSidebar.jsx:417-423 includes it — the two counters can disagree.",
+   "suggestion": "Add a small spinner row/skeleton row when loading && tokens.length>0; unify the active-count computation."
+  },
+  {
+   "id": "F590",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "All tabs (lib/queryConfig.js)",
+   "title": "Four of six tuned query configs are dead exports — stats and metadata fetching hand-rolled with useState instead, so the documented cache policy doesn't apply",
+   "evidence": "Grep shows nftMetadataQuery, floorPriceQuery, collectionStatsQuery, ownedNftsQuery (queryConfig.js:5,13,30,39) have zero importers. useCollection.js implements its own setInterval polling (lines 80-85) and useNfts its own pagination state, so the \"centralized so every hook uses consistent, tuned settings\" goal (queryConfig.js:1-2) only holds for listings/offers. CollectionLanding also refetches all 3 collections' stats (4 API calls each) on every landing visit with no cache (CollectionLanding.jsx:618-653).",
+   "suggestion": "Migrate useCollection stats (and landing-page stats) onto useQuery with collectionStatsQuery — instant cross-page cache sharing with the existing config."
+  },
+  {
+   "id": "F591",
+   "src": "code:naka-browse",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Gallery hero (Hero.jsx)",
+   "title": "Featured-NFT rotation swaps src abruptly; volume formatter caps at 'K'",
+   "evidence": "Hero.jsx:41 puts `transition: \"opacity 0.6s, transform 0.6s\"` on the img style but nothing changes opacity on swap — the 4s rotation (lines 18-24) is a hard cut. formatVolume (lines 85-89) renders 1,234,567 as \"1234.6K\" (no M tier). The interval also keeps firing while the tab is hidden.",
+   "suggestion": "Crossfade via a keyed wrapper (framer-motion AnimatePresence is already in the bundle); add an M tier; pause on document.hidden."
+  },
+  {
+   "id": "F592",
+   "src": "code:naka-browse",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Gallery (VirtualGalleryGrid.jsx / Card.jsx)",
+   "title": "Minor consistency nits: raw price in aria-label, unstable list keys in Listings, dead imports/props",
+   "evidence": "VirtualGalleryGrid.jsx:295 aria-label interpolates raw `${nft.price} ETH` (e.g. 0.123456789) while visible UI uses formatPrice; Listings.jsx:782 `key={`${nft.id}-${idx}`}` makes keys order-dependent so re-sorting remounts all cards; Gallery.jsx:2 imports Skeleton but never renders it; Skeleton.jsx:1 accepts a `view` prop it never uses; NftImage.handleError (NftImage.jsx:100) ignores noSelfFetch so a broken batch-supplied URL still triggers a per-card fetch.",
+   "suggestion": "formatPrice in aria-labels, key by nft.id alone, drop dead imports/props, early-return in handleError when noSelfFetch."
+  },
+  {
+   "id": "F593",
+   "src": "code:naka-browse",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Listings (Listings.jsx)",
+   "title": "fetchCollectionOffers and the bestOffers loop have no abort wiring (cancelled-flag only) and bestOffers fetches 20 offers strictly sequentially",
+   "evidence": "Listings.jsx:110-115 fetchCollectionOffers has no signal/cleanup (component remount on collection switch makes cross-collection bleed a non-issue — verified App.jsx:184 key={collectionSlug} — but the network work still completes pointlessly); lines 205-221 await fetchBestOffer one-at-a-time for up to 20 ids (~20 sequential round-trips; rate-limit friendly but slow to populate).",
+   "suggestion": "Thread AbortSignals through; batch best-offer fetches 3-4 at a time."
+  },
+  {
+   "id": "F594",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "URL-synced, shareable gallery state: active trait filters, sort, search, listed-only and price range are all in-memory only (useNfts/Gallery state) — OpenSea/Blur encode these in the URL so views are linkable and survive refresh.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F595",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Listed-price/listed-status badges on gallery cards: the data exists in the listings prop but is never merged onto tokens, so the main browse grid shows no prices at all (Blur/OpenSea grids lead with price; this also blocks the dead price sort/filter, see findings).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F596",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "USD values outside the listings grid: Hero floor, gallery, sweep totals and the batch-selection ETH total have no fiat equivalent; priceUsd is only shown when OpenSea happens to supply it on a listing.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F597",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Jump-to-token / scroll restoration: the virtualizer has scrollToIndex available but there is no 'go to token #' affordance, and returning from the detail modal or another tab loses grid scroll position.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F598",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Pre-trade transparency: Buy Now goes straight to wallet signing with no tx simulation/gas estimate preview, no fee breakdown (1% platform + 1% OpenSea are in constants but not surfaced at point of sale), and no price-vs-floor delta warning for overpriced listings.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F599",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Listing metadata depth: no expiry countdown on listing cards (expiry exists on native orders), no 'listed X ago', no maker ENS/short-address display in the grid, no per-listing floor-difference %.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F600",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Marketplace/trait filters on the buy grid: Listings offers only sort + max-price; best-in-class buy surfaces (Blur, OpenSea Pro) offer trait filtering and source (OpenSea vs native) toggles on the same grid where the filter data already exists (traitCategories is computed at Listings.jsx:356-371 but only used for the trait-offer dropdown).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F601",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Landing-page market context: collection cards show static floor/volume/owners with no 24h deltas, sparklines, or last-updated stamp (Dexscreener/OpenSea category pages lead with change indicators).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F602",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Recent-sales analytics affordance: sales cards show price+time but no sale-vs-floor delta or buyer/seller links, and there is no export/share of the sales list (CSV lib exists at lib/csv.js but is not wired here).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F603",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Responsive images: NftImage uses a single fixed src with width/height 300 — no srcset/sizes or DPR variants, so retina grids upscale thumbnails and large screens over-fetch nothing/under-resolve (Alchemy provides multiple cached sizes that the code already knows about: thumbnailUrl/pngUrl/originalUrl).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F604",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Offline/connection awareness: no navigator.onLine detection or 'you're offline' banner; API failures surface as generic 'check your connection' text with manual Retry only.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F605",
+   "src": "code:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "g11_naka_browse",
+   "title": "Search depth: gallery search matches name/id of loaded tokens only — no trait-value search, no fuzzy matching, no fetch-by-id fallback for valid unloaded ids (the ?token= deep-link path already implements the fetch pattern).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F606",
+   "src": "live:naka-browse",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "NFT detail modal / /nft/:id route",
+   "title": "Detail view shows no image and no traits for most tokens (un-enriched cache, no per-token fetch)",
+   "evidence": "Modal for #18156, #0 and #777 shows the 'N #<id>' placeholder permanently; JS inspection: '.modal-image-side .modal-image-wrap' contains NO <img> element at all. #777 (opened via hub search and via fresh /nft/777 deep link) also shows 'No traits available for this token' while the SAME token's grid card renders its image fine. Traits header elsewhere admits '(based on 40/20,000 loaded)'. The single-NFT evaluation page objective (see the art, see the traits) fails for any token outside the lazily-enriched subset.",
+   "suggestion": "On modal open, fire an on-demand per-token metadata fetch (Alchemy getNFTMetadata) and, as an instant fallback, reuse the already-loaded grid thumbnail URL. Reproduced at HEAD on dev for un-enriched tokens, so not fixed."
+  },
+  {
+   "id": "F607",
+   "src": "live:naka-browse",
+   "severity": "high",
+   "category": "wrong",
+   "page": "All collection pages (top nav)",
+   "title": "Gallery navigation is dead: nav button AND 'G' hotkey route to Listings instead of /gallery",
+   "evidence": "Clicking 'Gallery' (twice, including via accessibility ref) leaves URL at /nakamigos/nakamigos/ with title 'Nakamigos - Listings'; pressing the documented 'G — Go to Gallery' shortcut does the same. Direct URL /nakamigos/nakamigos/gallery loads a fully working Gallery page. Reproduced identically on localhost:5173 (HEAD) — the gallery route handler navigates to the wrong path.",
+   "suggestion": "Fix the shared goToGallery navigation function to push /gallery; both entry points clearly share it."
+  },
+  {
+   "id": "F608",
+   "src": "live:naka-browse",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Splash / deep links",
+   "title": "?token= deep links are stripped during splash click-through — shared token links never open the token",
+   "evidence": "Fresh load of https://tegridyfarms.vercel.app/nakamigos/nakamigos?token=18156 → splash → after CLICK TO ENTER the URL becomes /nakamigos/nakamigos with modalOpen=false (verified via JS on prod AND dev). In-session browsing generates exactly this ?token= URL format (e.g. /gallery?token=0), so copied browser URLs break for recipients. Path-based /nakamigos/nakamigos/nft/777 DOES survive the splash and opens the modal (normalized to /nft/777?token=777).",
+   "suggestion": "Preserve the query string through the splash-enter transition, or canonicalize all in-app token URLs to the /nft/:id path form that already survives."
+  },
+  {
+   "id": "F609",
+   "src": "live:naka-browse",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos (Order Book & Offers panel)",
+   "title": "Order book bid side is nonsense data and the copy contradicts itself ('-4071.3%' spread called 'narrow'/'Healthy')",
+   "evidence": "Panel shows BEST BID 4.2800 ETH vs BEST ASK 0.1026 ETH, 'Spread -4.1774 (-4071.5%)', bid ladder 4.2350 → 3.6050 ETH on a 0.10-floor collection, and the verdict line 'SPREAD -4.1774 ETH (-4071.3%) ● Healthy — Strong buying interest near floor. Price gap is narrow (-4071.3%), suggesting healthy trading.' Meanwhile every listing card on the same page says 'Best offer: 0.0994'. A 4.28 ETH bid against a 0.10 ask would be instant-arb; the bid feed is mis-parsed or demo data mixed with live asks.",
+   "suggestion": "Validate the offers source (criteria/qty-scaled WETH offers being read as unit price?), and gate the 'Healthy' verdict on spread sanity (negative spread should read as data error, never 'narrow')."
+  },
+  {
+   "id": "F610",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos (sort control)",
+   "title": "'Rank: Best First' and 'Rank: Highest #' sorts are silent no-ops",
+   "evidence": "Selecting rank-asc returns the exact same first six tokens in the same order and prices as price-asc (#17129 0.1026, #10219 0.1045, #16971 0.1046, #14540 0.1050, #14388 0.1052, #17885 0.1055); no rank badges on cards. Rank data exists — the #0 detail modal shows a 'RANK #791' badge.",
+   "suggestion": "Wire the sort to the rank field that the modal already displays, or show a 'rank data loading' state instead of silently falling back."
+  },
+  {
+   "id": "F611",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "NFT detail modal (OFFERS section)",
+   "title": "Three skeleton bars in OFFERS never resolve (latched loading state)",
+   "evidence": "On prod, modals for #18156, #0 and #777 all show 3 grey rows with class=\"skeleton\" and empty innerHTML below BEST OFFER, still pulsing after 60+ seconds. On dev (#16971) skeletons=0, so it may be fixed at HEAD or data-dependent — worth verifying before closing.",
+   "suggestion": "Resolve the offers query to either rows or an explicit 'No other offers' empty state."
+  },
+  {
+   "id": "F612",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "NFT detail modal",
+   "title": "'Make Offer' button beside the Buy CTA is clipped to 34px ('Mak' / 'Ma')",
+   "evidence": "Button with textContent 'Make Offer' measures width:34px next to 'Connect Wallet to Buy'/'Buy for 0.1046 ETH'; visually renders as 'Mak'. Reproduced on prod and dev (HEAD), every token tested. A second '+ Make Offer' button lower in OFFERS works, so the clipped one is redundant AND broken-looking.",
+   "suggestion": "Give the secondary button flex-shrink:0 / min-width, or an icon-only variant with a tooltip."
+  },
+  {
+   "id": "F613",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "API layer (whole marketplace)",
+   "title": "Intermittent 429s on /api/opensea best-offer calls and 400s on the collections/<slug>/stats path",
+   "evidence": "Observed live: /api/opensea?path=offers%2Fcollection%2Fnakamigos%2Fnfts%2F14854%2Fbest → 429 (sibling call 200). Performance API across the session: 27 /api/ calls — 2× 429, 2× 400 on /api/opensea?path=collections%2Fnakamigos%2Fstats, rest 200 at 150–1441ms. No total data blackout (prior incident's failure mode not reproduced), but per-NFT offer calls are getting rate-limited and the stats call is malformed/rejected.",
+   "suggestion": "Batch/cache per-NFT best-offer lookups server-side; fix the stats path (the 400 is the likely cause of the missing volume — next finding)."
+  },
+  {
+   "id": "F614",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nakamigos (hub landing)",
+   "title": "VOLUME shows an em dash on all three collection cards",
+   "evidence": "Nakamigos, GNSS Art, and Jungle Bay cards all render 'VOLUME —' while FLOOR/OWNERS/SUPPLY are real (0.1026 ETH / 5,212 / 20,000 etc.). Correlates with the repeated 400 on /api/opensea?path=collections/nakamigos/stats. The stats bar is the landing page's main trust signal.",
+   "suggestion": "Fix the stats endpoint call; fallback to indexer/Alchemy volume if OpenSea rejects the path."
+  },
+  {
+   "id": "F615",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Splash screen (every route)",
+   "title": "Mandatory click-gate splash replays on EVERY page load and costs 10–20s per visit",
+   "evidence": "Timed: dark first paint ~1s → collage builds → 'CLICK TO ENTER' appears at ~5s on first load but took 12–15s on several later loads (clicks before that are swallowed); after the click there is a further 4–6s near-black fade before content. Reload without clearing storage replays it identically (no sessionStorage gate, no 'don't show again'), including on deep links to /listings, /collection, /nft/777. The art itself (floating card collage, glitch effects) is genuinely beautiful.",
+   "suggestion": "Keep the art but: auto-enter after the build animation (make the click optional), gate replays per session, and start data-fetching/preloading the app behind the splash so the post-click black fade disappears."
+  },
+  {
+   "id": "F616",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Fullscreen art viewer",
+   "title": "Escape closes the UNDERLYING modal first, orphaning the fullscreen viewer",
+   "evidence": "From fullscreen view of #18156: first Escape removed ?token from the URL and closed the detail modal while the fullscreen overlay (bottom bar, TRAITS panel, dark backdrop) stayed up over the grid; a second Escape was needed to dismiss the viewer.",
+   "suggestion": "Close the topmost overlay first (standard layered-dialog stack)."
+  },
+  {
+   "id": "F617",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Gallery / Traits / detail modal (rarity numbers)",
+   "title": "Trait counts/percentages computed from the partial loaded sample read as wrong rarity data",
+   "evidence": "Gallery sidebar trait values show '0%' (e.g. 'Backwards Cap Blue 0% 7'); filtering by it yields '17 results of 20,000 items' (true count is likely hundreds — only ~1,680 tokens were loaded); modal traits show 'Flat 32 (80.0%)' based on 40/20,000 loaded next to a spotlight card saying the true '1,076 exist (5.38%)'. The honest '(based on N/20,000 loaded)' disclosure exists but the numbers still mislead.",
+   "suggestion": "Use the full-collection trait counts (the Traits page type-cards and spotlight cards already have real totals) for percentages, and label filtered results 'X of loaded sample' explicitly."
+  },
+  {
+   "id": "F618",
+   "src": "live:naka-browse",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/nakamigos/nakamigos/gallery (search)",
+   "title": "Gallery 'Search by name or token ID' fails for any token not yet loaded, with a message-less empty state",
+   "evidence": "Typing 5000 → '0 results of 20,000 items' and a grid of ghost skeleton cards, no 'no results' text or CTA — even though token 5000 exists and the hub search finds #1234 in all three collections instantly.",
+   "suggestion": "Fall back to direct token-ID lookup (the hub search already does this) and add a real empty state ('No match in loaded items — press Enter to open token #5000')."
+  },
+  {
+   "id": "F619",
+   "src": "live:naka-browse",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Floor vs Gallery vs loading states",
+   "title": "Floor price and owners differ across surfaces within minutes",
+   "evidence": "Floor tab: 0.1026 ETH / 5,212 owners; Gallery hero same session: 0.1045 ETH; /listings loading state briefly: 0.1048 / 5,238 owners before settling back to 0.1026 / 5,212. Two different sources (OpenSea listings vs Alchemy floor) are shown without reconciliation.",
+   "suggestion": "Pick one canonical floor source per screen or label the source (the listings page already has the 'via OpenSea' badge pattern)."
+  },
+  {
+   "id": "F620",
+   "src": "live:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nakamigos/junglebay",
+   "title": "Stats bar shows '—' for floor/owners/supply for ~10s while the sweep panel already has floor data",
+   "evidence": "On switching to Jungle Bay: FLOOR PRICE/OWNERS/SUPPLY all '—' with LISTED 152 and MEDIAN/AVG filled; sweep panel simultaneously showed 'FLOOR IMPACT 0.0887 → 0.0899'. Stats populated ~11s later (0.0886/1,990/5,555).",
+   "suggestion": "Hydrate the stats bar from the listings payload immediately and reconcile when Alchemy responds; or show skeleton shimmer instead of em dashes (dash reads as 'no data exists')."
+  },
+  {
+   "id": "F621",
+   "src": "live:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nakamigos/nakamigos (listings grid)",
+   "title": "Inconsistent image sourcing: raw ipfs.io full-res for some cards causes slow loads and black re-flashes",
+   "evidence": "Most cards use res.cloudinary.com/alchemyapi 250px thumbs (fast); some (e.g. #10219) use https://ipfs.io/ipfs/Qm... at 2000px — that card went black again on every grid re-render (sort change, filter). 2 of 120 cards (#17129, #434) sat on the 'N' placeholder for minutes until background enrichment found their image.",
+   "suggestion": "Normalize all grid images through the Alchemy thumbnail CDN; keep IPFS only as last-resort fallback."
+  },
+  {
+   "id": "F622",
+   "src": "live:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "All pages (ultrawide layout)",
+   "title": "Ultrawide (1912px CSS viewport) leaves large dead zones",
+   "evidence": "Listings: 4-column grid + sweep panel ends ~1200px, right ~700px is dimmed background art; Gallery hero has a near-empty band between hero and the marquee rows; About is a ~600px left-aligned text column against an empty right half. The Traits page (3-column category board) is the one surface that uses the width well.",
+   "suggestion": "Additive: allow 6–8 grid columns at >1600px, dock the order-book panel open by default on ultrawide, add a right-rail module (recent sales / rarity spotlight) on About and Gallery hero. Keep all existing art/sections."
+  },
+  {
+   "id": "F623",
+   "src": "live:naka-browse",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Listings + gallery grids",
+   "title": "Images pop in with no fade and skeleton card geometry doesn't match loaded cards",
+   "evidence": "Lazy-loaded images swap from black to full art in one frame; the /listings loading state renders 7 narrow skeleton columns that become 4 wide columns + sweep panel on load (layout jump).",
+   "suggestion": "120ms opacity fade on image load; make skeleton grid mirror the real grid template."
+  },
+  {
+   "id": "F624",
+   "src": "live:naka-browse",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Fullscreen art viewer",
+   "title": "Bottom bar duplicates the token id",
+   "evidence": "Reads 'Nakamigos #18156   #18156' (name already contains the id, then the id repeats in grey).",
+   "suggestion": "Drop the duplicate, or replace with the trait-count/rank."
+  },
+  {
+   "id": "F625",
+   "src": "live:naka-browse",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Header (all pages)",
+   "title": "Theme-cycle button aria-label never updates and hub search ignores Escape",
+   "evidence": "After two cycles (midnight starfield → royal gold) the button still reports 'Current theme: default. Click to cycle.'; in the hub search, Escape leaves the suggestion dropdown open (the X button works).",
+   "suggestion": "Update the label with the active theme name; close dropdown on Escape."
+  },
+  {
+   "id": "F626",
+   "src": "live:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "Header notifications popover",
+   "title": "Notifications popover anchors far left of the bell",
+   "evidence": "Bell sits at x≈628 (screenshot px); the popover renders at x≈370–670, hovering over the sales ticker rather than under the bell.",
+   "suggestion": "Anchor to the trigger with right-alignment."
+  },
+  {
+   "id": "F627",
+   "src": "live:naka-browse",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nakamigos/nakamigos/gallery (Listed Only)",
+   "title": "Listed-Only results don't show prices on cards",
+   "evidence": "With 'Listed Only' + trait filter active ('4 results of 20,000 items'), cards #429/#547/#595/#1159 show trait subtitles but no ETH price — you must switch to the Floor tab to see what they cost.",
+   "suggestion": "Surface the listing price badge on gallery cards when Listed Only is on."
+  },
+  {
+   "id": "F628",
+   "src": "live:naka-browse",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nakamigos hub",
+   "title": "DEMO badge appears in the hub header with no explanation",
+   "evidence": "Header shows '* DEMO' on the hub and on early collection loads, later replaced by '● LIVE' + sales ticker; no tooltip or copy explains what is demo vs live (relevant given the demo-looking order-book bids).",
+   "suggestion": "Tooltip stating exactly which data is simulated, or remove the badge once all surfaces are live."
+  },
+  {
+   "id": "F629",
+   "src": "live:naka-browse",
+   "severity": "low",
+   "category": "missing",
+   "page": "NFT detail modal",
+   "title": "No comparable-sales / similar-tokens module on the detail view",
+   "evidence": "The modal has price history, offers, traits, and chain info, but nothing like Blur/OpenSea's 'more from this collection' or trait-floor comparables ('cheapest other Human Coffee'), even though the trait spotlight card already knows '1,076 exist (5.38%)'.",
+   "suggestion": "Add a small comparables strip (same rarest trait, sorted by price) — data already exists in the trait drill-down views."
+  }
+ ]
+}

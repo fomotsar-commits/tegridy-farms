@@ -1,0 +1,229 @@
+{
+ "group": "g09_responsive_main",
+ "sourceAgents": [
+  "viewport:mobile-main",
+  "viewport:tablet-desktop"
+ ],
+ "findings": [
+  {
+   "id": "F503",
+   "src": "viewport:mobile-main",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/",
+   "title": "Homepage horizontally overflows: layout viewport expands to 414px on a 390px iPhone",
+   "evidence": "Measured via page.evaluate: scrollWidth=414, innerWidth=414 on '/' while ALL 20 other routes measure exactly 390/390 (results4.json). Wide-element scan pins the culprit: a decorative div with class 'absolute -left-6 -right-10 -top-8 -bottom-8 -z-10 pointer-events-none' measuring width 422px, left -8, right edge 414 — source: frontend/src/pages/HomePage.tsx:87. Visible consequence: with the nav menu open on home, 'Tegridy Score' (right edge 400), 'Treasury' (right 399) and the X close button (right 398) extend past the 390px visual viewport and render clipped (v7_home_menu.png vs the clean farm render in v7_farm_menu.png).",
+   "suggestion": "Add overflow-x-hidden/clip to the section wrapping HomePage.tsx:87, or reduce the -right-10 overhang (e.g. -right-4 inside an overflow-clipped parent). One-line fix that also fixes the clipped nav menu and the whole-page zoom-out on real iPhones."
+  },
+  {
+   "id": "F504",
+   "src": "viewport:mobile-main",
+   "severity": "high",
+   "category": "improve",
+   "page": "all routes (loader gate)",
+   "title": "Unskippable ~10s art loader blocks EVERY deep link, every Safari session, and requires a tap to enter",
+   "evidence": "Run 1 (fresh context, no flags): all 21 routes captured ONLY the loader for 8+ seconds after load (iphone14_home_splash.png, iphone14_farm_1/2/3.png, iphone14_swap_1/2/3.png — full-screen rotating art with captions like 'POOL PARTY', 'CHAOS', 'NAKA #42'). 'TAP TO ENTER' (particle-rendered in canvas) only appears ~10s in (iphone14_home_2.png at ~9.8s; farm probe still showed art at 13s, probe_farm_after_tap6s.png shows TAP TO ENTER). A tap BEFORE the prompt appears does nothing (verified by probe). sessionStorage 'tf_loaded' is only set on completion (frontend/src/components/loader/AppLoader.tsx:31,536), so every new Safari session and every shared deep link (e.g. /risks, /contracts) replays the full gate before ANY content. Skip is ESC-only (AppLoader.tsx:130) — no touch equivalent on iPhone.",
+   "suggestion": "Keep the art moment but (a) show TAP TO ENTER (or a skip affordance) within 1-2s on touch devices, (b) consider gating only '/' and letting deep links (legal pages especially: /terms, /risks, /privacy) bypass, (c) persist the seen-flag in localStorage so returning visitors are not re-gated every session."
+  },
+  {
+   "id": "F505",
+   "src": "viewport:mobile-main",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/ (first visit)",
+   "title": "First-visit overlay pile-up: onboarding modal + consent banner + Towelie bubble at once; consent buttons sit at the very bottom edge",
+   "evidence": "v3_home_1.png shows the 'Welcome to Tegridy Farms' modal stacked on the 'Privacy & telemetry' banner with the Decline/Accept buttons clipped at the viewport bottom edge. Re-captured solo in v5_home_consent_banner.png: button bottoms cut at the screenshot edge; DOM measurement puts Decline/Accept at top 819 / bottom 863 of an 896px layout viewport — i.e. inside the iOS home-indicator/toolbar zone on a real iPhone 14 (Safari bottom bar overlaps that band).",
+   "suggestion": "Add safe-area padding (env(safe-area-inset-bottom)) below the consent buttons, and sequence the overlays (consent first, onboarding after dismiss) so a first-time mobile user is not facing three layers at once."
+  },
+  {
+   "id": "F506",
+   "src": "viewport:mobile-main",
+   "severity": "medium",
+   "category": "improve",
+   "page": "every route",
+   "title": "Towelie assistant bubble auto-pops on each route and occludes content, inputs, data, and even the open nav menu",
+   "evidence": "Fixed bottom-left bubble appears ~2.2s after every route's first visit (TowelieAssistant.tsx ROUTE_TIP_DELAY_MS, per-route 'towelie:seen:' keys). Observed covering: the earn-calculator TOWELI input (v4_home_1.png), the FDV stat value (v4_tokenomics_1.png), story text (v4_lore_1.png), the '38,794 lines of test code' stat (v4_security_1.png), the TVL card values (v4_treasury_1.png), footer legal links Risk Disclosure/Security on nearly every page's bottom (v4_gallery_3.png, v4_terms_3.png), and it renders ON TOP of the opened nav drawer (v7_farm_menu.png z-order conflict).",
+   "suggestion": "On <640px viewports: delay until idle, never overlap the open nav drawer (z-index below it), and offset above the tab bar so it stops covering footer legal links. Consider one global first-visit tip instead of per-route pops."
+  },
+  {
+   "id": "F507",
+   "src": "viewport:mobile-main",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/ (mobile nav)",
+   "title": "No path to Farm/Swap/Dashboard from the homepage menu — tab bar absent on home and the hamburger only holds 4 secondary links",
+   "evidence": "The bottom tab bar (Dashboard/Farm/Trade/Tradermigos) is present on app routes (v4_farm_1.png) but absent on '/' (v4_home_1.png, v4_home_3.png). The hamburger drawer contains only ENGAGE (Gallery, Tegridy Score) and STATS (Tokenomics, Treasury) — DOM enumeration found exactly 4 links (menu3.cjs output; v7_home_menu.png). A mobile visitor on the homepage has no menu route to the core product pages; they must find in-page CTAs.",
+   "suggestion": "Either show the tab bar on '/' too, or add Farm/Trade/Dashboard links to the drawer. The drawer is ~90% empty vertical space (v7_farm_menu.png), so there is room."
+  },
+  {
+   "id": "F508",
+   "src": "viewport:mobile-main",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/security, /faq, /dashboard, /swap, /liquidity, /nft-finance",
+   "title": "Page subtitles set in white directly over busy/light artwork are illegible at 390px",
+   "evidence": "v4_security_1.png: the subtitle's last line '...battle-tested smart contract design' crosses the white skull artwork and disappears. v4_faq_1.png: intro paragraph 'Look. We're not gonna bullshit you...' over pastel pink/blue art is barely readable. v4_dashboard_1.png: 'View your portfolio, positions, and earnings' lost in the camo-ape art. v4_swap_1.png / v4_liquidity_1.png: header subtitles wash out over bright barn art. v4_nft-finance_1.png: 'institutional-grade tools, all in one place' crosses light painting areas.",
+   "suggestion": "Add a consistent scrim (e.g. gradient or backdrop blur band) or text-shadow behind hero/subtitle text. The dark cards on the same pages are perfectly readable — only the over-art text suffers."
+  },
+  {
+   "id": "F509",
+   "src": "viewport:mobile-main",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/risks, /terms, /privacy (sticky sub-nav)",
+   "title": "Translucent sticky pill bar collides with H1s and ghosts underlying text through it",
+   "evidence": "v4_risks_1.png: 'Risk Disclosure' H1 partially tucked under the Treasury/Contracts/Risks/Terms/Privacy pill bar. v4_terms_1.png: 'Terms of Service' nearly touching the pills. v4_privacy_3.png (full-res): footer links ('...adermigos', '...angelog', 'FAQ') visibly double-exposed through the translucent pill bar while scrolled.",
+   "suggestion": "Increase the sticky bar's background opacity/blur and add scroll-margin-top to page H1s."
+  },
+  {
+   "id": "F510",
+   "src": "viewport:mobile-main",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance",
+   "title": "Bottom tab chip row clips its 4th chip mid-word with no scroll affordance",
+   "evidence": "v4_nft-finance_1.png: chip row reads 'Token Lending | NFT Lending | NFT AMM | Launch…' with the last chip cut at the right edge and no fade/arrow hinting horizontal scrollability.",
+   "suggestion": "Add a right-edge fade gradient or wrap chips to two rows at <420px."
+  },
+  {
+   "id": "F511",
+   "src": "viewport:mobile-main",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "all routes (network layer)",
+   "title": "Every route fires CSP-blocked and CORS-failed RPC/price requests; likely feeds the 'Price oracle is stale' banner",
+   "evidence": "Console on all 21 routes (results.json/results4.json): (1) 'Connecting to https://eth.merkle.io/ violates connect-src' repeated 4+ times per page — a wagmi/viem default fallback RPC not in the CSP allowlist; (2) 'https://eth.llamarpc.com/ blocked by CORS policy' + net::ERR_FAILED on every route; (3) 'https://api.geckoterminal.com/.../token_price/0x4206...8f9d blocked by CORS' on /liquidity, /dashboard, /lore, /security. /treasury then shows 'Price oracle is stale. USD figures shown derive from a delayed price feed' (v4_treasury_1.png).",
+   "suggestion": "Remove eth.merkle.io from the transport list (or add it to connect-src), drop llamarpc from browser-side transports (CORS-broken), and proxy the GeckoTerminal price call through the existing serverless API to restore USD figures."
+  },
+  {
+   "id": "F512",
+   "src": "viewport:mobile-main",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/leaderboard",
+   "title": "Background art speech-text bleeds behind UI panels and tier rows fade under the sub-nav",
+   "evidence": "v4_leaderboard_1.png: art captions ('...THIS TOWEL GETS...POINTS? IT'S A BEAR...SO EPIC!') half-visible behind the 'How Points Work' panel and +10/+25 chips, reading as broken text rather than background. v4_leaderboard_2.png: 'Degen'/'Connector' tier rows clipped fading under the sticky sub-nav mid-scroll.",
+   "suggestion": "Dim or blur the art layer behind the points panels so stray art words don't read as UI text."
+  },
+  {
+   "id": "F513",
+   "src": "viewport:tablet-desktop",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/* (direct visits)",
+   "title": "Tradermigos deep-link enter gate is dead - CLICK TO ENTER does not respond, visitor is permanently stuck",
+   "evidence": "Fresh browser context, direct goto /nakamigos/nakamigos/listings: TRADERMIGOS 'CLICK TO ENTER' gate appears (span at rect x339,y633,143x14 at 820px). 8+ clicks dead-center on that span plus viewport-center clicks over 60s of observation never dismissed it (probe2/probe3 logs: body text identical 'CLICK TO ENTER...' from t=3s through t=60s). Same rect-click on /nakamigos ROOT dismisses its gate immediately (proceeds to 'RENDERING HOUDINI SCULPT' loading). Reproduced on all 4 deep routes (listings/analytics/portfolio/trades), both viewports. Screenshot of the stuck gate: ipad_nakamigos-nakamigos-listings_1.png (capture3 pass). When the session has previously entered via the main app at /, deep routes skip the gate entirely - so this hits exactly the highest-value visitor: someone following a shared link to a listing page.",
+   "suggestion": "Make the deep-route gate's click handler work (or skip the gate on sub-routes the way an entered session does). Likely the gate component mounted on sub-routes is missing its onClick wiring that the root route has."
+  },
+  {
+   "id": "F514",
+   "src": "viewport:tablet-desktop",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nakamigos (hub) + all Tradermigos pages",
+   "title": "/api/opensea collections/{slug}/stats returns 400 for every collection - hub card stats stuck as skeletons forever",
+   "evidence": "Network log: '400 https://tegridyfarms.vercel.app/api/opensea?path=collections%2Fnakamigos%2Fstats' (also junglebay, gnssart) on every page load, every retry, both viewports - it is a 400 (bad request), not a rate-limit. Visible consequence: ipad_nakamigos_1.png / desktop_nakamigos_2.png show the Nakamigos collection card with FLOOR/VOLUME/OWNERS/SUPPLY as gray skeleton bars that never resolve while GNSS Art and Jungle Bay resolve (via fallback source); listings header 'LISTED' shows '-' (ipad_nakamigos-nakamigos-listings_1.png).",
+   "suggestion": "The proxy or the caller is malforming the stats path (400 = rejected before OpenSea). Check api/opensea allowlist/path validation for 'collections/{slug}/stats'; add an error state to the stat tiles instead of infinite skeleton."
+  },
+  {
+   "id": "F515",
+   "src": "viewport:tablet-desktop",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/analytics, /nakamigos/nakamigos/portfolio",
+   "title": "Analytics and Portfolio deep links render the Floor tab instead of their own tab",
+   "evidence": "ipad_nakamigos-nakamigos-analytics_1.png and ipad_nakamigos-nakamigos-portfolio_1.png both show headline 'FLOOR & LISTINGS - 778 Nakamigos currently listed for sale across marketplaces' with the 'Floor' tab highlighted in the nav; desktop_nakamigos-nakamigos-analytics_1.png and desktop_nakamigos-nakamigos-portfolio_1.png show the same. Meanwhile /trades deep-links correctly to its 'P2P Trades' content (ipad_nakamigos-nakamigos-trades_1.png), proving sub-route rendering works for some tabs.",
+   "suggestion": "Route the analytics/portfolio paths to their tabs; if portfolio is wallet-gated, show a connect prompt like /trades does rather than silently swapping to Floor."
+  },
+  {
+   "id": "F516",
+   "src": "viewport:tablet-desktop",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "All Tradermigos pages",
+   "title": "Own /api/opensea rate limiter 429s under one normal browsing session - listings grid dead-ends in an endless 'Fetching live listings...' skeleton with no error state",
+   "evidence": "429s from tegridyfarms.vercel.app/api/opensea (events, listings/collection/nakamigos/best, offers, stats) on listings/analytics/portfolio/trades during single-context sequential page visits (results JSON: 4-12 fails per route, both viewports). UI consequence: ipad_nakamigos-nakamigos-listings_1.png shows 'Fetching live listings from marketplaces...' with a skeleton grid still unresolved 20+s later; desktop_nakamigos-nakamigos-analytics_1.png same; ipad_nakamigos-nakamigos-portfolio_3.png shows an entire grid of 'N' placeholder thumbnails (prices loaded, images throttled). Caveat: this audit's repeated runs contributed to the limiter pressure, but tripping it within ~6 page loads in 3 minutes is itself too tight for one real user with browsing momentum.",
+   "suggestion": "Raise/scope the per-IP limit (or batch+cache the per-page request fan-out: stats is requested 3-8x per page), and replace infinite skeletons with an error/retry state when the proxy 429s."
+  },
+  {
+   "id": "F517",
+   "src": "viewport:tablet-desktop",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "All pages (both apps)",
+   "title": "RPC failover rotation includes endpoints the app cannot use - eth.merkle.io blocked by own CSP, eth.llamarpc.com fails CORS preflight",
+   "evidence": "Console on every route, both viewports: \"Connecting to 'https://eth.merkle.io/' violates the following Content Security Policy directive: connect-src 'self' https://rpc.ankr.com https://*.publicnode.com https://*.llamarpc.com ...\" repeated continuously (capture4 portfolio route logged 209 console errors in ~30s, mostly this), plus 'Access to fetch at https://eth.llamarpc.com/ ... blocked by CORS policy: No Access-Control-Allow-Origin header'. These are wasted failover attempts on every data refresh.",
+   "suggestion": "Either add eth.merkle.io to connect-src or drop it from the wagmi/viem transport list; drop or replace eth.llamarpc.com (provider-side CORS rejection). This also cuts the constant console noise that masks real errors."
+  },
+  {
+   "id": "F518",
+   "src": "viewport:tablet-desktop",
+   "severity": "medium",
+   "category": "improve",
+   "page": "All pages (entry UX)",
+   "title": "Enter gate + art intro replays on every full page load - no persistence of the entered state",
+   "evidence": "Same browser context, gate passed by click at /; subsequent goto of any route shows the full gate/intro again (probe log: /farm at t=24s after fresh load shows 'TEGRIDY FARMS - CLICK TO ENTER' again, probe_farm_t24s.png). Every reload or direct link costs a click plus several seconds of intro before content. SPA client-side nav avoids it, but refreshes/deep links always pay it.",
+   "suggestion": "Persist 'entered' in localStorage/sessionStorage and skip (or fast-forward) the gate for returning sessions; keep the full experience for true first visits."
+  },
+  {
+   "id": "F519",
+   "src": "viewport:tablet-desktop",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/dashboard (disconnected state)",
+   "title": "Connect Wallet prompt rendered bare over busy artwork - near illegible at 820",
+   "evidence": "ipad_dashboard_1.png: 'Connect Wallet / View your positions, rewards, and earnings' is drawn directly over the camo-pattern jungle-military art with no scrim or card - the heading dissolves into the camouflage. desktop_dashboard_1.png has the same pattern (slightly better at 1440). Contrast with ipad_farm_1.png where the identical prompt gets a proper dark rounded card and is perfectly readable.",
+   "suggestion": "Wrap the dashboard connect prompt in the same dark card component /farm and /nft-finance use."
+  },
+  {
+   "id": "F520",
+   "src": "viewport:tablet-desktop",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Tradermigos at 820 (iPad)",
+   "title": "820px gets a denser grid than desktop - 5 NFT columns at 820 vs 4 at 1440, with sub-44px touch targets",
+   "evidence": "ipad_nakamigos-nakamigos-analytics_1.png: floor grid renders 5 columns at 820px (cards ~150px wide, 'Connect & Buy' buttons roughly 100x22 CSS px, 8-9px mono labels) on a context with isMobile/hasTouch. desktop_nakamigos-nakamigos-listings_1.png renders 4 larger columns at 1440. The tablet gets a squeezed-desktop treatment, inverted density, and tap targets well under the 44px touch guideline. The top tab row (Floor/Gallery/Traits/Activity/My NFTs/More) is similarly tiny at 820.",
+   "suggestion": "Cap the grid at 3-4 columns below ~1024px and bump tap-target sizes on touch; the main Tegridy app at 820 shows the right instinct (2-col reflow) - apply the same to Tradermigos."
+  },
+  {
+   "id": "F521",
+   "src": "viewport:tablet-desktop",
+   "severity": "low",
+   "category": "improve",
+   "page": "/swap, /nft-finance, /tokenomics (both viewports)",
+   "title": "Page subtitles and inactive tab labels are low-contrast over bright artwork",
+   "evidence": "ipad_swap_1.png / desktop_swap_1.png: subtitle 'Trade ETH <-> TOWELI via Uniswap V2 with custom slippage controls' is dark gray text directly on the busy market-scene art; inactive tabs 'Liquidity / DCA / Alerts' are white-on-light-art. ipad_nft-finance_1.png: subtitle over the bright framed painting. ipad_tokenomics_1.png: subtitle 'TOWELI token economics and protocol transparency' same issue.",
+   "suggestion": "Add a subtle text-shadow/scrim behind page headers, or the same dark chip treatment the stat cards use."
+  },
+  {
+   "id": "F522",
+   "src": "viewport:tablet-desktop",
+   "severity": "low",
+   "category": "improve",
+   "page": "All main-app pages at 820",
+   "title": "Floating mascot chat toast overlaps content at the bottom-right on every page",
+   "evidence": "ipad_home_1.png: the 'Welcome to the farm. Don't forget your towel.' toast plus avatar sits over the earnings calculator's 'Start farming' CTA; ipad_home_2.png: it covers a third of a collection card; it reappears with new copy on every route (farm/swap/dashboard/nft-finance/community/tokenomics/premium screenshots all show it).",
+   "suggestion": "At narrow widths, give the page bottom padding equal to the toast height, or auto-collapse the toast to the avatar bubble after a few seconds."
+  },
+  {
+   "id": "F523",
+   "src": "viewport:tablet-desktop",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/premium",
+   "title": "/premium lands on the 'Gold Card' tab whose content is a SOON placeholder instead of the live Points tab",
+   "evidence": "ipad_premium_1.png and desktop_premium_1.png: tab bar is Points | Gold Card | History | Changelog with 'Gold Card' active, showing 'SOON - Gold Card isn't live yet ... once the PremiumAccess contract is deployed'. First impression of the page is an empty feature.",
+   "suggestion": "Default to the Points tab until PremiumAccess is deployed."
+  },
+  {
+   "id": "F524",
+   "src": "viewport:tablet-desktop",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/tokenomics, /premium",
+   "title": "GeckoTerminal price fetch fails from the browser (ERR_FAILED) - price/FDV depend on fallback",
+   "evidence": "Console on /tokenomics and /premium: 'Access to fetch at https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/0x420698...f9d ... ERR_FAILED'. The page still shows PRICE $0.00004132 / FDV $41,322.75 (ipad_tokenomics_1.png), so a fallback works, but the primary source errors on every load.",
+   "suggestion": "Proxy the GeckoTerminal call through the existing API layer (it is already in CSP, so the failure is provider-side/CORS-intermittent) or drop it if the fallback is canonical."
+  }
+ ]
+}

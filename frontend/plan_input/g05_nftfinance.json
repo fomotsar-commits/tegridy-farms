@@ -1,0 +1,657 @@
+{
+ "group": "g05_nftfinance",
+ "sourceAgents": [
+  "code:nftfinance",
+  "live:nft-finance"
+ ],
+ "findings": [
+  {
+   "id": "F249",
+   "src": "code:nftfinance",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nft-finance > NFT AMM > My Pools (AMMSection.tsx)",
+   "title": "My Pools bypasses the isDeployed gate and shows owner/admin controls for ANY tracked address; 'ownership verified on-chain' copy is false",
+   "evidence": "AMMSection.tsx:2466 `function MyPoolsTab({ deployed: _deployed })` — the deployed flag is discarded; line 2557 `<PoolCard poolAddress={addr as Address} isOwner index={i} />` passes isOwner unconditionally, and line 1496 `const showOwnerControls = isOwner || poolOwnerIsUser;` then renders Manage Liquidity, Pool Settings (pause/propose/execute) and Emergency Drain for every tracked pool regardless of actual on-chain owner. The 'Track a Pool' card (line 2518) claims 'Pool ownership is verified on-chain.' but handleAddPool (2471) only checks isValidAddress. All write handlers in PoolCard/PoolAdminPanel (handleAddLiquidity 1498, handleWithdraw 1528, call() 1090) gate on chainId only — never on `deployed` or code-at-address. With TEGRIDY_NFT_POOL_FACTORY_ADDRESS = address(0) (constants.ts:50), a user can paste any address, and `addLiquidity` with `value: parseEther(liqEth)` (1511) sent to an EOA succeeds on-chain and transfers the ETH away (EOAs accept arbitrary calldata + value). This is the one control on the page that fires value-bearing writes while its feature is gated.",
+   "suggestion": "In MyPoolsTab respect `deployed` (render the shared FeatureNotDeployed or disable Track/PoolCard writes); derive isOwner from poolInfo.owner only (drop the unconditional prop); before tracking, verify `getBytecode(addr) !== '0x'` and that `factory.isPool(addr)` (or getPoolInfo succeeds), making the 'verified on-chain' copy true."
+  },
+  {
+   "id": "F250",
+   "src": "code:nftfinance",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad > Owner Admin (OwnerAdminPanelV2.tsx)",
+   "title": "Refetches fired in render body — render/refetch loop after any successful admin tx",
+   "evidence": "OwnerAdminPanelV2.tsx:84-88: `if (isSuccess) { void refetchPhase(); void refetchContractURI(); void refetchPaused(); }` sits directly in the component body, not in a useEffect. isSuccess stays true until the next tx, and each refetch resolves → query data/dataUpdatedAt updates → re-render → refetches fire again, indefinitely while the panel is mounted. Every other tx-success handler in this tree uses useEffect (e.g. LendingSection.tsx:715, AMMSection.tsx:1471).",
+   "suggestion": "Move into `useEffect(() => { if (isSuccess) {...} }, [isSuccess])` like the sibling components. (Currently latent because TEGRIDY_LAUNCHPAD_V2_ADDRESS is zeroed, but it ships with the un-gate.)"
+  },
+  {
+   "id": "F251",
+   "src": "code:nftfinance",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad > Create wizard (useWizardPersist.ts + CreateWizard.tsx)",
+   "title": "Draft auto-save clobbers the saved draft ~500ms after the wizard opens, so 'Resume' restores an empty wizard",
+   "evidence": "useWizardPersist.ts:74-91 — the persist effect runs on `[state]`, which includes the initial mount with `initialState`; after the 500ms throttle it writes `{...initialState}` over the stored draft under the same STORAGE_KEY. CreateWizard.tsx:33 calls `useWizardPersist(state)` unconditionally and the Resume banner's handleResume (line 38) does `readDraft()` at click time — any click later than ~500ms after opening the wizard reads back the just-overwritten empty draft (step 1, empty fields, no manifest IDs). The whole crash-recovery feature ('a browser crash mid-upload doesn't nuke 5555 tokens of work', useWizardPersist.ts:66-67) is defeated.",
+   "suggestion": "Skip persisting until the user has interacted (e.g. don't save while `state` deep-equals initialState, or capture the draft into memory on mount before the first save, or gate the first save behind a 'dirty' flag set by any non-HYDRATE action)."
+  },
+  {
+   "id": "F252",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad > Create wizard Step 5 (Step5_Deploy.tsx)",
+   "title": "dispatch during render + tx config built outside try/catch (uncaught parseEther/BigInt throws), and no maxSupply/mintPrice validation",
+   "evidence": "Step5_Deploy.tsx:95-101: `if (isSuccess && deployedCollection && !state.deployedAddress) { dispatch({ type: 'DEPLOY_SUCCESS', ... }) }` runs in the render body — updates the parent CreateWizard's reducer while Step5 renders (React 'cannot update a component while rendering a different component' warning). Also lines 51-68 build `cfg` with `parseEther(state.mintPrice || '0')` and `BigInt(state.maxSupply || '0')` BEFORE the try block at line 70 — a value like '1e4' or '0.0.5' (typeable in number inputs) throws uncaught in the click handler with no error surfaced. Nothing prevents deploying with maxSupply '0' or maxSupply cleared.",
+   "suggestion": "Move the DEPLOY_SUCCESS dispatch into a useEffect keyed on [isSuccess, deployedCollection]; move cfg construction inside the try; validate maxSupply ≥ 1, maxPerWallet ≤ maxSupply before enabling Deploy."
+  },
+  {
+   "id": "F253",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > NFT Lending > My Loans (NFTLendingSection.tsx)",
+   "title": "Repay button disappears the second the local clock passes the deadline — borrower cannot repay during the on-chain grace period",
+   "evidence": "NFTLendingSection.tsx:1091 `{isBorrower && status === 'active' && (<button onClick={handleRepay} ...)}` and the repayment quote read is `enabled: isBorrower && status === 'active'` (line 948). getLoanStatus (line 80) flips to 'overdue' purely on `Date.now() > deadline`. The product copy promises a '1-hour grace period' (LendingPage.tsx:32, ConnectPrompt.tsx:41) and the sibling LendingSection allows repay while overdue (LendingSection.tsx:1629 `(status === 'active' || status === 'overdue')`). A borrower seconds past deadline — still inside grace — loses the repay affordance entirely and is steered toward default.",
+   "suggestion": "Mirror LendingSection: keep Repay (and the getRepaymentAmount read) enabled for status 'overdue' until defaultClaimed; ideally read the contract's isDefaulted/grace state instead of local clock."
+  },
+  {
+   "id": "F254",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Token Lending > My Loans (LendingSection.tsx)",
+   "title": "Lender 'Claim Collateral' shown during grace period when the claim would revert",
+   "evidence": "LendingSection.tsx:1640 `{role === 'lender' && (defaulted || status === 'overdue') && !loan.defaultClaimed && (...)}` — `status === 'overdue'` is local-clock past-deadline; the isDefaulted read (1526-1532) is fetched but OR-ed rather than required, so during the 1-hour grace window (defaulted=false, overdue=true) the button renders and claimDefaultedCollateral reverts on-chain.",
+   "suggestion": "Require `defaulted === true` to enable the button; while overdue-but-in-grace show a disabled state with a 'grace period — claimable in Xm' countdown."
+  },
+  {
+   "id": "F255",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Token Lending (LendingSection.tsx)",
+   "title": "Contract reads fire against address(0) — TEGRIDY_LENDING is zeroed but protocolFeeBps/offerCount/loanCount have no enabled gate",
+   "evidence": "constants.ts:47 `TEGRIDY_LENDING_ADDRESS = '0x0000...0000'` (ZEROED 2026-05-31). LendingSection.tsx:457-461 (protocolFeeBps), 1743-1747 (offerCount), 1794-1798 (loanCount) call useReadContract with no `query: { enabled: deployed }`. eth_call to 0x0 returns '0x', decode fails, react-query retries — wasted RPC + error churn on every visit to the default tab. NFTLendingSection (lines 110/116/122) and LaunchpadSection (line 47) gate the exact same reads with `enabled: isDeployed(...)` — this file is the odd one out.",
+   "suggestion": "Add `query: { enabled: deployed }` to all three reads (the `deployed` const already exists at line 1846)."
+  },
+  {
+   "id": "F256",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Token Lending (LendingSection.tsx)",
+   "title": "text-black tokens on dark surfaces — LTV 'safe' color contradicts its own green bar; repaid badge, APR cells, labels near-invisible",
+   "evidence": "LendingSection.tsx:168 computeLTV returns `'text-black'` for the safe <50% bucket while the LTV bar at line 1215 paints the same bucket emerald `'#34d399'` — clear sign the text token regressed (likely a find/replace casualty). Same pattern: STATUS_COLORS.repaid `text: 'text-black'` on bg-emerald-500/30 over rgba(13,21,48) cards (line 249); APR table cells `text-black` (1068, 1124, 1599); `= {aprPercent}%` (822); Estimated Earnings value `font-mono text-black` (900); EmptyState icon `text-black` on purple-500/40 (310). The page background is #060c1a and CARD_BG is rgba(13,21,48,0.6) — black text on these is unreadable wherever the rotated art behind it is dark. NFTLendingSection (newer pass) uses text-emerald-400 for the same semantics.",
+   "suggestion": "Restore the emerald/status tokens (text-emerald-400 for safe LTV/repaid/APR) to match the bar colors and the sibling section. Additive only — no art changes needed."
+  },
+  {
+   "id": "F257",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Token Lending & NFT Lending",
+   "title": "No refetch/invalidation of offer & loan lists after create/accept success — UI shows stale market until reload",
+   "evidence": "LendingSection.tsx:715-723 (create success only toasts + clears form), 1003-1012 (accept success only toasts + collapses row). useAllOffers/useAllLoans (1742/1793) have no watch/refetchInterval and are never invalidated, so a newly created offer doesn't appear in Borrow, an accepted offer stays listed as available, and My Loans doesn't show the new loan until a full page reload. Same in NFTLendingSection (253-261, 676-686: no offer/loan list refetch on success).",
+   "suggestion": "On isSuccess, invalidate/refetch offerCount/loanCount + the batch reads (queryClient.invalidateQueries or the refetch handles wagmi returns)."
+  },
+  {
+   "id": "F258",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance (LendingPage.tsx) + Farm/Dashboard links",
+   "title": "Restake is promised by this page's copy and by '/restake' links, but no restake UI exists in any of the four sections",
+   "evidence": "LendingPage.tsx:19 subtitle 'Staking + Restake', :32 'or restake for bonus rewards', :55 'restake for bonus rewards' — yet sections are lending/nftlending/amm/launchpad only; the actual restake UI lives on FarmPage (FarmPage.tsx:309-331). StakingCard.tsx:322 and DashboardPage.tsx:428 link 'Restake for bonus yield →' to `/restake`, which App.tsx:151 redirects to /nft-finance — landing users on the P2P loan market with no restake control. Also :30 'Connect to lend & borrow TOWELI' / :32 'Supply TOWELI for yield' is wrong — lenders supply ETH against TOWELI staking NFTs, not TOWELI.",
+   "suggestion": "Point the /restake redirect and the two in-app links at /farm (where restaking lives), and correct the lending prompt copy to 'lend ETH against staking NFTs'. Keep all sections/art as-is."
+  },
+  {
+   "id": "F259",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > NFT AMM (AMMSection.tsx)",
+   "title": "Tracked pools from the pre-relaunch deployment render an infinite skeleton — PoolCard has no error state",
+   "evidence": "AMMSection.tsx:1483-1490: `if (!poolInfo) { return (<div ... animate-pulse>...) }` is the only non-data branch; useReadContract isError is never consumed. localStorage key 'tegridy-amm-tracked-pools' (line 109) survives the relaunch, so pools tracked against the old (now-dead) factory addresses fail getPoolInfo forever and pulse indefinitely with no message and no way to know why (the remove button still works but nothing tells the user the pool is gone).",
+   "suggestion": "Branch on isError → compact 'Pool unreachable (old deployment?) — remove from tracking' card with the existing remove affordance."
+  },
+  {
+   "id": "F260",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Token Lending > Borrow (LendingSection.tsx)",
+   "title": "LTV/Position Value silently shows 0 when TOWELI price is unavailable — which is the current live state (unseeded pool)",
+   "evidence": "LendingSection.tsx:1048-1055 computes positionEthValue from `useTOWELIPrice().priceInEth` with no check of the context's `priceUnavailable`/`oracleStale` flags (PriceContext exposes them, PriceContext.tsx:18-26). computeLTV (162-171) returns `{ ratio: 0 }` when positionValueEth <= 0, so the expanded offer shows 'Position Value 0 ETH' and 'LTV Ratio 0.0%' — reading as zero-risk instead of 'price unavailable'. Per project memory the TOWELI/WETH pool is currently empty, so this is the path every user hits.",
+   "suggestion": "When priceUnavailable/oracleStale, render 'price unavailable' for Position Value and suppress the LTV number/bar instead of 0.0%."
+  },
+  {
+   "id": "F261",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad (launchpadShared.tsx + CollectionDetailV2.tsx)",
+   "title": "CLOSED/DUTCH_AUCTION/CANCELLED all surface as 'Paused' — the exact mislabel the R071 fix note says was corrected",
+   "evidence": "launchpadConstants.ts:11-17 documents the fix ('mislabeled CLOSED as \"Paused\" — paused() is a separate boolean'), but PhaseBadge (launchpadShared.tsx:48-54) still maps every phase other than 1/2 to `label: 'Paused'` — so a live Dutch auction (phase 3) badges as 'Paused'. CollectionDetailV2.tsx:54 `if (drop.currentPhase === 0) return 'Minting Paused'` and :362 'Minting is currently paused for this collection.' label CLOSED as paused while a genuinely-paused contract gets a separate banner (:296-309) — two different states share one word.",
+   "suggestion": "PhaseBadge: derive from PHASE_LABELS (add Dutch Auction/Cancelled/Closed configs). CollectionDetailV2: say 'Minting closed — the creator hasn't opened the sale' for phase 0."
+  },
+  {
+   "id": "F262",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad > Create wizard Step 4 (Step4_FundUpload.tsx)",
+   "title": "Stale Arweave quote reused after the user goes back and changes the image set",
+   "evidence": "Step4_FundUpload.tsx:57-59: `else if (phase === 'idle' && state.quoteWei !== null) { setPhase('quoted'); }` — once a quote exists (or is restored from a draft via CreateWizard.tsx:41), re-entering Step 4 never re-quotes even though `bytesToPay` (lines 39-42) may now be much larger after adding images in Step 2. The 20% FUNDING_BUFFER_BPS won't cover a meaningfully bigger folder; the upload then fails mid-pipeline after the fund leg.",
+   "suggestion": "Store the byte total alongside quoteWei and re-quote when `bytesToPay` differs (or always re-quote on step entry; quoting is free)."
+  },
+  {
+   "id": "F263",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > NFT AMM > Create Pool (AMMSection.tsx)",
+   "title": "autoTracked never resets — the second pool deployed in a session is never auto-tracked or announced",
+   "evidence": "AMMSection.tsx:1958-1983: the PoolCreated decode effect early-returns `if (!isDeploySuccess || !deployReceipt || autoTracked) return;` and `autoTracked` (line 1917) is set once and never cleared (the success path resets collection/nftIds/ethDeposit but not autoTracked). Deploying a second pool silently skips addTrackedPool + the success toast.",
+   "suggestion": "Reset autoTracked when a new deployTx hash appears (effect on deployTx), or key the guard on the receipt's txHash instead of a boolean."
+  },
+  {
+   "id": "F264",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > stats bars (LendingSection.tsx, NFTLendingSection.tsx)",
+   "title": "Stat labels/tooltips disagree with the numbers: 'Total Offers' includes cancelled offers; 'Active Loans' counts all loans ever",
+   "evidence": "LendingSection.tsx:451 `const offerCountNum = allOffers.length` (includes inactive) under tooltip 'Number of active loan offers available for borrowers to accept' (line 480). NFTLendingSection.tsx:160 'Active Loans' renders `loanCount` = total loanCount read (line 112-117), which includes repaid and defaulted loans.",
+   "suggestion": "Filter `o.active` for the offer stat; for NFT lending either relabel to 'Total Loans' or filter parsed loans by status."
+  },
+  {
+   "id": "F265",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad mint/refund (useNFTDropV2.ts)",
+   "title": "Refund transactions toast 'Mint confirmed!' / 'Mint failed'",
+   "evidence": "useNFTDropV2.ts:225-236: the single tx-result effect toasts `'Mint confirmed!'` on isSuccess and `'Mint failed'` on error for every write through this hook — including `refund()` (line 204). A user pulling funds from a cancelled sale sees 'Mint confirmed!'.",
+   "suggestion": "Track the last action ('mint' | 'refund') in a ref and word the toasts accordingly."
+  },
+  {
+   "id": "F266",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad > Create wizard Step 2 (Step2_Upload.tsx)",
+   "title": "Computed validation warnings are built then thrown away — 'files not referenced in CSV' never shown from this step",
+   "evidence": "Step2_Upload.tsx:27-50: `const warnings: string[] = [...state.validationWarnings]; ... warnings.push(...img.warnings); ... warnings.push(\\`${extraFiles.length} uploaded file(s) not referenced in CSV\\`);` but the dispatch at line 50 is `dispatch({ type: 'VALIDATION_ERRORS', errors })` — warnings is never dispatched or rendered (the warning surface at line 275 reads state.validationWarnings, which only CSV_PARSED sets in Step 3).",
+   "suggestion": "Dispatch the merged warnings too (extend VALIDATION_ERRORS payload or add a VALIDATION_WARNINGS action)."
+  },
+  {
+   "id": "F267",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > Token Lending > Lend (LendingSection.tsx) + Owner Admin (OwnerAdminPanelV2.tsx)",
+   "title": "Raw parseEther/BigInt on user input can throw uncaught in click handlers; the repo's safeParseEther lib is unused here",
+   "evidence": "LendingSection.tsx:746 `const principalWei = parseEther(principal);` and :765-767 `parseEther(minCollateral), parseEther(minCollateralETH || '0')` are not wrapped — a number-input value like '1e-19' (valid for type=number) makes viem throw, the handler dies silently, no toast. OwnerAdminPanelV2.tsx:280 `BigInt(maxPerWallet)` throws on '1.5'; :267 `parseEther(mintPrice)` likewise. lib\\safeParseEther.ts exists precisely for this and is used elsewhere in the app.",
+   "suggestion": "Route these through safeParseEther (and a safe BigInt parse) with a toast on invalid input, matching the rest of the app."
+  },
+  {
+   "id": "F268",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > Token Lending > Lend (LendingSection.tsx)",
+   "title": "Lender earnings preview ignores the protocol fee its own stats card advertises; PnL assumes full-term interest",
+   "evidence": "LendingSection.tsx:726-732 estimatedEarnings = p*rate*years with no protocolFeeBps deduction, while the StatsBar tooltip (line 502) says the fee is 'taken from interest earned by lenders'. TxSummary (909) tells the lender 'you earn ~X ETH'. PnlSummaryCard (1417-1437) computes interest from `deadline - startTime` (full term) even though repayment is pro-rata — overstating both 'Interest Earned' and 'Interest Paid' for early repayments.",
+   "suggestion": "Net the preview by protocolFeeBps (already fetched in StatsBar) and label PnL figures as 'max (full-term) estimate', or derive actual interest from repayment events when available."
+  },
+  {
+   "id": "F269",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > NFT AMM (AMMSection.tsx)",
+   "title": "Hardcoded '0.5%' protocol fee and permanent placeholder copy that won't update when the contracts deploy",
+   "evidence": "AMMSection.tsx:421 `{ label: 'Protocol Fee', value: '0.5%' ...}` is hardcoded (LendingSection reads protocolFeeBps on-chain; this section never does — drift risk if the owner retunes). AMMSection.tsx:998 TradeHistory placeholder always says 'Trade history will appear here once the protocol is live' even when `deployed` is true; line 2503 'Cumulative LP fees (available after launch)' likewise renders forever — three surfaces that will still say 'after launch' after launch.",
+   "suggestion": "Read protocolFeeBps from the factory; gate the placeholder copy on `deployed` (and wire TradeHistory to the proven PoolTradeHistory getLogs pattern once live)."
+  },
+  {
+   "id": "F270",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance > Launchpad (launchpadShared.tsx)",
+   "title": "'Total Revenue' = mintPrice × totalMinted — wrong for Dutch-auction or repriced drops",
+   "evidence": "launchpadShared.tsx:272 `const totalRevenue = Number(formatEther(drop.mintPrice * BigInt(drop.totalMinted)));` assumes every token sold at the current flat mintPrice; Dutch-auction mints (variable clearing prices) and any mid-sale setMintPrice change make this number fiction, presented unqualified on the creator dashboard.",
+   "suggestion": "Label it 'Est. revenue (flat-price)' or compute from the contract's actual proceeds/paidPerWallet sums."
+  },
+  {
+   "id": "F271",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance (all four sections)",
+   "title": "Three different not-deployed gate patterns for sibling features",
+   "evidence": "LendingPage.tsx:236-240: only nftlending gets the shared FeatureNotDeployed placeholder; 'lending' renders the full interactive LendingSection with an amber banner (LendingSection.tsx:1855-1861) + per-button DisabledWrap; 'amm' renders full UI with its own inline amber div (AMMSection.tsx:2661-2668); 'launchpad' returns a bespoke plain card (LaunchpadSection.tsx:98-109). Four gated features, three UX treatments — users get inconsistent signals about what 'not live' means.",
+   "suggestion": "Pick one pattern (FeatureNotDeployed hero with an optional 'explore the interface' expander) and apply it to all gated sections — additive, keeps existing art."
+  },
+  {
+   "id": "F272",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance > Token Lending / NFT Lending",
+   "title": "Unbounded batch reads of every offer and loan ever created; no pagination anywhere",
+   "evidence": "LendingSection.tsx:1751-1758 builds `Array.from({ length: count })` getOffer calls (same for loans at 1802-1809); NFTLendingSection.tsx:484-495 likewise. At a few thousand offers this is a giant multicall on every visit and an ever-growing render list. LaunchpadSection.tsx:53 hard-caps at 20 collections silently — items 21+ are invisible with no 'load more'.",
+   "suggestion": "Page the reads (newest-N + load more), and surface the launchpad cap ('showing 20 of N + Load more')."
+  },
+  {
+   "id": "F273",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance > NFT AMM (AMMSection.tsx PoolTradeHistory)",
+   "title": "Expanded trade history re-runs two getLogs calls every block",
+   "evidence": "AMMSection.tsx:1318 `useBlockNumber({ watch: true, query: { refetchInterval: 30_000 } })` plus blockNumber in the effect deps (1324-1375) means the full 10k-block getLogs pair re-executes on every new block (~12s) while expanded — the comment promises refetch 'when the latest block advances past our last fetch by a reasonable delta' but no delta check exists.",
+   "suggestion": "Keep lastFetchedBlock in a ref and only re-run when `blockNumber - lastFetched > 25` (or drop watch and rely on the 30s interval)."
+  },
+  {
+   "id": "F274",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance (deep links)",
+   "title": "Nested tabs aren't URL-addressable — dashboard 'view your loan' links can't land on My Loans",
+   "evidence": "Only ?section= is in the URL (LendingPage.tsx:91). LendingSection's lend/borrow/myloans (line 1845 useState), AMM's trade/create/pools (2650) and NFT lending's tabs (103) all reset to default on every navigation. DashboardPage.tsx:731 links a specific loan to '/nft-finance?section=nftlending' but the user still lands on the Lend tab and must find their loan manually.",
+   "suggestion": "Add a ?tab= param (and optional ?offer=/#loan-id anchor) handled the same R007 Pattern-A way."
+  },
+  {
+   "id": "F275",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance (forms, tables, tabs)",
+   "title": "Accessibility gaps: labels not associated with inputs, clickable rows/headers without keyboard support, inner tab bars lack tab roles",
+   "evidence": "Every `<label className={labelClass}>` in AMMSection/LendingSection lacks htmlFor/id pairing (e.g. AMMSection.tsx:756-764, LendingSection.tsx:782-794) — CollectionDetailV2 (380/394) shows the codebase knows the right pattern. SortHeader is a clickable <th onClick> with no button/keyboard handler (LendingSection.tsx:94-98); OfferRow rows toggle on tr onClick only (1059-1062); inner TabNavs (LendingSection.tsx:563, AMMSection.tsx:452) have no role=tablist/tab/aria-selected though the page-level toggle does (LendingPage.tsx:188-199); quantity +/− buttons unlabeled (AMMSection.tsx:786-801, CollectionDetailV2.tsx:416-430); TraitEditor dialog has no focus trap/initial focus (TraitEditor.tsx:61-80, Esc works).",
+   "suggestion": "id/htmlFor every input, wrap sort labels in <button>, add role=button+tabIndex+Enter handling to expandable rows, mirror the page-level tablist roles, aria-label steppers, trap focus in TraitEditor."
+  },
+  {
+   "id": "F276",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance > Launchpad > Owner Admin",
+   "title": "Dev-grade inputs for money-critical admin actions: raw unix timestamp, bps fields, native window.confirm",
+   "evidence": "OwnerAdminPanelV2.tsx:303-309 Dutch auction start is a bare 'Start (unix)' number field (no datetime picker, no 'now + 1h' helper, no current-time hint); phase grid (181-194) defaults to '0' (Closed) without highlighting the actual on-chain phase already fetched at line 46 — one stray 'Set Phase' click closes a live mint; cancelSale uses `window.confirm` (407-411) while the app ships ui\\TypedConfirmation.tsx for exactly this class of irreversible action.",
+   "suggestion": "datetime-local input converted to unix; pre-select/highlight the on-chain phase in the grid; use TypedConfirmation for cancelSale."
+  },
+  {
+   "id": "F277",
+   "src": "code:nftfinance",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nft-finance > Token Lending",
+   "title": "Per-LoanRow 1Hz re-renders for minute-granularity display; dead exported showcase components ship in the bundle",
+   "evidence": "useCountdown ticks setInterval every 1000ms (useCountdown.ts:25) per LoanRow, but LendingSection renders only `Xd:HHh:MMm` (line 42 of hook output, used at 1617) — N loans = N stateful 1Hz re-render loops for a minutes display. ComingSoonState (LendingSection.tsx:350-445), SkeletonLayout (220), LendingPulseDot (268) and ComingSoon (AMMSection.tsx:2581-2644) are exported '@internal Reserved' dead code kept alive in the page chunk.",
+   "suggestion": "Accept a tick-interval param (60s when not urgent); move the reserved components behind a lazy import or delete-on-confirm with the owner."
+  },
+  {
+   "id": "F278",
+   "src": "code:nftfinance",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nft-finance (page shell)",
+   "title": "Tab-switch history semantics contradict the comment; aria-controls points at nonexistent panels when disconnected",
+   "evidence": "LendingPage.tsx:97 `setSearchParams(params, { replace: true })` under the comment 'deep-links + Back/Forward stay correct' (88-90) — with replace, Back skips tab changes entirely (defensible, but the comment overclaims). When !isConnected, tabs still set `aria-controls={nft-finance-panel-...}` (199) but no element with that id exists since ConnectPrompt replaces the panel (219-224).",
+   "suggestion": "Either drop replace for explicit tab clicks or fix the comment; render the panel id on the ConnectPrompt wrapper."
+  },
+  {
+   "id": "F279",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/nft-finance > Token Lending & NFT Lending",
+   "title": "No 'My Offers' management or cancel-offer affordance — lender ETH escrowed with no UI path to recover it",
+   "evidence": "Both sections' tab sets are Lend (create) / Borrow (accept) / My Loans (loans only): LendingSection.tsx:557-561, NFTLendingSection.tsx:47. createLoanOffer/createOffer escrow the principal as msg.value (LendingSection.tsx:769, NFTLendingSection.tsx:305), yet no surface lists a lender's own open offers and no cancel function is wired anywhere in either file. NFT-lending offers even carry a hardcoded 30-day expiry the lender never sees or chooses (NFTLendingSection.tsx:304). NFTfi/Gondi treat offer management as a first-class tab.",
+   "suggestion": "Add a 'My Offers' sub-tab listing the user's open offers (filter lender === address from the existing batch read) with Cancel (and show/choose the expiry at creation)."
+  },
+  {
+   "id": "F280",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/nft-finance (whole page)",
+   "title": "Entire marketplace is wallet-gated — no logged-out browsing of offers, pools, or collections",
+   "evidence": "LendingPage.tsx:219-224: `!isConnected ? <ConnectPrompt/> : <sections>` — every read-only surface (loan offer book, AMM pool explorer, launchpad collection list) is hidden behind connect. Blur/OpenSea/NFTfi/Gondi all let you browse markets and only gate the act of transacting.",
+   "suggestion": "Render sections read-only when disconnected (reads don't need an account) and gate only the action buttons with the existing 'Connect Wallet' button states — several already handle !address."
+  },
+  {
+   "id": "F281",
+   "src": "code:nftfinance",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/nft-finance > NFT Lending & NFT AMM",
+   "title": "No NFT imagery/metadata anywhere money changes hands: collateral is a bare '#tokenId', pools are raw addresses",
+   "evidence": "OfferCard shows 'JBAC #1234' as text only (NFTLendingSection.tsx:770-772) — no token image, no OpenSea/Etherscan link, no floor-price context for either side to appraise; LendTab makes the lender type a tokenId blind (397-406). AMM BuySellPanel requires pasting a collection address (AMMSection.tsx:758-777) with no name/thumbnail resolution, and 'Held Token IDs' renders as #id chips (1623-1629) with no images; sellers type token IDs with no owned-NFT picker and no ownerOf pre-check (807-824). The repo already has lib\\nftMetadata.ts + a tokenURI reader contract deployed (constants.ts:52).",
+   "suggestion": "Resolve tokenURI → thumbnail for offer/loan/pool cards, add explorer/marketplace links, add a 'your NFTs' picker for sell/deposit flows, and disable Accept with 'You don't own #X' via an ownerOf read."
+  },
+  {
+   "id": "F282",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "/nft-finance (all sections)",
+   "title": "USD context missing almost everywhere despite ethUsd being available in context",
+   "evidence": "The only USD figure on the whole page is LendTab's principal estimate (LendingSection.tsx:795-801). Offer principals, repayment amounts, AMM quotes/fees, TVL, pool balances and mint costs are ETH-only — useTOWELIPrice().ethUsd is already plumbed into this file (line 702).",
+   "suggestion": "Append ~$ subtitles to principal/repay/quote/TVL figures (greyed, with the existing 'USD estimate unavailable' fallback)."
+  },
+  {
+   "id": "F283",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "/nft-finance > Launchpad (CollectionDetailV2.tsx)",
+   "title": "No Dutch-auction price countdown, no remaining-supply/minted-by-you guardrails on quantity, no allowlist proof service",
+   "evidence": "mintLabel (46-56) shows a static price even in phase 3 (price re-polls only every 60s, useNFTDropV2.ts:76) with no decay timer or next-price preview; the Max button (433) uses maxPerWallet or literal 10, ignoring remaining supply (maxSupply-totalSupply) and the wallet's prior mints — overshooting reverts on-chain; allowlist users must hand-paste comma-separated merkle proofs + their leaf amount (380-408), which no consumer-grade launchpad (Zora/Highlight) asks of end users.",
+   "suggestion": "Add a price-decay countdown for phase 3, clamp qty to min(maxPerWallet − minted, remaining supply), and host per-drop proofs (API or downloadable JSON the page can look up by address)."
+  },
+  {
+   "id": "F284",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "/nft-finance > NFT AMM",
+   "title": "No global pool directory — discovery requires already knowing the collection address",
+   "evidence": "PoolExplorer only exposes getPoolsForCollection(searchAddr) (AMMSection.tsx:1822-1828) even though getPoolCount is read for the stats bar (2652-2657) — there is no 'all pools' list, no sorting by liquidity/price, no collection leaderboard. Sudoswap's core surface is a ranked collection/pool browser.",
+   "suggestion": "Enumerate pools via the factory (poolCount + index getter or PoolCreated logs) into a sortable list with TVL/spot columns."
+  },
+  {
+   "id": "F285",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "/nft-finance > Token Lending & NFT Lending",
+   "title": "No pre-flight simulation or decoded revert reasons; raw error.message sliced into toasts",
+   "evidence": "All write paths toast `err.message?.slice(0, 120)` (LendingSection.tsx:771, 1026, 1040, 1565; AMMSection.tsx:656, 692, 708...) — users see 'execution reverted' prefixes instead of human reasons; lib\\revertDecoder.ts exists in the repo but is not imported by any nftfinance component. No useSimulateContract pre-check, so doomed txs (insufficient repayment, unowned tokenId, expired offer) reach the wallet.",
+   "suggestion": "Run writes through the shared revert decoder for toasts and add simulate-before-write on Accept/Repay/Claim."
+  },
+  {
+   "id": "F286",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "/nft-finance > Token Lending > My Loans",
+   "title": "No deadline alerts/reminders or share/export affordances for loans",
+   "evidence": "LoanRow shows a live countdown (LendingSection.tsx:1603-1620) but there is no push/price-alert integration (the repo has usePriceAlerts + push alerts per the Tier-1 roadmap), no .ics/calendar export, no copyable per-loan link, and no CSV export of loan history — table stakes for Gondi/NFTfi loan dashboards where missing a deadline forfeits the NFT.",
+   "suggestion": "Wire loan deadlines into the existing alert infrastructure and add a per-loan deep link + ics export."
+  },
+  {
+   "id": "F287",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Logged-out market browsing (Blur/OpenSea/NFTfi all show order books without a wallet; here everything is behind ConnectPrompt)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F288",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Offer lifecycle management: My Offers tab, cancel offer, edit/expiry controls and expiry display (Gondi/NFTfi core surface; here escrowed ETH has no UI exit)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F289",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "NFT collateral imagery + floor price + valuation context on offer/loan/pool cards (Gondi shows collateral image, floor, LTV vs floor; here it's '#1234' text)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F290",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Wallet inventory picker for choosing collateral / sell / deposit NFTs instead of hand-typing token IDs",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F291",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "USD denominations alongside ETH across quotes, principals, repayments, TVL",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F292",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Global pool directory with sort (liquidity/price/volume) — Sudoswap-style collection browser instead of paste-an-address discovery",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F293",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Pre-flight transaction simulation and decoded revert reasons in toasts",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F294",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Loan deadline alerts (push/email/ics) and shareable per-offer/per-loan deep links",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F295",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Dutch-auction live price decay countdown and next-price preview on mint pages (Zora-grade)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F296",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Hosted allowlist proof lookup (user pastes nothing) for ALLOWLIST mints",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F297",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Pagination/infinite scroll on offers, loans, and launchpad collections (hard 20-cap currently silent)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F298",
+   "src": "code:nftfinance",
+   "severity": "low",
+   "category": "missing",
+   "page": "g05_nftfinance",
+   "title": "Historical analytics: pool volume charts, lending book depth, realized APR — Dexscreener/Blend-grade context",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F299",
+   "src": "live:nft-finance",
+   "severity": "high",
+   "category": "improve",
+   "page": "/nft-finance (all 4 tabs)",
+   "title": "Connect-wall copy promises live features, but all 4 sections are pre-deploy — honesty is revealed only AFTER wallet connect",
+   "evidence": "Logged out, every tab shows only a ConnectPrompt with live-sounding copy: 'Connect to lend & borrow TOWELI', 'Connect to borrow against your NFTs', 'Connect to trade NFTs on bonding curves', 'Connect to the NFT launchpad'. But in src/lib/constants.ts TEGRIDY_LENDING_ADDRESS (line 47), TEGRIDY_NFT_LENDING_ADDRESS (line 54), TEGRIDY_RESTAKING_ADDRESS (line 7) and TEGRIDY_LAUNCHPAD_V2_ADDRESS (line 67) are all 0x000...000. The honest messaging ('Lending contracts are being audited and will be deployed soon' amber banner in LendingSection.tsx:1855-1861, 'NFT AMM contracts are being finalized' AMMSection.tsx:2661-2668, 'Launchpad V2 factory not deployed yet' LaunchpadSection.tsx:98-101, FeatureNotDeployed 'NFT lending isn't live yet' LendingPage.tsx:238) renders ONLY in the isConnected branch (LendingPage.tsx:219-242). A user connects a wallet expecting to transact and then discovers everything is 'coming soon' — a bait-and-switch trust gap.",
+   "suggestion": "Additive fix: surface the same pre-deploy status on the logged-out gate — e.g. add the amber 'being audited, deploying soon' line and/or a small SOON badge to each ConnectPrompt (SECTION_PROMPTS in LendingPage.tsx:28-49), and add 'Coming soon' micro-badges to the affected tab pills. Keep the connect CTA; just set expectations before asking for a wallet."
+  },
+  {
+   "id": "F300",
+   "src": "live:nft-finance",
+   "severity": "high",
+   "category": "missing",
+   "page": "/nft-finance (all 4 tabs)",
+   "title": "Zero market/preview data logged out — page objective unfulfilled for visitors",
+   "evidence": "Each tab renders only a 560px connect card (ConnectPrompt.tsx). No collections, loan terms, APR/LTV figures, pool stats, TVL, or live/upcoming drops are visible without a wallet. The codebase already HAS explorable disconnected-friendly UI (StatsBar, HowItWorks accordion, offers table, BondingCurveChart preview, blurred mock-offer ComingSoonState in LendingSection.tsx:350-445 and AMMSection.tsx:2581-2644) but it is unreachable logged out. NFTfi/Gondi/Blend show offer books, collection lists and APRs without connecting; launchpads (Magic Eden/OpenSea drops) show upcoming drops + countdowns logged out — drop discovery is inherently a logged-out activity.",
+   "suggestion": "Render each section's read-only view (stats bar, HowItWorks, offer tables, bonding-curve explainer, drops list) for disconnected users, and gate only the transactional buttons behind connect. The components already accept a 'deployed' prop, so most of this is unlocking existing UI."
+  },
+  {
+   "id": "F301",
+   "src": "live:nft-finance",
+   "severity": "medium",
+   "category": "missing",
+   "page": "site nav (affects /nft-finance discoverability)",
+   "title": "No desktop nav link to NFT Finance — page is orphaned from header and footer",
+   "evidence": "Header nav contains Dashboard / Farm / Trade / More / Tradermigos; the More menu contains only Gallery, Tegridy Score, Tokenomics, Treasury (verified via read_page menuitem refs). Footer PRODUCT column: Dashboard, Farm, Trade, Points, Tradermigos. Meanwhile the MOBILE BottomNav.tsx:35 includes '{ to: /nft-finance, label: NFT Finance }' as a primary tab. Desktop users (the owner's stated primary platform, ultrawide) can only reach this page via Dashboard deep-link cards (DashboardPage.tsx:527-528,660,694) or by typing the URL.",
+   "suggestion": "Add 'NFT Finance' to the desktop More menu (or as a top-level item) and to the footer PRODUCT column, optionally with a SOON badge while contracts are pre-deploy, matching the mobile bottom-nav."
+  },
+  {
+   "id": "F302",
+   "src": "live:nft-finance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance (Token Lending tab)",
+   "title": "Token Lending gate copy contradicts the section's own mechanics (TOWELI vs ETH)",
+   "evidence": "Gate headline: 'Connect to lend & borrow TOWELI' / 'Supply TOWELI for yield' (LendingPage.tsx:30-32). But the overview card says 'Lend ETH against staking positions' (LendingPage.tsx:55) and the post-connect HowItWorks says 'Lenders deposit ETH and set their terms' with TVL denominated in ETH (LendingSection.tsx:1862-1873, mock offers in ETH at :358-363). Also the generic 'lending' DEFAULTS in ConnectPrompt.tsx:38-43 mentions 'JBAY Gold NFTs' — a collection not referenced anywhere else on this page (JBAC/Nakamigos/GNSS are the stated set).",
+   "suggestion": "Align the SECTION_PROMPTS lending copy to the actual mechanic (lend ETH against staked-TOWELI position NFTs; restake for bonus rewards) and reconcile the JBAY Gold mention in the ConnectPrompt default."
+  },
+  {
+   "id": "F303",
+   "src": "live:nft-finance",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nft-finance (all tabs, logged out)",
+   "title": "ARIA: tabs reference tabpanels that don't exist; no arrow-key tab navigation",
+   "evidence": "All 4 [role=tab] buttons have aria-controls='nft-finance-panel-{key}' but document.querySelectorAll('[role=\"tabpanel\"]').length === 0 when disconnected (verified via in-page JS) — the tabpanel id/role only renders in the isConnected branch (LendingPage.tsx:228-229), so aria-controls dangles for every logged-out user. Pressing ArrowRight with a tab focused does not move selection/focus (verified live); tabs have no roving tabindex (tabindex null on all).",
+   "suggestion": "Give the ConnectPrompt wrapper the role='tabpanel' + id when disconnected, and add standard arrow-key roving-tabindex behavior to the tablist."
+  },
+  {
+   "id": "F304",
+   "src": "live:nft-finance",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/nft-finance (first visit)",
+   "title": "First-visit splash runs ~15-19s with no visible Skip affordance",
+   "evidence": "Fresh navigation played a multi-phase animated splash (banana-tape art market scene → particle starfield → particle ring → golden kaleidoscope shatter with TEGRIDY title) lasting roughly 15-19 seconds before page content appeared. Only control shown is a small mute/speaker icon top-right. A click anywhere may skip (page appeared shortly after my click at ~14s) but nothing labels this. Repeat-visit behavior is good: sessionStorage 'tf_loaded' suppresses it for the session, and replay is available via the logo-monkey easter-egg button (title='Replay splash screen (full reload)').",
+   "suggestion": "Keep the art splash (it's a brand asset) but add an explicit 'Skip' label/affordance (e.g. 'Click to skip' hint or a Skip button after 2s) so first-time visitors heading to a finance page aren't held for ~15s."
+  },
+  {
+   "id": "F305",
+   "src": "live:nft-finance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance (bottom-right)",
+   "title": "Towelie mascot sprite occludes the 'Protocol Active $...' price chip",
+   "evidence": "Zoomed screenshot of region (1000,880)-(1246,952): the chip renders 'Protocol Active $0...' and the Towelie character sprite sits on top of the price text, clipping it. Both elements are fixed bottom-right with overlapping bounds.",
+   "suggestion": "Offset the chip left of the mascot (or raise its z-index/margin) so the live TOWELI price is always readable."
+  },
+  {
+   "id": "F306",
+   "src": "live:nft-finance",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nft-finance (light mode)",
+   "title": "Light mode: 'NFT Finance' h1 turns dark navy over dark painting art — weak contrast",
+   "evidence": "After toggling light mode, the serif h1 renders in a dark indigo/navy over the dark gallery-painting backdrop (zoom region 416,60-830,290): the title visibly sinks into the art, while the subtitle stays white and readable. Dark mode h1 (white) is fine.",
+   "suggestion": "Keep the art; add a text-shadow/scrim or keep the h1 light-on-dark in both themes since the backdrop art is dark in both."
+  },
+  {
+   "id": "F307",
+   "src": "live:nft-finance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance (network)",
+   "title": "Primary RPC eth.llamarpc.com is down (503/521) and still probed in prod",
+   "evidence": "Network log on load: POST https://eth.llamarpc.com/ → 503 and OPTIONS → 521, with successful failover to ethereum-rpc.publicnode.com and rpc.ankr.com (both 200). Page data unaffected. HEAD already demotes llamarpc to last-resort with rank:true (src/lib/wagmi.ts:12-21, comment dated 2026-06-11), but the live prod bundle still hits it on first load ('first hits still pay' per the code comment).",
+   "suggestion": "Deploy the HEAD wagmi.ts demotion to prod. Also note src/nakamigos/components/OnChainProfile.jsx:158 and WhaleIntelligence.jsx:363 still hard-code llamarpc as their ONLY provider — those surfaces have no failover."
+  },
+  {
+   "id": "F308",
+   "src": "live:nft-finance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance (background)",
+   "title": "Background art pops in 5-14s after content with no placeholder",
+   "evidence": "On reload the page rendered as a flat dark void (#060c1a) with the connect card; the full-bleed gallery art (e.g. /splash/new/3.avif and page bg) appeared abruptly ~5-14s later depending on load (observed twice: absent at 8s, present at 14s). No blur-up/LQIP placeholder or fade-from-dominant-color.",
+   "suggestion": "Add a low-res blurred placeholder (LQIP) or dominant-color layer behind the AVIF so the art fades in rather than popping, and consider preloading the page bg when the route is linked from Dashboard."
+  },
+  {
+   "id": "F309",
+   "src": "live:nft-finance",
+   "severity": "low",
+   "category": "improve",
+   "page": "/nft-finance (overview cards)",
+   "title": "Overview intro has 3 cards but the page has 4 sections — Launchpad omitted; tab subtitles defined but never rendered",
+   "evidence": "INTRO_CARDS (LendingPage.tsx:51-73) contains only lending/nftlending/amm — no Launchpad card, so the overview undersells a whole section. Separately, SECTIONS defines subtitles ('Staking + Restake', 'Generic NFTs', 'Bonding curves') at LendingPage.tsx:18-23 that are never rendered in the tab bar (render at :194-216 uses only {label}) — 'Staking + Restake' is the ONLY navigational hint that restaking lives under Token Lending, and it's invisible.",
+   "suggestion": "Add a 4th Launchpad intro card, and render the existing subtitles under the tab labels (desktop has the space) so restaking is discoverable."
+  },
+  {
+   "id": "F310",
+   "src": "live:nft-finance",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nft-finance (tab bar)",
+   "title": "Inactive tab pills have no hover state",
+   "evidence": "LendingPage.tsx:200-204: inactive tab className is 'text-white hover:text-white' — hover color equals resting color, so the only feedback is the cursor. Verified visually: hovering NFT Lending/AMM/Launchpad pills changes nothing.",
+   "suggestion": "Add a subtle hover treatment (e.g. bg-white/5 or text-white/70 → white) to inactive pills."
+  },
+  {
+   "id": "F311",
+   "src": "live:nft-finance",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nft-finance (overview)",
+   "title": "'Dismiss overview' control is nearly invisible (10px, 30% white, over busy art)",
+   "evidence": "LendingPage.tsx:173-178: 'text-[10px] text-white/30' rendered directly over the bright gallery-painting art; in screenshots it is barely discernible above the tab bar. It works (persists via localStorage 'tegridy-nft-finance-intro-dismissed', verified across reload) but fails contrast and affordance.",
+   "suggestion": "Bump to ~12px at white/60 with a subtle pill background, or move it to the overview block's corner as an x button."
+  },
+  {
+   "id": "F312",
+   "src": "live:nft-finance",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nft-finance (overview cards)",
+   "title": "Overview card buttons exposed without accessible names",
+   "evidence": "read_page (interactive filter) listed the three intro cards as anonymous 'button' elements (ref_10/11/12, no name), while every other control on the page has a label. The m.button wraps art + text divs (LendingPage.tsx:140-169); the accessibility tree is not picking up a name.",
+   "suggestion": "Add aria-label={card.title} (e.g. 'Open Token Lending') to the intro card buttons."
+  },
+  {
+   "id": "F313",
+   "src": "live:nft-finance",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nft-finance (ultrawide layout)",
+   "title": "Ultrawide: functional area is a single ~560px card in a 1710px viewport — art carries the width, density is very low",
+   "evidence": "On the maximized ultrawide window (1710px CSS viewport), the entire interactive surface logged-out is one max-w-[560px] connect card (ConnectPrompt.tsx:68) centered in the hero; the full-bleed museum art fills the rest, so nothing looks broken or over-stretched (line lengths stay comfortable, no empty white gutters). But information density is near zero: two-thirds of the screen carries no data, stats, or preview content.",
+   "suggestion": "Use the side space additively on wide viewports: e.g. flank the connect card with the existing HowItWorks steps and a stats/preview column (the blurred mock-offer table already exists in code), keeping the art as the backdrop."
+  },
+  {
+   "id": "F314",
+   "src": "live:nft-finance",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/nft-finance (header)",
+   "title": "Splash-replay easter egg is an unlabeled 28px button on the logo monkey",
+   "evidence": "button title='Replay splash screen (full reload)' is a 28x28px hit area at (274,13) directly over the logo mark, discoverable only by hovering for the native tooltip. Fun easter egg, but it sits inside the 'Go to home page' logo cluster, so a slightly-off click on the logo replays a ~15s splash + full reload instead of navigating home.",
+   "suggestion": "Keep the easter egg but add a confirm-ish affordance (e.g. small play icon on hover) or move it a few px clear of the home link to prevent accidental full reloads."
+  }
+ ]
+}

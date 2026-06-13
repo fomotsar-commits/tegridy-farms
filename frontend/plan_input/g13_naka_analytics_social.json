@@ -1,0 +1,740 @@
+{
+ "group": "g13_naka_analytics_social",
+ "sourceAgents": [
+  "code:naka-analytics-social",
+  "live:naka-social"
+ ],
+ "findings": [
+  {
+   "id": "F711",
+   "src": "code:naka-analytics-social",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "CommunityChat (room chat)",
+   "title": "Chat posting writes with the anon-key client that the JWT-gated RLS policy rejects — sending fails for everyone in live mode",
+   "evidence": "CommunityChat.jsx:516-522 calls sendMessage from lib/supabase.js, which does a DIRECT anon-client insert: supabase.js:216-218 `await supabase.from(\"messages\").insert({ author, text, token_id: tokenId, slug })`. But migration 004_security_hardening.sql:97-98 re-creates `CREATE POLICY \"Verified can insert\" ON public.messages FOR INSERT WITH CHECK (author = lower(...request.jwt.claims...->>'wallet') ...)` — the anon key's JWT has no `wallet` claim, so the check is null → INSERT rejected → sendMessage returns null → user always sees \"Failed to send message. Please check your connection and try again.\" (CommunityChat.jsx:531). The file's own header (supabase.js:90-94) says \"All WRITE operations ... should go through the /api/supabase-proxy endpoint\", and the proxy is ready for it: api/supabase-proxy.js:53 ALLOWED_TABLES includes \"messages\" and api/_lib/proxy-schemas.js:106-107,174 validates `author` against the JWT wallet. CommunityChat was never migrated to the proxy and has no SIWE sign-in affordance anywhere (it gates posting only on wallet+holderTier, App.jsx:655). Caveat: based on repo migrations as source of truth; only a divergent prod policy would change this.",
+   "suggestion": "Route sendMessage through /api/supabase-proxy (same proxyCall pattern as lib/dm.js), and add the DirectMessages-style \"Sign in\" gate to the room composer (useSiweAuth is already in the bundle). Surface 401 as needs-auth instead of a generic connection error."
+  },
+  {
+   "id": "F712",
+   "src": "code:naka-analytics-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "CommunityChat (likes)",
+   "title": "Like button is a silent no-op in live mode — toggle_like RPC requires a JWT wallet claim the anon client can never supply",
+   "evidence": "lib/supabase.js:255-257 calls `supabase.rpc(\"toggle_like\", { msg_id, wallet })` with the anon key. Migration 006_audit_2026_05_26.sql:46-48: `jwt_wallet := lower(current_setting('request.jwt.claims'...)); IF jwt_wallet IS NULL THEN RAISE EXCEPTION 'Unauthorized: JWT missing wallet claim';` → RPC always errors → toggleLike returns null (supabase.js:259-265). CommunityChat.jsx:559-565 `const updated = await toggleLike(...); if (updated) {...}` — no else branch, no toast: the heart button visibly does nothing.",
+   "suggestion": "Route the like through the proxy (or add a toggle_like proxy RPC path) and show feedback on failure; until then at least toast 'Sign in to like' the way handleReaction toasts on failure."
+  },
+  {
+   "id": "F713",
+   "src": "code:naka-analytics-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "CommunityChat (reactions) / Supabase RPC",
+   "title": "toggle_reaction RPC has no JWT ownership check — anyone with the public anon key can add/remove reactions as ANY wallet",
+   "evidence": "Migration 007_p2p_trades_and_chat.sql:119-149 defines toggle_reaction as SECURITY DEFINER validating only the emoji allowlist and `w !~ '^0x[0-9a-f]{40}$'` — unlike toggle_like (006:46-59) it never compares against request.jwt.claims. 008_grant_new_table_roles.sql:20 grants EXECUTE ON ALL ROUTINES to anon. So reactions are simultaneously (a) the only chat write that works from the current anon client and (b) spoofable: any visitor can call the RPC with any victim wallet and toggle their reactions. CommunityChat.jsx:437-446 passes the connected (unauthenticated) wallet.",
+   "suggestion": "Add the same jwt_wallet check to toggle_reaction (new migration) and call it through the proxy — matching the toggle_like pattern."
+  },
+  {
+   "id": "F714",
+   "src": "code:naka-analytics-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Favorites / Watchlist / EditProfile / votes (lib/userdata.js)",
+   "title": "Entire userdata cloud-sync layer is dead in production: all writes (and, since migration 004, favorites/watchlist reads) go through the anon client that RLS rejects — everything silently degrades to this-browser-only localStorage",
+   "evidence": "userdata.js writes use the bare anon client: saveProfile :161-169, syncFavorites push :197-199, addFavoriteRemote :211, removeFavoriteRemote :218, syncWatchlist push :255-266, addWatchlistRemote :278, removeWatchlistRemote :291, castVote :325-327. Migrations 001/004 make every one of these require `wallet = lower(jwt->>'wallet')` (e.g. 004:120-130 favorites, :132-142 watchlist, :144-155 votes), which the anon JWT cannot satisfy. Worse, 004:157-165 replaced the public SELECT with `CREATE POLICY \"Owner reads favorites\" ... FOR SELECT USING (wallet = ...jwt...)` — so syncFavorites' read (userdata.js:185-189) silently returns ZERO rows (RLS filters, no error) and sync becomes a no-op. The header comment (userdata.js:9-10, \"persistence ... across devices\") is false at runtime. The proxy already allowlists user_profiles/user_favorites/user_watchlist/votes (api/supabase-proxy.js:53) but userdata.js never uses it.",
+   "suggestion": "Port userdata.js writes to the supabase-proxy (proxyCall pattern from lib/dm.js) gated on SIWE, and either restore public reads for favorites/watchlist or read them through the proxy too. Until then, remove 'across devices' implications from UI copy."
+  },
+  {
+   "id": "F715",
+   "src": "code:naka-analytics-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "EditProfile",
+   "title": "\"Profile saved\" success toast fires even when the cloud write was rejected — saveProfile's failure return is ignored",
+   "evidence": "EditProfile.jsx:92-97: `await saveProfile(wallet, {...}, slug); addToast?.(\"Profile saved\", \"success\");` — saveProfile returns false on Supabase error (userdata.js:171-175 `return !error;` / `return false;`) and does NOT throw, so the catch at EditProfile.jsx:100 never runs. Combined with the RLS rejection above, every prod save shows a false success while only writing the local cache (userdata.js:154-156).",
+   "suggestion": "Check the boolean result: success toast only on true; on false show 'Saved locally — sign in to sync your profile'."
+  },
+  {
+   "id": "F716",
+   "src": "code:naka-analytics-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "NftCompare trade offers (lib/userdata.js consumers)",
+   "title": "NftCompare still uses the legacy userdata.createTradeOffer/updateTradeStatus path that migration 007 revoked — trades become localStorage ghosts the counterparty never sees",
+   "evidence": "NftCompare.jsx:8 imports `{ createTradeOffer, getIncomingTrades, updateTradeStatus } from \"../lib/userdata\"` and calls them (:424, :457). Migration 007:47-54 drops all client-side trade_offers write policies and replaces with `CREATE POLICY \"Service role inserts trades\" ... TO service_role` (writes only via /api/orderbook). userdata.js:436-461: when the insert errors it silently falls back to `loadTradesCache(...); trades.push(trade); saveTradesCache(...)` — a local-only \"pending\" trade. The correct Seaport-settled path exists in lib/trades.js (used by TradeWindow/TradesPanel).",
+   "suggestion": "Point NftCompare's trade flow at lib/trades.js createTradeOffer/fetchTrades/updateTradeStatus (the orderbook API path), and delete the dead trade functions from userdata.js."
+  },
+  {
+   "id": "F717",
+   "src": "code:naka-analytics-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "DirectMessages",
+   "title": "DM polling consumes 18 of the proxy's 20 req/min wallet budget; the first 429 is then misclassified as \"DMs aren't enabled yet\"",
+   "evidence": "With a thread open, every 15s tick (DirectMessages.jsx:220) runs loadThread → fetchThread (1 proxy call) + markThreadRead (1 PATCH, unconditional even when nothing is unread — dm.js:137-146) and loadConvos → fetchConversations = 2 SELECTs (dm.js:92-95). That's 4 calls/15s = 16/min, plus useDmUnread's fetchUnreadCount = 2 more calls/min (useDmUnread.js:4,32) = 18/min vs the proxy stage-2 limit `limit: 20, windowSec: 60` keyed per wallet (api/supabase-proxy.js:230-233). Two sends or reactions in a minute tip it over. When a 429 lands, classify() at DirectMessages.jsx:173 (`if (err?.status && err.status < 500) return \"not-enabled\"`) replaces the whole pane with \"DMs aren't enabled yet — The messaging backend (migration 007) hasn't been switched on\" (:352-360) — wrong message for rate limiting.",
+   "suggestion": "Handle 429 explicitly (transient/retry state), only PATCH read_at when the thread actually has unread, and merge the conversation-list poll into a single proxy call (or lengthen its cadence while a thread is open)."
+  },
+  {
+   "id": "F718",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "DirectMessages (SIWE gate)",
+   "title": "Sign-in button produces an unhandled promise rejection when the user rejects the wallet signature",
+   "evidence": "DirectMessages.jsx:341-344: `onClick={async () => { const ok = await signIn(); if (ok) {...} }}` — no try/catch. useSiweAuth.signIn throws on rejection: useSiweAuth.js:122-126 `if (err.code === 4001 || err.code === \"ACTION_REJECTED\") { throw new Error(\"Sign-in cancelled\"); } throw err;`. Rejecting the MetaMask prompt yields an unhandled rejection and zero UI feedback (button just un-busies).",
+   "suggestion": "Wrap in try/catch and toast the error message ('Sign-in cancelled' / server error)."
+  },
+  {
+   "id": "F719",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Analytics + CollectionHealth",
+   "title": "\"Recent Sales\" and \"24H VOLUME\" math counts live listing/bid prices as sales once the OpenSea stream connects",
+   "evidence": "The `activities` prop is mergedActivities (useCollection.js:29-31 flattens `openSea.listings, sales, bids, cancellations`; :94-113 prepends them to the sale-only polled feed). Analytics.jsx:131 `const prices = activities.filter(a => a.price > 0)` feeds AVG SALE / HIGHEST / LOWEST / SALES COUNT (:133-138) — listing and bid events all carry price>0 (eventFeed.js:85-92). CollectionHealth.jsx:199 `recentSales.day.reduce((s, a) => s + (a.price || 0), 0)` is labeled \"24H VOLUME\" but recentSales filters only by time (:156-162), so an above-floor listing inflates volume; floorMetrics (:165-188) has the same contamination.",
+   "suggestion": "Filter `a.type === \"sale\"` in Analytics.activityStats/priceDistribution and CollectionHealth.recentSales/floorMetrics (ActivityFeed already does this for its own stats at ActivityFeed.jsx:186-194)."
+  },
+  {
+   "id": "F720",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "ActivityFeed",
+   "title": "Feed is not chronologically ordered when live events are present (two merge points skip sorting)",
+   "evidence": "useCollection.js:112 `return [...newLive, ...activities].slice(0, 500)` — prepends without sorting. ActivityFeed.jsx:124-141 mergeBase() concatenates propActivities then fetchedActivities and only sorts when tradeEvents exist (:119-121 `if (tradeEvents.length === 0) return base;`). A 30-minute-old live transfer can sit above a 1-minute-old fetched sale.",
+   "suggestion": "Sort the merged list by time desc in mergeBase (or always take the tradeEvents path's sort)."
+  },
+  {
+   "id": "F721",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "PriceAlerts",
+   "title": "usePriceAlerts is instantiated twice (App level + inside the panel) — duplicate 30s stats pollers and duplicate alert toasts/notifications",
+   "evidence": "App.jsx:566 `usePriceAlerts(nfts.allTokens, addToast);` AND PriceAlerts.jsx:415 inside PriceAlertPanel (mounted at App.jsx:653). Each instance has its own fetchCollectionStats interval (PriceAlerts.jsx:58-71) and its own checkAlerts that fires `new Notification(...)` + addToast (:138-158) against the same localStorage alerts — when the alerts tab is open, a trigger fires twice. useSmartAlerts adds a third 30s fetchCollectionStats poller (useSmartAlerts.js:173).",
+   "suggestion": "Lift the hook into context (single engine) and have the panel consume it via props, mirroring how useSmartAlerts feeds NotificationCenter."
+  },
+  {
+   "id": "F722",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "PortfolioTracker (P&L)",
+   "title": "\"GAS SPENT\" stat is a hardcoded 0.003 ETH-per-token fiction presented as data",
+   "evidence": "lib/portfolio.js:175 `const GAS_ESTIMATE = 0.003;` and :188 `totalGasSpent += GAS_ESTIMATE;` for every held token (including mints/airdrops); comment :91 admits \"Estimate gas at ~0.003 ETH (typical NFT purchase gas cost)\". Rendered as a primary red stat \"GAS SPENT\" (PortfolioTracker.jsx:336-340) with no estimate qualifier. At current sub-gwei gas an NFT purchase costs ~0.0001-0.0005 ETH, so this is ~10-30x off and stale.",
+   "suggestion": "Either fetch real gasUsed*effectiveGasPrice for the acquisition txs (Alchemy receipts) or label it 'est.' and derive from live gas price; don't charge gas for mints with no purchase record."
+  },
+  {
+   "id": "F723",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "PortfolioTracker (P&L math)",
+   "title": "Realized P&L FIFO matching can pair a sale with a buy that happened AFTER it; sells without a matched buy count full proceeds as profit",
+   "evidence": "lib/portfolio.js:216-229: for each sell, `sortedBuys.find(s => String(s.tokenId) === tid && !matchedBuyHashes.has(...))` — no constraint that buy.blockNumber < sale.blockNumber, so sell-then-rebuy of the same token uses the later rebuy as cost basis. When buy history (limit \"100\", :136) is truncated, `buyPrice = 0` → `realizedPnL += sellPrice - 0`. Also saleToEth (:47-53) assumes every fee amount is 18-decimals ETH — a USDC-denominated sale would be wildly wrong.",
+   "suggestion": "Constrain matching to buys with blockNumber < sale.blockNumber, mark unmatched sells as 'cost basis unknown' instead of zero, and check sale fee token symbol/decimals."
+  },
+  {
+   "id": "F724",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "OnChainProfile / WhaleIntelligence / PortfolioTracker",
+   "title": "API outage renders as \"this wallet holds 0 NFTs\" — fetchWalletNfts' error field is ignored by every caller",
+   "evidence": "api.js:610-613 catches and returns `{ tokens: [], totalCount: 0, error: \"Could not load wallet NFTs...\" }`. OnChainProfile.jsx:127-132 sets tokens/totalCount without reading `.error` → shows \"This wallet does not hold any {collection.name} NFTs.\" + \"Observer\" badge (:566-571, :501-503); WhaleIntelligence toggleHolder :246-249 shows \"No {collection.name} held by this wallet.\" (:812-822); PortfolioTracker :161-167 shows \"No {collection.name} Found\".",
+   "suggestion": "Check `data.error` in all three callers and render a retryable error state instead of a confident zero-holdings claim."
+  },
+  {
+   "id": "F725",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "improve",
+   "page": "WhaleIntelligence (ENS + polling)",
+   "title": "30s refresh re-resolves every no-ENS address against a hardcoded llamarpc endpoint, and the shared ens_cache uses a conflicting format that useEns prunes away",
+   "evidence": "WhaleIntelligence.jsx:363 `new ethers.JsonRpcProvider(\"https://eth.llamarpc.com\")` (bypasses the app's provider failover; OnChainProfile.jsx:158 duplicates this). Only successful names are cached (:389-391 `if (r.status === \"fulfilled\" && r.value.name)`), so misses re-resolve on every 30s holders refresh (effect deps :409 `[holders, whaleTransactions]`, new arrays each poll) — up to ~45 lookups/cycle in batches of 3. Cache format clash: WhaleIntelligence writes plain strings into `ens_cache` while useEns writes `{name, ts}` and prunes entries whose `ts` fails `now - v.ts < CACHE_TTL` (useEns.jsx:28) — i.e., useEns wipes WhaleIntelligence's entries on startup.",
+   "suggestion": "Reuse resolveEns() from hooks/useEns.jsx (it dedups, caches misses, and shares format) and drop the hand-rolled resolver + hardcoded RPC in both components."
+  },
+  {
+   "id": "F726",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Alerts engines (useSmartAlerts / usePriceAlerts / WhaleIntelligence)",
+   "title": "Three always-on 30s pollers ignore document.hidden and duplicate the same stats fetch; WhaleIntelligence additionally re-pulls the full owner list every 30s",
+   "evidence": "useSmartAlerts.js:328-330 `setInterval(check, CHECK_INTERVAL)` (two fetches per tick) with no visibility check; PriceAlerts.jsx:69 same; WhaleIntelligence.jsx:225-228 polls fetchTopHolders+fetchActivity every 30s — fetchTopHolders calls getOwnersForContract withTokenBalances (api.js:562-565) which returns the ENTIRE owner set each time. Contrast: useActivityWebSocket.js:179 and useOpenSeaStream.js:239 both gate on `!document.hidden`, and useDmUnread.js:32 too.",
+   "suggestion": "Add the `!document.hidden` gate to all three, share one fetchCollectionStats poller, and lengthen the holders refresh (owner sets don't change at 30s granularity)."
+  },
+  {
+   "id": "F727",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Watchlist",
+   "title": "Remote upsert fires on every keystroke of note/target inputs, and watched items not in the loaded token set vanish without explanation",
+   "evidence": "Watchlist.jsx:86-112 updateNote/updateTarget call `addWatchlistRemote(...)` inside onChange handlers (:199, :208) with no debounce. :114 `const watchedNfts = useMemo(() => tokens.filter((t) => watchedIds.has(t.id)) ...)` — a watched token outside the loaded gallery pages simply doesn't render; Favorites.jsx:70-74 has a \"{n} favorited NFTs not yet loaded\" hint, Watchlist has none.",
+   "suggestion": "Debounce remote writes (500ms) and add the same 'not yet loaded' counter Favorites has."
+  },
+  {
+   "id": "F728",
+   "src": "code:naka-analytics-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "RarityPriceScatter",
+   "title": "\"Reset Zoom\" button visibility reads a ref during render — zooming doesn't re-render, so the button doesn't appear when you zoom",
+   "evidence": "RarityPriceScatter.jsx:746 `{zoomRef.current.scale > 1 && (<button ...>Reset Zoom</button>)}` while handleWheel (:574-589) mutates zoomRef and calls draw() without any setState — React never re-renders, so the reset affordance only shows after an unrelated state change (e.g. toggling a filter).",
+   "suggestion": "Mirror scale>1 into a small state flag (setIsZoomed) inside handleWheel."
+  },
+  {
+   "id": "F729",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "OnChainProfile / CollectionHealth",
+   "title": "\"Diamond Hands\" claims are unsupported by data: badge is granted for whale-count alone; the health metric's \"never sold\" only looks at the last ~50 events",
+   "evidence": "OnChainProfile.jsx:496 `{isWhale && <Badge label=\"Diamond Hands\" .../>}` — no hold-duration input at all. CollectionHealth.jsx:262-269 computes `sellers` from the merged activities feed (50-event window) yet renders \"{count} never sold\" (:493).",
+   "suggestion": "Gate the badge on actual hold time (acquisition timestamps already exist in lib/portfolio.js) or relabel to 'Whale'; relabel health copy to 'no sells in recent activity'."
+  },
+  {
+   "id": "F730",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "NotificationCenter / useSmartAlerts",
+   "title": "\"Normal rate\" alert setting is dead — the engine ignores config.listingRate.normalRate",
+   "evidence": "NotificationCenter.jsx:111 exposes `SettingInput label=\"Normal rate\" ... onChange={v => handleField(\"listingRate\", \"normalRate\", v)}`, but useSmartAlerts.js:293 computes `const normalRate = Math.max(1, Math.round((collection.supply || 10000) / 2500));` — the user-edited value is never read.",
+   "suggestion": "Use cfg.listingRate.normalRate when set, falling back to the supply heuristic."
+  },
+  {
+   "id": "F731",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "PortfolioTracker",
+   "title": "Top gainers and top losers overlap when fewer than ~6 tokens have cost basis — the same positive-P&L token can appear under \"TOP LOSERS\"",
+   "evidence": "PortfolioTracker.jsx:204-210: one sorted array, `topGainers: sorted.slice(0, 3), topLosers: sorted.slice(-3).reverse()` — with 1-3 priced tokens the slices overlap, and losers entries can render '+12.0%'-style positives under the red TOP LOSERS header (:558-569 renders pnlPercent unconditionally).",
+   "suggestion": "Filter gainers to pnlPercent>0 and losers to pnlPercent<0 before slicing."
+  },
+  {
+   "id": "F732",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "PortfolioTracker",
+   "title": "Refresh button is a no-op for up to 5 minutes — calculatePnL serves its localStorage cache, including a stale floor price",
+   "evidence": "lib/portfolio.js:122-124 `const cached = readCache(key); if (cached) return cached;` with CACHE_TTL = 5min (:11); the cached object bakes in floorPrice/currentValue. PortfolioTracker.jsx:299-309 'Refresh' calls loadPortfolio → calculatePnL → cache hit.",
+   "suggestion": "Add a forceRefresh flag that bypasses/invalidates the cache from the Refresh button."
+  },
+  {
+   "id": "F733",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "ActivityFeed (live event types)",
+   "title": "OpenSea stream events render uncolored lowercase raw type badges — EVENT_LABELS expects \"ask\" but the stream emits \"listing\"/\"cancellation\"",
+   "evidence": "eventFeed.js:61-66 and useOpenSeaStream.js:19-24 normalize to types \"listing\"/\"bid\"/\"cancellation\", but ActivityFeed.jsx:8-23 only maps sale/ask/bid/transfer/mint/trade — a live listing renders `{EVENT_LABELS[a.type] || a.type}` = grey 'listing' chip with fallback #666 color (:371-373) instead of the yellow 'Listed' style. Same gap in OnChainProfile.jsx:9-23 and WhaleIntelligence.jsx:1028-1032 (`tx.type === \"ask\"` never matches stream events).",
+   "suggestion": "Add listing/cancellation keys to the EVENT_LABELS/EVENT_COLORS maps (one-line additions in three files)."
+  },
+  {
+   "id": "F734",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "useActivityWebSocket",
+   "title": "Block cursor advances before the logs fetch succeeds — a failed eth_getLogs permanently skips that range's transfers",
+   "evidence": "useActivityWebSocket.js:126 `lastBlockRef.current = currentBlock;` executes BEFORE :128 `const logs = await fetchTransferLogs(...)`; if that throws, the next poll starts after currentBlock and the missed range is never re-fetched.",
+   "suggestion": "Move the cursor assignment after the successful fetch."
+  },
+  {
+   "id": "F735",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "votes (NFT of the Week)",
+   "title": "Supabase votes are global across collections while the local fallback is slug-scoped (and writes are currently RLS-dead anyway)",
+   "evidence": "userdata.js:325-327 castVote upserts `{ wallet, token_id, week }` with no collection column (PK wallet,week per doc :73); getWeekVotes :352-355 selects by week only — voting in one collection overwrites/merges with another. The localStorage fallback paths are keyed `${slug}_votes` (:316-321).",
+   "suggestion": "Add a collection_slug column + composite PK in a migration and pass slug through, matching the local behavior."
+  },
+  {
+   "id": "F736",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "OnChainProfile (drawer)",
+   "title": "Profile drawer lacks the modal hygiene the rest of the app has: no Escape close, no focus trap, no scroll lock, raw unformatted price",
+   "evidence": "OnChainProfile.jsx renders a fixed overlay (250-280) with only click-outside close; EditProfile.jsx:30-53 has Escape + focus trap + lockScroll for comparison. Activity price renders `{a.price}` raw (:729) while every other surface uses formatPrice.",
+   "suggestion": "Add Escape/focus-trap/lockScroll (reuse EditProfile's pattern + lib/scrollLock) and formatPrice."
+  },
+  {
+   "id": "F737",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "DirectMessages",
+   "title": "New-DM input only accepts raw 0x addresses — no ENS name resolution despite useEns being loaded in the same component",
+   "evidence": "DirectMessages.jsx:389/398 gate on `/^0x[a-fA-F0-9]{40}$/.test(peerInput)`; typing 'vitalik.eth' can never open a thread, yet the component already imports useEns for display (:4, :160).",
+   "suggestion": "Resolve .eth input via the existing ENS infra before opening the thread."
+  },
+  {
+   "id": "F738",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "WhaleIntelligence",
+   "title": "Hardcoded fallback whale data shows with no 'example data' banner (ActivityFeed has one)",
+   "evidence": "api.js:584-593 returns FALLBACK_WHALES on API failure with fallback:true; WhaleIntelligence only drops the LIVE badge (holdersLive=false, :183) — the Top Holders list renders the canned wallets as if real. ActivityFeed.jsx:252-261 shows an explicit '⚠ Showing cached example data' banner for the same situation.",
+   "suggestion": "Add the same fallback banner when holdersLive/activityLive are false but data is present."
+  },
+  {
+   "id": "F739",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "RarityPriceScatter",
+   "title": "No touch support for zoom/pan and 'scroll to zoom' microcopy on mobile; linear regression systematically flags rare items as 'underpriced'",
+   "evidence": "Only wheel/mouse handlers exist (RarityPriceScatter.jsx:574-657, wheel attached non-passive :679); project mandate is flawless iPhone/iPad. Trend math :250-262 fits price~rank linearly; NFT price-rank curves are convex, so top-rank items sit far above a straight line and everything near rank 1 reads 'overpriced' or the green zone hugs commons (DEAL_THRESHOLD :36).",
+   "suggestion": "Additively: pinch-zoom via pointer events + conditional microcopy; offer a log-price fit toggle for the trend line."
+  },
+  {
+   "id": "F740",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "useSiweAuth",
+   "title": "isAuthenticated never flips when the token expires while the page stays open",
+   "evidence": "useSiweAuth.js:139-142 `useMemo(() => isSessionValid && !!authenticatedWallet && !isTokenExpired(), [isSessionValid, authenticatedWallet])` — isTokenExpired() reads localStorage but the memo only recomputes on state change, so a session that expires mid-visit still reads authenticated until the next remount/wallet change.",
+   "suggestion": "Add a timer that re-checks expiry (or recheck on visibilitychange)."
+  },
+  {
+   "id": "F741",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "useSmartAlerts (quiet hours)",
+   "title": "Quiet hours drop alerts entirely — they never reach the notification history either",
+   "evidence": "useSmartAlerts.js:129-130 `if (isInQuietHours(config.quietHours)) return;` exits before the history append (:145), so events during quiet hours are unrecoverable rather than just silenced.",
+   "suggestion": "Append to history (read:false) and skip only the toast/push during quiet hours."
+  },
+  {
+   "id": "F742",
+   "src": "code:naka-analytics-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "PriceAlerts",
+   "title": "Browser notification uses bare `new Notification()` which throws on Android Chrome — the SW-based sendLocalNotification helper exists but isn't used here",
+   "evidence": "PriceAlerts.jsx:148 `new Notification(`${collection.name} Price Alert`, { body });` inside try/catch (silently dropped on mobile). lib/notifications.js:165-179 sendLocalNotification already does `registration.showNotification(...)` which works on Android.",
+   "suggestion": "Call sendLocalNotification here for cross-platform delivery."
+  },
+  {
+   "id": "F743",
+   "src": "code:naka-analytics-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "ActivityFeed / CommunityChat",
+   "title": "Row keys and stat-window labels: live rows keyed by array index; header stats reflect a 50-event window while the range selector implies 24h/7d/30d coverage",
+   "evidence": "ActivityFeed.jsx:368 `key={a.hash ? `${a.hash}-${i}` : i}` — index in the key defeats reconciliation as live rows prepend (re-mount + replayed entrance animations). Stats source is the 50-item page (api.js fetchActivity limit 50) labeled by the selected daysBack range (:186-194 vs :274-294).",
+   "suggestion": "Key by `${hash}-${token.id}` (the dedup key already used) and caption stats 'last N events'."
+  },
+  {
+   "id": "F744",
+   "src": "code:naka-analytics-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "CollectionHealth",
+   "title": "UNIQUE HOLDERS sparkline is synthetic data (base += sales*0.1) presented as a trend",
+   "evidence": "CollectionHealth.jsx:282-292: `// Rough directional estimate only — not actual holder count changes` then `buckets.map(v => { base += v * 0.1; return Math.round(base); })`; rendered under the real holder count with only a hover tooltip 'Estimated trend based on sales activity' (:429-431).",
+   "suggestion": "Either store daily owner-count snapshots (like portfolio snapshots) for a real series, or visually mark the sparkline as an estimate inline."
+  },
+  {
+   "id": "F745",
+   "src": "code:naka-analytics-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "lib/notifications.js / lib/supabase.js / lib/userdata.js",
+   "title": "Stale doc-comment schemas: notifications.js header still shows the keys-jsonb/preferences schema replaced by migration 002; supabase.js/userdata.js headers carry superseded policy SQL",
+   "evidence": "notifications.js:15-25 documents `keys jsonb` + `preferences jsonb` + `\"Anyone can manage own subs\" ... USING (true)` while the code writes flat p256dh/auth via the proxy (:100-109) and 004:202 dropped that policy. supabase.js:77-79 still says 'Author identity is NOT cryptographically verified' below a header saying SIWE-verified.",
+   "suggestion": "Prune the dead SQL blocks; point at the migrations directory instead (these comments have already caused drift)."
+  },
+  {
+   "id": "F746",
+   "src": "code:naka-analytics-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "DirectMessages (optimistic sends)",
+   "title": "Pending-message reconciliation matches on text+sender — sending the same text twice can drop one optimistic bubble; trade-attach banner reads a ref during render",
+   "evidence": "DirectMessages.jsx:194 `setPending((prev) => prev.filter((p) => !msgs.some((m) => m.text === p.text && m.sender... )))` — duplicate texts collapse. :602 `{pendingTradeRef.current && (...)}` renders from a ref; it only updates because handleSend's setText happens to re-render.",
+   "suggestion": "Reconcile by a client-generated id echoed through the proxy (or timestamp window), and mirror pendingTrade into state."
+  },
+  {
+   "id": "F747",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "True background alert delivery: floor/whale/listing 'smart alerts' only fire while the tab is open (client-side 30s polling). The push_subscriptions + VAPID infra exists but only trade alerts use it — a Blur/OpenSea-Pro-grade product delivers floor and outbid pushes server-side.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F748",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "Watchlist target prices don't actually alert: copy says 'set price alerts' but the target only paints a badge while the Watchlist tab is open — no wiring into usePriceAlerts, notification history, or push.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F749",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "Chat history pagination: fetchMessages caps at 100 with no 'load older' affordance; DMs poll at 15s with no realtime channel, no typing indicator, no delivery state beyond a single read receipt.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F750",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "No USD values in P&L per-token rows or analytics panels (only the two hero stats); no cost-basis method choice (FIFO/specific-ID), no P&L CSV export (Analytics has CSV export, portfolio doesn't), no per-token price-history chart despite fetchTokenSalesHistory existing in api.js.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F751",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "No deep links/shareability for the analytics surfaces: profile drawer, alerts, and notification items aren't URL-addressable, and notification items aren't clickable through to the token/event they describe.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F752",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "No real historical series: holder-count trend is synthetic, floor change uses sale-price proxies from a 50-event window — a Dexscreener-grade page persists periodic snapshots (the portfolio snapshot pattern already in the codebase) or pulls an indexer/Dune feed.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F753",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "ENS-name input resolution (DM compose, watchlist/alert search) and ENS avatars in chat — the resolution infra exists but is display-only.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F754",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "Canvas charts have no accessible alternative (no aria-label summaries or data-table fallback) and no pinch-zoom on touch, against the stated iPhone/iPad-flawless mandate.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F755",
+   "src": "code:naka-analytics-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "g13_naka_analytics_social",
+   "title": "No tx-simulation/preview or price-impact-style guardrails on the DM inline trade accept (it signs and executes after one confirm click; best-in-class shows a balance/approval preview first — TradesPanel may have more, but the DM card path is thinner).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F756",
+   "src": "live:naka-social",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "/nakamigos/nakamigos/ (Floor)",
+   "title": "Gallery nav button is dead; 'g' shortcut also does nothing",
+   "evidence": "Clicked the header 'Gallery' button by coordinate AND via accessibility ref (ref_12) on prod — URL stayed /nakamigos/nakamigos/, Floor tab stayed highlighted. Pressed 'g' (documented in the Keys overlay as 'Go to Gallery') — nothing. Direct URL /nakamigos/nakamigos/gallery works and renders a full Gallery page with the Gallery tab highlighted. Reproduced identically on localhost:5173 (clicked twice) — NOT fixed at HEAD. Also, clicking 'Gallery' from the chat tab routed to the Floor/Listings route ('/'), so the button's target appears wired to the wrong route.",
+   "suggestion": "Point the Gallery nav button (and the g shortcut) at the /gallery route; add a regression test that every nav tab changes the route."
+  },
+  {
+   "id": "F757",
+   "src": "live:naka-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "NFT detail modal (all collections, prod)",
+   "title": "Detail-modal hero image never loads — shows letter placeholder while grid thumbnails work",
+   "evidence": "Nakamigos #5 modal showed 'N #5' placeholder (while the same token's favorites-card thumbnail rendered fine), Jungle Bay #4522 showed 'J #4522', GNSS #5907 showed 'G #5907' — all stayed placeholders for the full 20-60s each modal was open. Network log caught https://nft2-cdn.alchemy.com/eth-mainnet/... returning 503 and /api/alchemy?endpoint=getNFTMetadata&contractAddress=0xd774...c367&tokenId=20 stuck 'pending'. Gallery spotlight card has the same issue ('N #28', then 'N #20'). On dev (HEAD) the image did load after ~9s but rendered bottom-cropped/misaligned inside its panel.",
+   "suggestion": "Reuse the already-loaded grid/thumbnail URL as an instant fallback in the modal, add retry on the metadata fetch, and fix the image positioning at HEAD."
+  },
+  {
+   "id": "F758",
+   "src": "live:naka-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Connect Wallet modal",
+   "title": "WalletConnect listed three times; Safe/Base/MetaMask share one generic emoji icon",
+   "evidence": "Clicking 'Connect wallet' from chat opened a modal listing: Safe, WalletConnect (QR code · Mobile wallets), Base Account, MetaMask, WalletConnect, WalletConnect, Phantom — three identical WalletConnect rows. Safe, Base Account and MetaMask all show the same money-bag emoji instead of wallet logos.",
+   "suggestion": "De-duplicate connectors by id before rendering and supply real wallet icons; consider ordering MetaMask/WalletConnect first."
+  },
+  {
+   "id": "F759",
+   "src": "live:naka-social",
+   "severity": "high",
+   "category": "improve",
+   "page": "All full page loads",
+   "title": "Splash gate (~10-14s + mandatory click) replays on EVERY full page load, even mid-session deep links and 404s",
+   "evidence": "Reloading /nakamigos/nakamigos/chat seconds after entering replayed the full card-collage animation; 'CLICK TO ENTER' only becomes clickable after ~9-14s (two of my clicks at 8-9s hit nothing). Even /nakamigos/fakecollection/gallery (a 404) forces the full splash before showing 'Page Not Found'. No skip-on-repeat-visit flag exists in localStorage (storage map inspected).",
+   "suggestion": "Keep the splash for first visits (it is gorgeous) but auto-skip or shorten to ~1s for returning visitors (persist a seen flag), make it click-skippable immediately, and bypass it entirely for 404 routes."
+  },
+  {
+   "id": "F760",
+   "src": "live:naka-social",
+   "severity": "high",
+   "category": "wrong",
+   "page": "NFT detail modal header (junglebay + gnssart, prod)",
+   "title": "Identical unlabeled address '0x255d...1963' shown in modal header across different collections — contradicts the contract field below",
+   "evidence": "Jungle Bay #4522 header: 'Token #4522 - ERC-721 - 0x255d...1963' while its CONTRACT field below says 0xd372...DdA9. GNSS #5907 header: same '0x255d...1963' while CONTRACT field says 0xa1De...55dbb. On dev the same header line renders an ENS ('0xbluemoon.eth'), suggesting it is the OWNER — but it is unlabeled (reads like a contract), and two different tokens in two different collections showing the same owner snippet smells like stale/bled data.",
+   "suggestion": "Prefix the line with 'Owner:' and verify the owner lookup is keyed per collection+token, not cached across modals."
+  },
+  {
+   "id": "F761",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "NFT detail modal (all collections)",
+   "title": "'Make Offer' button clipped to 'Mak'/'Ma' at the modal's right edge",
+   "evidence": "In every detail modal (Nakamigos #5, JB #4522, GNSS #5907, and dev #10219) the secondary button next to Buy renders ~30px wide showing only 'Mak…' — title attr 'Make an offer on this NFT'. It overflows the modal's right boundary on the ~3432px ultrawide viewport.",
+   "suggestion": "Give the buy/offer row a flex layout with min-width on the offer button so it never clips."
+  },
+  {
+   "id": "F762",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "NFT detail modal (all collections)",
+   "title": "Rarity rank and trait percentages computed from a tiny loaded sample (40-80 of full supply) yet presented as authoritative",
+   "evidence": "Nakamigos #5: 'TRAITS (5) (based on 80/20,000 loaded)' with badge 'RANK #17' (title='Rank 17 of 20,000') and ShareCard text 'Rarity Score: 35572.58'. Jungle Bay: '(based on 40/5,555 loaded)'. GNSS: '(based on 40/9,697 loaded)'. A rank of '#17/20,000' derived from 80 tokens is statistically meaningless, and the same number is baked into the shareable PNG card.",
+   "suggestion": "Ship precomputed full-collection rarity (the JB About page already has full-supply trait counts) or label the badge as 'sample estimate' and keep it off the ShareCard until exact."
+  },
+  {
+   "id": "F763",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "NotificationCenter > Alert Settings",
+   "title": "Selected '5 min' cooldown chip is nearly invisible (dark-on-dark contrast failure)",
+   "evidence": "Zoomed the Cooldown Period row: options read '[5 min — barely legible] 15 min 1 hr 24 hr'; the first (selected) chip renders dark text on dark background while unselected ones are readable.",
+   "suggestion": "Invert the selected-chip style (accent background, dark text) to match the rest of the design system."
+  },
+  {
+   "id": "F764",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/nakamigos collections hub",
+   "title": "VOLUME shows '—' on all three collection cards; About pages' TOTAL VOLUME also '—'",
+   "evidence": "Hub cards: Nakamigos VOLUME —, GNSS Art VOLUME —, Jungle Bay VOLUME —, while floor/owners/supply are populated. Jungle Bay About stats row: 'TOTAL VOLUME —'. Yet the Nakamigos gallery header showed '52.2K ETH ALL-TIME VOL' once, so the data exists somewhere.",
+   "suggestion": "Wire the volume stat the gallery header already gets into the hub cards and About stat rows."
+  },
+  {
+   "id": "F765",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Header status badge (hub + dev)",
+   "title": "Unexplained '• DEMO' badge on the collections hub (and on dev) with no tooltip — collection pages say '• LIVE'",
+   "evidence": "Hub header shows orange '• DEMO' where collection pages show green '• LIVE — Real active listings via OpenSea'. Hovering produces no tooltip; JS dump found no title attr. A trust-sensitive trading UI flipping between DEMO and LIVE with no explanation undermines the real-data story.",
+   "suggestion": "Tooltip + label ('Demo data: P2P order book') or hide it on the hub if the hub data is real."
+  },
+  {
+   "id": "F766",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "dev HEAD NFT detail modal",
+   "title": "Raw ethers error dump rendered in the modal ('ORDER WARNING ... missing revert data, invocation=null, code=CALL...')",
+   "evidence": "localhost:5173 #10219 modal showed a yellow box with several lines of raw error text including hex calldata and contract address 0xd774557b647330C91Bf44cfEAB205095f7E6... — unhumanized exception text in UI (prod did not show this; it is a HEAD regression risk).",
+   "suggestion": "Catch the order-verify failure and show 'Could not verify this listing right now — refresh or check OpenSea' with the raw detail behind a collapsible."
+  },
+  {
+   "id": "F767",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Per-collection onboarding",
+   "title": "The identical 5-step tour re-fires for every collection",
+   "evidence": "After completing the Nakamigos tour, entering Jungle Bay immediately showed the same 'Gallery / Floor / Wallet / Cart / Keyboard Shortcuts' tour with only the collection name swapped (junglebay_onboarded, gnssart_onboarded are separate localStorage keys). Three identical tours in one session.",
+   "suggestion": "Key onboarding once per marketplace, not per collection; per-collection tours only if a step is actually collection-specific."
+  },
+  {
+   "id": "F768",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Onboarding tour",
+   "title": "Tour steps 1, 2, 4, 5 are centered modals that don't point at the feature they describe",
+   "evidence": "Step 3 'Wallet' correctly anchors beside the Connect button with a focus ring, but 'Gallery', 'Floor/Listings', 'Cart' and 'Keyboard Shortcuts' float dead-center with no spotlight on the Gallery tab / cart icon / Keys button.",
+   "suggestion": "Anchor every step to its control like step 3 already does."
+  },
+  {
+   "id": "F769",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "missing",
+   "page": "chat",
+   "title": "Disconnected chat is a dead room: no seeded content, no recent-activity fallback, tiny fixed-height message area",
+   "evidence": "'Welcome to Nakamigos Chat / Be the first to start a conversation' with '1 online' (just me). The message panel is ~300px tall on a 1308px viewport with ~60% of the page empty dark space below; Alpha/Discussion filters also empty. Nothing pulls a visitor in.",
+   "suggestion": "Additively inject live marketplace events (sales/listings from the ticker) as system messages, show total members not just online, and let the message panel flex to fill the viewport."
+  },
+  {
+   "id": "F770",
+   "src": "live:naka-social",
+   "severity": "medium",
+   "category": "missing",
+   "page": "marketplace-wide",
+   "title": "No watchlist feature anywhere (assignment expected one; competitors all have it)",
+   "evidence": "Searched More menu (P2P Trades, Favorites, Chat, History, Whales, About), header icons (theme/notifications/cart/connect) and the NFT detail modal — no watch/star control. localStorage has nakamigos_price_alerts:[] but no UI was found to add a per-token price alert either (NotificationCenter only has collection-level floor alerts).",
+   "suggestion": "Add a per-token watch + price-alert entry point on cards and in the detail modal, feeding the existing smart-alerts engine."
+  },
+  {
+   "id": "F771",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "gallery vs floor headers",
+   "title": "Inconsistent owner counts between tabs (5,238 vs 5,212) and the All-time-vol stat card appears/disappears",
+   "evidence": "First gallery load: floor 0.1048, owners 5,238, '52.2K ETH all-time vol' card present. Re-visit minutes later: floor 0.1045, owners 5,212, vol card GONE (3 stat cards instead of 4). Floor tab consistently says 5,212.",
+   "suggestion": "Use one cached stats source per session; don't drop the vol card when the fetch fails."
+  },
+  {
+   "id": "F772",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/nakamigos/junglebay/about",
+   "title": "Rug-to-Riches timeline out of chronological order",
+   "evidence": "'May 2022 — Otherside Land Acquired' renders above 'Nov 2021 — Sandbox Land Secured' in an otherwise ascending timeline (Nov 2021 → Jan 2022 → ... → 2023 → 2024 → Present).",
+   "suggestion": "Sort timeline entries by date."
+  },
+  {
+   "id": "F773",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "ShareCard",
+   "title": "Share card watermark points to 'nakamigos.gallery' — not this app's domain",
+   "evidence": "The PNG share card footer reads 'nakamigos.gallery' (zoomed capture); the app lives at tegridyfarms.vercel.app/nakamigos. Anyone receiving the shared card has no path back to your marketplace (or lands on a domain you may not own).",
+   "suggestion": "Watermark with the real marketplace URL."
+  },
+  {
+   "id": "F774",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "wrong",
+   "page": "network (all pages)",
+   "title": "eth.llamarpc.com is down (521) and is retried on every page",
+   "evidence": "OPTIONS https://eth.llamarpc.com/ → 521 captured repeatedly across chat, gallery, hub. No user-visible breakage observed (failover works) but it adds dead requests on every load.",
+   "suggestion": "Drop or demote llamarpc in the transport list / use the existing provider-failover ranking."
+  },
+  {
+   "id": "F775",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "404 pages",
+   "title": "404 works but costs a full splash and offers only 'Back to Home'",
+   "evidence": "/nakamigos/nakamigos/not-a-real-tab → splash (~12s + click) → clean '404 Page Not Found' with Back to Home (goes to /nakamigos hub, verified). /nakamigos/fakecollection/gallery → same generic 404 with title 'Not Found | Tradermigos' — it doesn't say the collection doesn't exist nor list the 3 valid collections.",
+   "suggestion": "Skip splash on 404, and on bad-collection URLs show 'Collection not found' plus the three valid collection cards."
+  },
+  {
+   "id": "F776",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "header theme control",
+   "title": "Theme cycler is a mystery-meat button (cycles default → midnight → gold silently)",
+   "evidence": "The diamond icon cycles themes on click with only a hover title ('Theme: midnight') as feedback; clicking it first looked like a bug (a starfield suddenly appeared page-wide). No menu/toast names the active theme.",
+   "suggestion": "Small dropdown or toast ('Theme: Midnight') on change; keep the cycle behavior as the fast path."
+  },
+  {
+   "id": "F777",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "floor/listings",
+   "title": "Card images pop in 5-10s late with no shimmer — first card sometimes never loads",
+   "evidence": "On first floor load all 12 cards showed dark voids with only the OpenSea badge for ~10s before images appeared; during the dev pass and the onboarding pass, card #10219 stayed an 'N' placeholder while its 11 siblings loaded.",
+   "suggestion": "Add skeleton shimmer to the image area and retry failed thumbnails."
+  },
+  {
+   "id": "F778",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "improve",
+   "page": "ultrawide layout (~3432px)",
+   "title": "About pages and chat strand 50-60% of the ultrawide viewport",
+   "evidence": "JB/GNSS About hero text is a ~600px column pinned left with the right two-thirds of the screen empty; chat is a short full-width strip with the bottom half of the page bare background; the hub centers 3 cards with very wide dark gutters. Grids (6 cards/row) use the width well by contrast.",
+   "suggestion": "On >2000px viewports, let About pull its stats/timeline beside the hero text (two-column) and let chat fill vertical space; no content removal needed."
+  },
+  {
+   "id": "F779",
+   "src": "live:naka-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "all marketplace pages",
+   "title": "Dotted separator line above the footer reads as a debug border",
+   "evidence": "A full-width dashed/dotted bright line renders above the footer on every tab (visible in every screenshot at varying y positions). It looks like an unfinished CSS border rather than a designed divider.",
+   "suggestion": "Soften to a low-opacity solid hairline or themed gradient."
+  },
+  {
+   "id": "F780",
+   "src": "live:naka-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "NotificationCenter",
+   "title": "Empty-state microcopy 'No notifications in price' / 'in whale' is awkward",
+   "evidence": "Switching the Price and Whale tabs shows literal 'No notifications in price' / 'No notifications in whale'.",
+   "suggestion": "'No price alerts yet — set thresholds in settings' per tab."
+  },
+  {
+   "id": "F781",
+   "src": "live:naka-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "favorites",
+   "title": "Rank badge '#17/20,000' on favorite cards reads like a token number",
+   "evidence": "Card 'Nakamigos #5' wears a top-left badge '#17/20,000' (title='Rank 17 of 20,000') — two different #numbers on one card confuses; in the modal the same badge is correctly labeled 'RANK #17'.",
+   "suggestion": "Use the 'RANK #17' label style on cards too."
+  },
+  {
+   "id": "F782",
+   "src": "live:naka-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "favorites empty state",
+   "title": "Good guidance copy but no CTA button",
+   "evidence": "'No Nakamigos favorites yet — Click the heart on any Nakamigos NFT to save it here.' has no 'Browse Gallery' button, and the broken Gallery nav makes acting on the tip harder.",
+   "suggestion": "Add a Browse Gallery CTA button to the empty state."
+  },
+  {
+   "id": "F783",
+   "src": "live:naka-social",
+   "severity": "polish",
+   "category": "improve",
+   "page": "GNSS About species encyclopedia",
+   "title": "Several species show 'Supply TBD'",
+   "evidence": "Cipr, Duqe, Genj, Naion, Que, Soco, Yami, Zuur cards all read 'Supply TBD' while others have exact 'beings' counts.",
+   "suggestion": "Backfill the counts (collection is fully minted, so they're knowable)."
+  },
+  {
+   "id": "F784",
+   "src": "live:naka-social",
+   "severity": "low",
+   "category": "missing",
+   "page": "marketplace vs OpenSea/Blur",
+   "title": "Biggest gaps vs best-in-class on these page types",
+   "evidence": "Observed across the session: no per-token activity feed in the modal beyond the tiny price-history sparkline; no collection-level volume chart; offers section loads 20s+ with unlabeled skeleton rows; no 'sweep' in Lite mode (exists in Pro on dev); no notification delivery channel hint (alerts are local-only while the tab is open); nav buttons are <button> not <a> so middle-click/open-in-new-tab fails everywhere.",
+   "suggestion": "Highest-leverage additions: real <a> hrefs on nav tabs, owner/activity tab in the modal, and a 'where do alerts arrive' note in Alert Settings."
+  }
+ ]
+}

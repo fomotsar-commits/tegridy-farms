@@ -1,0 +1,396 @@
+{
+ "group": "g08_shared_lib",
+ "sourceAgents": [
+  "code:shared-lib"
+ ],
+ "findings": [
+  {
+   "id": "F463",
+   "src": "code:shared-lib",
+   "severity": "critical",
+   "category": "wrong",
+   "page": "hooks/useSwapAllowance.ts + hooks/useSwap.ts",
+   "title": "Approval spender does not match execution venue — every ERC20-input swap on the 'tegridy' or 'uniswap' route cannot execute",
+   "evidence": "useSwapAllowance.ts:113 picks the spender as `const spender = selectedRoute === 'tegridy' ? TEGRIDY_ROUTER_ADDRESS : SWAP_FEE_ROUTER_ADDRESS;` (and the allowance reads at lines 52-78 check those same two spenders). But useSwap.ts executes the 'tegridy' route through SwapFeeRouter (line 423-427: `address: SWAP_FEE_ROUTER_ADDRESS ... functionName: 'swapExactTokensForETH'`) and the 'uniswap' route through the real Uniswap router (line 473-477: `address: UNISWAP_V2_ROUTER ... swapExactTokensForETH`). SwapFeeRouter.sol:747 does `IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn)` — it needs allowance to SFR, not TegridyRouter; Uniswap Router02 likewise pulls from msg.sender and needs allowance to itself, not SFR. Git confirms the regression: 43c3ddb ('route genuine-Uniswap trades to the real Uniswap router') and 003445e ('capture the 0.5% protocol fee on native-pool routes') both postdate the last commit touching useSwapAllowance.ts (4b3a47f). Net effect today (TOWELI sell = ERC20-input, native pool empty, route='uniswap'): user approves SFR, swap goes to UniswapV2Router, transferFrom fails — wallet gas-estimation error or on-chain revert. After LP seed (route='tegridy'): user approves TegridyRouter, swap goes to SFR, same failure. The only working ERC20-input path is aggregator-route-with-tegridy-fallback (approves SFR, executes SFR). ETH-input swaps are unaffected (no approval).",
+   "suggestion": "Make the spender map 1:1 to the executor: 'tegridy' → SWAP_FEE_ROUTER_ADDRESS, 'uniswap' → UNISWAP_V2_ROUTER, aggregator → whichever on-chain fallback (selectedOnChainRoute.source) executes. Add a unit test asserting spender === writeContract target per route."
+  },
+  {
+   "id": "F464",
+   "src": "code:shared-lib",
+   "severity": "high",
+   "category": "wrong",
+   "page": "hooks/useDCA.ts + hooks/useLimitOrders.ts",
+   "title": "DCA and browser limit-orders quote Uniswap prices but execute via SwapFeeRouter→TegridyRouter (the thin/empty native pool) — guaranteed reverts or mispriced minOut",
+   "evidence": "useDCA.ts:434-439 fetches minOut from `address: UNISWAP_V2_ROUTER ... getAmountsOut`, then lines 497-529 execute on `address: SWAP_FEE_ROUTER_ADDRESS` (whose inner router is TegridyRouter — the same wiring documented in useSwap.ts:397-400 'SFR is wired to the native TegridyRouter... a Uniswap-priced minOut sent through it executes on the (currently thin) native pool and reverts'). useLimitOrders.ts has the identical pattern: price-poll + re-quote on UNISWAP_V2_ROUTER (lines 320-330, 481-492) but executeOrder writes to SWAP_FEE_ROUTER_ADDRESS (lines 402-435). The deep-pool routing fix that was applied to useSwap (commit 43c3ddb) was never propagated to these two keepers. With the native TOWELI/WETH pool unseeded, every triggered DCA tick / limit fill reverts (or the native pair's getAmountsOut revert makes minOut games moot); after seeding, the Uniswap-priced floor frequently exceeds what the native pool can deliver.",
+   "suggestion": "Either quote and execute on the same venue (quote SFR's own router path), or route DCA/limit executions to the venue that produced the quote (UniswapV2Router) like useSwap now does — keeping the allowance check pointed at the same contract."
+  },
+  {
+   "id": "F465",
+   "src": "code:shared-lib",
+   "severity": "high",
+   "category": "wrong",
+   "page": "hooks/useSwap.ts",
+   "title": "Swap success effect re-fires every render for ~4s — duplicate 'WAGMI! Swap confirmed' toasts, phantom swap-confirmed toast after a plain approve, duplicated trackSwap analytics",
+   "evidence": "useSwap.ts:246-286: the receipt-success effect's dep array includes `allowance` (the object returned by useSwapAllowance is a fresh literal every render — not memoized, useSwapAllowance.ts:195-204) and `inputAmount`/`quote.selectedRoute`. While isSuccess is latched true (until the 4s `reset()` at line 284), useSwapQuote's 1-second staleness ticker (useSwapQuote.ts:261-265 `setInterval(() => setNow(Date.now()), 1000)`) re-renders the consumer every second, so the effect re-runs each tick. On re-run after an approve, `lastActionRef.current` was already nulled by the first run (line 263), so control falls through to the swap branch: `toast.success('WAGMI! Swap confirmed'...)` (line 268, no toast id → sonner stacks duplicates) and `trackSwap(...)` (line 278) fire again with fallback live values. Result: stacked duplicate success toasts after a swap, a phantom 'Swap confirmed' toast ~1s after a mere token approval, and inflated swap analytics.",
+   "suggestion": "Guard with a lastHandledHashRef (the pattern already used in useLPFarming.ts:80-95), give the toast `id: hash`, and remove unstable deps (memoize the useSwapAllowance return object)."
+  },
+  {
+   "id": "F466",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "lib/aggregator.ts",
+   "title": "normalizeTokenAddress 'zero' style returns the 0xEeee sentinel instead of the zero address — Odos native-ETH quotes silently dead",
+   "evidence": "aggregator.ts:35-39: `case 'zero': return '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';` — identical to the 'native' case. getOdosQuote (lines 116-117) calls `normalizeTokenAddress(tokenIn, 'zero')` because Odos expects 0x0000...0000 for native ETH; sending the 0xEeee address makes Odos reject the quote (res.ok false → null, swallowed by the catch). The meta-aggregator silently loses Odos as a source for every ETH-input swap — exactly the headline ETH→TOWELI flow.",
+   "suggestion": "Return '0x0000000000000000000000000000000000000000' from the 'zero' branch and add a test for the Odos native-input path."
+  },
+  {
+   "id": "F467",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "hooks/useSwapQuote.ts",
+   "title": "refreshQuote never re-fetches aggregator quotes — after the 30s staleness gate trips, the aggregator leg is permanently lost until the user edits the input",
+   "evidence": "useSwapQuote.ts:437-446: `refreshQuote` bumps `quoteRequestIdRef.current += 1` with the comment 'bumping the requestId triggers re-fetch', but the aggregator fetch effect's deps are `[fromToken, toToken, parsedAmount, address, fromDecimals, chainId]` (line 251) — none change, so the effect never re-runs. `setAggQuoteResult(null)` just deletes the existing aggregator quote. So when useSwap.ts:343-347 blocks a stale swap and calls refreshQuote, only the on-chain legs refetch; the 7-aggregator comparison silently downgrades to on-chain-only, and the user can submit a worse route without knowing. Also, if the refetched uniAmountsOut is structurally identical, the quoteFetchedAt stamp effect (lines 254-258) never re-fires, leaving quoteFetchedAt=0 which makes isQuoteStale read false with no fresh stamp.",
+   "suggestion": "Drive the aggregator effect from a state-based requestId (useState counter included in the dep array) so refreshQuote actually re-fires it, and stamp quoteFetchedAt from the refetch promises."
+  },
+  {
+   "id": "F468",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "hooks/usePoolTVL.ts",
+   "title": "POOL_LAUNCH_TIMESTAMP hardcoded to 2025-03-01 — ~15 months before the pool existed — understating fee-based APR and '24h volume' by ~100x once fees accrue",
+   "evidence": "usePoolTVL.ts:10 `const POOL_LAUNCH_TIMESTAMP = new Date('2025-03-01').getTime() / 1000;` — but TEGRIDY_LP_ADDRESS was deployed in the 2026-06-06 relaunch (constants.ts:15-18). Lines 76-82 divide cumulative totalETHFees by poolAgeDays computed from that date (~466 days instead of ~5), so `dailyFees`, `aprNum`, and `vol24h` are ~100x too low the moment real fees exist. Additionally the displayed 'vol24h' is a lifetime daily average mislabeled as 24h.",
+   "suggestion": "Set the constant to the actual pair-creation timestamp (or read the pair's first-mint block once and cache), and label the figure 'avg daily volume'."
+  },
+  {
+   "id": "F469",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "hooks/usePoints.ts + hooks/useTegridyScore.ts",
+   "title": "eth_getLogs scans start at stale fromBlock 18000000 (Sep 2023) against contracts deployed June 2026 — public RPCs reject the wide range, silently zeroing swap count and loyalty score",
+   "evidence": "usePoints.ts:73-83 (`fromBlock: 18000000n` for SwapExecuted on the relaunch SwapFeeRouter) and useTegridyScore.ts:322-343 (same fromBlock for Staked on the relaunch staking contract). Both catch handlers silently fall back to 0 (`.catch(() => { ... setSwapCount(0) })`, and the score hook's own comment admits 'Public RPCs sometimes reject wide eth_getLogs ranges'). The configured transports (publicnode/ankr/llamarpc, wagmi.ts:12-21) all cap getLogs ranges well below the ~5M-block span requested, so points/activity/loyalty scores quietly read 0 for most users.",
+   "suggestion": "Hardcode the actual relaunch deploy block (a constant next to the addresses in constants.ts) as fromBlock, or chunk the scan."
+  },
+  {
+   "id": "F470",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "lib/imageSafety.ts",
+   "title": "IPFS gateway list leads with cloudflare-ipfs.com (gateway sunset by Cloudflare in 2024) and resolveSafeUrl/safeUrl return ONLY that first gateway for <img> consumers — ipfs:// images render broken with no fallback",
+   "evidence": "imageSafety.ts:57-61 `IPFS_GATEWAYS = ['https://cloudflare-ipfs.com/ipfs/', 'https://dweb.link/ipfs/', 'https://ipfs.io/ipfs/']` and resolveSafeUrl (lines 80-83) returns `IPFS_GATEWAYS[0]` for any ipfs:// URI. fetchWithIpfsFallback does race the list, but the `<img src>` consumers (safeUrl → CollectionDetailV2.tsx:12, useNFTDropV2 resolveAssetUrl) get a single dead-host URL. Cloudflare publicly deprecated/shut its public IPFS gateway in 2024 (external infra fact — verify with one fetch; if it 410s, every ipfs-hosted collection image is currently broken).",
+   "suggestion": "Reorder so a live gateway is first (ipfs.io or dweb.link), or better: have ArtImg/NftImage onError advance through ipfsCandidates()."
+  },
+  {
+   "id": "F471",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "hooks/useMyLoans.ts",
+   "title": "The 60s 'refetch' interval is a no-op — `setTokenLoading((p) => p)` sets identical state, so open-loan data and overdue status never refresh",
+   "evidence": "useMyLoans.ts:117-121: `const id = setInterval(() => { ... setTokenLoading((p) => p); }, REFETCH_MS);` with comment 'Re-trigger by toggling state'. Setting state to the same value bails out of re-render in React, and even a re-render would not re-run the fetch effect because its deps `[publicClient, onMainnet, tokenDeployed, tokenCount, address]` are unchanged. The NFT-loans effect (lines 125-163) has no interval at all, and `status: 'overdue'` is computed from a `now` captured once in useMemo (line 167) whose deps exclude time. Inert today (both lending addresses zeroed) but it is the recovery-pass code that will ship when lending un-gates.",
+   "suggestion": "Use a state tick (`setTick(t => t+1)`) included in the effect deps, or move the sweep into tanstack-query with refetchInterval."
+  },
+  {
+   "id": "F472",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "hooks/useTransactionReceipt.ts",
+   "title": "useTrackedTransactionReceipt reads fields wagmi never returns (receiptStatus/blockNumber/errorName at top level) — a reverted tx would report status 'confirmed'; currently dead code",
+   "evidence": "useTransactionReceipt.ts:117-127 casts the wagmi result to `{ receiptStatus?: 'success' | 'reverted'; blockNumber?: bigint; errorName?: string }`, but wagmi v2 exposes these as `data.status`, `data.blockNumber`, and `error.name`. Only the test mock (src/test-utils/wagmi-mocks.ts:185 'Additive passthrough for useTrackedTransactionReceipt') supplies the flat fields, so the tests pass while the runtime branch `result.receiptStatus === 'reverted'` (line 155) can never trip — a reverted receipt falls through to `status: 'confirmed'` (line 164). Grep shows no app component consumes the hook (only tests/mocks), so the R044 H3 'reorg defense' is both unwired and incorrect at runtime.",
+   "suggestion": "Read `data?.status` / `error?.name` from the real hook result, then actually adopt it in the tx-toast hooks (or delete it)."
+  },
+  {
+   "id": "F473",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "improve",
+   "page": "lib/schemas/* (aggregator.ts, geckoTerminal.ts, opensea.ts)",
+   "title": "All three R080 zod schema files are dead code — never imported by the boundaries they document",
+   "evidence": "Grep for `schemas/(aggregator|geckoTerminal|opensea)` across src returns zero matches. lib/aggregator.ts still validates by hand (e.g. line 94 `typeof data.amountOut !== 'string' || !/^\\d+$/.test(...)`), useToweliPrice.ts:121 walks `d?.data?.attributes?.token_prices` untyped, and nakamigos api consumers use raw .json(). Each schema file even carries instructions ('Apply via parseOrNull(schema, data) at every such boundary') that were never executed, and parseOrNull is duplicated 3x.",
+   "suggestion": "Wire parseOrNull into the seven aggregator parsers, the two GeckoTerminal call sites, and the OpenSea proxy consumers — or delete the files so future audits don't assume the validation exists."
+  },
+  {
+   "id": "F474",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "improve",
+   "page": "hooks/* (tx error surfacing)",
+   "title": "The purpose-built txErrors helper is unused in the money paths — wallet cancellations render as scary red 'Transaction failed' / raw error toasts in 8+ hooks",
+   "evidence": "Grep: surfaceTxError/isUserRejection are imported only by GaugeVoting.tsx (plus the unrelated mevProtection copy). Meanwhile useFarmActions.ts:76, useLPFarming.ts:111, useAddLiquidity.ts:159, useRestaking.ts:142 all toast `writeError.message?.slice(0, 120)` raw; useRevenueStats.ts:100 and useBribes.ts:345 toast generic 'Transaction failed' for any writeError including user rejection; useNFTDropV2.ts:232 toasts 'Mint failed' on rejection. txErrors.ts exists precisely to classify UserRejectedRequestError (including the nested-cause walk, lines 56-72) as a soft 'Cancelled' info toast.",
+   "suggestion": "Replace the per-hook raw toasts with surfaceTxError(err, toast, { component }) — one mechanical sweep."
+  },
+  {
+   "id": "F475",
+   "src": "code:shared-lib",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "lib/analytics.ts",
+   "title": "Module-level sessionStorage/crypto.randomUUID access can crash the whole app at import time in storage-blocked or non-secure contexts; failed-flush queue is unbounded",
+   "evidence": "analytics.ts:20-30: `getSessionId()` runs at module scope (`const sessionId = getSessionId();`) with no try/catch — browsers with storage disabled (cookie-blocked iframes/webviews) throw SecurityError from `sessionStorage.getItem`, and `crypto.randomUUID()` requires a secure context — either kills the bundle at import. Also lines 72-83: on fetch failure the batch is re-queued forever (`queue = [...batch, ...queue]`) with no cap, so a down endpoint grows memory for the life of the tab.",
+   "suggestion": "Wrap getSessionId in try/catch with a Math.random fallback, and cap the queue (e.g. drop oldest past 200 events)."
+  },
+  {
+   "id": "F476",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "wrong",
+   "page": "lib/constants.ts",
+   "title": "Stale contradictory comment block above LP_FARMING_ADDRESS still says the address is ZEROED and must be restored",
+   "evidence": "constants.ts:25-27 reads '// ZEROED 2026-05-31 (relaunch supersedes Wave 0...)... Restore the real address after the relaunch redeploy.' directly above line 28 which now holds the live relaunch address 0x1171268A... (deployed 2026-06-08). Anyone skimming the gating table will misread the farm as gated.",
+   "suggestion": "Delete the stale ZEROED comment; keep only the RELAUNCH note."
+  },
+  {
+   "id": "F477",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "wrong",
+   "page": "hooks/useNFTDropV2.ts",
+   "title": "Refund transactions toast 'Mint confirmed!' / 'Mint failed'",
+   "evidence": "useNFTDropV2.ts:225-236: the single receipt effect toasts `toast.success('Mint confirmed!')` and `toast.error('Mint failed')` for any hash, but the hook also submits `refund()` (line 204) through the same writeContract — a successful refund shows 'Mint confirmed!'.",
+   "suggestion": "Track lastAction ('mint'|'refund') in a ref, mirror useSwap's lastActionRef pattern."
+  },
+  {
+   "id": "F478",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "wrong",
+   "page": "lib/txHistory.ts",
+   "title": "categorizeTx matches zeroed-contract addresses — any tx to 0x000...0 (ETH burns) is labeled 'Restake'",
+   "evidence": "txHistory.ts:97 `if (to === TEGRIDY_RESTAKING_ADDRESS.toLowerCase())` — TEGRIDY_RESTAKING_ADDRESS is the zero address (constants.ts:7), as are COMMUNITY_GRANTS/MEME_BOUNTY/PREMIUM/VOTE_INCENTIVES below it, so the first zero-compare wins and a burn/zero-send row gets categorized 'Restake'.",
+   "suggestion": "Skip comparisons for addresses failing isDeployed()."
+  },
+  {
+   "id": "F479",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "wrong",
+   "page": "lib/tokenList.ts",
+   "title": "Default token list ships legacy MATIC (Polygon migrated to POL in Sept 2024)",
+   "evidence": "tokenList.ts:106-111: `symbol: 'MATIC', name: 'Polygon', address: 0x7D1AfA7B...` — the legacy token; best-in-class lists show POL (0x455e53...). Cosmetic but signals staleness in a curated list.",
+   "suggestion": "Add POL (keep MATIC if you want the legacy pair tradable)."
+  },
+  {
+   "id": "F480",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "wrong",
+   "page": "hooks/useTegridyScore.ts + lib/pointsEngine.ts",
+   "title": "Score tip and streak copy reference the removed daily-visit streak mechanic",
+   "evidence": "useTegridyScore.ts:155 tip says 'Visit daily and swap to build your streak', but pointsEngine.ts:194-197 deprecated recordDailyVisit to a no-op ('Daily visit streaks removed -- not verifiable on-chain'), so the streak can never grow and the tip is unactionable.",
+   "suggestion": "Reword the activity tip to swaps/staking only."
+  },
+  {
+   "id": "F481",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "improve",
+   "page": "hooks/useSwapQuote.ts",
+   "title": "R042 HIGH-2 return-object memoization is defeated — `path` is a new array every render, so the memo (and routeDescription) recompute every render anyway",
+   "evidence": "useSwapQuote.ts:75 `const path = fromToken && toToken ? buildPath(fromToken, toToken) : [];` creates a fresh array each render; it is in the final useMemo dep list (line 496) whose stated purpose is 'consumers don't see a fresh identity on every render' (lines 463-465). Identity therefore flips every render regardless.",
+   "suggestion": "useMemo the path on [fromToken, toToken]."
+  },
+  {
+   "id": "F482",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "improve",
+   "page": "lib/errorReporting.ts",
+   "title": "flush() drops the batch on HTTP error responses — only network failures persist to localStorage",
+   "evidence": "errorReporting.ts:137-147: `fetch(endpoint, {...}).catch(() => persistToLocalStorage(toSend))` — fetch only rejects on network errors; a 4xx/5xx resolves, res.ok is never checked, and the batch is silently lost.",
+   "suggestion": "Add `.then(r => { if (!r.ok) persistToLocalStorage(toSend); })`."
+  },
+  {
+   "id": "F483",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "improve",
+   "page": "hooks/useLimitOrders.ts + hooks/useCowLimitOrder.ts",
+   "title": "Polling load and inconsistency: limit orders fire up to 50 sequential getAmountsOut every 15s; CoW poll lacks the hidden-tab gate the other keepers have",
+   "evidence": "useLimitOrders.ts:41 PRICE_POLL_INTERVAL=15_000 with a per-active-order readContract loop (lines 473-503, MAX_ORDERS=50) — heaviest poller in the app on public RPCs. useCowLimitOrder.ts:259-264 polls every 30s without the `document.visibilityState === 'hidden'` skip that useDCA.ts:556 and useLimitOrders.ts:511 both apply.",
+   "suggestion": "Batch the order quotes in a single multicall per tick and add the visibility gate to the CoW poll."
+  },
+  {
+   "id": "F484",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "improve",
+   "page": "hooks/useAddLiquidity.ts + hooks/useFarmActions.ts",
+   "title": "Minor inconsistencies: un-cleaned setTimeout(reset) timers, and stake() throws while sibling actions return silently",
+   "evidence": "useAddLiquidity.ts:146/153/160 schedule `setTimeout(() => reset(), 4000)` inside effects without cleanup (harmless but leaky vs the cleanup pattern used in useSwap.ts:284-285). useFarmActions.ts:99 `if (wei === null) throw new Error('Invalid amount');` — an exception in an onClick path, while approve() at line 85 silently returns for the same condition.",
+   "suggestion": "Return + toast instead of throw; clear the timers in effect cleanup."
+  },
+  {
+   "id": "F485",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "improve",
+   "page": "hooks/usePoolTVL.ts",
+   "title": "Fabricated '(est.)' volume/APR from an assumed turnover ratio contradicts the project's honesty-pass standard",
+   "evidence": "usePoolTVL.ts:93-103: when no fees exist, vol24h is invented as `tvl * dailyVolumeRatio` with ratios 0.01-0.04 picked by TVL bucket, and APR derived from that fiction. It is labeled '~ (est.)' but renders a number the chain can't back — the exact pattern constants.ts:116-122 forbids for the season banner ('nothing should render a number the chain can't back').",
+   "suggestion": "Show '—' with a 'volume appears after first trades' microcopy instead of synthetic estimates (additive copy change, no section removal)."
+  },
+  {
+   "id": "F486",
+   "src": "code:shared-lib",
+   "severity": "polish",
+   "category": "improve",
+   "page": "lib/formatting.ts (+ 24 component files)",
+   "title": "Negative-value formatting quirks and 88 raw .toFixed() call sites bypassing the central util",
+   "evidence": "formatting.ts:11 renders negatives as `$-12.34` (sign inside, vs convention `-$12.34`) and formatNumber gives `-5000.00` without thousands separators (line 20 falls through all >= checks for negatives). Grep counts 88 `.toFixed(` occurrences across 24 component files despite formatCurrency/formatNumber/formatTokenAmount existing — number formatting is scattered, not centralized.",
+   "suggestion": "Handle sign in formatCurrency/formatNumber and sweep components onto the utils."
+  },
+  {
+   "id": "F487",
+   "src": "code:shared-lib",
+   "severity": "polish",
+   "category": "improve",
+   "page": "lib/copy.ts + hooks/useTransactionReceipt.ts + lib/eip5792.ts",
+   "title": "Dead exports worth pruning or wiring: ERROR_COPY, randomToweliQuote, poolFlavorLabel, lockLabelForSeconds, useTrackedTransactionReceipt, the EIP-5792 foundation",
+   "evidence": "Grep shows ERROR_COPY, randomToweliQuote, poolFlavorLabel and lockLabelForSeconds are defined in copy.ts (lines 121-152) with no consumers; useTrackedTransactionReceipt is consumed only by tests/mocks; eip5792.ts is self-described 'FOUNDATION ONLY (2026-06-01)' and still unwired into approve+swap/stake despite being a Tier-1 roadmap item.",
+   "suggestion": "Either wire them (ERROR_COPY into the txErrors sweep, EIP-5792 into the approve+swap path) or delete to keep the audit surface honest."
+  },
+  {
+   "id": "F488",
+   "src": "code:shared-lib",
+   "severity": "polish",
+   "category": "improve",
+   "page": "hooks/usePriceAlerts.ts + hooks/usePriceHistory.ts",
+   "title": "Price alerts are device-global but the cap message says 'per wallet'; sendNotification fires inside a state updater (double-fires under StrictMode); unused _currentPrice param",
+   "evidence": "usePriceAlerts.ts:15 single STORAGE_KEY 'tegridy-price-alerts' (no address scoping) while line 107 toasts 'Up to 20 price alerts per wallet'; lines 69-88 call sendNotification inside the setAlerts updater — updaters can run twice in dev StrictMode. usePriceHistory.ts:25 takes `_currentPrice?: number` that is never used.",
+   "suggestion": "Move the notification out of the updater, fix the copy, drop the dead param."
+  },
+  {
+   "id": "F489",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "improve",
+   "page": "lib/wagmi.ts",
+   "title": "rpc.ankr.com/eth in the fallback list likely requires an API key now (unverified) — would make slot 2 a guaranteed-miss before rank() heals it",
+   "evidence": "wagmi.ts:15 `http('https://rpc.ankr.com/eth')` — Ankr moved its public endpoints behind registration/keyed access (external infra change; unverified hypothesis — confirm with one curl). The llamarpc comment (lines 16-17) shows the team already tracks dead public RPCs; ankr may be in the same state. rank:true mitigates but first-hit users still pay the timeout.",
+   "suggestion": "Curl-test the three public RPCs in CI weekly, or swap ankr for drpc/1rpc."
+  },
+  {
+   "id": "F490",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "wrong",
+   "page": "pages/TokenomicsPage.tsx (cross-check from constants audit)",
+   "title": "POLAccumulator marked live:false on Tokenomics despite being deployed in the 2026-06-06 relaunch",
+   "evidence": "TokenomicsPage.tsx:44 `{ label: 'POLAccumulator', address: POL_ACCUMULATOR_ADDRESS, live: false }` while constants.ts:23 holds the live relaunch address 0x2A5f65f4... (RELAUNCH 2026-06-06 comment). Found while verifying address-table consistency; the page file itself was outside this audit's assigned scope, so flagging for the page-auditor to confirm rendering impact.",
+   "suggestion": "Derive `live` from isDeployed(address) instead of a hand-maintained flag."
+  },
+  {
+   "id": "F491",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Swap deep links (?inputCurrency=&outputCurrency=&exactAmount=) — Uniswap-grade shareable swap state; nothing in useSwap reads URL params for token/amount prefill",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F492",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "USD values alongside token amounts in the quote pipeline — useSwapQuote returns token-denominated outputs only; no fiat estimate per leg (price context exists but is not joined into quotes)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F493",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Transaction simulation/preview before signing (Tenderly/eth_call simulate showing expected balance changes) — writes go straight to the wallet; the aggregator quotes even carry estimatedGas that is never surfaced",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F494",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Standard token-list ingestion (Uniswap tokenlists.org JSON with logos/decimals) — only a 14-token hardcoded array plus manual address import; no remote list, no logo fallback service",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F495",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Server-side or delegated execution for DCA/limit orders — both are browser-resident keepers that stop when the tab closes (CoW covers limit sells only; DCA has no CoW/Composable-order fallback)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F496",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Indexer-backed history/analytics — useProtocolStats self-describes volume as 'fees ÷ feeRate approximation'; no per-epoch revenue, per-user PnL, or real 24h volume until the Ponder/Dune work lands",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F497",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Push notifications for price alerts / order fills when the tab is closed (Notification API only fires while open; the nakamigos side has VAPID plumbing but the Tegridy alerts don't use it)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F498",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "ENS resolution and avatar display for addresses (shortenAddress everywhere; no ENS reverse lookup in treasury/referral/loan surfaces)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F499",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Multi-venue smart order routing beyond the single WETH-hop heuristic — buildPath only does direct or X-WETH-Y; no split routes, no V3 quoting",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F500",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "EIP-5792 one-click approve+swap/stake — the foundation module exists and is roadmap Tier-1, but no money path batches calls yet",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F501",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Gas cost estimate in the swap confirm row (aggregators return estimatedGas; Uniswap/1inch show '~$x.xx network cost')",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F502",
+   "src": "code:shared-lib",
+   "severity": "low",
+   "category": "missing",
+   "page": "g08_shared_lib",
+   "title": "Per-wallet scoping for price alerts and a history/export (CSV) affordance for tx history beyond the validated table",
+   "evidence": "(missingVsBestInClass)"
+  }
+ ]
+}

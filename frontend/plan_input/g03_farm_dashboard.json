@@ -1,0 +1,900 @@
+{
+ "group": "g03_farm_dashboard",
+ "sourceAgents": [
+  "code:farm",
+  "code:dashboard",
+  "live:farm-dashboard"
+ ],
+ "findings": [
+  {
+   "id": "F95",
+   "src": "code:farm",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/farm (FarmPage.tsx)",
+   "title": "Approve tx (and 5 other actions) fires a fake 'stake' success receipt + confetti",
+   "evidence": "FarmPage.tsx:107-116 handleStake calls actions.approve(stakeAmount) WITHOUT setting lastActionRef; the success effect at FarmPage.tsx:119-122 runs on ANY actions.isSuccess/hash and defaults `const actionType = lastActionRef.current ?? 'stake'`. So a first-time staker's APPROVAL confirmation shows a full stake receipt ('amount: submitted?.stakeAmount ?? stakeAmount' = the typed amount, lock duration, boost) plus confetti.fire() (line 162-164) while nothing is staked. Same effect fires for extendLock (StakingCard.tsx:200), toggleAutoMaxLock (:289), revalidateBoost (:127), claimUnsettled (:221), and emergencyExit (:312) — none set lastActionRef, so each shows a stale/'stake' receipt with whatever lastActionRef held. ReceiptType 'approve' exists in useTransactionReceipt.ts:4 but is never used here.",
+   "suggestion": "Set lastActionRef.current = 'approve' (and per-action values) before each writeContract call, add an 'approve' branch (receipt type exists), and only confetti on real stake/claim. Guard the default: if lastActionRef is null, skip the receipt instead of assuming 'stake'."
+  },
+  {
+   "id": "F96",
+   "src": "code:farm",
+   "severity": "high",
+   "category": "wrong",
+   "page": "/farm (StakingCard, BoostScheduleTable, lib/copy)",
+   "title": "Copy claims 25% early-exit penalty is 'redistributed to stakers' — contract sends 100% to treasury",
+   "evidence": "StakingCard.tsx:448 'redistributed to stakers still farming with tegridy', BoostScheduleTable.tsx:105 'Penalty tokens are redistributed to remaining stakers — so diamond hands get rewarded', lib/copy.ts:74 earlyExitTooltip 'redistributed to stakers still farming with tegridy'. Contract: TegridyStaking.sol:1249 '@notice Early withdrawal — 25% penalty sent to treasury', :1250 'AUDIT FIX L-23: Corrected comment — penalty goes to treasury, not redistributed to stakers', :1271 safeTransfer(treasury, penalty). StakingCard's own confirm dialog at line 270 correctly says 'will be sent to treasury' — the same card contradicts itself.",
+   "suggestion": "Fix the three 'redistributed to stakers' strings to say treasury (additive: keep the Towelie voice, just correct the destination). This is a false financial claim that incentivizes locking under wrong assumptions."
+  },
+  {
+   "id": "F97",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/farm LP Farming (ILCalculator.tsx)",
+   "title": "IL calculator computes LP value off deposit instead of HODL value — massively overstates loss",
+   "evidence": "ILCalculator.tsx:17-18: `const holdValue = deposit * (1 + (rPositive - 1) / 2);` then `const lpValue = deposit * (1 + il);`. IL = 2*sqrt(r)/(1+r)-1 is defined RELATIVE TO HODL, so lpValue must be holdValue*(1+il). At +50% price: code shows LP Value $989.85 vs HODL $1,250 (a $260 'loss'); correct LP value is $1,237 (a $13 IL). The calculator tells prospective LPs they lose money when price goes UP.",
+   "suggestion": "lpValue = holdValue * (1 + il). The IL% readout (line 12-13) is already correct; only the dollar panel is wrong."
+  },
+  {
+   "id": "F98",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/farm (FarmPage.tsx:105)",
+   "title": "Raw parseEther(stakeAmount) in render path — page-killing crash reachable via Max button with dust balance",
+   "evidence": "FarmPage.tsx:105 `const stakeNeedsApproval = pos.allowance < (amtNum > 0 ? parseEther(stakeAmount) : 0n);` runs every render with no try/catch. The repo's own safeParseEther.ts:5-12 documents that parseEther('1e3') throws and 'the entire page goes blank' (R034 H4) — every write path was migrated, this render-path call was not. Trigger: StakingCard.tsx:347-349 Max button does setStakeAmount(String(Math.min(bal, cap))); for a wallet TOWELI balance < 1e-6 (dust), String() yields exponent notation ('1e-16'), parseFloat()>0 so the parseEther branch executes and throws → AppLayout ErrorBoundary replaces the whole page. StakingCard itself wraps the identical parse in try/catch (lines 93-98), proving the team knows the hazard.",
+   "suggestion": "Replace with safeParseEther(stakeAmount) ?? 0n (already imported in sibling code), or reuse StakingCard's guarded stakeWei via props."
+  },
+  {
+   "id": "F99",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/farm pools (usePoolTVL.ts)",
+   "title": "POOL_LAUNCH_TIMESTAMP hardcoded to 2025-03-01 — fee-derived APR/volume will be understated ~50-80x post-relaunch",
+   "evidence": "usePoolTVL.ts:10 `const POOL_LAUNCH_TIMESTAMP = new Date('2025-03-01').getTime() / 1000;` then :77-82 `dailyFees = totalFeesUsd / poolAgeDays` with poolAge anchored to that date. The relaunch pair/SwapFeeRouter were deployed 2026-06-06 (constants.ts comments 'RELAUNCH 2026-06-06'), so once totalETHFees > 0n the divisor is ~465 days instead of days-since-deploy, deflating Est. APR and Est. 24h Vol on LivePoolCard by the age ratio.",
+   "suggestion": "Anchor to the SwapFeeRouter deploy timestamp (or read first-fee block) instead of a hardcoded pre-relaunch date."
+  },
+  {
+   "id": "F100",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/farm LP Farming (LPFarmingSection.tsx)",
+   "title": "LP 'Est. APR' and 'Reward Rate' ignore periodFinish — shows live APR after emissions end",
+   "evidence": "LPFarmingSection.tsx:39-47 lpApr uses lpFarm.rewardRatePerYear with no isActive check; useLPFarming.ts:59 rewardRate is the raw Synthetix-style storage value which stays non-zero after periodFinish, and :70 isActive (periodFinish > now) gates ONLY the 'LIVE' badge (LPFarmingSection.tsx:113). After the funded period lapses (memory: Sept-4 emission cliff), the section will display a positive headline APR and 'X / day' reward rate (line 145) while earned() has stopped accruing.",
+   "suggestion": "Zero rewardRatePerDay/Year when !isActive (or show 'period ended — awaiting refill'), matching how the contract's earned() clamps at periodFinish."
+  },
+  {
+   "id": "F101",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/farm (IncentivesStrip via useFarmStats)",
+   "title": "'Reward Pool' stat shows cumulative totalRewardsFunded as if it were remaining rewards",
+   "evidence": "useFarmStats.ts:40 `rewardPool: ... totalFunded ...` feeds IncentivesStrip.tsx:33 label 'Reward Pool' (💰). usePoolData.ts:34-36 in the SAME feature explicitly documents: 'totalRewardsFunded is CUMULATIVE (never decreases), so it must not be displayed as \"rewards remaining\"'. The honest figure rewardsRemaining (usePoolData.ts:43, balance − staked − unsettled) is computed and surfaced on TokenomicsPage.tsx:203 but not on the Farm page, whose label implies remaining funds.",
+   "suggestion": "Feed IncentivesStrip from pool.rewardsRemaining (already available on the page via usePoolData) or relabel to 'Total Rewards Funded'."
+  },
+  {
+   "id": "F102",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/farm (FarmPage + useUserPosition/useFarmActions)",
+   "title": "No refetch after tx success — approve button stays 'Approve TOWELI' up to 30s after approval confirms",
+   "evidence": "FarmPage.tsx:119-167 success effect never calls pos.refetchAll(); allowance comes from useUserPosition.ts:25 refetchInterval: 30_000. After an approve confirms, stakeNeedsApproval stays true until the next poll, so the CTA still reads 'Approve TOWELI' (StakingCard.tsx:443) — users can sign a second pointless approval. Same lag applies post-stake (position card appears up to 30s late, stake form with stale input stays mounted) and post-claim. useLPFarming.ts:93 deliberately removed its refetch ('60s poll drives convergence') — 60s of stale 'Your Staked LP' after staking.",
+   "suggestion": "Call pos.refetchAll() / lpFarm.refetch() in the isSuccess effects (single targeted refetch is not a storm), and clear stakeAmount after a confirmed stake."
+  },
+  {
+   "id": "F103",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/farm (multiple hooks)",
+   "title": "chainId pinning inconsistent across farm read hooks — wrong-chain wallet sees an empty position",
+   "evidence": "useFarmStats.ts:19-21, useLPFarming.ts:42-53, usePoolTVL.ts:22-28 pin `chainId: CHAIN_ID` per entry (comment 'R043 H-062-02: chainId pin on every entry'), but usePoolData.ts:10-22, useUserPosition.ts:17-43, useRestaking.ts:19-34 and usePoints.ts:34-41 do not. On a wrong-chain wallet those reads execute against the wallet's current chain, fail/return 0n, so a user with a real position sees the fresh 'Stake TOWELI' form instead of 'Your Position' (only the WrongChainBanner hints why).",
+   "suggestion": "Add chainId: CHAIN_ID to the unpinned entries for consistency with the R043 pattern already applied to the sibling hooks."
+  },
+  {
+   "id": "F104",
+   "src": "code:farm",
+   "severity": "medium",
+   "category": "improve",
+   "page": "/farm (StakingCard.tsx)",
+   "title": "Accessibility gaps: unlinked input label, color-only selection state, no aria-pressed on lock options, no focus management in confirm flows",
+   "evidence": "StakingCard.tsx:345 `<label className=...>Amount</label>` has no htmlFor and the input at :355 has no id/aria-label; lock-duration buttons (:368-378) and extend-lock buttons (:180-190) convey selection purely via inline background/color (selected = black text on purple) with no aria-pressed/role=radiogroup; destructive confirm panels (withdraw :236, earlyWithdraw :262, emergencyExit :303) appear without moving focus, and the 5s auto-dismiss (FarmPage.tsx:90-91) can remove a focused dialog. AnimatedCounter values (:120,124,136) have no aria-live so claimable updates are silent to screen readers.",
+   "suggestion": "Wire htmlFor/id, add aria-pressed to option buttons plus a non-color selected indicator (checkmark/border weight), focus the confirm panel's cancel button on open."
+  },
+  {
+   "id": "F105",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/farm LP Farming (LPFarmingSection.tsx)",
+   "title": "Approve confirmation wipes the typed stake amount",
+   "evidence": "LPFarmingSection.tsx:25-30 `useEffect(() => { if (lpFarm.isSuccess) { setLpStakeAmount(''); setLpWithdrawAmount(''); } }, [lpFarm.isSuccess]);` — lpFarm.isSuccess fires for the APPROVE tx too (useLPFarming.ts:24 covers every writeContract), so after 'Approve LP' confirms the input the user must immediately re-stake with is cleared.",
+   "suggestion": "Track the last action (approve vs stake/withdraw) and only clear inputs on stake/withdraw success."
+  },
+  {
+   "id": "F106",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/farm (FarmPage.tsx)",
+   "title": "Claim/unstake receipts read live position values at confirm time — race shows 0/stale amounts",
+   "evidence": "FarmPage.tsx:142 claim receipt uses pos.pendingFormatted and :151 unstake uses pos.stakedFormatted at the time the receipt effect runs. The code itself acknowledges the hazard for stake ('Capture values at submission time to avoid stale closures', :69-70, submittedDataRef) but claim/unstake are not snapshotted; a 30s position poll (useUserPosition.ts:25) landing between submit and confirm zeroes them, producing a 'claimed 0 TOWELI' receipt.",
+   "suggestion": "Snapshot pending/staked into submittedDataRef in the claim/withdraw onClick handlers like the stake path does."
+  },
+  {
+   "id": "F107",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/farm (StakingCard.tsx:355)",
+   "title": "type=\"number\" + strip-regex silently mangles scientific-notation input ('1e5' becomes '15')",
+   "evidence": "StakingCard.tsx:355 `<input type=\"number\" ... onChange={(e) => setStakeAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\\..*)\\./g, '$1'))}` — number inputs accept 'e', so typing 1e5 yields target.value '1e5' which the regex rewrites to '15': the user wanted 100,000 and the form silently stakes 15. Same pattern in LPFarmingSection.tsx:209-212 and :270-273.",
+   "suggestion": "Use type=\"text\" inputMode=\"decimal\" (the regex already enforces decimal shape), the standard DeFi pattern."
+  },
+  {
+   "id": "F108",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "wrong",
+   "page": "/farm (usePoints.ts)",
+   "title": "Swap-points getLogs scans 5M+ blocks from a pre-deploy block; failure is swallowed to 0, and logAction is a deprecated no-op",
+   "evidence": "usePoints.ts:73-83 `publicClient.getLogs({ ... fromBlock: 18000000n, toBlock: 'latest' })` — SwapFeeRouter deployed 2026-06-06 (constants.ts), block 18M is Sep-2023; most public RPCs reject multi-million-block getLogs ranges, and the .catch(() => setSwapCount(0)) hides it, so swap-derived points are likely always 0. Also FarmPage.tsx:159 `points.logAction(actionType, ...)` calls pointsEngine.ts:190 recordAction which is '@deprecated ... Points derived from on-chain data only' and returns unchanged data — dead call. Unverified hypothesis only on the specific RPC's range cap; the stale fromBlock and no-op are factual.",
+   "suggestion": "Use the router's deploy block as fromBlock (or chunk the range), and delete the dead logAction call."
+  },
+  {
+   "id": "F109",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "improve",
+   "page": "/farm (IncentivesStrip + ConnectPrompt)",
+   "title": "'100% to stakers' fee-share claims hardcoded while the split is governance-mutable down to 50%",
+   "evidence": "IncentivesStrip.tsx:36 `{ l: 'Fee Share', v: '100% to stakers' }` and ConnectPrompt.tsx:29 'earn 100% of protocol swap fees'. Verified accurate TODAY: SwapFeeRouter.sol:235 `uint256 public stakerShareBps = 10_000` default — but applyFeeSplit (:1417-1423) can lower it to 5,000 bps without any frontend change; stakerShareBps is a public view that could be read instead.",
+   "suggestion": "Read stakerShareBps on-chain (one extra slot in the existing usePoolTVL multicall) and render the live percentage."
+  },
+  {
+   "id": "F110",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "improve",
+   "page": "/farm stats (useToweliPrice/usePriceHistory)",
+   "title": "Headline TOWELI price + sparkline are frozen at page-load for the whole session when the native pair is empty",
+   "evidence": "useToweliPrice.ts:112-138 GeckoTerminal fallback fetch runs once (empty dep array, mounted once via app-level PriceProvider) with no interval; with the native TOWELI/WETH pair unseeded (reserves 0 → spotPriceInEth 0, :184-187) priceInUsd === apiFallbackPrice for the entire session, yet FarmStatsRow.tsx:33 renders it next to a PulseDot implying liveness. usePriceHistory.ts:31-127 likewise fetches once per mount (5-min cache) with no refresh.",
+   "suggestion": "Add a setInterval/refetch (e.g. 60s, matching on-chain reads) to the API fallback while the pair is unseeded."
+  },
+  {
+   "id": "F111",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "improve",
+   "page": "/farm LP Farming (LPFarmingSection.tsx:282-288)",
+   "title": "Withdraw-LP input not validated against staked balance — builds a reverting tx",
+   "evidence": "LPFarmingSection.tsx:284 disables only on `(parseFloat(lpWithdrawAmount) || 0) <= 0 || lpFarm.stakedBalance === 0n` — entering more than stakedBalanceFormatted passes the guard and submits a withdraw that reverts in-wallet. Contrast with the stake side, which pre-checks minStake at :228-236 specifically to avoid 'the wallet shows a scary revert-fallback gas estimate' (their own comment :225-227).",
+   "suggestion": "Add overStaked check mirroring the belowMin pattern, with a 'Max X LP' disabled-button label."
+  },
+  {
+   "id": "F112",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "improve",
+   "page": "/farm (useRestaking + FarmPage restaking section)",
+   "title": "rewardSanityBreach exported but never consumed — promised 'Verify on-chain' prompt unimplemented",
+   "evidence": "useRestaking.ts:163-165 doc: 'R075: true when an RPC quoted impossible reward numbers — UI should prompt \"Verify on-chain\" instead of showing the values.' FarmPage.tsx:269-338 renders the restaking panel without reading rewardSanityBreach; on breach the hook zeroes the values (:72-73) so users just see 0.0000 pending with no explanation.",
+   "suggestion": "Render a small 'reward data failed sanity check — verify on Etherscan' notice when restaking.rewardSanityBreach is true."
+  },
+  {
+   "id": "F113",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "improve",
+   "page": "/farm (3 files)",
+   "title": "LOCK_OPTIONS duplicated in three files — divergence risk for a financial parameter",
+   "evidence": "Identical 7-entry arrays at FarmPage.tsx:40-48, StakingCard.tsx:19-27, BoostScheduleTable.tsx:8-16. A future edit to one (e.g. adding a 3-year tier) silently desyncs the form, the extend-lock picker, and the schedule table.",
+   "suggestion": "Export once from lib/constants.ts next to MIN/MAX_LOCK_DURATION."
+  },
+  {
+   "id": "F114",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "/farm (StakingCard/FarmStatsRow)",
+   "title": "No USD values anywhere in the position/stake flow despite live price in context",
+   "evidence": "StakingCard.tsx:120 (Staked), :136 (Claimable), :398 (Effective stake) and the Projected Earnings grid (:413-427) are all TOWELI-only; useTOWELIPrice is already consumed on the page (FarmPage.tsx:61) and in LPFarmingSection. FarmStatsRow.tsx:18 labels a raw token count 'Total Value Locked' (useFarmStats.ts:36 returns 'X TOWELI', no $ conversion).",
+   "suggestion": "Add ≈$ subtexts under staked/claimable/projection numbers and a USD TVL figure — Yearn/Beefy/Aave all dual-denominate."
+  },
+  {
+   "id": "F115",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "/farm (FarmPage disconnected branch)",
+   "title": "Pre-connect visitors can't see the boost schedule, pools, or stats",
+   "evidence": "FarmPage.tsx:171-186 — the !isConnected return renders only IncentivesStrip + ConnectPrompt; FarmStatsRow, the pool cards, LP-farming stats and BoostScheduleTable (all read-only public data) are hidden until connect. Uniswap/Yearn show the full read-only market view pre-connect.",
+   "suggestion": "Additively include FarmStatsRow + BoostScheduleTable + LivePoolCard in the disconnected branch (data hooks are connection-independent), keeping ConnectPrompt for the action card slot."
+  },
+  {
+   "id": "F116",
+   "src": "code:farm",
+   "severity": "polish",
+   "category": "wrong",
+   "page": "/farm (BoostScheduleTable.tsx)",
+   "title": "Boosted rate labeled 'APY' but the math is simple APR (no compounding) — rest of page says APR",
+   "evidence": "BoostScheduleTable.tsx:52 `{(baseApr * b / 10000).toFixed(1)}% APY` and :85-88 mobile 'APY' label — the figure is aprNum × boost, straight-line. IncentivesStrip (:28 'Staking APR'), FarmStatsRow (:20 'Base APR') and StakingCard (:430 'base APR') all say APR.",
+   "suggestion": "Rename to APR (or add a real compounding toggle)."
+  },
+  {
+   "id": "F117",
+   "src": "code:farm",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/farm pools (LivePoolCard.tsx)",
+   "title": "'🔥 HOT' badge hardcoded on a pool that is currently unseeded/empty",
+   "evidence": "LivePoolCard.tsx:29 `<PoolStatusBadge status=\"hot\" />` unconditionally; the native pair has never been seeded post-relaunch (usePoolTVL returns tvlFormatted '–' when reserves are absent, usePoolTVL.ts:43-44), so an empty pool with dash TVL is badged HOT — the same vaporware signal poolConfig.ts:31-39 was cleaned up to avoid.",
+   "suggestion": "Derive the badge from poolData (e.g. 'live' once TVL > 0, hide otherwise)."
+  },
+  {
+   "id": "F118",
+   "src": "code:farm",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/farm (FarmPage.tsx + useAutoReset)",
+   "title": "5s confirm auto-dismiss timer resets on every parent rerender",
+   "evidence": "FarmPage.tsx:81-82 setConfirm is a new function identity each render; useAutoReset.ts:13-17 lists `setter` in its effect deps, so every FarmPage rerender (15s pendingETH poll, 30s position poll, price updates) clears and re-arms the full 5000ms timeout — the withdraw confirm can stay open well past 5s, and the dismissal moment is unpredictable.",
+   "suggestion": "Wrap setConfirm in useCallback (stable identity) or key the effect off a timestamp captured when the confirm opened."
+  },
+  {
+   "id": "F119",
+   "src": "code:farm",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/farm pools (usePoolTVL.ts)",
+   "title": "Fallback 24h volume is invented from a guessed turnover ratio, not observed swaps",
+   "evidence": "usePoolTVL.ts:93-102 — when no fee data exists, vol24h = tvl × {1-4%} bucket ratio, then displayed on LivePoolCard.tsx:44 as 'Est. 24h Vol'. It is flagged '~'/'(est.)' and the card says 'estimated from on-chain reserves' (:48), but the number has no relationship to actual trading; with the protocol's stated honesty bar, a synthetic turnover stat is the weakest figure on the page.",
+   "suggestion": "Show '— no volume data yet' until totalSwaps/totalETHFees exist (totalSwaps is already read at index 4 and unused, :71)."
+  },
+  {
+   "id": "F120",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "USD denominations everywhere (staked/claimable/projected/TVL) — Yearn, Beefy, Aave all dual-denominate; price context is already on the page",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F121",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Zap: single-token → LP+stake in one flow (Beefy-standard); currently users must leave to /liquidity, get LP, return, approve, stake (5 steps)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F122",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Auto-compound display or 'claim & restake' compounding action for staking and LP rewards (Beefy vaults, Yearn); page has neither a compound button nor an APY-with-compounding view",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F123",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Emission runway / 'rewards remaining' + days-left on the Farm page itself — the data exists (usePoolData.rewardsRemaining/secondsRemaining) but is only shown on /tokenomics; Synthetix-style farms show 'reward period ends in Xd'",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F124",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "EIP-2612 permit or EIP-5792 batched approve+stake — repo already has the EIP-5792 foundation (memory: commit 38ac420), but farm still does cold 2-tx approve→stake with a 30s allowance-poll dead zone",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F125",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Earnings history / profit calc: total claimed to date, cumulative yield chart, position share-of-pool % (Yearn personal-vault stats, Beefy 'daily earnings')",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F126",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Tx lifecycle affordances during confirmation: pending-toast explorer link appears only at success; no gas estimate, no simulated outcome preview before stake/withdraw",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F127",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Add-to-wallet (wallet_watchAsset) buttons for TOWELI and the LP token next to balances",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F128",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Lock-expiry reminders beyond the on-page countdown — calendar (.ics) export or push alert (the repo already has a push-alert Tier-1 roadmap item)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F129",
+   "src": "code:farm",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Deep links / shareable state (e.g. /farm?lock=1y&amount=1000 pre-filling the form) and a referral-style 'share your APR' card (Blur/Drip-grade growth affordances)",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F130",
+   "src": "code:dashboard",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Dashboard > Loans tab",
+   "title": "Loans never refresh after initial load — the 60s interval is a no-op identity setState, and loan status is computed against a frozen timestamp",
+   "evidence": "C:\\Users\\jimbo\\OneDrive\\Desktop\\tegriddy farms\\frontend\\src\\hooks\\useMyLoans.ts:117-121: `const id = setInterval(() => { if (cancelled) return; // Re-trigger by toggling state — kept simple for the recovery pass. setTokenLoading((p) => p); }, REFETCH_MS);` — `(p) => p` returns the identical value so React bails out (no re-render), and even if it re-rendered the effect deps [publicClient, onMainnet, tokenDeployed, tokenCount, address] are unchanged so the fetch never re-runs. The NFT-loan effect (lines 125-163) has no interval at all. Compounding it, useMyLoans.ts:167 captures `const now = BigInt(Math.floor(Date.now() / 1000));` inside a useMemo keyed only on [tokenResults, nftResults, address] — since results never refresh, `now` is frozen, so a loan crossing its deadline while the dashboard is open never flips to 'overdue' (status at line 183/207 uses the frozen now). The header comment at line 8-9 claims '60s refetch' — it does not happen. Only a loanCount change (new loan created) re-triggers the scan; repaid/defaulted/overdue transitions go stale indefinitely.",
+   "suggestion": "Drive refetch with a real tick: add a `refreshNonce` state incremented by the interval and include it in both effects' deps; recompute `now` per render (or include a minute-tick state in the useMemo deps) so overdue status updates live."
+  },
+  {
+   "id": "F131",
+   "src": "code:dashboard",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Dashboard > Positions tab",
+   "title": "Earnings Projection extrapolates the bootstrap APR to 1 year, ignoring the reward-pool runway and omitting the disclaimer the hook explicitly provides",
+   "evidence": "C:\\Users\\jimbo\\OneDrive\\Desktop\\tegriddy farms\\frontend\\src\\pages\\DashboardPage.tsx:451 `<Projections staked={stakedTotal} apr={pool.aprNum || 0} ... />` and lines 756-771: `const daily = (staked * apr / 100) / 365 * boost;` rendered for 7/30/90/365 days. usePoolData.ts:76-77 exposes `secondsRemaining` ('Seconds of emission runway left at the current rate') and line 84 exposes `aprDisclaimer: 'Bootstrap rate — falls as staking grows'` — neither is consumed by Projections or shown anywhere on the page. With the documented emission cliff (~Sept-4 per the multi-cycle review) the '1 Year' figure projects rewards that mathematically exceed `rewardsRemaining`. This page repo has had multiple explicit 'honesty passes'; this surface escaped them.",
+   "suggestion": "Additively render pool.aprDisclaimer under the Projections heading, and cap/flag horizons longer than pool.secondsRemaining (e.g. '~ runway ends in Nd at current rate')."
+  },
+  {
+   "id": "F132",
+   "src": "code:dashboard",
+   "severity": "high",
+   "category": "wrong",
+   "page": "Dashboard > Overview tab",
+   "title": "Mounting the Dashboard can auto-fire DCA/limit-order wallet popups, while the banner copy claims the user must 'Go to Swap to execute'",
+   "evidence": "DashboardPage.tsx:72-73 mounts `useDCA()` and `useLimitOrders()` just to show counts, but useDCA.ts:537-563 runs `checkDue()` immediately on mount and every 30s, calling `executeDCASwap(s)` which ends in `writeContract(...)` (wallet popup, lines 495-530) — and useLimitOrders.ts:442-522 polls getAmountsOut every 15s and calls `executeOrder(order)` → writeContract. Meanwhile the dashboard banner (DashboardPage.tsx:317-318) says '{n} DCA swap(s) due — Go to Swap to execute'. So a user with a due schedule gets an unprompted signing request on the Dashboard itself, directly contradicting the on-screen copy. Verified end-to-end in code; the cross-tab lock only prevents double-execution, not the popup itself.",
+   "suggestion": "Either make the copy honest ('a swap prompt will appear here when due') or split the hooks into a read-only variant (counts from localStorage only) for the Dashboard so execution stays on /swap."
+  },
+  {
+   "id": "F133",
+   "src": "code:dashboard",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Dashboard > Overview tab",
+   "title": "Active limit orders are mislabeled 'price alerts' directly above the real Price Alerts widget",
+   "evidence": "DashboardPage.tsx:326-335: the card driven by `limitOrders.activeOrders.length` renders `'{n} active price alert{s}'` — but these are limit orders (useLimitOrders), and the actual PriceAlertWidget (a different feature, usePriceAlerts) renders ~6 lines below at line 341. Two distinct features share one name on the same screen.",
+   "suggestion": "Change the copy to '{n} active limit order(s)'."
+  },
+  {
+   "id": "F134",
+   "src": "code:dashboard",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Dashboard > header + summary stats",
+   "title": "ETH balance and TOWELI balance reads are not chain-pinned — on a wrong network the portfolio USD prices the other chain's native token as ETH",
+   "evidence": "DashboardPage.tsx:67 `useBalance({ address })` (no chainId) and lines 81-87 `useReadContract({ address: TOWELI_ADDRESS, ... })` (no chainId), both feeding portfolioUsd at lines 94-106. The codebase's own R047 M1 fix (DashboardPage.tsx:582-594) pins `chainId: CHAIN_ID` for exactly this reason, and useLpPosition/useNFTBoost/useMyLoans all pin CHAIN_ID. A wallet on e.g. Base/Polygon shows that chain's native balance multiplied by mainnet ETH/USD in both the 'ETH Balance' card and the headline Portfolio Value (the wrong-network banner shows, but the number still renders confidently).",
+   "suggestion": "Add `chainId: CHAIN_ID` to the useBalance and toweliBalance reads, matching the R047 M1 pattern used 500 lines below."
+  },
+  {
+   "id": "F135",
+   "src": "code:dashboard",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Dashboard > header",
+   "title": "Portfolio Value silently drops all ETH-denominated legs when the Chainlink oracle is stale, with no indicator on the headline number",
+   "evidence": "DashboardPage.tsx:96-106: `(price.oracleStale ? 0 : ethBal * price.ethUsd)` and the lpUsd WETH leg `(price.oracleStale ? 0 : lpPos.wethAmount * price.ethUsd)` — when oracleStale flips true (useToweliPrice.ts:153-167, >5min stale or out-of-bounds), the headline Portfolio Value loses the entire ETH + WETH value with zero visual cue on that number; only the small TOWELI Price sub-label shows a 'Stale' chip (line 251), and only when priceChangeStr is empty. A user mid-session sees their portfolio 'drop' by their full ETH balance.",
+   "suggestion": "When oracleStale, show a stale badge next to the Portfolio Value counter (additive) rather than silently zeroing components, or keep the last-good ethUsd with the stale flag."
+  },
+  {
+   "id": "F136",
+   "src": "code:dashboard",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Dashboard > Loans tab",
+   "title": "Loans tab flashes the 'No outstanding loans' empty state while loans are still loading — isLoading is exposed but unused",
+   "evidence": "DashboardPage.tsx:513 `{myLoans.loans.length > 0 ? <OutstandingLoans .../> : <empty state>}` — useMyLoans returns `isLoading: tokenLoading || nftLoading` (useMyLoans.ts:230) and the chunked scan can take seconds (loanCount × getLoan reads in chunks of 50, lines 88-116), but the page never checks it. Users with loans see 'No outstanding loans' + borrow CTAs for the duration of the scan.",
+   "suggestion": "Gate on myLoans.isLoading with a Skeleton card before falling through to the empty state."
+  },
+  {
+   "id": "F137",
+   "src": "code:dashboard",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Dashboard > Positions/Rewards tabs",
+   "title": "Claim success never refetches the position — Claimable stays stale up to 30s and the claim button is immediately re-clickable",
+   "evidence": "DashboardPage.tsx:118-124 fires only a toast on `farmActions.isSuccess`; `pos.refetchAll` (useUserPosition.ts:66-68) exists but is never wired to claim success. useUserPosition refreshes on a 30s interval (line 25/42), so after 'Rewards claimed successfully!' the 'Claimable' card and the `Claim Rewards (X TOWELI)` button (lines 359-369, still rendered because pendingTotal is stale ≥0.01) show the pre-claim amount for up to 30s; a second click sends a getReward tx for ~0 rewards. Same pattern for ETHRevenueClaim (lines 606-611): toast fires but the pendingETH read relies on the shared 15s poller to catch up while the 'Claim ETH' button re-enables.",
+   "suggestion": "Call pos.refetchAll() (and a pendingETH refetch) inside the success effects, mirroring useRevenueStats.ts:92-104 which already does `refetch()` on isSuccess."
+  },
+  {
+   "id": "F138",
+   "src": "code:dashboard",
+   "severity": "medium",
+   "category": "improve",
+   "page": "Dashboard > disconnected state",
+   "title": "Disconnected view hides everything, including wallet-independent content (price chart, TOWELI price, sparkline)",
+   "evidence": "DashboardPage.tsx:146-169: `if (!isConnected) return <Connect Wallet hero>` — PriceChart, TOWELI price card, sparkline, and the GeckoTerminal data all require no wallet, yet none render. Zapper/DeBank/Dexscreener-grade dashboards show market data pre-connect and use it as the connect hook.",
+   "suggestion": "Additively render the Price Chart + price stat card under the connect CTA (keeping the existing art hero untouched)."
+  },
+  {
+   "id": "F139",
+   "src": "code:dashboard",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "Dashboard > Positions tab",
+   "title": "POL Accumulator 'Coming Soon' card is now dead code — the contract is deployed, so the gate hides it forever and nothing live replaced it",
+   "evidence": "DashboardPage.tsx:372 `{!isDeployed(POL_ACCUMULATOR_ADDRESS) && (...Coming Soon card...)}` vs constants.ts:23 `export const POL_ACCUMULATOR_ADDRESS = '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2'` (RELAUNCH 2026-06-06 DeployMVP). isDeployed() is a zero-address check (constants.ts:112-114), so the condition is permanently false: the card (and its idx=8 art slot) can never render, and there is no live POL stats widget in its place.",
+   "suggestion": "Replace the gate's false branch with a live POL widget (accumulated LP, last buy) when deployed — keeping the Coming Soon card for the undeployed case."
+  },
+  {
+   "id": "F140",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Dashboard > Loans tab",
+   "title": "'ETH owed' shows principal only (no accrued interest) and uses raw formatEther with unbounded decimals",
+   "evidence": "DashboardPage.tsx:647 `const owed = borrower.reduce((acc, l) => acc + l.principal, 0n);` rendered at line 677 as `{formatEther(owed)} ETH owed` — the actual repayment is principal + APR-accrued interest (aprBps is displayed per-row at line 742 but never accrued into the totals). Also `formatEther` returns full 18-decimal strings ('0.123456789012345678 ETH') at lines 677, 682, 741 instead of the project's formatWei/formatTokenAmount helpers.",
+   "suggestion": "Accrue interest (principal * aprBps * elapsed / year / 10000) into the owed figure or relabel to 'principal', and run amounts through formatWei(…, 18, 4)."
+  },
+  {
+   "id": "F141",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Dashboard > summary stats",
+   "title": "'Claimable' card's skeleton is gated on price loading, not position loading",
+   "evidence": "DashboardPage.tsx:217: `{ l: 'Claimable', numVal: pendingTotal, ..., loading: !price.isLoaded }` — pendingTotal comes from useUserPosition (a wagmi read), not the price feed. If the price loads first the card shows '0.00' while the position is still fetching; if the price feed never loads (priceUnavailable) the card shows a skeleton forever even though the TOWELI amount is known.",
+   "suggestion": "Gate on pos.isLoading for the value and keep price.isLoaded only for the USD sub-line."
+  },
+  {
+   "id": "F142",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Dashboard > Rewards tab",
+   "title": "ETHRevenueClaim's error indicator is unreachable dead code — a failed pendingETH read renders null instead of an error",
+   "evidence": "DashboardPage.tsx:613 `if (pending > 0)` wraps the whole card; on a read error `pendingETH` is undefined → `pending = 0` (line 600) → the component returns null at line 640, so the `{pendingError && <span ... title=\"Failed to load\" />}` dot at lines 624-626 can never render. RPC failure is indistinguishable from 'nothing to claim'.",
+   "suggestion": "Render a small error row when `pendingError && !pending` so claimable ETH can't silently vanish behind an RPC failure."
+  },
+  {
+   "id": "F143",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "wrong",
+   "page": "Dashboard > Overview tab (Tegridy Score)",
+   "title": "useTegridyScore scans Staked logs from block 18,000,000 — three years before the 2026-06-06 relaunch deploy",
+   "evidence": "useTegridyScore.ts:326-328: `// Start from approximate contract deploy block to avoid scanning entire chain history` / `fromBlock: 18000000n` — block 18M is ~Sep 2023; TEGRIDY_STAKING_ADDRESS was deployed 2026-06-06 (constants.ts relaunch comments). The ~5M-block eth_getLogs range is exactly the 'wide range public RPCs reject' the catch block at lines 338-343 warns about, silently zeroing the loyalty score (10% weight) for most users.",
+   "suggestion": "Pin fromBlock to the actual June-2026 deploy block."
+  },
+  {
+   "id": "F144",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "wrong",
+   "page": "App-wide (price context consumed by Dashboard)",
+   "title": "PriceContext memo dep list omits twapPriceInEth / twapOverrideActive / priceSafeForSwaps — consumers can read stale TWAP/swap-safety flags",
+   "evidence": "PriceContext.tsx:15-29: `useMemo(() => price, [price.priceInEth, price.priceInUsd, price.ethUsd, price.isLoaded, price.oracleStale, price.priceChange, price.priceUnavailable, price.displayPriceStale, price.apiPriceDiscrepant, price.priceDiscrepancy])` — useToweliPrice also returns `twapPriceInEth`, `twapOverrideActive`, `priceSafeForSwaps` (useToweliPrice.ts:276-279). When only those flip (e.g. TWAP starts overriding spot while priceInUsd lands on the same value via the API fallback path), the memo returns the previous object and every consumer keeps the stale flags. Dashboard itself doesn't read them, but it consumes this provider and swap surfaces do.",
+   "suggestion": "Add the three missing fields to the dep array."
+  },
+  {
+   "id": "F145",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "Dashboard > tab bar",
+   "title": "Tabs implement role attributes but not the ARIA tabs pattern: no aria-controls/id pairing, no arrow-key navigation, tabpanels not focusable",
+   "evidence": "DashboardPage.tsx:265-288: buttons have `role=\"tab\"` + `aria-selected` and panels have `role=\"tabpanel\"` + `aria-label`, but there is no `id`/`aria-controls` linkage, no `tabIndex={-1}` roving focus or ArrowLeft/ArrowRight handling on the tablist, and panels lack `tabIndex={0}`. Screen-reader/keyboard users get the announcement but not the interaction model the roles promise.",
+   "suggestion": "Wire id/aria-controls pairs, add onKeyDown arrow-key roving focus, and tabIndex={0} on the active panel."
+  },
+  {
+   "id": "F146",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "Dashboard > Loans tab",
+   "title": "LoanRow countdown bottoms out at 'Due in 0h' and stays there once the deadline passes (status never flips to overdue while mounted)",
+   "evidence": "DashboardPage.tsx:715-720: `const remaining = Number(loan.deadline) - nowSec; ... const countdown = loan.status === 'overdue' ? 'Overdue' : days > 0 ? `${days}d ${hours}h` : `${hours}h`;` — for 0 < remaining < 3600 this renders '0h', and once remaining goes negative it still renders '0h' under the 'Due in' label because loan.status comes from the frozen useMyLoans memo (see the high-severity refresh finding). The per-row minute tick (lines 710-714) updates the number but not the status.",
+   "suggestion": "Derive overdue locally from `remaining <= 0` in LoanRow (defense in depth even after fixing useMyLoans), and show minutes below 1h."
+  },
+  {
+   "id": "F147",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "Dashboard > Overview tab",
+   "title": "Two ~550-line executor hooks (with 15s/30s pollers, getAmountsOut RPC loops, BroadcastChannel plumbing) are mounted only to render two badge counts",
+   "evidence": "DashboardPage.tsx:72-73 `const dca = useDCA(); const limitOrders = useLimitOrders();` — the page consumes only `dca.dueSchedules.length` (line 309) and `limitOrders.activeOrders.length` (line 326). useLimitOrders fires a getAmountsOut read per active order every 15s (useLimitOrders.ts:441-513) from the dashboard in addition to the swap page.",
+   "suggestion": "Extract a read-only `useDCASummary`/`useLimitOrderSummary` that parses the same localStorage payloads without pollers or writeContract."
+  },
+  {
+   "id": "F148",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "Dashboard > Rewards tab",
+   "title": "No empty state when there is nothing to claim, and unsettledRewards is invisible on the dashboard",
+   "evidence": "DashboardPage.tsx:537-573: with pendingTotal < 0.01 and pendingETH = 0, the Rewards tab renders only the ReferralWidget — no 'nothing to claim right now' framing. useUserPosition exposes `unsettledRewards`/`unsettledFormatted` (useUserPosition.ts:89-90) and useFarmActions exposes `claimUnsettled` (line 199), but they're only surfaced on the Farm page (StakingCard.tsx:217-224); a user with unsettled rewards sees an empty-looking Rewards tab here.",
+   "suggestion": "Add a friendly all-claimed empty card plus an Unsettled Rewards row (amount + Claim Unsettled) when pos.unsettledRewards > 0n."
+  },
+  {
+   "id": "F149",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "Dashboard > refresh strategy",
+   "title": "pendingETH is polled via three differently-shaped queries; only two dedupe",
+   "evidence": "useFarmActions.ts:16-23 (useReadContract pendingETH, 15s, chainId pinned), DashboardPage.tsx:588-595 (useReadContract pendingETH, chainId pinned — same queryKey, dedupes), but useRevenueStats.ts:28 fetches pendingETH inside a useReadContracts multicall batch (30s, no chainId pin) — a separate cache entry, so the same value is fetched on two independent schedules, and the batch isn't chain-pinned unlike its siblings.",
+   "suggestion": "Pin chainId on the useRevenueStats batch and consider sourcing ETHRevenueClaim from useRevenueStats.pendingRevenueBig instead of a third read."
+  },
+  {
+   "id": "F150",
+   "src": "code:dashboard",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Dashboard > theming/microcopy",
+   "title": "Hardcoded #22c55e stat colors, no-op hover classes, and a near-invisible 'On-chain verified' label",
+   "evidence": "DashboardPage.tsx:228/238/241/247/254 hardcode `color: '#22c55e'` inline (bypassing the CSS-var theme tokens used elsewhere); links use `text-white hover:text-white transition-colors` (lines 194, 197, 302, 428, 493, 497) — hover declared but visually identical; TegridyScoreMini.tsx:85 renders 'On-chain verified' at `text-white/15` (15% opacity — effectively invisible / fails contrast); PriceChart.tsx:322-323 timeframe buttons use `text-white` for both selected and unselected states; PriceAlertWidget.tsx:27 toggle button lacks aria-expanded.",
+   "suggestion": "Use the success token var, give hover states a real delta (e.g. text-white/70 → text-white), raise the verified label to /50+, and add aria-expanded."
+  },
+  {
+   "id": "F151",
+   "src": "code:dashboard",
+   "severity": "polish",
+   "category": "improve",
+   "page": "Dashboard > animation/loading",
+   "title": "Tab switches have no exit animations, and the full-viewport hero art is lazy-loaded (LCP anti-pattern)",
+   "evidence": "DashboardPage.tsx:291-573: tab panels are plain conditional renders of `m.div` with `initial/animate` only — no AnimatePresence, so switching tabs hard-unmounts (enter animates, exit snaps). Lines 150 and 174: the fixed full-screen background uses `<ArtImg ... loading=\"lazy\" />` — it is always above the fold, so lazy delays the page's largest paint; ArtImg already reserves dimensions (ArtImg.tsx:65-66) but the fetch is deprioritized.",
+   "suggestion": "Wrap panels in AnimatePresence mode=\"wait\" (or accept and remove the polish), and use loading=\"eager\" + fetchpriority=\"high\" on the two hero ArtImgs."
+  },
+  {
+   "id": "F152",
+   "src": "code:dashboard",
+   "severity": "polish",
+   "category": "wrong",
+   "page": "Dashboard > Overview tab (chart)",
+   "title": "PriceChart comment claims a same-origin proxy that the code doesn't use; dead _currentPrice param on usePriceHistory",
+   "evidence": "PriceChart.tsx:46-47: `// Use same-origin proxy to avoid Edge/Safari tracking prevention blocking cross-origin API calls` directly above a direct `https://api.geckoterminal.com/...` fetch — the mitigation described doesn't exist (Safari ITP failures fall through to the embed after 2 retries instead). usePriceHistory.ts:25 `export function usePriceHistory(_currentPrice?: number)` ignores the parameter; DashboardPage.tsx:78 passes `price.priceInUsd` for nothing — the sparkline never appends live ticks, it's a 5-min-cached 24h close series.",
+   "suggestion": "Fix the stale comment (or actually proxy), and either append the live price to the sparkline series or drop the parameter."
+  },
+  {
+   "id": "F153",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "Dashboard > header",
+   "title": "Portfolio Value excludes claimable ETH revenue, referral ETH, and unsettled TOWELI — claimables in the page's own widgets aren't in the headline number",
+   "evidence": "DashboardPage.tsx:99-106: portfolioUsd = wallet TOWELI + staked + pending TOWELI + ETH + LP + LP-pending. It omits pendingETH (rendered in ETHRevenueClaim, line 628), revenueStats.referralPending (rendered in ReferralWidget), and pos.unsettledRewards — all user-owned claimable value displayed elsewhere on this same page. Zapper/DeBank include claimables as a labeled portfolio segment.",
+   "suggestion": "Add the ETH-denominated claimables (× ethUsd) and unsettled TOWELI (× priceInUsd) to the sum, ideally with a small 'incl. $X claimable' sub-line."
+  },
+  {
+   "id": "F154",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "Dashboard > price card / chart",
+   "title": "No 24h price change (only since-session-start), no volume/high-low, no live candle updates",
+   "evidence": "useToweliPrice.ts:241-244 computes `sessionPriceChange` against a session baseline and DashboardPage.tsx:254 labels it 'since session start' — there is no 24h % anywhere despite usePriceHistory already fetching 24 hourly closes (a 24h change is one subtraction away). PriceChart.tsx has no polling/refresh after initial load (cache TTL 60s but nothing re-triggers fetch until timeframe change), no volume pane, no OHLC/legend readout on crosshair, no 24h high/low strip — table stakes on Dexscreener/GeckoTerminal.",
+   "suggestion": "Derive 24h% from priceHistory[0] vs last; add a setInterval refetch of the active timeframe; consider a volume histogram series (lightweight-charts supports it natively)."
+  },
+  {
+   "id": "F155",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "Dashboard > global",
+   "title": "No manual refresh affordance or last-updated indicator anywhere on the dashboard",
+   "evidence": "All data is interval-polled (30s position useUserPosition.ts:25, 60s pool usePoolData.ts:21, 60s price useToweliPrice.ts:59, 30s revenue useRevenueStats.ts:37) but DashboardPage.tsx renders no refresh button and no 'updated Xs ago' stamp; pos.refetchAll exists unused. Zapper/DeBank both expose a refresh control + staleness timestamp on the portfolio header.",
+   "suggestion": "Add a small refresh icon-button next to Portfolio Value that fires refetchAll + revenueStats.refetch, with a relative timestamp (formatTimeAgo already exists in lib/formatting.ts:42)."
+  },
+  {
+   "id": "F156",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "Dashboard > overview",
+   "title": "No portfolio composition breakdown or historical value — the headline USD number has no explainability",
+   "evidence": "portfolioUsd (DashboardPage.tsx:99-106) blends six sources but the page never shows the split (e.g. 'Staked 60% / Wallet 25% / LP 10% / Claimable 5%'). There is also no portfolio-value-over-time chart (only the token price chart) and no recent-activity preview on the overview tab (History is a link away at line 197). DeBank/Zapper both lead with an allocation bar + portfolio history sparkline + last-5 transactions.",
+   "suggestion": "Add an allocation bar under the Portfolio Value (all inputs are already computed in this component), and optionally persist periodic portfolio snapshots to localStorage for a session-history sparkline."
+  },
+  {
+   "id": "F157",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "Dashboard > Loans tab",
+   "title": "Loan rows lack USD values, collateral identification, and repay-amount preview",
+   "evidence": "LoanRow (DashboardPage.tsx:732-753) shows principal in ETH, APR, token #id and countdown — no USD equivalent (price.ethUsd is available in the parent), no collateral collection name/thumbnail for NFT loans (useMyLoans exposes `collateralContract`, line 213, unused by the row), and no 'repay X ETH total' figure. Blur/NFTfi/Gondi-grade loan dashboards show collateral image + total repayment + health.",
+   "suggestion": "Thread price.ethUsd into OutstandingLoans for USD sub-labels, resolve collateralContract to a collection label, and compute total repayment from principal + aprBps + elapsed."
+  },
+  {
+   "id": "F158",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Claim-all aggregation: staking TOWELI, ETH revenue, referral ETH, and unsettled rewards each have separate buttons across tabs — no single 'Claim all (~$X)' action or even a unified claimables total (DeBank/Zapper standard).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F159",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "24h price change %: only a since-session-start delta exists; no 24h/7d change chips despite the OHLCV data already being fetched.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F160",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Portfolio allocation breakdown + portfolio-value-over-time chart — the headline USD number is unexplained and has no history.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F161",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Manual refresh button + 'last updated Xs ago' staleness indicator on the portfolio header.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F162",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "USD values on the Loans tab (amounts are ETH-only) and collateral identification (collection name/thumbnail) for NFT-backed loans.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F163",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Live/streaming chart updates (current chart is fetch-once per timeframe), volume pane, crosshair OHLC legend, 24h high/low strip.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F164",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Wallet-independent preview when disconnected (price chart + protocol stats render nothing pre-connect).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F165",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Share/export affordances: no CSV/PNG export of positions or P&L, no per-position deep-link copy (tab deep links do exist).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F166",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Notifications for claimable thresholds (a Towelie nudge exists for staking rewards, but nothing for ETH revenue/referral/loan-due besides the in-page banners).",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F167",
+   "src": "code:dashboard",
+   "severity": "low",
+   "category": "missing",
+   "page": "g03_farm_dashboard",
+   "title": "Net APY / earnings-to-date summary: pendingTotal is shown but cumulative claimed rewards and effective APY on the user's own position are absent.",
+   "evidence": "(missingVsBestInClass)"
+  },
+  {
+   "id": "F168",
+   "src": "live:farm-dashboard",
+   "severity": "high",
+   "category": "improve",
+   "page": "/farm + /dashboard (first visit)",
+   "title": "First-visit splash is ~20s, unskippable, and ends in a mandatory CLICK TO ENTER gate",
+   "evidence": "On prod first visit, /farm showed splash scenes (FIGHT NIGHT art, near-black particle scenes, kaleidoscope) for ~15-20s before content; several scenes are almost pure black for 4+ seconds. On localhost HEAD the same splash ran 45s+ and ended in a 'TEGRIDY FARMS — CLICK TO ENTER' gate; clicking mid-splash does NOT skip (clicked at 15s and 31s, splash continued). DOM during splash exposes only a 'Mute' button — no skip control exists. Splash correctly plays once (localStorage tegridy_first_visit) and does not replay on reload — that part is good.",
+   "suggestion": "Keep the art (additive): add a visible 'Skip intro' button from second 1, make any click/keypress jump straight to the click-to-enter gate, and consider trimming the near-black middle scenes. A 20s+ gate is where first-time yield farmers bounce."
+  },
+  {
+   "id": "F169",
+   "src": "live:farm-dashboard",
+   "severity": "high",
+   "category": "missing",
+   "page": "/farm (logged-out)",
+   "title": "Entire pool/farm content hidden behind connect wall — logged-out users cannot evaluate anything",
+   "evidence": "Logged-out prod /farm renders only: 5 stat chips + 'Connect to farm with tegridy' card + footer. get_page_text confirms no pool list, no TVL, no lock-tier APR table, no boost schedule. Localhost HEAD (connected) proves the page HAS this content: TOTAL VALUE LOCKED 250,395.488 TOWELI card, Season 3 banner, Liquidity Pools section (TOWELI/ETH 0.3% card with TVL/EST APR/EST 24H VOL), LP Farming stats (Reward Rate 285.71/day, Total Funded 2,000 TOWELI, Period Ends 2026-08-14), Boost Schedule (7d 0.40x → 1yr 1.29x with APYs). Aerodrome/Curve/Uniswap all show pools + APRs read-only before connect.",
+   "suggestion": "Render the read-only sections (pools, TVL, boost/lock APR schedule, emissions countdown) for logged-out users with stake/claim buttons swapped to 'Connect to stake'. All of this data comes from public RPC reads — no wallet needed."
+  },
+  {
+   "id": "F170",
+   "src": "live:farm-dashboard",
+   "severity": "high",
+   "category": "improve",
+   "page": "/dashboard (logged-out)",
+   "title": "Dashboard is an empty void when logged out — no protocol stats, no preview, near-zero information",
+   "evidence": "Final logged-out state is just 'Connect Wallet / View your portfolio, positions, and earnings.' + one button over the jungle artwork; get_page_text returns only those 3 strings. On a 3432px ultrawide the data density is effectively zero. The /farm page proves protocol-level stats (APR, reward pool, emissions, price) are available without a wallet.",
+   "suggestion": "Additively overlay a protocol-stats strip (TOWELI price, TVL, stakers, 24h volume, treasury) and a demo/preview of the portfolio layout (greyed sample cards), keeping the jungle art as the backdrop. Aave/Uniswap dashboards always give logged-out visitors something to read."
+  },
+  {
+   "id": "F171",
+   "src": "live:farm-dashboard",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/dashboard (logged-out)",
+   "title": "Connect CTA text overlaid directly on busy artwork with no scrim — subtext nearly unreadable",
+   "evidence": "Zoom at (600,230)-(980,320): white serif 'Connect Wallet' heading and white subtext 'View your portfolio, positions, and earnings.' sit directly over the white-faced soldier character — the subtext washes out completely over light areas of the art. /farm uses a proper dark card behind its identical CTA; /dashboard has none.",
+   "suggestion": "Add the same dark panel/backdrop-blur card used on /farm behind the dashboard CTA (additive — art stays fully visible around it)."
+  },
+  {
+   "id": "F172",
+   "src": "live:farm-dashboard",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "site-wide (observed on /farm + /dashboard)",
+   "title": "Primary RPC eth.llamarpc.com is down (HTTP 521) — every page load fires failing preflights",
+   "evidence": "read_network_requests on both pages: 'https://eth.llamarpc.com/ OPTIONS 521' (Cloudflare origin-down). performance.getEntriesByType shows the app fans out every read to 3 providers (publicnode, ankr, llamarpc) — dozens of llamarpc fetches per load, all failing behind the 521 preflight. Data still renders via publicnode/ankr (failover works), but each load wastes ~60 doomed requests and latency headroom.",
+   "suggestion": "Drop or down-rank llamarpc in the transport list (or add health-check-based exclusion). Also consider whether the 3x fan-out per read is intended — it looked like every call hits all three providers, ~176 fetches on one logged-out /farm load."
+  },
+  {
+   "id": "F173",
+   "src": "live:farm-dashboard",
+   "severity": "medium",
+   "category": "wrong",
+   "page": "/dashboard (logged-out, first load)",
+   "title": "Skeleton bait-and-switch: loading skeleton shows 8 stat cards + chart, then collapses to a bare connect prompt",
+   "evidence": "First dashboard paint rendered a full skeleton grid (8 placeholder stat cards + large chart placeholder + footer) for ~2-4s, then the page swapped to the tiny 'Connect Wallet' gate with none of that content. The skeleton advertises a layout the logged-out user never gets — jarring and feels broken. (Repro depends on wallet-reconnect resolution time; second reload skipped the skeleton.)",
+   "suggestion": "While connection status is resolving, show a neutral spinner or the connect-gate itself dimmed, not the connected-state skeleton."
+  },
+  {
+   "id": "F174",
+   "src": "live:farm-dashboard",
+   "severity": "medium",
+   "category": "improve",
+   "page": "site-wide (header)",
+   "title": "'Light mode' toggle only recolors the navbar orange — body, cards, footer stay dark",
+   "evidence": "Clicking 'Toggle light mode' (aria-label) on /farm and /dashboard: header turns orange, but stat cards, connect card, background and footer remain in the dark palette. Zoom shows active 'Farm' nav link in light-green on orange — low contrast. If this is the intended 'day header' aesthetic the button's aria-label/iconography over-promises a real theme switch.",
+   "suggestion": "Either theme the content surfaces too, or relabel/restyle the control as an accent toggle so it doesn't read as a broken light mode. Check green-on-orange nav contrast (active link + Connect button) against WCAG AA."
+  },
+  {
+   "id": "F175",
+   "src": "live:farm-dashboard",
+   "severity": "medium",
+   "category": "missing",
+   "page": "/farm (logged-out)",
+   "title": "No TVL or USD context anywhere on the farm page",
+   "evidence": "The 5 stat chips are STAKING APR 5294.34%, REWARD POOL 6,400,000 TOWELI, DAILY EMISSIONS 71,219 TOWELI/day, MAX BOOST 4.0x, FEE SHARE 100% — all real (emissions match on-chain rewardRate 0.8243/s) but there is no TVL figure and no USD equivalent for any TOWELI amount, even though the app already fetches the GeckoTerminal price (api.geckoterminal.com token_price call observed) and shows $0.00004132 in the corner chip. A farmer cannot compute expected yield without TVL.",
+   "suggestion": "Add a TVL chip (it exists at HEAD connected view as 250,395.488 TOWELI — show it logged-out, with USD subtext) and USD subtext under the TOWELI amounts. A simple ROI/lock calculator (amount + lock duration → est. rewards) would close the page's core job."
+  },
+  {
+   "id": "F176",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "wrong",
+   "page": "site-wide (bottom-right)",
+   "title": "Towelie avatar overlaps the Protocol Active price chip, hiding the price",
+   "evidence": "Bottom-right chip reads 'Protocol Active $0.00004132' (verified via DOM), but the floating Towelie avatar sits on top of the price portion — zooms at (1430,545)-(1568,582) show only '$6'/'$0...' peeking out from behind the avatar.",
+   "suggestion": "Stack the chip above/left of the avatar or shift the avatar down-right so the price is never occluded. Also label the price ('TOWELI $0.000041') — a bare dollar figure next to 'Protocol Active' is ambiguous."
+  },
+  {
+   "id": "F177",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "site-wide (header)",
+   "title": "More dropdown does not close on Escape",
+   "evidence": "Opened the More menu (Gallery, Tegridy Score, Tokenomics, Treasury), pressed Escape — menu stayed open in the next screenshot; it only closes on outside click. The wallet modal DOES close on Escape (good).",
+   "suggestion": "Wire Escape (and focus-out) to close the menu for keyboard parity."
+  },
+  {
+   "id": "F178",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "site-wide",
+   "title": "No visible keyboard focus indicators on nav links",
+   "evidence": "Pressed Tab 3 times on /dashboard; zoom of the nav bar (690,0)-(1050,26) shows no focus ring on Dashboard/Farm/Trade/More or any element. (First focusable is the visually-hidden 'Replay splash screen' button, which is a nice touch — but subsequent tab stops show no ring.)",
+   "suggestion": "Add a :focus-visible outline (e.g. 2px green) to nav links, buttons, and footer links."
+  },
+  {
+   "id": "F179",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "/dashboard (logged-out)",
+   "title": "Jungle artwork pops in abruptly ~2-3s after the connect text, with the button appearing separately",
+   "evidence": "Reload sequence: t≈1s shows dark navy void with 'Connect Wallet' heading + subtext but NO button; t≈4s the full-bleed jungle art and green button appear at once with no fade. Three distinct visual states flash by on every cold load.",
+   "suggestion": "Fade the artwork in (opacity transition on image load) and render the button with the heading so the CTA block appears as one unit."
+  },
+  {
+   "id": "F180",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "localhost HEAD (affects next deploy)",
+   "title": "Splash exit 'shatter' animation lingers ~10s, leaving glass-shard fragments overlaying and obscuring page content",
+   "evidence": "On localhost HEAD after CLICK TO ENTER, rotated triangular shards of the splash art remained on top of the farm page across 3 screenshots (~10s), covering stat cards and the pools section before finally clearing. Content is unreadable/uninteractable-looking during this period.",
+   "suggestion": "Cap the shard exit animation at ~1.5-2s and set pointer-events:none + a hard removal timeout so it can never strand fragments over content."
+  },
+  {
+   "id": "F181",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "/farm (HEAD, LP Farming section — will reach prod)",
+   "title": "LP Farming 'EST. APR — calculating…' badge never resolves",
+   "evidence": "On localhost HEAD connected view, the LP Farming header badge read 'EST. APR — calculating…' for the entire 25s+ observation while every other figure (reward rate, pending rewards, totals) had loaded.",
+   "suggestion": "If the APR genuinely can't be computed (pool too new / missing price), show 'N/A — pool bootstrapping' instead of a permanent 'calculating' spinner-state; verify the calculation isn't blocked by the dead llamarpc transport."
+  },
+  {
+   "id": "F182",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "/farm (HEAD, Your Position / Boost Schedule — will reach prod)",
+   "title": "Sub-1x 'Boost' values read as a penalty (Boost 0.61x, schedule starts at 0.40x)",
+   "evidence": "Localhost HEAD: Your Position shows 'Boost 0.61x'; Boost Schedule lists 7 Days 0.40x, 30 Days 0.46x, 90 Days 0.61x, 1 Year 1.29x, up to 4.0x. 'Boost: 0.61x' on a card implies you're earning 39% LESS than baseline — confusing even if mathematically it's a 0.4-4.0 multiplier scale.",
+   "suggestion": "Relabel as 'Lock multiplier' or normalize the display so the shortest lock = 1.0x, with the marketing 'MAX BOOST 4.0x' kept consistent."
+  },
+  {
+   "id": "F183",
+   "src": "live:farm-dashboard",
+   "severity": "low",
+   "category": "improve",
+   "page": "/swap (incidental)",
+   "title": "Disconnected swap card is a large empty box with a left-stuck Connect button",
+   "evidence": "Landed on /swap once: the Swap tab card is ~300px of empty space with tiny centered text 'Connect your wallet to swap' and a 'Connect Wallet' button hugging the card's left edge (not centered, vertically misaligned with the text).",
+   "suggestion": "Center the button under the text and show a read-only quote widget (ETH→TOWELI rate) while disconnected. (Noting only — /swap was not in my assignment.)"
+  },
+  {
+   "id": "F184",
+   "src": "live:farm-dashboard",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/farm (logged-out, ultrawide)",
+   "title": "Ultrawide layout: content band uses ~30% of a 3432px viewport; large dead side-zones above the art",
+   "evidence": "Viewport is 3432x1274. The stat ribbon and connect card sit in a centered ~960px column; the towel-characters artwork anchors the center-bottom nicely, but the upper-left/upper-right thirds are flat dark gradient. Between the connect card and the footer there is also a full empty band (~250px tall) with no content. By contrast /dashboard's full-bleed art uses the ultrawide canvas beautifully.",
+   "suggestion": "On wide breakpoints, widen the stat ribbon (6-7 chips incl. TVL/price) and use the empty mid-band for the boost-schedule table or pool preview — additive, art untouched."
+  },
+  {
+   "id": "F185",
+   "src": "live:farm-dashboard",
+   "severity": "polish",
+   "category": "improve",
+   "page": "/farm",
+   "title": "Stat chips have no tooltips or click-through",
+   "evidence": "Hovering STAKING APR (and others) produces no tooltip; the bootstrap-APR caveat is inline (good) but REWARD POOL / DAILY EMISSIONS / FEE SHARE have no 'how is this computed' affordance and nothing is clickable (e.g. FEE SHARE → /tokenomics).",
+   "suggestion": "Add hover tooltips with formula/source and link chips to their detail pages."
+  }
+ ]
+}
