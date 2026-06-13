@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import {
@@ -415,10 +415,21 @@ function PriceImpactBadge({ impact }: { impact: number | null }) {
 // ─── Stats Bar ────────────────────────────────────────────────────
 
 function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
+  // F269: read the protocol fee on-chain instead of hardcoding '0.5%' \u2014 the
+  // literal drifts if the owner retunes the factory fee.
+  const { data: protocolFeeBps } = useReadContract({
+    address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+    abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
+    functionName: 'protocolFeeBps',
+    query: { enabled: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS) },
+  });
+  const protocolFeeLabel =
+    protocolFeeBps !== undefined ? `${(Number(protocolFeeBps) / 100).toFixed(2)}%` : 'TBD';
+
   const stats = [
     { label: 'Total Pools', value: poolCount?.toString() ?? '0', tooltip: 'Number of bonding curve pools deployed for NFT trading' },
     { label: 'Total Volume', value: '\u2014', tooltip: 'Cumulative ETH volume traded through all pools' },
-    { label: 'Protocol Fee', value: '0.5%', tooltip: 'Fee taken by the protocol on each trade, separate from LP fees' },
+    { label: 'Protocol Fee', value: protocolFeeLabel, tooltip: 'Fee taken by the protocol on each trade, separate from LP fees' },
   ];
 
   return (
@@ -984,7 +995,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
 // ─── Trade History Placeholder ────────────────────────────────────
 
-function TradeHistory() {
+function TradeHistory({ deployed }: { deployed: boolean }) {
   return (
     <ArtCard art={ART.chaosScene} opacity={1} overlay="none" border="var(--color-purple-75)">
       <div className="p-6 text-center">
@@ -994,8 +1005,12 @@ function TradeHistory() {
           </svg>
         </div>
         <h4 className="text-sm font-semibold text-white mb-1.5">Trade History</h4>
+        {/* F269: once the factory is deployed the "after launch" copy is stale —
+            per-pool trade history lives under each pool's expandable card. */}
         <p className="text-xs text-white leading-relaxed max-w-xs mx-auto">
-          Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.
+          {deployed
+            ? 'Expand any tracked pool to see its live swap history. All swaps, fees, and pool interactions are tracked on-chain.'
+            : 'Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.'}
         </p>
       </div>
     </ArtCard>
@@ -1320,9 +1335,27 @@ function PoolTradeHistory({ poolAddress }: { poolAddress: Address }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lookback, setLookback] = useState(TRADE_HISTORY_LOOKBACK);
+  // F273: remember the block we last fetched at so the watched blockNumber
+  // (every ~12s) doesn't re-run the 10k-block getLogs pair every block. A new
+  // lookback / pool resets it via the ref below.
+  const lastFetchedBlockRef = useRef<bigint | null>(null);
+  const lastQueryKeyRef = useRef<string>('');
 
   useEffect(() => {
     if (!publicClient || !blockNumber) return;
+    // Force a refetch when the pool or lookback changes; otherwise only refetch
+    // once the chain advances >25 blocks past our last fetch.
+    const queryKey = `${poolAddress}:${lookback.toString()}`;
+    const queryChanged = queryKey !== lastQueryKeyRef.current;
+    if (
+      !queryChanged &&
+      lastFetchedBlockRef.current !== null &&
+      blockNumber - lastFetchedBlockRef.current <= 25n
+    ) {
+      return;
+    }
+    lastQueryKeyRef.current = queryKey;
+    lastFetchedBlockRef.current = blockNumber;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -1449,7 +1482,7 @@ function PoolCard({
   const [adminExpanded, setAdminExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
-  const { data: poolInfo, refetch: refetchPoolInfo } = useReadContract({
+  const { data: poolInfo, refetch: refetchPoolInfo, isError: poolInfoError } = useReadContract({
     address: poolAddress,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getPoolInfo',
@@ -1479,6 +1512,22 @@ function PoolCard({
     refetchPoolInfo();
     refetchPoolHeldIds();
   }, [refetchPoolInfo, refetchPoolHeldIds]);
+
+  // F259: a pool tracked against a dead pre-relaunch factory fails getPoolInfo
+  // forever. Render a terminal error card (not an endless skeleton) so the user
+  // knows why — the MyPoolsTab remove button sits over this card.
+  if (poolInfoError) {
+    return (
+      <div className="rounded-2xl border border-[rgba(239,68,68,0.2)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4">
+        <p className="text-sm font-medium text-red-400 mb-1">Pool unreachable</p>
+        <p className="text-[12px] text-white/70 mb-1">
+          This address didn't respond to <span className="font-mono">getPoolInfo</span> — it may be from an old deployment.
+        </p>
+        <p className="text-[11px] font-mono text-white/40 break-all">{poolAddress}</p>
+        <p className="text-[11px] text-white/50 mt-2">Remove it from tracking using the × above.</p>
+      </div>
+    );
+  }
 
   if (!poolInfo) {
     return (
@@ -1896,7 +1945,7 @@ function TradeTab({ deployed }: { deployed: boolean }) {
         <BuySellPanel deployed={deployed} />
         <PoolExplorer deployed={deployed} />
       </div>
-      <TradeHistory />
+      <TradeHistory deployed={deployed} />
     </div>
   );
 }
@@ -1914,7 +1963,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const [ethDeposit, setEthDeposit] = useState('');
   const [nftIds, setNftIds] = useState('');
   const [feeBps, setFeeBps] = useState('200');
-  const [autoTracked, setAutoTracked] = useState<string | null>(null);
+  // F263: track which deploy receipt we've already auto-tracked (by tx hash) so
+  // a SECOND pool deployed in the same session re-arms — the old boolean/address
+  // guard never reset and silently skipped the 2nd auto-track + toast.
+  const [autoTrackedTx, setAutoTrackedTx] = useState<string | null>(null);
 
   // Two parallel tx lifecycles: one for the ERC721 setApprovalForAll,
   // one for the factory.createPool call. Keeping them separate means we
@@ -1956,7 +2008,9 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   // Decode PoolCreated from the deploy receipt so the new pool can be auto-
   // tracked without the user pasting the address by hand.
   useEffect(() => {
-    if (!isDeploySuccess || !deployReceipt || autoTracked) return;
+    if (!isDeploySuccess || !deployReceipt) return;
+    // F263: re-arm per deploy — skip only if THIS receipt was already tracked.
+    if (autoTrackedTx === deployReceipt.transactionHash) return;
     for (const log of deployReceipt.logs) {
       if (log.address.toLowerCase() !== TEGRIDY_NFT_POOL_FACTORY_ADDRESS.toLowerCase()) continue;
       try {
@@ -1969,7 +2023,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
           const poolAddr = (decoded.args as { pool?: Address } | undefined)?.pool;
           if (poolAddr) {
             addTrackedPool(poolAddr);
-            setAutoTracked(poolAddr);
+            setAutoTrackedTx(deployReceipt.transactionHash);
             toast.success('Pool deployed & tracked — see My Pools tab');
             setStep(1);
             setCollection('');
@@ -1980,7 +2034,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
         }
       } catch { /* skip non-matching logs */ }
     }
-  }, [isDeploySuccess, deployReceipt, autoTracked]);
+  }, [isDeploySuccess, deployReceipt, autoTrackedTx]);
 
   // Type-specific hints — don't hard-gate (the contract enforces the real
   // rules), just warn when the combination doesn't match the chosen type.
@@ -2463,7 +2517,7 @@ function useTrackedPools() {
   return { pools, addPool, removePool };
 }
 
-function MyPoolsTab({ deployed: _deployed }: { deployed: boolean }) {
+function MyPoolsTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const { pools: trackedPools, addPool, removePool } = useTrackedPools();
   const [newPoolAddr, setNewPoolAddr] = useState('');
@@ -2500,7 +2554,7 @@ function MyPoolsTab({ deployed: _deployed }: { deployed: boolean }) {
             <div>
               <p className={labelClass}>Your Pool Earnings</p>
               <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">{'\u2014'}</p>
-              <p className="text-[10px] text-white mt-0.5">Cumulative LP fees (available after launch)</p>
+              <p className="text-[10px] text-white mt-0.5">{deployed ? 'Cumulative LP fees earned' : 'Cumulative LP fees (available after launch)'}</p>
             </div>
             <div className="text-left sm:text-right">
               <p className={labelClass}>Tracked Pools</p>
