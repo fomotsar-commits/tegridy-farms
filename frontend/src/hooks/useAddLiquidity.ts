@@ -60,22 +60,24 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   // Fetch pair reserves + token0 + LP info + user balances + allowances
   const { data, refetch, isLoading: isLoadingPool } = useReadContracts({
+    // chainId is pinned per-contract (useReadContracts has no top-level chainId
+    // in this wagmi version) so every read targets mainnet regardless of the
+    // wallet's network. [T9 read-layer pin]
     contracts: [
       // Pair info
-      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves' },
-      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0' },
-      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'totalSupply' },
+      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: CHAIN_ID },
+      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0', chainId: CHAIN_ID },
+      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'totalSupply', chainId: CHAIN_ID },
       // LP balance + allowance
-      { address: pairAddr, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
-      { address: pairAddr, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS] },
+      { address: pairAddr, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
+      { address: pairAddr, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS], chainId: CHAIN_ID },
       // Token A balance + allowance (only for ERC20, not native ETH)
-      { address: addrA, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
-      { address: addrA, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS] },
+      { address: addrA, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
+      { address: addrA, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS], chainId: CHAIN_ID },
       // Token B balance + allowance (only for ERC20, not native ETH)
-      { address: addrB, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
-      { address: addrB, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS] },
+      { address: addrB, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
+      { address: addrB, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS], chainId: CHAIN_ID },
     ],
-    chainId: CHAIN_ID,
     query: { enabled: onRightChain && !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 

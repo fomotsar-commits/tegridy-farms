@@ -157,7 +157,7 @@ function alchemyUrl() {
 const PUBLIC_RPC_URLS = Object.freeze([
   "https://ethereum-rpc.publicnode.com",
   "https://eth.drpc.org",
-  "https://eth.merkle.io",
+  "https://cloudflare-eth.com",
   "https://eth.llamarpc.com",
 ]);
 

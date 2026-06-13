@@ -415,16 +415,11 @@ function PriceImpactBadge({ impact }: { impact: number | null }) {
 // ─── Stats Bar ────────────────────────────────────────────────────
 
 function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
-  // F269: read the protocol fee on-chain instead of hardcoding '0.5%' \u2014 the
-  // literal drifts if the owner retunes the factory fee.
-  const { data: protocolFeeBps } = useReadContract({
-    address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
-    abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
-    functionName: 'protocolFeeBps',
-    query: { enabled: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS) },
-  });
-  const protocolFeeLabel =
-    protocolFeeBps !== undefined ? `${(Number(protocolFeeBps) / 100).toFixed(2)}%` : 'TBD';
+  // F269 (deferred): the pool factory ABI exposes no protocol-fee view, so the
+  // fee can't be read on-chain here \u2014 the prior `protocolFeeBps` read targeted a
+  // function the factory doesn't implement and broke the build. Show the current
+  // configured value; revisit with the correct pool/router fee getter + ABI.
+  const protocolFeeLabel = '0.5%';
 
   const stats = [
     { label: 'Total Pools', value: poolCount?.toString() ?? '0', tooltip: 'Number of bonding curve pools deployed for NFT trading' },
