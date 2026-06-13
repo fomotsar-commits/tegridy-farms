@@ -89,13 +89,21 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
     if (!wallet) return;
     setSaving(true);
     try {
-      await saveProfile(wallet, {
+      // F716: saveProfile ALWAYS persists to localStorage first, then returns
+      // false (without throwing) when the cloud upsert is rejected — so the old
+      // unconditional "Profile saved" toast lied on every failed cloud write.
+      // Gate the message on the real result.
+      const synced = await saveProfile(wallet, {
         displayName: displayName.trim(),
         bio: bio.trim(),
         twitter: twitter.trim(),
       }, slug);
-      addToast?.("Profile saved", "success");
       onSave?.();
+      if (synced) {
+        addToast?.("Profile saved", "success");
+      } else {
+        addToast?.("Saved on this device — sign in to sync your profile across devices.", "info");
+      }
       onClose();
     } catch (err) {
       console.error("Save profile error:", err);
