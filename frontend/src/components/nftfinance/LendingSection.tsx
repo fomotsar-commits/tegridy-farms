@@ -498,7 +498,9 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     },
     {
       label: 'Protocol Fee',
-      value: protocolFeeBps !== undefined ? `${bpsToPercent(protocolFeeBps as bigint)}%` : '--%',
+      // F54: when the read is unavailable (contract not deployed / read failed),
+      // show an honest 'TBD' rather than a raw '--%' double-dash.
+      value: protocolFeeBps !== undefined ? `${bpsToPercent(protocolFeeBps as bigint)}%` : 'TBD',
       tooltip: 'Percentage fee taken from interest earned by lenders. Paid to the protocol treasury.',
       art: pageArt('lending-section', 3),
       icon: (

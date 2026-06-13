@@ -3,6 +3,12 @@ import { m } from 'framer-motion';
 import { isAddress } from 'viem';
 import { usePublicClient } from 'wagmi';
 import { ArtImg } from './ArtImg';
+import { SITE_URL } from '../lib/constants';
+
+// F46: tegridy.farm is unregistered (DNS-level fail), so every shared referral
+// link/tweet dead-ended. Point at the canonical live origin. SITE_URL has no
+// scheme-less host for the truncated display, so derive it once here.
+const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
 
 interface ReferralWidgetProps {
   address: string;
@@ -68,7 +74,7 @@ export function ReferralWidget({
     }
   }, [hasReferrer, address]);
 
-  const referralLink = `https://tegridy.farm/?ref=${encodeURIComponent(address)}`;
+  const referralLink = `${SITE_URL}/?ref=${encodeURIComponent(address)}`;
   const tweetText = encodeURIComponent(
     "I'm farming on @TegridyFarms! Join with my referral link for bonus rewards \u{1F33F}"
   );
@@ -91,7 +97,7 @@ export function ReferralWidget({
     timerRef.current = setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const truncatedLink = `tegridy.farm/?ref=${address.slice(0, 6)}...${address.slice(-4)}`;
+  const truncatedLink = `${SITE_HOST}/?ref=${address.slice(0, 6)}...${address.slice(-4)}`;
   const txBusy = !!isPending || !!isConfirming;
   const hasPending = (referralPendingBig ?? 0n) > 0n || referralPending > 0;
   const refInputValid = isAddress(refInput) && refInput.toLowerCase() !== address.toLowerCase();

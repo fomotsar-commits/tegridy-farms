@@ -51,6 +51,13 @@ export default function ActivityPage() {
   // wired in constants.ts) /premium shows the real Gold Card with no code change.
   const effectiveTab: Tab = tab === 'gold' && !PREMIUM_LIVE ? 'points' : tab;
 
+  // F9: don't promote the Gold Card tab while PREMIUM_ACCESS is zeroed — it would
+  // dead-end in the not-deployed placeholder. The tab returns automatically the
+  // moment the address lands in constants.ts (mirrors Footer/navConfig gating).
+  const visibleTabs = (Object.keys(TAB_LABELS) as Tab[]).filter(
+    (t) => t !== 'gold' || PREMIUM_LIVE,
+  );
+
   const handleTab = (t: Tab) => {
     if (t === effectiveTab) return;
     navigate(TAB_PATHS[t], { replace: false });
@@ -75,7 +82,7 @@ export default function ActivityPage() {
               boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
             }}
           >
-            {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+            {visibleTabs.map((t) => (
               <button
                 key={t}
                 onClick={() => handleTab(t)}

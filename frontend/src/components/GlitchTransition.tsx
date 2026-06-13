@@ -18,7 +18,9 @@ const ART_IMAGES = [
   '/splash/new/61.avif', '/splash/new/58.avif', '/splash/new/53.avif',
   '/splash/new/28.avif', '/splash/new/1.avif', '/splash/new/3.avif',
   '/splash/new/2.jpg', '/splash/new/50.jpg', '/splash/new/48.jpg',
-  '/splash/new/41.jpg', '/splash/new/28.jpg', '/splash/new/29.jpg',
+  // F31: #28 was listed twice (28.avif above + 28.jpg) — same artwork double-
+  // weighted in the slice pool. Keep the .avif entry only.
+  '/splash/new/41.jpg', '/splash/new/29.jpg',
   '/splash/new/17.jpg', '/splash/new/46.jpg', '/splash/new/18.jpg',
   '/splash/new/14.jpg', '/splash/new/20.jpg', '/splash/new/5.jpg',
   '/splash/new/39.jpg',
@@ -104,7 +106,10 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
     // Use 1x resolution for performance — no retina needed for glitch
     canvas.width = W;
     canvas.height = H;
-    const ctx = canvas.getContext('2d');
+    // F31: this path does per-frame getImageData/putImageData block displacement
+    // — willReadFrequently keeps Chrome on the fast (CPU-readback) path and
+    // silences its "willReadFrequently" warning.
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     startRef.current = performance.now();

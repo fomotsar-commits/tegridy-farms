@@ -124,8 +124,11 @@ export default function HomePage() {
             </div>
 
             {/* Rotating Towelie one-liner — the personality beat right next to
-                the CTAs that the front-end critique flagged as missing. */}
-            <div className="mt-4 min-h-[22px]" aria-live="polite">
+                the CTAs that the front-end critique flagged as missing.
+                F57: reserve a fixed min-height (so an empty/short quote can't
+                shift the trust badge) and sit the quote in a subtle backdrop-blur
+                pill so it stays legible over the busy mural. */}
+            <div className="mt-4 min-h-[34px] flex items-center" aria-live="polite">
               <AnimatePresence mode="wait">
                 <m.span
                   key={quoteIdx}
@@ -133,10 +136,11 @@ export default function HomePage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.4 }}
-                  className="inline-flex items-baseline gap-2 text-[12px] italic"
+                  className="inline-flex items-baseline gap-2 text-[13px] italic rounded-full px-3 py-1.5"
+                  style={{ background: 'rgba(6,12,26,0.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
                 >
-                  <span className="text-white/80">&ldquo;{TOWELIE_QUOTES[quoteIdx]}&rdquo;</span>
-                  <span className="text-[10px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; Towelie</span>
+                  <span className="text-white/90">&ldquo;{TOWELIE_QUOTES[quoteIdx]}&rdquo;</span>
+                  <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; Towelie</span>
                 </m.span>
               </AnimatePresence>
             </div>

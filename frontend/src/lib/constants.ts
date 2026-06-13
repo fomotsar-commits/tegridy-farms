@@ -127,6 +127,11 @@ export const CURRENT_SEASON = {
   endDate: '2026-09-05',
 };
 
+// Canonical production origin. Single source of truth for share links / fallback
+// URLs so nothing ships a dead domain (e.g. tegridyfarms.io / tegridy.farm).
+// Keep in lock-step with index.html <link rel=canonical> and usePageTitle SITE_URL.
+export const SITE_URL = 'https://tegridyfarms.vercel.app';
+
 // External links
 export const ETHERSCAN_TOKEN = `https://etherscan.io/token/${TOWELI_ADDRESS}`;
 export const UNISWAP_BUY_URL = `https://app.uniswap.org/swap?outputCurrency=${TOWELI_ADDRESS}&chain=ethereum`;

@@ -114,10 +114,12 @@ export default function TokenomicsPage() {
             <h2 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h2>
             <div className="w-full h-48 min-h-[192px]">
               <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}>
-              {/* Recharts warns "width(-1) and height(-1)" if it measures the
-                  container before layout settles (e.g. during page transition).
-                  Explicit min sizes give the ResizeObserver a non-zero baseline. */}
-              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={192}>
+              {/* F50: a fluid height="100%" depended on the flex parent being
+                  measured at the moment recharts mounted — during the keyed route
+                  remount the container measured 0/-1 and the pie rendered blank
+                  (legend-only). Pin an explicit pixel height so the chart is
+                  size-deterministic on first paint; width still flows from w-full. */}
+              <ResponsiveContainer width="100%" height={192} minWidth={1} minHeight={192}>
                 <PieChart>
                   <Pie data={SUPPLY_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
                     {SUPPLY_DATA.map((e) => <Cell key={e.name} fill={e.color} />)}

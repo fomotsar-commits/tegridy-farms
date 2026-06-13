@@ -8,6 +8,18 @@ import { randomToweliQuote } from '../lib/copy';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
 import { useToweliQueueInternal } from '../hooks/useTowelie';
 import { answerQuestion } from '../lib/towelieKnowledge';
+import {
+  isDeployed,
+  TEGRIDY_LENDING_ADDRESS,
+  TEGRIDY_NFT_LENDING_ADDRESS,
+  TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+  TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+  COMMUNITY_GRANTS_ADDRESS,
+  MEME_BOUNTY_BOARD_ADDRESS,
+  VOTE_INCENTIVES_ADDRESS,
+  GAUGE_CONTROLLER_ADDRESS,
+  PREMIUM_ACCESS_ADDRESS,
+} from '../lib/constants';
 
 // ─────────────────────────────────────────────────────────────────
 // Event copy banks. Pick a random line per event so repeat triggers
@@ -98,6 +110,39 @@ const ROUTE_TIPS: Record<string, string> = {
   '/treasury':    "Watch the funds. Transparency, with tegridy.",
 };
 
+// F34: three routes (nft-finance/community/premium) are promoted in the nav
+// while their contracts are still zeroed, so the page renders a "not deployed"
+// placeholder. Towelie's first-visit tip promised live functionality the page
+// then denied. Gate those tips on the ACTUAL deployed state (isDeployed on the
+// addresses — NOT navConfig's PROMOTE_PENDING flag) and substitute a
+// coming-soon line until the addresses land. The full tip returns automatically.
+function tipIsLive(pathname: string): boolean {
+  if (pathname === '/nft-finance') {
+    return [
+      TEGRIDY_LENDING_ADDRESS,
+      TEGRIDY_NFT_LENDING_ADDRESS,
+      TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+      TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+    ].some(isDeployed);
+  }
+  if (pathname === '/community') {
+    return [
+      COMMUNITY_GRANTS_ADDRESS,
+      MEME_BOUNTY_BOARD_ADDRESS,
+      VOTE_INCENTIVES_ADDRESS,
+      GAUGE_CONTROLLER_ADDRESS,
+    ].some(isDeployed);
+  }
+  if (pathname === '/premium') return isDeployed(PREMIUM_ACCESS_ADDRESS);
+  return true;
+}
+
+const COMING_SOON_TIPS: Record<string, string> = {
+  '/nft-finance': "NFT lending lands here soon. Contracts aren't live yet — sit tight.",
+  '/community':   "Grants, bounties, votes — coming once governance ships. Patience, with tegridy.",
+  '/premium':     "Randy's Gold Card isn't open yet. I'll holler when it drops.",
+};
+
 const STORAGE_DISABLED = 'towelie:disabled';
 const STORAGE_SEEN_PREFIX = 'towelie:seen:'; // per-route flag
 const SNOOZE_MS = 2 * 60 * 1000;             // dismiss → hide for 2 min
@@ -148,7 +193,9 @@ export function TowelieAssistant() {
   // so it doesn't punch over a navigation transition.
   useEffect(() => {
     if (!canShow()) return;
-    const tip = ROUTE_TIPS[location.pathname];
+    // F34: substitute a coming-soon tip when a promoted route isn't deployed.
+    const tip = (!tipIsLive(location.pathname) && COMING_SOON_TIPS[location.pathname])
+      || ROUTE_TIPS[location.pathname];
     if (!tip) return;
     const seenKey = STORAGE_SEEN_PREFIX + location.pathname;
     try { if (localStorage.getItem(seenKey) === '1') return; } catch {/* noop */}

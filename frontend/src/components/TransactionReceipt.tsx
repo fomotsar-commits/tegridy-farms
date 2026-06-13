@@ -10,18 +10,21 @@ import {
 import { formatTokenAmount } from '../lib/formatting';
 import { getTxUrl, getChainLabel } from '../lib/explorer';
 import { RECEIPT_COPY } from '../lib/copy';
+import { SITE_URL } from '../lib/constants';
 
 type TxStatus = 'pending' | 'confirmed' | 'failed';
 
-/* ─── Sanitize text to prevent HTML/script injection in rendered receipts ─── */
-function sanitize(str: string | undefined): string {
+/* ─── Sanitize text for rendered receipts ───
+   F10: every value here is rendered as a JSX text node (and via html2canvas of
+   that same DOM), so React already escapes it — HTML-entity-encoding the input
+   only corrupted display ("Randy's Pool" → "Randy&#x27;s Pool"). We keep an
+   identity + length cap (defensive against pathological metadata strings); the
+   tx-hash validator below still enforces the strict 0x… format. There is no
+   innerHTML path in this component — if one is ever added, escape THERE. */
+const MAX_RECEIPT_FIELD = 120;
+export function sanitize(str: string | undefined): string {
   if (!str) return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
+  return str.length > MAX_RECEIPT_FIELD ? str.slice(0, MAX_RECEIPT_FIELD) : str;
 }
 
 /** Sanitize and validate an Ethereum tx hash */
@@ -228,7 +231,8 @@ function TransactionReceiptOverlay({
   const performShare = useCallback(() => {
     const verb = config.verb;
     const text = `Just ${verb} on @TegridyFarms! \u{1F33F} #TOWELI #DeFi`;
-    const url = etherscanUrl ?? 'https://tegridyfarms.io';
+    // F11: fall back to the canonical live origin, not the unowned tegridyfarms.io.
+    const url = etherscanUrl ?? SITE_URL;
     window.open(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
       '_blank',
