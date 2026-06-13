@@ -10,6 +10,7 @@ import { InfoTooltip } from './ui/InfoTooltip';
 import { surfaceTxError } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { ArtImg } from './ArtImg';
+import { useGaugeList } from '../hooks/useGaugeList';
 
 const GAUGE_STAT_ARTS = [pageArt('gauge-voting', 0), pageArt('gauge-voting', 1), pageArt('gauge-voting', 2)];
 
@@ -128,6 +129,21 @@ export function GaugeVoting() {
   const gauges: Address[] = (gaugesData as Address[]) ?? [];
   const duration = epochDuration !== undefined ? Number(epochDuration) : 604800;
   const genesis = genesisEpoch !== undefined ? Number(genesisEpoch) : 0;
+
+  // F327: resolve human pair labels ("TOWELI / WETH") the same way the bribes
+  // tab does, so a gauge reads as a name here instead of a bare 0x… address.
+  // useGaugeList already memoises + event-refreshes (shared with VoteIncentives),
+  // so this adds no extra polling beyond the shared hook.
+  const { gauges: gaugeInfos } = useGaugeList();
+  const gaugeLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const g of gaugeInfos) map.set(g.pair.toLowerCase(), g.label);
+    return map;
+  }, [gaugeInfos]);
+  const gaugeLabel = useCallback(
+    (gauge: string) => gaugeLabelMap.get(gauge.toLowerCase()) ?? shortenAddress(gauge, 6),
+    [gaugeLabelMap],
+  );
 
   const nextEpochTimestamp = genesis && currentEpoch !== undefined ? genesis + (currentEpoch + 1) * duration : 0;
   const countdown = useCountdown(nextEpochTimestamp);
@@ -325,7 +341,7 @@ export function GaugeVoting() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: 'Current Epoch', value: currentEpoch !== undefined ? `#${currentEpoch}` : '--', sub: `Next in ${countdown}` },
-          { label: 'Emission Budget', value: budget !== undefined ? `${formatTokenAmount(formatEther(budget), 0)} TOWELI` : '--', sub: 'per epoch (7 days)' },
+          { label: 'Emission Budget', value: budget !== undefined ? `${formatTokenAmount(formatEther(budget), 0)} TOWELI` : '--', sub: `per epoch (${Math.round(duration / 86400)} days)` },
           { label: 'Active Gauges', value: `${gauges.length}`, sub: 'whitelisted pools' },
         ].map(({ label, value, sub }, i) => (
           <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
@@ -365,7 +381,8 @@ export function GaugeVoting() {
                 <m.div key={gauge} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
                   className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-mono text-purple-300">{shortenAddress(gauge, 6)}</p>
+                    <p className="text-[13px] font-medium text-purple-300 truncate">{gaugeLabel(gauge)}</p>
+                    <p className="text-[10px] font-mono text-white/30 truncate">{shortenAddress(gauge, 6)}</p>
                     <div className="mt-1.5 h-1.5 rounded-full bg-white/5 overflow-hidden">
                       <m.div initial={{ width: 0 }} animate={{ width: `${Math.min(pct, 100)}%` }}
                         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
@@ -479,9 +496,9 @@ export function GaugeVoting() {
                 <p className="text-[11px] text-white/50 uppercase tracking-wider mb-2">Your committed ballot</p>
                 <ul className="space-y-1 text-[12px] font-mono text-white/80">
                   {localCommitment.gauges.map((g, i) => (
-                    <li key={g} className="flex justify-between">
-                      <span>{shortenAddress(g, 5)}</span>
-                      <span className="text-purple-300">{(Number(localCommitment.weights[i]) / 100).toFixed(0)}%</span>
+                    <li key={g} className="flex justify-between gap-2">
+                      <span className="truncate">{gaugeLabel(g)}</span>
+                      <span className="text-purple-300 flex-shrink-0">{(Number(localCommitment.weights[i]) / 100).toFixed(0)}%</span>
                     </li>
                   ))}
                 </ul>
@@ -512,7 +529,7 @@ export function GaugeVoting() {
                   const w = weights[gauge] ?? 0;
                   return (
                     <div key={gauge} className="flex items-center gap-3">
-                      <span className="text-[12px] font-mono text-white/60 w-28 truncate">{shortenAddress(gauge, 5)}</span>
+                      <span className="text-[12px] text-white/60 w-28 truncate" title={gauge}>{gaugeLabel(gauge)}</span>
                       <input type="range" min={0} max={BPS} step={100} value={w}
                         onChange={(e) => setGaugeWeight(gauge, Number(e.target.value))}
                         className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-purple-500"

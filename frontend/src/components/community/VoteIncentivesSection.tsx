@@ -14,7 +14,7 @@ import { VOTE_INCENTIVES_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { useBribes, type WhitelistedToken } from '../../hooks/useBribes';
 import { useGaugeList, type GaugeInfo } from '../../hooks/useGaugeList';
 import { shortenAddress, formatTokenAmount } from '../../lib/formatting';
-import { InfoTooltip } from '../ui/InfoTooltip';
+import { InfoTooltip, StepIndicator } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
@@ -160,7 +160,10 @@ function PersonaCards() {
 function PendingFeeBanner({ current, pending, executeAt, now }: {
   current: number; pending: number; executeAt: number; now: number;
 }) {
-  if (executeAt === 0 || pending === 0 || pending === current) return null;
+  // F341: bail only when there's no scheduled change (executeAt === 0) or the
+  // pending value equals the current one. A queued cut to 0% is a real change
+  // and must stay visible, so we no longer early-return on `pending === 0`.
+  if (executeAt === 0 || pending === current) return null;
   const remaining = Math.max(0, executeAt - now);
   const direction = pending > current ? 'up' : 'down';
   return (
@@ -405,13 +408,16 @@ function PendingWithdrawalsPanel({ pendingETH, tokens, onWithdrawETH, onWithdraw
 }
 
 // ─── Your Claimables (now with empty state) ────────────────────────
-function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, currentEpoch }: {
+function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, currentEpoch, whitelistMap }: {
   claimables: PairClaimable[];
   gauges: GaugeInfo[];
   onClaim: (pair: Address) => void;
   isBusy: boolean;
   isConnected: boolean;
   currentEpoch: number;
+  // F319: resolve each claimable token's real decimals + symbol so a 6-decimal
+  // token isn't formatted with formatEther (18) → displayed 1e12× too small.
+  whitelistMap: Map<string, WhitelistedToken>;
 }) {
   if (!isConnected || claimables.length === 0) {
     return (
@@ -471,12 +477,21 @@ function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, cur
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-1">
-                  {c.tokens.map((tok, i) => (
-                    <span key={`${tok}-${i}`} className="text-[11px] text-purple-200 font-mono">
-                      {formatTokenAmount(formatEther(c.amounts[i] ?? 0n), 4)}{' '}
-                      {tok.toLowerCase() === ZERO_ADDRESS ? 'ETH' : shortenAddress(tok)}
-                    </span>
-                  ))}
+                  {c.tokens.map((tok, i) => {
+                    const amount = c.amounts[i] ?? 0n;
+                    const isETH = tok.toLowerCase() === ZERO_ADDRESS;
+                    // F319: mirror GaugeRow's badge — use the whitelisted token's
+                    // real decimals/symbol; fall back to formatEther/short-address
+                    // only for unknown tokens (ETH stays special-cased).
+                    const meta = isETH ? undefined : whitelistMap.get(tok.toLowerCase());
+                    const amt = meta ? formatUnits(amount, meta.decimals) : formatEther(amount);
+                    const sym = isETH ? 'ETH' : (meta?.symbol ?? shortenAddress(tok));
+                    return (
+                      <span key={`${tok}-${i}`} className="text-[11px] text-purple-200 font-mono">
+                        {formatTokenAmount(amt, 4)} {sym}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
               <button onClick={() => onClaim(c.pair)} disabled={isBusy}
@@ -805,6 +820,13 @@ function DepositCard({
             {insufficientBalance && <p className="text-[11px] text-red-400 mt-1.5">Insufficient balance.</p>}
             {belowMin && <p className="text-[11px] text-red-400 mt-1.5">Below minimum — contract would revert.</p>}
           </div>
+
+          {/* F342: surface the two-click approve→deposit shape for ERC20 bribes
+              upfront so the second click isn't a surprise. ETH deposits are
+              single-step, so the indicator only renders in token mode. */}
+          {mode === 'token' && (
+            <StepIndicator steps={['Approve', 'Deposit']} currentStep={needsApproval ? 0 : 1} />
+          )}
 
           <button onClick={handleSubmit} disabled={!canSubmit}
             className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
@@ -1390,6 +1412,7 @@ export function VoteIncentivesSection() {
         isBusy={isBusy}
         isConnected={isConnected}
         currentEpoch={currentEpoch}
+        whitelistMap={whitelistMap}
       />
 
       {/* Commit-reveal panel replaces inline voting when the active epoch is

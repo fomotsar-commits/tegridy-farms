@@ -92,7 +92,7 @@ export default function CommunityPage() {
               role="tab"
               aria-selected={section === key}
               className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
-                section === key ? 'text-white' : 'text-white hover:text-white'
+                section === key ? 'text-white' : 'text-white/60 hover:text-white'
               }`}
               onClick={() => handleSectionChange(key)}
             >
@@ -156,7 +156,7 @@ export default function CommunityPage() {
                   : <FeatureNotDeployed pageId="community" idx={2} title="The bounty board isn't live yet" subtitle="Meme bounties open once the bounty contract is deployed for the relaunch." />)}
                 {section === 'bribes' && (isDeployed(VOTE_INCENTIVES_ADDRESS)
                   ? <VoteIncentivesSection />
-                  : <FeatureNotDeployed pageId="community" idx={1} title="Vote incentives aren't live yet" subtitle="Cartman's Market opens once the vote-incentives contract is deployed for the relaunch." />)}
+                  : <FeatureNotDeployed pageId="community" idx={3} title="Vote incentives aren't live yet" subtitle="Cartman's Market opens once the vote-incentives contract is deployed for the relaunch." />)}
                 {section === 'gauges' && <GaugeVoting />}
               </Suspense>
             </ErrorBoundary>

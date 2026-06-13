@@ -78,12 +78,33 @@ export function BountiesSection() {
       toast.error('Description cannot be empty');
       return;
     }
-    const deadlineSecs = BigInt(Math.floor(Date.now() / 1000) + Number(newDeadlineDays) * 86400);
+    // F330: parseEther throws on exponent notation ("1e5") that number inputs
+    // permit — guard it so the click handler doesn't throw uncaught. Mirrors
+    // GrantsSection's validation.
+    let rewardWei: bigint;
+    try {
+      rewardWei = parseEther(newReward);
+    } catch {
+      toast.error('Reward is not a valid ETH amount');
+      return;
+    }
+    if (rewardWei <= 0n) {
+      toast.error('Reward must be greater than zero');
+      return;
+    }
+    // F330: a 0/negative deadline produces an in-past timestamp that reverts
+    // on-chain after gas. "0" is truthy so the guard above doesn't catch it.
+    const deadlineDays = Number(newDeadlineDays);
+    if (!Number.isFinite(deadlineDays) || deadlineDays < 1) {
+      toast.error('Deadline must be at least 1 day');
+      return;
+    }
+    const deadlineSecs = BigInt(Math.floor(Date.now() / 1000) + deadlineDays * 86400);
     writeContract({
       chainId: CHAIN_ID,
       address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'createBounty',
       args: [clean, deadlineSecs],
-      value: parseEther(newReward),
+      value: rewardWei,
     });
     toast.info('Creating bounty...');
   };
@@ -106,6 +127,22 @@ export function BountiesSection() {
 
   const submitURIInvalid = submitURI.length > 0 && !isAllowedSubmissionUri(submitURI);
   const descriptionRemaining = DEFAULT_DESCRIPTION_LIMIT - newDescription.length;
+
+  // F330: derive create-form validity so the submit button is disabled on
+  // invalid reward ("1e5", 0) or deadline (0/negative) rather than throwing
+  // or reverting on click.
+  let rewardInvalid = false;
+  if (newReward.length > 0) {
+    try {
+      if (parseEther(newReward) <= 0n) rewardInvalid = true;
+    } catch {
+      rewardInvalid = true;
+    }
+  }
+  const deadlineInvalid =
+    newDeadlineDays.length > 0 && !(Number(newDeadlineDays) >= 1);
+  const canCreate =
+    !!newDescription && !!newReward && !rewardInvalid && !deadlineInvalid;
 
   const handleClaim = (type: 'payout' | 'refund') => {
     if (!_ensureChain()) return;
@@ -194,15 +231,27 @@ export function BountiesSection() {
             <div>
               <label htmlFor="bounty-reward" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Reward (ETH)</label>
               <input id="bounty-reward" type="number" step="0.01" value={newReward} onChange={(e) => setNewReward(e.target.value)}
-                placeholder="0.1" className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
+                placeholder="0.1"
+                aria-invalid={rewardInvalid}
+                aria-describedby={rewardInvalid ? 'bounty-reward-error' : undefined}
+                className={`w-full bg-black/30 border rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors ${rewardInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
+              {rewardInvalid && (
+                <p id="bounty-reward-error" role="alert" className="mt-1 text-[11px] text-red-400">Enter a positive ETH amount</p>
+              )}
             </div>
             <div>
               <label htmlFor="bounty-deadline" className="text-[11px] text-white/70 uppercase tracking-wider block mb-1">Deadline (days)</label>
-              <input id="bounty-deadline" type="number" value={newDeadlineDays} onChange={(e) => setNewDeadlineDays(e.target.value)}
-                placeholder="7" className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors" />
+              <input id="bounty-deadline" type="number" min="1" value={newDeadlineDays} onChange={(e) => setNewDeadlineDays(e.target.value)}
+                placeholder="7"
+                aria-invalid={deadlineInvalid}
+                aria-describedby={deadlineInvalid ? 'bounty-deadline-error' : undefined}
+                className={`w-full bg-black/30 border rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-emerald-500 outline-none transition-colors ${deadlineInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
+              {deadlineInvalid && (
+                <p id="bounty-deadline-error" role="alert" className="mt-1 text-[11px] text-red-400">At least 1 day</p>
+              )}
             </div>
           </div>
-          <button onClick={handleCreate} disabled={!newDescription || !newReward || isSigning || isConfirming}
+          <button onClick={handleCreate} disabled={!canCreate || isSigning || isConfirming}
             className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : `Post Bounty (${newReward || '0'} ETH)`}
@@ -238,7 +287,14 @@ export function BountiesSection() {
               return (
                 <m.div key={bountyId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
                   className="px-5 py-4">
-                  <button onClick={() => setExpandedBounty(isExpanded ? null : bountyId)} className="w-full text-left">
+                  {/* F329: row header is a div role="button" (not a <button>) so the
+                      SafeText "show more" control inside the description isn't a nested
+                      button — invalid HTML + an a11y hazard. Mirrors the gallery card. */}
+                  <div role="button" tabIndex={0}
+                    aria-expanded={isExpanded}
+                    onClick={() => setExpandedBounty(isExpanded ? null : bountyId)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedBounty(isExpanded ? null : bountyId); } }}
+                    className="w-full text-left cursor-pointer">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -259,7 +315,7 @@ export function BountiesSection() {
                       <span>By {shortenAddress(creator)}</span>
                       {deadlineNum > 0 && <span>{isPastDeadline ? 'Expired' : formatTimeUntil(deadlineNum)}</span>}
                     </div>
-                  </button>
+                  </div>
 
                   {/* Expanded: Submit Work */}
                   {isExpanded && isOpen && !isPastDeadline && (
