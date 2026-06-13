@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther } from 'viem';
@@ -81,11 +81,16 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     : false;
   const canWithdraw = !isCancelled && (isClosed || soldOut);
 
-  if (isSuccess) {
-    void refetchPhase();
-    void refetchContractURI();
-    void refetchPaused();
-  }
+  // F250: refetch in an effect, not the render body — `isSuccess` stays true
+  // until the next tx, so a render-body refetch resolved → re-render → refetched
+  // indefinitely. Keyed on isSuccess so it fires once per confirmed tx.
+  useEffect(() => {
+    if (isSuccess) {
+      void refetchPhase();
+      void refetchContractURI();
+      void refetchPaused();
+    }
+  }, [isSuccess, refetchPhase, refetchContractURI, refetchPaused]);
 
   // R071 M-072-05: client-side Dutch-auction invariants mirror the Solidity
   // guards (TegridyDropV2.configureDutchAuction). Surfacing them inline lets

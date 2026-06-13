@@ -45,13 +45,21 @@ export function ArtCard({
 }
 
 /* ─── Phase badge for cards ─── */
+// F261: derive from PHASE_LABELS so a live Dutch auction (3) badges "Dutch
+// Auction" and CLOSED (0) / CANCELLED (4) read distinctly — the old 3-branch
+// ternary collapsed every non-1/2 phase into a single misleading "Paused".
+// (paused() is a separate boolean, surfaced by its own banner.)
+const PHASE_BADGE_CONFIG: Record<number, { color: string; ring: string; text: string; pulse: boolean }> = {
+  0: { color: 'bg-gray-500', ring: 'ring-gray-400/20', text: 'text-gray-400', pulse: false },     // Closed
+  1: { color: 'bg-yellow-500', ring: 'ring-yellow-400/30', text: 'text-yellow-300', pulse: false }, // Allowlist
+  2: { color: 'bg-emerald-500', ring: 'ring-emerald-400/30', text: 'text-emerald-300', pulse: true }, // Public
+  3: { color: 'bg-blue-500', ring: 'ring-blue-400/30', text: 'text-blue-300', pulse: true },        // Dutch Auction
+  4: { color: 'bg-red-500', ring: 'ring-red-400/30', text: 'text-red-300', pulse: false },          // Cancelled
+};
+
 export function PhaseBadge({ phase }: { phase: number }) {
-  const config =
-    phase === 2
-      ? { color: 'bg-emerald-500', ring: 'ring-emerald-400/30', text: 'text-emerald-300', label: 'Public', pulse: true }
-      : phase === 1
-        ? { color: 'bg-yellow-500', ring: 'ring-yellow-400/30', text: 'text-yellow-300', label: 'Allowlist', pulse: false }
-        : { color: 'bg-gray-500', ring: 'ring-gray-400/20', text: 'text-gray-400', label: 'Paused', pulse: false };
+  const cfg = PHASE_BADGE_CONFIG[phase] ?? PHASE_BADGE_CONFIG[0]!;
+  const config = { ...cfg, label: PHASE_LABELS[phase] ?? 'Closed' };
 
   return (
     <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 backdrop-blur-sm ring-1 ${config.ring}`}>
@@ -283,8 +291,11 @@ export function CreatorRevenueDashboard({
           <p className="text-white font-mono text-xl tabular-nums">{drop.totalMinted}</p>
         </div>
         <div className="text-center p-3 rounded-lg bg-black/60 border border-white/20">
-          <p className={LABEL}>Total Revenue</p>
+          {/* F270: mintPrice × totalMinted assumes a flat price — wrong for
+              Dutch-auction or repriced drops, so label it an estimate. */}
+          <p className={LABEL}>Est. Revenue</p>
           <p className="text-white font-mono text-xl tabular-nums">{totalRevenue.toFixed(4)} <span className="text-white text-sm">ETH</span></p>
+          <p className="text-[9px] text-white mt-0.5">Flat-price estimate</p>
         </div>
         <div className="text-center p-3 rounded-lg bg-black/60 border border-white/20">
           <p className={LABEL}>Unique Minters</p>

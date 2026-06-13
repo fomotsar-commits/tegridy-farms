@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Dispatch } from 'react';
 import { parseEther } from 'viem';
 import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
@@ -48,26 +48,41 @@ export function Step5_Deploy({
     }
     setLocalErr(null);
 
-    const cfg = {
-      name: state.collectionName,
-      symbol: state.collectionSymbol,
-      maxSupply: BigInt(state.maxSupply || '0'),
-      mintPrice: parseEther(state.mintPrice || '0'),
-      maxPerWallet: BigInt(state.maxPerWallet || '0'),
-      royaltyBps: state.royaltyBps,
-      placeholderURI: state.imagesManifestId ? arweaveUri(state.imagesManifestId) : '',
-      contractURI: state.contractUriId
-        ? `${arweaveUri(state.contractUriId)}contract.json`
-        : '',
-      merkleRoot: ('0x' + '0'.repeat(64)) as `0x${string}`,
-      dutchStartPrice: 0n,
-      dutchEndPrice: 0n,
-      dutchStartTime: 0n,
-      dutchDuration: 0n,
-      initialPhase: 0, // CLOSED — owner flips to PUBLIC when ready
-    };
-
+    // F252: build the config inside the try so a malformed number-input value
+    // (e.g. '1e4' / '0.0.5', both typeable in number inputs) surfaces an error
+    // instead of throwing uncaught in the click handler.
     try {
+      const maxSupply = BigInt(state.maxSupply || '0');
+      if (maxSupply < 1n) {
+        setLocalErr('Max supply must be at least 1.');
+        return;
+      }
+      const maxPerWallet = BigInt(state.maxPerWallet || '0');
+      if (maxPerWallet > maxSupply) {
+        setLocalErr('Max per wallet cannot exceed max supply.');
+        return;
+      }
+      const mintPrice = parseEther(state.mintPrice || '0');
+
+      const cfg = {
+        name: state.collectionName,
+        symbol: state.collectionSymbol,
+        maxSupply,
+        mintPrice,
+        maxPerWallet,
+        royaltyBps: state.royaltyBps,
+        placeholderURI: state.imagesManifestId ? arweaveUri(state.imagesManifestId) : '',
+        contractURI: state.contractUriId
+          ? `${arweaveUri(state.contractUriId)}contract.json`
+          : '',
+        merkleRoot: ('0x' + '0'.repeat(64)) as `0x${string}`,
+        dutchStartPrice: 0n,
+        dutchEndPrice: 0n,
+        dutchStartTime: 0n,
+        dutchDuration: 0n,
+        initialPhase: 0, // CLOSED — owner flips to PUBLIC when ready
+      };
+
       writeContract({
         chainId: CHAIN_ID,
         address: TEGRIDY_LAUNCHPAD_V2_ADDRESS as `0x${string}`,
@@ -92,13 +107,34 @@ export function Step5_Deploy({
     return `0x${log.topics[2]!.slice(26)}` as `0x${string}`;
   })();
 
-  if (isSuccess && deployedCollection && !state.deployedAddress) {
-    dispatch({
-      type: 'DEPLOY_SUCCESS',
-      txHash: txHash!,
-      collection: deployedCollection,
-    });
-  }
+  // F252: pre-validate maxSupply/maxPerWallet so the Deploy button is disabled
+  // before a doomed tx. parseEther/BigInt are wrapped so a malformed input
+  // (e.g. '1e4') marks the config invalid rather than throwing here.
+  const configValid = (() => {
+    try {
+      const maxSupply = BigInt(state.maxSupply || '0');
+      if (maxSupply < 1n) return false;
+      const maxPerWallet = BigInt(state.maxPerWallet || '0');
+      if (maxPerWallet > maxSupply) return false;
+      parseEther(state.mintPrice || '0');
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  // F252: dispatch in an effect, not the render body — updating the parent
+  // reducer during Step5's render triggers React's "cannot update a component
+  // while rendering a different component" warning.
+  useEffect(() => {
+    if (isSuccess && deployedCollection && txHash && !state.deployedAddress) {
+      dispatch({
+        type: 'DEPLOY_SUCCESS',
+        txHash,
+        collection: deployedCollection,
+      });
+    }
+  }, [isSuccess, deployedCollection, txHash, state.deployedAddress, dispatch]);
 
   return (
     <div className="space-y-5">
@@ -169,7 +205,7 @@ export function Step5_Deploy({
         </button>
         <button
           onClick={handleDeploy}
-          disabled={isPending || isConfirming || isSuccess || !factoryDeployed}
+          disabled={isPending || isConfirming || isSuccess || !factoryDeployed || !configValid}
           className={`px-8 py-2.5 rounded-xl text-sm ${BTN_EMERALD} disabled:opacity-40 disabled:cursor-not-allowed`}
         >
           {isPending

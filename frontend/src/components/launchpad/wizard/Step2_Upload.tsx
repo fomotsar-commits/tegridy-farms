@@ -24,7 +24,10 @@ export function Step2_Upload({
   // Re-validate images + CSV whenever inputs change so the user sees errors inline.
   useEffect(() => {
     const errors: string[] = [];
-    const warnings: string[] = [...state.validationWarnings];
+    // F266: build warnings fresh (not seeded from state) so re-runs don't
+    // accumulate duplicates, and dispatch them so "N files not referenced in
+    // CSV" actually reaches the warning surface.
+    const warnings: string[] = [];
 
     if (state.imageFiles.length > 0) {
       const img = validateImages(state.imageFiles);
@@ -47,8 +50,7 @@ export function Step2_Upload({
       }
     }
 
-    dispatch({ type: 'VALIDATION_ERRORS', errors });
-    // Intentional: we don't want to write `state.validationWarnings` into itself.
+    dispatch({ type: 'VALIDATION_ERRORS', errors, warnings });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.imageFiles, state.csvText]);
 

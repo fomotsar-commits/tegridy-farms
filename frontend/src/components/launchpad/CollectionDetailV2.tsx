@@ -51,7 +51,9 @@ export function CollectionDetailV2({
     if (drop.isPending) return 'Confirm in Wallet...';
     if (drop.isConfirming) return 'Confirming...';
     if (drop.isSoldOut) return 'Sold Out';
-    if (drop.currentPhase === 0) return 'Minting Paused';
+    // F261: phase 0 is CLOSED (creator hasn't opened the sale), distinct from a
+    // genuinely paused contract (drop.paused above). Don't call both "Paused".
+    if (drop.currentPhase === 0) return 'Minting Closed';
     return `Mint ${mintQty} for ${totalCost.toFixed(4)} ETH`;
   }, [deployed, isConnected, drop.isCancelled, drop.paused, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.currentPhase, mintQty, totalCost]);
 
@@ -354,12 +356,12 @@ export function CollectionDetailV2({
             </div>
           )}
 
-          {/* Paused empty state (phase=0) */}
+          {/* Closed empty state (phase=0) \u2014 F261: distinct from a paused contract */}
           {drop.currentPhase === 0 && (
             <ArtCard art={ART.towelieWindow} opacity={1} overlay="none" className="mb-6">
               <div className="text-center py-4">
                 <div className="text-white/15 text-4xl mb-3">{'\u23F8'}</div>
-                <p className="text-white text-sm">Minting is currently paused for this collection.</p>
+                <p className="text-white text-sm">Minting closed \u2014 the creator hasn't opened the sale yet.</p>
               </div>
             </ArtCard>
           )}

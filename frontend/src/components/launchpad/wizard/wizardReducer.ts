@@ -60,7 +60,9 @@ export type WizardAction =
   | { type: 'SET_BANNER'; file: File | null }
   | { type: 'CSV_PARSED'; rows: CsvRow[]; warnings: string[] }
   | { type: 'EDIT_ROW'; index: number; patch: Partial<CsvRow> }
-  | { type: 'VALIDATION_ERRORS'; errors: string[] }
+  // F266: Step 2 also computes warnings ("N files not referenced in CSV"); carry
+  // them on the same action so they reach the warning surface, not just errors.
+  | { type: 'VALIDATION_ERRORS'; errors: string[]; warnings?: string[] }
   | { type: 'QUOTE_RECEIVED'; wei: bigint }
   | { type: 'FUND_SUCCESS'; txId: string }
   | { type: 'IMAGES_UPLOADED'; manifestId: string }
@@ -147,7 +149,13 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       return { ...state, rows: next };
     }
     case 'VALIDATION_ERRORS':
-      return { ...state, validationErrors: action.errors };
+      return {
+        ...state,
+        validationErrors: action.errors,
+        // F266: only overwrite warnings when the action provides them, so a
+        // bare VALIDATION_ERRORS dispatch doesn't wipe Step 3's CSV warnings.
+        ...(action.warnings !== undefined ? { validationWarnings: action.warnings } : {}),
+      };
 
     case 'QUOTE_RECEIVED':
       return { ...state, quoteWei: action.wei };

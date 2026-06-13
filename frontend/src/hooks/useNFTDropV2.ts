@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
@@ -178,6 +178,11 @@ export function useNFTDropV2(dropAddress: string) {
   // Re-entry guard identical to v1 hook (see useNFTDrop comments).
   const inFlight = !!hash && !isSuccess && !isTxError;
 
+  // F265: the single tx-result effect below toasts for every write through this
+  // hook (mint AND refund). Track which action fired last so the toast wording
+  // matches — otherwise a refund on a cancelled sale toasts "Mint confirmed!".
+  const lastActionRef = useRef<'mint' | 'refund'>('mint');
+
   // AUDIT FIX FE-HIGH-01: `allowedAmount` is the per-wallet cap encoded into the
   // ALLOWLIST merkle leaf (see TegridyDropV2.mint). Pass 0 for PUBLIC / DUTCH where
   // the proof is unused. Default-zero keeps existing PUBLIC-only callers compatible.
@@ -189,6 +194,7 @@ export function useNFTDropV2(dropAddress: string) {
       toast.error('A mint is already pending');
       return;
     }
+    lastActionRef.current = 'mint';
     const totalCost = currentPrice * BigInt(quantity);
     writeContract({
       chainId: CHAIN_ID,
@@ -211,6 +217,7 @@ export function useNFTDropV2(dropAddress: string) {
       toast.error(isCancelled ? 'No refund owed to this wallet' : 'Sale is not cancelled');
       return;
     }
+    lastActionRef.current = 'refund';
     writeContract({
       chainId: CHAIN_ID,
       address: contractAddr,
@@ -224,12 +231,13 @@ export function useNFTDropV2(dropAddress: string) {
   // 10/12-call batch-read storm during back-to-back mints.
   useEffect(() => {
     if (isSuccess) {
-      toast.success('Mint confirmed!');
+      // F265: word the toast off the last action so a refund doesn't say "Mint".
+      toast.success(lastActionRef.current === 'refund' ? 'Refund confirmed!' : 'Mint confirmed!');
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
-      toast.error('Mint failed');
+      toast.error(lastActionRef.current === 'refund' ? 'Refund failed' : 'Mint failed');
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }

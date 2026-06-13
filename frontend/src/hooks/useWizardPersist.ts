@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { initialState } from '../components/launchpad/wizard/wizardReducer';
 import type { WizardState } from '../components/launchpad/wizard/wizardReducer';
 
 const STORAGE_KEY = 'tegridy:launchpad:draft';
@@ -68,17 +69,35 @@ function toSerializable(state: WizardState): SerializableSlice {
 /// banner / cover) are not persisted — the user must re-pick them on restore.
 /// Everything downstream of the first Irys upload (manifest IDs, fund tx) is
 /// persisted so we can skip already-completed steps on restore.
+// F251: the serialized form of a pristine wizard (initialState). Until the user
+// actually edits something, the persist effect must NOT write — otherwise the
+// 500ms throttled mount-time save overwrites a previously-stored draft with this
+// empty payload before the user clicks "Resume", defeating crash recovery.
+const PRISTINE_PAYLOAD = JSON.stringify(toSerializable(initialState));
+
 export function useWizardPersist(state: WizardState) {
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Once the wizard diverges from initialState it stays dirty for the session,
+  // so subsequent saves (including a later return to a pristine-looking slice)
+  // still persist.
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
+    const payload = toSerializable(state);
+    if (!dirtyRef.current) {
+      if (JSON.stringify(payload) === PRISTINE_PAYLOAD) {
+        // Still pristine — don't clobber any stored draft.
+        return;
+      }
+      dirtyRef.current = true;
+    }
     if (throttleRef.current) clearTimeout(throttleRef.current);
     throttleRef.current = setTimeout(() => {
       try {
         const draft: StoredDraft = {
           version: DRAFT_VERSION,
           savedAt: Date.now(),
-          payload: toSerializable(state),
+          payload,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
       } catch {
