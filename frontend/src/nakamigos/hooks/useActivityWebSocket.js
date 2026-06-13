@@ -123,11 +123,14 @@ export default function useActivityWebSocket(contractAddress, openSeaEvents = []
         fromBlock = "0x" + Math.max(0, recent).toString(16);
       }
 
-      lastBlockRef.current = currentBlock;
-
       const logs = await fetchTransferLogs(contractAddress, fromBlock, currentBlock, signal);
 
       if (!mountedRef.current) return;
+
+      // Advance the cursor only AFTER a successful fetch — if fetchTransferLogs
+      // throws, the cursor stays put so the missed block range is retried on
+      // the next poll instead of being permanently skipped (F734).
+      lastBlockRef.current = currentBlock;
 
       if (logs.length > 0) {
         const newActivities = [];

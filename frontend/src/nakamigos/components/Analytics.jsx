@@ -128,7 +128,9 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
   // Activity stats
   const activityStats = useMemo(() => {
     if (!activities.length) return null;
-    const prices = activities.filter(a => a.price > 0).map(a => a.price);
+    // Only count executed sales — the merged stream also carries live
+    // listings/bids which also have price>0 and would inflate sale stats.
+    const prices = activities.filter(a => a.type === "sale" && a.price > 0).map(a => a.price);
     if (!prices.length) return null;
     return {
       avgPrice: (prices.reduce((s, p) => s + p, 0) / prices.length).toFixed(4),
@@ -140,7 +142,7 @@ export default function Analytics({ tokens, stats, activities, listings, onPick 
 
   // Price distribution buckets — dynamically computed from actual price range
   const priceDistribution = useMemo(() => {
-    const prices = activities.filter(a => a.price > 0).map(a => a.price);
+    const prices = activities.filter(a => a.type === "sale" && a.price > 0).map(a => a.price);
     if (!prices.length) return [];
 
     const minPrice = Math.min(...prices);

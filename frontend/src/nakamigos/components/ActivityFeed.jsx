@@ -8,18 +8,22 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 const EVENT_COLORS = {
   sale: "var(--green)",
   ask: "var(--yellow)",
+  listing: "var(--yellow)",
   bid: "var(--purple)",
   transfer: "var(--text-dim)",
   mint: "var(--gold)",
   trade: "var(--naka-blue)",
+  cancellation: "var(--text-muted)",
 };
 const EVENT_LABELS = {
   sale: "Sale",
   ask: "Listed",
+  listing: "Listed",
   bid: "Bid",
   transfer: "Transfer",
   mint: "Mint",
   trade: "⇄ Trade",
+  cancellation: "Cancelled",
 };
 
 const DATE_RANGE_OPTIONS = [
@@ -117,9 +121,10 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
   // executed P2P trades (deduped by their own hashes, sorted on render).
   const activities = useMemo(() => {
     const base = mergeBase();
-    if (tradeEvents.length === 0) return base;
-    const merged = [...base, ...tradeEvents].sort((a, b) => (b.time || 0) - (a.time || 0));
-    return merged;
+    // Always sort newest-first: live prop/WebSocket events can otherwise sit
+    // above newer fetched sales (two merge points previously skipped sorting).
+    const combined = tradeEvents.length === 0 ? base : [...base, ...tradeEvents];
+    return [...combined].sort((a, b) => (b.time || 0) - (a.time || 0));
 
     function mergeBase() {
     if (!propActivities?.length) return fetchedActivities;
@@ -365,7 +370,7 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
           </div>
         )}
         {visible.map((a, i) => (
-          <div key={a.hash ? `${a.hash}-${i}` : i} className="activity-row" style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}>
+          <div key={a.hash ? `${a.hash}-${a.token?.id ?? i}` : i} className="activity-row" style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}>
             <div
               className="activity-type-badge"
               style={{ background: `${EVENT_COLORS[a.type] || "#666"}15`, color: EVENT_COLORS[a.type] || "#666", borderColor: `${EVENT_COLORS[a.type] || "#666"}30` }}

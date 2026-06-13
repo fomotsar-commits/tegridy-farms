@@ -152,19 +152,22 @@ export default function CollectionHealth({ stats, activities }) {
   const DAY_MS = 86400000;
   const HOUR_MS = 3600000;
 
-  // Activities bucketed by time
+  // Activities bucketed by time. Restrict to executed sales — the merged
+  // stream also carries live listings/bids (also price>0), which would
+  // contaminate "Recent Sales" / "24H VOLUME" / buyer-seller math.
   const recentSales = useMemo(() => {
     if (!activities.length) return { day: [], week: [], hour: [] };
-    const day = activities.filter(a => a.time && (now - a.time) < DAY_MS);
-    const week = activities.filter(a => a.time && (now - a.time) < 7 * DAY_MS);
-    const hour = activities.filter(a => a.time && (now - a.time) < HOUR_MS);
+    const sales = activities.filter(a => a.type === "sale");
+    const day = sales.filter(a => a.time && (now - a.time) < DAY_MS);
+    const week = sales.filter(a => a.time && (now - a.time) < 7 * DAY_MS);
+    const hour = sales.filter(a => a.time && (now - a.time) < HOUR_MS);
     return { day, week, hour };
   }, [activities, now]);
 
   // Floor price metrics
   const floorMetrics = useMemo(() => {
     if (stats.floor == null) return null;
-    const prices = activities.filter(a => a.price > 0).map(a => ({ price: a.price, time: a.time }));
+    const prices = activities.filter(a => a.type === "sale" && a.price > 0).map(a => ({ price: a.price, time: a.time }));
     if (!prices.length) return { current: stats.floor, change1h: null, change24h: null, change7d: null };
 
     const avgInWindow = (start, end) => {
@@ -497,7 +500,7 @@ export default function CollectionHealth({ stats, activities }) {
             {diamondHands ? `${diamondHands.pct}%` : "\u2014"}
           </div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
-            {diamondHands ? `${diamondHands.count} never sold` : "No data"}
+            {diamondHands ? `${diamondHands.count} with no recent sells` : "No data"}
           </div>
         </div>
       </div>

@@ -112,8 +112,11 @@ export default function useCollection() {
 
     if (newLive.length === 0) return activities;
 
-    // Prepend new live activities, cap at 500 to prevent unbounded growth
-    return [...newLive, ...activities].slice(0, 500);
+    // Merge live + polled and sort newest-first so an older live event never
+    // sits above a newer polled sale (F720). Cap at 500 to bound growth.
+    return [...newLive, ...activities]
+      .sort((a, b) => (b.time || 0) - (a.time || 0))
+      .slice(0, 500);
   }, [activities, liveActivities]);
 
   return useMemo(() => ({
