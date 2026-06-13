@@ -401,6 +401,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
   const [statusFilter, setStatusFilter] = useState("active");
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [boardBuilderOpen, setBoardBuilderOpen] = useState(false);
   const [acceptTarget, setAcceptTarget] = useState(null); // open trade being accepted
@@ -411,9 +412,12 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
   const load = useCallback(async () => {
     if (!wallet) return;
     setLoading(true);
-    const { trades: rows } = await fetchTrades({ wallet, role: direction, status: statusFilter });
+    const { trades: rows, error: loadError } = await fetchTrades({ wallet, role: direction, status: statusFilter });
     if (mountedRef.current) {
       setTrades(rows || []);
+      // Distinguish a real outage from a genuinely empty inbox so the panel
+      // doesn't render an /api/orderbook failure as "No active trades".
+      setError(loadError || null);
       setLoading(false);
     }
   }, [wallet, direction, statusFilter]);
@@ -487,11 +491,18 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
             border: "1px solid var(--border)", background: "var(--surface-glass)", color: "var(--text)",
           }}
         >
-          {["active", "accepted", "declined", "cancelled", "countered", "all"].map(s => (
+          {["active", "accepted", "declined", "cancelled", "countered", "expired", "all"].map(s => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </div>
+
+      {error && trades.length === 0 && (
+        <div className="error-banner" style={{ marginBottom: 14 }}>
+          <span>Couldn’t load trades — {error}</span>
+          <button onClick={load}>Retry</button>
+        </div>
+      )}
 
       {loading && trades.length === 0 ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -499,12 +510,14 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
             <div key={i} className="skeleton" style={{ height: 110, borderRadius: 10 }} />
           ))}
         </div>
-      ) : trades.length === 0 ? (
+      ) : error && trades.length === 0 ? null : trades.length === 0 ? (
         <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
           <div className="empty-state-icon">{"⇄"}</div>
           <div className="empty-state-title">No {statusFilter === "all" ? "" : statusFilter + " "}trades</div>
           <div className="empty-state-text">
-            {direction === "incoming"
+            {direction === "board"
+              ? "Open trades anyone can accept will appear here — post the first one with “Post to board”."
+              : direction === "incoming"
               ? "Trade offers sent to your wallet will appear here."
               : "Trades you send will appear here. Start one with “New trade offer”."}
           </div>

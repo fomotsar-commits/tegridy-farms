@@ -224,7 +224,9 @@ export async function fulfillNativeOrder(order) {
 }
 
 // ═══ CREATE NATIVE LISTING ═══
-// List an NFT on our orderbook at 1% fee (vs OpenSea 2.5%)
+// List an NFT on our orderbook at a flat 1% fee routed to the Tegridy treasury.
+// (OpenSea has charged ~1% since Sep 2025 — don't market this as a fee discount;
+// the edge is treasury-funding fees + no marketplace dependency. See header.)
 
 export async function createNativeListing({ contract, tokenId, priceEth, expirationHours = 168 }) {
   const ethProvider = getProvider();

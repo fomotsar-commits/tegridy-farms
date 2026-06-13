@@ -287,12 +287,20 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
       if (holderAddressSet.has(to)) buys++;
       if (holderAddressSet.has(from)) sells++;
     }
+    const net = buys - sells;
+    const total = buys + sells;
+    // Only call a directional trend beyond a ~10% imbalance — at parity (Net 0 /
+    // 1:1) the page shouldn't invent a bullish "ACCUMULATING" signal from zero
+    // data. A small skew reads as BALANCED.
+    const imbalance = total > 0 ? Math.abs(net) / total : 0;
+    const neutral = net === 0 || imbalance < 0.1;
     return {
       buys,
       sells,
-      net: buys - sells,
-      label: buys >= sells ? "ACCUMULATING" : "DISTRIBUTING",
-      color: buys >= sells ? "var(--green)" : "var(--red)",
+      net,
+      label: neutral ? "BALANCED" : net > 0 ? "ACCUMULATING" : "DISTRIBUTING",
+      color: neutral ? "var(--text-muted)" : net > 0 ? "var(--green)" : "var(--red)",
+      arrow: neutral ? "↔" : net > 0 ? "↑" : "↓",
     };
   }, [whaleTransactions, holderAddressSet]);
 
@@ -938,7 +946,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                       lineHeight: 1,
                     }}
                   >
-                    {trend.net >= 0 ? "\u2191" : "\u2193"}
+                    {trend.arrow}
                   </span>
                   <div>
                     <div

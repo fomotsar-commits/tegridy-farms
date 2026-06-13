@@ -229,7 +229,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div>
             <label htmlFor="ladder-start-price" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
-              START PRICE (ETH)
+              RAREST ITEM PRICE (ETH)
             </label>
             <div style={{
               display: "flex", alignItems: "center", gap: 6,
@@ -238,7 +238,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
               <Eth size={12} />
               <input
                 id="ladder-start-price"
-                type="number" inputMode="decimal" step="0.001" min="0" placeholder="0.10"
+                type="number" inputMode="decimal" step="0.001" min="0" placeholder="0.50"
                 value={ladderStart} onChange={(e) => setLadderStart(e.target.value)}
                 style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)" }}
               />
@@ -246,7 +246,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
           </div>
           <div>
             <label htmlFor="ladder-end-price" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", display: "block", marginBottom: 4 }}>
-              END PRICE (ETH)
+              MOST COMMON ITEM PRICE (ETH)
             </label>
             <div style={{
               display: "flex", alignItems: "center", gap: 6,
@@ -255,11 +255,14 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
               <Eth size={12} />
               <input
                 id="ladder-end-price"
-                type="number" inputMode="decimal" step="0.001" min="0" placeholder="0.50"
+                type="number" inputMode="decimal" step="0.001" min="0" placeholder="0.10"
                 value={ladderEnd} onChange={(e) => setLadderEnd(e.target.value)}
                 style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontFamily: "var(--mono)", fontSize: 13, color: "var(--text)" }}
               />
             </div>
+          </div>
+          <div style={{ gridColumn: "1 / -1", fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: -4 }}>
+            Prices are distributed by rarity: the rarest selected item lists at the first price, the most common at the second.
           </div>
         </div>
       )}

@@ -52,7 +52,7 @@ const styles = {
     transition: "color 0.2s, border-color 0.2s",
   }),
   card: {
-    background: "var(--border)",
+    background: "var(--surface-glass)",
     border: "1px solid var(--border)",
     borderRadius: 10,
     padding: "12px 16px",
@@ -372,7 +372,14 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
         }),
       );
 
-      setReceivedOffers(results.flat());
+      // Only show live, actionable offers — drop cancelled/finalized/expired so
+      // the Accept button never walks into a setApprovalForAll + a dead-order
+      // fulfillment_data error (mirrors the fetchMyBids filter above).
+      const now = Date.now();
+      const live = results.flat().filter(
+        (o) => !o.cancelled && !o.finalized && (!o.expiry || o.expiry.getTime() > now),
+      );
+      setReceivedOffers(live);
     } catch (err) {
       console.warn("Fetch received offers failed:", err.message);
       setFetchError("Failed to load offers. Check your connection.");

@@ -19,9 +19,15 @@ export function CartProvider({ children }) {
     setCart(loadCart(slug));
   }, [slug]);
 
+  // Normalize the dedupe/removal key so callers that pass a raw listing or token
+  // (which carries `tokenId` but not `id`) still dedupe correctly instead of
+  // colliding on "undefined" and wiping every keyless item at once.
+  const cartKey = (n) => String(n?.id ?? n?.tokenId);
+
   const addToCart = useCallback((nft) => {
     setCart(prev => {
-      if (prev.find(n => String(n.id) === String(nft.id))) return prev;
+      const key = cartKey(nft);
+      if (prev.find(n => cartKey(n) === key)) return prev;
       const next = [...prev, nft];
       saveCart(next, slug);
       return next;
@@ -30,7 +36,8 @@ export function CartProvider({ children }) {
 
   const removeFromCart = useCallback((id) => {
     setCart(prev => {
-      const next = prev.filter(n => String(n.id) !== String(id));
+      const target = String(id);
+      const next = prev.filter(n => cartKey(n) !== target);
       saveCart(next, slug);
       return next;
     });

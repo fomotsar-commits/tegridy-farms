@@ -125,7 +125,7 @@ export default function TransactionHistory({ wallet, onConnect }) {
           <div key={tx.id} style={{
             display: "flex", alignItems: "center", gap: 12,
             padding: "12px 16px", borderRadius: 10,
-            background: "var(--border)", border: "1px solid var(--border)",
+            background: "var(--surface-glass)", border: "1px solid var(--border)",
           }}>
             <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", flexShrink: 0, border: "1px solid var(--border)" }}>
               {tx.image ? (

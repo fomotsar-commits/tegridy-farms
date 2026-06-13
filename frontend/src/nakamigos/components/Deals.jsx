@@ -802,7 +802,7 @@ export default function Deals({
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           >
-            {newDealsCount} new deal{newDealsCount > 1 ? "s" : ""} found! Click to refresh view
+            {newDealsCount} new deal{newDealsCount > 1 ? "s" : ""} found — jump to top
           </span>
         </div>
       )}

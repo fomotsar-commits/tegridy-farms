@@ -74,7 +74,7 @@ export default function CollectionOffersPanel({ wallet, onConnect, addToast }) {
           ))}
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
           {/* Collection Offers */}
           <div>
             <div style={{

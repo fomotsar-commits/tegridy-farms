@@ -213,7 +213,14 @@ export default function CollectionHealth({ stats, activities }) {
     const b = buyers.size;
     const s = sellers.size;
     const ratio = s > 0 ? (b / s).toFixed(1) : b > 0 ? b.toFixed(1) : "0";
-    return { buyers: b, sellers: s, ratio, total: b + s };
+    // At parity (equal buyers/sellers, 1:1) don't claim an accumulation OR a
+    // distribution phase — that invents a directional signal from balanced flow.
+    const total = b + s;
+    const imbalance = total > 0 ? Math.abs(b - s) / total : 0;
+    const balanced = b === s || imbalance < 0.1;
+    const phase = balanced ? "Balanced flow" : b > s ? "Accumulation phase" : "Distribution phase";
+    const phaseColor = balanced ? "var(--text-muted)" : b > s ? "var(--green)" : "var(--red)";
+    return { buyers: b, sellers: s, ratio, total, phase, phaseColor };
   }, [recentSales.day]);
 
   // Floor depth
@@ -533,13 +540,13 @@ export default function CollectionHealth({ stats, activities }) {
                 </div>
                 <div style={{
                   fontFamily: "var(--display)", fontSize: 13, fontWeight: 700,
-                  color: buyerSeller.buyers >= buyerSeller.sellers ? "var(--green)" : "var(--red)",
+                  color: buyerSeller.phaseColor,
                 }}>
                   {buyerSeller.ratio}:1
                 </div>
               </div>
               <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 4 }}>
-                {buyerSeller.buyers >= buyerSeller.sellers ? "Accumulation phase" : "Distribution phase"}
+                {buyerSeller.phase}
               </div>
             </>
           ) : (

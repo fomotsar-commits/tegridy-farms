@@ -12,8 +12,9 @@ import { getProvider } from "../api";
 //   1. Native Listings Table — browse & buy from our 1% fee orderbook
 //   2. Depth Chart — bid/ask spread visualization (existing)
 
-// OpenSea total fee = OS fee + creator royalty. We compare platform fee only.
-const OPENSEA_FEE_PCT = 1.5; // OS 1% + ~0.5% avg creator royalty
+// Both marketplaces charge ~1% now (OpenSea has charged ~1% since Sep 2025), so
+// this is fee PARITY, not a discount — don't market a savings %. The native edge
+// is that fees fund the Tegridy treasury and fills have no marketplace dependency.
 const NATIVE_FEE_PCT = PLATFORM_FEE_BPS / 100; // 1%
 
 function formatAddress(addr) {
@@ -176,9 +177,6 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
     });
   }, [orders]);
 
-  // Fee savings calculation
-  const savingsPerEth = OPENSEA_FEE_PCT - NATIVE_FEE_PCT;
-
   return (
     <div style={{
       background: "rgba(111,168,220,0.02)",
@@ -198,14 +196,14 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* Fee savings badge */}
+          {/* Flat-fee badge — parity with OpenSea, no creator royalty on native fills */}
           <div style={{
             fontFamily: "var(--mono)", fontSize: 10,
             background: "rgba(76,175,80,0.1)", border: "1px solid rgba(76,175,80,0.2)",
             borderRadius: 8, padding: "5px 10px",
             color: "var(--green)",
           }}>
-            Save {savingsPerEth}% vs OpenSea
+            Flat {NATIVE_FEE_PCT}% &middot; fees fund the treasury
           </div>
           <button
             onClick={fetchOrders}
@@ -229,15 +227,15 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
           background: "rgba(76,175,80,0.06)", border: "1px solid rgba(76,175,80,0.15)",
           borderRadius: 8, padding: "8px 12px", textAlign: "center",
         }}>
-          <div style={{ color: "var(--green)", fontWeight: 600 }}>Native: {NATIVE_FEE_PCT}%</div>
-          <div style={{ color: "var(--text-muted)", fontSize: 9, marginTop: 2 }}>Platform fee only</div>
+          <div style={{ color: "var(--green)", fontWeight: 600 }}>Platform fee: {NATIVE_FEE_PCT}%</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 9, marginTop: 2 }}>Funds the Tegridy treasury</div>
         </div>
         <div style={{
-          background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.15)",
+          background: "rgba(111,168,220,0.06)", border: "1px solid rgba(111,168,220,0.15)",
           borderRadius: 8, padding: "8px 12px", textAlign: "center",
         }}>
-          <div style={{ color: "var(--red)" }}>OpenSea: ~{OPENSEA_FEE_PCT}%</div>
-          <div style={{ color: "var(--text-muted)", fontSize: 9, marginTop: 2 }}>Marketplace + royalty</div>
+          <div style={{ color: "var(--naka-blue)" }}>Creator royalty: 0%</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 9, marginTop: 2 }}>Not collected on native fills</div>
         </div>
       </div>
 

@@ -330,7 +330,14 @@ export default function RaritySniper({
       onConnect?.();
       return;
     }
-    onAddToCart?.(item.listing);
+    // Enrich the raw listing with id/name/image so the cart can render the row
+    // and ShoppingCart's `tokenId === item.id` match (and the sweep) succeed.
+    onAddToCart?.({
+      ...item.listing,
+      id: item.tokenId,
+      name: item.token?.name ?? `#${item.tokenId}`,
+      image: item.token?.image ?? null,
+    });
     addToast?.(`#${item.tokenId} added to cart`, "success");
   };
 
