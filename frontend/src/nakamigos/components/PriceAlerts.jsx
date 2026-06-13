@@ -28,7 +28,7 @@ function saveAlerts(alerts, slug = "nakamigos", wallet = "") {
 // Price alerts monitor the collection floor price.
 // Individual token prices aren't available from the NFT metadata API,
 // so alerts trigger based on floor price changes fetched from Alchemy.
-export function usePriceAlerts(tokens = [], addToast) {
+export function usePriceAlerts(tokens = [], addToast, { active = true } = {}) {
   const collection = useActiveCollection();
   const { address: wallet } = useWallet();
   const [alerts, setAlerts] = useState(() => loadAlerts(collection.slug, wallet));
@@ -55,8 +55,13 @@ export function usePriceAlerts(tokens = [], addToast) {
     saveAlerts(alerts, collection.slug, wallet);
   }, [alerts, collection.slug, wallet]);
 
-  // Fetch floor price periodically for alert checking
+  // Fetch floor price periodically for alert checking.
+  // `active === false` (a duplicate/standalone instance, F721) skips the poll
+  // entirely so only the shared engine fetches. The interval also skips while
+  // the tab is hidden (F726 family) — there's no point polling the floor for a
+  // background tab; it refreshes immediately on the next visible tick.
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     async function fetchFloor() {
       try {
@@ -67,9 +72,9 @@ export function usePriceAlerts(tokens = [], addToast) {
       }
     }
     fetchFloor();
-    const interval = setInterval(fetchFloor, CHECK_INTERVAL);
+    const interval = setInterval(() => { if (!document.hidden) fetchFloor(); }, CHECK_INTERVAL);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [collection.contract, collection.slug, collection.openseaSlug]);
+  }, [active, collection.contract, collection.slug, collection.openseaSlug]);
 
   const requestNotificationPermission = useCallback(async () => {
     try {
@@ -163,8 +168,9 @@ export function usePriceAlerts(tokens = [], addToast) {
   }, [floorPrice, addToast, collection.name]);
 
   useEffect(() => {
+    if (!active) return; // duplicate/standalone instance must not double-fire toasts (F721)
     checkAlerts();
-  }, [checkAlerts]);
+  }, [active, checkAlerts]);
 
   return {
     alerts,
@@ -402,8 +408,16 @@ function injectKeyframes() {
 
 /* ─── Component ─── */
 
-export default function PriceAlertPanel({ tokens = [], addToast }) {
+export default function PriceAlertPanel({ tokens = [], addToast, engine }) {
   const collection = useActiveCollection();
+  // F721: consume the single App-level usePriceAlerts engine. Previously this
+  // panel re-instantiated usePriceAlerts(), giving a SECOND 30s floor poller
+  // and a SECOND checkAlerts — so a triggered alert toasted/notified twice
+  // while this tab was open. App.jsx now always passes its one engine here.
+  // A local instance is kept only as a defensive fallback for standalone use;
+  // when the shared engine is present it runs inert (active:false) so it adds
+  // no poller and fires no alerts.
+  const ownEngine = usePriceAlerts(tokens, addToast, { active: !engine });
   const {
     alerts,
     floorPrice,
@@ -411,7 +425,7 @@ export default function PriceAlertPanel({ tokens = [], addToast }) {
     removeAlert,
     requestNotificationPermission,
     notificationPermission,
-  } = usePriceAlerts(tokens, addToast);
+  } = engine || ownEngine;
 
   const [search, setSearch] = useState("");
   const [price, setPrice] = useState("");

@@ -647,7 +647,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   }, [listings, addToast, setCart, saveCart]);
 
   // ═══ Price Alerts background monitoring ═══
-  usePriceAlerts(nfts.allTokens, addToast);
+  // Single shared engine instance (F721): the always-on monitor here is the
+  // ONLY usePriceAlerts() in the tree. The alerts tab consumes this same
+  // instance via props so its floor poller + checkAlerts don't run twice.
+  const priceAlerts = usePriceAlerts(nfts.allTokens, addToast);
 
   // ═══ Smart Alerts engine ═══
   const smartAlerts = useSmartAlerts(addToast);
@@ -735,7 +738,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       case "my-listings":
         return <MyListings wallet={wallet} onConnect={handleConnect} addToast={addToast} onPick={setSelected} tokens={nfts.allTokens} stats={stats} />;
       case "alerts":
-        return <PriceAlertPanel tokens={nfts.allTokens} addToast={addToast} />;
+        return <PriceAlertPanel tokens={nfts.allTokens} addToast={addToast} engine={priceAlerts} />;
       case "chat":
         return <CommunityChat wallet={wallet} onConnect={handleConnect} addToast={addToast} holderTier={holderTier} onOpenTrades={() => handleTabChange("trades")} openDmsSignal={dmSignal} />;
       case "history":
