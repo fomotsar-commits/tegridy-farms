@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { LazyMotion, domAnimation } from 'framer-motion';
+import { LazyMotion, domAnimation, MotionConfig } from 'framer-motion';
 import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
@@ -218,8 +218,13 @@ function App() {
               motion, not layout, not drag) — chosen because the app only
               uses basic opacity/y/scale/transition. strict mode on the
               wrapper throws loudly if a bare 'motion.X' slips through. */}
+          {/* reducedMotion="user" makes every m.* animation honor the OS
+              prefers-reduced-motion setting app-wide (transforms/opacity snap
+              instead of animating) without per-component handling. */}
           <LazyMotion features={domAnimation} strict>
-            <AppInner />
+            <MotionConfig reducedMotion="user">
+              <AppInner />
+            </MotionConfig>
           </LazyMotion>
         </ThemeProvider>
       </QueryClientProvider>

@@ -73,7 +73,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="-mt-14 relative min-h-screen">
+    <div className="-mt-14 relative min-h-screen overflow-x-clip">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="home" idx={0} alt="" className="w-full h-full object-cover object-center" />
       </div>
