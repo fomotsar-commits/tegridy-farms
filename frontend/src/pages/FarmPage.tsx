@@ -216,7 +216,7 @@ export default function FarmPage() {
         </div>
         <div className="relative z-10 pt-20">
           <div className="max-w-[1100px] mx-auto px-4 md:px-6">
-            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} />
+            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} />
           </div>
           <ConnectPrompt surface="farm" />
         </div>
@@ -245,7 +245,7 @@ export default function FarmPage() {
         </m.div>
 
         {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
-        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} />
+        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} />
 
         {/* Stats */}
         <FarmStatsRow

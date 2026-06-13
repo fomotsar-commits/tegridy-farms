@@ -9,6 +9,20 @@ interface IncentivesStripProps {
   rewardsRemaining?: string;
   /** F123: seconds of emission runway left at the current rate (0 if unknown/dry). */
   secondsRemaining?: number;
+  /** F109: live staker fee-share % read from SwapFeeRouter.stakerShareBps (undefined until loaded). */
+  stakerSharePct?: number;
+}
+
+/**
+ * F109: derive the "Fee Share" chip label from the live on-chain staker share.
+ * `undefined` (read not landed / router undeployed) keeps the honest current
+ * default — 100% — so the chip is never empty and never asserts a stale literal
+ * once governance retunes the split. Whole percentages drop the trailing ".00".
+ */
+export function feeShareLabel(stakerSharePct: number | undefined): string {
+  if (stakerSharePct === undefined) return '100% to stakers';
+  const pct = Number.isInteger(stakerSharePct) ? `${stakerSharePct}` : stakerSharePct.toFixed(2);
+  return `${pct}% to stakers`;
 }
 
 /** F123: humanize an emission-runway second count into "Xd"/"Yh" left. */
@@ -34,8 +48,10 @@ function formatRunway(seconds: number): string {
  */
 const BOOTSTRAP_APR_THRESHOLD = 1000; // %
 
-export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining }: IncentivesStripProps) {
+export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining, stakerSharePct }: IncentivesStripProps) {
   const isBootstrap = (aprNum ?? 0) > BOOTSTRAP_APR_THRESHOLD;
+  // F109: derive the fee-share chip from the live on-chain split when loaded.
+  const feeShareValue = feeShareLabel(stakerSharePct);
   // F101: prefer the honest "rewards remaining" figure (balance − staked −
   // unsettled) over the cumulative totalFunded when it's available, and label it
   // accordingly so the chip never implies a never-decreasing number is "remaining".
@@ -58,7 +74,7 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
     },
     { l: 'Daily Emissions', v: dailyEmissions === '–' ? '–' : `${dailyEmissions} / day`, icon: '⚡' },
     { l: 'Max Boost', v: '4.0× · 4-yr lock', icon: '🚀' },
-    { l: 'Fee Share', v: '100% to stakers', icon: '💎' },
+    { l: 'Fee Share', v: feeShareValue, icon: '💎' },
   ];
   return (
     <m.div

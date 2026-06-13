@@ -26,7 +26,10 @@ const DEFAULTS: Record<Surface, { title: string; description: string; cta: strin
   farm: {
     title: 'Connect to farm with tegridy',
     description:
-      'Lock TOWELI for up to 4 years, earn 100% of protocol swap fees, and boost your LP rewards. Your staking position is an ERC-721 NFT — portable, collateralizable, yours.',
+      // F109: softened from a hardcoded "100% of protocol swap fees" to a claim
+      // that can't drift if governance retunes the on-chain staker fee-share. The
+      // live percentage is surfaced on the Farm page's Fee Share chip.
+      'Lock TOWELI for up to 4 years, earn the protocol’s swap-fee share, and boost your LP rewards. Your staking position is an ERC-721 NFT — portable, collateralizable, yours.',
     cta: 'Start Farming',
   },
   trade: {

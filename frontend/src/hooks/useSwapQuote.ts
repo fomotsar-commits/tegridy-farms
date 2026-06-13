@@ -1,8 +1,8 @@
 import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useReadContract, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
-import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI } from '../lib/contracts';
-import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, CHAIN_ID, SWAP_FEE_BPS } from '../lib/constants';
+import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
+import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, SWAP_FEE_BPS, isDeployed } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
 import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type AggregatorQuote, type AggregatorSource } from '../lib/aggregator';
 
@@ -97,6 +97,24 @@ export function useSwapQuote(
   // never re-ran the effect, so refresh silently lost the 7-aggregator
   // comparison.) The ref above still orders in-flight responses.
   const [aggRequestId, setAggRequestId] = useState(0);
+
+  // F200: read the live protocol fee from SwapFeeRouter once (single cacheable
+  // view, pinned to mainnet) so the netting + the "(incl. X% fee)" disclosure
+  // track on-chain truth if the owner retunes feeBps. Falls back to the
+  // SWAP_FEE_BPS constant when the read hasn't landed or the router isn't deployed.
+  const { data: liveFeeBps } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS,
+    abi: SWAP_FEE_ROUTER_ABI,
+    functionName: 'feeBps',
+    chainId: CHAIN_ID,
+    query: { enabled: isDeployed(SWAP_FEE_ROUTER_ADDRESS), staleTime: 5 * 60_000 },
+  });
+  // Sanity-clamp: a sane protocol fee is 0..1000 bps (≤10%). Outside that we
+  // keep the audited constant rather than display/net on a garbage read.
+  const feeBpsBi = (typeof liveFeeBps === 'bigint' && liveFeeBps >= 0n && liveFeeBps <= 1000n)
+    ? liveFeeBps
+    : SWAP_FEE_BPS_BI;
+  const feeBpsNum = Number(feeBpsBi);
 
   // ---- Uniswap V2 quote ----
   const { data: uniAmountsOut, isLoading: isUniQuoteLoading, refetch: refetchUni } = useReadContract({
@@ -292,7 +310,7 @@ export function useSwapQuote(
   // (Linear haircut is conservative: the true output of swapping `in*(1-fee)` is slightly
   // higher than `out*(1-fee)` by AMM concavity, so the derived minOut never reverts.)
   const tegridyOutputAfterFee = tegridyOutputAmount > 0n
-    ? (tegridyOutputAmount * (10000n - SWAP_FEE_BPS_BI)) / 10000n
+    ? (tegridyOutputAmount * (10000n - feeBpsBi)) / 10000n
     : 0n;
 
   let aggOutputAmount = 0n;
@@ -454,10 +472,10 @@ export function useSwapQuote(
     if (selectedRoute === 'aggregator') return `Best rate via ${bestAggregatorName ?? 'Aggregator'}`;
     const dex = selectedRoute === 'tegridy' ? 'Tegridy DEX' : 'Uniswap V2';
     // Native route carries the protocol fee; disclose it (the shown output already nets it).
-    const feeNote = selectedRoute === 'tegridy' ? ` (incl. ${Number(SWAP_FEE_BPS) / 100}% fee)` : '';
+    const feeNote = selectedRoute === 'tegridy' ? ` (incl. ${feeBpsNum / 100}% fee)` : '';
     if (path.length <= 2) return `Direct swap via ${dex}${feeNote}`;
     return `Routed through WETH via ${dex}${feeNote}`;
-  }, [path, selectedRoute, bestAggregatorName]);
+  }, [path, selectedRoute, bestAggregatorName, feeBpsNum]);
 
   // R033 H-02: stale flag flips reactively when (now - quoteFetchedAt) > MAX.
   const isQuoteStale = useMemo(

@@ -291,7 +291,10 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
 }
 
 export default function ContractsPage() {
-  usePageTitle('Contracts', 'Tegridy Farms smart contract addresses, verified on-chain on Ethereum mainnet.');
+  // T3/F374: "verified" could imply Etherscan source-verification, which is still
+  // pending (invalid key at deploy). Soften to "deployed" — the addresses are live
+  // on mainnet and source is linked; we don't assert source-verification we can't back yet.
+  usePageTitle('Contracts', 'Tegridy Farms smart contract addresses, deployed on Ethereum mainnet.');
 
   return (
     <div className="-mt-14 relative min-h-screen">

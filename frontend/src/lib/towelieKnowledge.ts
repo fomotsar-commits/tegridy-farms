@@ -134,11 +134,14 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "First swap of a token needs an approval tx (lets the contract pull tokens from your wallet). One-time per token. Then swap.",
   },
   {
-    // AUDIT R073: 0.3% fee is split 5/6 to LPs and 1/6 to the protocol → ETH
-    // yield for stakers via the RevenueDistributor. Earlier copy said 100% to
-    // stakers, which would have left LPs earning nothing.
+    // F200/T3 (2026-06-13): reconcile with the swap UI's "(incl. 0.5% fee)"
+    // disclosure. Two distinct fees: the SwapFeeRouter PROTOCOL fee (0.5% on the
+    // native front-door route, routed to TOWELI stakers as ETH) and the standard
+    // 0.3% AMM pair fee that LPs earn via K-growth. Earlier copy named only the
+    // 0.3% and called it "the swap fee", which understated what a native-route
+    // trader actually pays and contradicted the swap screen.
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Swap fee is 0.3% per trade. 5/6 of it stays with LPs (earned via K growth), 1/6 flows to the protocol and out to TOWELI stakers as ETH — starting when the native pool is trading.",
+    answer: "Two fees. Swapping through our native front-door adds a 0.5% protocol fee that flows to TOWELI stakers as ETH (it kicks in once the native pool is trading). Underneath that, the AMM pair charges the standard 0.3% that LPs earn via K-growth. The swap screen always shows the protocol fee on the route it picks.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────
