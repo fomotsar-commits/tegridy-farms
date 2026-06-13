@@ -13,10 +13,14 @@ const transports = {
   [mainnet.id]: fallback([
     http('https://ethereum-rpc.publicnode.com'),
     http('https://rpc.ankr.com/eth'),
+    http('https://cloudflare-eth.com'),
     // llamarpc demoted to last-resort: observed 503/521 (origin down) in prod
     // on 2026-06-11 — rank:true heals mid-session but first hits still pay.
+    // NOTE: removed the bare `http()` default — it resolves to eth.merkle.io,
+    // which is NOT in the CSP `connect-src` allowlist, so it hard-blocked and
+    // spammed the console (200+ errors/30s) on every fall-through. The three
+    // endpoints above are all allowlisted in vercel.json.
     http('https://eth.llamarpc.com'),
-    http(), // wagmi default public fallback
   ], { rank: true }),
 };
 
