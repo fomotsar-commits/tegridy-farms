@@ -6,6 +6,8 @@ interface SparklineProps {
   height?: number;
   color?: string;
   className?: string;
+  /** F86: optional hover tooltip + accessible label (e.g. "TOWELI price, last 24h"). */
+  title?: string;
 }
 
 export const Sparkline = React.memo(function Sparkline({
@@ -14,6 +16,7 @@ export const Sparkline = React.memo(function Sparkline({
   height = 20,
   color,
   className,
+  title,
 }: SparklineProps) {
   if (!data || data.length < 2) return null;
 
@@ -52,7 +55,11 @@ export const Sparkline = React.memo(function Sparkline({
       viewBox={`0 0 ${width} ${height}`}
       className={className}
       style={{ display: 'inline-block', verticalAlign: 'middle' }}
+      role={title ? 'img' : undefined}
+      aria-label={title}
+      aria-hidden={title ? undefined : true}
     >
+      {title && <title>{title}</title>}
       <polyline
         points={points.join(' ')}
         fill="none"

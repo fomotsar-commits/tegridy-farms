@@ -300,3 +300,14 @@ export const GALLERY_ORDER: ArtPiece[] = [
   ART.naka24, ART.naka25, ART.naka26, ART.naka27,
   ART.naka28, ART.naka29, ART.naka30, ART.naka31,
 ];
+
+/**
+ * F75: count of UNIQUE artworks in GALLERY_ORDER. A few pieces ship in two file
+ * formats (.avif + .jpg of the same image — e.g. /splash/new/1.avif and
+ * /splash/new/1.jpg), so GALLERY_ORDER.length double-counts them. We dedupe by
+ * the source basename (extension stripped) so the displayed count reflects
+ * distinct works. All files stay in the gallery — only the number changes.
+ */
+export const UNIQUE_GALLERY_COUNT: number = new Set(
+  GALLERY_ORDER.map((p) => p.src.replace(/\.[^./]+$/, '')),
+).size;

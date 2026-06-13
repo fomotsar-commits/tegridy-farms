@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { m, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useMemo } from 'react';
+import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-import { GALLERY_ORDER, pageArt, artStyle } from '../lib/artConfig';
+import { isAddress } from 'viem';
+import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
@@ -16,14 +17,34 @@ import { FlashValue } from '../components/FlashValue';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
-import { TOWELIE_QUOTES } from '../lib/copy';
+import { TOWELIE_QUOTES, FAQ_INTRO } from '../lib/copy';
 import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
 import { RealYieldProof } from '../components/RealYieldProof';
+import { CopyButton } from '../components/ui/CopyButton';
+import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL } from '../lib/constants';
+import { shortenAddress } from '../lib/formatting';
+import { safeGetItem, safeSetItem } from '../lib/storage';
+
+// F91: surfaced from the Footer's community links — keep one source so Home
+// and Footer can't drift. (Footer still owns its own copy; these mirror it.)
+const SOCIAL_LINKS = [
+  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
+  { href: 'https://discord.gg/junglebay', label: 'Discord' },
+  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
+] as const;
+
+// F92: persist a valid ?ref= address so attribution survives navigation and
+// the connect-ordering (referred visitor clicks Buy → connects on /swap). Uses
+// the safe storage wrapper, never overwrites an existing stash.
+const REF_STORAGE_KEY = 'tegridy_ref';
 
 const CORE_LOOP_STEPS = [
   { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
-  { label: 'Every swap skims a fee',  sub: 'a protocol fee on each swap' },
+  // F82: sub no longer just restates the label — it adds the "where" (router,
+  // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
+  // rather than hardcode a number that can drift.
+  { label: 'Every swap skims a fee',  sub: 'taken at the router, in ETH' },
   { label: 'Fees flow to stakers',    sub: 'on-chain, paid in ETH' },
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
@@ -56,26 +77,81 @@ export default function HomePage() {
   const pool = usePoolData();
   const revenueStats = useRevenueStats();
   const price = useTOWELIPrice();
-  const priceHistory = usePriceHistory(price.priceInUsd);
+  const priceHistory = usePriceHistory();
   const { history: priceData, error: priceError } = priceHistory;
+  const reduceMotion = useReducedMotion();
 
-  // Use PriceContext price (useToweliPrice already fetches from GeckoTerminal as fallback)
-  const effectiveToweliPrice = price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : stats.toweliPrice;
+  // F74: PriceContext is the single source — stats.toweliPrice is derived from
+  // the same price.priceInUsd, so its fallback can never differ from "–".
+  const effectiveToweliPrice = price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : '–';
+
+  // F86: true 24h change from the sparkline series (first vs last close). This is
+  // a real 24h delta, not the session-since-mount change the PriceContext exposes.
+  const priceChange24h = useMemo(() => {
+    if (priceData.length < 2) return null;
+    const first = priceData[0];
+    const last = priceData[priceData.length - 1];
+    if (!first || first <= 0 || last == null) return null;
+    return ((last - first) / first) * 100;
+  }, [priceData]);
+
+  // F92: capture a valid ?ref= on first load so the Buy CTA + ReferralWidget can
+  // honor it after navigation/connect. Never overwrite an existing stash.
+  useEffect(() => {
+    try {
+      const ref = new URLSearchParams(window.location.search).get('ref');
+      if (ref && isAddress(ref) && !safeGetItem(REF_STORAGE_KEY)) {
+        safeSetItem(REF_STORAGE_KEY, ref);
+      }
+    } catch {
+      // window/storage may be unavailable (SSR/test); non-critical.
+    }
+  }, []);
+  const stashedRef = (() => {
+    try {
+      const r = safeGetItem(REF_STORAGE_KEY);
+      return r && isAddress(r) ? r : null;
+    } catch {
+      return null;
+    }
+  })();
+  const buyToHref = stashedRef ? `/swap?ref=${stashedRef}` : '/swap';
+
+  // F93: canonical share URL + tweet intent (no referral attribution) so even
+  // disconnected visitors get a share affordance. Mirrors ReferralWidget's
+  // tweet-URL construction with the SITE_URL origin (F64 single source).
+  const shareUrl = SITE_URL;
+  const shareTweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+    'Real yield, paid in ETH, on @TegridyFarms \u{1F33F}',
+  )}&url=${encodeURIComponent(shareUrl)}`;
 
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
   // never blocks interaction. Starts on a random quote so repeat visits feel fresh.
   const [quoteIdx, setQuoteIdx] = useState(() => Math.floor(Math.random() * TOWELIE_QUOTES.length));
+  // F77: pause rotation in a hidden tab and skip it entirely under
+  // prefers-reduced-motion (decorative ticker; no need to animate for opted-out
+  // users). The aria-live wrapper is also dropped below — it announced a joke
+  // to screen readers every 7s.
   useEffect(() => {
+    if (reduceMotion) return;
     const id = window.setInterval(() => {
+      if (document.hidden) return;
       setQuoteIdx(i => (i + 1) % TOWELIE_QUOTES.length);
     }, 7000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [reduceMotion]);
 
   return (
     <div className="-mt-14 relative min-h-screen overflow-x-clip">
+      {/* F82: the hero shell is deliberately theme-invariant — this is an
+          art-first page whose white-on-mural legibility (scrims, text-shadows,
+          black stat pills) is tuned for the dark backdrop regardless of the
+          app theme. The TopNav toggle still themes the chrome; the hero stays
+          dark on purpose. Do NOT restyle the art-backed hero per theme. */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <ArtImg pageId="home" idx={0} alt="" className="w-full h-full object-cover object-center" />
+        {/* F66: this is the LCP image (preloaded in index.html). fetchPriority
+            high ensures the browser fetches it ahead of below-the-fold art. */}
+        <ArtImg pageId="home" idx={0} alt="" fetchPriority="high" className="w-full h-full object-cover object-center" />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
@@ -116,8 +192,12 @@ export default function HomePage() {
                   );
                 }}
               </ConnectButton.Custom>
-              <Link to="/swap"
-                className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center"
+              {/* F92: carry a captured ?ref= through to /swap so attribution
+                  survives the disconnected Buy click. F82: add a real hover
+                  (brightness) + a visible focus-visible ring (was transition-all
+                  with nothing to transition). */}
+              <Link to={buyToHref}
+                className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]"
                 style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}>
                 Buy TOWELI
               </Link>
@@ -128,7 +208,11 @@ export default function HomePage() {
                 F57: reserve a fixed min-height (so an empty/short quote can't
                 shift the trust badge) and sit the quote in a subtle backdrop-blur
                 pill so it stays legible over the busy mural. */}
-            <div className="mt-4 min-h-[34px] flex items-center" aria-live="polite">
+            {/* F77: no aria-live — a decorative joke ticker shouldn't announce
+                to screen readers every 7s. F81: reserve two lines on mobile so a
+                wrapping quote (the 56-char line) can't shift the trust badge
+                below every rotation. */}
+            <div className="mt-4 min-h-[48px] md:min-h-[34px] flex items-center">
               <AnimatePresence mode="wait">
                 <m.span
                   key={quoteIdx}
@@ -178,12 +262,15 @@ export default function HomePage() {
           )}
 
           <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
-            {[
-              { l: 'TVL', v: stats.tvl },
+            {([
+              // F85: USD-primary TVL with the TOWELI count secondary when a price
+              // is available (Uniswap/Aave-grade). Falls back to TOWELI-only on a
+              // price outage (stats.tvlUsd is '' then).
+              { l: 'TVL', v: stats.tvlUsd || stats.tvl, sub: stats.tvlUsd && stats.tvl !== '–' ? stats.tvl : undefined },
               { l: 'TOWELI Price', v: effectiveToweliPrice || '–', showSparkline: true },
               { l: 'Base APR', v: pool.isDeployed && pool.apr !== '0' ? `${pool.apr}%` : '–' },
               { l: 'ETH Distributed', v: revenueStats.totalDistributed > 0 ? `${revenueStats.totalDistributed.toFixed(4)} ETH` : '–' },
-            ].map((s) => (
+            ] as { l: string; v: string; sub?: string; showSparkline?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
                 {/* Kyle green on stats text over black pill for maximum visibility on brown/purple art. */}
@@ -195,6 +282,12 @@ export default function HomePage() {
                 ) : (
                   <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(!s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
                 )}
+                {/* F85: TOWELI count as a secondary figure under the USD TVL. */}
+                {s.sub && (
+                  <span className="text-[11px]" style={{ color: 'var(--color-kyle)', opacity: 0.7, textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+                    {s.sub}
+                  </span>
+                )}
                 {s.l === 'Base APR' && s.v && s.v !== '–' && (
                   <span
                     title="High at launch because total staked is still small — it falls toward steady-state as staking grows. The real yield is the ETH paid to stakers."
@@ -205,13 +298,67 @@ export default function HomePage() {
                   </span>
                 )}
                 {s.showSparkline && priceData.length > 1 && (
-                  <Sparkline data={priceData} width={48} height={16} />
+                  <Sparkline data={priceData} width={48} height={16} title="TOWELI price, last 24h" />
+                )}
+                {/* F86: real 24h change badge (first-vs-last of the 24h series). */}
+                {s.showSparkline && priceChange24h !== null && (
+                  <span
+                    title="Change over the last 24 hours (TOWELI/WETH pool)"
+                    className="text-[11px] font-medium"
+                    style={{ color: priceChange24h >= 0 ? '#22c55e' : '#ef4444', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+                  >
+                    {priceChange24h >= 0 ? '+' : ''}{priceChange24h.toFixed(1)}% 24h
+                  </span>
                 )}
                 {s.showSparkline && priceError && priceData.length === 0 && (
                   <span className="text-[10px]" style={{ color: 'var(--color-kyle)' }}>Price data unavailable</span>
                 )}
               </div>
             ))}
+          </m.div>
+
+          {/* F87/F88/F93: token contract address strip — copy the address, view
+              it on Etherscan/GeckoTerminal, and a generic Share affordance that
+              works even when disconnected (the referral tweet is connected-only).
+              Additive: surfaces the canonical TOWELI address (was only on
+              /contracts) the way every buy-page does. */}
+          <m.div
+            className="mt-6 flex flex-wrap items-center gap-2"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+          >
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)', opacity: 0.8 }}>TOWELI</span>
+              <CopyButton
+                text={TOWELI_ADDRESS}
+                display={shortenAddress(TOWELI_ADDRESS, 6)}
+                className="font-mono text-[12px]"
+                style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+              />
+            </div>
+            <a href={ETHERSCAN_TOKEN} target="_blank" rel="noopener noreferrer"
+              aria-label="View TOWELI on Etherscan (opens in new tab)"
+              className="px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
+              style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+              Etherscan <span className="text-white/40">↗</span>
+            </a>
+            <a href={GECKOTERMINAL_URL} target="_blank" rel="noopener noreferrer"
+              aria-label="View TOWELI on GeckoTerminal (opens in new tab)"
+              className="px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
+              style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+              GeckoTerminal <span className="text-white/40">↗</span>
+            </a>
+            <a href={shareTweetUrl} target="_blank" rel="noopener noreferrer"
+              aria-label="Share Tegridy Farms on X (opens in new tab)"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
+              style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              Share
+            </a>
           </m.div>
         </div>
 
@@ -375,6 +522,20 @@ export default function HomePage() {
               )
             ))}
           </div>
+
+          {/* F91: community/social proof — the same links the Footer carries,
+              surfaced near the trust row so first-time visitors see an active
+              community without scrolling to the footer. */}
+          <div className="flex flex-wrap justify-center gap-3 mt-4">
+            {SOCIAL_LINKS.map((s) => (
+              <a key={s.label} href={s.href} target="_blank" rel="noopener noreferrer"
+                aria-label={`${s.label} (opens in new tab)`}
+                className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
+                style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
+                {s.label} <span className="text-white/40">↗</span>
+              </a>
+            ))}
+          </div>
         </div>
 
         {/* Ecosystem */}
@@ -425,7 +586,9 @@ export default function HomePage() {
           <div className="flex items-end justify-between mb-6">
             <div>
               <h2 className="heading-luxury text-xl text-white tracking-tight">The Collection</h2>
-              <p className="text-white text-[12px] mt-0.5">{GALLERY_ORDER.length} original pieces</p>
+              {/* F75: unique-work count — a few pieces ship in two file formats,
+                  so GALLERY_ORDER.length over-counts. Gallery still shows all files. */}
+              <p className="text-white text-[12px] mt-0.5">{UNIQUE_GALLERY_COUNT} original pieces</p>
             </div>
             <Link to="/gallery" className="text-white text-[13px] font-medium hover:opacity-80 transition-opacity">
               View all →
@@ -450,6 +613,33 @@ export default function HomePage() {
               </m.div>
             ))}
           </div>
+        </div>
+
+        {/* F90: FAQ teaser — Home never funneled to the FAQ page despite the
+            copy + route existing. Additive panel with a CTA, consistent with the
+            page's glass-panel styling. */}
+        <div className="pb-16">
+          <m.div
+            className="rounded-2xl p-6 md:p-8 text-center"
+            style={{ background: 'rgba(6,12,26,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
+            initial={{ opacity: 0, y: 15 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <h2 className="heading-luxury text-xl text-white tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              {FAQ_INTRO.headline}
+            </h2>
+            <p className="text-white/90 text-[13px] max-w-xl mx-auto mb-5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              {FAQ_INTRO.subheading}
+            </p>
+            <Link to="/faq" className="btn-primary px-6 py-2.5 text-[13px] inline-flex items-center gap-1.5">
+              Read the FAQ
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </Link>
+          </m.div>
         </div>
 
         {/* Referral Widget for connected users */}

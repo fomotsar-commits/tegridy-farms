@@ -31,7 +31,11 @@
     <link rel="canonical" href="https://tegridyfarms.vercel.app/" />
     <title>Tegridy Farms | TOWELI Yield Farm</title>
     <meta property="og:title" content="Tegridy Farms | TOWELI Yield Farm" />
-    <meta property="og:description" content="Art-first yield farming on Ethereum. Stake TOWELI & earn rewards. 100% of protocol revenue goes to stakers." />
+    <!-- F69: align with the 2026-06-11 honesty pass — every protocol fee flows
+         on-chain to stakers, the liquidity engine, and operations (the rendered
+         hero no longer claims a fixed "100% to stakers"; crawlers read this
+         static HTML, so it must match). -->
+    <meta property="og:description" content="Art-first yield farming on Ethereum. Stake TOWELI & earn rewards. Every protocol fee flows on-chain to stakers, the liquidity engine, and operations." />
     <!-- Purpose-built social preview — see docs/SOCIAL_PREVIEW_SPEC.md.
          PNG is the primary for crawler compatibility (Discord/Slack/
          Facebook image proxies only accept raster). SVG is served as
@@ -45,7 +49,7 @@
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
-    <meta property="og:image:alt" content="Tegridy Farms — DeFi yield protocol on Ethereum where 100% of swap fees flow to stakers" />
+    <meta property="og:image:alt" content="Tegridy Farms — DeFi yield protocol on Ethereum where protocol fees flow on-chain to stakers" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://tegridyfarms.vercel.app/" />
     <meta property="og:site_name" content="Tegridy Farms" />
@@ -76,6 +80,11 @@
          bobowelie — it's the TopNav replay button and the Towelie avatar, so
          it's genuinely warmed on every page. -->
     <link rel="preload" as="image" href="/art/bobowelie.jpg">
+    <!-- F66: the home hero (home:0 → /art/iphone/IMG_0148.jpg) is the LCP image,
+         rendered full-viewport. Preload it at high priority so the browser
+         fetches it ahead of below-the-fold art instead of discovering it late.
+         Keep this in lock-step with the home:0 override in src/lib/artOverrides.ts. -->
+    <link rel="preload" as="image" href="/art/iphone/IMG_0148.jpg" fetchpriority="high">
     <script type="application/ld+json">
     {"@context":"https://schema.org","@type":"WebApplication","name":"Tegridy Farms","description":"Art-first yield farming protocol on Ethereum","url":"https://tegridyfarms.vercel.app","applicationCategory":"DeFi","operatingSystem":"Web"}
     </script>

@@ -4,6 +4,12 @@ import { isAddress } from 'viem';
 import { usePublicClient } from 'wagmi';
 import { ArtImg } from './ArtImg';
 import { SITE_URL } from '../lib/constants';
+import { safeGetItem } from '../lib/storage';
+
+// F92: same sessionStorage-free key HomePage stashes a captured ?ref= under, so
+// attribution survives navigation (arrive via ref link → click Buy → connect on
+// /swap). Kept as a literal string (no shared primitive) on both ends.
+const REF_STORAGE_KEY = 'tegridy_ref';
 
 // F46: tegridy.farm is unregistered (DNS-level fail), so every shared referral
 // link/tweet dead-ended. Point at the canonical live origin. SITE_URL has no
@@ -64,13 +70,16 @@ export function ReferralWidget({
     if (hasReferrer) return;
     try {
       const params = new URLSearchParams(window.location.search);
-      const ref = params.get('ref');
+      // F92: fall back to the captured ?ref= stash when this route's URL carries
+      // none (the visitor arrived on Home, navigated, then connected here). The
+      // hasReferrer guard above still wins — never overrides an on-chain referrer.
+      const ref = params.get('ref') ?? safeGetItem(REF_STORAGE_KEY);
       if (ref && isAddress(ref) && ref.toLowerCase() !== address.toLowerCase()) {
         setRefInput(ref);
         setRefFromUrl(ref);
       }
     } catch {
-      // window.location may be unavailable in SSR/test; non-critical.
+      // window.location/storage may be unavailable in SSR/test; non-critical.
     }
   }, [hasReferrer, address]);
 
