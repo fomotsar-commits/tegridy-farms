@@ -852,6 +852,10 @@
   pointer-events: none;
 }
 .toast-container > * { pointer-events: auto; }
+/* Lift toasts above the mobile bottom nav so they don't cover its buttons (F811). */
+@media (max-width: 767px) {
+  .toast-container { bottom: 72px; }
+}
 .toast {
   font-family: var(--display); font-size: 12px; font-weight: 500;
   padding: 14px 22px; border-radius: 12px;
@@ -938,6 +942,11 @@
 .back-to-top:active {
   transform: translateY(0) scale(0.95);
   transition-duration: 0.1s;
+}
+/* On phones the bottom nav occupies the bottom-left corner; lift the
+   back-to-top button clear of it so the two tap targets don't abut (F837). */
+@media (max-width: 767px) {
+  .back-to-top { bottom: 80px; }
 }
 
 /* ═══ Card improvements ═══ */
@@ -1858,9 +1867,11 @@
   .listings-sidebar { max-width: 100% !important; }
   .listings-main-grid { grid-template-columns: 1fr !important; }
 }
-/* Collapsible sidebar arrow rotation */
-details summary::-webkit-details-marker { display: none; }
-details[open] .details-arrow { transform: rotate(90deg); }
+/* Collapsible sidebar arrow rotation.
+   Scoped to .nakamigos-app so the default disclosure marker isn't hidden on
+   every <details> in the main app. */
+.nakamigos-app details summary::-webkit-details-marker { display: none; }
+.nakamigos-app details[open] .details-arrow { transform: rotate(90deg); }
 .listings-title {
   font-family: var(--pixel); font-size: 12px; color: var(--naka-blue);
   letter-spacing: 0.06em; margin-bottom: 8px;
@@ -3531,8 +3542,10 @@ details[open] .details-arrow { transform: rotate(90deg); }
   outline: 2px solid var(--gold);
 }
 
-/* Focus visible for keyboard navigation */
-*:focus-visible {
+/* Focus visible for keyboard navigation.
+   Scoped to .nakamigos-app: --naka-blue is only defined inside that scope, so an
+   app-wide *:focus-visible used an invalid var and leaked into the main app. */
+.nakamigos-app *:focus-visible {
   outline: 2px solid var(--naka-blue);
   outline-offset: 2px;
 }
@@ -3548,7 +3561,17 @@ details[open] .details-arrow { transform: rotate(90deg); }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .splash-screen { display: none; }
+  .nakamigos-app .splash-screen { display: none; }
+  /* The blanket rule above freezes the loading spinner into a static arc that
+     reads as "hung". Give it a gentle opacity pulse instead so it still signals
+     activity without spinning. */
+  .nakamigos-app .spinner {
+    animation: nakaSpinnerPulse 1.2s ease-in-out infinite !important;
+  }
+}
+@keyframes nakaSpinnerPulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
 }
 
 /* Screen reader only text */
@@ -3595,9 +3618,6 @@ details[open] .details-arrow { transform: rotate(90deg); }
     flex-shrink: 0;
     min-width: 120px;
   }
-}
-
-@media (max-width: 480px) {
 }
 
 /* Modal full screen on mobile */
@@ -3659,13 +3679,18 @@ details[open] .details-arrow { transform: rotate(90deg); }
   }
 }
 
-/* Touch-friendly targets */
+/* Touch-friendly targets.
+   Scoped to .nakamigos-app: an unscoped rule forced 44px boxes onto every
+   control in the main Tegriddy app (this CSS is bundled globally). */
 @media (max-width: 768px) {
-  button, a, select, input {
+  .nakamigos-app button,
+  .nakamigos-app a,
+  .nakamigos-app select,
+  .nakamigos-app input {
     min-height: 44px;
     min-width: 44px;
   }
-  .mobile-nav-item {
+  .nakamigos-app .mobile-nav-item {
     min-height: 48px;
     display: flex;
     align-items: center;
@@ -3674,14 +3699,15 @@ details[open] .details-arrow { transform: rotate(90deg); }
 
 /* ═══ Enhanced Accessibility ═══ */
 
-/* High contrast mode */
+/* High contrast mode (scoped to .nakamigos-app so the bare `button` rule
+   doesn't add borders to every control in the main app). */
 @media (forced-colors: active) {
-  .search-input,
-  .sort-select,
-  .trait-select {
+  .nakamigos-app .search-input,
+  .nakamigos-app .sort-select,
+  .nakamigos-app .trait-select {
     border: 1px solid ButtonText;
   }
-  button {
+  .nakamigos-app button {
     border: 1px solid ButtonText;
   }
 }
@@ -4251,6 +4277,36 @@ details[open] .details-arrow { transform: rotate(90deg); }
   overflow: hidden;
   min-width: 0;
 }
+
+/* ═══ Print styles (F812) ═══
+   The nakamigos surface is dark-only; printing About/lore or a share card
+   yields unreadable dark-on-dark. Force a legible black-on-white and hide
+   chrome (nav, marquee, splash, ticker, floating controls). Scoped to
+   .nakamigos-app so the main app's own print handling is untouched. */
+@media print {
+  .nakamigos-app {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .nakamigos-app * {
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  .nakamigos-app .splash-screen,
+  .nakamigos-app .mobile-bottom-nav,
+  .nakamigos-app .nft-marquee,
+  .nakamigos-app .back-to-top,
+  .nakamigos-app .desktop-controls,
+  .nakamigos-app .toast-container {
+    display: none !important;
+  }
+  .nakamigos-app a {
+    color: #000 !important;
+    text-decoration: underline;
+  }
+}
 .activity-item {
   min-width: 0;
 }
@@ -4383,7 +4439,9 @@ details[open] .details-arrow { transform: rotate(90deg); }
     max-height: 220px !important;
     padding: 12px !important;
   }
-  /* Sections: tighter horizontal padding */
+  /* Sections: tighter horizontal padding only — using the `padding` shorthand
+     here also collapsed the 60px bottom padding (set at wider breakpoints), so
+     content butted against the footer/bottom nav (F799). */
   .activity-section,
   .analytics-section,
   .my-collection-section,
@@ -4392,7 +4450,8 @@ details[open] .details-arrow { transform: rotate(90deg); }
   .favorites-section,
   /* Footer */
   .footer-full {
-    padding: 14px 10px;
+    padding-left: 10px;
+    padding-right: 10px;
   }
   .footer-links a {
     font-size: 9px;
@@ -4415,8 +4474,10 @@ details[open] .details-arrow { transform: rotate(90deg); }
     font-size: 9px;
     padding: 6px 10px;
   }
-  /* Bottom nav spacing for content */
-  main, [role="main"] {
+  /* Bottom nav spacing for content. Scoped to .nakamigos-app so we don't push
+     68px of bottom padding onto the main app's <main>/[role=main]. */
+  .nakamigos-app main,
+  .nakamigos-app [role="main"] {
     padding-bottom: 68px;
   }
 }
@@ -4454,6 +4515,11 @@ details[open] .details-arrow { transform: rotate(90deg); }
   }
   .sweep-calculator {
     animation: none;
+  }
+  /* Hide the Keyboard Shortcuts panel on touch-only devices where no keyboard
+     exists (F836). Keyboard users on hybrid/desktop still see it. */
+  .nakamigos-app .about-shortcuts {
+    display: none;
   }
 }
 
