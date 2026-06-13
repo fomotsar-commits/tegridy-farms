@@ -2,22 +2,31 @@ import { formatUnits } from 'viem';
 
 export function formatCurrency(value: number, decimals = 2): string {
   if (!isFinite(value) || isNaN(value)) return '–';
-  if (value >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(decimals)}T`;
-  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(decimals)}B`;
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(decimals)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(decimals)}K`;
-  if (value > 0 && value < 0.000001) return `$${value.toExponential(2)}`;
-  if (value > 0 && value < 0.01) return `$${value.toFixed(Math.max(decimals, 8))}`;
-  return `$${value.toFixed(decimals)}`;
+  // Handle the sign once so negatives render as the conventional `-$12.34`
+  // (sign OUTSIDE the `$`), not `$-12.34`. Format the magnitude, then prefix.
+  const sign = value < 0 ? '-' : '';
+  const v = Math.abs(value);
+  if (v >= 1_000_000_000_000) return `${sign}$${(v / 1_000_000_000_000).toFixed(decimals)}T`;
+  if (v >= 1_000_000_000) return `${sign}$${(v / 1_000_000_000).toFixed(decimals)}B`;
+  if (v >= 1_000_000) return `${sign}$${(v / 1_000_000).toFixed(decimals)}M`;
+  if (v >= 1_000) return `${sign}$${(v / 1_000).toFixed(decimals)}K`;
+  if (v > 0 && v < 0.000001) return `${sign}$${v.toExponential(2)}`;
+  if (v > 0 && v < 0.01) return `${sign}$${v.toFixed(Math.max(decimals, 8))}`;
+  return `${sign}$${v.toFixed(decimals)}`;
 }
 
 export function formatNumber(value: number, decimals = 2): string {
   if (!isFinite(value) || isNaN(value)) return '–';
-  if (value >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(decimals)}T`;
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(decimals)}B`;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(decimals)}M`;
-  if (value >= 1_000) return `${value.toLocaleString('en-US', { maximumFractionDigits: decimals })}`;
-  return value.toFixed(decimals);
+  // Handle the sign once so large negatives still get thousands separators
+  // (the old code fell through every `>=` threshold for negatives, yielding
+  // an un-grouped `-5000.00`).
+  const sign = value < 0 ? '-' : '';
+  const v = Math.abs(value);
+  if (v >= 1_000_000_000_000) return `${sign}${(v / 1_000_000_000_000).toFixed(decimals)}T`;
+  if (v >= 1_000_000_000) return `${sign}${(v / 1_000_000_000).toFixed(decimals)}B`;
+  if (v >= 1_000_000) return `${sign}${(v / 1_000_000).toFixed(decimals)}M`;
+  if (v >= 1_000) return `${sign}${v.toLocaleString('en-US', { maximumFractionDigits: decimals })}`;
+  return `${sign}${v.toFixed(decimals)}`;
 }
 
 export function formatTokenAmount(value: string | number, decimals = 4): string {

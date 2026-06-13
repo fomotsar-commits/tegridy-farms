@@ -35,7 +35,9 @@ function normalizeTokenAddress(addr: string, style: 'native' | 'weth' | 'zero'):
   switch (style) {
     case 'native': return NATIVE_ADDRESS;
     case 'weth': return WETH;
-    case 'zero': return '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+    // Odos expects the zero address for native ETH (NOT the 0xEeee sentinel).
+    // Returning the sentinel here made Odos reject every ETH-input quote.
+    case 'zero': return '0x0000000000000000000000000000000000000000';
   }
 }
 

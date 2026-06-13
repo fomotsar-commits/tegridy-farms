@@ -139,6 +139,10 @@ function flush() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(toSend),
+    }).then((r) => {
+      // fetch only rejects on network error; a 4xx/5xx resolves with ok=false.
+      // Persist the batch on any non-2xx so it isn't silently lost.
+      if (!r.ok) persistToLocalStorage(toSend);
     }).catch(() => {
       persistToLocalStorage(toSend);
     });

@@ -169,6 +169,24 @@ describe('aggregator: uniform slippage propagation (R045 M1)', () => {
   });
 });
 
+describe('aggregator: Odos native-ETH normalization (F466)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('sends the zero address (not the 0xEeee sentinel) for native ETH input to Odos', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ outAmounts: ['100'] }), { status: 200 }),
+    );
+
+    // Native ETH input — Odos expects 0x000…000, NOT the 0xEeee sentinel.
+    await getMetaAggregatorQuotes('ETH', '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', '1', '0xdead', 1);
+
+    const odos = fetchSpy.mock.calls.find(([u]) => typeof u === 'string' && u.includes('/odos/'));
+    expect(odos).toBeDefined();
+    const body = JSON.parse((odos![1] as RequestInit).body as string);
+    expect(body.inputTokens[0].tokenAddress).toBe('0x0000000000000000000000000000000000000000');
+  });
+});
+
 describe('aggregator: pure helpers', () => {
   it('isAggregatorEnabled returns true', () => {
     expect(isAggregatorEnabled()).toBe(true);

@@ -50,6 +50,15 @@ describe('categorizeTx', () => {
   it('falls back to Other for unknown destinations', () => {
     expect(categorizeTx(tx('0x' + '9'.repeat(40), 'frobnicate()')).type).toBe('Other');
   });
+
+  it('F478: a tx to the zero address is Other, not Restake/Grants/etc.', () => {
+    // The zeroed (undeployed) contract addresses are all 0x000…0. Without the
+    // isDeployed() guards, a burn / zero-send `to` collided with the first
+    // zero-compare branch (Restaking) and got mislabelled.
+    const zero = '0x0000000000000000000000000000000000000000';
+    expect(categorizeTx(tx(zero, 'restake()')).type).toBe('Other');
+    expect(categorizeTx(tx(zero, '')).type).toBe('Other');
+  });
 });
 
 describe('HISTORY_CONTRACTS', () => {

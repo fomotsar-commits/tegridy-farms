@@ -2,6 +2,13 @@
 export const TOWELI_ADDRESS = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as const;
 
 // Core Contracts — RELAUNCH DEPLOYED ON MAINNET 2026-06-06 (DeployMVP, fresh wallet)
+// Block of the DeployMVP broadcast (first deploy tx landed at block 25,263,328 —
+// verified from contracts/broadcast/DeployMVP.s.sol/1/run-latest.json). Used as
+// the `fromBlock` for relaunch-contract eth_getLogs scans so the span stays well
+// under the public-RPC range cap (was 18,000,000n — a ~7M-block ask that public
+// RPCs reject, silently zeroing swap count + loyalty score). Rounded down a hair
+// for safety; no relaunch event can predate the contract's own deploy.
+export const RELAUNCH_DEPLOY_BLOCK = 25263000n;
 export const TEGRIDY_STAKING_ADDRESS = '0xcaDc93E96De58EA554c71ca609974625615E046D' as const;
 // Restaking DEFERRED to Phase 7 (EIP-170 split). Zeroed until deployed; UI gates on isDeployed().
 export const TEGRIDY_RESTAKING_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
@@ -16,16 +23,20 @@ export const STAKING_MONITOR_VIEW_ADDRESS = '0xbE1E75124C7F07d5B681839C42d8e751f
 export const TEGRIDY_FACTORY_ADDRESS = '0xa24C7287eC56A7DEFDc70033803451240e267a52' as const;
 export const TEGRIDY_ROUTER_ADDRESS = '0xE9F83A07b071748E795d2489651d5310fA098Db8' as const;
 export const TEGRIDY_LP_ADDRESS = '0x55875887B43C2E23aE424AF0FC8606Fdb058a481' as const;
+// Pair first-mint timestamp (unix seconds) — used for fee-APR / avg-daily-volume
+// pool-age math. Interim = the 2026-06-08 LP relaunch date; OPERATOR: replace
+// with the pair's actual first-mint block timestamp once known.
+export const TEGRIDY_LP_CREATED_AT = Math.floor(new Date('2026-06-08T00:00:00Z').getTime() / 1000);
 
 // Revenue & Fees — RELAUNCH 2026-06-06 (DeployMVP)
 export const REVENUE_DISTRIBUTOR_ADDRESS = '0xF993316E2fC079de4358c489A935E01e03E23E17' as const;
 export const SWAP_FEE_ROUTER_ADDRESS = '0x6d5791A660e79175F74C6D639584C98422d5956E' as const;
 export const POL_ACCUMULATOR_ADDRESS = '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2' as const;
 
-// LP Farming — Wave 0 2026-04-18: C-01 fix (MAX_BOOST_BPS_CEILING=45000) redeploy
-// ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).
-// Restore the real address after the relaunch redeploy. Prev: 0xa7EF711Be3662B9557634502032F98944eC69ec1
-export const LP_FARMING_ADDRESS = '0x1171268AE5B69791c47Fd589b7825932c957e149' as const; // RELAUNCH 2026-06-08 (DeployTegridyLPFarming): boosted Synthetix LP staking; owner pending the 0xA360 Safe
+// LP Farming — RELAUNCH 2026-06-08 (DeployTegridyLPFarming): boosted Synthetix
+// LP staking; owner pending the 0xA360 Safe. (Live — the earlier Wave 0
+// 0xa7EF711… and the 2026-05-31 ZEROED interim are both superseded.)
+export const LP_FARMING_ADDRESS = '0x1171268AE5B69791c47Fd589b7825932c957e149' as const;
 
 // Gauge Controller — Wave 0 2026-04-18: H-2 commit-reveal redeploy
 // ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).

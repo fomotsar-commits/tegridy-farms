@@ -50,14 +50,18 @@ export function isAllowedUri(uri: string | null | undefined): boolean {
 }
 
 // ─── IPFS gateway round-robin ───────────────────────────────────────
-// Order matters: cloudflare-ipfs is fastest, dweb.link is the IPFS-native
-// fallback, ipfs.io is the last resort. `ipfsCandidates` returns every
-// gateway URL for a given `ipfs://...` URI so the caller can race them or
-// fall through one by one.
+// Order matters: the FIRST entry is what single-host resolvers (resolveSafeUrl
+// / safeUrl) hand to `<img src>` with no fallback, so it must be a live public
+// gateway. Cloudflare sunset its public IPFS gateway in 2024 — leading with it
+// rendered every ipfs:// image broken — so ipfs.io leads, dweb.link is the
+// IPFS-native fallback, and cloudflare is kept only as a harmless tail for the
+// race in `fetchWithIpfsFallback`. `ipfsCandidates` returns every gateway URL
+// for a given `ipfs://...` URI so the caller can race them or fall through one
+// by one.
 export const IPFS_GATEWAYS = [
-  'https://cloudflare-ipfs.com/ipfs/',
-  'https://dweb.link/ipfs/',
   'https://ipfs.io/ipfs/',
+  'https://dweb.link/ipfs/',
+  'https://cloudflare-ipfs.com/ipfs/',
 ] as const;
 
 export function ipfsCandidates(uri: string): string[] {

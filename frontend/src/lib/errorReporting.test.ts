@@ -174,6 +174,23 @@ describe('errorReporting', () => {
     expect(getStoredErrors().length).toBe(0);
   });
 
+  it('F482: persists the batch to localStorage on an HTTP error response (4xx/5xx)', async () => {
+    // fetch only rejects on network error; a 500 resolves with ok=false. The
+    // old code never checked res.ok, so the batch was silently lost.
+    vi.stubEnv('VITE_ERROR_ENDPOINT', 'https://errors.tegridy.farms/ingest');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('nope', { status: 500 }))),
+    );
+    const { reportError } = await getModule();
+    reportError(new Error('http-500 error'));
+    vi.advanceTimersByTime(6000);
+    // Let the resolved-promise .then() microtask run before asserting.
+    await vi.runAllTimersAsync();
+    const stored = getStoredErrors();
+    expect(stored.some((e) => e.message === 'http-500 error')).toBe(true);
+  });
+
   it('limits stored errors to MAX_BUFFER (50)', async () => {
     const { reportError } = await getModule();
     for (let i = 0; i < 60; i++) {

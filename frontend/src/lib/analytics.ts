@@ -13,18 +13,38 @@ import { sanitize } from './errorReporting';
 const FLUSH_INTERVAL_MS = 10_000;
 const ENDPOINT = import.meta.env.VITE_ANALYTICS_ENDPOINT as string | undefined;
 const IS_DEV = import.meta.env.DEV;
+// Cap the re-queue so a down endpoint can't grow memory for the life of the tab.
+// Keeps the newest events, drops the oldest beyond the cap.
+const MAX_QUEUE = 200;
 
 // ---------------------------------------------------------------------------
 // Session ID (persisted per browser tab session)
 // ---------------------------------------------------------------------------
+// Generate a random session id without requiring a secure context (where
+// crypto.randomUUID is unavailable). Mirrors the crypto-guard style in useDCA.
+function randomId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch { /* fall through to Math.random fallback */ }
+  return `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function getSessionId(): string {
   const KEY = 'tegridy_session_id';
-  let id = sessionStorage.getItem(KEY);
-  if (!id) {
-    id = crypto.randomUUID();
+  // sessionStorage.getItem/setItem throw SecurityError in storage-blocked
+  // iframes/webviews; crypto.randomUUID needs a secure context. Wrap the whole
+  // body so a failure here never kills the bundle at import time.
+  try {
+    const existing = sessionStorage.getItem(KEY);
+    if (existing) return existing;
+    const id = randomId();
     sessionStorage.setItem(KEY, id);
+    return id;
+  } catch {
+    return randomId();
   }
-  return id;
 }
 
 const sessionId = getSessionId();
@@ -65,7 +85,7 @@ async function flush(useBeacon = false) {
   // Use sendBeacon when the page is unloading — regular fetch gets cancelled
   if (useBeacon && navigator.sendBeacon) {
     const sent = navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
-    if (!sent) queue = batch.concat(queue); // re-queue if beacon failed
+    if (!sent) queue = batch.concat(queue).slice(-MAX_QUEUE); // re-queue if beacon failed (capped)
     return;
   }
 
@@ -77,8 +97,9 @@ async function flush(useBeacon = false) {
       keepalive: true,
     });
   } catch {
-    // Re-queue on failure so events aren't lost (batch first, then pending queue)
-    queue = [...batch, ...queue];
+    // Re-queue on failure so events aren't lost (batch first, then pending
+    // queue), capped to the newest MAX_QUEUE so a down endpoint can't leak.
+    queue = [...batch, ...queue].slice(-MAX_QUEUE);
   }
 }
 

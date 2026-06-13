@@ -62,8 +62,12 @@ describe('formatCurrency', () => {
     expect(formatCurrency(0)).toBe('$0.00');
   });
 
-  it('formats negative values', () => {
-    expect(formatCurrency(-10)).toBe('$-10.00');
+  it('formats negative values with the sign outside the $ (-$12.34)', () => {
+    // F486: previously rendered `$-10.00` (sign inside the `$`). Convention is
+    // the minus OUTSIDE the currency symbol.
+    expect(formatCurrency(-10)).toBe('-$10.00');
+    expect(formatCurrency(-12.34)).toBe('-$12.34');
+    expect(formatCurrency(-4_200_000)).toBe('-$4.20M');
   });
 
   it('respects custom decimals', () => {
@@ -112,6 +116,15 @@ describe('formatNumber', () => {
   it('respects custom decimals', () => {
     expect(formatNumber(1_000_000_000, 0)).toBe('1B');
     expect(formatNumber(1_234, 0)).toBe('1,234');
+  });
+
+  it('formats large negatives with thousands separators (F486)', () => {
+    // Previously fell through every `>=` threshold for negatives, yielding an
+    // un-grouped `-5000`. Now the magnitude is grouped (mirrors the positive
+    // `formatNumber(9_876) === '9,876'` path) and the sign is prefixed.
+    expect(formatNumber(-5000)).toBe('-5,000');
+    expect(formatNumber(-1_234_567)).toBe('-1.23M');
+    expect(formatNumber(-42.5)).toBe('-42.50');
   });
 });
 
