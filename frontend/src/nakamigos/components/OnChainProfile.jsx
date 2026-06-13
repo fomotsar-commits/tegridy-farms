@@ -3,6 +3,7 @@ import { fetchWalletNfts, fetchCollectionStats, fetchActivity, shortenAddress } 
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { getReadProvider } from "../lib/rpcProvider";
 
 const MAX_GRID = 24;
 
@@ -154,8 +155,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
 
     async function resolveEns() {
       try {
-        const { ethers } = await import("ethers");
-        const provider = new ethers.JsonRpcProvider("https://eth.llamarpc.com");
+        const provider = await getReadProvider();
         const name = await provider.lookupAddress(address);
         if (!mounted) return;
         if (name) {

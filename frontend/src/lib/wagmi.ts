@@ -12,15 +12,16 @@ const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | unde
 const transports = {
   [mainnet.id]: fallback([
     http('https://ethereum-rpc.publicnode.com'),
-    http('https://rpc.ankr.com/eth'),
-    http('https://cloudflare-eth.com'),
-    // F511/F517: removed the `eth.llamarpc.com` last-resort transport — its
-    // origin returns no `Access-Control-Allow-Origin` header, so every
-    // fall-through fails CORS preflight (net::ERR_FAILED) and spams the
-    // console, masking real failures. The three endpoints above are all
-    // allowlisted in vercel.json `connect-src` and CORS-clean.
-    // NOTE: the bare `http()` default was already removed earlier — it
-    // resolves to eth.merkle.io, which is NOT in the CSP allowlist.
+    // drpc + merkle are healthy keyless backups — both CORS-clean (ACAO: *) and
+    // now allowlisted in vercel.json `connect-src`. Replaced ankr (keyless now
+    // requires an API key) and cloudflare-eth (gateway sunset) — both verified
+    // dead 2026-06-13, returning JSON-RPC errors despite HTTP 200.
+    http('https://eth.drpc.org'),
+    http('https://eth.merkle.io'),
+    // F511/F517: eth.llamarpc.com is intentionally NOT included — its origin
+    // returns no `Access-Control-Allow-Origin` header, so browser fall-through
+    // fails CORS preflight (net::ERR_FAILED) and spams the console. (Also 521
+    // origin-down in prod on 2026-06-13.)
   ], { rank: true }),
 };
 

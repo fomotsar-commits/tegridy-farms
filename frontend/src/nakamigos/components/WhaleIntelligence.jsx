@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import { formatPrice } from "../lib/formatPrice";
 import { fetchTopHolders, fetchActivity, fetchWalletNfts, shortenAddress } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { getReadProvider } from "../lib/rpcProvider";
 
 // SUPPLY is now dynamic per collection — passed via stats or fetched from context
 const REFRESH_MS = 30000;
@@ -359,8 +360,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
         });
         if (uncached.length === 0) return;
 
-        const { ethers } = await import("ethers");
-        const provider = new ethers.JsonRpcProvider("https://eth.llamarpc.com");
+        const provider = await getReadProvider();
 
         // Process in batches of 3 to avoid rate limiting
         const BATCH_SIZE = 3;

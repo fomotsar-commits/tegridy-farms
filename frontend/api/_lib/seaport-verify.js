@@ -156,8 +156,9 @@ function alchemyUrl() {
 // nothing. Fail-closed is reached only when EVERY path fails.
 const PUBLIC_RPC_URLS = Object.freeze([
   "https://ethereum-rpc.publicnode.com",
+  "https://eth.drpc.org",
+  "https://eth.merkle.io",
   "https://eth.llamarpc.com",
-  "https://rpc.ankr.com/eth",
 ]);
 
 function rpcUrlChain() {

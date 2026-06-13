@@ -7,13 +7,17 @@
 // (llamarpc returned 503/521 — origin down — in prod on 2026-06-11, which took
 // these surfaces down entirely since it was their only provider.)
 
-// Same list and ordering as src/lib/wagmi.ts transports: publicnode + ankr
-// first, llamarpc demoted to last-resort.
+// Same list and ordering as src/lib/wagmi.ts transports. publicnode is the
+// verified-live primary; drpc + merkle are healthy keyless backups — all three
+// CORS-clean (ACAO: *) and allowlisted in vercel.json `connect-src`. Dropped
+// ankr (keyless now requires an API key) and cloudflare-eth (gateway sunset) —
+// both verified dead 2026-06-13. eth.llamarpc.com is intentionally excluded
+// (F511/F517): no Access-Control-Allow-Origin header → browser CORS fail, and
+// it was 521 origin-down in prod 2026-06-13.
 const RPC_ENDPOINTS = [
   "https://ethereum-rpc.publicnode.com",
-  "https://rpc.ankr.com/eth",
-  "https://cloudflare-eth.com",
-  "https://eth.llamarpc.com", // demoted: observed 503/521 (origin down) in prod
+  "https://eth.drpc.org",
+  "https://eth.merkle.io",
 ];
 
 let cached = null;
