@@ -14,6 +14,7 @@ vi.mock('../lib/analytics', () => ({ trackStake: vi.fn() }));
 vi.mock('../lib/explorer', () => ({ getTxUrl: () => 'https://example.test/tx' }));
 
 import { useFarmActions } from './useFarmActions';
+import { toast } from 'sonner';
 import {
   TEGRIDY_STAKING_ADDRESS,
   TOWELI_ADDRESS,
@@ -94,12 +95,16 @@ describe('useFarmActions', () => {
     expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
   });
 
-  it('stake() throws on invalid amount', () => {
+  it('stake() soft-fails on invalid amount (toast, no throw, no write) — F484', () => {
     const { result } = renderHook(() => useFarmActions());
-    // parsed ≤ 0 or NaN both hit the Invalid amount branch.
-    expect(() => result.current.stake('0', 86400n)).toThrow(/Invalid amount/);
-    expect(() => result.current.stake('-1', 86400n)).toThrow(/Invalid amount/);
-    expect(() => result.current.stake('not-a-number', 86400n)).toThrow(/Invalid amount/);
+    vi.mocked(toast.error).mockClear();
+    // F484: parsed ≤ 0 or NaN now toast + return instead of throwing — a throw
+    // on an onClick path would nuke the ErrorBoundary (matches approve()).
+    for (const bad of ['0', '-1', 'not-a-number']) {
+      expect(() => act(() => result.current.stake(bad, 86400n))).not.toThrow();
+    }
+    expect(toast.error).toHaveBeenCalledWith('Invalid amount');
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
   });
 
   // ───── withdraw / earlyWithdraw — pendingEth guard (Spartan TF-03) ──

@@ -7,7 +7,7 @@ import { usePoints } from './usePoints';
 import { COMMUNITY_GRANTS_ABI, MEME_BOUNTY_BOARD_ABI } from '../lib/contracts';
 import {
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS,
-  TEGRIDY_STAKING_ADDRESS,
+  TEGRIDY_STAKING_ADDRESS, RELAUNCH_DEPLOY_BLOCK,
   isDeployed as checkDeployed,
 } from '../lib/constants';
 
@@ -152,7 +152,7 @@ function getTips(breakdown: TegridyScoreBreakdown): string[] {
   const tipMap: { key: keyof TegridyScoreBreakdown; tip: string }[] = [
     { key: 'stakingScore', tip: 'Tip: Stake more TOWELI to boost your score' },
     { key: 'lockScore', tip: 'Tip: Lock for longer to increase your Tegridy Score' },
-    { key: 'activityScore', tip: 'Tip: Visit daily and swap to build your streak' },
+    { key: 'activityScore', tip: 'Tip: Swap and stake to build on-chain activity' },
     { key: 'governanceScore', tip: 'Tip: Vote on grant proposals to improve your score' },
     { key: 'communityScore', tip: 'Tip: Post a bounty or refer friends' },
   ];
@@ -323,8 +323,10 @@ export function useTegridyScore(): TegridyScoreResult {
       address: TEGRIDY_STAKING_ADDRESS,
       event: STAKED_EVENT,
       args: { user: address },
-      // Start from approximate contract deploy block to avoid scanning entire chain history
-      fromBlock: 18000000n,
+      // F469: start at the relaunch deploy block (not the stale 18,000,000n) so
+      // the span stays under the public-RPC getLogs cap and the loyalty score
+      // doesn't silently read 0 for most users.
+      fromBlock: RELAUNCH_DEPLOY_BLOCK,
       toBlock: 'latest',
     }).then(async (logs) => {
       if (cancelled) return;

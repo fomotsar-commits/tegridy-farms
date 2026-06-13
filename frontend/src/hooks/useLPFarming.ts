@@ -6,6 +6,7 @@ import { LP_FARMING_ABI, ERC20_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
+import { surfaceTxError } from '../lib/txErrors';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
@@ -112,7 +113,8 @@ export function useLPFarming() {
 
   useEffect(() => {
     if (writeError) {
-      toast.error(writeError.message?.slice(0, 120) ?? 'Unknown error', { id: 'write-error' });
+      // F474: soft "Cancelled" for wallet rejections; classified message otherwise.
+      surfaceTxError(writeError, toast, { component: 'useLPFarming' });
       setTimeout(() => reset(), 4000);
     }
   }, [writeError, reset]);

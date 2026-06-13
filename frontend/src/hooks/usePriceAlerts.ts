@@ -66,19 +66,20 @@ export function usePriceAlerts(currentPrice: number) {
   // Check thresholds when price updates
   useEffect(() => {
     if (currentPrice <= 0) return;
+    // Collect crossings inside the (pure) updater and fire notifications AFTER
+    // it returns. React can run a state updater twice in dev StrictMode, so
+    // calling sendNotification inside it double-fires the OS notification.
+    const crossed: PriceAlert[] = [];
     setAlerts((prev) => {
       let changed = false;
       const next = prev.map((a) => {
         if (a.triggered) return a;
-        const crossed =
+        const didCross =
           (a.type === 'above' && currentPrice >= a.price && prevPrice.current < a.price) ||
           (a.type === 'below' && currentPrice <= a.price && prevPrice.current > a.price);
-        if (crossed) {
+        if (didCross) {
           changed = true;
-          sendNotification(
-            'TOWELI Price Alert',
-            `Price is now $${currentPrice.toFixed(6)} (crossed your $${a.price.toFixed(6)} ${a.type} threshold)`,
-          );
+          crossed.push(a);
           return { ...a, triggered: true };
         }
         return a;
@@ -86,6 +87,12 @@ export function usePriceAlerts(currentPrice: number) {
       prevPrice.current = currentPrice;
       return changed ? next : prev;
     });
+    for (const a of crossed) {
+      sendNotification(
+        'TOWELI Price Alert',
+        `Price is now $${currentPrice.toFixed(6)} (crossed your $${a.price.toFixed(6)} ${a.type} threshold)`,
+      );
+    }
   }, [currentPrice]);
 
   const addAlert = useCallback((type: 'above' | 'below', price: number) => {
@@ -104,7 +111,9 @@ export function usePriceAlerts(currentPrice: number) {
         return prev;
       }
       if (prev.length >= MAX_ALERTS) {
-        toast.error(`Up to ${MAX_ALERTS} price alerts per wallet. Delete one to add another.`);
+        // Alerts are stored device-global (one localStorage key, not address-
+        // scoped), so the cap is per-device — don't claim "per wallet".
+        toast.error(`Up to ${MAX_ALERTS} price alerts. Delete one to add another.`);
         return prev;
       }
       return [...prev, { id, type, price, triggered: false }];

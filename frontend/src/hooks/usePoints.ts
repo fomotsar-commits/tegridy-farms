@@ -10,7 +10,7 @@ import {
 import { TEGRIDY_STAKING_ABI, ERC20_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import {
   TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TEGRIDY_LP_ADDRESS,
-  SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID,
+  SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID, RELAUNCH_DEPLOY_BLOCK,
   isDeployed as checkDeployed,
 } from '../lib/constants';
 
@@ -78,7 +78,9 @@ export function usePoints() {
       address: SWAP_FEE_ROUTER_ADDRESS,
       event: SWAP_EXECUTED_EVENT,
       args: { user: address },
-      fromBlock: 18000000n,
+      // F469: start at the relaunch deploy block, not the stale 18,000,000n —
+      // the ~7M-block span made public RPCs reject the scan and zero swapCount.
+      fromBlock: RELAUNCH_DEPLOY_BLOCK,
       toBlock: 'latest',
     }).then(logs => {
       if (!cancelled) setSwapCount(logs.length);

@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useMemo } from 'react';
 import { useReadContracts, useChainId } from 'wagmi';
 import { maxUint256 } from 'viem';
 import { toast } from 'sonner';
@@ -192,14 +192,29 @@ export function useSwapAllowance(
     setUnlimitedApproval(val);
   }, []);
 
-  return {
-    needsApproval,
-    approve,
-    unlimitedApproval,
-    toggleUnlimitedApproval,
-    refetchAllowance,
-    isApprovingMultiStep,
-    continueMultiStepApprove,
-    resetMultiStepApprove,
-  };
+  // F465: memoise the return object so the consumer (useSwap) doesn't see a
+  // fresh `allowance` identity every render — a fresh literal here put an
+  // unstable value in useSwap's receipt-success effect dep array.
+  return useMemo(
+    () => ({
+      needsApproval,
+      approve,
+      unlimitedApproval,
+      toggleUnlimitedApproval,
+      refetchAllowance,
+      isApprovingMultiStep,
+      continueMultiStepApprove,
+      resetMultiStepApprove,
+    }),
+    [
+      needsApproval,
+      approve,
+      unlimitedApproval,
+      toggleUnlimitedApproval,
+      refetchAllowance,
+      isApprovingMultiStep,
+      continueMultiStepApprove,
+      resetMultiStepApprove,
+    ],
+  );
 }

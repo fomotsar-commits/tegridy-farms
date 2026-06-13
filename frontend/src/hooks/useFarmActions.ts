@@ -7,6 +7,7 @@ import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, C
 import { trackStake } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
+import { surfaceTxError } from '../lib/txErrors';
 
 export function useFarmActions() {
   const chainId = useChainId();
@@ -72,10 +73,9 @@ export function useFarmActions() {
   }, [isTxError, hash]);
 
   useEffect(() => {
-    if (writeError) {
-      const msg = (writeError.message ?? 'Unknown error').replace(/https?:\/\/\S+/g, '').slice(0, 120);
-      toast.error(msg, { id: 'write-error' });
-    }
+    // F474: classify wallet cancellations as a soft "Cancelled" info toast
+    // instead of a scary raw error string.
+    if (writeError) surfaceTxError(writeError, toast, { component: 'useFarmActions' });
   }, [writeError]);
 
   const approve = (amount: string) => {
@@ -96,7 +96,9 @@ export function useFarmActions() {
   const stake = (amount: string, lockDurationSeconds: bigint) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     const wei = safeParseEtherPositive(amount);
-    if (wei === null) throw new Error('Invalid amount');
+    // F484: match approve()'s soft-fail — a thrown error on an onClick path
+    // nukes the ErrorBoundary instead of just telling the user to fix the input.
+    if (wei === null) { toast.error('Invalid amount'); return; }
     pendingStakeRef.current = { amount, lockDuration: lockDurationSeconds.toString() };
     txAddressRef.current = address;
     writeContract({

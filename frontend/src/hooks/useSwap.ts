@@ -205,6 +205,11 @@ export function useSwap() {
   const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, address, writeContract);
 
   const lastActionRef = useRef<'approve' | 'swap' | null>(null);
+  // F465: guard the receipt-success effect so it handles each confirmed hash
+  // exactly once. The effect re-runs every ~1s while isSuccess is latched (the
+  // quote hook's staleness ticker forces re-renders), which otherwise re-fired
+  // the swap toast + trackSwap repeatedly. Canonical pattern from useLPFarming.
+  const lastHandledHashRef = useRef<string | null>(null);
   // R033 H-04: in-flight ref guard prevents double-tap from firing two writeContracts.
   const isPendingRef = useRef(false);
   // R042 HIGH-1: snapshot input + route at submit so analytics doesn't read
@@ -245,6 +250,12 @@ export function useSwap() {
 
   useEffect(() => {
     if (!isSuccess || !hash) return;
+    // F465: handle each confirmed hash exactly once. Without this the effect
+    // re-ran every ~1s (quote staleness ticker) while isSuccess stayed latched,
+    // re-firing the swap toast + trackSwap and even toasting a phantom swap
+    // after a plain approve (lastActionRef was already nulled by the first run).
+    if (lastHandledHashRef.current === hash) return;
+    lastHandledHashRef.current = hash;
     allowance.refetchAllowance();
     refetchFromBalance();
     const action = lastActionRef.current;
@@ -266,6 +277,9 @@ export function useSwap() {
     }
     // Swap path.
     toast.success('WAGMI! Swap confirmed', {
+      // F465: id keyed on the hash so sonner de-dupes (defence in depth on top
+      // of the lastHandledHashRef guard above).
+      id: hash,
       description: `${fromToken?.symbol} → ${toToken?.symbol}`,
       action: {
         label: 'View on Explorer',

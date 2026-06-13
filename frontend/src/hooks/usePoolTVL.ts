@@ -2,12 +2,15 @@ import { useMemo } from 'react';
 import { useReadContracts, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
 import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
-import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, TEGRIDY_LP_CREATED_AT, isDeployed as checkDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 
 const MAX_APR = 500;
 const MAX_TVL_USD = 1e12; // $1T sanity cap
-const POOL_LAUNCH_TIMESTAMP = new Date('2025-03-01').getTime() / 1000;
+// F468: was hardcoded to 2025-03-01 — ~15 months before the pool existed — which
+// understated fee-APR / avg-daily-volume by ~100x once real fees accrued. Pinned
+// to the actual pair-creation timestamp (see constants.ts).
+const POOL_LAUNCH_TIMESTAMP = TEGRIDY_LP_CREATED_AT;
 
 export function usePoolTVL() {
   const price = useTOWELIPrice();
@@ -68,11 +71,7 @@ export function usePoolTVL() {
     let volIsEstimated = true;
 
     const totalETHFees = hasFeeRouter && data?.[3]?.status === 'success' ? data[3].result as bigint : 0n;
-    // F119: totalSwaps gates the synthetic-volume fallback — with zero observed
-    // swaps we must NOT fabricate a 24h volume from a guessed turnover ratio.
-    const totalSwaps = hasFeeRouter && data?.[4]?.status === 'success' ? data[4].result as bigint : 0n;
     const feeBps = hasFeeRouter && data?.[5]?.status === 'success' ? data[5].result as bigint : 0n;
-    const hasVolumeData = totalETHFees > 0n || totalSwaps > 0n;
 
     if (totalETHFees > 0n && tvl > 0) {
       const totalFeesUsd = parseFloat(formatEther(totalETHFees)) * price.ethUsd;
@@ -94,19 +93,13 @@ export function usePoolTVL() {
       aprIsEstimated = false;
       volIsEstimated = false;
     } else if (tvl > 0) {
-      let dailyVolumeRatio: number;
-      if (tvl < 10_000) dailyVolumeRatio = 0.01;
-      else if (tvl < 100_000) dailyVolumeRatio = 0.02;
-      else if (tvl < 1_000_000) dailyVolumeRatio = 0.03;
-      else dailyVolumeRatio = 0.04;
-
-      const estVol = tvl * dailyVolumeRatio;
-      const annualFees = estVol * 365 * 0.003;
-      aprNum = (annualFees / tvl) * 100;
-      // F119: only surface a 24h-volume number when there is actual on-chain
-      // swap activity. Without it the figure is a pure turnover guess — show
-      // the "no volume data yet" sentinel instead of a fabricated $ value.
-      vol24h = hasVolumeData ? estVol : 0;
+      // F485: with no on-chain fees we do NOT fabricate volume/APR from an
+      // assumed turnover ratio — the honesty mandate forbids rendering a number
+      // the chain can't back. Leave aprNum / vol24h at 0 so the existing '–'
+      // fall-through renders; the consuming stat card surfaces a "volume
+      // appears after first trades" microcopy line instead of a synthetic $.
+      aprNum = 0;
+      vol24h = 0;
     }
 
     if (aprNum > MAX_APR) aprNum = MAX_APR;

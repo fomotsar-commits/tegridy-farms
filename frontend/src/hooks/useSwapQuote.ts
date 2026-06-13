@@ -9,6 +9,9 @@ import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type A
 export type RouteSource = 'tegridy' | 'uniswap' | 'aggregator';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
+// Stable empty-path reference so the path memo (and the return-object memo that
+// depends on it) keep a constant identity when no tokens are selected.
+const EMPTY_PATH: `0x${string}`[] = [];
 
 // The native ('tegridy') route executes through SwapFeeRouter, which deducts a protocol
 // fee from the input. We compare and quote the native route NET of that fee, so it's
@@ -72,7 +75,13 @@ export function useSwapQuote(
 ): SwapQuoteResult {
   const fromDecimals = fromToken?.decimals ?? 18;
   const toDecimals = toToken?.decimals ?? 18;
-  const path = fromToken && toToken ? buildPath(fromToken, toToken) : [];
+  // R042 HIGH-2: memoise the path so it isn't a fresh array every render — a new
+  // identity here was defeating the return-object memo (and routeDescription,
+  // also path-deped) by flipping their identity on every render.
+  const path = useMemo<`0x${string}`[]>(
+    () => (fromToken && toToken ? buildPath(fromToken, toToken) : EMPTY_PATH),
+    [fromToken, toToken],
+  );
 
   // All configured contract addresses are for CHAIN_ID (Ethereum mainnet). On any other
   // chain, the wagmi read calls silently return garbage (either an empty 0x response from
@@ -83,6 +92,11 @@ export function useSwapQuote(
 
   // Track which inputAmount generated each aggregator quote to discard stale results
   const quoteRequestIdRef = useRef(0);
+  // F467: a state-based counter included in the aggregator fetch-effect deps so
+  // refreshQuote can actually re-fire the aggregator leg. (Bumping the ref alone
+  // never re-ran the effect, so refresh silently lost the 7-aggregator
+  // comparison.) The ref above still orders in-flight responses.
+  const [aggRequestId, setAggRequestId] = useState(0);
 
   // ---- Uniswap V2 quote ----
   const { data: uniAmountsOut, isLoading: isUniQuoteLoading, refetch: refetchUni } = useReadContract({
@@ -248,7 +262,8 @@ export function useSwapQuote(
         });
     }, 800);
     return () => { abortController.abort(); clearTimeout(timer); };
-  }, [fromToken, toToken, parsedAmount, address, fromDecimals, chainId]);
+    // F467: aggRequestId in the deps lets refreshQuote re-fire this effect.
+  }, [fromToken, toToken, parsedAmount, address, fromDecimals, chainId, aggRequestId]);
 
   // Stamp on every wagmi on-chain leg arrival.
   useEffect(() => {
@@ -437,12 +452,15 @@ export function useSwapQuote(
   const refreshQuote = useCallback(() => {
     refetchUni();
     if (hasTegridyPair) refetchTegridy();
-    // Aggregator is a fetch effect — bumping the requestId triggers re-fetch.
-    quoteRequestIdRef.current += 1;
-    // Force the aggregator effect to re-run by clearing prior result;
-    // setQuoteFetchedAt will re-fire on the next settle.
+    // F467: the aggregator leg is a fetch effect keyed on aggRequestId — bump
+    // the state counter so the effect actually re-runs (the old ref bump didn't
+    // change any dep, so the aggregator leg was lost until the user re-typed).
     setAggQuoteResult(null);
-    setQuoteFetchedAt(0);
+    setAggRequestId((n) => n + 1);
+    // Stamp now rather than 0: the on-chain stamp effect won't re-fire if the
+    // refetched amounts are structurally identical, which would otherwise leave
+    // quoteFetchedAt stuck at 0. A fresh stamp also resets the staleness window.
+    setQuoteFetchedAt(Date.now());
   }, [refetchUni, refetchTegridy, hasTegridyPair]);
 
   // Net of the protocol fee — this is what the user actually receives on the native

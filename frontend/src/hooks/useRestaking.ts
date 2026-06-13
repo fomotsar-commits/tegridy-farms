@@ -4,6 +4,7 @@ import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_RESTAKING_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { TEGRIDY_RESTAKING_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { surfaceTxError } from '../lib/txErrors';
 
 export function useRestaking() {
   const chainId = useChainId();
@@ -140,10 +141,8 @@ export function useRestaking() {
   }, [isTxError]);
 
   useEffect(() => {
-    if (writeError) {
-      const msg = (writeError.message ?? 'Unknown error').replace(/https?:\/\/\S+/g, '').slice(0, 120);
-      toast.error(msg);
-    }
+    // F474: classify wallet cancellations as a soft "Cancelled" info toast.
+    if (writeError) surfaceTxError(writeError, toast, { component: 'useRestaking' });
   }, [writeError]);
 
   return {

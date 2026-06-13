@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
 import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { surfaceTxError } from '../lib/txErrors';
 
 export interface WhitelistedToken {
   address: Address;
@@ -342,7 +343,10 @@ export function useBribes() {
       return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
-      toast.error('Transaction failed');
+      // F474: classify a wallet rejection (writeError) as "Cancelled"; keep the
+      // generic message for a bare on-chain revert.
+      if (writeError) surfaceTxError(writeError, toast, { component: 'useBribes' });
+      else toast.error('Transaction failed');
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }

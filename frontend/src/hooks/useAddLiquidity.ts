@@ -6,6 +6,7 @@ import { TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI
 import { TEGRIDY_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { type TokenInfo } from '../lib/tokenList';
 import { getTxUrl } from '../lib/explorer';
+import { surfaceTxError } from '../lib/txErrors';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -135,7 +136,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     } catch { return 0; }
   }
 
-  // Toasts
+  // Toasts. F484: capture each reset() timer and clear it on cleanup so an
+  // unmount mid-window doesn't leak a pending timer (mirrors useSwap's pattern).
   useEffect(() => {
     if (isSuccess && hash) {
       toast.success('Liquidity operation confirmed!', {
@@ -143,21 +145,25 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
       });
       refetch();
-      setTimeout(() => reset(), 4000);
+      const t = setTimeout(() => reset(), 4000);
+      return () => clearTimeout(t);
     }
   }, [isSuccess, hash]);
 
   useEffect(() => {
     if (isTxError && hash) {
       toast.error('Transaction failed', { id: `err-${hash}` });
-      setTimeout(() => reset(), 4000);
+      const t = setTimeout(() => reset(), 4000);
+      return () => clearTimeout(t);
     }
   }, [isTxError, hash]);
 
   useEffect(() => {
     if (writeError) {
-      toast.error(writeError.message?.slice(0, 120) ?? 'Unknown error', { id: 'write-error' });
-      setTimeout(() => reset(), 4000);
+      // F474: soft "Cancelled" for wallet rejections; classified message otherwise.
+      surfaceTxError(writeError, toast, { component: 'useAddLiquidity' });
+      const t = setTimeout(() => reset(), 4000);
+      return () => clearTimeout(t);
     }
   }, [writeError]);
 

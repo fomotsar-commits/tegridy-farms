@@ -259,7 +259,12 @@ export function useCowLimitOrder() {
   useEffect(() => {
     if (!address) return;
     void refreshStatuses();
-    const id = setInterval(() => void refreshStatuses(), POLL_INTERVAL_MS);
+    const id = setInterval(() => {
+      // Skip polling while the tab is hidden — mirrors the visibility gate in
+      // useDCA / useLimitOrders so background tabs don't hammer the orderbook.
+      if (document.visibilityState === 'hidden') return;
+      void refreshStatuses();
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [address, refreshStatuses]);
 

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { REVENUE_DISTRIBUTOR_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
+import { surfaceTxError } from '../lib/txErrors';
 
 export function useRevenueStats() {
   const { address } = useAccount();
@@ -100,7 +101,11 @@ export function useRevenueStats() {
       return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
-      toast.error('Transaction failed');
+      // F474: a writeError carries the wallet rejection — classify it (so a
+      // cancel shows "Cancelled", not a scary "Transaction failed"). A bare
+      // on-chain revert (isTxError, no writeError) keeps the generic message.
+      if (writeError) surfaceTxError(writeError, toast, { component: 'useRevenueStats' });
+      else toast.error('Transaction failed');
       const t = setTimeout(resetClaim, 0);
       return () => clearTimeout(t);
     }

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
+import { surfaceTxError } from '../lib/txErrors';
 import type { ContractMetadata } from '../lib/nftMetadata';
 
 /// Resolve an `ar://` URI (or bare Arweave tx ID) into a gateway URL the
@@ -237,7 +238,13 @@ export function useNFTDropV2(dropAddress: string) {
       return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
-      toast.error(lastActionRef.current === 'refund' ? 'Refund failed' : 'Mint failed');
+      // F474: a wallet rejection (writeError) becomes a soft "Cancelled" toast
+      // instead of "Mint failed"; a bare on-chain revert keeps the action copy.
+      if (writeError) {
+        surfaceTxError(writeError, toast, { component: 'useNFTDropV2' });
+      } else {
+        toast.error(lastActionRef.current === 'refund' ? 'Refund failed' : 'Mint failed');
+      }
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
