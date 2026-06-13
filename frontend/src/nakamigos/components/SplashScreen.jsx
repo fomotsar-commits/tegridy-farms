@@ -4,6 +4,20 @@ import { COLLECTIONS, DEFAULT_COLLECTION, LOADING_MESSAGES } from "../constants"
 
 const IS_MOBILE = typeof window !== "undefined" && window.innerWidth < 768;
 
+// Which collection is the visitor entering? Match a slug segment in the path
+// (e.g. /nakamigos/junglebay/...) against COLLECTIONS so the splash shows that
+// collection's stats + loading copy instead of always the default (F546).
+function resolveSplashCollection() {
+  try {
+    const segs = (typeof window !== "undefined" ? window.location.pathname : "")
+      .split("/").filter(Boolean);
+    for (const seg of segs) {
+      if (COLLECTIONS[seg]) return seg;
+    }
+  } catch { /* SSR / malformed path — fall through to default */ }
+  return DEFAULT_COLLECTION;
+}
+
 // ═══ Art pieces config — SPLASH ONLY ═══
 // Mobile: fewer pieces, smaller sizes for performance
 const ART_PIECES_DESKTOP = [
@@ -643,6 +657,9 @@ export default function SplashScreen({ onComplete }) {
     } catch { return false; }
   });
   const containerRef = useRef(null);
+  // Resolve once on mount — the splash plays for one entry, the destination
+  // collection doesn't change mid-splash (F546).
+  const [splashSlug] = useState(resolveSplashCollection);
   const { positions, sparks, shockwave, impactFlash, mousePos } = usePhysics(ART_PIECES, containerRef, phase);
 
   useEffect(() => {
@@ -686,7 +703,7 @@ export default function SplashScreen({ onComplete }) {
     if (phase !== "ready") return;
     // Capture click position for shockwave origin
     const rect = containerRef.current?.getBoundingClientRect();
-    if (rect && e) {
+    if (rect && e && e.clientX != null) {
       setClickPos({ x: `${e.clientX}px`, y: `${e.clientY}px` });
     }
     setPhase("reveal");
@@ -707,6 +724,23 @@ export default function SplashScreen({ onComplete }) {
       }, t.flash);
     }, t.glitch);
   };
+
+  // Keyboard/AT entry: the splash is a click-only gate on a non-focusable div,
+  // which hard-blocks keyboard and switch-access users from the whole sub-app
+  // (F527). Enter/Space triggers the same handleEnter (which itself no-ops until
+  // phase === "ready"). The center container is the focus target below.
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      handleEnter();
+    }
+  };
+
+  // Move focus onto the splash the moment it's enterable so a keyboard user can
+  // press Enter without first tabbing to it.
+  useEffect(() => {
+    if (phase === "ready") containerRef.current?.focus?.();
+  }, [phase]);
 
   // Generate dark blocks for the cover phase
   const renderExitBlocks = () => {
@@ -758,8 +792,12 @@ export default function SplashScreen({ onComplete }) {
     <div
       ref={containerRef}
       className={exitPhase === "glitch" ? "splash-glitch" : ""}
-      style={{ position: "fixed", inset: 0, zIndex: 9999, overflow: "hidden", cursor: phase === "ready" ? "pointer" : "default" }}
+      style={{ position: "fixed", inset: 0, zIndex: 9999, overflow: "hidden", cursor: phase === "ready" ? "pointer" : "default", outline: "none" }}
       onClick={handleEnter}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-label={phase === "ready" ? "Enter Tradermigos" : "Loading Tradermigos"}
     >
       {/* Shockwave ripple from click point */}
       {(exitPhase === "glitch" || exitPhase === "flash") && (
@@ -1379,16 +1417,26 @@ export default function SplashScreen({ onComplete }) {
           }}
         >
           {phase === "ready" ? (
-            <motion.span
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: [0.5, 1, 0.5], y: 0 }}
-              transition={{ opacity: { duration: 2, repeat: Infinity, ease: "easeInOut" }, y: { duration: 0.4 } }}
-              style={{
-                color: "#ffdd00",
-                textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
-                fontSize: 12, letterSpacing: "0.3em", cursor: "pointer", pointerEvents: "auto",
-              }}
-            >{isMobile ? "TAP TO ENTER" : "CLICK TO ENTER"}</motion.span>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <motion.span
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: [0.5, 1, 0.5], y: 0 }}
+                transition={{ opacity: { duration: 2, repeat: Infinity, ease: "easeInOut" }, y: { duration: 0.4 } }}
+                style={{
+                  color: "#ffdd00",
+                  textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
+                  fontSize: 12, letterSpacing: "0.3em", cursor: "pointer", pointerEvents: "auto",
+                }}
+              >{isMobile ? "TAP TO ENTER" : "CLICK TO ENTER"}</motion.span>
+              {/* Keyboard skip affordance — repeat visitors and AT users get an
+                  explicit fast path that pairs with the Enter/Space handler (F559). */}
+              {!isMobile && (
+                <span style={{
+                  fontFamily: "var(--pixel)", fontSize: 7, letterSpacing: "0.2em",
+                  color: "rgba(255,255,255,0.4)",
+                }}>OR PRESS ENTER TO SKIP</span>
+              )}
+            </div>
           ) : (
             <motion.span
               animate={{ color: ["#ff2244", "#ffdd00", "#44ddff", "#ff44ff", "#00ff66", "#ff2244"] }}
@@ -1396,9 +1444,11 @@ export default function SplashScreen({ onComplete }) {
             >
               {(() => {
                 if (progress >= 100) return "WELCOME";
-                const allMsgs = [...(LOADING_MESSAGES.nakamigos || []), ...(LOADING_MESSAGES.gnssart || []), ...(LOADING_MESSAGES.junglebay || [])];
-                if (allMsgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
-                return allMsgs[Math.floor((progress / 100) * (allMsgs.length - 1))].toUpperCase();
+                // Only the destination collection's loading copy — a Nakamigos
+                // visitor shouldn't read Jungle Bay lines, and vice-versa (F546).
+                const msgs = LOADING_MESSAGES[splashSlug] || LOADING_MESSAGES[DEFAULT_COLLECTION] || [];
+                if (msgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
+                return msgs[Math.floor((progress / 100) * (msgs.length - 1))].toUpperCase();
               })()}
             </motion.span>
           )}
@@ -1417,7 +1467,7 @@ export default function SplashScreen({ onComplete }) {
           }}
         >
           {(() => {
-            const col = COLLECTIONS[DEFAULT_COLLECTION] || {};
+            const col = COLLECTIONS[splashSlug] || COLLECTIONS[DEFAULT_COLLECTION] || {};
             return [
               { val: (col.supply || 20000).toLocaleString(), label: "WORKS", color: "#ff2244" },
               { val: (col.tags?.[0]) || "ERC-721", label: "STANDARD", color: "#ffdd00" },

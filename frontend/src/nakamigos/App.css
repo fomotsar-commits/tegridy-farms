@@ -3561,7 +3561,10 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .nakamigos-app .splash-screen { display: none; }
+  /* (Removed a dead `.splash-screen { display:none }` rule here — the splash
+     never renders that class, and if it ever did, hiding it would hide the only
+     element whose click enters the app, soft-locking reduced-motion users.
+     Reduced motion on the splash is honored in JS instead — F534.) */
   /* The blanket rule above freezes the loading spinner into a static arc that
      reads as "hung". Give it a gentle opacity pulse instead so it still signals
      activity without spinning. */
@@ -3727,7 +3730,10 @@
 }
 
 /* ═══ Mobile Bottom Navigation ═══ */
-@media (max-width: 767px) {
+/* Boundary is 768 (inclusive), not 767: the desktop nav hides at <=768 and the
+   hamburger hides at >=768, so at exactly 768px (iPad portrait) the bottom nav
+   must cover the gap or no nav surface renders at all (F528). */
+@media (max-width: 768px) {
   .mobile-bottom-nav {
     display: flex !important;
   }
@@ -4347,8 +4353,15 @@
     width: 24px !important;
     height: 24px !important;
   }
-  /* Hide API badge + stale indicator — frees horizontal space */
+  /* Keep the LIVE/DEMO badge visible at all widths — it's the only disclosure
+     that the data is sample/fallback, and hiding it on the narrowest screens
+     undercuts the honesty signal (F540). The group stays inline-flex but the
+     stale-"Xm ago" indicator (the noisy part) is what we drop for space. */
   .header-status-group {
+    display: inline-flex;
+    align-items: center;
+  }
+  .header-status-group > span:not(.api-badge) {
     display: none;
   }
   /* Tighten header action button gaps */
