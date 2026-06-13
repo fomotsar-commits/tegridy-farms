@@ -107,34 +107,48 @@ export function useToweliPrice() {
     setApiPriceStale(Date.now() - entry.ts > 300_000);
   }, []);
 
-  // GeckoTerminal API — always fetch fresh price
+  // GeckoTerminal API — fetch fresh price on mount and refresh on an interval.
+  // F110: previously this ran once per mount (empty deps), so while the native
+  // TOWELI/WETH pair is unseeded the headline price + sparkline were frozen for
+  // the whole session even though the UI shows a "live" PulseDot next to it.
+  // A 60s refresh (matching the on-chain read cadence) keeps the API fallback
+  // current; it's gated on tab visibility so a backgrounded tab doesn't poll.
   // AUDIT FIX #53: AbortController timeout prevents hanging requests from blocking UI
   useEffect(() => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000); // 10s timeout
-    fetch(
-      `https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`,
-      { signal: controller.signal },
-    )
-      .then(r => r.json())
-      .then(d => {
-        const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
-        if (p > 0) {
-          setApiFallbackPrice(p);
-          setApiPriceStale(false);
-          // R075: write through the versioned-cache helper.
-          writeVersionedCache('tegridy_api_price', { price: p, ts: Date.now() });
-        }
-      })
-      .catch((err) => {
-        // GeckoTerminal fallback price fetch failed — not fatal (price falls
-        // back to on-chain pool reserves). Log for diagnostics so silent
-        // price-staleness bugs are visible in devtools.
-        if (err?.name !== 'AbortError') {
-          console.warn('[useToweliPrice] fallback price fetch failed:', err?.message ?? err);
-        }
-      });
-    return () => { clearTimeout(timeout); controller.abort(); };
+    let cancelled = false;
+
+    const fetchPrice = () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+      fetch(
+        `https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`,
+        { signal: controller.signal },
+      )
+        .then(r => r.json())
+        .then(d => {
+          if (cancelled) return;
+          const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
+          if (p > 0) {
+            setApiFallbackPrice(p);
+            setApiPriceStale(false);
+            // R075: write through the versioned-cache helper.
+            writeVersionedCache('tegridy_api_price', { price: p, ts: Date.now() });
+          }
+        })
+        .catch((err) => {
+          // GeckoTerminal fallback price fetch failed — not fatal (price falls
+          // back to on-chain pool reserves). Log for diagnostics so silent
+          // price-staleness bugs are visible in devtools.
+          if (err?.name !== 'AbortError') {
+            console.warn('[useToweliPrice] fallback price fetch failed:', err?.message ?? err);
+          }
+        })
+        .finally(() => clearTimeout(timeout));
+    };
+
+    fetchPrice();
+    const interval = setInterval(() => { if (!document.hidden) fetchPrice(); }, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   // Validate Chainlink data

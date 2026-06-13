@@ -430,10 +430,12 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     fetchCurrentTab();
   }, [fetchCurrentTab]);
 
-  // Auto-refresh
+  // Auto-refresh — skip ticks while the tab is hidden (F643). The Received
+  // Offers tab fans out ~21 OpenSea proxy calls per tick, so polling a
+  // background tab was a real rate-limit risk; mirrors TradesPanel's gate.
   useEffect(() => {
     if (!wallet) return;
-    intervalRef.current = setInterval(fetchCurrentTab, REFRESH_INTERVAL);
+    intervalRef.current = setInterval(() => { if (!document.hidden) fetchCurrentTab(); }, REFRESH_INTERVAL);
     return () => clearInterval(intervalRef.current);
   }, [wallet, fetchCurrentTab]);
 

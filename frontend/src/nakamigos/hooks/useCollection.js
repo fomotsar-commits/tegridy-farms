@@ -81,8 +81,12 @@ export default function useCollection() {
 
     load();
 
+    // Skip polls while the tab is hidden (F533): this is the per-page stats +
+    // activity poller mounted on every collection view; pausing it when the tab
+    // isn't visible cuts the bulk of idle-visitor API load. Fresh data is
+    // re-fetched on the next visible tick (and live WS events keep flowing).
     const interval = isWebSocketConnected ? POLL_INTERVAL_WS : POLL_INTERVAL_FALLBACK;
-    const iv = setInterval(load, interval);
+    const iv = setInterval(() => { if (!document.hidden) load(); }, interval);
     return () => {
       controller.abort();
       clearInterval(iv);

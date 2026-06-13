@@ -333,7 +333,11 @@ export default function useSmartAlerts(addToast) {
     }
 
     check();
-    const iv = setInterval(check, CHECK_INTERVAL);
+    // Skip ticks while the tab is hidden (F533/F726): this loop does two API
+    // fetches (stats + activity) per tick — there's no value polling a
+    // background tab, and it was a real prod rate-limiter risk. The immediate
+    // check() above still runs on mount/visible so foreground data is fresh.
+    const iv = setInterval(() => { if (!document.hidden) check(); }, CHECK_INTERVAL);
     return () => { cancelled = true; clearInterval(iv); };
   }, [collection, fireAlert]);
 

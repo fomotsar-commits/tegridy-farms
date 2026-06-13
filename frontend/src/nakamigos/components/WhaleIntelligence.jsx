@@ -225,7 +225,11 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     mountedRef.current = true;
     loadHolders();
     loadActivity();
+    // Skip refreshes while the tab is hidden (F726): loadHolders pulls the full
+    // owner set every tick, so this was one of the heaviest background pollers.
+    // Mirrors useActivityWebSocket/useOpenSeaStream/useDmUnread's hidden gate.
     const iv = setInterval(() => {
+      if (document.hidden) return;
       loadHolders();
       loadActivity();
     }, REFRESH_MS);
