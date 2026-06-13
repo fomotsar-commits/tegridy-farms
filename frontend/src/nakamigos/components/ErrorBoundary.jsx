@@ -101,7 +101,10 @@ export default class ErrorBoundary extends React.Component {
           >
             {isChunk
               ? "A new version of the app is available. Please reload to get the latest version."
-              : (this.state.error?.message || "An unexpected error occurred.") + "\n\n" + (this.state.error?.stack || "")}
+              : (this.state.error?.message || "An unexpected error occurred.")
+                // Only surface the raw stack trace in dev — a retail user
+                // shouldn't see an internal trace (F545).
+                + (import.meta.env.DEV && this.state.error?.stack ? "\n\n" + this.state.error.stack : "")}
           </p>
           <button
             onClick={() => {
@@ -130,9 +133,11 @@ export default class ErrorBoundary extends React.Component {
           {!isChunk && (
             <button
               onClick={() => {
-                this.setState({ hasError: false, error: null });
-                window.location.hash = "#/nakamigos/";
-                if (this.props.onReset) this.props.onReset();
+                // Hard navigation — a hash write does NOT change the pathname
+                // under BrowserRouter, so the crashing route would re-render and
+                // re-catch, trapping the user in a loop (F529). A full document
+                // load guarantees a clean escape. Matches the app-level boundary.
+                window.location.href = "/nakamigos";
               }}
               style={{
                 fontFamily: "var(--display, system-ui)",

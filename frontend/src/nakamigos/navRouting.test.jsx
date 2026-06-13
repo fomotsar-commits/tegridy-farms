@@ -38,6 +38,31 @@ describe("every nav target is routable", () => {
   });
 });
 
+describe("App.jsx routing regression guards (source-level)", () => {
+  const src = readFileSync(
+    join(process.cwd(), "src", "nakamigos", "App.jsx"),
+    "utf8",
+  );
+
+  it("nft deep-link parse is strict-digits, not lenient parseInt (F547)", () => {
+    // parseInt("12abc") === 12 used to resolve junk segments to a real token.
+    expect(src).toMatch(/\/\^\\d\{1,10\}\$\/\.test\(seg\)/);
+    expect(src, "lenient parseInt token-id parse must be gone").not.toMatch(
+      /tokenId:\s*!isNaN\(id\)/,
+    );
+  });
+
+  it("both /nft/ modal-close paths land on the explicit /gallery segment (F538)", () => {
+    // A bare /:collection close path is ambiguous; the explicit /gallery segment
+    // keeps the tab under the modal on Gallery instead of bouncing to Floor.
+    // Both the Escape handler and the Modal onClose must use it (2 occurrences).
+    const closeMatches = src.match(
+      /navigate\(`\/nakamigos\/\$\{collectionSlug\}\/gallery`,\s*\{\s*replace:\s*true\s*\}\)/g,
+    ) || [];
+    expect(closeMatches.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("trade surface modules load", () => {
   // Regression guard for the TradeWindow TDZ crash (COLLECTION_LIST used
   // before declaration) that Modal.jsx's lazy().catch silently swallowed.

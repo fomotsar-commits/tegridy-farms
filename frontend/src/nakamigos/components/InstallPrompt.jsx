@@ -21,9 +21,15 @@ export default function InstallPrompt() {
 
   const handleInstall = useCallback(async () => {
     if (!deferredPrompt) return;
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === "accepted") {
+    try {
+      await deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+    } catch {
+      // prompt() can only be called once; swallow the InvalidStateError on a
+      // double-click rather than rejecting an un-caught async handler.
+    } finally {
+      // Clear regardless of outcome — a BeforeInstallPromptEvent is single-use.
+      // Chrome may re-fire `beforeinstallprompt` later, re-populating it (F537).
       setDeferredPrompt(null);
     }
   }, [deferredPrompt]);
@@ -68,7 +74,7 @@ export default function InstallPrompt() {
         }}
         aria-label="Dismiss install prompt"
       >
-        x
+        {"×"}
       </button>
     </div>
   );

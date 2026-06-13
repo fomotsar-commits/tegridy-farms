@@ -72,6 +72,33 @@ const Deals = lazy(() => import("./components/Deals"));
 // LazyFallback uses the shared GallerySkeleton from SkeletonFallback.jsx
 const LazyFallback = GallerySkeleton;
 
+// Tab → dynamic-import thunk, used to warm the lazy chunk on nav hover/focus so
+// the first visit to a tab doesn't pay a chunk download + skeleton flash (F555).
+// Vite dedupes import() so this resolves to the same module the lazy() loads.
+const TAB_PREFETCH = {
+  about: () => import("./components/About"),
+  analytics: () => import("./components/Analytics"),
+  collection: () => import("./components/MyCollection"),
+  listings: () => import("./components/Listings"),
+  traits: () => import("./components/TraitExplorer"),
+  activity: () => import("./components/ActivityFeed"),
+  favorites: () => import("./components/Favorites"),
+  trade: () => import("./components/NftCompare"),
+  trades: () => import("./components/TradesPanel"),
+  watchlist: () => import("./components/Watchlist"),
+  bids: () => import("./components/BidManager"),
+  "my-listings": () => import("./components/MyListings"),
+  whales: () => import("./components/WhaleIntelligence"),
+  chat: () => import("./components/CommunityChat"),
+  history: () => import("./components/TransactionHistory"),
+  sniper: () => import("./components/RaritySniper"),
+  portfolio: () => import("./components/PortfolioTracker"),
+  deals: () => import("./components/Deals"),
+};
+function prefetchTab(tabKey) {
+  TAB_PREFETCH[tabKey]?.().catch(() => { /* prefetch is best-effort */ });
+}
+
 // ═══ Route-based tab mapping (multi-collection: /:collection/:tab) ═══
 // VALID_TABS lives in constants.js so navRouting.test.jsx can enforce that
 // every nav target routes without importing the whole app tree.
@@ -95,8 +122,10 @@ function parseRoute(pathname) {
     const second = segments[1] || "gallery";
     // Deep link: /:collection/nft/:id
     if (second === "nft" && segments[2]) {
-      const id = parseInt(segments[2], 10);
-      return { collectionSlug: first, tab: "gallery", tokenId: !isNaN(id) && id >= 0 ? String(id) : null };
+      // Strict digits only — parseInt("12abc") === 12 would resolve a junk
+      // segment to a real token (F547). Mirrors the ?token= reader's regex.
+      const seg = segments[2];
+      return { collectionSlug: first, tab: "gallery", tokenId: /^\d{1,10}$/.test(seg) ? seg : null };
     }
     const tab = VALID_TABS.includes(second) ? second : "404";
     return { collectionSlug: first, tab, tokenId: null };
@@ -104,8 +133,8 @@ function parseRoute(pathname) {
 
   // Legacy routes without collection prefix — redirect to nakamigos
   if (first === "nft" && segments[1]) {
-    const id = parseInt(segments[1], 10);
-    return { collectionSlug: "nakamigos", tab: "gallery", tokenId: !isNaN(id) && id >= 0 ? String(id) : null };
+    const seg = segments[1];
+    return { collectionSlug: "nakamigos", tab: "gallery", tokenId: /^\d{1,10}$/.test(seg) ? seg : null };
   }
   if (VALID_TABS.includes(first)) {
     return { collectionSlug: "nakamigos", tab: first, tokenId: null };
@@ -321,6 +350,16 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
   const [showOnboarding, setShowOnboarding] = useState(() => { try { return !localStorage.getItem(`${collectionSlug}_onboarded`); } catch { return true; } });
 
+  // Re-entry point for the onboarding tour (F561): clearing the per-collection
+  // "onboarded" flag lets the freshly-mounted Onboarding re-detect a first visit.
+  // Onboarding keys off collection.slug, which equals collectionSlug here.
+  const replayOnboarding = useCallback(() => {
+    try { localStorage.removeItem(`${collectionSlug}_onboarded`); } catch { /* no-op */ }
+    setShowOnboarding(false);
+    // Remount on the next tick so the first-visit effect re-runs from scratch.
+    setTimeout(() => setShowOnboarding(true), 0);
+  }, [collectionSlug]);
+
   // Lite mode: redirect away from hidden tabs. Show a toast so a deep link to a
   // Pro-only tab doesn't silently dump the user on Floor with no explanation (F826).
   const liteRedirectNotedRef = useRef(null);
@@ -523,7 +562,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
             setCartOpen(false);
           } else if (selected) {
             setSelected(null);
-            if (location.pathname.includes("/nft/")) navigate(`/nakamigos/${collectionSlug}`, { replace: true });
+            // Return to the gallery tab explicitly — a bare /:collection close
+            // path is ambiguous; the /gallery segment keeps the tab under the
+            // modal on Gallery instead of bouncing to Floor (F538).
+            if (location.pathname.includes("/nft/")) navigate(`/nakamigos/${collectionSlug}/gallery`, { replace: true });
           } else {
             getCards().forEach(c => c.classList.remove("keyboard-focus"));
             focusIndexRef.current = -1;
@@ -715,6 +757,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       <Header
         tab={tab}
         setTab={handleTabChange}
+        onPrefetch={prefetchTab}
         wallet={wallet}
         setWallet={handleDisconnect}
         onConnect={handleConnect}
@@ -789,8 +832,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         nft={selected}
         onClose={() => {
           setSelected(null);
-          // Clear deep link URL when closing modal
-          if (location.pathname.includes("/nft/")) navigate(`/nakamigos/${collectionSlug}`, { replace: true });
+          // Clear deep link URL when closing modal — land back on the gallery
+          // tab explicitly so closing a /nft/ deep link doesn't swap the
+          // underlying tab from Gallery to Floor (F538).
+          if (location.pathname.includes("/nft/")) navigate(`/nakamigos/${collectionSlug}/gallery`, { replace: true });
         }}
         isFavorite={selected ? isFavorite(selected.id) : false}
         onToggleFavorite={toggleFavorite}
@@ -879,7 +924,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 
       {showKeyboardHelp && (
         <Suspense fallback={null}>
-          <KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
+          <KeyboardHelp
+            onClose={() => setShowKeyboardHelp(false)}
+            onReplayTour={() => { setShowKeyboardHelp(false); replayOnboarding(); }}
+          />
         </Suspense>
       )}
 
@@ -914,6 +962,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         </button>
         <button
           onClick={() => setShowKeyboardHelp(true)}
+          data-tour="shortcuts"
           style={{
             height: 32, borderRadius: 8, padding: "0 10px",
             background: "var(--surface-glass)", border: "1px solid var(--border)",

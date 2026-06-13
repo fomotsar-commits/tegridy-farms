@@ -28,7 +28,7 @@ export default function NotFound({ onGoHome }) {
       </div>
       <button
         className="btn-primary"
-        onClick={onGoHome || (() => { window.location.hash = "#/nakamigos/"; })}
+        onClick={onGoHome || (() => { window.location.href = "/nakamigos"; })}
         style={{ fontSize: 12, padding: "10px 28px" }}
       >
         Back to Home
