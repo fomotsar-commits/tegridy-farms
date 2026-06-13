@@ -33,7 +33,7 @@ export function ProtocolStats() {
   const s = useProtocolStats();
   const live: StatItem[] = [];
   if (s.volumeUsd > 0) live.push({ l: 'Total Volume', v: fmtUsd(s.volumeUsd), sub: 'all-time, on native DEX', icon: '🔄' });
-  if (s.feesUsd > 0) live.push({ l: 'Real Yield Generated', v: fmtUsd(s.feesUsd), sub: '100% to stakers, in ETH', icon: '💸' });
+  if (s.feesUsd > 0) live.push({ l: 'Real Yield Generated', v: fmtUsd(s.feesUsd), sub: 'distributed to stakers, in ETH', icon: '💸' });
   if (s.rewardPoolToweli > 0) live.push({ l: 'Reward Pool', v: fmtToken(s.rewardPoolToweli), sub: 'TOWELI staking rewards', icon: '💰' });
   if (s.dailyEmissionToweli > 0) live.push({ l: 'Daily Emissions', v: `${fmtToken(s.dailyEmissionToweli)}/day`, sub: 'to stakers', icon: '⚡' });
   // Below ~$1k the USD figure undersells the position — show the token count.
@@ -41,16 +41,29 @@ export function ProtocolStats() {
   if (s.totalSwaps > 0) live.push({ l: 'Total Swaps', v: s.totalSwaps.toLocaleString(), sub: 'lifetime trades', icon: '📊' });
 
   const evergreen: StatItem[] = [
-    { l: 'Fee Share', v: '100%', sub: 'of protocol fees → stakers, in ETH', icon: '💸' },
+    // F68: don't freeze a governable on-chain split (stakerShareBps) into a fixed
+    // "100%" that contradicts the hero's three-way (stakers / liquidity / ops)
+    // framing. F67: "bounty live" → "responsible disclosure" to match the hero
+    // trust badge (the bounty has no funded pool yet).
+    { l: 'Fee Routing', v: 'On-chain', sub: 'fees → stakers, liquidity & ops, in ETH', icon: '💸' },
     { l: 'LP Locked', v: '~69 yrs', sub: 'Uniswap LP in UNCX until 2093', icon: '🔐' },
     { l: 'Fixed Supply', v: '1B', sub: 'TOWELI — no mint function, ever', icon: '🧱' },
-    { l: 'Security', v: '82+', sub: 'findings resolved · bounty live', icon: '🛡️' },
+    { l: 'Security', v: '82+', sub: 'findings resolved · responsible disclosure', icon: '🛡️' },
   ];
 
   const items = [...live, ...evergreen].slice(0, 6);
+  // F80: derive the lg column count from how many cards actually render so the
+  // pre-volume state (4 evergreen cards) fills the row instead of leaving 2
+  // empty left-aligned columns under a fixed lg:grid-cols-6. Static class names
+  // (Tailwind can't see interpolated ones). Centered so any short row balances.
+  const lgCols: Record<number, string> = {
+    1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3',
+    4: 'lg:grid-cols-4', 5: 'lg:grid-cols-5', 6: 'lg:grid-cols-6',
+  };
+  const lgColsClass = lgCols[Math.min(Math.max(items.length, 1), 6)] ?? 'lg:grid-cols-6';
   return (
     <m.div
-      className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"
+      className={`grid grid-cols-2 md:grid-cols-3 ${lgColsClass} gap-3 justify-center`}
       initial={{ opacity: 0, y: 10 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}

@@ -29,6 +29,13 @@ import { usePoolData } from '../../hooks/usePoolData';
 // Farm page's StakingCard shows ("base APR × boost").
 const BASELINE_APR_PCT = 12; // fallback reference when live APR is unavailable
 
+// F65: sanity ceiling for the live base APR fed into the projection. At
+// bootstrap TVL the on-chain APR can read in the thousands of percent; the
+// hook's old `aprCapped` guard is a hardcoded no-op (usePoolData always
+// returns false), so we cap here. Above this we fall back to the conservative
+// baseline rather than multiplying an inflated rate by up to a 4.5× boost.
+const LIVE_APR_CEILING_PCT = 1000;
+
 interface Tier {
   days: number;
   label: string;
@@ -66,10 +73,18 @@ export function YieldCalculator() {
   // returns it per boosted-stake unit, so user APR = base × their boost — exactly
   // this calculator's model. Fall back to the static reference when the pool
   // isn't deployed or its APR is capped (near-empty pool → astronomical rate).
+  // F65: use poolData.aprNum (the numeric field), NOT Number(poolData.apr) —
+  // once apr >= 10,000 the display string is comma-formatted ("28,567") and
+  // Number() yields NaN, silently flipping the calculator to baseline while the
+  // hero pill shows the real rate (an on-screen contradiction). Apply an
+  // explicit ceiling since the old aprCapped signal is a no-op.
   const poolData = usePoolData();
-  const liveApr = Number(poolData.apr);
+  const liveApr = poolData.aprNum;
   const aprIsLive =
-    poolData.isDeployed && !poolData.aprCapped && Number.isFinite(liveApr) && liveApr > 0;
+    poolData.isDeployed &&
+    Number.isFinite(liveApr) &&
+    liveApr > 0 &&
+    liveApr <= LIVE_APR_CEILING_PCT;
   const baselineAprPct = aprIsLive ? liveApr : BASELINE_APR_PCT;
 
   const amount = Math.max(0, parseFloat(amountStr) || 0);
@@ -115,7 +130,7 @@ export function YieldCalculator() {
         {/* Amount input */}
         <div>
           <label htmlFor="yc-amount" className="block text-[11px] uppercase tracking-wider text-white/50 mb-1.5">
-            TOWELI amount (USD equivalent)
+            Amount to stake (USD)
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 text-[14px]" aria-hidden="true">$</span>
@@ -143,8 +158,11 @@ export function YieldCalculator() {
           <span className="block text-[11px] uppercase tracking-wider text-white/50 mb-1.5">
             Lock duration
           </span>
+          {/* F78: toggle-button semantics (aria-pressed) match the click-only
+              interaction. The previous role="radiogroup" + role="radio" promised
+              arrow-key navigation that was never implemented, misleading SR users. */}
           <div
-            role="radiogroup"
+            role="group"
             aria-label="Lock duration"
             className="grid grid-cols-2 sm:grid-cols-3 gap-2"
           >
@@ -154,8 +172,7 @@ export function YieldCalculator() {
                 <button
                   key={t.days}
                   type="button"
-                  role="radio"
-                  aria-checked={selected}
+                  aria-pressed={selected}
                   onClick={() => setSelectedIdx(idx)}
                   className="rounded-lg px-3 py-2 text-left transition-all"
                   style={{

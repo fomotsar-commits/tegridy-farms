@@ -22,12 +22,17 @@ describe('useFarmStats', () => {
 
   // ───── Default / zero state ──────────────────────────────────────────
 
-  it('returns zero-state strings when no reads are stubbed and price is 0', () => {
+  it('returns honest dash/zero strings when no reads are stubbed and price is 0', () => {
     const { result } = renderHook(() => useFarmStats());
-    // No stub registered => useReadContracts returns failure => defaults to 0n.
-    expect(result.current.tvl).toBe('0 TOWELI');
+    // F72: no stub => totalStaked read FAILS => tvl must render "–", not a
+    // confident "0 TOWELI" (which would read as a dead protocol).
+    expect(result.current.tvl).toBe('–');
+    // rewardsDistributed gates on isDeployed only (totalFunded defaults to 0n),
+    // so it stays the locale-zero string.
     expect(result.current.rewardsDistributed).toBe('0 TOWELI');
     expect(result.current.toweliPrice).toBe('–');
+    // F85: no price => no USD figure (never a misleading "$0").
+    expect(result.current.tvlUsd).toBe('');
   });
 
   it('isDeployed is true when the staking address is non-zero', () => {
@@ -61,7 +66,8 @@ describe('useFarmStats', () => {
     expect(result.current.tvl).toBe('1,234,567.89 TOWELI');
   });
 
-  it('tvl is exactly "0 TOWELI" when totalStaked is zero', () => {
+  it('tvl is exactly "0 TOWELI" for a genuine successful on-chain zero', () => {
+    // F72: a SUCCESSFUL read of 0n is a true zero — render "0 TOWELI", not "–".
     wagmiMock.setReadResult({ functionName: 'totalStaked', result: 0n });
     const { result } = renderHook(() => useFarmStats());
     expect(result.current.tvl).toBe('0 TOWELI');
@@ -135,11 +141,31 @@ describe('useFarmStats', () => {
     expect(result.current.tvl).toBe('0 TOWELI');
   });
 
-  it('failed reads (explicit failure status) also fall back to the zero-state strings', () => {
+  it('failed totalStaked read renders "–" (F72), rewardsDistributed stays zero-state', () => {
+    // F72: an explicit failure on totalStaked must degrade to "–", distinct from
+    // a true on-chain zero. rewardsDistributed gates on isDeployed only.
     wagmiMock.setReadResult({ functionName: 'totalStaked', status: 'failure', result: 0n });
     wagmiMock.setReadResult({ functionName: 'totalRewardsFunded', status: 'failure', result: 0n });
     const { result } = renderHook(() => useFarmStats());
-    expect(result.current.tvl).toBe('0 TOWELI');
+    expect(result.current.tvl).toBe('–');
     expect(result.current.rewardsDistributed).toBe('0 TOWELI');
+  });
+
+  // ───── F85: USD-denominated TVL ──────────────────────────────────────
+
+  it('surfaces a USD TVL figure when a price is available', () => {
+    // 1000 TOWELI staked at $1.50 => $1.5K. Successful read so tvl shows the count.
+    wagmiMock.setReadResult({ functionName: 'totalStaked', result: 1000n * 10n ** 18n });
+    currentPrice.priceInUsd = 1.5;
+    const { result } = renderHook(() => useFarmStats());
+    expect(result.current.tvl).toBe('1,000 TOWELI');
+    expect(result.current.tvlUsd).toBe('$1.5K');
+  });
+
+  it('omits the USD figure (no "$0") when price is unavailable', () => {
+    wagmiMock.setReadResult({ functionName: 'totalStaked', result: 1000n * 10n ** 18n });
+    currentPrice.priceInUsd = 0;
+    const { result } = renderHook(() => useFarmStats());
+    expect(result.current.tvlUsd).toBe('');
   });
 });

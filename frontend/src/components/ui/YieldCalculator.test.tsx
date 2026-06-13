@@ -55,33 +55,32 @@ describe('YieldCalculator', () => {
 
   it('starts with $1000 default and the default tier selected', () => {
     renderCalc();
-    const input = screen.getByLabelText(/TOWELI amount/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/Amount to stake/i) as HTMLInputElement;
     expect(input.value).toBe('1000');
     // Default selected tier is index 3 — "The Long Haul" (1 year).
-    // Button's accessible name concatenates child text; use a regex that
-    // tolerates surrounding sublabel/boost text.
-    const radios = screen.getAllByRole('radio');
-    const long = radios.find((r) => /The Long Haul/.test(r.textContent ?? ''));
+    // F78: tiers are toggle buttons (aria-pressed), not role="radio".
+    const buttons = screen.getAllByRole('button');
+    const long = buttons.find((r) => /The Long Haul/.test(r.textContent ?? ''));
     expect(long).toBeTruthy();
-    expect(long!).toHaveAttribute('aria-checked', 'true');
+    expect(long!).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('renders all 6 lock-duration tiers', () => {
     renderCalc();
-    // Expect 6 radios inside the radiogroup.
-    const group = screen.getByRole('radiogroup', { name: /lock duration/i });
-    const radios = group.querySelectorAll('[role="radio"]');
-    expect(radios).toHaveLength(6);
+    // F78: tiers live in a role="group" and carry aria-pressed (toggle buttons).
+    const group = screen.getByRole('group', { name: /lock duration/i });
+    const tiers = group.querySelectorAll('[aria-pressed]');
+    expect(tiers).toHaveLength(6);
   });
 
-  it('switches tier when a radio is clicked', () => {
+  it('switches tier when a tier button is clicked', () => {
     renderCalc();
-    const radios = screen.getAllByRole('radio');
-    const tasteTest = radios.find((r) => /The Taste Test/.test(r.textContent ?? ''))!;
-    const long = radios.find((r) => /The Long Haul/.test(r.textContent ?? ''))!;
+    const buttons = screen.getAllByRole('button');
+    const tasteTest = buttons.find((r) => /The Taste Test/.test(r.textContent ?? ''))!;
+    const long = buttons.find((r) => /The Long Haul/.test(r.textContent ?? ''))!;
     fireEvent.click(tasteTest);
-    expect(tasteTest).toHaveAttribute('aria-checked', 'true');
-    expect(long).toHaveAttribute('aria-checked', 'false');
+    expect(tasteTest).toHaveAttribute('aria-pressed', 'true');
+    expect(long).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('toggles JBAC bonus and updates boost', () => {
@@ -90,8 +89,8 @@ describe('YieldCalculator', () => {
     expect((checkbox as HTMLInputElement).checked).toBe(false);
 
     // Use the "Till Death Do Us Farm" tier which should max-boost at 4.0× (before JBAC).
-    const radios = screen.getAllByRole('radio');
-    const tillDeath = radios.find((r) => /Till Death Do Us Farm/.test(r.textContent ?? ''))!;
+    const buttons = screen.getAllByRole('button');
+    const tillDeath = buttons.find((r) => /Till Death Do Us Farm/.test(r.textContent ?? ''))!;
     fireEvent.click(tillDeath);
 
     fireEvent.click(checkbox);
@@ -104,7 +103,7 @@ describe('YieldCalculator', () => {
 
   it('computes positive monthly + annual yield for positive amount', () => {
     renderCalc();
-    const input = screen.getByLabelText(/TOWELI amount/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/Amount to stake/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: '5000' } });
 
     const annualLabel = screen.getByText(/Est\. 1 year/i).parentElement!;
@@ -116,7 +115,7 @@ describe('YieldCalculator', () => {
 
   it('shows $0.00 for zero or blank input', () => {
     renderCalc();
-    const input = screen.getByLabelText(/TOWELI amount/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/Amount to stake/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: '0' } });
 
     const annualLabel = screen.getByText(/Est\. 1 year/i).parentElement!;
@@ -125,7 +124,7 @@ describe('YieldCalculator', () => {
 
   it('rejects negative amounts (clamped to 0)', () => {
     renderCalc();
-    const input = screen.getByLabelText(/TOWELI amount/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/Amount to stake/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: '-100' } });
 
     const annualLabel = screen.getByText(/Est\. 1 year/i).parentElement!;
@@ -138,9 +137,40 @@ describe('YieldCalculator', () => {
     expect(cta).toHaveAttribute('href', '/farm');
   });
 
+  // F65: the calculator must consume the numeric aprNum (not Number(apr), which
+  // is NaN once apr >= 10,000 is comma-formatted), and must fall back to the
+  // baseline above a sane ceiling so a bootstrap-inflated rate isn't multiplied
+  // by the boost.
+  it('uses the live base APR when it is in-range (<= ceiling)', () => {
+    // aprNum = rewardRate / boostedStake * (100 * 31_536_000). With
+    // boostedStake = 3_153_600_000, aprNum == rewardRate. So rewardRate=45 → 45%.
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 45n });
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 3_153_600_000n });
+    renderCalc();
+    const matches = screen.getAllByText(
+      (_, node) => !!node && /Live\s*45\.0\s*%\s*base APR/i.test(node.textContent || ''),
+    );
+    expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it('falls back to the baseline when the live APR is above the ceiling', () => {
+    // rewardRate=2000 with boostedStake=3_153_600_000 → APR = 2000% (> 1000
+    // ceiling). usePoolData comma-formats this; the calculator must NOT parse the
+    // string and must show the baseline chip, never "Live 2,000%".
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 2000n });
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 3_153_600_000n });
+    renderCalc();
+    const matches = screen.getAllByText(
+      (_, node) => !!node && /Baseline\s*12\s*%\s*APR/i.test(node.textContent || ''),
+    );
+    expect(matches.length).toBeGreaterThan(0);
+    // And the inflated rate must never leak into the chip.
+    expect(screen.queryByText(/Live\s*2,?000/i)).toBeNull();
+  });
+
   it('annual yield scales linearly with amount (sanity check)', () => {
     renderCalc();
-    const input = screen.getByLabelText(/TOWELI amount/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/Amount to stake/i) as HTMLInputElement;
 
     // Parse just the USD figure following the dollar sign, ignoring label text
     // like "Est. 1 year" that also contains a digit.
