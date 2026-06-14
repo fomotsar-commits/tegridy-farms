@@ -350,10 +350,14 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       addToast?.("Transaction cancelled", "info");
     } else if (result.error === "insufficient") {
       addToast?.("Insufficient ETH balance", "error");
+    } else if (result.error === "stale") {
+      // Confirmed dead (gas estimation reverted): hide it from the grid so the
+      // user can't keep clicking a listing that was just sniped/sold/cancelled.
+      // The next listings poll/refetch removes it from the feed for good.
+      addToast?.(`#${nft.id} is no longer available — it was just sold or cancelled`, "warning");
+      setPurchasedIds(prev => new Set([...prev, String(nft.id)]));
     } else {
-      // Plain-language mapping (mirrors the cart): a stale floor order reverts at
-      // gas estimation with "missing revert data" — surface "no longer available"
-      // instead of the raw ethers string.
+      // Plain-language mapping (mirrors the cart) for any other failure.
       addToast?.(`#${nft.id}: ${getFriendlyError(result.message || "Unknown error")}`, "error");
     }
     setBuying(null);

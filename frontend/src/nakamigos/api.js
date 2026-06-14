@@ -243,6 +243,15 @@ async function _fetchCollectionStatsUncached({ contract = CONTRACT, slug = COLLE
     } catch {
       // Volume unavailable — not critical
     }
+    // When the live volume call is rate-limited/unavailable (the landing fans out
+    // stats for several collections at once, so the per-collection volume call is
+    // the first to get throttled), fall back to the configured historical total
+    // for the main collection — so its landing card shows the same number as the
+    // detail Hero instead of a bare "—". Other collections have no cached figure
+    // and honestly stay null.
+    if (volume == null && contract.toLowerCase() === CONTRACT.toLowerCase()) {
+      volume = FALLBACK_STATS.volume ?? null;
+    }
 
     return {
       floor,
@@ -1239,7 +1248,16 @@ export async function fulfillSeaportOrder(listing, opts = {}) {
     if (err.message?.includes("insufficient funds")) {
       return { error: "insufficient", message: "Insufficient ETH balance" };
     }
+    // A gas-estimation revert with no reason (CALL_EXCEPTION / "missing revert
+    // data") means the order is no longer fillable — sniped/sold/cancelled but
+    // still lingering in the marketplace feed. Flag it distinctly so the UI can
+    // hide the dead listing instead of just toasting an error on a card the user
+    // can keep clicking.
+    const msg = err.shortMessage || err.message || "";
+    if (err.code === "CALL_EXCEPTION" || /missing revert data|cannot estimate gas|unpredictable_gas_limit/i.test(msg)) {
+      return { error: "stale", message: msg };
+    }
     console.error("Seaport fulfillment error:", err);
-    return { error: "failed", message: err.shortMessage || err.message || "Transaction failed" };
+    return { error: "failed", message: msg || "Transaction failed" };
   }
 }

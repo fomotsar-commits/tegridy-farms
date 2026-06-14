@@ -314,6 +314,12 @@ export default function ShoppingCart({
       } else if (result.error === "rejected") {
         addToast?.("Transaction cancelled by user", "info");
         break;
+      } else if (result.error === "stale") {
+        // Dead listing (sniped/sold/cancelled) — drop it from the cart and keep
+        // sweeping the rest rather than re-trying a doomed fill.
+        addToast?.(`${item.name} is no longer available — removed from cart`, "warning");
+        onRemove(item.id);
+        continue;
       } else {
         const friendly = getFriendlyError(result.message || result.error || "Transaction failed");
         addToast?.(`Failed to buy ${item.name} — ${friendly}`, "error");
