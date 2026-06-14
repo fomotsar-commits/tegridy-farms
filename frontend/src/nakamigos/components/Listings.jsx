@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, memo } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import SweepCalculator from "./SweepCalculator";
@@ -84,6 +84,121 @@ function formatTimeAgo(ts) {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
 }
+
+// Memoized listing card. Extracted from the inline grid map so a per-card async
+// state change (best-offer arriving, a checkbox toggle, the buying spinner) only
+// re-renders the ONE affected card instead of cascading through the whole grid.
+// Every value the card reads is a prop, and the handlers are stable useCallbacks
+// — so React.memo can actually skip the untouched cards. Pairs with the
+// content-visibility:auto on .listing-card, which skips off-screen paint.
+const ListingCard = memo(function ListingCard({
+  nft, isSelected, isBuying, bestOffer, hasRealListings, floor, wallet, collectionContract,
+  onPick, onToggleSelect, onBuy,
+}) {
+  const handleClick = useCallback(() => onPick(nft), [onPick, nft]);
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); }
+  }, [onPick, nft]);
+  const handleSelect = useCallback((e) => { e.stopPropagation(); onToggleSelect(nft.id); }, [onToggleSelect, nft.id]);
+  const handleBuyClick = useCallback((e) => onBuy(nft, e), [onBuy, nft]);
+
+  const isOwnListing = wallet && nft.maker && nft.maker.toLowerCase() === wallet.toLowerCase();
+
+  return (
+    <div className="listing-card" onClick={handleClick} onKeyDown={handleKeyDown} role="button" tabIndex={0} aria-label={`${nft.name}${nft.price ? `, ${nft.price} ETH` : ""}`} style={isSelected ? { border: "2px solid var(--naka-blue)" } : undefined}>
+      <div className="listing-card-image">
+        <NftImage nft={nft} noSelfFetch={nft.imagePending} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        {nft.rank && <div className="listing-card-rank">#{nft.rank}</div>}
+        {nft.marketplace && (
+          <div style={{
+            position: "absolute", top: 6, left: 6, padding: "2px 6px",
+            borderRadius: 4, fontSize: 9, fontFamily: "var(--mono)",
+            background: "rgba(0,0,0,0.7)", color: "#fff", letterSpacing: "0.04em",
+          }}>
+            {nft.marketplace}
+          </div>
+        )}
+        {/* Batch select checkbox */}
+        {hasRealListings && nft.price && (
+          <div
+            onClick={handleSelect}
+            style={{
+              position: "absolute", top: 6, right: 6,
+              width: 20, height: 20, borderRadius: 4,
+              background: isSelected ? "var(--naka-blue)" : "rgba(0,0,0,0.5)",
+              border: isSelected ? "none" : "1px solid rgba(255,255,255,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", fontSize: 12, color: "#fff", fontWeight: 700,
+              transition: "background 0.15s",
+            }}
+          >
+            {isSelected ? "✓" : ""}
+          </div>
+        )}
+      </div>
+      <div className="listing-card-body">
+        <div className="listing-card-name">{nft.name}</div>
+        {nft.price ? (
+          <div className="listing-card-price">
+            <Eth size={12} /> {nft.price.toFixed(4)}
+            {nft.priceUsd && (
+              <span className="listing-card-usd" style={{ marginLeft: 6 }}>
+                ${nft.priceUsd.toFixed(0)}
+              </span>
+            )}
+          </div>
+        ) : nft.salePrice ? (
+          <div className="listing-card-price" style={{ color: "var(--text-dim)" }}>
+            <Eth size={12} /> {nft.salePrice.toFixed(4)}
+            <span style={{ fontSize: 9, color: "var(--text-dim)", marginLeft: 4 }}>sold</span>
+            {nft.time && (
+              <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: 4 }}>
+                {formatTimeAgo(nft.time)}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+            {floor != null ? `Floor: ${floor.toFixed(4)} ETH` : "View on marketplace"}
+          </div>
+        )}
+        {bestOffer && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--naka-blue)", marginTop: 2 }}>
+            Best offer: <Eth size={8} /> {bestOffer.toFixed(4)}
+          </div>
+        )}
+        <div className="listing-card-actions">
+          {nft.orderHash && nft.price ? (
+            isOwnListing ? (
+              <span className="listing-btn-buy" style={{ opacity: 0.5, cursor: "default", pointerEvents: "none" }}>
+                Your Listing
+              </span>
+            ) : (
+            <button
+              className="listing-btn-buy"
+              disabled={isBuying}
+              onClick={handleBuyClick}
+              style={{ cursor: isBuying ? "wait" : "pointer" }}
+            >
+              {isBuying ? "Buying..." : !wallet ? "Connect & Buy" : "Buy Now"}
+            </button>
+            )
+          ) : (
+            <a
+              href={OPENSEA_ITEM(nft.id, collectionContract)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="listing-btn-buy"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {nft.price ? "Buy on OpenSea" : "OpenSea"}
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function Listings({ tokens, stats, listings, listingsLoading, listingsError, listingsSource, activities, activitiesLoading, activitiesEmpty, onPick, wallet, onConnect, addToast, onAddToCart }) {
   const collection = useActiveCollection();
@@ -811,103 +926,22 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
           {/* Listings Grid */}
           <div className="listings-grid" style={(!hasRealListings && !hasRecentSales) ? { display: "none" } : undefined}>
-            {visibleGridItems.map((nft, idx) => {
-              const isSelected = selectedIds.has(nft.id);
-              return (
-              <div key={nft.id} className="listing-card" onClick={() => onPick(nft)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(nft); } }} role="button" tabIndex={0} aria-label={`${nft.name}${nft.price ? `, ${nft.price} ETH` : ""}`} style={isSelected ? { border: "2px solid var(--naka-blue)" } : undefined}>
-                <div className="listing-card-image">
-                  <NftImage nft={nft} noSelfFetch={nft.imagePending} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  {nft.rank && <div className="listing-card-rank">#{nft.rank}</div>}
-                  {nft.marketplace && (
-                    <div style={{
-                      position: "absolute", top: 6, left: 6, padding: "2px 6px",
-                      borderRadius: 4, fontSize: 9, fontFamily: "var(--mono)",
-                      background: "rgba(0,0,0,0.7)", color: "#fff", letterSpacing: "0.04em",
-                    }}>
-                      {nft.marketplace}
-                    </div>
-                  )}
-                  {/* Batch select checkbox */}
-                  {hasRealListings && nft.price && (
-                    <div
-                      onClick={(e) => { e.stopPropagation(); toggleSelect(nft.id); }}
-                      style={{
-                        position: "absolute", top: 6, right: 6,
-                        width: 20, height: 20, borderRadius: 4,
-                        background: isSelected ? "var(--naka-blue)" : "rgba(0,0,0,0.5)",
-                        border: isSelected ? "none" : "1px solid rgba(255,255,255,0.2)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        cursor: "pointer", fontSize: 12, color: "#fff", fontWeight: 700,
-                        transition: "background 0.15s",
-                      }}
-                    >
-                      {isSelected ? "\u2713" : ""}
-                    </div>
-                  )}
-                </div>
-                <div className="listing-card-body">
-                  <div className="listing-card-name">{nft.name}</div>
-                  {nft.price ? (
-                    <div className="listing-card-price">
-                      <Eth size={12} /> {nft.price.toFixed(4)}
-                      {nft.priceUsd && (
-                        <span className="listing-card-usd" style={{ marginLeft: 6 }}>
-                          ${nft.priceUsd.toFixed(0)}
-                        </span>
-                      )}
-                    </div>
-                  ) : nft.salePrice ? (
-                    <div className="listing-card-price" style={{ color: "var(--text-dim)" }}>
-                      <Eth size={12} /> {nft.salePrice.toFixed(4)}
-                      <span style={{ fontSize: 9, color: "var(--text-dim)", marginLeft: 4 }}>sold</span>
-                      {nft.time && (
-                        <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: 4 }}>
-                          {formatTimeAgo(nft.time)}
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
-                      {floor != null ? `Floor: ${floor.toFixed(4)} ETH` : "View on marketplace"}
-                    </div>
-                  )}
-                  {bestOffers.get(String(nft.id)) && (
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--naka-blue)", marginTop: 2 }}>
-                      Best offer: <Eth size={8} /> {bestOffers.get(String(nft.id)).toFixed(4)}
-                    </div>
-                  )}
-                  <div className="listing-card-actions">
-                    {nft.orderHash && nft.price ? (
-                      wallet && nft.maker && nft.maker.toLowerCase() === wallet.toLowerCase() ? (
-                        <span className="listing-btn-buy" style={{ opacity: 0.5, cursor: "default", pointerEvents: "none" }}>
-                          Your Listing
-                        </span>
-                      ) : (
-                      <button
-                        className="listing-btn-buy"
-                        disabled={buying === nft.id}
-                        onClick={(e) => handleBuy(nft, e)}
-                        style={{ cursor: buying === nft.id ? "wait" : "pointer" }}
-                      >
-                        {buying === nft.id ? "Buying..." : !wallet ? "Connect & Buy" : "Buy Now"}
-                      </button>
-                      )
-                    ) : (
-                      <a
-                        href={OPENSEA_ITEM(nft.id, collection.contract)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="listing-btn-buy"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {nft.price ? "Buy on OpenSea" : "OpenSea"}
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-              );
-            })}
+            {visibleGridItems.map((nft) => (
+              <ListingCard
+                key={nft.id}
+                nft={nft}
+                isSelected={selectedIds.has(nft.id)}
+                isBuying={buying === nft.id}
+                bestOffer={bestOffers.get(String(nft.id)) || null}
+                hasRealListings={hasRealListings}
+                floor={floor}
+                wallet={wallet}
+                collectionContract={collection.contract}
+                onPick={onPick}
+                onToggleSelect={toggleSelect}
+                onBuy={handleBuy}
+              />
+            ))}
           </div>
 
           {/* Reveal the next chunk of the already-fetched list */}
