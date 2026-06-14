@@ -202,6 +202,32 @@ const cartBadgeStyle = {
   boxShadow: "0 0 6px var(--naka-blue)",
 };
 
+/* Inline count badge for nav items (incoming P2P trade offers, F677). Pill that
+   sits inside a flex row next to the label rather than absolutely-positioned
+   like the cart/DM icon badges. */
+const navCountBadgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 15,
+  height: 15,
+  borderRadius: 8,
+  background: "var(--naka-blue)",
+  color: "#fff",
+  fontFamily: "var(--mono)",
+  fontSize: 8,
+  fontWeight: 700,
+  padding: "0 4px",
+  lineHeight: 1,
+  marginLeft: 6,
+  boxShadow: "0 0 5px var(--naka-blue)",
+};
+
+function NavCountBadge({ count }) {
+  if (!count || count <= 0) return null;
+  return <span style={navCountBadgeStyle} aria-hidden="true">{count > 99 ? "99+" : count}</span>;
+}
+
 /* Account popover menu item — shared by copy / explorer / disconnect (F542) */
 const accountMenuItemStyle = {
   width: "100%",
@@ -290,6 +316,7 @@ export default memo(function Header({
   isLanding,
   notificationCenter,
   dmUnread = 0,
+  incomingTrades = 0,
   onOpenDms,
 }) {
   const navigate = useNavigate();
@@ -487,8 +514,16 @@ export default memo(function Header({
               onClick={toggleMore}
               aria-expanded={moreOpen}
               aria-haspopup="true"
+              title={incomingTrades > 0 ? `${incomingTrades} incoming trade offer${incomingTrades === 1 ? "" : "s"} waiting in P2P Trades` : undefined}
             >
               More
+              {/* Surface the incoming-trade count on the collapsed More button so
+                  the badge is visible even when the Trades item is hidden in the
+                  dropdown (F677). The dropdown item carries it too. */}
+              <NavCountBadge count={incomingTrades} />
+              {incomingTrades > 0 && (
+                <span className="sr-only">{incomingTrades} incoming trade offer{incomingTrades === 1 ? "" : "s"}</span>
+              )}
             </button>
             {moreOpen && createPortal(
               <>
@@ -517,9 +552,10 @@ export default memo(function Header({
                     onMouseEnter={() => onPrefetch?.(key)}
                     onFocus={() => onPrefetch?.(key)}
                     onClick={() => { setTab(key); setMoreOpen(false); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "none", cursor: "pointer", fontFamily: "var(--pixel)", fontSize: 9, color: tab === key ? "var(--gold)" : "var(--text-dim)" }}
+                    style={{ display: "flex", alignItems: "center", width: "100%", textAlign: "left", padding: "8px 16px", border: "none", background: "none", cursor: "pointer", fontFamily: "var(--pixel)", fontSize: 9, color: tab === key ? "var(--gold)" : "var(--text-dim)" }}
                   >
                     {label}
+                    {key === "trades" && <NavCountBadge count={incomingTrades} />}
                   </button>
                 ))}
               </div>
@@ -709,6 +745,7 @@ export default memo(function Header({
           {visibleAll.map(([k, v]) => (
             <button key={k} onClick={() => handleNav(k)} className={`mobile-nav-item ${tab === k ? "active" : ""}`}>
               {v}
+              {k === "trades" && <NavCountBadge count={incomingTrades} />}
             </button>
           ))}
         </nav>

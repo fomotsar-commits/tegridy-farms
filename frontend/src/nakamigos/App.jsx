@@ -38,6 +38,7 @@ import useListings from "./hooks/useListings";
 import useSound from "./hooks/useSound";
 import useHolderStatus from "./hooks/useHolderStatus.jsx";
 import useDmUnread from "./hooks/useDmUnread";
+import useIncomingTrades from "./hooks/useIncomingTrades";
 // Lazy-imported to avoid pulling @supabase/supabase-js into the initial bundle.
 // These are only needed after wallet connect / user interaction.
 const getUserdata = () => import("./lib/userdata");
@@ -305,6 +306,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   const { unread: dmUnread } = useDmUnread(wallet, {
     onNew: () => addToast?.("📩 New direct message", "info"),
   });
+
+  // Global nav badge for active, unexpired incoming P2P trade offers (F677).
+  const { count: incomingTrades } = useIncomingTrades(wallet);
 
   const nfts = useNfts({ onChainSupply: stats?.supply });
 
@@ -789,6 +793,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         collectionSlug={collectionSlug}
         collectionPixelated={collection.pixelated}
         dmUnread={dmUnread}
+        incomingTrades={incomingTrades}
         onOpenDms={() => { handleTabChange("chat"); setDmSignal((s) => s + 1); }}
         notificationCenter={
           <Suspense fallback={null}>
