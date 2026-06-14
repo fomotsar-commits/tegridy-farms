@@ -85,6 +85,12 @@
  */
 
 import { supabase, CHAT_ENABLED } from "./supabase";
+// F715: cloud WRITES must go through the SIWE proxy — the anon client's writes
+// are rejected by RLS (wallet must equal the JWT wallet), so favorites/profile/
+// watchlist silently degraded to this-device-only localStorage. proxyWrite
+// attaches the cookie JWT server-side; on a signed-out user it throws needsAuth,
+// caught below to keep the existing localStorage fallback (no regression).
+import { proxyWrite } from "./supabaseProxy";
 
 const SYNC_ENABLED = CHAT_ENABLED; // reuse same Supabase credentials
 
@@ -158,19 +164,20 @@ export async function saveProfile(wallet, { displayName, bio, twitter }, slug) {
   if (!SYNC_ENABLED) return true;
 
   try {
-    const { error } = await supabase
-      .from("user_profiles")
-      .upsert({
+    await proxyWrite({
+      table: "user_profiles",
+      method: "UPSERT",
+      body: {
         wallet: lower,
         display_name: displayName || null,
         bio: bio || null,
         twitter: twitter || null,
         updated_at: new Date().toISOString(),
-      });
-
-    if (error) if (import.meta.env.DEV) console.error("[userdata] saveProfile error:", error.message);
-    return !error;
-  } catch {
+      },
+    });
+    return true;
+  } catch (err) {
+    if (import.meta.env.DEV) console.error("[userdata] saveProfile cloud sync skipped:", err.message);
     return false;
   }
 }
@@ -194,9 +201,11 @@ export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigo
     // Push any local-only favorites to remote
     const localOnly = localIds.filter(id => !remoteIds.includes(id));
     if (localOnly.length > 0) {
-      await supabase
-        .from("user_favorites")
-        .upsert(localOnly.map(id => ({ wallet: lower, token_id: id, collection_slug: collectionSlug })));
+      await proxyWrite({
+        table: "user_favorites",
+        method: "UPSERT",
+        body: localOnly.map(id => ({ wallet: lower, token_id: String(id), collection_slug: collectionSlug })),
+      });
     }
 
     return merged;
@@ -208,14 +217,15 @@ export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigo
 export async function addFavoriteRemote(wallet, tokenId, collectionSlug = "nakamigos") {
   if (!SYNC_ENABLED || !wallet) return;
   try {
-    await supabase.from("user_favorites").upsert({ wallet: wallet.toLowerCase(), token_id: tokenId, collection_slug: collectionSlug });
-  } catch { /* silent */ }
+    await proxyWrite({ table: "user_favorites", method: "UPSERT", body: { wallet: wallet.toLowerCase(), token_id: String(tokenId), collection_slug: collectionSlug } });
+  } catch { /* signed-out or sync unavailable — the local favorite is already saved */ }
 }
 
 export async function removeFavoriteRemote(wallet, tokenId, collectionSlug = "nakamigos") {
   if (!SYNC_ENABLED || !wallet) return;
   try {
-    await supabase.from("user_favorites").delete().eq("wallet", wallet.toLowerCase()).eq("token_id", tokenId).eq("collection_slug", collectionSlug);
+    // RLS scopes the delete to the JWT wallet, so match on token_id + collection.
+    await proxyWrite({ table: "user_favorites", method: "DELETE", match: { token_id: String(tokenId), collection_slug: collectionSlug } });
   } catch { /* silent */ }
 }
 
@@ -252,18 +262,20 @@ export async function syncWatchlist(wallet, localItems, collectionSlug = "nakami
     // Push any local-only items to remote
     const localOnly = [...localMap.keys()].filter(id => !remoteMap.has(id));
     if (localOnly.length > 0) {
-      await supabase
-        .from("user_watchlist")
-        .upsert(localOnly.map(id => {
+      await proxyWrite({
+        table: "user_watchlist",
+        method: "UPSERT",
+        body: localOnly.map(id => {
           const item = localMap.get(id);
           return {
             wallet: lower,
-            token_id: id,
+            token_id: String(id),
             collection_slug: collectionSlug,
-            target_price: item?.targetPrice || null,
+            target_price: item?.targetPrice != null ? Number(item.targetPrice) : null,
             note: item?.note || null,
           };
-        }));
+        }),
+      });
     }
 
     return merged;
@@ -275,20 +287,20 @@ export async function syncWatchlist(wallet, localItems, collectionSlug = "nakami
 export async function addWatchlistRemote(wallet, tokenId, { targetPrice, note } = {}, collectionSlug = "nakamigos") {
   if (!SYNC_ENABLED || !wallet) return;
   try {
-    await supabase.from("user_watchlist").upsert({
+    await proxyWrite({ table: "user_watchlist", method: "UPSERT", body: {
       wallet: wallet.toLowerCase(),
       token_id: String(tokenId),
-      target_price: targetPrice || null,
+      target_price: targetPrice != null ? Number(targetPrice) : null,
       note: note || null,
       collection_slug: collectionSlug,
-    });
+    } });
   } catch { /* silent */ }
 }
 
 export async function removeWatchlistRemote(wallet, tokenId, collectionSlug = "nakamigos") {
   if (!SYNC_ENABLED || !wallet) return;
   try {
-    await supabase.from("user_watchlist").delete().eq("wallet", wallet.toLowerCase()).eq("token_id", tokenId).eq("collection_slug", collectionSlug);
+    await proxyWrite({ table: "user_watchlist", method: "DELETE", match: { token_id: String(tokenId), collection_slug: collectionSlug } });
   } catch { /* silent */ }
 }
 
