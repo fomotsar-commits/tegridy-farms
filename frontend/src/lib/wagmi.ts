@@ -11,15 +11,18 @@ const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | unde
 // pattern used by Curve / Velodrome / Aerodrome UIs.
 const transports = {
   [mainnet.id]: fallback([
-    // Roster re-verified live 2026-06-13 (curl eth_chainId + Origin header):
-    // publicnode, drpc, cloudflare-eth ALL return 0x1 with `access-control-allow-
-    // origin: *`. Dropped ankr (keyless now returns -32000 Unauthorized) and
-    // eth.merkle.io (Cloudflare 1015 / no ACAO on preflight). eth.llamarpc.com
-    // stays excluded (no ACAO header → browser CORS fail; 521 in prod). NOTE:
-    // cloudflare-eth is NOT sunset — it is live and CORS-clean; keep it.
+    // Roster re-verified live 2026-06-14 via a REAL read (eth_blockNumber +
+    // Origin), NOT the eth_chainId trap: publicnode, drpc, eth.merkle.io all
+    // return the current block with `access-control-allow-origin: *`. Dropped
+    // cloudflare-eth — earlier notes called it "live" off eth_chainId, but it
+    // returns -32046 "Cannot fulfill request" / -32603 on every real read/
+    // eth_call (the Cloudflare Web3 gateway is sunset for data methods), so it
+    // was a dead 3rd fallback for contract reads. ankr excluded (keyless -32000
+    // Unauthorized); eth.llamarpc.com excluded (HTTP 521 + no ACAO).
+    // eth.merkle.io is allowlisted in the vercel.json CSP connect-src.
     http('https://ethereum-rpc.publicnode.com'),
     http('https://eth.drpc.org'),
-    http('https://cloudflare-eth.com'),
+    http('https://eth.merkle.io'),
   ], { rank: true }),
 };
 

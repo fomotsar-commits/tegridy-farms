@@ -273,7 +273,13 @@ export default async function handler(req, res) {
       return res.json({ orders: [], count: 0, degraded: true });
     }
 
-    res.setHeader("Cache-Control", "s-maxage=5, stale-while-revalidate=10");
+    // PERF: a 5s edge TTL gave a near-zero hit ratio on the most-hit read, so
+    // almost every listings view hit Supabase cold (which races a 2500ms
+    // deadline). Active orders change on a seconds-to-minutes scale, so a 20s
+    // shared cache + 60s stale-while-revalidate serves instant stale data and
+    // revalidates in the background, collapsing the Supabase round-trip out of
+    // perceived latency for the vast majority of reads.
+    res.setHeader("Cache-Control", "s-maxage=20, stale-while-revalidate=60");
     return res.json({ orders: data || [], count: (data || []).length });
   }
 

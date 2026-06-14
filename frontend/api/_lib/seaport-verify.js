@@ -154,11 +154,17 @@ function alchemyUrl() {
 // exactly as before (prod fails closed with `rpc-unavailable`, non-prod skips
 // with a warning), so a misconfigured deploy still can't silently verify
 // nothing. Fail-closed is reached only when EVERY path fails.
+// Roster re-verified live 2026-06-14 via a REAL read (eth_blockNumber, not the
+// eth_chainId trap that sunset gateways still answer): publicnode, drpc,
+// eth.merkle.io all return the current block. Dropped BOTH cloudflare-eth
+// (answers eth_chainId but -32046 "Cannot fulfill request" on every real
+// read/eth_call — and that JSON-RPC error would even abort the chain here) and
+// eth.llamarpc.com (HTTP 521, origin down). This is the server path, so CORS is
+// irrelevant — only real-read liveness matters.
 const PUBLIC_RPC_URLS = Object.freeze([
   "https://ethereum-rpc.publicnode.com",
   "https://eth.drpc.org",
-  "https://cloudflare-eth.com",
-  "https://eth.llamarpc.com",
+  "https://eth.merkle.io",
 ]);
 
 function rpcUrlChain() {
@@ -189,16 +195,29 @@ function padAddr(addr) {
 }
 
 async function ethCallOnce(url, to, data) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "eth_call",
-      params: [{ to, data }, "latest"],
-    }),
-  });
+  // PERF/RESIL: bound each attempt so a hung node (no response, not a fast
+  // error) is abandoned in ~2.5s and ethCall() advances to the next URL,
+  // instead of consuming the whole request budget on Node's default timeout.
+  // AbortError has no .rpcError, so ethCall treats it as a transport failure
+  // and falls through (deterministic execution-reverts still short-circuit).
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2500);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_call",
+        params: [{ to, data }, "latest"],
+      }),
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
   const json = await res.json();
   if (json.error) {

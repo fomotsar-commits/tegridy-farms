@@ -7,15 +7,18 @@
 // (llamarpc returned 503/521 — origin down — in prod on 2026-06-11, which took
 // these surfaces down entirely since it was their only provider.)
 
-// Same list and ordering as src/lib/wagmi.ts transports. Roster re-verified
-// live 2026-06-13 (curl eth_chainId + Origin): publicnode, drpc, cloudflare-eth
-// all return 0x1 with `access-control-allow-origin: *`. Dropped ankr (keyless
-// now -32000 Unauthorized) and eth.merkle.io (Cloudflare 1015 / no ACAO).
-// eth.llamarpc.com excluded (F511/F517): no ACAO header → browser CORS fail.
+// Roster re-verified live 2026-06-14 via a REAL read (eth_blockNumber + browser
+// Origin), NOT the eth_chainId trap: publicnode, drpc, eth.merkle.io all return
+// the current block with `access-control-allow-origin: *`. Dropped cloudflare-eth
+// — it answers the static eth_chainId (so a naive health check thinks it is up)
+// but returns -32046 "Cannot fulfill request" on every real read/eth_call, so it
+// was dead weight for the ENS/read-only calls this provider serves. ankr excluded
+// (keyless -32000 Unauthorized); eth.llamarpc.com excluded (HTTP 521 + no ACAO).
+// eth.merkle.io must stay in the vercel.json CSP connect-src allowlist.
 const RPC_ENDPOINTS = [
   "https://ethereum-rpc.publicnode.com",
   "https://eth.drpc.org",
-  "https://cloudflare-eth.com",
+  "https://eth.merkle.io",
 ];
 
 let cached = null;

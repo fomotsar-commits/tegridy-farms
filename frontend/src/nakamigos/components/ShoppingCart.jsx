@@ -6,7 +6,7 @@ import { fulfillSeaportOrder, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
-import { validateOrderFillability } from "../lib/orderValidator";
+import { validateOrderQuick } from "../lib/orderValidator";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
 import EmptyState from "./EmptyState";
@@ -150,7 +150,14 @@ export default function ShoppingCart({
             return { id: item.id, status: "red", reason: "Missing order data", warnings: [] };
           }
           try {
-            const result = await validateOrderFillability(ethersProvider, item, wallet);
+            // PERF: Layer 1+2 only (expiry/freshness + getOrderStatus/ownerOf/
+            // isApprovedForAll). The previous validateOrderFillability(...wallet)
+            // ran a full Seaport fulfillOrder.staticCall PER ITEM — N heavy
+            // eth_calls gating the "Validating orders..." screen on the wallet
+            // RPC. handleConfirmSweep re-checks each item's price/listing
+            // freshness right before broadcast and Seaport reverts safely on an
+            // unfillable order, so the bulk pre-check doesn't need the simulation.
+            const result = await validateOrderQuick(ethersProvider, item);
             return { id: item.id, ...result };
           } catch {
             return { id: item.id, status: "yellow", warnings: ["Validation check failed"], layer: 0 };
