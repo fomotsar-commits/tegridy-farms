@@ -221,12 +221,20 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
     (async () => {
       const results = new Map();
-      for (const id of idsToFetch) {
-        if (cancelled) break;
-        try {
-          const offer = await fetchBestOffer(id, collection.slug, { openseaSlug: osSlug });
-          if (offer && offer.price > 0) results.set(id, offer.price);
-        } catch { /* skip */ }
+      // PERF: was a strict serial loop — up to 20 OpenSea round-trips SUMMED,
+      // trickling in after paint and competing for the proxy rate-limit. Run them
+      // with bounded concurrency (6 at a time) so total wall-time is ~the slowest
+      // few rather than the sum, while staying well under the proxy's per-IP cap.
+      const CONCURRENCY = 6;
+      for (let i = 0; i < idsToFetch.length && !cancelled; i += CONCURRENCY) {
+        const batch = idsToFetch.slice(i, i + CONCURRENCY);
+        const settled = await Promise.all(batch.map(async (id) => {
+          try {
+            const offer = await fetchBestOffer(id, collection.slug, { openseaSlug: osSlug });
+            return offer && offer.price > 0 ? [id, offer.price] : null;
+          } catch { return null; }
+        }));
+        for (const r of settled) if (r) results.set(r[0], r[1]);
       }
       if (!cancelled && results.size > 0) {
         setBestOffers(prev => {
