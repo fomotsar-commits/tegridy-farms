@@ -338,7 +338,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     // Use native orderbook fulfillment for native listings, OpenSea for others
     const result = nft.isNative && nft.nativeOrder
       ? await fulfillNativeOrder(nft.nativeOrder)
-      : await fulfillSeaportOrder(nft);
+      : await fulfillSeaportOrder(nft, { buyerAddress: wallet });
 
     if (result.success) {
       recordTransaction({ type: "buy", nft, price: nft.price, hash: result.hash, wallet, slug: collection.slug });

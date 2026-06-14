@@ -81,8 +81,11 @@ function openseaGet(path, params = {}, { signal } = {}) {
   return withRetry(() => rawOpenseaGet(path, params, { signal }), { maxRetries: 3, baseDelay: 1500, signal });
 }
 
-function openseaPost(path, body, { signal } = {}) {
-  return withRetry(() => rawOpenseaPost(path, body, { signal }), { maxRetries: 2, baseDelay: 1500, signal });
+function openseaPost(path, body, { signal, maxRetries = 2, baseDelay = 1500 } = {}) {
+  // Default is a patient background retry (OpenSea 429s are common). Interactive
+  // paths (e.g. the buy click) can pass a tighter policy so the user isn't stuck
+  // on a spinner through the full 1500ms-base backoff.
+  return withRetry(() => rawOpenseaPost(path, body, { signal }), { maxRetries, baseDelay, signal });
 }
 
 // Convert ipfs:// URLs to an HTTP gateway
@@ -1048,7 +1051,7 @@ export function shortenAddress(addr) {
 }
 
 // ═══ DIRECT PURCHASE VIA OPENSEA FULFILLMENT API ═══
-export async function fulfillSeaportOrder(listing) {
+export async function fulfillSeaportOrder(listing, opts = {}) {
   const ethProvider = getProvider();
   if (!ethProvider) {
     return { error: "no-metamask", message: "MetaMask not found" };
@@ -1076,9 +1079,16 @@ export async function fulfillSeaportOrder(listing) {
     }
 
     const signer = await provider.getSigner();
-    const buyerAddress = await signer.getAddress();
+    // PERF: prefer the caller's already-connected wallet address — skips an
+    // extra eth_accounts round-trip in front of the (dominant) OpenSea
+    // fulfillment POST. Falls back to reading it from the signer.
+    const buyerAddress = opts.buyerAddress || await signer.getAddress();
 
-    // Step 1: Get fulfillment transaction data from OpenSea (via proxy)
+    // Step 1: Get fulfillment transaction data from OpenSea (via proxy). Use a
+    // FAST retry here (interactive buy click) instead of the patient 1500ms-base
+    // background backoff — this is a read (no funds move on failure), so on an
+    // OpenSea 429 the user gets a quick retry or a fast "try again" rather than
+    // sitting on a multi-second spinner before the wallet opens.
     let fulfillData;
     try {
       fulfillData = await openseaPost("listings/fulfillment_data", {
@@ -1088,7 +1098,7 @@ export async function fulfillSeaportOrder(listing) {
           protocol_address: listing.protocolAddress || listing.orderData?.protocolAddress,
         },
         fulfiller: { address: buyerAddress },
-      });
+      }, { maxRetries: 1, baseDelay: 400 });
     } catch (err) {
       console.error("Fulfillment API error:", err.message);
       return { error: "failed", message: "Could not get fulfillment data from OpenSea" };

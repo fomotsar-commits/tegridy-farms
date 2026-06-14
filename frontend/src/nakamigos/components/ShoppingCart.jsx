@@ -263,7 +263,7 @@ export default function ShoppingCart({
 
       const result = item.isNative && item.nativeOrder
         ? await fulfillNativeOrder(item.nativeOrder)
-        : await fulfillSeaportOrder(item);
+        : await fulfillSeaportOrder(item, { buyerAddress: wallet });
 
       if (result.success) {
         recordTransaction({ type: "buy", nft: item, price: item.price, hash: result.hash, wallet, slug });

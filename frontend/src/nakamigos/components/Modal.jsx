@@ -476,7 +476,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                     price: Number(nft.price),
                     onExecute: () => nft.isNative && nft.nativeOrder
                       ? fulfillNativeOrder(nft.nativeOrder)
-                      : fulfillSeaportOrder(nft),
+                      : fulfillSeaportOrder(nft, { buyerAddress: wallet }),
                     onSuccess: ({ hash, gasUsed }) => {
                       recordTransaction({ type: "buy", nft, price: nft.price, hash, wallet, slug: collection.slug });
                       addToast?.(`Success! Bought #${nft.id}`, "success");
