@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { Eth } from "./Icons";
 import { formatPrice } from "../lib/formatPrice";
+import { isSelfSale } from "../lib/washTrade";
 import { EnsName } from "../hooks/useEns.jsx";
 import { fetchActivity } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
@@ -188,14 +189,18 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
       : (activities || []);
   }, [fetchedActivities, activities]);
 
+  // F709: exclude self-sales (same wallet on both sides) from volume + count
+  // so a wallet selling to itself can't inflate the headline stats. The rows
+  // are still rendered (badged "possible wash" below) — only the aggregates
+  // drop them.
   const totalVolume = useMemo(() => {
     return statsSource
-      .filter((a) => a.type === "sale" && a.price)
+      .filter((a) => a.type === "sale" && a.price && !isSelfSale(a))
       .reduce((sum, a) => sum + a.price, 0);
   }, [statsSource]);
 
   const salesCount = useMemo(() => {
-    return statsSource.filter((a) => a.type === "sale").length;
+    return statsSource.filter((a) => a.type === "sale" && !isSelfSale(a)).length;
   }, [statsSource]);
 
   return (
@@ -369,7 +374,11 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
             )}
           </div>
         )}
-        {visible.map((a, i) => (
+        {visible.map((a, i) => {
+          // F709: same-wallet sales are flagged so the row reads as a possible
+          // wash trade, matching their exclusion from the stats above.
+          const wash = a.type === "sale" && isSelfSale(a);
+          return (
           <div key={a.hash ? `${a.hash}-${a.token?.id ?? i}` : i} className="activity-row" style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}>
             <div
               className="activity-type-badge"
@@ -377,6 +386,26 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
             >
               {EVENT_LABELS[a.type] || a.type}
             </div>
+            {wash && (
+              <span
+                title="Same wallet on both sides of this sale — excluded from volume and average-price stats"
+                style={{
+                  fontFamily: "var(--mono)",
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  color: "var(--yellow)",
+                  background: "rgba(251, 191, 36, 0.08)",
+                  border: "1px solid rgba(251, 191, 36, 0.25)",
+                  borderRadius: 4,
+                  padding: "1px 5px",
+                  whiteSpace: "nowrap",
+                  alignSelf: "center",
+                }}
+              >
+                {"⚠"} POSSIBLE WASH
+              </span>
+            )}
             <div className="activity-token-name">
               {a.token?.name || "Unknown"}
             </div>
@@ -420,7 +449,8 @@ export default memo(function ActivityFeed({ activities: propActivities, isLive, 
               </a>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Load More: reveals already-fetched rows first, then pages the API */}

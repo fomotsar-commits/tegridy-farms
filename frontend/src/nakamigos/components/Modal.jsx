@@ -17,6 +17,7 @@ import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
 import { formatPrice } from "../lib/formatPrice";
+import { excludeSelfSales } from "../lib/washTrade";
 import Usd from "./Usd";
 import useEns from "../hooks/useEns";
 
@@ -58,7 +59,9 @@ function PriceHistoryChart({ tokenId, contract }) {
   useEffect(() => {
     let cancelled = false;
     fetchTokenSalesHistory(tokenId, contract).then((data) => {
-      if (!cancelled) setSales(data);
+      // F709: drop self-sales (same wallet buying from itself) so the price
+      // history, average, and min/max can't be skewed by wash trades.
+      if (!cancelled) setSales(excludeSelfSales(data));
     }).catch((err) => {
       if (!cancelled) {
         console.error("Failed to fetch sales history:", err);
