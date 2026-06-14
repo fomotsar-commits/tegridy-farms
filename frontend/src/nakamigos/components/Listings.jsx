@@ -93,7 +93,7 @@ function formatTimeAgo(ts) {
 // content-visibility:auto on .listing-card, which skips off-screen paint.
 const ListingCard = memo(function ListingCard({
   nft, isSelected, isBuying, bestOffer, hasRealListings, floor, wallet, collectionContract,
-  onPick, onToggleSelect, onBuy,
+  onPick, onToggleSelect, onBuy, onAddToCart,
 }) {
   const handleClick = useCallback(() => onPick(nft), [onPick, nft]);
   const handleKeyDown = useCallback((e) => {
@@ -101,6 +101,7 @@ const ListingCard = memo(function ListingCard({
   }, [onPick, nft]);
   const handleSelect = useCallback((e) => { e.stopPropagation(); onToggleSelect(nft.id); }, [onToggleSelect, nft.id]);
   const handleBuyClick = useCallback((e) => onBuy(nft, e), [onBuy, nft]);
+  const handleAddToCart = useCallback((e) => { e.stopPropagation(); onAddToCart?.(nft); }, [onAddToCart, nft]);
 
   const isOwnListing = wallet && nft.maker && nft.maker.toLowerCase() === wallet.toLowerCase();
 
@@ -174,14 +175,31 @@ const ListingCard = memo(function ListingCard({
                 Your Listing
               </span>
             ) : (
-            <button
-              className="listing-btn-buy"
-              disabled={isBuying}
-              onClick={handleBuyClick}
-              style={{ cursor: isBuying ? "wait" : "pointer" }}
-            >
-              {isBuying ? "Buying..." : !wallet ? "Connect & Buy" : "Buy Now"}
-            </button>
+            <div style={{ display: "flex", gap: 4 }}>
+              {onAddToCart && (
+                <button
+                  className="listing-btn-buy"
+                  onClick={handleAddToCart}
+                  aria-label="Add to cart"
+                  title="Add to cart"
+                  style={{ flex: "0 0 auto", width: 30, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <path d="M16 10a4 4 0 01-8 0" />
+                  </svg>
+                </button>
+              )}
+              <button
+                className="listing-btn-buy"
+                disabled={isBuying}
+                onClick={handleBuyClick}
+                style={{ flex: 1, cursor: isBuying ? "wait" : "pointer" }}
+              >
+                {isBuying ? "Buying..." : !wallet ? "Connect & Buy" : "Buy Now"}
+              </button>
+            </div>
             )
           ) : (
             <a
@@ -940,6 +958,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                 onPick={onPick}
                 onToggleSelect={toggleSelect}
                 onBuy={handleBuy}
+                onAddToCart={onAddToCart}
               />
             ))}
           </div>

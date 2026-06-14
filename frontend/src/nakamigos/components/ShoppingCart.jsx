@@ -33,6 +33,10 @@ export default function ShoppingCart({
   // Order validation state: Map of item.id -> { status, reason, warnings }
   const [validationResults, setValidationResults] = useState({});
   const [validating, setValidating] = useState(false);
+  // Two-tap guard on Clear Cart: the button sits right under SWEEP ALL and wipes
+  // a localStorage-persisted, hand-built cart with no undo, so a misclick is a
+  // real footgun. First tap arms; second (within a few seconds) actually clears.
+  const [confirmClear, setConfirmClear] = useState(false);
 
   // Detect stale cart prices by comparing with current listings
   const staleItems = useMemo(() => {
@@ -908,18 +912,26 @@ export default function ShoppingCart({
               </button>
             )}
 
-            {/* Clear Cart */}
+            {/* Clear Cart — two-tap confirm (see confirmClear above) */}
             <button
-              onClick={onClear}
+              onClick={() => {
+                if (confirmClear) {
+                  onClear();
+                  setConfirmClear(false);
+                } else {
+                  setConfirmClear(true);
+                  setTimeout(() => setConfirmClear(false), 3500);
+                }
+              }}
               disabled={buying || confirming}
               style={{
                 width: "100%",
                 fontFamily: "var(--mono)",
                 fontSize: 11,
                 letterSpacing: "0.06em",
-                color: "var(--text-dim)",
+                color: confirmClear ? "var(--red, #f87171)" : "var(--text-dim)",
                 background: "none",
-                border: "1px solid var(--border, #222)",
+                border: confirmClear ? "1px solid rgba(248,113,113,0.4)" : "1px solid var(--border, #222)",
                 borderRadius: 8,
                 padding: "9px 0",
                 cursor: (buying || confirming) ? "not-allowed" : "pointer",
@@ -928,17 +940,19 @@ export default function ShoppingCart({
                 marginTop: confirming ? 8 : 0,
               }}
               onMouseEnter={(e) => {
-                if (!buying && !confirming) {
+                if (!buying && !confirming && !confirmClear) {
                   e.currentTarget.style.color = "var(--red, #f87171)";
                   e.currentTarget.style.borderColor = "rgba(248,113,113,0.25)";
                 }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-dim)";
-                e.currentTarget.style.borderColor = "var(--border, #222)";
+                if (!confirmClear) {
+                  e.currentTarget.style.color = "var(--text-dim)";
+                  e.currentTarget.style.borderColor = "var(--border, #222)";
+                }
               }}
             >
-              CLEAR CART
+              {confirmClear ? "TAP AGAIN TO CLEAR" : "CLEAR CART"}
             </button>
           </div>
         )}

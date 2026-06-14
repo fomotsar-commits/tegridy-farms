@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Eth } from "./Icons";
-import { fulfillSeaportOrder, getProvider } from "../api";
+import { fulfillSeaportOrder, fulfillSeaportOrdersBatch, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
+import { getFriendlyError } from "../lib/errorMessages";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
 
@@ -317,30 +318,64 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     addToast?.(`Sweeping ${sweepList.length} ${collection.name}...`, "info");
 
     let bought = 0;
-    for (let i = 0; i < sweepList.length; i++) {
-      setProgress(i + 1);
-      const nft = sweepList[i];
-      const result = nft.isNative && nft.nativeOrder
-        ? await fulfillNativeOrder(nft.nativeOrder)
-        : await fulfillSeaportOrder(nft);
 
-      if (result.success) {
-        bought++;
-        recordTransaction({ type: "buy", nft, price: nft.price, hash: result.hash, wallet, slug: collection.slug });
-      } else if (result.error === "rejected") {
-        addToast?.(`Sweep stopped — cancelled at #${i + 1}`, "info");
-        break;
-      } else if (result.error === "insufficient") {
-        addToast?.(`Insufficient ETH — bought ${bought}/${sweepList.length}`, "error");
-        break;
-      } else {
-        addToast?.(`Failed to purchase item ${i + 1}. Please try again.`, "error");
-        break;
+    // EIP-5792 fast path: buy every OpenSea listing in ONE wallet confirmation
+    // when the wallet supports atomic batching and the sweep is all-Seaport with
+    // 2+ items — the same one-click path the cart uses. Falls through to the
+    // per-item loop on unsupported / build failure / mixed-native (zero regression).
+    const allSeaport = sweepList.length >= 2 && sweepList.every(l => !(l.isNative && l.nativeOrder));
+    let batched = false;
+    if (allSeaport) {
+      const res = await fulfillSeaportOrdersBatch(sweepList, { buyerAddress: wallet });
+      if (res.success) {
+        for (const nft of sweepList) {
+          recordTransaction({ type: "buy", nft, price: nft.price, hash: res.hash, wallet, slug: collection.slug });
+        }
+        bought = sweepList.length;
+        batched = true;
+      } else if (res.error === "rejected") {
+        addToast?.("Sweep cancelled", "info");
+        setSweeping(false);
+        setProgress(0);
+        return;
+      }
+      // unsupported / build-failed / other → fall through to the sequential path.
+    }
+
+    if (!batched) {
+      for (let i = 0; i < sweepList.length; i++) {
+        setProgress(i + 1);
+        const nft = sweepList[i];
+        const result = nft.isNative && nft.nativeOrder
+          ? await fulfillNativeOrder(nft.nativeOrder)
+          : await fulfillSeaportOrder(nft, { buyerAddress: wallet });
+
+        if (result.success) {
+          bought++;
+          recordTransaction({ type: "buy", nft, price: nft.price, hash: result.hash, wallet, slug: collection.slug });
+        } else if (result.error === "rejected") {
+          addToast?.(`Sweep stopped — cancelled at #${i + 1}`, "info");
+          break;
+        } else if (result.error === "insufficient") {
+          addToast?.(`Insufficient ETH — bought ${bought}/${sweepList.length}`, "error");
+          break;
+        } else {
+          // A stale/sniped or otherwise-failed item must NOT kill the rest of the
+          // sweep — the cheapest N are the most contested, so skip it and keep
+          // buying the others (matches the cart's sequential behavior).
+          const why = result.error === "stale"
+            ? "was just sold"
+            : getFriendlyError(result.message || "failed");
+          addToast?.(`${nft.name || `#${nft.id}`} ${why} — skipping`, "warning");
+          continue;
+        }
       }
     }
 
     if (bought > 0) {
-      addToast?.(`Swept ${bought} ${collection.name}!`, "success");
+      addToast?.(`Swept ${bought} of ${sweepList.length} ${collection.name}!`, "success");
+    } else {
+      addToast?.("Nothing swept — those listings may already be gone. Try refreshing.", "error");
     }
     setSweeping(false);
     setProgress(0);
