@@ -410,7 +410,15 @@ function bucketize(values, bucketCount = 10) {
 function DepthChart({ listings = [], collectionOffers = [] }) {
   const { bidBuckets, askBuckets, spread, spreadPct, maxCumulative } = useMemo(() => {
     const askPrices = listings.map(l => l.price).filter(p => p != null && p > 0).sort((a, b) => a - b);
-    const bidPrices = collectionOffers.map(o => o.price).filter(p => p != null && p > 0).sort((a, b) => b - a);
+    const lowestAsk = askPrices[0] || 0;
+    // #12: a collection bid priced well above the floor ask is garbage/stale — a
+    // collection offer applies to ANY token, so a bid at/above the floor would
+    // fill instantly. One 4.38 ETH outlier on a 0.10 floor was producing a
+    // "best bid" above the best ask and a nonsensical -4057% spread. Drop bids
+    // beyond 2x the floor before computing the book.
+    const bidPrices = collectionOffers.map(o => o.price)
+      .filter(p => p != null && p > 0 && (lowestAsk <= 0 || p <= lowestAsk * 2))
+      .sort((a, b) => b - a);
 
     const askBuckets = bucketize(askPrices, 8);
     const bidBuckets = bucketize(bidPrices, 8).reverse();
@@ -434,10 +442,13 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
 
   if (!hasBids && !hasAsks) return null;
 
-  const bidPricesValid = collectionOffers.map(o => o.price).filter(p => p != null && p > 0);
   const askPricesValid = listings.map(l => l.price).filter(p => p != null && p > 0);
-  const bestBid = bidPricesValid.length > 0 ? Math.max(...bidPricesValid) : null;
   const bestAsk = askPricesValid.length > 0 ? Math.min(...askPricesValid) : null;
+  // #12: same outlier guard as the depth memo above — exclude garbage bids well
+  // above the floor so BEST BID isn't an inverted 40x-floor number.
+  const bidPricesValid = collectionOffers.map(o => o.price)
+    .filter(p => p != null && p > 0 && (bestAsk == null || p <= bestAsk * 2));
+  const bestBid = bidPricesValid.length > 0 ? Math.max(...bidPricesValid) : null;
 
   return (
     <div style={{

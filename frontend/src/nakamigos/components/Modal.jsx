@@ -403,8 +403,11 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
           {/* Price History Chart */}
           <PriceHistoryChart tokenId={nft.id} contract={collection.contract} />
 
-          {/* Order validation warning — hidden in Lite mode */}
-          {!isLite && orderWarning && (
+          {/* #16: the order-validation banner (ORDER INVALID / WARNING) is
+              SAFETY, not an advanced tool — show it in Lite too. Beginners are
+              the users most likely to buy a sniped/expired listing, so the very
+              warning that protects them must not be suppressed for them. */}
+          {orderWarning && (
             <div style={{
               background: orderWarning.status === "red" ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.08)",
               border: `1px solid ${orderWarning.status === "red" ? "rgba(248,113,113,0.2)" : "rgba(251,191,36,0.2)"}`,

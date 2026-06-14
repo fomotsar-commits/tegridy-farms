@@ -517,12 +517,15 @@ export default function Deals({
       for (const attr of token.attributes || []) {
         const k = `${attr.key}::${attr.value}`;
         if (!data[k]) {
-          data[k] = { low1: { price: listing.price, tokenId: tid }, low2: null };
-        } else if (listing.price < data[k].low1.price) {
-          data[k].low2 = data[k].low1;
-          data[k].low1 = { price: listing.price, tokenId: tid };
-        } else if (!data[k].low2 || listing.price < data[k].low2.price) {
-          data[k].low2 = { price: listing.price, tokenId: tid };
+          data[k] = { low1: { price: listing.price, tokenId: tid }, low2: null, count: 1 };
+        } else {
+          data[k].count++;
+          if (listing.price < data[k].low1.price) {
+            data[k].low2 = data[k].low1;
+            data[k].low1 = { price: listing.price, tokenId: tid };
+          } else if (!data[k].low2 || listing.price < data[k].low2.price) {
+            data[k].low2 = { price: listing.price, tokenId: tid };
+          }
         }
       }
     }
@@ -533,6 +536,12 @@ export default function Deals({
   function getTraitFloorExcluding(traitKey, excludeTokenId) {
     const d = traitFloorData[traitKey];
     if (!d) return null;
+    // #13: a "trait floor" from too few listings is unreliable — a single
+    // overpriced rare-trait listing was inflating "fair value" (e.g. 10 ETH on a
+    // 0.10-floor collection → a fake "97% off"). Require >=3 listings of the
+    // trait before trusting its floor, so a token's fair value falls back to its
+    // better-sampled traits instead of a one-off outlier.
+    if (d.count < 3) return null;
     if (String(d.low1.tokenId) === String(excludeTokenId)) return d.low2?.price ?? null;
     return d.low1.price;
   }
