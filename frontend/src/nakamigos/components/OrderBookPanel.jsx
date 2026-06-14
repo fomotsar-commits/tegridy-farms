@@ -132,8 +132,14 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
   }, [fetchOrders]);
 
   useEffect(() => {
-    const t = setInterval(fetchOrders, 60000);
-    return () => clearInterval(t);
+    // Sub (was #14): don't poll the orderbook while the tab is backgrounded —
+    // saves the Vercel function budget + mobile battery/data (a backgrounded
+    // Floor tab was firing a fetch every minute for nothing). Refetch once on
+    // return to foreground so the user sees fresh data on re-focus.
+    const t = setInterval(() => { if (!document.hidden) fetchOrders(); }, 60000);
+    const onVis = () => { if (!document.hidden) fetchOrders(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, [fetchOrders]);
 
   const handleBuy = useCallback(async (order) => {

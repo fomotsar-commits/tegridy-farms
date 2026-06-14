@@ -4370,8 +4370,11 @@
     gap: 16px;
   }
   .modal-close {
-    width: 32px;
-    height: 32px;
+    /* Sub (was #15): 44px is the iOS minimum tap target. Four ~32px header
+       actions (share/theater/copy-link/close) packed in a 6px-gap row on a
+       375-390px phone were easy to mis-tap — accidentally closing the modal. */
+    width: 44px;
+    height: 44px;
   }
   .traits-grid { gap: 6px; }
 }
