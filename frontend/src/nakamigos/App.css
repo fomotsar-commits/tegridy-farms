@@ -1939,6 +1939,13 @@
   border: 1px solid var(--border); cursor: pointer;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   backdrop-filter: var(--glass-blur);
+  /* PERF: skip layout/style/paint for off-screen cards. The manual "show more"
+     chunk keeps growing the mounted DOM (hundreds of card subtrees on a deep
+     listings page); content-visibility lets the browser render only what's near
+     the viewport. `auto` intrinsic-size remembers each card's real rendered size
+     after first paint, so scroll position stays stable across breakpoints. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
 }
 .listing-card:hover {
   border-color: var(--border-gold);

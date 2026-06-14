@@ -662,28 +662,23 @@ export async function fetchWalletNfts(walletAddress, contract = CONTRACT, metada
 
 // ═══ ACTIVE LISTINGS (OpenSea via proxy) ═══
 
-async function fetchOpenSeaListings(slug = COLLECTION_SLUG) {
-  const MAX_PAGES = 5;
-  const PER_PAGE = 200;
-  const allRawListings = [];
-  let cursor = null;
+const OS_MAX_PAGES = 5;
+const OS_PER_PAGE = 200;
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const params = { limit: PER_PAGE };
-    if (cursor) params.next = cursor;
+// Fetch ONE page of OpenSea best-listings. Returns { raw, next } so the caller
+// controls paging — cursor pagination can't be parallelized, so we page-1-first
+// instead of blocking first paint on all ~5 serial round-trips.
+async function fetchOpenSeaListingsPage(slug, cursor) {
+  const params = { limit: OS_PER_PAGE };
+  if (cursor) params.next = cursor;
+  const data = await openseaGet(`listings/collection/${slug}/best`, params);
+  return { raw: data.listings || [], next: data.next || null };
+}
 
-    const data = await openseaGet(`listings/collection/${slug}/best`, params);
-
-    const pageListings = data.listings || [];
-    allRawListings.push(...pageListings);
-
-    // Stop if no next cursor or empty page
-    if (!data.next || pageListings.length === 0) break;
-    cursor = data.next;
-  }
-
-  if (allRawListings.length === 0) return { listings: [], source: "opensea" };
-
+// Normalize raw OpenSea listing payloads into our listing shape, deduped by
+// tokenId (cheapest wins) and sorted cheapest-first. Pure — safe to re-run as
+// background pages stream in.
+function normalizeOpenSeaListings(allRawListings) {
   const allListings = allRawListings.map(listing => {
     const offer = listing.protocol_data?.parameters?.offer?.[0];
     const tokenId = offer?.identifierOrCriteria || null;
@@ -714,44 +709,13 @@ async function fetchOpenSeaListings(slug = COLLECTION_SLUG) {
     const existing = seen.get(l.tokenId);
     if (!existing || l.price < existing.price) seen.set(l.tokenId, l);
   }
-
-  return {
-    listings: [...seen.values()].sort((a, b) => a.price - b.price),
-    source: "opensea",
-  };
+  return [...seen.values()].sort((a, b) => a.price - b.price);
 }
 
-export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contract, signal } = {}) {
-  // Use openseaSlug for OpenSea API calls; fall back to slug
-  const osSlug = openseaSlug || slug;
-
-  // Fetch OpenSea + native orderbook in parallel.
-  // Each source is individually wrapped in .catch() so a failure in one
-  // never prevents the other from showing results.
-  const [osResult, nativeResult] = await Promise.all([
-    fetchOpenSeaListings(osSlug).catch(err => {
-      console.warn("OpenSea listings unavailable:", err.message);
-      return { listings: [], source: null };
-    }),
-    contract
-      ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(err => {
-          console.warn("Native listings unavailable:", err?.message);
-          return { orders: [] };
-        })
-      : Promise.resolve({ orders: [] }),
-  ]);
-
-  let osListings = [];
+// Map native-orderbook orders into our listing shape (same fields as OpenSea).
+function mapNativeListings(nativeResult) {
   try {
-    osListings = osResult.listings || [];
-  } catch (err) {
-    console.warn("Error reading OpenSea listings:", err.message);
-  }
-
-  // Convert native orderbook orders to the same listing shape
-  let nativeListings = [];
-  try {
-    nativeListings = (nativeResult.orders || []).map(order => ({
+    return (nativeResult.orders || []).map(order => ({
       tokenId: order.token_id ? String(order.token_id) : null,
       price: order.price_eth != null ? Number(order.price_eth) : null,
       priceWei: order.price_wei || null,
@@ -770,20 +734,78 @@ export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contr
     })).filter(l => l.tokenId != null && l.price != null);
   } catch (err) {
     console.warn("Error mapping native listings:", err.message);
+    return [];
   }
+}
 
-  // Merge: deduplicate by tokenId, keeping the cheapest listing across both sources
+// Merge OpenSea + native listings: dedup by tokenId (cheapest wins), sorted.
+function mergeListings(osListings, nativeListings) {
   const merged = new Map();
   for (const l of [...osListings, ...nativeListings]) {
     const existing = merged.get(l.tokenId);
     if (!existing || l.price < existing.price) merged.set(l.tokenId, l);
   }
-
-  const allListings = [...merged.values()].sort((a, b) => a.price - b.price);
+  const listings = [...merged.values()].sort((a, b) => a.price - b.price);
   const source = nativeListings.length > 0 && osListings.length > 0
     ? "merged" : nativeListings.length > 0 ? "native" : "opensea";
+  return { listings, source };
+}
 
-  return { listings: allListings, source };
+export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contract, signal, onProgress } = {}) {
+  // Use openseaSlug for OpenSea API calls; fall back to slug
+  const osSlug = openseaSlug || slug;
+
+  // First paint: OpenSea PAGE 1 + the native orderbook, in parallel. Page 1 is
+  // the 200 cheapest listings — far more than the 60-card render chunk + sweep
+  // calculator ever show — so we resolve on it immediately instead of blocking
+  // first paint on all ~5 serial cursor pages. Each source is individually
+  // .catch()'d so one failing never blanks the other.
+  const [osPage1, nativeResult] = await Promise.all([
+    fetchOpenSeaListingsPage(osSlug, null).catch(err => {
+      console.warn("OpenSea listings unavailable:", err.message);
+      return { raw: [], next: null };
+    }),
+    contract
+      ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(err => {
+          console.warn("Native listings unavailable:", err?.message);
+          return { orders: [] };
+        })
+      : Promise.resolve({ orders: [] }),
+  ]);
+
+  const nativeListings = mapNativeListings(nativeResult);
+  const osRaw = [...osPage1.raw];
+  const build = () => mergeListings(normalizeOpenSeaListings(osRaw), nativeListings);
+
+  // Walk the remaining OpenSea cursor pages, appending to osRaw. `emit` (when
+  // given) is called after each page so the caller can stream the growing set.
+  const fetchRemainingPages = async (emit) => {
+    let cursor = osPage1.next;
+    for (let page = 1; page < OS_MAX_PAGES && cursor; page++) {
+      if (signal?.aborted) return;
+      let pg;
+      try {
+        pg = await fetchOpenSeaListingsPage(osSlug, cursor);
+      } catch {
+        return; // a deep-page failure must not blank the page-1 result
+      }
+      if (pg.raw.length === 0) break;
+      osRaw.push(...pg.raw);
+      if (emit) emit(build());
+      cursor = pg.next;
+    }
+  };
+
+  if (onProgress) {
+    // Page-1-first: hand back the cheap first page now; finish paging in the
+    // background and stream each fuller set into the query cache.
+    if (osPage1.next) fetchRemainingPages(onProgress).catch(() => {}); // not awaited
+    return build();
+  }
+  // No streaming consumer (e.g. CollectionHealth) — needs the full set, so
+  // finish paging before returning, preserving the original behavior.
+  await fetchRemainingPages(null);
+  return build();
 }
 
 // ═══ RARITY SCORING ═══
