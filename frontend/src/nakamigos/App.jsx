@@ -308,7 +308,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   });
 
   // Global nav badge for active, unexpired incoming P2P trade offers (F677).
-  const { count: incomingTrades } = useIncomingTrades(wallet);
+  const { count: incomingTrades } = useIncomingTrades(wallet, {
+    onNew: () => addToast?.("⇄ New trade offer", "info"),
+  });
 
   const nfts = useNfts({ onChainSupply: stats?.supply });
 

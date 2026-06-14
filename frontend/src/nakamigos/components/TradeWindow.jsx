@@ -90,7 +90,7 @@ function SidePanel({ title, accent, tokens, loading, selected, onToggle, emptyTe
  * add optional cash legs (your side = WETH, their side = ETH), review the
  * floor-value balance, sign once.
  */
-export default function TradeWindow({ wallet, counterparty: initialCounterparty, initialRequested, prefillGive, counterOf = null, boardMode = false, onClose, addToast, onCreated }) {
+export default function TradeWindow({ wallet, counterparty: initialCounterparty, initialRequested, prefillGive, prefillWethTopup = "", prefillEthTopup = "", counterOf = null, boardMode = false, onClose, addToast, onCreated }) {
   const [counterparty, setCounterparty] = useState(initialCounterparty || "");
   const [counterpartyLocked] = useState(!!initialCounterparty);
   // Board mode: wildcard slot counts per collection contract (lowercase)
@@ -101,8 +101,11 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
   const [loadingTheirs, setLoadingTheirs] = useState(false);
   const [give, setGive] = useState(() => new Map((prefillGive || []).map(n => [keyOf(n), n])));
   const [get, setGet] = useState(() => new Map((initialRequested || []).map(n => [keyOf(n), n])));
-  const [wethTopup, setWethTopup] = useState("");
-  const [ethTopup, setEthTopup] = useState("");
+  const [wethTopup, setWethTopup] = useState(prefillWethTopup || "");
+  const [ethTopup, setEthTopup] = useState(prefillEthTopup || "");
+  // #10: trade expiry — every other order type has a duration picker, and
+  // createTradeOffer already supports expirationHours; default stays 72h.
+  const [expirationHours, setExpirationHours] = useState(72);
   // Dutch legs ("" = static): sweetener rises to wethEnd, ask decays to ethEnd
   const [wethEnd, setWethEnd] = useState("");
   const [ethEnd, setEthEnd] = useState("");
@@ -239,6 +242,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         ethTopupEth: ethTopup || "0",
         wethTopupEndEth: wethEnd.trim() ? wethEnd : null,
         ethTopupEndEth: ethEnd.trim() ? ethEnd : null,
+        expirationHours,
         counterOf: boardMode ? null : counterOf,
       });
       if (result.success) {
@@ -499,9 +503,28 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             {submitting ? "Check your wallet…" : boardMode ? "Sign & post to board" : counterOf ? "Sign counter-offer" : "Sign trade offer"}
           </button>
         </div>
+        {/* #10: expiry picker — replaces the hardcoded 72h. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em" }}>EXPIRES IN</span>
+          {[{ label: "1h", h: 1 }, { label: "6h", h: 6 }, { label: "1d", h: 24 }, { label: "3d", h: 72 }, { label: "7d", h: 168 }].map((opt) => (
+            <button
+              key={opt.h}
+              type="button"
+              onClick={() => setExpirationHours(opt.h)}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 9, padding: "4px 9px", borderRadius: 6, cursor: "pointer",
+                background: expirationHours === opt.h ? "var(--naka-blue)" : "transparent",
+                color: expirationHours === opt.h ? "#fff" : "var(--text-dim)",
+                border: `1px solid ${expirationHours === opt.h ? "var(--naka-blue)" : "var(--border)"}`,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
           Signing is gas-free. Your items only move if the counterparty accepts, in one atomic Seaport transaction.
-          Offers expire in 72h. NFT-for-NFT swaps carry no fee.
+          NFT-for-NFT swaps carry no fee.
         </div>
       </div>
     </div>

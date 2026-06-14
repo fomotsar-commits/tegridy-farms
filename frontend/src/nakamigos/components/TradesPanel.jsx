@@ -435,6 +435,11 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
     counterparty: counterTrade.offerer,
     prefillGive: (counterTrade.requested || []).map(it => ({ contract: it.contract, id: it.tokenId, tokenId: it.tokenId, name: `#${it.tokenId}` })),
     initialRequested: (counterTrade.offered || []).map(it => ({ contract: it.contract, id: it.tokenId, tokenId: it.tokenId, name: `#${it.tokenId}` })),
+    // #11: carry the original cash legs so a counter isn't silently zeroed —
+    // "same deal, tweak one thing". The user still reviews and signs, so a
+    // non-blank start beats accidentally countering for the cash they forgot.
+    prefillWethTopup: fmtEth(counterTrade.weth_topup_wei) || "",
+    prefillEthTopup: fmtEth(counterTrade.eth_topup_wei) || "",
     counterOf: counterTrade.id,
   } : null;
 

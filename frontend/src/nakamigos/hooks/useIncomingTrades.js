@@ -37,15 +37,26 @@ export function countPendingIncoming(rows, nowMs = Date.now()) {
  * @param {string|undefined} wallet
  * @returns {{ count: number, refresh: () => Promise<void> }}
  */
-export default function useIncomingTrades(wallet) {
+export default function useIncomingTrades(wallet, { onNew } = {}) {
   const [count, setCount] = useState(0);
+  const prevRef = useRef(0);
+  const firstLoadRef = useRef(true);
+  const onNewRef = useRef(onNew);
+  onNewRef.current = onNew;
 
   const refresh = useCallback(async () => {
-    if (!wallet) { setCount(0); return; }
+    if (!wallet) { setCount(0); prevRef.current = 0; firstLoadRef.current = true; return; }
     // fetchTrades never throws — it returns { trades: [], error } on failure,
     // so a dropped /api/orderbook poll degrades to no badge rather than erroring.
     const { trades } = await fetchTrades({ wallet, role: "incoming", status: "active" });
-    setCount(countPendingIncoming(trades));
+    const n = countPendingIncoming(trades);
+    setCount(n);
+    // #9: a swap proposal is the highest-intent, time-sensitive event (offers
+    // expire on a 72h clock). Fire onNew on an INCREASE after the initial load so
+    // the app can toast — existing offers on page load show in the badge silently.
+    if (!firstLoadRef.current && n > prevRef.current) onNewRef.current?.(n);
+    firstLoadRef.current = false;
+    prevRef.current = n;
   }, [wallet]);
 
   useEffect(() => {
