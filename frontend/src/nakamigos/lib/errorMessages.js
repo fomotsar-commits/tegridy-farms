@@ -22,6 +22,11 @@ const ERROR_MAP = [
   { pattern: /InvalidConduit/i, message: "Marketplace routing error — try again" },
   { pattern: /BadFraction/i, message: "This listing is no longer valid" },
 
+  // Unfillable order: estimateGas reverts with no reason ("missing revert data"
+  // / CALL_EXCEPTION) when the listing was sniped/sold/cancelled but still
+  // lingers in the marketplace feed — the most common single-buy failure.
+  { pattern: /missing revert data|CALL_EXCEPTION|cannot estimate gas|unpredictable_gas_limit/i, message: "This listing is no longer available — it was likely just sold or cancelled" },
+
   // Generic revert
   { pattern: /execution reverted/i, message: "The item may no longer be available" },
 

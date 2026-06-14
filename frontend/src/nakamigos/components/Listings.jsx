@@ -12,6 +12,7 @@ import { useTradingMode } from "../contexts/TradingModeContext";
 import { fetchTokensByIds, fulfillSeaportOrder } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
+import { getFriendlyError } from "../lib/errorMessages";
 import { fetchCollectionOffers, fetchBestOffer } from "../api-offers";
 
 /* ── Sort helpers ── */
@@ -350,8 +351,10 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     } else if (result.error === "insufficient") {
       addToast?.("Insufficient ETH balance", "error");
     } else {
-      const detail = result.message || "Unknown error";
-      addToast?.(`Failed to buy #${nft.id}: ${detail}`, "error");
+      // Plain-language mapping (mirrors the cart): a stale floor order reverts at
+      // gas estimation with "missing revert data" — surface "no longer available"
+      // instead of the raw ethers string.
+      addToast?.(`#${nft.id}: ${getFriendlyError(result.message || "Unknown error")}`, "error");
     }
     setBuying(null);
   }, [wallet, onConnect, addToast, collection]);
