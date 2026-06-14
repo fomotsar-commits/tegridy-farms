@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { shortenAddress } from "../api";
 import { useSiweAuth } from "../hooks/useSiweAuth";
-import useEns from "../hooks/useEns";
+import useEns, { isEnsName, resolveEnsName } from "../hooks/useEns";
 import { fetchThread, fetchConversations, sendDm, markThreadRead } from "../lib/dm";
 import { fetchTrades, acceptTrade } from "../lib/trades";
 import { TradeSummary } from "./TradeChips";
@@ -147,6 +147,8 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
   const [convos, setConvos] = useState([]);
   const [peer, setPeer] = useState(initialPeer ? initialPeer.toLowerCase() : null);
   const [peerInput, setPeerInput] = useState("");
+  // New-DM input resolution: { state: "idle"|"resolving"|"resolved"|"unresolved", addr, name }
+  const [resolveStatus, setResolveStatus] = useState({ state: "idle" });
   const [thread, setThread] = useState([]);
   const [pending, setPending] = useState([]); // optimistic sends: {key, text, tradeId, failed}
   const [text, setText] = useState("");
@@ -157,6 +159,7 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
   const [isNarrow, setIsNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches);
   const listRef = useRef(null);
   const pendingTradeRef = useRef(initialTradeId);
+  const peerInputRef = useRef(""); // latest new-DM input, for stale-resolve guard
   const peerEns = useEns(peer);
 
   useEffect(() => {
@@ -242,6 +245,52 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
       return next;
     });
   }, []);
+
+  // Open a thread from the new-DM input. Accepts a raw 0x address (unchanged
+  // behaviour) OR an ENS name (e.g. vitalik.eth), which is resolved to its
+  // current on-chain owner first. Lookalike-scam safety: we resolve and surface
+  // the address — never auto-trust the name. The resolved address is opened the
+  // same way a pasted address would be, so no downstream tx/auth path changes.
+  const openPeer = useCallback(async (raw) => {
+    const v = (raw || "").trim();
+    if (!v) return;
+
+    // Raw address path — identical to the original behaviour.
+    if (/^0x[a-fA-F0-9]{40}$/.test(v)) {
+      const lower = v.toLowerCase();
+      if (lower === wallet.toLowerCase()) return; // no self-DM
+      setPeer(lower);
+      peerInputRef.current = "";
+      setPeerInput("");
+      setResolveStatus({ state: "idle" });
+      nearBottomRef.current = true;
+      return;
+    }
+
+    // ENS path — resolve forward to an address, then open like any other.
+    if (isEnsName(v)) {
+      setResolveStatus({ state: "resolving", name: v });
+      let addr = null;
+      try { addr = await resolveEnsName(v); } catch { addr = null; }
+      // Bail if the user has since changed the input from under us.
+      if (peerInputRef.current !== v) return;
+      if (!addr) {
+        setResolveStatus({ state: "unresolved", name: v });
+        return;
+      }
+      const lower = addr.toLowerCase();
+      if (lower === wallet.toLowerCase()) {
+        setResolveStatus({ state: "unresolved", name: v }); // resolves to you
+        return;
+      }
+      setResolveStatus({ state: "resolved", name: v, addr });
+      setPeer(lower);
+      peerInputRef.current = "";
+      setPeerInput("");
+      nearBottomRef.current = true;
+      return;
+    }
+  }, [wallet]);
 
   const doSend = useCallback(async (body, tradeId, optimisticKey) => {
     try {
@@ -385,22 +434,43 @@ export default function DirectMessages({ wallet, addToast, initialPeer = null, i
           <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             <input
               value={peerInput}
-              onChange={(e) => setPeerInput(e.target.value.trim())}
-              onKeyDown={(e) => { if (e.key === "Enter" && /^0x[a-fA-F0-9]{40}$/.test(peerInput)) { setPeer(peerInput.toLowerCase()); setPeerInput(""); } }}
-              placeholder="New DM: 0x…"
-              aria-label="Start a new conversation by wallet address"
+              onChange={(e) => { const v = e.target.value.trim(); peerInputRef.current = v; setPeerInput(v); if (resolveStatus.state !== "idle") setResolveStatus({ state: "idle" }); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { openPeer(peerInput); } }}
+              placeholder="New DM: 0x… or name.eth"
+              aria-label="Start a new conversation by wallet address or ENS name"
               spellCheck={false}
               style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 10, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "rgba(0,0,0,0.25)", color: "var(--text)" }}
             />
             <button
               className="btn-secondary"
               style={{ fontSize: 10, padding: "6px 10px" }}
-              disabled={!/^0x[a-fA-F0-9]{40}$/.test(peerInput) || peerInput.toLowerCase() === wallet.toLowerCase()}
-              onClick={() => { setPeer(peerInput.toLowerCase()); setPeerInput(""); }}
+              disabled={
+                resolveStatus.state === "resolving" ||
+                !(/^0x[a-fA-F0-9]{40}$/.test(peerInput) || isEnsName(peerInput)) ||
+                peerInput.toLowerCase() === wallet.toLowerCase()
+              }
+              onClick={() => openPeer(peerInput)}
             >
-              Open
+              {resolveStatus.state === "resolving" ? "…" : "Open"}
             </button>
           </div>
+          {/* ENS resolution status — surface the resolved address so a lookalike
+              name can't quietly stand in for an identity (resolve, never auto-trust). */}
+          {resolveStatus.state === "resolving" && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", margin: "-2px 0 8px" }}>
+              Resolving {resolveStatus.name}…
+            </div>
+          )}
+          {resolveStatus.state === "resolved" && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", margin: "-2px 0 8px" }}>
+              {resolveStatus.name} → {shortenAddress(resolveStatus.addr)}
+            </div>
+          )}
+          {resolveStatus.state === "unresolved" && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--red)", margin: "-2px 0 8px" }}>
+              Couldn't resolve {resolveStatus.name} — check the name or paste a 0x address.
+            </div>
+          )}
           <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }} role="list" aria-label="Conversations">
             {state === "loading" ? (
               <div style={{ padding: 8 }}>
