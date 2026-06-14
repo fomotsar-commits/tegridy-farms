@@ -98,6 +98,11 @@ export function BountiesSection() {
   }, [isSuccess, isTxError, writeError, refetchCount, refetchPosted, refetchPaidOut, refetchPayout, refetchRefund, refetchBounties, reset]);
 
   const handleCreate = () => {
+    // T7 fix: gate on a connected account before touching state. Disconnected,
+    // useChainId() returns the default (mainnet === CHAIN_ID) so _ensureChain()
+    // alone passes; without this the form-clear below would wipe input on a
+    // guaranteed-failing write.
+    if (!address) { toast.error('Connect your wallet first'); return; }
     if (!_ensureChain()) return;
     if (!newDescription || !newReward || !newDeadlineDays) return;
     // R069: strip BiDi/control chars + cap length client-side. Defence-in-depth
@@ -143,6 +148,7 @@ export function BountiesSection() {
   };
 
   const handleSubmit = (bountyId: number) => {
+    if (!address) { toast.error('Connect your wallet first'); return; }
     if (!submitURI) return;
     // R069: enforce https/ipfs/ar — no data:/javascript:/file:.
     if (!isAllowedSubmissionUri(submitURI)) {
@@ -180,6 +186,7 @@ export function BountiesSection() {
     !!newDescription && !!newReward && !rewardInvalid && !deadlineInvalid;
 
   const handleClaim = (type: 'payout' | 'refund') => {
+    if (!address) { toast.error('Connect your wallet first'); return; }
     if (!_ensureChain()) return;
     writeContract({
       chainId: CHAIN_ID,
@@ -217,13 +224,13 @@ export function BountiesSection() {
       {(payoutBig > 0n || refundBig > 0n) && (
         <div className="flex gap-2">
           {payoutBig > 0n && (
-            <button onClick={() => handleClaim('payout')} disabled={isSigning || isConfirming}
+            <button onClick={() => handleClaim('payout')} disabled={!address || isSigning || isConfirming}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 transition-colors disabled:opacity-40">
               Claim {formatWei(payoutBig, 18, 4)} ETH Payout
             </button>
           )}
           {refundBig > 0n && (
-            <button onClick={() => handleClaim('refund')} disabled={isSigning || isConfirming}
+            <button onClick={() => handleClaim('refund')} disabled={!address || isSigning || isConfirming}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-yellow-500/15 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/25 transition-colors disabled:opacity-40">
               Claim {formatWei(refundBig, 18, 4)} ETH Refund
             </button>
@@ -286,7 +293,7 @@ export function BountiesSection() {
               )}
             </div>
           </div>
-          <button onClick={handleCreate} disabled={!canCreate || isSigning || isConfirming}
+          <button onClick={handleCreate} disabled={!address || !canCreate || isSigning || isConfirming}
             className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : `Post Bounty (${newReward || '0'} ETH)`}
@@ -380,7 +387,7 @@ export function BountiesSection() {
                           placeholder="https://, ipfs://, or ar://"
                           className={`flex-1 bg-black/30 border rounded-lg px-3 py-2 text-white text-sm focus:border-emerald-500 outline-none transition-colors ${submitURIInvalid ? 'border-red-500/60' : 'border-white/10'}`} />
                         <button onClick={() => handleSubmit(bountyId)}
-                          disabled={!submitURI || submitURIInvalid || isSigning || isConfirming}
+                          disabled={!address || !submitURI || submitURIInvalid || isSigning || isConfirming}
                           className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 transition-colors disabled:opacity-40">
                           Submit
                         </button>

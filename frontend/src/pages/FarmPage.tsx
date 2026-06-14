@@ -142,6 +142,13 @@ export default function FarmPage() {
       // toggleAutoMaxLock, revalidateBoost, claimUnsettled, emergencyExit) the
       // ref is null — show no receipt + no confetti rather than a fabricated one.
       const actionType = lastActionRef.current;
+      // F102 (T5): refresh the section on EVERY confirmed write before the
+      // no-receipt early-return below. Untagged actions (extendLock,
+      // emergencyExit, toggleAutoMaxLock, revalidateBoost, claimUnsettled) set
+      // no actionType and would otherwise return here and never refetch, leaving
+      // "Your Position" / lock state stale for up to 30s. A single targeted
+      // refetch is not a poll storm.
+      pos.refetchAll();
       if (!actionType) return;
 
       if (actionType === 'stake') {
@@ -194,12 +201,9 @@ export default function FarmPage() {
         confetti.fire();
       }
 
-      // F102 (T5): a confirmed write must refresh the section immediately instead
-      // of waiting up to 30s for the next poll — otherwise the approve CTA stays
-      // "Approve TOWELI" and "Your Position" lags. A single targeted refetch is
-      // not a poll storm. Clear the typed amount only after a stake completes
-      // (not approve — F105 keeps the amount so the user can stake next).
-      pos.refetchAll();
+      // F105: clear the typed amount only after a stake completes (not approve —
+      // keep the amount so the user can stake next). The refetch already fired
+      // above, before the early-return, so it covers every confirmed action.
       if (actionType === 'stake') setStakeAmount('');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stakeAmount/selectedLock/boostDisplay captured via submittedDataRef at submission time

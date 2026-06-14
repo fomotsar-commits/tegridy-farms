@@ -221,7 +221,10 @@ export async function sendMessage({ author, text, tokenId = null, slug }) {
     const data = await proxyWrite({
       table: "messages",
       method: "INSERT",
-      body: { author, text, token_id: tokenId, slug },
+      // Coerce token_id to a string: the proxy schema is z.string().nullable(),
+      // so a numeric tokenId (per-NFT chat) would be rejected as "Invalid payload
+      // shape". Mirrors the String(id) coercion used throughout userdata.js.
+      body: { author, text, token_id: tokenId == null ? null : String(tokenId), slug },
     });
     const row = firstRow(data);
     return row ? rowToMsg(row) : null;

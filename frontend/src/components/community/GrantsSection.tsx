@@ -104,6 +104,11 @@ export function GrantsSection() {
   }, [isSuccess, isTxError, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset]);
 
   const handleVote = (proposalId: number, support: boolean) => {
+    // T7 fix: gate on a connected account, not just chain. When disconnected,
+    // useChainId() returns the configured default (mainnet === CHAIN_ID) so
+    // _ensureChain() passes — without this guard a logged-out click would fire
+    // writeContract with no account and surface a confusing revert toast.
+    if (!address) { toast.error('Connect your wallet first'); return; }
     if (!_ensureChain()) return;
     writeContract({
       chainId: CHAIN_ID,
@@ -113,6 +118,7 @@ export function GrantsSection() {
   };
 
   const handleFinalize = (proposalId: number) => {
+    if (!address) { toast.error('Connect your wallet first'); return; }
     if (!_ensureChain()) return;
     writeContract({
       chainId: CHAIN_ID,
@@ -142,6 +148,9 @@ export function GrantsSection() {
     !amountInvalid;
 
   const handleCreate = () => {
+    // T7 fix: guard before any state is cleared so a disconnected submit can't
+    // wipe the typed proposal. The form-clear below only runs once we pass here.
+    if (!address) { toast.error('Connect your wallet first'); return; }
     if (!newRecipient || !newAmount || !newDescription) return;
     if (!isAddress(newRecipient)) {
       toast.error('Recipient is not a valid Ethereum address');
@@ -262,7 +271,7 @@ export function GrantsSection() {
               {descriptionRemaining} chars remaining
             </p>
           </div>
-          <button onClick={handleCreate} disabled={!canCreate || isSigning || isConfirming}
+          <button onClick={handleCreate} disabled={!address || !canCreate || isSigning || isConfirming}
             className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105))', color: 'white' }}>
             {isSigning ? 'Confirm in Wallet...' : isConfirming ? 'Creating...' : 'Submit Proposal'}
@@ -348,11 +357,11 @@ export function GrantsSection() {
                   {/* Actions */}
                   {isActive && !hasVoted && (
                     <div className="flex gap-2">
-                      <button onClick={() => handleVote(proposalId, true)} disabled={isSigning || isConfirming}
+                      <button onClick={() => handleVote(proposalId, true)} disabled={!address || isSigning || isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 transition-colors disabled:opacity-40">
                         Vote For
                       </button>
-                      <button onClick={() => handleVote(proposalId, false)} disabled={isSigning || isConfirming}
+                      <button onClick={() => handleVote(proposalId, false)} disabled={!address || isSigning || isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-colors disabled:opacity-40">
                         Vote Against
                       </button>
@@ -362,7 +371,7 @@ export function GrantsSection() {
                     <p className="text-[11px] text-white/30 italic">You have already voted on this proposal</p>
                   )}
                   {isActive && isPastDeadline && (
-                    <button onClick={() => handleFinalize(proposalId)} disabled={isSigning || isConfirming}
+                    <button onClick={() => handleFinalize(proposalId)} disabled={!address || isSigning || isConfirming}
                       className="w-full py-2 rounded-lg text-[12px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors disabled:opacity-40">
                       Finalize Proposal
                     </button>

@@ -1,5 +1,7 @@
 -- ============================================================
--- 005_reaction_auth_hardening.sql
+-- 010_reaction_auth_hardening.sql
+-- (renumbered from 005 to resolve a duplicate-005 collision with
+--  005_add_seaport_order_hash.sql — BOTH must be applied; numbers are unique now)
 --
 -- F714: toggle_reaction trusted its `wallet` ARGUMENT and was callable by the
 -- anon role, so anyone holding the public anon key could add/remove reactions

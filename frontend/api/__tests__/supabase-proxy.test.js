@@ -170,4 +170,48 @@ describe("supabase-proxy — validation integration", () => {
     expect(statusSpy).toHaveBeenCalledWith(400);
     expect(jsonSpy).toHaveBeenCalledWith({ error: "wallet mismatch" });
   });
+
+  // --- RPC path (F714): the wallet-injection invariant is the security boundary
+  // for toggle_like / toggle_reaction. Pin it so a future refactor of the RPC
+  // branch can't silently drop the override or the allowlist. ---
+
+  it("RPC injects the JWT wallet, OVERRIDING a client-supplied wallet", async () => {
+    const { req, res, statusSpy } = makeReqRes({
+      method: "RPC",
+      fn: "toggle_reaction",
+      // Attacker tries to act as WALLET_B; the proxy must overwrite it with the
+      // JWT-verified WALLET_A before forwarding to PostgREST.
+      args: { msg_id: "11111111-1111-1111-1111-111111111111", emoji: "🔥", wallet: WALLET_B },
+    });
+    await handler(req, res);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain("/rest/v1/rpc/toggle_reaction");
+    const forwarded = JSON.parse(opts.body);
+    expect(forwarded.wallet).toBe(WALLET_A); // injected, NOT WALLET_B
+    expect(statusSpy).toHaveBeenCalledWith(200);
+  });
+
+  it("rejects an un-allowlisted RPC function BEFORE upstream fetch", async () => {
+    const { req, res, statusSpy, jsonSpy } = makeReqRes({
+      method: "RPC",
+      fn: "delete_all_messages", // not in ALLOWED_RPCS
+      args: {},
+    });
+    await handler(req, res);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Invalid function" });
+  });
+
+  it("401 on an RPC call with no cookie (auth gate still applies)", async () => {
+    const { req, res, statusSpy, jsonSpy } = makeReqRes(
+      { method: "RPC", fn: "toggle_like", args: { msg_id: "x" } },
+      "", // no cookie
+    );
+    await handler(req, res);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(statusSpy).toHaveBeenCalledWith(401);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Not authenticated" });
+  });
 });

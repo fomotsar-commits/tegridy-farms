@@ -970,7 +970,7 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
         ) : (
           <button
             onClick={handleCreate}
-            disabled={loading || !principal || !aprBps || !minCollateral || !deployed}
+            disabled={loading || !principal || !aprBps || !minCollateral || !deployed || !address}
             className="w-full py-3 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed bg-emerald-500 hover:bg-emerald-400 text-black"
             style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
           >
@@ -1321,7 +1321,7 @@ function OfferRow({
                           {!isApproved ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleApprove(); }}
-                              disabled={approvePending || approveConfirming || !deployed}
+                              disabled={approvePending || approveConfirming || !deployed || !userAddress}
                               className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/50 text-black border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-70"
                             >
                               {approvePending || approveConfirming ? 'Approving...' : 'Approve NFT'}
@@ -1333,7 +1333,7 @@ function OfferRow({
                           )}
                           <button
                             onClick={(e) => { e.stopPropagation(); handleAccept(); }}
-                            disabled={!isApproved || acceptPending || acceptConfirming || !deployed}
+                            disabled={!isApproved || acceptPending || acceptConfirming || !deployed || !userAddress}
                             className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500 text-black hover:bg-emerald-400 transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
                           >
                             {acceptPending || acceptConfirming ? 'Accepting...' : 'Accept Offer'}
@@ -1584,6 +1584,10 @@ function LoanRow({
   const status = getLoanStatus(loan);
   const countdown = useCountdown(loan.deadline);
   const chainId = useChainId();
+  // T7 fix: gate repay/claim on a connected account. Disconnected, useChainId()
+  // returns the default (mainnet === CHAIN_ID) so the existing chain guard alone
+  // would let a logged-out click reach writeContract with no account.
+  const { isConnected } = useAccount();
 
   // AUDIT R011 (HIGH-049-3): pro-rata interest accrues every block, so the
   // cached repayment quote can be cents short by the time the user signs and
@@ -1717,7 +1721,7 @@ function LoanRow({
           <DisabledWrap deployed={deployed}>
             <button
               onClick={handleRepay}
-              disabled={repayLoading || !deployed}
+              disabled={repayLoading || !deployed || !isConnected}
               className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/40 text-black border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-70"
             >
               {repayLoading ? 'Repaying...' : 'Repay'}
@@ -1732,7 +1736,7 @@ function LoanRow({
           <DisabledWrap deployed={deployed}>
             <button
               onClick={handleClaim}
-              disabled={claimLoading || !deployed}
+              disabled={claimLoading || !deployed || !isConnected}
               className="px-4 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-70"
             >
               {claimLoading ? 'Claiming...' : 'Claim Collateral'}
