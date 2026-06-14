@@ -164,9 +164,24 @@ function normalizeOffer(order) {
   const priceWei = offer?.startAmount || "0";
   // In a Seaport offer (bid), the NFT is in consideration[0] (what the offerer wants to receive)
   const nftItem = params?.consideration?.find(c => c.itemType >= 2); // ERC721 or ERC1155
+  // F666: surface the ERC20 (itemType 1) consideration total — OpenSea fee +
+  // platform fee + any royalty the collection encoded into the order. The seller
+  // nets the gross offer minus this, so the net-proceeds preview can show the
+  // EXACT residual (royalty-inclusive) rather than an estimate. Display-only;
+  // nothing here feeds fulfillment. Left null (not "0") when no ERC20 items are
+  // present so a malformed/empty consideration falls back to the honest fee
+  // estimate instead of claiming a zero-fee net.
+  let feeSumWei = 0n;
+  let sawFeeItem = false;
+  for (const c of params?.consideration || []) {
+    if (Number(c?.itemType) !== 1) continue;
+    try { feeSumWei += BigInt(c.startAmount || "0"); sawFeeItem = true; } catch { /* skip malformed amount */ }
+  }
+  const feeWei = sawFeeItem ? feeSumWei.toString() : null;
   return {
     price: safePriceFromWei(priceWei),
     priceWei,
+    feeWei,
     maker: params?.offerer,
     orderHash: order.order_hash,
     tokenId: nftItem?.identifierOrCriteria ? String(nftItem.identifierOrCriteria) : null,

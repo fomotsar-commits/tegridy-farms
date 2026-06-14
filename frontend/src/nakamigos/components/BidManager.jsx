@@ -10,6 +10,7 @@ import { openseaGet } from "../lib/proxy";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import EmptyState from "./EmptyState";
 import CollectionOffersPanel from "./CollectionOffersPanel";
+import NetProceeds from "./NetProceeds";
 
 const TABS = ["My Bids", "Received Offers", "Bid History"];
 
@@ -644,40 +645,45 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
               const nftForImage = token || { id: offer.tokenId, image, name };
 
               return (
-                <div key={offer.orderHash || i} style={styles.card}>
-                  {offer.tokenId && (
-                    <div
-                      style={styles.nftThumb}
-                      onClick={() => token && onPick?.(token)}
-                    >
-                      <NftImage nft={nftForImage} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <div key={offer.orderHash || i} style={{ ...styles.card, flexDirection: "column", alignItems: "stretch" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    {offer.tokenId && (
+                      <div
+                        style={styles.nftThumb}
+                        onClick={() => token && onPick?.(token)}
+                      >
+                        <NftImage nft={nftForImage} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                    )}
+                    <div style={styles.cardInfo}>
+                      <div style={styles.cardName}>{name}</div>
+                      <div style={styles.cardMeta}>
+                        <span>From: {shortenAddress(offer.maker)}</span>
+                        {offer.expiry && <span>{timeLeft(offer.expiry)}</span>}
+                      </div>
                     </div>
-                  )}
-                  <div style={styles.cardInfo}>
-                    <div style={styles.cardName}>{name}</div>
-                    <div style={styles.cardMeta}>
-                      <span>From: {shortenAddress(offer.maker)}</span>
-                      {offer.expiry && <span>{timeLeft(offer.expiry)}</span>}
+                    <div style={styles.price}>
+                      <Eth size={12} /> {(offer.price || 0).toFixed(4)}
+                    </div>
+                    <div style={styles.actions}>
+                      <button
+                        style={styles.btnAccept}
+                        disabled={accepting === offer.orderHash}
+                        onClick={() => handleAccept(offer)}
+                      >
+                        {accepting === offer.orderHash ? "..." : "Accept"}
+                      </button>
+                      <button
+                        style={styles.btnCounter}
+                        onClick={() => handleCounter(offer)}
+                      >
+                        Counter
+                      </button>
                     </div>
                   </div>
-                  <div style={styles.price}>
-                    <Eth size={12} /> {(offer.price || 0).toFixed(4)}
-                  </div>
-                  <div style={styles.actions}>
-                    <button
-                      style={styles.btnAccept}
-                      disabled={accepting === offer.orderHash}
-                      onClick={() => handleAccept(offer)}
-                    >
-                      {accepting === offer.orderHash ? "..." : "Accept"}
-                    </button>
-                    <button
-                      style={styles.btnCounter}
-                      onClick={() => handleCounter(offer)}
-                    >
-                      Counter
-                    </button>
-                  </div>
+                  {/* F666: net-proceeds preview — what the owner receives after
+                      fees/royalty if they accept. Display only; accept tx unchanged. */}
+                  <NetProceeds price={offer.price} feeWei={offer.feeWei} />
                 </div>
               );
             })

@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import { fetchTokenOffers, fetchBestOffer, acceptOffer } from "../api-offers";
 import { getFriendlyError } from "../lib/errorMessages";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import NetProceeds from "./NetProceeds";
 
 export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, ownerAddress }) {
   const collection = useActiveCollection();
@@ -111,32 +112,40 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
       </div>
 
       {/* Best offer highlight */}
-      {bestOffer && (
+      {bestOffer && (() => {
+        // F666: the seller (token owner) can accept this offer — show what they
+        // NET after fees/royalty before they confirm. Display only; the accept
+        // tx is unchanged.
+        const isOwner = wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && bestOffer.maker?.toLowerCase() !== wallet?.toLowerCase();
+        return (
         <div style={{
           background: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.12)",
           borderRadius: 8, padding: "10px 14px", marginBottom: 10,
-          display: "flex", justifyContent: "space-between", alignItems: "center",
         }}>
-          <div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.06em" }}>
-              BEST OFFER
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.06em" }}>
+                BEST OFFER
+              </div>
+              <div style={{ fontFamily: "var(--display)", fontSize: 18, fontWeight: 600, color: "var(--text)", marginTop: 2 }}>
+                <Eth size={12} /> {Number.isFinite(bestOffer.price) ? bestOffer.price.toFixed(4) : "—"}
+              </div>
             </div>
-            <div style={{ fontFamily: "var(--display)", fontSize: 18, fontWeight: 600, color: "var(--text)", marginTop: 2 }}>
-              <Eth size={12} /> {Number.isFinite(bestOffer.price) ? bestOffer.price.toFixed(4) : "—"}
-            </div>
+            {isOwner && (
+              <button
+                className="btn-primary"
+                style={{ fontSize: 10, padding: "6px 14px" }}
+                disabled={accepting === bestOffer.orderHash}
+                onClick={() => handleAccept(bestOffer)}
+              >
+                {accepting === bestOffer.orderHash ? "Accepting..." : "Accept"}
+              </button>
+            )}
           </div>
-          {wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && bestOffer.maker?.toLowerCase() !== wallet?.toLowerCase() && (
-            <button
-              className="btn-primary"
-              style={{ fontSize: 10, padding: "6px 14px" }}
-              disabled={accepting === bestOffer.orderHash}
-              onClick={() => handleAccept(bestOffer)}
-            >
-              {accepting === bestOffer.orderHash ? "Accepting..." : "Accept"}
-            </button>
-          )}
+          {isOwner && <NetProceeds price={bestOffer.price} feeWei={bestOffer.feeWei} />}
         </div>
-      )}
+        );
+      })()}
 
       {loading ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 0" }}>
@@ -156,38 +165,43 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
             if (!o.expiry) return true;
             const ms = o.expiry instanceof Date ? o.expiry.getTime() : new Date(o.expiry).getTime();
             return !Number.isFinite(ms) || ms > Date.now();
-          }).map((offer, i) => (
+          }).map((offer, i) => {
+            // F666: gate the net-proceeds preview on the same owner check as the
+            // Accept button — only the seller about to accept needs it.
+            const canAccept = wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && offer.maker?.toLowerCase() !== wallet?.toLowerCase();
+            return (
             <div
               key={offer.orderHash || i}
-              style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "8px 10px", borderBottom: "1px solid var(--border)",
-              }}
+              style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)" }}
             >
-              <div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>
-                  <Eth size={10} /> {Number.isFinite(offer.price) ? offer.price.toFixed(4) : "—"}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)" }}>
+                    <Eth size={10} /> {Number.isFinite(offer.price) ? offer.price.toFixed(4) : "—"}
+                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                    {offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : ""}
+                    {offer.expiry ? ` \u00b7 ${timeLeft(offer.expiry)}` : ""}
+                  </div>
                 </div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
-                  {offer.maker ? `${offer.maker.slice(0, 6)}...${offer.maker.slice(-4)}` : ""}
-                  {offer.expiry ? ` \u00b7 ${timeLeft(offer.expiry)}` : ""}
-                </div>
+                {canAccept && (
+                  <button
+                    style={{
+                      fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)",
+                      background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.12)",
+                      borderRadius: 4, padding: "3px 8px", cursor: "pointer",
+                    }}
+                    disabled={accepting === offer.orderHash}
+                    onClick={() => handleAccept(offer)}
+                  >
+                    {accepting === offer.orderHash ? "..." : "Accept"}
+                  </button>
+                )}
               </div>
-              {wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && offer.maker?.toLowerCase() !== wallet?.toLowerCase() && (
-                <button
-                  style={{
-                    fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)",
-                    background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.12)",
-                    borderRadius: 4, padding: "3px 8px", cursor: "pointer",
-                  }}
-                  disabled={accepting === offer.orderHash}
-                  onClick={() => handleAccept(offer)}
-                >
-                  {accepting === offer.orderHash ? "..." : "Accept"}
-                </button>
-              )}
+              {canAccept && <NetProceeds price={offer.price} feeWei={offer.feeWei} compact />}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
