@@ -212,13 +212,10 @@ export default function TradePage() {
               <ArtImg pageId="trade" idx={1} fallbackPosition="center 15%" alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
             </div>
             <div className="relative p-5 flex flex-col min-h-[640px]">
-            {!isConnected ? (
-              <div className="text-center py-8 my-auto">
-                <p className="text-white text-[13px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</p>
-                <ConnectButton />
-              </div>
-            ) : (
-              <>
+            {/* T7: the swap form (incl. live quotes) renders for everyone — every
+                quote read is public RPC, no wallet needed. Only the action button
+                gates on connect, so a visitor can price a swap before connecting. */}
+            <>
                 {/* AUDIT FIX FE-HIGH-6: permanent unverified-token banner.
                     Custom tokens (anything not in DEFAULT_TOKENS) get a
                     sticky reminder above the swap form so the user is
@@ -528,8 +525,15 @@ export default function TradePage() {
                 {/* Spacer — pushes the action button to the bottom of the tall card. */}
                 <div className="flex-1 min-h-[8px]" />
 
-                {/* Action Button — sits directly on the art, matching the Liquidity tab's pattern. */}
-                {swap.needsApproval ? (
+                {/* Action Button — sits directly on the art, matching the Liquidity tab's pattern.
+                    T7: gated on connect — a disconnected visitor sees the live quote above
+                    and a Connect CTA here instead of the Approve/Swap actions. */}
+                {!isConnected ? (
+                  <div className="w-full flex flex-col items-center gap-2">
+                    <ConnectButton />
+                    <span className="text-white/70 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</span>
+                  </div>
+                ) : swap.needsApproval ? (
                   <button onClick={swap.approve} disabled={swap.isPending}
                     className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl"
                   >
@@ -549,8 +553,7 @@ export default function TradePage() {
                     Swap confirmed! <a href={getTxUrl(chainId, swap.txHash)} target="_blank" rel="noopener noreferrer" className="underline">View on Explorer</a>
                   </div>
                 )}
-              </>
-            )}
+            </>
             </div>
           </m.div>
         )}
