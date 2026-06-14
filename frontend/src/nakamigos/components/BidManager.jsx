@@ -297,7 +297,7 @@ async function cancelBid(order) {
 
 // ═══ COMPONENT ═══
 
-export default function BidManager({ wallet, onConnect, addToast, onPick, tokens }) {
+export default function BidManager({ wallet, onConnect, addToast, onPick, tokens, stats }) {
   const collection = useActiveCollection();
   const { isWrongNetwork } = useWalletState();
   const { switchChain } = useWalletActions();
@@ -363,14 +363,22 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
         return;
       }
 
-      // Fetch offers for each owned token (batch first 20 to avoid rate limits)
-      const batch = ownedNfts.slice(0, 20);
-      const results = await Promise.all(
-        batch.map(async (nft) => {
-          const offers = await fetchTokenOffers(nft.id, collection.contract);
-          return offers.map((o) => ({ ...o, tokenId: nft.id, tokenName: nft.name, tokenImage: nft.image }));
-        }),
-      );
+      // #6: fetch offers for ALL owned tokens, not just the first 20 — a holder
+      // with 21+ NFTs could otherwise have a lucrative offer land on token #25,
+      // see "no offers received", and never accept it (silent revenue loss).
+      // Bounded concurrency (8 at a time) keeps us under the proxy rate limit.
+      const CONCURRENCY = 8;
+      const results = [];
+      for (let i = 0; i < ownedNfts.length; i += CONCURRENCY) {
+        const group = ownedNfts.slice(i, i + CONCURRENCY);
+        const settled = await Promise.all(
+          group.map(async (nft) => {
+            const offers = await fetchTokenOffers(nft.id, collection.contract);
+            return offers.map((o) => ({ ...o, tokenId: nft.id, tokenName: nft.name, tokenImage: nft.image }));
+          }),
+        );
+        results.push(...settled);
+      }
 
       // Only show live, actionable offers — drop cancelled/finalized/expired so
       // the Accept button never walks into a setApprovalForAll + a dead-order
@@ -497,6 +505,14 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     }
     return myBids; // default: recent (already sorted desc by created_date from API)
   }, [myBids, bidSort]);
+
+  // #8: surface the strongest offer first — a seller shouldn't have to eyeball
+  // every card to find the biggest bid, and the best one shouldn't sit below the
+  // fold. Default to highest value.
+  const sortedReceived = useMemo(
+    () => [...receivedOffers].sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0)),
+    [receivedOffers],
+  );
 
   // ═══ NOT CONNECTED ═══
   // F698 (T7): the public collection bid book is read-only data (it needs no
@@ -637,7 +653,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
           ) : receivedOffers.length === 0 ? (
             <EmptyState type="bidsReceived" />
           ) : (
-            receivedOffers.map((offer, i) => {
+            sortedReceived.map((offer, i) => {
               const token = resolveToken(offer.tokenId);
               const name = offer.tokenName || token?.name || `${collection.name} #${offer.tokenId}`;
               const image = offer.tokenImage || token?.image || (offer.tokenId && collection.metadataBase ? `${collection.metadataBase}/${offer.tokenId}.png` : null)
@@ -660,6 +676,13 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
                       <div style={styles.cardMeta}>
                         <span>From: {shortenAddress(offer.maker)}</span>
                         {offer.expiry && <span>{timeLeft(offer.expiry)}</span>}
+                        {/* #8/#10: relative-to-floor badge so accept/decline is a
+                            one-glance call instead of leaving to check the floor. */}
+                        {stats?.floor > 0 && offer.price > 0 && (
+                          <span style={{ color: offer.price >= stats.floor ? "var(--green, #4ade80)" : "var(--red, #f87171)", fontWeight: 600 }}>
+                            {Math.round((offer.price / stats.floor) * 100)}% of floor
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div style={styles.price}>

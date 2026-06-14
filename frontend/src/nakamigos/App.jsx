@@ -738,7 +738,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       case "about":
         return <About stats={stats} onNavigateGallery={(searchTerm) => { nfts.changeFilter({}); handleTabChange("gallery"); setTimeout(() => { const input = document.querySelector(".search-input"); if (input) { const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; nativeInputValueSetter.call(input, searchTerm); input.dispatchEvent(new Event("input", { bubbles: true })); } }, 150); }} onFilterGallery={(key, value) => { nfts.changeFilter({ [key]: [value] }); handleTabChange("gallery"); }} />;
       case "bids":
-        return <BidManager wallet={wallet} onConnect={handleConnect} addToast={addToast} onPick={setSelected} tokens={nfts.allTokens} />;
+        return <BidManager wallet={wallet} onConnect={handleConnect} addToast={addToast} onPick={setSelected} tokens={nfts.allTokens} stats={stats} />;
       case "my-listings":
         return <MyListings wallet={wallet} onConnect={handleConnect} addToast={addToast} onPick={setSelected} tokens={nfts.allTokens} stats={stats} />;
       case "alerts":

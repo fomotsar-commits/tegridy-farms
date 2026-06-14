@@ -696,6 +696,50 @@ export default async function handler(req, res) {
       return res.json({ success: true });
     }
 
+    if (action === "cancel-all") {
+      // Single-signature blanket cancel of every active order by ONE maker — used
+      // after the on-chain Seaport incrementCounter() (which already invalidates
+      // all of the maker's orders atomically). One signature replaces the old
+      // one-signature-per-listing flow that popped N wallet prompts AFTER the
+      // on-chain cancel had already succeeded. Same chainId+timestamp replay
+      // protection as the single cancel above, and the update is scoped to the
+      // RECOVERED signer, so a maker can only ever cancel their own orders.
+      const { maker, signature, chainId, timestamp } = req.body;
+      if (!maker || !signature) return res.status(400).json({ error: "Missing maker or signature" });
+      if (!isValidAddress(maker)) return res.status(400).json({ error: "Invalid maker address" });
+      if (typeof chainId !== "number" || chainId !== 1) {
+        return res.status(400).json({ error: "Invalid or missing chainId" });
+      }
+      if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+        return res.status(400).json({ error: "Invalid or missing timestamp" });
+      }
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (Math.abs(nowSec - timestamp) > 300) {
+        return res.status(400).json({ error: "Signature expired or clock-skewed; please re-sign" });
+      }
+
+      const cancelMessage = `Cancel all orders | Chain: ${chainId} | Time: ${timestamp}`;
+      let recoveredAddress;
+      try {
+        recoveredAddress = (await recoverMessageAddress({ message: cancelMessage, signature })).toLowerCase();
+      } catch (e) {
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+      if (recoveredAddress !== maker.toLowerCase()) {
+        return res.status(403).json({ error: "Signer is not the maker" });
+      }
+
+      const { data: cancelled, error } = await supabase
+        .from("native_orders")
+        .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+        .eq("maker", recoveredAddress)
+        .eq("status", "active")
+        .select("order_hash");
+
+      if (error) { console.error("Orderbook cancel-all error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+      return res.json({ success: true, cancelled: cancelled?.length ?? 0 });
+    }
+
     if (action === "fill") {
       const { orderHash, txHash, signature, chainId, timestamp } = req.body;
       if (!orderHash || !signature) return res.status(400).json({ error: "Missing orderHash or signature" });

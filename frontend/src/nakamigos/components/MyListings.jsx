@@ -422,31 +422,33 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       const tx = await seaport.incrementCounter();
       await tx.wait();
 
-      // Update backend: cancel each active listing so the DB stays in sync
-      // AUDIT FIX D-FE-M2: per-listing chainId+timestamp binding (see single-cancel
-      // path above for full rationale). Each signature is freshly bound so a
-      // captured one cannot be replayed beyond its 5-minute server window.
-      for (const listing of listings) {
-        try {
-          const _ts = Math.floor(Date.now() / 1000);
-          const _cid = 1;
-          const cancelMessage = `Cancel order ${listing.orderHash} | Chain: ${_cid} | Time: ${_ts}`;
-          const cancelSignature = await signer.signMessage(cancelMessage);
-          await fetch("/api/orderbook", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "cancel",
-              orderHash: listing.orderHash,
-              signature: cancelSignature,
-              chainId: _cid,
-              timestamp: _ts,
-            }),
-          });
-        } catch (backendErr) {
-          // Non-critical: on-chain cancel already succeeded via counter increment
-          console.warn("Backend cancel failed for", listing.orderHash, backendErr.message);
-        }
+      // #7: sync the DB with ONE signature. The on-chain incrementCounter above
+      // already invalidated every order atomically, so the backend just needs to
+      // mark them cancelled — no reason to pop a wallet prompt per listing (a
+      // 30-listing seller used to get 30 signatures AFTER the cancel had already
+      // succeeded; many close partway, leaving dead listings showing as active so
+      // other buyers hit failures). Same chainId+timestamp replay binding as the
+      // single-cancel path; the server scopes the cancel to the recovered signer.
+      try {
+        const _ts = Math.floor(Date.now() / 1000);
+        const _cid = 1;
+        const makerAddr = (await signer.getAddress()).toLowerCase();
+        const cancelMessage = `Cancel all orders | Chain: ${_cid} | Time: ${_ts}`;
+        const cancelSignature = await signer.signMessage(cancelMessage);
+        await fetch("/api/orderbook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "cancel-all",
+            maker: makerAddr,
+            signature: cancelSignature,
+            chainId: _cid,
+            timestamp: _ts,
+          }),
+        });
+      } catch (backendErr) {
+        // Non-critical: the on-chain incrementCounter already cancelled everything.
+        console.warn("Backend cancel-all sync failed:", backendErr.message);
       }
 
       addToast?.("All orders cancelled! Counter incremented.", "success");
