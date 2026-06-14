@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Eth } from "./Icons";
+import Usd from "./Usd";
 import NftImage from "./NftImage";
 import { fulfillSeaportOrder, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
@@ -561,16 +562,24 @@ export default function ShoppingCart({
                   )}
                 </span>
                 <span style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "var(--gold, #d4a843)",
                   display: "flex",
-                  alignItems: "center",
-                  gap: 3,
+                  flexDirection: "column",
+                  alignItems: "flex-end",
+                  gap: 1,
                 }}>
-                  <Eth />
-                  {totalPrice.toFixed(4)}
+                  <span style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "var(--gold, #d4a843)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                  }}>
+                    <Eth />
+                    {totalPrice.toFixed(4)}
+                  </span>
+                  <Usd eth={totalPrice} size={10} />
                 </span>
               </div>
 

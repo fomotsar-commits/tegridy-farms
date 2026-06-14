@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { COLLECTION_LORE } from "../constants";
+import Usd from "./Usd";
 
 function HeroShowcase({ tokens, onPick }) {
   const featured = useMemo(
@@ -176,6 +177,7 @@ export default function Hero({ stats, tokens, onPick }) {
                   {Number(stats.floor).toFixed(4)}
                   <span className="stat-suffix"> ETH</span>
                 </div>
+                <Usd eth={Number(stats.floor)} size={11} style={{ display: "block", marginTop: 2 }} />
                 <div className="stat-label">FLOOR{isFallback && <CachedTag />}</div>
               </div>
             ) : isLoading ? (

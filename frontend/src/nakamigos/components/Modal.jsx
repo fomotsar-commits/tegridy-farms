@@ -17,6 +17,7 @@ import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
 import { formatPrice } from "../lib/formatPrice";
+import Usd from "./Usd";
 import useEns from "../hooks/useEns";
 
 const ComparableSales = lazy(() => import("./ComparableSales").catch(() => ({ default: () => null })));
@@ -378,11 +379,12 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.08em", marginBottom: 10 }}>
                 CURRENT PRICE
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                 <Eth size={20} />
                 <span style={{ fontFamily: "var(--display)", fontSize: 34, fontWeight: 700, color: "var(--text)" }}>
                   {formatPrice(Number(nft.price))}
                 </span>
+                <Usd eth={Number(nft.price)} size={13} />
               </div>
               {nft.lastSale != null && nft.lastSale > 0 && (
                 <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
