@@ -175,14 +175,13 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
   };
 
   if (failCount >= 3 || !src) {
-    // While a caller-side batch fetch is pending, pulse to read as "loading"
-    // rather than "missing".
+    // While a caller-side batch fetch is pending, run a shimmer sweep so the
+    // card reads as "fetching art" rather than a wall of static letters. A
+    // permanently-missing token (failed, not pending) keeps the plain static
+    // placeholder, so the shimmer never implies endless loading.
     const pending = noSelfFetch && failCount < 3;
     return (
-      <div
-        className="nft-placeholder"
-        style={pending ? { ...style, animation: "pulse 1.6s ease-in-out infinite" } : style}
-      >
+      <div className={`nft-placeholder${pending ? " loading" : ""}`} style={style}>
         <div style={{ textAlign: "center" }}>
           <div className="nft-placeholder-icon">{collection.name?.[0] || "?"}</div>
           <div className="nft-placeholder-id">#{nft.id}</div>

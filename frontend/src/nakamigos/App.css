@@ -2538,6 +2538,24 @@
   content: ""; position: absolute; inset: 0;
   background: radial-gradient(circle at 50% 50%, rgba(111, 168, 220, 0.03), transparent 70%);
 }
+/* Loading state: a soft shimmer sweep behind the faint id reads as "fetching
+   art" instead of a wall of static letters. Only the pending (batch-enrichment)
+   placeholder gets it; a permanently-missing token keeps the static fallback. */
+.nft-placeholder.loading::before {
+  content: ""; position: absolute; inset: 0; z-index: 0;
+  background: linear-gradient(100deg,
+    transparent 20%,
+    rgba(111, 168, 220, 0.07) 42%,
+    rgba(200, 170, 100, 0.06) 50%,
+    rgba(111, 168, 220, 0.07) 58%,
+    transparent 80%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nft-placeholder.loading::before { animation: none; }
+}
+.nft-placeholder.loading > div { position: relative; z-index: 1; }
 
 /* Premium hero badge glow */
 .pixel-badge {
