@@ -14,7 +14,7 @@ function useDebounce(value, delay = 300) {
   return debounced;
 }
 
-export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMore, onRetry, onFilter, onPick, traitFilters, activeFilters, sortBy, onSort, favorites, onToggleFavorite, cart, onAddToCart, listings, allTokens, totalSupply }) {
+export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMore, loadAll, onRetry, onFilter, onPick, traitFilters, activeFilters, sortBy, onSort, favorites, onToggleFavorite, cart, onAddToCart, listings, allTokens, totalSupply }) {
   const collection = useActiveCollection();
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("gallery");
@@ -55,11 +55,24 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
       : tokens;
 
     if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((n) =>
-        (n.name || "").toLowerCase().includes(q) || String(n.id).toLowerCase().includes(q)
-        || (n.attributes || []).some((a) => String(a.value).toLowerCase().includes(q))
-      );
+      // #17: tokenize the query — each term must match SOME field (AND across
+      // terms, OR across fields), so "gold hat" finds a token with a gold trait
+      // AND a hat trait, and "rank 50" / "#5" match rank/id, instead of a single
+      // substring that returns empty for any multi-word or rank query.
+      const terms = debouncedSearch.toLowerCase().split(/\s+/)
+        .map((t) => t.replace(/^#/, ""))    // "#5" → "5"
+        .filter((t) => t && t !== "rank");  // "rank 50" → ["50"]
+      if (terms.length) {
+        result = result.filter((n) => {
+          const name = (n.name || "").toLowerCase();
+          const id = String(n.id).toLowerCase();
+          const rank = n.rank != null ? String(n.rank) : "";
+          const attrs = (n.attributes || []).map((a) => String(a.value).toLowerCase());
+          return terms.every((t) =>
+            name.includes(t) || id.includes(t) || (rank && rank === t) || attrs.some((v) => v.includes(t))
+          );
+        });
+      }
     }
 
     if (listedOnly && listings) {
@@ -101,6 +114,15 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
   );
 
   const hasActiveFilters = Object.keys(activeFilters).length > 0 || listedOnly || priceRange.min || priceRange.max || !!debouncedSearch;
+
+  // #18: when a filter is active, load the FULL collection so the filter matches
+  // against every token — otherwise filtering "Background: Gold" on 20k tokens
+  // shows a near-empty, misleading set until the user manually scrolls for
+  // minutes (TraitExplorer already loads-all on visit; this mirrors it for the
+  // gallery's client-side trait/price/listed/search filters).
+  useEffect(() => {
+    if (hasActiveFilters && hasMore && loadAll) loadAll();
+  }, [hasActiveFilters, hasMore, loadAll]);
 
   // Rarity sort needs ranks; for partially-loaded collections ranks may not be
   // present yet. Surface that instead of silently falling back to id order.

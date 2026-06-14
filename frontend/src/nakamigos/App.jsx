@@ -175,7 +175,14 @@ function AppInner() {
   // NakamigosApp is lazy-loaded, leaving and returning to /nakamigos remounts it
   // and re-fires the splash. Internal route changes (landing → collection) don't
   // remount this component, so the splash only plays once per visit.
-  const [splashDone, setSplashDone] = useState(false);
+  // #20: show the splash ONCE per browser session — the full ~12s art-intro on
+  // every re-entry to /nakamigos (and every reload) is real friction. First
+  // entry still plays the whole thing; later entries in the same session skip
+  // straight in. (sessionStorage clears when the tab closes, so the art still
+  // greets a genuinely-new visit.)
+  const [splashDone, setSplashDone] = useState(() => {
+    try { return sessionStorage.getItem("tm-splash-seen") === "1"; } catch { return false; }
+  });
 
   // Landing page: set title and scroll to top
   useEffect(() => {
@@ -194,7 +201,10 @@ function AppInner() {
 
   // ═══ Splash screen — plays on every fresh entry to /nakamigos ═══
   if (!splashDone) {
-    return <SplashScreen onComplete={() => setSplashDone(true)} />;
+    return <SplashScreen onComplete={() => {
+      try { sessionStorage.setItem("tm-splash-seen", "1"); } catch { /* private mode */ }
+      setSplashDone(true);
+    }} />;
   }
 
   if (isLanding) {
@@ -676,6 +686,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
               error={nfts.error}
               hasMore={nfts.hasMore}
               onLoadMore={nfts.loadMore}
+              loadAll={nfts.loadAll}
               onRetry={nfts.retry}
               onFilter={nfts.changeFilter}
               onPick={setSelected}

@@ -7,6 +7,7 @@ import { recordTransaction } from "../lib/transactions";
 import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS } from "../constants";
 import { getProvider } from "../api";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
+import { getFriendlyError } from "../lib/errorMessages";
 
 // ═══ ORDER BOOK PANEL ═══
 // Two sections:
@@ -166,7 +167,9 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       addToast?.("This listing has expired. Refreshing...", "error");
       fetchOrders();
     } else {
-      addToast?.(`Failed: ${result.message || "Unknown error"}`, "error");
+      // #19: plain-language mapping (a stale order reverts with "missing revert
+      // data") instead of dumping raw ethers/Seaport text at the buyer.
+      addToast?.(getFriendlyError(result.message || result.error || "Transaction failed"), "error");
     }
     setBuying(null);
   }, [wallet, onConnect, addToast, fetchOrders, collection, isWrongNetwork, switchChain]);
@@ -256,7 +259,7 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
         }}>
           {error === "Orderbook database not configured"
             ? "Native orderbook not yet configured for this deployment."
-            : `Could not load native listings: ${error}`}
+            : "Native listings are temporarily unavailable — try again shortly."}
         </div>
       )}
       {!loading && !error && activeOrders.length === 0 && (
