@@ -1051,6 +1051,136 @@ export function shortenAddress(addr) {
 }
 
 // ═══ DIRECT PURCHASE VIA OPENSEA FULFILLMENT API ═══
+
+// Build the Seaport fulfillment CALL ({ to, value, data }) for a listing WITHOUT
+// sending it — shared by the single buy and the EIP-5792 cart batch. Every
+// safety validation (value bounds, Seaport-address allowlist, fulfillment-
+// function allowlist) lives here, so no path can be tricked into signing a
+// non-fulfillment Seaport call. `value` is returned as a bigint. Returns
+// { error, message } on any problem.
+async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
+  if (!listing.orderHash) return { error: "no-order", message: "Order data not available" };
+
+  // Get fulfillment transaction data from OpenSea (via proxy) with a FAST retry
+  // (interactive path) instead of the patient 1500ms-base background backoff —
+  // this is a read (no funds move on failure), so a 429 yields a quick retry.
+  let fulfillData;
+  try {
+    fulfillData = await openseaPost("listings/fulfillment_data", {
+      listing: {
+        hash: listing.orderHash,
+        chain: "ethereum",
+        protocol_address: listing.protocolAddress || listing.orderData?.protocolAddress,
+      },
+      fulfiller: { address: buyerAddress },
+    }, { maxRetries: 1, baseDelay: 400 });
+  } catch (err) {
+    console.error("Fulfillment API error:", err.message);
+    return { error: "failed", message: "Could not get fulfillment data from OpenSea" };
+  }
+  const txData = fulfillData.fulfillment_data?.transaction;
+  if (!txData?.to || txData?.value == null) {
+    return { error: "failed", message: "Invalid fulfillment data" };
+  }
+
+  // Validate transaction value is a non-negative integer
+  let txValue;
+  try {
+    txValue = BigInt(txData.value);
+    if (txValue < 0n) throw new Error("negative");
+  } catch {
+    return { error: "failed", message: "Invalid transaction value" };
+  }
+
+  // Validate the transaction target is a known Seaport contract
+  const knownSeaportAddresses = new Set([
+    "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", // Seaport 1.5
+    "0x0000000000000068f116a894984e2db1123eb395", // Seaport 1.6
+  ]);
+  if (!knownSeaportAddresses.has(txData.to.toLowerCase())) {
+    return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
+  }
+
+  // The target is pinned to Seaport above, but the function signature also comes
+  // from the API response — without an allowlist a tampered response could make
+  // the client encode ANY Seaport function (cancel, incrementCounter, validate …)
+  // and ask the user to sign it.
+  const fnName = String(txData.function || "").split("(")[0].trim();
+  if (!SEAPORT_FULFILLMENT_FUNCTIONS.has(fnName)) {
+    return { error: "failed", message: "Unexpected fulfillment function — aborting for safety" };
+  }
+
+  // Encode calldata using ABI parameter names to avoid depending on
+  // Object.values() insertion order from the API.
+  function toPositional(val) {
+    if (val === null || val === undefined) return val;
+    if (typeof val === "string" || typeof val === "bigint" || typeof val === "number" || typeof val === "boolean") return val;
+    if (Array.isArray(val)) return val.map(toPositional);
+    if (typeof val === "object") return Object.values(val).map(toPositional);
+    return val;
+  }
+
+  const iface = new ethers.Interface([`function ${txData.function}`]);
+  const fnFragment = iface.getFunction(fnName);
+  let inputValues;
+  if (fnFragment && fnFragment.inputs.every(p => p.name && p.name in txData.input_data)) {
+    inputValues = fnFragment.inputs.map(p => toPositional(txData.input_data[p.name]));
+  } else {
+    inputValues = Object.values(txData.input_data).map(toPositional);
+  }
+  const encoded = iface.encodeFunctionData(fnName, inputValues);
+
+  return { to: txData.to, value: txValue, data: encoded };
+}
+
+// Buy several OpenSea (Seaport) listings in ONE wallet confirmation via EIP-5792
+// wallet_sendCalls. Returns { unsupported: true } when the wallet can't batch, so
+// the caller runs its sequential path (zero regression). Builds every call first
+// (in parallel) with the same validated builder as the single buy; one build
+// failure aborts the batch and the caller falls back to per-item buys.
+export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
+  const ethProvider = getProvider();
+  if (!ethProvider) return { error: "no-metamask", message: "MetaMask not found" };
+  if (!Array.isArray(listings) || listings.length === 0) {
+    return { error: "no-order", message: "No listings to buy" };
+  }
+
+  try {
+    const { ethers } = await import("ethers");
+    const provider = new ethers.BrowserProvider(ethProvider);
+    try {
+      const network = await provider.getNetwork();
+      if (Number(network.chainId) !== Number(SEAPORT_DOMAIN.chainId)) {
+        return { error: "wrong-chain", message: `Connected to chain ${Number(network.chainId)} — switch to Ethereum Mainnet to buy` };
+      }
+    } catch {
+      return { error: "no-network", message: "Could not read wallet chain" };
+    }
+    const signer = await provider.getSigner();
+    const buyerAddress = opts.buyerAddress || await signer.getAddress();
+
+    const built = await Promise.all(
+      listings.map(l => buildSeaportFulfillCall(l, { ethers, buyerAddress }))
+    );
+    const calls = [];
+    for (const c of built) {
+      if (c.error) return { error: "build-failed", message: c.message };
+      calls.push({ to: c.to, value: "0x" + c.value.toString(16), data: c.data });
+    }
+
+    const { tryAtomicBatch } = await import("./lib/trades");
+    const res = await tryAtomicBatch(provider, buyerAddress, calls);
+    if (res === null) return { unsupported: true }; // wallet can't 5792 — fall back
+    return { success: true, hash: res.hash };
+  } catch (err) {
+    if (err.code === 4001 || err.code === "ACTION_REJECTED" || err.code === "rejected") {
+      return { error: "rejected", message: "Batch cancelled by user" };
+    }
+    console.error("Seaport batch error:", err);
+    return { error: "failed", message: err.shortMessage || err.message || "Batch purchase failed" };
+  }
+}
+
 export async function fulfillSeaportOrder(listing, opts = {}) {
   const ethProvider = getProvider();
   if (!ethProvider) {
@@ -1084,85 +1214,15 @@ export async function fulfillSeaportOrder(listing, opts = {}) {
     // fulfillment POST. Falls back to reading it from the signer.
     const buyerAddress = opts.buyerAddress || await signer.getAddress();
 
-    // Step 1: Get fulfillment transaction data from OpenSea (via proxy). Use a
-    // FAST retry here (interactive buy click) instead of the patient 1500ms-base
-    // background backoff — this is a read (no funds move on failure), so on an
-    // OpenSea 429 the user gets a quick retry or a fast "try again" rather than
-    // sitting on a multi-second spinner before the wallet opens.
-    let fulfillData;
-    try {
-      fulfillData = await openseaPost("listings/fulfillment_data", {
-        listing: {
-          hash: listing.orderHash,
-          chain: "ethereum",
-          protocol_address: listing.protocolAddress || listing.orderData?.protocolAddress,
-        },
-        fulfiller: { address: buyerAddress },
-      }, { maxRetries: 1, baseDelay: 400 });
-    } catch (err) {
-      console.error("Fulfillment API error:", err.message);
-      return { error: "failed", message: "Could not get fulfillment data from OpenSea" };
-    }
-    const txData = fulfillData.fulfillment_data?.transaction;
+    // Build the fulfillment call (fetch + validate + encode — all safety checks
+    // live in the shared builder), then send it via MetaMask.
+    const call = await buildSeaportFulfillCall(listing, { ethers, buyerAddress });
+    if (call.error) return call;
 
-    if (!txData?.to || txData?.value == null) {
-      return { error: "failed", message: "Invalid fulfillment data" };
-    }
-
-    // Validate transaction value is a non-negative integer
-    let txValue;
-    try {
-      txValue = BigInt(txData.value);
-      if (txValue < 0n) throw new Error("negative");
-    } catch {
-      return { error: "failed", message: "Invalid transaction value" };
-    }
-
-    // Validate the transaction target is a known Seaport contract
-    const knownSeaportAddresses = new Set([
-      "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", // Seaport 1.5
-      "0x0000000000000068f116a894984e2db1123eb395", // Seaport 1.6
-    ]);
-    if (!knownSeaportAddresses.has(txData.to.toLowerCase())) {
-      return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
-    }
-
-    // The target is pinned to Seaport above, but the function signature also
-    // comes from the API response — without an allowlist a tampered response
-    // could make the client encode ANY Seaport function (cancel,
-    // incrementCounter, validate …) and ask the user to sign it.
-    const fnName = String(txData.function || "").split("(")[0].trim();
-    if (!SEAPORT_FULFILLMENT_FUNCTIONS.has(fnName)) {
-      return { error: "failed", message: "Unexpected fulfillment function — aborting for safety" };
-    }
-
-    // Step 2: Encode calldata using ABI parameter names to avoid
-    // depending on Object.values() insertion order from the API.
-    function toPositional(val) {
-      if (val === null || val === undefined) return val;
-      if (typeof val === "string" || typeof val === "bigint" || typeof val === "number" || typeof val === "boolean") return val;
-      if (Array.isArray(val)) return val.map(toPositional);
-      if (typeof val === "object") return Object.values(val).map(toPositional);
-      return val;
-    }
-
-    const iface = new ethers.Interface([`function ${txData.function}`]);
-    const fnFragment = iface.getFunction(fnName);
-
-    // Map by ABI parameter name when available, fall back to positional order
-    let inputValues;
-    if (fnFragment && fnFragment.inputs.every(p => p.name && p.name in txData.input_data)) {
-      inputValues = fnFragment.inputs.map(p => toPositional(txData.input_data[p.name]));
-    } else {
-      inputValues = Object.values(txData.input_data).map(toPositional);
-    }
-    const encoded = iface.encodeFunctionData(fnName, inputValues);
-
-    // Step 3: Send the transaction via MetaMask
     const tx = await signer.sendTransaction({
-      to: txData.to,
-      value: txValue,
-      data: encoded,
+      to: call.to,
+      value: call.value,
+      data: call.data,
     });
 
     // Wait for on-chain confirmation before reporting success

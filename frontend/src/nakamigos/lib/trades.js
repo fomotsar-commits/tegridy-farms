@@ -117,14 +117,20 @@ async function ensureCollectionApprovals(ethers, signer, owner, items) {
  * @param {Array<{to:string,data:string,value?:string}>} calls
  * @returns {Promise<{hash:string|null}|null>}
  */
-async function tryAtomicBatch(provider, from, calls) {
+export async function tryAtomicBatch(provider, from, calls) {
   let supported = false;
   try {
-    const caps = await provider.send("wallet_getCapabilities", [from, ["0x1"]]);
+    // Bound the capability probe: some wallets stall (or silently prompt) on
+    // wallet_getCapabilities. If it doesn't answer within 3s, treat the wallet as
+    // non-5792 and fall back to the sequential path rather than freezing the flow.
+    const caps = await Promise.race([
+      provider.send("wallet_getCapabilities", [from, ["0x1"]]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("capabilities-timeout")), 3000)),
+    ]);
     const atomic = caps?.["0x1"]?.atomic?.status;
     supported = atomic === "supported" || atomic === "ready";
   } catch {
-    return null; // wallet doesn't speak 5792 at all
+    return null; // wallet doesn't speak 5792, or didn't answer in time
   }
   if (!supported) return null;
 

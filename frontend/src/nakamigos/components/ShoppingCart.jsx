@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Eth } from "./Icons";
 import Usd from "./Usd";
 import NftImage from "./NftImage";
-import { fulfillSeaportOrder, getProvider } from "../api";
+import { fulfillSeaportOrder, fulfillSeaportOrdersBatch, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
@@ -240,13 +240,11 @@ export default function ShoppingCart({
     }
     setConfirming(false);
     setBuying(true);
-    setProgress({ current: 0, total: purchasableItems.length });
 
-    for (let i = 0; i < purchasableItems.length; i++) {
-      const item = purchasableItems[i];
-      setProgress({ current: i + 1, total: purchasableItems.length });
-
-      // Re-check that the listing is still available at the expected price.
+    // Re-check freshness/price for every item upfront and collect the still-valid
+    // ones (a stale listing reverts on fill — skip it before we spend a click).
+    const fresh = [];
+    for (const item of purchasableItems) {
       const currentListing = listings?.find(l => String(l.tokenId) === String(item.id));
       if (!currentListing) {
         addToast?.(`${item.name} is no longer listed — skipping`, "warning");
@@ -258,8 +256,52 @@ export default function ShoppingCart({
         onRemove(item.id);
         continue;
       }
+      fresh.push(item);
+    }
 
-      addToast?.(`Buying ${item.name}... (${i + 1}/${purchasableItems.length})`, "info");
+    if (fresh.length === 0) {
+      setBuying(false);
+      setProgress({ current: 0, total: 0 });
+      setEstimatedGas(null);
+      return;
+    }
+
+    // EIP-5792 fast path: buy every OpenSea listing in ONE wallet confirmation
+    // when the wallet supports atomic batching and the cart is all-Seaport with
+    // 2+ items. fulfillSeaportOrdersBatch returns { unsupported } (or a build
+    // failure) → we fall through to the per-item sequential path below, so there
+    // is zero regression on wallets that can't batch or on mixed/native carts.
+    const allSeaport = fresh.length >= 2 && fresh.every(i => !(i.isNative && i.nativeOrder));
+    if (allSeaport) {
+      addToast?.(`Preparing one-click purchase of ${fresh.length} items...`, "info");
+      const res = await fulfillSeaportOrdersBatch(fresh, { buyerAddress: wallet });
+      if (res.success) {
+        for (const item of fresh) {
+          recordTransaction({ type: "buy", nft: item, price: item.price, hash: res.hash, wallet, slug });
+          onRemove(item.id);
+        }
+        addToast?.(`Purchased ${fresh.length} items in one transaction! 🎉`, "success");
+        setBuying(false);
+        setProgress({ current: 0, total: 0 });
+        setEstimatedGas(null);
+        return;
+      }
+      if (res.error === "rejected") {
+        addToast?.("Purchase cancelled", "info");
+        setBuying(false);
+        setProgress({ current: 0, total: 0 });
+        setEstimatedGas(null);
+        return;
+      }
+      // unsupported / build-failed / other → fall through to the sequential path.
+    }
+
+    // Sequential path: one confirmation per item (also the fallback above).
+    setProgress({ current: 0, total: fresh.length });
+    for (let i = 0; i < fresh.length; i++) {
+      const item = fresh[i];
+      setProgress({ current: i + 1, total: fresh.length });
+      addToast?.(`Buying ${item.name}... (${i + 1}/${fresh.length})`, "info");
 
       const result = item.isNative && item.nativeOrder
         ? await fulfillNativeOrder(item.nativeOrder)
@@ -275,8 +317,6 @@ export default function ShoppingCart({
       } else {
         const friendly = getFriendlyError(result.message || result.error || "Transaction failed");
         addToast?.(`Failed to buy ${item.name} — ${friendly}`, "error");
-        // Skip and continue with remaining items
-        addToast?.(`Skipping ${item.name}, continuing with remaining...`, "warning");
         continue;
       }
     }
