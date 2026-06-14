@@ -102,7 +102,7 @@ const GROUPS: ContractGroup[] = [
   },
   {
     title: 'Revenue',
-    description: '100% of protocol revenue flows to stakers via these rails.',
+    description: '100% of protocol swap fees flow to stakers via these rails.',
     entries: [
       { label: 'Revenue Distributor', address: REVENUE_DISTRIBUTOR_ADDRESS, source: 'contracts/src/RevenueDistributor.sol' },
       { label: 'Swap Fee Router', address: SWAP_FEE_ROUTER_ADDRESS, source: 'contracts/src/SwapFeeRouter.sol' },

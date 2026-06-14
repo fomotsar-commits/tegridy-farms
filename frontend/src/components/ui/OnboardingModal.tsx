@@ -13,7 +13,7 @@ const STORAGE_KEY = 'tegridy-onboarding-seen';
 const steps = [
   {
     title: 'Welcome to Tegridy Farms',
-    body: 'An art-first yield farming protocol on Ethereum. 100% of protocol revenue goes to TOWELI stakers as ETH.',
+    body: 'An art-first yield farming protocol on Ethereum. 100% of protocol swap fees go to TOWELI stakers as ETH.',
   },
   {
     title: 'How It Works',
