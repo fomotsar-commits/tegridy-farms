@@ -436,10 +436,15 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
     prefillGive: (counterTrade.requested || []).map(it => ({ contract: it.contract, id: it.tokenId, tokenId: it.tokenId, name: `#${it.tokenId}` })),
     initialRequested: (counterTrade.offered || []).map(it => ({ contract: it.contract, id: it.tokenId, tokenId: it.tokenId, name: `#${it.tokenId}` })),
     // #11: carry the original cash legs so a counter isn't silently zeroed —
-    // "same deal, tweak one thing". The user still reviews and signs, so a
-    // non-blank start beats accidentally countering for the cash they forgot.
-    prefillWethTopup: fmtEth(counterTrade.weth_topup_wei) || "",
-    prefillEthTopup: fmtEth(counterTrade.eth_topup_wei) || "",
+    // "same deal, tweak one thing". The legs are role-bound, NOT party-neutral:
+    // weth_topup = the maker's WETH sweetener (Seaport OFFER, maker-funded),
+    // eth_topup = what the taker pays (CONSIDERATION). Since the counter swaps
+    // maker↔taker (just like the NFT sides above), the cash must SWAP too — the
+    // new maker's WETH-add seeds from what they were paying (eth_topup), and the
+    // new ETH-ask seeds from the original sweetener (weth_topup). Carrying
+    // same-field would invert the cash direction of the deal.
+    prefillWethTopup: fmtEth(counterTrade.eth_topup_wei) || "",
+    prefillEthTopup: fmtEth(counterTrade.weth_topup_wei) || "",
     counterOf: counterTrade.id,
   } : null;
 

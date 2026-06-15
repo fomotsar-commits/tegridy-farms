@@ -59,9 +59,13 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
       // terms, OR across fields), so "gold hat" finds a token with a gold trait
       // AND a hat trait, and "rank 50" / "#5" match rank/id, instead of a single
       // substring that returns empty for any multi-word or rank query.
-      const terms = debouncedSearch.toLowerCase().split(/\s+/)
+      const raw = debouncedSearch.toLowerCase().split(/\s+/)
         .map((t) => t.replace(/^#/, ""))    // "#5" → "5"
-        .filter((t) => t && t !== "rank");  // "rank 50" → ["50"]
+        .filter(Boolean);
+      // "rank" is a noise word only when it qualifies another term ("rank 50" →
+      // ["50"]); a lone "rank" stays a real term so the query still filters
+      // instead of silently dropping to no-filter and showing the whole set.
+      const terms = raw.length > 1 ? raw.filter((t) => t !== "rank") : raw;
       if (terms.length) {
         result = result.filter((n) => {
           const name = (n.name || "").toLowerCase();

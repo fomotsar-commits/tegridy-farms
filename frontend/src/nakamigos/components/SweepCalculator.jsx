@@ -124,6 +124,7 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
   const [count, setCount] = useState(5);
   const [sweeping, setSweeping] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [batching, setBatching] = useState(false); // EIP-5792 single-confirmation in flight
 
   // Dual mode: "quantity" or "budget"
   const [mode, setMode] = useState("quantity");
@@ -315,6 +316,7 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
 
     setSweeping(true);
     setProgress(0);
+    setBatching(false);
     addToast?.(`Sweeping ${sweepList.length} ${collection.name}...`, "info");
 
     let bought = 0;
@@ -326,7 +328,12 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     const allSeaport = sweepList.length >= 2 && sweepList.every(l => !(l.isNative && l.nativeOrder));
     let batched = false;
     if (allSeaport) {
+      // One wallet confirmation for the whole batch — there's no per-item
+      // progress to show, so flag it for an indeterminate label instead of a
+      // counter frozen at 0/N for the duration of the confirmation.
+      setBatching(true);
       const res = await fulfillSeaportOrdersBatch(sweepList, { buyerAddress: wallet });
+      setBatching(false);
       if (res.success) {
         for (const nft of sweepList) {
           recordTransaction({ type: "buy", nft, price: nft.price, hash: res.hash, wallet, slug: collection.slug });
@@ -651,7 +658,7 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
         onClick={handleSweep}
       >
         {sweeping
-          ? `Sweeping ${progress}/${effectiveCount}...`
+          ? (batching ? "Confirming sweep…" : `Sweeping ${progress}/${effectiveCount}...`)
           : !wallet
             ? `Connect & Sweep ${effectiveCount} ${collectionLabel}`
             : filteredListings.length === 0
