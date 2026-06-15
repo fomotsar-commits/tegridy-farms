@@ -254,42 +254,11 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   const [traitValue, setTraitValue] = useState("");
   const [showTraitOfferModal, setShowTraitOfferModal] = useState(null);
 
-  // Fetch metadata for listed tokens AND recent sale tokens not in gallery data
-  useEffect(() => {
-    // Already-fetched extras count as "known" too — otherwise every activities
-    // poll (new array each 60s) and every gallery page re-requests all listed +
-    // sale ids even though nothing is actually missing (F569).
-    const knownIds = new Set([
-      ...tokens.map(t => String(t.id)),
-      ...extraTokens.map(t => String(t.id)),
-    ]);
-
-    // Collect token IDs from listings
-    const listingIds = (listings || []).map(l => String(l.tokenId));
-
-    // Collect token IDs from recent sales (activities)
-    const saleIds = (activities || [])
-      .filter(a => a.type === "sale" && a.token?.id)
-      .map(a => String(a.token.id));
-
-    const allNeededIds = [...listingIds, ...saleIds];
-    const missingIds = allNeededIds.filter(id => !knownIds.has(id));
-    const uniqueMissing = [...new Set(missingIds)];
-    if (uniqueMissing.length === 0) return;
-
-    let cancelled = false;
-    fetchTokensByIds(uniqueMissing, collection.contract, collection.metadataBase).then(fetched => {
-      // Merge with existing extras so prior fetches aren't dropped.
-      if (!cancelled && fetched.length > 0) {
-        setExtraTokens(prev => {
-          const map = new Map(prev.map(t => [String(t.id), t]));
-          for (const t of fetched) map.set(String(t.id), t);
-          return [...map.values()];
-        });
-      }
-    });
-    return () => { cancelled = true; };
-  }, [listings, activities, tokens, extraTokens, collection.contract, collection.metadataBase]);
+  // Listed-token + recent-sale metadata enrichment is WINDOWED to the visible
+  // grid slice — see the effect just below the `visibleCount` declaration. It
+  // needs the sorted `displayNfts` + `visibleCount` (declared further down), so
+  // it lives there rather than here. (Enriching the whole listings array up
+  // front fired a proxy-batch storm that froze the grid into placeholders, F592.)
 
   // Combined token lookup: gallery tokens + fetched extras
   const allTokens = useMemo(() => {
@@ -458,6 +427,49 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     setBuying(null);
     setVisibleCount(LISTINGS_RENDER_CHUNK);
   }, [collection.slug]);
+
+  // Enrich ONLY the listings about to render (the visible window + a one-chunk
+  // lookahead) plus the few recent-sale tokens — not all ~1000 listed ids.
+  // Fetching the whole listings array on first paint fired up to ~10 sequential
+  // proxy batches that competed for the rate limit and froze the grid into
+  // letter placeholders (prod F592). Off-window cards render as imagePending
+  // placeholders and enrich when "Show more" widens visibleCount. Sweep/sort/
+  // price math are unaffected — they read price/id off the listing, not the
+  // enriched token (SweepCalculator renders no token images), and the order is
+  // a price sort, so the visible slice is stable as metadata fills in.
+  useEffect(() => {
+    const knownIds = new Set([
+      ...tokens.map(t => String(t.id)),
+      ...extraTokens.map(t => String(t.id)),
+    ]);
+
+    // The sorted/filtered window that's actually on screen (+ one chunk ahead).
+    const visibleListingIds = displayNfts
+      .slice(0, visibleCount + LISTINGS_RENDER_CHUNK)
+      .map(n => String(n.id));
+
+    // Recent-sale tokens are few (<=24) and shown in their own row — keep them.
+    const saleIds = (activities || [])
+      .filter(a => a.type === "sale" && a.token?.id)
+      .map(a => String(a.token.id));
+
+    const uniqueMissing = [...new Set([...visibleListingIds, ...saleIds])]
+      .filter(id => !knownIds.has(id));
+    if (uniqueMissing.length === 0) return;
+
+    let cancelled = false;
+    fetchTokensByIds(uniqueMissing, collection.contract, collection.metadataBase).then(fetched => {
+      // Merge with existing extras so prior fetches aren't dropped.
+      if (!cancelled && fetched.length > 0) {
+        setExtraTokens(prev => {
+          const map = new Map(prev.map(t => [String(t.id), t]));
+          for (const t of fetched) map.set(String(t.id), t);
+          return [...map.values()];
+        });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [displayNfts, visibleCount, activities, tokens, extraTokens, collection.contract, collection.metadataBase]);
 
   const handleBuy = useCallback(async (nft, e) => {
     e.stopPropagation();
