@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Eth } from "./Icons";
 import TradeWindow from "./TradeWindow";
 import DirectMessages from "./DirectMessages";
 import NftImage from "./NftImage";
 import { ItemChips, TradeSummary, fmtEthWei as fmtEth } from "./TradeChips";
-import { fetchTrades, acceptTrade, acceptOpenTrade, updateTradeStatus, cancelTradeOnChain } from "../lib/trades";
+import { fetchTrades, acceptTrade, acceptOpenTrade, updateTradeStatus, cancelTradeOnChain, fillableHoldings } from "../lib/trades";
 import { getNotificationStatus, subscribeToPush, unsubscribeFromPush, isSubscribed } from "../lib/notifications";
 import { fetchWalletNfts } from "../api";
 
@@ -429,6 +429,49 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
     return () => { mountedRef.current = false; clearInterval(interval); };
   }, [load]);
 
+  // ── "You can fill this" board discovery (#5) ──────────────────────────────
+  // The board is otherwise a passive chronological wall: a wallet holding
+  // exactly what an open "any <collection>" post wants is never told, so supply
+  // and the matching demand never meet. Load the connected wallet's holding
+  // COUNT per collection once (only 3 collections, one fetch each per wallet),
+  // then float fillable posts to the top and badge them.
+  const [holdings, setHoldings] = useState({}); // contract(lower) -> count owned
+  const holdingsWalletRef = useRef(null);
+  useEffect(() => {
+    if (direction !== "board" || !wallet) return;
+    const w = wallet.toLowerCase();
+    if (holdingsWalletRef.current === w) return; // already loaded for this wallet
+    holdingsWalletRef.current = w;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(Object.values(COLLECTIONS).map(async (col) => {
+        try {
+          const { tokens } = await fetchWalletNfts(wallet, col.contract, col.metadataBase);
+          return [col.contract.toLowerCase(), tokens?.length || 0];
+        } catch { return [col.contract.toLowerCase(), 0]; }
+      }));
+      if (!cancelled) setHoldings(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+  }, [direction, wallet]);
+
+  // How many of the constraining requested collection the wallet holds — 0 if it
+  // can't fill. Pure logic lives in lib/trades.fillableHoldings (unit-tested).
+  const fillableCount = useCallback((t) => fillableHoldings(t, wallet, holdings), [wallet, holdings]);
+
+  // Float fillable posts to the top (backend already sorts created_at desc, so
+  // each group stays newest-first), and count them for the header hint.
+  const boardTrades = useMemo(() => {
+    if (direction !== "board") return trades;
+    const fill = [], rest = [];
+    for (const t of trades) (fillableCount(t) > 0 ? fill : rest).push(t);
+    return fill.length ? [...fill, ...rest] : trades;
+  }, [direction, trades, fillableCount]);
+  const fillableTotal = useMemo(
+    () => (direction === "board" ? trades.reduce((n, t) => n + (fillableCount(t) > 0 ? 1 : 0), 0) : 0),
+    [direction, trades, fillableCount]
+  );
+
   // Counter flow: the viewer (current taker) becomes the maker of a new
   // trade with the sides swapped and the original linked via counterOf.
   const counterProps = counterTrade ? {
@@ -507,6 +550,15 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
         </select>
       </div>
 
+      {direction === "board" && fillableTotal > 0 && (
+        <div style={{
+          marginBottom: 12, fontFamily: "var(--mono)", fontSize: 10, color: "var(--green)",
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          {"✓"} {fillableTotal} open trade{fillableTotal === 1 ? "" : "s"} you can fill — floated to the top
+        </div>
+      )}
+
       {error && trades.length === 0 && (
         <div className="error-banner" style={{ marginBottom: 14 }}>
           <span>Couldn’t load trades — {error}</span>
@@ -533,12 +585,13 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
           </div>
         </div>
       ) : direction === "board" ? (
-        trades.map((t) => {
+        boardTrades.map((t) => {
           const mine = t.offerer?.toLowerCase() === wallet.toLowerCase();
           const isActive = t.status === "active";
+          const youHold = mine ? 0 : fillableCount(t);
           return (
             <div key={t.id} style={{
-              border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px",
+              border: `1px solid ${youHold > 0 ? "rgba(74,222,128,0.35)" : "var(--border)"}`, borderRadius: 10, padding: "14px 16px",
               background: "var(--surface-glass)", marginBottom: 10,
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
@@ -550,6 +603,16 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
                   {isActive && <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>{timeLeft(t.expires_at)}</span>}
                 </span>
               </div>
+              {youHold > 0 && (
+                <div style={{
+                  display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 10,
+                  fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.04em",
+                  padding: "3px 9px", borderRadius: 6,
+                  background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.3)", color: "var(--green)",
+                }}>
+                  {"✓"} You can fill this — you hold {youHold}
+                </div>
+              )}
               <TradeSummary trade={t} viewer={wallet} />
               {isActive && (
                 <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>

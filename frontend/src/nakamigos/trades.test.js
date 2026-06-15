@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTradeOrderParameters, buildCriteriaResolvers, currentLegAmounts, MAX_ITEMS_PER_SIDE } from "./lib/trades";
+import { buildTradeOrderParameters, buildCriteriaResolvers, currentLegAmounts, MAX_ITEMS_PER_SIDE, fillableHoldings } from "./lib/trades";
 import { WETH, CONDUIT_KEY } from "./constants";
 
 const MAKER = "0x1111111111111111111111111111111111111111";
@@ -178,5 +178,58 @@ describe("dutch trades — dynamic cash legs", () => {
     expect(now.ethNowWei).toBe(300n);
     expect(now.wethRising).toBe(false);
     expect(now.ethDecaying).toBe(false);
+  });
+});
+
+describe("fillableHoldings — board 'you can fill this' discovery", () => {
+  const TAKER = "0x2222222222222222222222222222222222222222";
+  const naka = NAKA.toLowerCase();
+  const jbac = JBAC.toLowerCase();
+  // An open board post requesting "any 1 NAKA".
+  const openPost = (overrides = {}) => ({
+    status: "active",
+    offerer: MAKER,
+    requested: [{ contract: NAKA, any: true }],
+    ...overrides,
+  });
+
+  it("returns the holding count when the wallet can fill a single-slot post", () => {
+    expect(fillableHoldings(openPost(), TAKER, { [naka]: 3 })).toBe(3);
+  });
+
+  it("returns 0 when the wallet holds none of the requested collection", () => {
+    expect(fillableHoldings(openPost(), TAKER, { [naka]: 0 })).toBe(0);
+    expect(fillableHoldings(openPost(), TAKER, {})).toBe(0);
+  });
+
+  it("returns 0 for the maker's own post (case-insensitive)", () => {
+    expect(fillableHoldings(openPost(), MAKER.toUpperCase(), { [naka]: 5 })).toBe(0);
+  });
+
+  it("returns 0 for a non-active post", () => {
+    expect(fillableHoldings(openPost({ status: "accepted" }), TAKER, { [naka]: 5 })).toBe(0);
+  });
+
+  it("requires >= the slot count when a post asks for multiple of one collection", () => {
+    const twoNaka = openPost({ requested: [{ contract: NAKA, any: true }, { contract: NAKA, any: true }] });
+    expect(fillableHoldings(twoNaka, TAKER, { [naka]: 1 })).toBe(0);
+    expect(fillableHoldings(twoNaka, TAKER, { [naka]: 2 })).toBe(2);
+  });
+
+  it("requires holdings in EVERY requested collection (min across constraints)", () => {
+    const mixed = openPost({ requested: [{ contract: NAKA, any: true }, { contract: JBAC, any: true }] });
+    expect(fillableHoldings(mixed, TAKER, { [naka]: 4, [jbac]: 0 })).toBe(0);
+    expect(fillableHoldings(mixed, TAKER, { [naka]: 4, [jbac]: 2 })).toBe(2);
+  });
+
+  it("returns 0 if any requested slot is a specific token (not a wildcard)", () => {
+    const specific = openPost({ requested: [{ contract: NAKA, tokenId: "7", any: false }] });
+    expect(fillableHoldings(specific, TAKER, { [naka]: 9 })).toBe(0);
+  });
+
+  it("returns 0 with no wallet, no trade, or empty requested", () => {
+    expect(fillableHoldings(openPost(), null, { [naka]: 3 })).toBe(0);
+    expect(fillableHoldings(null, TAKER, { [naka]: 3 })).toBe(0);
+    expect(fillableHoldings(openPost({ requested: [] }), TAKER, { [naka]: 3 })).toBe(0);
   });
 });

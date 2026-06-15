@@ -433,6 +433,33 @@ export async function fetchTrades({ wallet, role = "incoming", status = "active"
 }
 
 /**
+ * How many tokens of the constraining requested collection `wallet` holds for an
+ * open board `trade` — i.e. whether it can FILL the post. Returns 0 if it can't:
+ * its own post, not active, a non-wildcard requested slot, or short on any
+ * requested collection. `holdings` is a contract(lowercase) -> count-owned map.
+ * Board posts are all-wildcard ("any token from collection"), so a holder just
+ * needs >= one token per requested slot of that collection.
+ */
+export function fillableHoldings(trade, wallet, holdings) {
+  if (!trade || !wallet || trade.status !== "active") return 0;
+  if (trade.offerer?.toLowerCase() === wallet.toLowerCase()) return 0;
+  const need = {};
+  for (const r of (trade.requested || [])) {
+    const c = (r.contract || "").toLowerCase();
+    if (!c || !r.any) return 0; // board posts are all-wildcard; bail on anything else
+    need[c] = (need[c] || 0) + 1;
+  }
+  if (Object.keys(need).length === 0) return 0;
+  let minHave = Infinity;
+  for (const [c, n] of Object.entries(need)) {
+    const have = (holdings && holdings[c]) ?? 0;
+    if (have < n) return 0;
+    minHave = Math.min(minHave, have);
+  }
+  return minHave === Infinity ? 0 : minHave;
+}
+
+/**
  * Accept (fulfill) an incoming trade. Runs the full pre-flight battery:
  * chain guard, Seaport order status, and a LIVE ownership re-check of the
  * maker's offered NFTs so the taker fails fast on stale offers instead of
