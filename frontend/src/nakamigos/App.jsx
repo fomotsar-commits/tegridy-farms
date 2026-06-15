@@ -10,7 +10,7 @@ import { CollectionProvider, useActiveCollection } from "./contexts/CollectionCo
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { FavoritesProvider, useFavorites } from "./contexts/FavoritesContext";
 import { CartProvider, useCart } from "./contexts/CartContext";
-import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS } from "./constants";
+import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
 import Background from "./components/Background";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
@@ -739,7 +739,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       case "favorites":
         return <Favorites tokens={nfts.allTokens} favorites={favorites} onPick={setSelected} onToggleFavorite={toggleFavorite} setTab={handleTabChange} />;
       case "trade":
-        return <NftCompare tokens={nfts.allTokens} onPick={setSelected} wallet={wallet} onConnect={handleConnect} addToast={addToast} />;
+        return <NftCompare tokens={nfts.allTokens} onPick={setSelected} wallet={wallet} onConnect={handleConnect} addToast={addToast} setTab={handleTabChange} />;
       case "watchlist":
         return <Watchlist tokens={nfts.allTokens} onPick={setSelected} addToast={addToast} setTab={handleTabChange} wallet={wallet} />;
       case "collection":
@@ -1046,6 +1046,27 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
               ))}
             </div>
           </div>
+        </div>
+        {/* Trust strip — verifiable facts surfaced at the point a logged-out
+            visitor decides whether to connect. Additive; all true today. */}
+        <div className="footer-trust" style={{
+          borderTop: "1px solid var(--border)", marginTop: 4, padding: "14px 0 2px",
+          display: "flex", flexWrap: "wrap", gap: "8px 20px", justifyContent: "center",
+          fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)",
+        }}>
+          <span>{"✓"} Non-custodial {"—"} you sign every transaction in your own wallet</span>
+          <span>{"✓"} Orders settle on-chain via Seaport</span>
+          {PLATFORM_FEE_BPS > 0 && PLATFORM_FEE_RECIPIENT !== "0x0000000000000000000000000000000000000000" ? (
+            <a
+              href={`https://etherscan.io/address/${PLATFORM_FEE_RECIPIENT}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{ color: "var(--text-dim)" }}
+            >
+              {"✓"} Flat {PLATFORM_FEE_BPS / 100}% platform fee {"↗"}
+            </a>
+          ) : (
+            <span>{"✓"} No extra platform fee</span>
+          )}
         </div>
       </footer>
     </div>

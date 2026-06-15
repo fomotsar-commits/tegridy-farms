@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import NftImage from "./NftImage";
 import { Eth } from "./Icons";
-import { fetchWalletNfts, getProvider, shortenAddress } from "../api";
-import { WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS } from "../constants";
+import { fetchWalletNfts, shortenAddress } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
-import { createTradeOffer, getIncomingTrades, updateTradeStatus } from "../lib/userdata";
+// P2P sends route through the AUDITED trade SDK (lib/trades → /api/orderbook,
+// service-role write + canonical Seaport order). The previous hand-rolled path
+// here built an orderType-2/OpenSea-zone order and stored it via the anon client
+// to trade_offers — a table migration 007 made service-role-only — so every send
+// RLS-failed into a localStorage stub yet still toasted success: a signed trade
+// that never reached the counterparty (and wasn't even fulfillable in-app).
+import { createTradeOffer as createDirectedTrade } from "../lib/trades";
 
 const cardStyle = {
   background: "var(--surface-glass)",
@@ -67,18 +72,6 @@ const tradeButtonStyle = {
   cursor: "pointer",
   fontWeight: 700,
   transition: "opacity 0.2s, transform 0.15s",
-};
-
-const incomingCardStyle = {
-  background: "var(--surface-glass)",
-  backdropFilter: "var(--glass-blur)",
-  border: "1px solid var(--border)",
-  borderRadius: 12,
-  padding: 16,
-  display: "flex",
-  alignItems: "center",
-  gap: 16,
-  flexWrap: "wrap",
 };
 
 function NftSlot({ nft, label, searchValue, onSearchChange, searchResults, onSelect, onClear, placeholder }) {
@@ -167,7 +160,7 @@ function NftSlot({ nft, label, searchValue, onSearchChange, searchResults, onSel
   );
 }
 
-export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast }) {
+export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast, setTab }) {
   const collection = useActiveCollection();
   const { isWrongNetwork } = useWalletState();
   const { switchChain } = useWalletActions();
@@ -186,10 +179,6 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
   // Trade state
   const [submitting, setSubmitting] = useState(false);
   const [step, setStep] = useState("");
-
-  // Incoming trades
-  const [incomingTrades, setIncomingTrades] = useState([]);
-  const [loadingTrades, setLoadingTrades] = useState(false);
 
   // Reset selections when collection changes
   useEffect(() => {
@@ -228,19 +217,6 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
     return () => { cancelled = true; };
   }, [wallet, tokens, collection.contract]);
 
-  // Fetch incoming trades
-  const refreshTrades = useCallback(async () => {
-    if (!wallet) { setIncomingTrades([]); return; }
-    setLoadingTrades(true);
-    try {
-      const trades = await getIncomingTrades(wallet, collection.slug);
-      setIncomingTrades(trades);
-    } catch { /* silent */ }
-    setLoadingTrades(false);
-  }, [wallet, collection.slug]);
-
-  useEffect(() => { refreshTrades(); }, [refreshTrades]);
-
   // Search: your NFTs (owned only)
   const yourResults = useMemo(() => {
     if (!yourSearch || yourSearch.length < 1) return [];
@@ -261,211 +237,47 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
 
   const canSubmit = wallet && yourNft && theirNft && !submitting;
 
-  // Send trade offer via Seaport
+  // Send the trade through the AUDITED P2P SDK — it owns approvals, the WETH
+  // wrap, the canonical Seaport order, the signature, and the service-role
+  // /api/orderbook write, and returns a typed {success|error|rejected} result so
+  // a failed persist surfaces honestly instead of toasting a phantom success.
   const handleSendTrade = useCallback(async () => {
     if (!wallet) { onConnect?.(); return; }
     if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
     if (!yourNft || !theirNft) { addToast?.("Select both NFTs", "error"); return; }
-    if (!theirNft.owner) { addToast?.("Target NFT owner unknown", "error"); return; }
-
-    const toWallet = theirNft.owner;
-    if (toWallet.toLowerCase() === wallet.toLowerCase()) {
-      addToast?.("You already own this NFT", "error");
-      return;
-    }
+    if (!theirNft.owner) { addToast?.("Target NFT owner unknown — pick a token with a known holder", "error"); return; }
+    if (theirNft.owner.toLowerCase() === wallet.toLowerCase()) { addToast?.("You already own this NFT", "error"); return; }
 
     setSubmitting(true);
-
+    setStep("Building trade...");
     try {
-      const { ethers } = await import("ethers");
-      const provider = getProvider();
-      if (!provider) { addToast?.("MetaMask not found", "error"); setSubmitting(false); return; }
-
-      const browserProvider = new ethers.BrowserProvider(provider);
-      const signer = await browserProvider.getSigner();
-      const offererAddress = await signer.getAddress();
-
-      // Step 1: Approve NFT for Seaport conduit
-      setStep("Approving NFT...");
-      const erc721ABI = [
-        "function isApprovedForAll(address owner, address operator) view returns (bool)",
-        "function setApprovalForAll(address operator, bool approved)",
-      ];
-      const nftContract = new ethers.Contract(collection.contract, erc721ABI, signer);
-      const isApproved = await nftContract.isApprovedForAll(offererAddress, CONDUIT_ADDRESS);
-      if (!isApproved) {
-        const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
-        await approveTx.wait();
-      }
-
-      // Handle WETH wrapping/approval if ETH sweetener is offered
-      const ethOfferedNum = parseFloat(yourEth) || 0;
-      const ethRequestedNum = parseFloat(theirEth) || 0;
-      let offerEthWei = 0n;
-      let requestEthWei = 0n;
-
-      if (ethOfferedNum > 0) {
-        offerEthWei = ethers.parseEther(String(ethOfferedNum));
-
-        // Import WETH helpers
-        const { getWethBalance, getWethAllowance, wrapEth, approveWeth } = await import("../lib/weth");
-
-        setStep("Wrapping ETH...");
-        const wethBal = await getWethBalance(offererAddress);
-        if (wethBal < offerEthWei) {
-          const ethBal = await browserProvider.getBalance(offererAddress);
-          const needed = offerEthWei - wethBal;
-          if (ethBal < needed) {
-            addToast?.("Insufficient ETH to wrap", "error");
-            setSubmitting(false);
-            setStep("");
-            return;
-          }
-          await wrapEth(needed);
-        }
-
-        setStep("Approving WETH...");
-        const allowance = await getWethAllowance(offererAddress);
-        if (allowance < offerEthWei) {
-          await approveWeth(offerEthWei);
-        }
-      }
-
-      if (ethRequestedNum > 0) {
-        requestEthWei = ethers.parseEther(String(ethRequestedNum));
-      }
-
-      // Step 2: Build Seaport order
-      setStep("Signing order...");
-      const now = Math.floor(Date.now() / 1000);
-      const endTime = now + 7 * 24 * 3600; // 7 days
-
-      // Offer: user's NFT + optional WETH
-      const offer = [
-        {
-          itemType: 2, // ERC721
-          token: collection.contract,
-          identifierOrCriteria: String(yourNft.id),
-          startAmount: "1",
-          endAmount: "1",
-        },
-      ];
-
-      if (offerEthWei > 0n) {
-        offer.push({
-          itemType: 1, // ERC20 (WETH)
-          token: WETH,
-          identifierOrCriteria: "0",
-          startAmount: offerEthWei.toString(),
-          endAmount: offerEthWei.toString(),
-        });
-      }
-
-      // Consideration: their NFT (to offerer) + optional WETH (to offerer)
-      const consideration = [
-        {
-          itemType: 2, // ERC721
-          token: collection.contract,
-          identifierOrCriteria: String(theirNft.id),
-          startAmount: "1",
-          endAmount: "1",
-          recipient: offererAddress,
-        },
-      ];
-
-      if (requestEthWei > 0n) {
-        consideration.push({
-          itemType: 1, // ERC20 (WETH)
-          token: WETH,
-          identifierOrCriteria: "0",
-          startAmount: requestEthWei.toString(),
-          endAmount: requestEthWei.toString(),
-          recipient: offererAddress,
-        });
-      }
-
-      // Add zone restriction consideration for the target wallet (private sale pattern)
-      consideration.push({
-        itemType: 0,
-        token: "0x0000000000000000000000000000000000000000",
-        identifierOrCriteria: "0",
-        startAmount: "0",
-        endAmount: "0",
-        recipient: toWallet,
+      const result = await createDirectedTrade({
+        give: [{ contract: collection.contract, tokenId: String(yourNft.id) }],
+        get: [{ contract: collection.contract, tokenId: String(theirNft.id) }],
+        taker: theirNft.owner,
+        wethTopupEth: yourEth || "0",   // ETH you ADD — wrapped to WETH on the offer side
+        ethTopupEth: theirEth || "0",   // ETH you REQUEST — taker pays native on fulfillment
       });
-
-      const OPENSEA_SIGNED_ZONE = "0x000056f7000000ece9003ca63978907a00ffd100";
-
-      const orderParameters = {
-        offerer: offererAddress,
-        zone: OPENSEA_SIGNED_ZONE,
-        offer,
-        consideration,
-        orderType: 2, // FULL_RESTRICTED (private)
-        startTime: String(now),
-        endTime: String(endTime),
-        zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
-        salt: ethers.hexlify(ethers.randomBytes(32)),
-        conduitKey: CONDUIT_KEY,
-        totalOriginalConsiderationItems: consideration.length,
-      };
-
-      // Step 3: Get counter
-      const seaportABI = ["function getCounter(address) view returns (uint256)"];
-      const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, browserProvider);
-      const counter = await seaport.getCounter(offererAddress);
-
-      // Step 4: Sign EIP-712
-      const signData = { ...orderParameters, counter: counter.toString() };
-      const signature = await signer.signTypedData(SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, signData);
-
-      // Step 5: Store in Supabase for discovery
-      setStep("Storing trade...");
-      await createTradeOffer(wallet, {
-        fromTokenId: String(yourNft.id),
-        toTokenId: String(theirNft.id),
-        toWallet,
-        ethOffered: ethOfferedNum,
-        ethRequested: ethRequestedNum,
-        orderData: orderParameters,
-        signature,
-      }, collection.slug);
-
-      addToast?.(`Trade offer sent: #${yourNft.id} for #${theirNft.id}`, "success");
-      setYourNft(null);
-      setTheirNft(null);
-      setYourEth("");
-      setTheirEth("");
-      setYourSearch("");
-      setTheirSearch("");
-      refreshTrades();
-    } catch (err) {
-      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+      if (result?.success) {
+        addToast?.(`Trade offer sent: #${yourNft.id} for #${theirNft.id}`, "success");
+        setYourNft(null);
+        setTheirNft(null);
+        setYourEth("");
+        setTheirEth("");
+        setYourSearch("");
+        setTheirSearch("");
+      } else if (result?.error === "rejected") {
         addToast?.("Trade cancelled", "info");
       } else {
-        console.error("Trade error:", err);
-        addToast?.("Trade failed. Please try again or check your wallet connection.", "error");
+        addToast?.(result?.message || "Trade failed. Please try again.", "error");
       }
+    } catch (err) {
+      console.error("Trade error:", err);
+      addToast?.("Trade failed. Please try again or check your wallet connection.", "error");
     }
     setSubmitting(false);
     setStep("");
-  }, [wallet, onConnect, yourNft, theirNft, yourEth, theirEth, addToast, refreshTrades, collection.contract, collection.slug]);
-
-  // Handle accept/decline on incoming trades
-  const handleTradeAction = useCallback(async (tradeId, action) => {
-    try {
-      await updateTradeStatus(tradeId, action, collection.slug);
-      addToast?.(`Trade ${action}`, action === "accepted" ? "success" : "info");
-      refreshTrades();
-    } catch (err) {
-      addToast?.("Failed to update trade. Please try again.", "error");
-    }
-  }, [addToast, refreshTrades, collection.slug]);
-
-  // Find token data from tokens array
-  const findToken = useCallback((tokenId) => {
-    return tokens.find((t) => String(t.id) === String(tokenId)) || null;
-  }, [tokens]);
+  }, [wallet, onConnect, isWrongNetwork, switchChain, yourNft, theirNft, yourEth, theirEth, addToast, collection.contract]);
 
   if (!wallet) {
     return (
@@ -618,136 +430,29 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
         </div>
       </div>
 
-      {/* Incoming Trades */}
+      {/* Trade offers (incoming, sent, counters, cancels) are reviewed and
+          settled in the audited P2P Trades surface \u2014 this tab is for picking
+          the pair and firing the offer. */}
       <div style={{
         background: "var(--surface-glass)", backdropFilter: "var(--glass-blur)",
         border: "1px solid var(--border)", borderRadius: 16, padding: 24,
+        display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14,
       }}>
-        <div style={{
-          fontFamily: "var(--pixel)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 16,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-        }}>
-          <span>INCOMING TRADES</span>
-          <button
-            onClick={refreshTrades}
-            style={{
-              padding: "4px 12px", borderRadius: 8, border: "1px solid var(--border)",
-              background: "transparent", color: "var(--text-dim)", fontFamily: "var(--mono)",
-              fontSize: 10, cursor: "pointer",
-            }}
-          >
-            Refresh
-          </button>
+        <div>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.06em", marginBottom: 8 }}>
+            INCOMING &amp; SENT TRADES
+          </div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", maxWidth: 460, lineHeight: 1.5 }}>
+            Review, accept, counter, or cancel your trade offers in the Trades tab \u2014 the same on-chain order book your sent offers post to.
+          </div>
         </div>
-
-        {!wallet ? (
-          <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
-            <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDD12"}</div>
-            <div className="empty-state-title" style={{ fontSize: 13 }}>Wallet Not Connected</div>
-            <div className="empty-state-text" style={{ fontSize: 10 }}>Connect your wallet to see incoming trade offers.</div>
-          </div>
-        ) : loadingTrades ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 0" }}>
-            {Array.from({ length: 3 }, (_, i) => (
-              <div key={i} className="skeleton" style={{ height: 44, borderRadius: 8, animationDelay: `${i * 60}ms` }} />
-            ))}
-          </div>
-        ) : incomingTrades.length === 0 ? (
-          <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
-            <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83E\uDD1D"}</div>
-            <div className="empty-state-title" style={{ fontSize: 13 }}>No Pending Trades</div>
-            <div className="empty-state-text" style={{ fontSize: 10 }}>Incoming trade offers will appear here.</div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {incomingTrades.map((trade) => {
-              const fromToken = findToken(trade.fromTokenId || trade.from_token_id);
-              const toToken = findToken(trade.toTokenId || trade.to_token_id);
-              const fromW = trade.fromWallet || trade.from_wallet;
-              const ethOff = trade.ethOffered ?? trade.eth_offered ?? 0;
-              const ethReq = trade.ethRequested ?? trade.eth_requested ?? 0;
-              const tradeId = trade.id;
-
-              return (
-                <div key={tradeId} style={incomingCardStyle}>
-                  {/* Their offered NFT */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 0" }}>
-                    {fromToken ? (
-                      <NftImage nft={fromToken} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }} />
-                    ) : (
-                      <div style={{ width: 48, height: 48, borderRadius: 8, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
-                        #{trade.fromTokenId || trade.from_token_id}
-                      </div>
-                    )}
-                    <div>
-                      <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)" }}>
-                        {fromToken?.name || `#${trade.fromTokenId || trade.from_token_id}`}
-                      </div>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)" }}>
-                        from {shortenAddress(fromW)}
-                      </div>
-                      {ethOff > 0 && (
-                        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", marginTop: 2 }}>
-                          +<Eth size={9} /> {ethOff} ETH
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Arrow */}
-                  <div style={{ fontFamily: "var(--pixel)", fontSize: 14, color: "var(--gold)", padding: "0 8px" }}>
-                    &#8594;
-                  </div>
-
-                  {/* Your NFT they want */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 0" }}>
-                    {toToken ? (
-                      <NftImage nft={toToken} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover" }} />
-                    ) : (
-                      <div style={{ width: 48, height: 48, borderRadius: 8, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)" }}>
-                        #{trade.toTokenId || trade.to_token_id}
-                      </div>
-                    )}
-                    <div>
-                      <div style={{ fontFamily: "var(--display)", fontSize: 12, color: "var(--text)" }}>
-                        {toToken?.name || `#${trade.toTokenId || trade.to_token_id}`}
-                      </div>
-                      {ethReq > 0 && (
-                        <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold)", marginTop: 2 }}>
-                          +<Eth size={9} /> {ethReq} ETH requested
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                    <button
-                      onClick={() => handleTradeAction(tradeId, "accepted")}
-                      style={{
-                        padding: "8px 16px", borderRadius: 8, border: "none",
-                        background: "var(--gold)", color: "var(--bg)", fontFamily: "var(--pixel)",
-                        fontSize: 8, cursor: "pointer", letterSpacing: "0.04em", fontWeight: 700,
-                      }}
-                    >
-                      ACCEPT
-                    </button>
-                    <button
-                      onClick={() => handleTradeAction(tradeId, "declined")}
-                      style={{
-                        padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)",
-                        background: "transparent", color: "var(--text-dim)", fontFamily: "var(--pixel)",
-                        fontSize: 8, cursor: "pointer", letterSpacing: "0.04em",
-                      }}
-                    >
-                      DECLINE
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <button
+          className="btn-primary"
+          style={{ padding: "10px 22px", whiteSpace: "nowrap" }}
+          onClick={() => setTab?.("trades")}
+        >
+          {"Open Trades \u2192"}
+        </button>
       </div>
     </section>
   );

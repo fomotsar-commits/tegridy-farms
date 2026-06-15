@@ -6,7 +6,7 @@ import MakeOfferModal from "./MakeOfferModal";
 import ErrorBoundary from "./ErrorBoundary";
 import TransactionProgress, { useTransactionProgress } from "./TransactionProgress";
 import { Link } from "react-router-dom";
-import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, NFT_LOAN_DESK_LIVE, rankTier } from "../constants";
+import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, NFT_LOAN_DESK_LIVE, rankTier, PLATFORM_FEE_BPS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
@@ -394,6 +394,23 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                   Last sale: <Eth size={11} /> {formatPrice(Number(nft.lastSale))}
                 </div>
               )}
+              {/* #1: route + fee transparency. Native (Tegridy order-book)
+                  listings bake the platform fee into the shown price; OpenSea
+                  listings carry no buyer-side platform fee here. Either way the
+                  buyer sees what the price actually includes before signing. */}
+              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                <span style={{
+                  fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.03em",
+                  padding: "2px 7px", borderRadius: 5, border: "1px solid var(--border)",
+                  background: nft.isNative ? "rgba(96,165,250,0.12)" : "rgba(255,255,255,0.05)",
+                  color: nft.isNative ? "var(--naka-blue)" : "var(--text-dim)",
+                }}>
+                  {nft.isNative ? `Tegridy order book · incl. ${PLATFORM_FEE_BPS / 100}% fee` : "OpenSea listing"}
+                </span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+                  + network gas
+                </span>
+              </div>
             </div>
           )}
 
