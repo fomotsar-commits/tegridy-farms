@@ -8,6 +8,7 @@ import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS } from "../constants";
 import { getProvider } from "../api";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import { getFriendlyError } from "../lib/errorMessages";
+import NativeListingsList from "./NativeListingsList";
 
 // ═══ ORDER BOOK PANEL ═══
 // Two sections:
@@ -19,23 +20,6 @@ import { getFriendlyError } from "../lib/errorMessages";
 // is that fees fund the Tegridy treasury and fills have no marketplace dependency.
 const NATIVE_FEE_PCT = PLATFORM_FEE_BPS / 100; // 1%
 
-function formatAddress(addr) {
-  if (!addr) return "";
-  return addr.slice(0, 6) + "..." + addr.slice(-4);
-}
-
-function formatDate(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const now = Date.now();
-  const diff = Math.floor((now - d.getTime()) / 1000);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return d.toLocaleDateString();
-}
-
 // ── Native Listings Table ──
 function NativeListingsTable({ wallet, onConnect, addToast }) {
   const collection = useActiveCollection();
@@ -46,6 +30,18 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
   const [error, setError] = useState(null);
   const [buying, setBuying] = useState(null); // order_hash being purchased
   const [cancelling, setCancelling] = useState(null); // order_hash being cancelled
+  // Mobile breakpoint (#8): render the listings as stacked cards instead of a
+  // horizontally-scrolling 6-col table below 640px (mirrors DirectMessages).
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 640px)").matches
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 640px)");
+    const onChange = (e) => setIsNarrow(e.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
 
   const handleCancel = useCallback(async (order) => {
     // R-CHAINID: mirror MyListings.jsx wrong-network short-circuit so a Seaport
@@ -277,126 +273,21 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
         </div>
       )}
 
-      {/* Listings table */}
+      {/* Listings — 6-col table on desktop, stacked cards on phones (#8) */}
       {!loading && !error && activeOrders.length > 0 && (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{
-            width: "100%", borderCollapse: "collapse",
-            fontFamily: "var(--mono)", fontSize: 11,
-          }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                <th style={thStyle}>Token</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Price</th>
-                <th style={thStyle}>Maker</th>
-                <th style={thStyle}>Listed</th>
-                <th style={thStyle}>Status</th>
-                <th style={{ ...thStyle, textAlign: "center" }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {activeOrders.map(order => {
-                const isBuying = buying === order.order_hash;
-                const isMine = wallet && order.maker?.toLowerCase() === wallet.toLowerCase();
-                return (
-                  <tr key={order.order_hash} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                    <td style={tdStyle}>
-                      <span style={{ color: "var(--naka-blue)", fontWeight: 600 }}>
-                        #{order.token_id || "?"}
-                      </span>
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: "right" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--gold)" }}>
-                        <Eth size={10} />
-                        {Number(order.price_eth).toFixed(4)}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <span style={{ color: "var(--text-dim)" }}>
-                        {isMine ? "You" : formatAddress(order.maker)}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <span style={{ color: "var(--text-muted)" }}>
-                        {formatDate(order.created_at)}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <span style={{
-                        display: "inline-block", padding: "2px 6px", borderRadius: 4,
-                        fontSize: 9, letterSpacing: "0.04em",
-                        background: order.status === "active" ? "rgba(76,175,80,0.1)" : "rgba(255,255,255,0.05)",
-                        color: order.status === "active" ? "var(--green)" : "var(--text-muted)",
-                      }}>
-                        {order.status?.toUpperCase() || "ACTIVE"}
-                      </span>
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: "center" }}>
-                      {isMine ? (
-                        <button
-                          onClick={() => handleCancel(order)}
-                          disabled={cancelling === order.order_hash}
-                          style={{
-                            background: "rgba(248,113,113,0.06)",
-                            color: "var(--red)",
-                            border: "1px solid rgba(248,113,113,0.15)",
-                            borderRadius: 6,
-                            padding: "5px 12px",
-                            cursor: cancelling === order.order_hash ? "wait" : "pointer",
-                            fontFamily: "var(--mono)",
-                            fontSize: 9,
-                            letterSpacing: "0.04em",
-                            opacity: cancelling === order.order_hash ? 0.6 : 1,
-                          }}
-                        >
-                          {cancelling === order.order_hash ? "..." : "Cancel"}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleBuy(order)}
-                          disabled={isBuying || order.status !== "active"}
-                          style={{
-                            background: isBuying ? "var(--surface)" : "var(--naka-blue)",
-                            color: "#fff",
-                            border: "none",
-                            borderRadius: 6,
-                            padding: "5px 14px",
-                            cursor: isBuying ? "wait" : "pointer",
-                            fontFamily: "var(--pixel)",
-                            fontSize: 9,
-                            letterSpacing: "0.04em",
-                            opacity: isBuying ? 0.6 : 1,
-                            transition: "opacity 0.15s",
-                          }}
-                        >
-                          {isBuying ? "Buying..." : !wallet ? "Connect" : "Buy"}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <NativeListingsList
+          orders={activeOrders}
+          wallet={wallet}
+          isNarrow={isNarrow}
+          buying={buying}
+          cancelling={cancelling}
+          onBuy={handleBuy}
+          onCancel={handleCancel}
+        />
       )}
     </div>
   );
 }
-
-const thStyle = {
-  textAlign: "left",
-  padding: "8px 10px",
-  fontFamily: "var(--mono)",
-  fontSize: 9,
-  color: "var(--text-muted)",
-  letterSpacing: "0.06em",
-  fontWeight: 400,
-};
-
-const tdStyle = {
-  padding: "8px 10px",
-};
 
 // ── Depth Chart (existing visualization) ──
 
