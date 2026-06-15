@@ -728,6 +728,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
             listingsSource={listingsSource} activities={activities} activitiesLoading={activitiesLoading} activitiesEmpty={activitiesEmpty}
             onPick={setSelected} wallet={wallet} onConnect={handleConnect} addToast={addToast}
             onAddToCart={addToCart} cart={cart}
+            activeFilters={nfts.activeFilters} onFilter={nfts.changeFilter}
+            loadAll={nfts.loadAll} hasMore={nfts.hasMore}
           />
         );
       case "traits":

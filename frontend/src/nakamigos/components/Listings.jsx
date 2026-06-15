@@ -4,6 +4,7 @@ import NftImage from "./NftImage";
 import SweepCalculator from "./SweepCalculator";
 import CollectionOffersPanel from "./CollectionOffersPanel";
 import OrderBookPanel from "./OrderBookPanel";
+import { FilterPills } from "./FilterSidebar";
 import DepthChart from "./DepthChart";
 import MakeOfferModal from "./MakeOfferModal";
 import { OPENSEA_ITEM } from "../constants";
@@ -21,6 +22,7 @@ const SORT_OPTIONS = [
   { id: "price-desc", label: "Price: High → Low" },
   { id: "rank-asc", label: "Rank: Best First" },
   { id: "rank-desc", label: "Rank: Highest #" },
+  { id: "value", label: "Best Value (rarity ÷ price)" },
   { id: "id-asc", label: "Token ID: Low" },
   { id: "id-desc", label: "Token ID: High" },
 ];
@@ -49,6 +51,16 @@ function sortNfts(nfts, sortId) {
       return sorted.sort((a, b) => Number(a.id) - Number(b.id));
     case "id-desc":
       return sorted.sort((a, b) => Number(b.id) - Number(a.id));
+    case "value": {
+      // "Best value" = rarest per ETH: rank × price ascending (rare + cheap
+      // first). Tokens missing a rank or a positive price sort to the end.
+      const score = (n) => {
+        const r = n.rank ?? Infinity;
+        const p = n.price;
+        return (!p || p <= 0 || r === Infinity) ? Infinity : r * p;
+      };
+      return sorted.sort((a, b) => score(a) - score(b));
+    }
     default:
       return sorted;
   }
@@ -218,7 +230,7 @@ const ListingCard = memo(function ListingCard({
   );
 });
 
-export default function Listings({ tokens, stats, listings, listingsLoading, listingsError, listingsSource, activities, activitiesLoading, activitiesEmpty, onPick, wallet, onConnect, addToast, onAddToCart }) {
+export default function Listings({ tokens, stats, listings, listingsLoading, listingsError, listingsSource, activities, activitiesLoading, activitiesEmpty, onPick, wallet, onConnect, addToast, onAddToCart, activeFilters = {}, onFilter, loadAll, hasMore }) {
   const collection = useActiveCollection();
   const { isLite } = useTradingMode();
   const [extraTokens, setExtraTokens] = useState([]);
@@ -395,6 +407,19 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   // Sorted + filtered listings
   const displayNfts = useMemo(() => {
     let items = listedNfts;
+    // #7: honor the GLOBAL trait filter (set in Gallery/Traits, persisted across
+    // tabs) on the buy grid — same predicate as useNfts, matched against the
+    // token attributes joined onto each listing.
+    const filterKeys = Object.keys(activeFilters || {});
+    if (filterKeys.length) {
+      items = items.filter(n =>
+        Object.entries(activeFilters).every(([key, values]) =>
+          Array.isArray(values)
+            ? n.attributes?.some(a => a.key === key && values.includes(a.value))
+            : n.attributes?.some(a => a.key === key && a.value === values)
+        )
+      );
+    }
     if (maxPrice) {
       const cap = parseFloat(maxPrice);
       if (!isNaN(cap) && cap > 0) {
@@ -402,7 +427,15 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       }
     }
     return sortNfts(items, sortBy);
-  }, [listedNfts, sortBy, maxPrice]);
+  }, [listedNfts, sortBy, maxPrice, activeFilters]);
+
+  // #7: trait-filtering / best-value sorting the buy grid needs attributes +
+  // ranks for ALL listed tokens, not just the loaded gallery page — pull the
+  // rest in when a filter or the value sort is active (mirrors Gallery).
+  const hasTraitFilter = Object.keys(activeFilters || {}).length > 0;
+  useEffect(() => {
+    if ((hasTraitFilter || sortBy === "value") && hasMore && loadAll) loadAll();
+  }, [hasTraitFilter, sortBy, hasMore, loadAll]);
 
   const [buying, setBuying] = useState(null); // tokenId being purchased
 
@@ -886,6 +919,13 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               Showing {displayNfts.length} of {listedNfts.length}
             </span>
           )}
+        </div>
+      )}
+
+      {/* #7: active global trait filters — visible + removable on the buy grid */}
+      {onFilter && Object.keys(activeFilters || {}).length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <FilterPills activeFilters={activeFilters} onFilterChange={onFilter} />
         </div>
       )}
 
