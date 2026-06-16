@@ -53,6 +53,11 @@ export const REFERRAL_SPLITTER_ADDRESS = '0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f
 export const PREMIUM_ACCESS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A
 export const VOTE_INCENTIVES_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// Tegridy Pro Pass — an ETH-priced access-pass NFT (deploy a TegridyDropV2 clone
+// via LaunchpadV2; the proceeds are real ETH to the treasury and it gates the Pro
+// perks). The frontend ownership gate + membership funnel auto-activate the
+// moment this is set to the deployed collection address. Owning >=1 = Pro.
+export const TEGRIDY_PRO_PASS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // V3 Features — Deployed 2026-04-14
 export const TEGRIDY_LENDING_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0xd471e5675EaDbD8C192A5dA2fF44372D5713367f

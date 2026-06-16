@@ -70,6 +70,7 @@ const Onboarding = lazy(() => import("./components/Onboarding"));
 const PortfolioTracker = lazy(() => import("./components/PortfolioTracker"));
 const EditProfile = lazy(() => import("./components/EditProfile"));
 const Deals = lazy(() => import("./components/Deals"));
+const ProMembership = lazy(() => import("./components/ProMembership"));
 
 // LazyFallback uses the shared GallerySkeleton from SkeletonFallback.jsx
 const LazyFallback = GallerySkeleton;
@@ -87,6 +88,7 @@ const TAB_PREFETCH = {
   favorites: () => import("./components/Favorites"),
   trade: () => import("./components/NftCompare"),
   trades: () => import("./components/TradesPanel"),
+  pro: () => import("./components/ProMembership"),
   watchlist: () => import("./components/Watchlist"),
   bids: () => import("./components/BidManager"),
   "my-listings": () => import("./components/MyListings"),
@@ -748,6 +750,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         return <MyCollection wallet={wallet} onPick={setSelected} onConnect={handleConnect} addToast={addToast} stats={stats} />;
       case "trades":
         return <TradesPanel wallet={wallet} onConnect={handleConnect} addToast={addToast} onViewProfile={setProfileAddress} />;
+      case "pro":
+        return <ProMembership wallet={wallet} onConnect={handleConnect} />;
       case "whales":
         return <WhaleIntelligence onViewProfile={setProfileAddress} stats={stats} />;
       case "about":

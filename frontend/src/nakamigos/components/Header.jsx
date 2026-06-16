@@ -137,6 +137,7 @@ export const PRIMARY_NAV = [
 ];
 
 export const MORE_NAV = [
+  ["pro", "✦ Pro"],
   ["trades", "⇄ P2P Trades"],
   ["sniper", "\u{1F3AF} Sniper"],
   ["trade", "Compare"],

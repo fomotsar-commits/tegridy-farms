@@ -10,6 +10,7 @@ export const PRIMARY_TABS = [
 ];
 
 export const MORE_TABS = [
+  { key: "pro", label: "✦ Pro" },
   { key: "trades", label: "⇄ Trade Offers" },
   { key: "sniper", label: "Sniper" },
   { key: "traits", label: "Traits" },
