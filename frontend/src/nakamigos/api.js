@@ -751,9 +751,14 @@ function mapNativeListings(nativeResult) {
 }
 
 // Merge OpenSea + native listings: dedup by tokenId (cheapest wins), sorted.
+// Native is inserted FIRST so it wins an exact price TIE: the buyer pays the
+// same either way (the native 1% is carved from the SELLER's proceeds, not added
+// to the buyer — see orderbook.js createNativeListing), so routing ties to the
+// native book captures the platform fee at zero cost to the buyer. A strictly
+// cheaper OpenSea listing still wins, so the buyer always gets the lowest price.
 function mergeListings(osListings, nativeListings) {
   const merged = new Map();
-  for (const l of [...osListings, ...nativeListings]) {
+  for (const l of [...nativeListings, ...osListings]) {
     const existing = merged.get(l.tokenId);
     if (!existing || l.price < existing.price) merged.set(l.tokenId, l);
   }
