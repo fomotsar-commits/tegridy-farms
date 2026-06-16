@@ -129,9 +129,6 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
     address public immutable weth; // WETH fallback for revert-on-receive treasuries
     address public treasury;
 
-    // fulfillAdvancedOrder needs an (empty) resolver array for non-criteria orders.
-    CriteriaResolver[] private _NO_RESOLVERS;
-
     event NativeBuyRouted(address indexed buyer, bytes32 indexed orderHash, uint256 paid, uint256 feeAttributed);
     event TreasurySwept(address indexed treasury, uint256 amount);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
@@ -182,9 +179,10 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
         uint256 priorBalance = address(this).balance - msg.value;
 
         // Deliver the NFT directly to the buyer (recipient = msg.sender) so the
-        // router never custodies the token; forward the buyer's exact ETH.
+        // router never custodies the token; forward the buyer's exact ETH. Empty
+        // criteria resolvers — native + standard listings carry no wildcard slots.
         bool ok = seaport.fulfillAdvancedOrder{value: msg.value}(
-            order, _NO_RESOLVERS, order.parameters.conduitKey, msg.sender
+            order, new CriteriaResolver[](0), order.parameters.conduitKey, msg.sender
         );
         if (!ok) revert FulfillFailed();
 
@@ -218,6 +216,7 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
         try referralSplitter.withdrawCallerCredit() {} catch {}
 
         uint256 amount = address(this).balance;
+        // slither-disable-next-line incorrect-equality — zero-balance sentinel, not a value comparison
         if (amount == 0) revert NothingToSweep();
         WETHFallbackLib.safeTransferETHOrWrap(weth, treasury, amount);
         emit TreasurySwept(treasury, amount);
