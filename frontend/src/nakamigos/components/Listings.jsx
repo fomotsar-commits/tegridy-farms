@@ -53,13 +53,18 @@ function sortNfts(nfts, sortId) {
       return sorted.sort((a, b) => Number(b.id) - Number(a.id));
     case "value": {
       // "Best value" = rarest per ETH: rank × price ascending (rare + cheap
-      // first). Tokens missing a rank or a positive price sort to the end.
+      // first). Tokens missing a rank or a positive price score Infinity and
+      // sort to the end, broken by token id so they keep a STABLE order as
+      // ranks stream in (also avoids Infinity − Infinity = NaN in the comparator).
       const score = (n) => {
         const r = n.rank ?? Infinity;
         const p = n.price;
         return (!p || p <= 0 || r === Infinity) ? Infinity : r * p;
       };
-      return sorted.sort((a, b) => score(a) - score(b));
+      return sorted.sort((a, b) => {
+        const sa = score(a), sb = score(b);
+        return sa !== sb ? sa - sb : Number(a.id) - Number(b.id);
+      });
     }
     default:
       return sorted;
@@ -276,7 +281,15 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   const allTokens = useMemo(() => {
     const map = new Map();
     for (const t of tokens) map.set(String(t.id), t);
-    for (const t of extraTokens) map.set(String(t.id), t);
+    // Window-enriched extras (rank:null, from fetchTokensByIds) must not shadow
+    // a real rank already computed for the gallery token — rank powers the
+    // value/rank sorts and the rank badge. Keep the extra's fields but preserve
+    // an existing non-null rank (#6 windowing × #7 value-sort interaction).
+    for (const t of extraTokens) {
+      const id = String(t.id);
+      const existing = map.get(id);
+      map.set(id, existing?.rank != null ? { ...t, rank: existing.rank } : t);
+    }
     return map;
   }, [tokens, extraTokens]);
 
@@ -468,8 +481,10 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
   // letter placeholders (prod F592). Off-window cards render as imagePending
   // placeholders and enrich when "Show more" widens visibleCount. Sweep/sort/
   // price math are unaffected — they read price/id off the listing, not the
-  // enriched token (SweepCalculator renders no token images), and the order is
-  // a price sort, so the visible slice is stable as metadata fills in.
+  // enriched token (SweepCalculator renders no token images). For the default
+  // price sort the visible slice is stable as metadata fills in; the rank-based
+  // "Best Value" sort is the one case where the window shifts as ranks stream
+  // in, but loadAll (forced when that sort is active) converges it.
   useEffect(() => {
     const knownIds = new Set([
       ...tokens.map(t => String(t.id)),
@@ -591,6 +606,14 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
     }
     return total;
   }, [displayNfts, selectedIds]);
+
+  // Count only selected cards still visible + priced, so the header agrees with
+  // the ETH total and Add-All (both iterate displayNfts) when a filter or price
+  // cap hides part of the selection (#7 trait filter).
+  const visibleSelectedCount = useMemo(
+    () => displayNfts.reduce((n, nft) => n + (selectedIds.has(nft.id) && nft.price ? 1 : 0), 0),
+    [displayNfts, selectedIds]
+  );
 
   const sourceLabel = listingsSource === "opensea"
     ? "OpenSea"
@@ -1049,7 +1072,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             fontFamily: "var(--pixel)", fontSize: 11, color: "var(--text)",
             letterSpacing: "0.04em",
           }}>
-            {selectedIds.size} selected
+            {visibleSelectedCount} selected
           </span>
           <span style={{
             fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)",

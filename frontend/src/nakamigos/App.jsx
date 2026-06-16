@@ -727,7 +727,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
             listingsLoading={listingsLoading} listingsError={listingsError}
             listingsSource={listingsSource} activities={activities} activitiesLoading={activitiesLoading} activitiesEmpty={activitiesEmpty}
             onPick={setSelected} wallet={wallet} onConnect={handleConnect} addToast={addToast}
-            onAddToCart={addToCart} cart={cart}
+            onAddToCart={addToCart}
             activeFilters={nfts.activeFilters} onFilter={nfts.changeFilter}
             loadAll={nfts.loadAll} hasMore={nfts.hasMore}
           />
