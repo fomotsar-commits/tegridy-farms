@@ -38,6 +38,9 @@ const ArtStudioPage = import.meta.env.DEV
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
+// Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
+// with this chunk — never the main bundle / EVM surface.
+const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -182,6 +185,7 @@ function AnimatedRoutes() {
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
+        <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />

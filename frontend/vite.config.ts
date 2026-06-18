@@ -287,6 +287,15 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules/@noble/') || id.includes('node_modules/@scure/')) {
               return 'vendor-crypto';
             }
+            // Solana swap surface deps — only the lazy /solana page imports
+            // these, so this named chunk stays out of the initial bundle.
+            if (
+              id.includes('node_modules/@solana/') ||
+              id.includes('node_modules/@solana-mobile/') ||
+              id.includes('node_modules/@wallet-standard/')
+            ) {
+              return 'vendor-solana';
+            }
             if (id.includes('node_modules/html2canvas')) {
               return 'vendor-html2canvas';
             }

@@ -17,6 +17,15 @@
 // wallet + swap UI lands; that's a later batch.)
 export const JUPITER_PROXY_BASE = '/api/jupiter/swap/v1';
 
+// Solana RPC the wallet/swap UI talks to directly (sendRawTransaction + status
+// polling — we deliberately avoid WS subscriptions). OPERATOR: set a Helius/
+// QuickNode/Triton endpoint via VITE_SOLANA_RPC_URL; the public default is
+// heavily rate-limited and fine only for light testing. Whatever host you pick
+// must be in the vercel.json CSP connect-src allowlist.
+export const SOLANA_RPC_URL =
+  (import.meta.env.VITE_SOLANA_RPC_URL as string | undefined)?.trim() ||
+  'https://api.mainnet-beta.solana.com';
+
 // The platform fee accrues to a Tegridy-owned Solana associated token account
 // (ATA), ideally owned by a Squads multisig. OPERATOR: set the base58 pubkey of
 // that fee account in Vercel env as VITE_SOLANA_FEE_ACCOUNT. The Solana swap

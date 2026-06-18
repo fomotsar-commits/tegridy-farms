@@ -10,6 +10,7 @@ import {
   GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
+import { isSolanaConfigured } from './solana';
 
 export interface NavItem {
   to: string;
@@ -47,6 +48,12 @@ export const COMMUNITY_LIVE = PROMOTE_PENDING || [
 ].some(isDeployed);
 
 export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
+
+// Solana fee-capture surface (Surface A). Gated until the operator sets a fee
+// account (VITE_SOLANA_FEE_ACCOUNT) — hidden from nav until then so we don't
+// promote an inert page. The /solana route stays reachable by URL (it renders
+// the FeatureNotDeployed placeholder while dark).
+export const SOLANA_LIVE = isSolanaConfigured();
 
 /**
  * Primary navigation — the core items shown in both TopNav (desktop)
@@ -91,6 +98,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Tegridy Score' },
+      ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
     ],
   },
   {
