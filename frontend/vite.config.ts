@@ -199,6 +199,14 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/paraswap/, ''),
         },
+        // Solana swap surface — mirrors the prod /api/jupiter serverless proxy
+        // (vercel.json rewrite → api/aggregator/jupiter → lite-api.jup.ag) so
+        // quotes/swaps work in local dev too.
+        '/api/jupiter': {
+          target: 'https://lite-api.jup.ag',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/jupiter/, ''),
+        },
         // /api/etherscan is a Vercel serverless function in production.
         // For local dev we forward to the deployed proxy so the API key stays
         // server-side and we don't need a separate local key. Production
