@@ -157,15 +157,31 @@ const CONFIGS = {
   jupiter: {
     identifier: "jupiter",
     upstreamBase: "https://lite-api.jup.ag",
-    matchPath: (segments) =>
-      segments.length === 3 &&
-      segments[0] === "swap" &&
-      segments[1] === "v1" &&
-      (segments[2] === "quote" || segments[2] === "swap"),
+    // swap/v1/{quote,swap} (trade) + tokens/v2/search (any-pair token search +
+    // paste-a-mint resolve). Exact segment matches only — keep the surface narrow.
+    matchPath: (segments) => {
+      if (
+        segments.length === 3 &&
+        segments[0] === "swap" &&
+        segments[1] === "v1" &&
+        (segments[2] === "quote" || segments[2] === "swap")
+      ) {
+        return true;
+      }
+      if (
+        segments.length === 3 &&
+        segments[0] === "tokens" &&
+        segments[1] === "v2" &&
+        segments[2] === "search"
+      ) {
+        return true;
+      }
+      return false;
+    },
     allowedMethods: new Set(["GET", "POST", "OPTIONS"]),
-    // Quote (GET) query allowlist. The /swap call is POST with a small JSON
-    // body (quoteResponse / userPublicKey / feeAccount / wrapAndUnwrapSol …)
-    // forwarded verbatim under the 32 KB cap — no query params on that path.
+    // GET query allowlist (quote params + `query` for token search). The /swap
+    // call is POST with a small JSON body (quoteResponse / userPublicKey /
+    // feeAccount / wrapAndUnwrapSol …) forwarded verbatim under the 32 KB cap.
     allowedQuery: [
       "inputMint",
       "outputMint",
@@ -179,6 +195,7 @@ const CONFIGS = {
       "maxAccounts",
       "dexes",
       "excludeDexes",
+      "query",
     ],
     rateLimit: 60,
     rateWindowSec: 60,

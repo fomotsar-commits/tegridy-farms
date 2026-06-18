@@ -1,10 +1,15 @@
-// Curated SPL token allowlist for the Solana swap surface (Surface A).
+// SPL token model + resolver for the Solana swap surface (Surface A).
 //
-// SAFETY: this is a HAND-CURATED allowlist on purpose. The buy surface must NOT
-// auto-list arbitrary mints — Solana has rampant honeypot / freeze-authority /
-// Token-2022-transfer-hook scams. Every mint below is a verified canonical
-// mainnet mint. OPERATOR: add your own hosted tokens (e.g. Jungle Bay) under
-// BUY_TOKENS with a VERIFIED mint + decimals before relying on them in prod.
+// Users can swap ANY pair: tokens are resolved on demand from the Jupiter token
+// API (search by symbol/name OR paste a mint), so this file is no longer an
+// allowlist — the curated consts below are just a "featured" shortlist shown as
+// the picker's empty state. Risk signals (verified / Token-2022 / freeze) come
+// back with each token so the UI can warn without blocking (the founder wants
+// any pair). All calls go through our same-origin hardened proxy.
+import { JUPITER_TOKENS_BASE } from './solana';
+
+// Canonical legacy SPL Token program id — anything else implies Token-2022.
+export const LEGACY_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 export interface SolToken {
   /** Base58 SPL mint address. */
@@ -13,6 +18,16 @@ export interface SolToken {
   name: string;
   decimals: number;
   logoURI?: string;
+  /** Jupiter "verified" tag — false/undefined → show an "Unverified" warning. */
+  verified?: boolean;
+  /** Owning token program; !== LEGACY_TOKEN_PROGRAM → Token-2022 extensions. */
+  tokenProgram?: string;
+  organicScoreLabel?: 'high' | 'medium' | 'low';
+  audit?: {
+    mintAuthorityDisabled?: boolean;
+    freezeAuthorityDisabled?: boolean;
+    topHoldersPercentage?: number;
+  };
 }
 
 // Native SOL (wrapped-SOL mint). Jupiter handles wrap/unwrap automatically.
@@ -21,6 +36,7 @@ export const SOL: SolToken = {
   symbol: 'SOL',
   name: 'Solana',
   decimals: 9,
+  verified: true,
 };
 
 export const USDC: SolToken = {
@@ -28,6 +44,7 @@ export const USDC: SolToken = {
   symbol: 'USDC',
   name: 'USD Coin',
   decimals: 6,
+  verified: true,
 };
 
 export const USDT: SolToken = {
@@ -35,34 +52,94 @@ export const USDT: SolToken = {
   symbol: 'USDT',
   name: 'Tether USD',
   decimals: 6,
+  verified: true,
 };
 
-// Tokens the user PAYS WITH (input side). The platform fee is taken from the
-// INPUT mint, so we only ever need a fee ATA for each of these — keep this set
-// small (and pre-create those ATAs for the fee wallet, per the plan).
+// Featured shortlist for the PAY side (picker empty state). Users can still
+// search/paste any token; the platform fee only attaches when a leg is SOL/USDC.
 export const PAY_WITH_TOKENS: SolToken[] = [SOL, USDC];
 
-// Tokens the user can BUY (output side). Canonical mints only.
-// OPERATOR: add Jungle Bay + your hosted tokens here, e.g.
-//   { mint: '<JUNGLE_BAY_MINT>', symbol: 'JBAY', name: 'Jungle Bay', decimals: <d> },
+// Featured shortlist for the BUY side (picker empty state). Not a restriction.
 export const BUY_TOKENS: SolToken[] = [
   SOL,
   USDC,
   USDT,
-  {
-    mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
-    symbol: 'JUP',
-    name: 'Jupiter',
-    decimals: 6,
-  },
-  {
-    mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-    symbol: 'BONK',
-    name: 'Bonk',
-    decimals: 5,
-  },
+  { mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', symbol: 'JUP', name: 'Jupiter', decimals: 6, verified: true },
+  { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, verified: true },
 ];
 
 export function findSolToken(mint: string): SolToken | undefined {
   return [...PAY_WITH_TOKENS, ...BUY_TOKENS].find((t) => t.mint === mint);
+}
+
+// ─── Resolver (Jupiter token API v2 via our proxy) ───────────────────────────
+
+interface JupTokenV2 {
+  id?: string; // the mint address (V2 renamed `address` → `id`)
+  symbol?: string;
+  name?: string;
+  decimals?: number;
+  icon?: string; // V2 renamed `logoURI` → `icon`
+  isVerified?: boolean;
+  tokenProgram?: string;
+  organicScoreLabel?: string;
+  audit?: SolToken['audit'];
+}
+
+function mapV2(t: JupTokenV2): SolToken | null {
+  // decimals is load-bearing for amount math — never invent it.
+  if (!t || typeof t.id !== 'string' || typeof t.decimals !== 'number') return null;
+  const score = t.organicScoreLabel;
+  return {
+    mint: t.id,
+    symbol: t.symbol || `${t.id.slice(0, 4)}…`,
+    name: t.name || t.symbol || 'Unknown token',
+    decimals: t.decimals,
+    logoURI: t.icon,
+    verified: t.isVerified === true,
+    tokenProgram: t.tokenProgram,
+    organicScoreLabel: score === 'high' || score === 'medium' || score === 'low' ? score : undefined,
+    audit: t.audit,
+  };
+}
+
+// Session cache so paste-a-mint / re-selection doesn't re-hit the API.
+const _cache = new Map<string, SolToken>();
+
+/**
+ * Search tokens by symbol, name, OR mint address (one endpoint covers both
+ * "search" and "paste a mint"). Returns up to 25 mapped tokens.
+ */
+export async function searchTokens(query: string, signal?: AbortSignal): Promise<SolToken[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/tokens/v2/search?query=${encodeURIComponent(q)}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  if (!res.ok) throw new Error(`Token search failed (${res.status})`);
+  const arr = (await res.json()) as unknown;
+  if (!Array.isArray(arr)) return [];
+  const out: SolToken[] = [];
+  for (const t of arr.slice(0, 25)) {
+    const mapped = mapV2(t as JupTokenV2);
+    if (mapped) {
+      _cache.set(mapped.mint, mapped);
+      out.push(mapped);
+    }
+  }
+  return out;
+}
+
+/** Resolve a single mint address to its token (with authoritative decimals). */
+export async function resolveMint(mint: string, signal?: AbortSignal): Promise<SolToken | null> {
+  const cached = _cache.get(mint);
+  if (cached) return cached;
+  const results = await searchTokens(mint, signal);
+  return results.find((t) => t.mint === mint) ?? null;
+}
+
+/** base58, 32–44 chars — a plausible Solana mint address pasted into search. */
+export function looksLikeMint(q: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q.trim());
 }

@@ -1,12 +1,21 @@
 // Jupiter Swap API client for the Solana fee-capture surface (Surface A).
 //
 // All calls go to our same-origin hardened proxy (/api/jupiter/*), which
-// forwards to lite-api.jup.ag server-side. The platform fee is taken from the
-// INPUT mint (so we only need a fee ATA for the small PAY_WITH set), via
-// `platformFeeBps` on the quote + `feeAccount` on the swap. No own program.
+// forwards to lite-api.jup.ag server-side. Supports ANY pair. The platform fee
+// is attached ONLY when a leg of the pair is in our pre-created fee-ATA set
+// {wSOL, USDC}: Jupiter requires the fee account to already exist, and for
+// ExactIn the fee mint may be the input OR output side — so that one set covers
+// both directions of any pair touching SOL/USDC. For any other pair the swap
+// runs fee-free, so an arbitrary pair can never break. No own program.
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { JUPITER_PROXY_BASE, SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS } from './solana';
+import {
+  JUPITER_PROXY_BASE,
+  SOLANA_FEE_ACCOUNT,
+  SOLANA_PLATFORM_FEE_BPS,
+  SOL_MINT,
+  USDC_MINT,
+} from './solana';
 
 // We only read a few fields; the whole object is passed back to /swap verbatim,
 // so keep an index signature for the rest of Jupiter's response shape.
@@ -24,17 +33,39 @@ export interface JupiterQuote {
 }
 
 /**
- * Derive the platform-fee token account: an ATA of the INPUT mint owned by the
- * Tegridy fee wallet (SOLANA_FEE_ACCOUNT). `allowOwnerOffCurve = true` because
- * the owner may be a Squads vault PDA (off-curve). Returns null when no fee
- * account is configured (then no fee is charged).
+ * Pick the fee mint for a pair, or null for no fee. We can only collect a fee in
+ * a mint whose ATA the fee wallet has pre-created — that set is {wSOL, USDC}
+ * (both legacy SPL). For ExactIn the fee mint may be either leg, so this one set
+ * covers both directions of any pair touching SOL or USDC; ExactOut allows the
+ * input mint only. Prefer USDC (stable, no wSOL dust). Pure / env-independent so
+ * it's unit-testable; the configured-and-enabled gating lives at the call sites.
  */
-export function deriveFeeAccount(inputMint: string): string | null {
+export function pickFeeMint(
+  inputMint: string,
+  outputMint: string,
+  swapMode: string = 'ExactIn',
+): string | null {
+  const candidates = swapMode === 'ExactOut' ? [inputMint] : [inputMint, outputMint];
+  if (candidates.includes(USDC_MINT)) return USDC_MINT;
+  if (candidates.includes(SOL_MINT)) return SOL_MINT;
+  return null;
+}
+
+/** A platform fee can be collected only when a fee account is configured + bps > 0. */
+function feeEnabled(): boolean {
+  return SOLANA_FEE_ACCOUNT.length > 0 && SOLANA_PLATFORM_FEE_BPS > 0;
+}
+
+/**
+ * Derive the fee token account (ATA of `feeMint` owned by the fee wallet).
+ * `feeMint` is always legacy SPL {wSOL, USDC}, so the default token program is
+ * correct. `allowOwnerOffCurve = true` because the owner may be a Squads PDA.
+ */
+function feeAccountFor(feeMint: string): string | null {
   if (!SOLANA_FEE_ACCOUNT) return null;
   try {
     const owner = new PublicKey(SOLANA_FEE_ACCOUNT);
-    const mint = new PublicKey(inputMint);
-    return getAssociatedTokenAddressSync(mint, owner, true).toBase58();
+    return getAssociatedTokenAddressSync(new PublicKey(feeMint), owner, true).toBase58();
   } catch {
     return null;
   }
@@ -56,8 +87,10 @@ export async function getQuote(params: {
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
   });
-  // Only attach the platform fee when there's an account to receive it.
-  if (SOLANA_FEE_ACCOUNT && SOLANA_PLATFORM_FEE_BPS > 0) {
+  // Attach the platform fee ONLY when a leg of the pair is fee-supported. The
+  // SAME decision drives /swap, so platformFeeBps is never sent without a
+  // matching feeAccount (which Jupiter rejects) and the fee account always exists.
+  if (feeEnabled() && pickFeeMint(params.inputMint, params.outputMint)) {
     qs.set('platformFeeBps', String(SOLANA_PLATFORM_FEE_BPS));
   }
   const res = await fetch(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, {
@@ -76,7 +109,12 @@ export async function buildSwapTransaction(params: {
   quote: JupiterQuote;
   userPublicKey: string;
 }): Promise<string> {
-  const feeAccount = deriveFeeAccount(params.quote.inputMint);
+  // Derive the fee account from the SAME pair-aware decision as the quote, so
+  // platformFeeBps + feeAccount stay coupled (both present, or neither).
+  const feeMint = feeEnabled()
+    ? pickFeeMint(params.quote.inputMint, params.quote.outputMint, params.quote.swapMode)
+    : null;
+  const feeAccount = feeMint ? feeAccountFor(feeMint) : null;
   const body: Record<string, unknown> = {
     quoteResponse: params.quote,
     userPublicKey: params.userPublicKey,

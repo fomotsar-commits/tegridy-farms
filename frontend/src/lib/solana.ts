@@ -17,6 +17,10 @@
 // wallet + swap UI lands; that's a later batch.)
 export const JUPITER_PROXY_BASE = '/api/jupiter/swap/v1';
 
+// Base for Jupiter's token API (search + paste-a-mint resolve) through the same
+// proxy provider. Client calls /api/jupiter/tokens/v2/search?query=…
+export const JUPITER_TOKENS_BASE = '/api/jupiter';
+
 // Solana RPC the wallet/swap UI talks to directly (sendRawTransaction + status
 // polling — we deliberately avoid WS subscriptions).
 //

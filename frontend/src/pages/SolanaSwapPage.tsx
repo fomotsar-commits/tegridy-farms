@@ -12,17 +12,21 @@ import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
-import { isSolanaConfigured, SOLANA_PLATFORM_FEE_BPS } from '../lib/solana';
+import { isSolanaConfigured, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import {
   PAY_WITH_TOKENS,
   BUY_TOKENS,
   SOL,
   USDC,
+  LEGACY_TOKEN_PROGRAM,
+  searchTokens,
+  looksLikeMint,
   type SolToken,
 } from '../lib/solanaTokenList';
 import {
   getQuote,
   buildSwapTransaction,
+  pickFeeMint,
   toBaseUnits,
   fromBaseUnits,
   type JupiterQuote,
@@ -58,25 +62,75 @@ async function pollConfirm(connection: Connection, signature: string, timeoutMs 
 
 interface TokenPickerProps {
   title: string;
-  tokens: SolToken[];
+  featured: SolToken[];
   onSelect: (t: SolToken) => void;
   onClose: () => void;
 }
 
-function TokenPicker({ title, tokens, onSelect, onClose }: TokenPickerProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
+function riskBadges(t: SolToken): { label: string; tone: 'amber' | 'red' }[] {
+  const out: { label: string; tone: 'amber' | 'red' }[] = [];
+  if (t.verified === false) out.push({ label: 'Unverified', tone: 'amber' });
+  if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
+  if (t.audit?.freezeAuthorityDisabled === false) out.push({ label: 'Can freeze', tone: 'red' });
+  return out;
+}
 
-  // Escape to close + focus management: move focus into the dialog on open,
-  // trap Tab within it, and restore focus to the trigger on close (mirrors the
+function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => void }) {
+  const badges = riskBadges(t);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(t)}
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors text-left"
+    >
+      <div
+        className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+        style={{ background: 'var(--color-purple-25)' }}
+      >
+        {t.symbol.slice(0, 3)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-white text-[13px] font-medium truncate">{t.symbol}</span>
+          {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-label="Verified">✓</span>}
+        </div>
+        <div className="text-white/50 text-[11px] truncate">{t.name}</div>
+        {badges.length > 0 && (
+          <div className="flex gap-1 flex-wrap mt-0.5">
+            {badges.map((b) => (
+              <span
+                key={b.label}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${b.tone === 'red' ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300'}`}
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SolToken[] | null>(null); // null = show featured
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Escape to close + focus management: focus the search box on open, trap Tab
+  // within the dialog, and restore focus to the trigger on close (mirrors the
   // TopNav drawer's a11y pattern).
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
+    inputRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { onClose(); return; }
       if (e.key !== 'Tab' || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        'input, button:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
       if (focusables.length === 0) return;
       const first = focusables[0]!;
@@ -95,6 +149,31 @@ function TokenPicker({ title, tokens, onSelect, onClose }: TokenPickerProps) {
     };
   }, [onClose]);
 
+  // Debounced token search — matches symbol, name, OR a pasted mint address.
+  // All setState runs inside the deferred timeout/promise callbacks (never the
+  // synchronous effect body) so it can't trigger cascading renders.
+  useEffect(() => {
+    const q = query.trim();
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      if (!q) { setResults(null); setError(null); setLoading(false); return; }
+      setLoading(true); setError(null);
+      searchTokens(q, ctrl.signal)
+        .then((r) => {
+          if (ctrl.signal.aborted) return;
+          setResults(r); setLoading(false);
+          setError(r.length === 0 ? (looksLikeMint(q) ? 'Mint not found / not listed on Jupiter.' : 'No tokens found.') : null);
+        })
+        .catch((err: unknown) => {
+          if (ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+          setResults([]); setLoading(false); setError('Search unavailable — try again.');
+        });
+    }, q ? 350 : 0);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [query]);
+
+  const list = results ?? featured;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
@@ -108,26 +187,23 @@ function TokenPicker({ title, tokens, onSelect, onClose }: TokenPickerProps) {
           <h2 className="text-white text-[14px] font-semibold">{title}</h2>
           <button type="button" onClick={onClose} aria-label="Close token list" className="text-white/60 hover:text-white p-1 text-[14px]">✕</button>
         </div>
-        <div className="space-y-1 max-h-[320px] overflow-y-auto">
-          {tokens.map((t) => (
-            <button
-              key={t.mint}
-              type="button"
-              onClick={() => onSelect(t)}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors text-left"
-            >
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
-                style={{ background: 'var(--color-purple-25)' }}
-              >
-                {t.symbol.slice(0, 3)}
-              </div>
-              <div className="min-w-0">
-                <div className="text-white text-[13px] font-medium">{t.symbol}</div>
-                <div className="text-white/50 text-[11px] truncate">{t.name}</div>
-              </div>
-            </button>
-          ))}
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search name / symbol, or paste a mint"
+          aria-label="Search tokens"
+          spellCheck={false}
+          autoComplete="off"
+          className="w-full mb-3 px-3 py-2 rounded-lg bg-black/50 text-white text-[13px] outline-none"
+          style={{ border: '1px solid rgba(255,255,255,0.14)' }}
+        />
+        {!results && <p className="text-white/40 text-[10px] uppercase tracking-wide mb-1 px-1">Popular</p>}
+        <div className="space-y-1 max-h-[300px] overflow-y-auto">
+          {loading && <div className="px-3 py-2.5 text-white/50 text-[12px]">Searching…</div>}
+          {!loading && list.map((t) => <TokenRow key={t.mint} t={t} onSelect={onSelect} />)}
+          {!loading && error && <p className="px-3 py-2 text-amber-300 text-[12px]">{error}</p>}
         </div>
       </div>
     </div>
@@ -148,10 +224,14 @@ function SolanaSwapInner() {
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
+  const [ack, setAck] = useState(false);
 
   const baseAmount = useMemo(() => toBaseUnits(amount, payToken.decimals), [amount, payToken.decimals]);
   const sameToken = payToken.mint === buyToken.mint;
   const canQuote = baseAmount !== null && !sameToken;
+
+  // Reset the unverified-token acknowledgement whenever the pair changes.
+  useEffect(() => { setAck(false); }, [payToken.mint, buyToken.mint]);
 
   // Debounced quote fetch.
   useEffect(() => {
@@ -190,6 +270,11 @@ function SolanaSwapInner() {
   const rawImpact = Number(quote?.priceImpactPct);
   const priceImpact = Number.isFinite(rawImpact) ? Math.abs(rawImpact * 100) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
+  // The fee can only be collected on a pair touching SOL or USDC (pre-created
+  // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
+  const feeMintForPair = isSolanaConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
+  const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
+  const needsAck = payToken.verified === false || buyToken.verified === false;
 
   async function handleSwap() {
     if (!publicKey || !quote || !baseAmount) return;
@@ -223,7 +308,7 @@ function SolanaSwapInner() {
     }
   }
 
-  const actionDisabled = !quote || quoteLoading || swapping || sameToken;
+  const actionDisabled = !quote || quoteLoading || swapping || sameToken || (needsAck && !ack);
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
@@ -333,7 +418,7 @@ function SolanaSwapInner() {
           <div className="mb-4 text-[11px] space-y-1">
             <div className="flex items-center justify-between text-white/70">
               <span>Platform fee</span>
-              <span className="font-mono">{feePct}% · in {payToken.symbol}</span>
+              <span className="font-mono">{feeMintSymbol ? `${feePct}% · in ${feeMintSymbol}` : 'None on this pair'}</span>
             </div>
             {quote && priceImpact !== null && (
               <div className="flex items-center justify-between text-white/70">
@@ -345,6 +430,20 @@ function SolanaSwapInner() {
             {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
             {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
           </div>
+
+          {/* Unverified-token warning — warn, don't block (any pair is allowed). */}
+          {needsAck && (
+            <label
+              className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg cursor-pointer"
+              style={{ background: 'rgba(150,40,40,0.20)', border: '1px solid rgba(255,90,90,0.35)' }}
+            >
+              <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
+              <span className="text-[11px] text-red-200">
+                One of these tokens isn't verified on Jupiter — it could be a scam or have transfer restrictions
+                (freeze authority / transfer fees). I understand and want to swap anyway.
+              </span>
+            </label>
+          )}
 
           {/* Action */}
           {!publicKey ? (
@@ -368,7 +467,7 @@ function SolanaSwapInner() {
           )}
 
           <p className="mt-3 text-center text-white/40 text-[10px]">
-            Swaps route through Jupiter on Solana. A {feePct}% platform fee supports Tegridy Farms.
+            Swaps route through Jupiter on Solana. A {feePct}% platform fee applies on pairs that include SOL or USDC.
           </p>
         </div>
       </m.div>
@@ -376,7 +475,7 @@ function SolanaSwapInner() {
       {picker === 'pay' && (
         <TokenPicker
           title="Pay with"
-          tokens={PAY_WITH_TOKENS}
+          featured={PAY_WITH_TOKENS}
           onClose={() => setPicker(null)}
           onSelect={(t) => { setPayToken(t); setPicker(null); }}
         />
@@ -384,7 +483,7 @@ function SolanaSwapInner() {
       {picker === 'buy' && (
         <TokenPicker
           title="Buy"
-          tokens={BUY_TOKENS}
+          featured={BUY_TOKENS}
           onClose={() => setPicker(null)}
           onSelect={(t) => { setBuyToken(t); setPicker(null); }}
         />
