@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import (jupiter.ts / providers pull
 // in web3.js) — keep this the very first import in this lazy chunk's entry.
 import '../lib/solanaPolyfill';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { VersionedTransaction, type Connection } from '@solana/web3.js';
@@ -53,7 +53,7 @@ async function pollConfirm(connection: Connection, signature: string, timeoutMs 
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  throw new Error('Confirmation timed out (it may still land)');
+  throw new Error('Could not confirm in time — check your wallet / Solscan before retrying');
 }
 
 interface TokenPickerProps {
@@ -64,17 +64,44 @@ interface TokenPickerProps {
 }
 
 function TokenPicker({ title, tokens, onSelect, onClose }: TokenPickerProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Escape to close + focus management: move focus into the dialog on open,
+  // trap Tab within it, and restore focus to the trigger on close (mirrors the
+  // TopNav drawer's a11y pattern).
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const prevFocus = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const focusables = panelRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !panelRef.current.contains(active)) { last.focus(); e.preventDefault(); }
+      } else {
+        if (active === last || !panelRef.current.contains(active)) { first.focus(); e.preventDefault(); }
+      }
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      prevFocus?.focus();
+    };
   }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div
-        className="relative z-10 w-full max-w-sm rounded-2xl p-4"
+        ref={panelRef}
+        tabIndex={-1}
+        className="relative z-10 w-full max-w-sm rounded-2xl p-4 outline-none"
         style={{ background: 'var(--color-bg-elevated)', border: '1px solid rgba(255,255,255,0.14)' }}
       >
         <div className="flex items-center justify-between mb-3">
@@ -145,26 +172,39 @@ function SolanaSwapInner() {
         slippageBps,
         signal: ctrl.signal,
       })
-        .then((q) => { setQuote(q); setQuoteError(null); })
+        .then((q) => {
+          if (ctrl.signal.aborted) return;
+          setQuote(q); setQuoteError(null); setQuoteLoading(false);
+        })
         .catch((err: unknown) => {
-          if (err instanceof DOMException && err.name === 'AbortError') return;
+          if (ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
           setQuote(null);
           setQuoteError('No route for this pair / amount.');
-        })
-        .finally(() => setQuoteLoading(false));
+          setQuoteLoading(false);
+        });
     }, 400);
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps]);
 
   const outputDisplay = quote ? prettyAmount(fromBaseUnits(quote.outAmount, buyToken.decimals)) : '0';
-  const priceImpact = quote ? (Number(quote.priceImpactPct) * 100) : 0;
+  const rawImpact = Number(quote?.priceImpactPct);
+  const priceImpact = Number.isFinite(rawImpact) ? Math.abs(rawImpact * 100) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
 
   async function handleSwap() {
-    if (!publicKey || !quote) return;
+    if (!publicKey || !quote || !baseAmount) return;
     setSwapping(true);
     try {
-      const b64 = await buildSwapTransaction({ quote, userPublicKey: publicKey.toBase58() });
+      // Re-quote right before building so the on-chain min-out + routing match
+      // the live market (the displayed quote may be seconds-to-minutes stale).
+      const fresh = await getQuote({
+        inputMint: payToken.mint,
+        outputMint: buyToken.mint,
+        amount: baseAmount,
+        slippageBps,
+      });
+      setQuote(fresh);
+      const b64 = await buildSwapTransaction({ quote: fresh, userPublicKey: publicKey.toBase58() });
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const tx = VersionedTransaction.deserialize(bytes);
       const sig = await sendTransaction(tx, connection);
@@ -295,7 +335,7 @@ function SolanaSwapInner() {
               <span>Platform fee</span>
               <span className="font-mono">{feePct}% · in {payToken.symbol}</span>
             </div>
-            {quote && (
+            {quote && priceImpact !== null && (
               <div className="flex items-center justify-between text-white/70">
                 <span>Price impact</span>
                 <span className="font-mono">{priceImpact < 0.01 ? '<0.01' : priceImpact.toFixed(2)}%</span>
@@ -303,6 +343,7 @@ function SolanaSwapInner() {
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
             {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
+            {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
           </div>
 
           {/* Action */}

@@ -18,13 +18,24 @@
 export const JUPITER_PROXY_BASE = '/api/jupiter/swap/v1';
 
 // Solana RPC the wallet/swap UI talks to directly (sendRawTransaction + status
-// polling — we deliberately avoid WS subscriptions). OPERATOR: set a Helius/
-// QuickNode/Triton endpoint via VITE_SOLANA_RPC_URL; the public default is
-// heavily rate-limited and fine only for light testing. Whatever host you pick
-// must be in the vercel.json CSP connect-src allowlist.
+// polling — we deliberately avoid WS subscriptions).
+//
+// OPERATOR — SECRET HAZARD: VITE_* is statically inlined into the PUBLIC client
+// bundle (the repo already learned this for Alchemy/OpenSea — vite.config.ts
+// [H-35]). NEVER put an API key here: a keyed URL (Helius `?api-key=…`,
+// QuickNode/Triton `/<TOKEN>/`) ships to every browser and gets scraped/drained.
+// Use ONLY a keyless/public RPC. A private/keyed RPC must go behind a same-origin
+// hardened proxy (like /api/jupiter) — a follow-up batch, not this VITE_ var.
 export const SOLANA_RPC_URL =
   (import.meta.env.VITE_SOLANA_RPC_URL as string | undefined)?.trim() ||
   'https://api.mainnet-beta.solana.com';
+
+// Dev-only guard: shout if a keyed RPC URL was pasted into the public env var.
+if (import.meta.env.DEV && /api-key=|helius-rpc\.com|quiknode|rpcpool\.com/i.test(SOLANA_RPC_URL)) {
+  console.warn(
+    '[solana] VITE_SOLANA_RPC_URL looks like a KEYED RPC — VITE_ vars are public, so this key will ship in the client bundle. Use a keyless RPC or a same-origin proxy.',
+  );
+}
 
 // The platform fee accrues to a Tegridy-owned Solana associated token account
 // (ATA), ideally owned by a Squads multisig. OPERATOR: set the base58 pubkey of
