@@ -137,6 +137,10 @@ export const EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
 // SwapFeeRouter.feeBps() (read on-chain if the owner ever retunes it).
 export const SWAP_FEE_BPS = 50; // 0.5%
 
+// NOTE: Solana fee-capture config (Surface A) lives in src/lib/solana.ts, NOT
+// here — this file is imported by wagmi.config.ts (compiled under the node
+// tsconfig, no "vite/client"), so `import.meta.env` is untyped in this context.
+
 // Helper: check if an address is deployed (not zero address)
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 export function isDeployed(address: string): boolean {

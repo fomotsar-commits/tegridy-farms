@@ -145,6 +145,44 @@ const CONFIGS = {
     rateLimit: 60,
     rateWindowSec: 60,
   },
+
+  // Jupiter Swap API (SOLANA) — GET /swap/v1/quote, POST /swap/v1/swap.
+  // 2026-06-18: Solana fee-capture surface (Surface A — see
+  // docs/SOLANA_FEE_CAPTURE_PLAN.md). Keyless lite-api tier. The platform fee
+  // is taken via `platformFeeBps` (quote query) + `feeAccount` (a plain
+  // Tegridy-owned ATA in the swap POST body) — no Jupiter Referral Program
+  // needed since Jan 2025, and NO own on-chain program / NO bridge / TOWELI
+  // never touches Solana. Same hardening as the EVM aggregators: origin
+  // allowlist, per-IP rate limit, 32 KB body cap, response header stripping.
+  jupiter: {
+    identifier: "jupiter",
+    upstreamBase: "https://lite-api.jup.ag",
+    matchPath: (segments) =>
+      segments.length === 3 &&
+      segments[0] === "swap" &&
+      segments[1] === "v1" &&
+      (segments[2] === "quote" || segments[2] === "swap"),
+    allowedMethods: new Set(["GET", "POST", "OPTIONS"]),
+    // Quote (GET) query allowlist. The /swap call is POST with a small JSON
+    // body (quoteResponse / userPublicKey / feeAccount / wrapAndUnwrapSol …)
+    // forwarded verbatim under the 32 KB cap — no query params on that path.
+    allowedQuery: [
+      "inputMint",
+      "outputMint",
+      "amount",
+      "slippageBps",
+      "swapMode",
+      "platformFeeBps",
+      "restrictIntermediateTokens",
+      "onlyDirectRoutes",
+      "asLegacyTransaction",
+      "maxAccounts",
+      "dexes",
+      "excludeDexes",
+    ],
+    rateLimit: 60,
+    rateWindowSec: 60,
+  },
 };
 
 export default async function handler(req, res) {

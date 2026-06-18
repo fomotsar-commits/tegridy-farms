@@ -136,6 +136,19 @@ const MATRIX = [
     okQuery: { tokenIn: "0xeee", tokenOut: "0xeee", amount: "1", sender: "0xeee", maxSlippage: "0.005" },
     okBody: null,
   },
+  {
+    // Jupiter Swap API (Solana fee-capture, Surface A). Quote is GET; the
+    // /swap POST path is exercised separately below. badMethod must be a verb
+    // that is genuinely NOT allowlisted (jupiter allows GET + POST + OPTIONS).
+    id: "jupiter",
+    mod: AGG_HANDLER,
+    okPath: ["swap", "v1", "quote"],
+    badPath: ["swap", "v1", "transaction"],
+    okMethod: "GET",
+    badMethod: "DELETE",
+    okQuery: { inputMint: "So11111111111111111111111111111111111111112", outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", amount: "1000000", slippageBps: "50", platformFeeBps: "100" },
+    okBody: null,
+  },
 ];
 
 describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, okMethod, badMethod, okQuery: _okQuery, okBody }) => {
@@ -277,6 +290,32 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(200);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("aggregator proxy — jupiter swap (POST path)", () => {
+  let handler;
+  let fetchMock;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    fetchMock = mockUpstreamOk({ swapTransaction: "base64-tx" });
+    globalThis.fetch = fetchMock;
+    handler = (await import(AGG_HANDLER)).default;
+  });
+
+  it("accepts POST /swap/v1/swap and forwards the body upstream", async () => {
+    const req = makeReq({
+      method: "POST",
+      query: { provider: "jupiter", path: ["swap", "v1", "swap"] },
+      body: { userPublicKey: "abc", feeAccount: "def", quoteResponse: { x: 1 } },
+    });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("swap/v1/swap");
   });
 });
 
