@@ -486,6 +486,12 @@ function SolanaSwapInner() {
                 <span className="font-mono">{priceImpact < 0.01 ? '<0.01' : priceImpact.toFixed(2)}%</span>
               </div>
             )}
+            {quote && (
+              <div className="flex items-center justify-between text-white/70">
+                <span>Minimum received</span>
+                <span className="font-mono">{prettyAmount(fromBaseUnits(quote.otherAmountThreshold, buyToken.decimals))} {buyToken.symbol}</span>
+              </div>
+            )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
             {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
             {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}

@@ -1,7 +1,27 @@
 # Solana Fee-Capture Plan
 
-**Status:** Decided 2026-06-18 (research + red-team, 18 agents across 2 workflow runs). Implementation: Surface A foundation in progress.
-**Owner decision driver:** "Be the multichain hub" → narrowed to **fee capture off specific Solana tokens the owner holds (e.g. Jungle Bay) + a swap surface for other SPL tokens.**
+**Status:** Surface A **SHIPPED** to `mvp-launch` (2026-06-18), gated OFF until activated. Decided via research + red-team (23 agents across 4 workflow runs).
+**Owner decision driver:** "Be the multichain hub" → fee capture off Solana swaps, **any pair** (not a curated list).
+
+---
+
+## ✅ SHIPPED — final architecture (supersedes the design notes further down)
+
+A complete, production-grade `/solana` swap surface. Users swap **any SPL pair** (search by symbol/name or paste a mint, like Jupiter's own UI); Tegridy skims a platform fee on every pair that touches SOL or USDC. No own on-chain program, no bridge, TOWELI never on Solana.
+
+- **Routing:** all Jupiter calls (quote, swap, token search) go through the hardened same-origin proxy `/api/jupiter/*` → `lite-api.jup.ag`. RPC (balances, send, confirm) goes through `/api/solrpc` → server-only `SOLANA_RPC_URL`.
+- **Fee model (`pickFeeMint`):** the fee mint is whichever leg of the pair is in the pre-created set **{wSOL, USDC}** (ExactIn lets the fee sit on either leg; prefer USDC). If neither leg touches SOL/USDC, the swap runs **fee-free** — it can never break. The same decision drives the quote (`platformFeeBps`) and the swap (`feeAccount`) so they're always coupled and the fee account always pre-exists. So you only ever pre-create **two** fee ATAs and they cover every SOL/USDC-touching pair, both directions.
+- **Decimals:** authoritative from the Jupiter token API per selected mint — never hardcoded.
+- **Safety:** verified ✓ / Unverified / Token-2022 / "can freeze" badges + an "I understand, swap anyway" gate for unverified tokens (warn, don't block). Token icons deliberately not loaded (CSP can't allowlist arbitrary hosts + privacy).
+- **UX:** wallet balance + MAX + insufficient-balance guard, slippage presets, price impact, minimum received, status-polling confirmation + Solscan link.
+- **Security:** keyed prod RPC stays server-side (the [H-35] lesson); the browser only talks to our own origin; everything is origin-allowlisted + rate-limited + body-capped. Lazy-loaded (`vendor-solana` chunk; main bundle untouched). Ships DARK behind `isSolanaConfigured()`.
+
+### Operator activation runbook
+1. Create a **Squads multisig** fee wallet on Solana.
+2. **Pre-create that wallet's wSOL + USDC ATAs** (the only fee accounts ever needed; else the fee silently collects $0).
+3. In Vercel env: set **`VITE_SOLANA_FEE_ACCOUNT`** = the fee wallet's base58 pubkey, and **`SOLANA_RPC_URL`** = a keyed Helius/QuickNode/Triton URL (server-only — safe to key). Optionally `VITE_SOLANA_PLATFORM_FEE_BPS` (default 100 = 1%).
+4. **Redeploy** (Vite inlines `VITE_*` at build). The `/solana` page + nav entry auto-un-gate.
+5. Periodically **sweep + unwrap** the accrued fees (SOL-side accrues as wSOL).
 
 ---
 
