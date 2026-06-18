@@ -207,6 +207,13 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/jupiter/, ''),
         },
+        // Solana RPC proxy — mirrors api/solrpc.js. Forwards JSON-RPC POSTs to
+        // the configured RPC (server-only SOLANA_RPC_URL, or the keyless default).
+        '/api/solrpc': {
+          target: env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+          changeOrigin: true,
+          rewrite: () => '/',
+        },
         // /api/etherscan is a Vercel serverless function in production.
         // For local dev we forward to the deployed proxy so the API key stays
         // server-side and we don't need a separate local key. Production

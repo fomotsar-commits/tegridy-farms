@@ -4,7 +4,7 @@ import '../lib/solanaPolyfill';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
-import { VersionedTransaction, type Connection } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -210,6 +210,45 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
   );
 }
 
+// Connected wallet's balance for a token (SOL via getBalance; SPL via parsed
+// token accounts). Reads through the proxied connection. Returns null on no
+// wallet / error (balance just doesn't render).
+function useTokenBalance(token: SolToken): { raw: bigint | null; human: string | null; loading: boolean } {
+  const { connection } = useConnection();
+  const { publicKey } = useWallet();
+  const [raw, setRaw] = useState<bigint | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!publicKey) { setRaw(null); setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        let amount: bigint;
+        if (token.mint === SOL_MINT) {
+          amount = BigInt(await connection.getBalance(publicKey));
+        } else {
+          const resp = await connection.getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(token.mint) });
+          amount = resp.value.reduce((sum, a) => {
+            const v = (a.account.data.parsed as { info?: { tokenAmount?: { amount?: string } } } | undefined)?.info?.tokenAmount?.amount;
+            return sum + (v ? BigInt(v) : 0n);
+          }, 0n);
+        }
+        if (!cancelled) setRaw(amount);
+      } catch {
+        if (!cancelled) setRaw(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [connection, publicKey, token.mint, token.decimals]);
+
+  const human = raw === null ? null : fromBaseUnits(raw.toString(), token.decimals);
+  return { raw, human, loading };
+}
+
 function SolanaSwapInner() {
   const { connection } = useConnection();
   const { publicKey, sendTransaction, connecting } = useWallet();
@@ -225,6 +264,7 @@ function SolanaSwapInner() {
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
   const [ack, setAck] = useState(false);
+  const payBalance = useTokenBalance(payToken);
 
   const baseAmount = useMemo(() => toBaseUnits(amount, payToken.decimals), [amount, payToken.decimals]);
   const sameToken = payToken.mint === buyToken.mint;
@@ -275,6 +315,18 @@ function SolanaSwapInner() {
   const feeMintForPair = isSolanaConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
   const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
   const needsAck = payToken.verified === false || buyToken.verified === false;
+  const insufficient = payBalance.raw !== null && baseAmount !== null && BigInt(baseAmount) > payBalance.raw;
+
+  function handleMax() {
+    if (payBalance.raw === null) return;
+    let usable = payBalance.raw;
+    if (payToken.mint === SOL_MINT) {
+      // Leave ~0.01 SOL for tx fees + temporary wSOL-account rent.
+      const reserve = 10_000_000n;
+      usable = usable > reserve ? usable - reserve : 0n;
+    }
+    setAmount(usable > 0n ? fromBaseUnits(usable.toString(), payToken.decimals) : '');
+  }
 
   async function handleSwap() {
     if (!publicKey || !quote || !baseAmount) return;
@@ -308,7 +360,7 @@ function SolanaSwapInner() {
     }
   }
 
-  const actionDisabled = !quote || quoteLoading || swapping || sameToken || (needsAck && !ack);
+  const actionDisabled = !quote || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient;
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
@@ -343,6 +395,14 @@ function SolanaSwapInner() {
           <div className="mb-1">
             <div className="flex items-center justify-between mb-2">
               <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
+              {publicKey && (
+                <span className="text-white/60 text-[10px] font-mono">
+                  Balance: {payBalance.loading ? '…' : payBalance.human ? prettyAmount(payBalance.human) : '0'}
+                  {payBalance.raw !== null && payBalance.raw > 0n && (
+                    <button type="button" onClick={handleMax} className="ml-1.5 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
+                  )}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
               <button
@@ -429,6 +489,7 @@ function SolanaSwapInner() {
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
             {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
             {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
+            {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
           </div>
 
           {/* Unverified-token warning — warn, don't block (any pair is allowed). */}
@@ -462,7 +523,7 @@ function SolanaSwapInner() {
               disabled={actionDisabled}
               className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50"
             >
-              {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
+              {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
             </button>
           )}
 

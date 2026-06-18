@@ -4,7 +4,7 @@ import { useMemo, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import '@solana/wallet-adapter-react-ui/styles.css';
-import { SOLANA_RPC_URL } from '../../lib/solana';
+import { solanaRpcEndpoint } from '../../lib/solana';
 
 /**
  * Solana wallet context — mounted ONLY around the lazy Solana swap page, so the
@@ -13,7 +13,7 @@ import { SOLANA_RPC_URL } from '../../lib/solana';
  * via the Wallet Standard, so the `wallets` array can stay empty.
  */
 export function SolanaProviders({ children }: { children: ReactNode }) {
-  const endpoint = useMemo(() => SOLANA_RPC_URL, []);
+  const endpoint = useMemo(() => solanaRpcEndpoint(), []);
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
       <WalletProvider wallets={[]} autoConnect>

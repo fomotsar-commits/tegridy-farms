@@ -21,24 +21,18 @@ export const JUPITER_PROXY_BASE = '/api/jupiter/swap/v1';
 // proxy provider. Client calls /api/jupiter/tokens/v2/search?query=…
 export const JUPITER_TOKENS_BASE = '/api/jupiter';
 
-// Solana RPC the wallet/swap UI talks to directly (sendRawTransaction + status
-// polling — we deliberately avoid WS subscriptions).
-//
-// OPERATOR — SECRET HAZARD: VITE_* is statically inlined into the PUBLIC client
-// bundle (the repo already learned this for Alchemy/OpenSea — vite.config.ts
-// [H-35]). NEVER put an API key here: a keyed URL (Helius `?api-key=…`,
-// QuickNode/Triton `/<TOKEN>/`) ships to every browser and gets scraped/drained.
-// Use ONLY a keyless/public RPC. A private/keyed RPC must go behind a same-origin
-// hardened proxy (like /api/jupiter) — a follow-up batch, not this VITE_ var.
-export const SOLANA_RPC_URL =
-  (import.meta.env.VITE_SOLANA_RPC_URL as string | undefined)?.trim() ||
-  'https://api.mainnet-beta.solana.com';
+// Same-origin Solana RPC proxy (/api/solrpc). The browser NEVER talks to a
+// Solana RPC host directly: a production RPC embeds an API key in its URL, and a
+// VITE_* client var would inline that key into the PUBLIC bundle (the repo's
+// own [H-35] lesson). The keyed URL lives server-side in the `SOLANA_RPC_URL`
+// env on the api/solrpc serverless function; the browser only hits our origin.
+// Because of that, RPC needs only CSP 'self' — no Solana host in connect-src.
+export const SOLANA_RPC_PROXY_PATH = '/api/solrpc';
 
-// Dev-only guard: shout if a keyed RPC URL was pasted into the public env var.
-if (import.meta.env.DEV && /api-key=|helius-rpc\.com|quiknode|rpcpool\.com/i.test(SOLANA_RPC_URL)) {
-  console.warn(
-    '[solana] VITE_SOLANA_RPC_URL looks like a KEYED RPC — VITE_ vars are public, so this key will ship in the client bundle. Use a keyless RPC or a same-origin proxy.',
-  );
+// web3.js Connection needs an ABSOLUTE URL — resolve against our own origin.
+export function solanaRpcEndpoint(): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}${SOLANA_RPC_PROXY_PATH}`;
 }
 
 // The platform fee accrues to a Tegridy-owned Solana associated token account
