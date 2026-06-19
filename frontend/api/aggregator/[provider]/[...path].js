@@ -194,6 +194,19 @@ const CONFIGS = {
       if (segments.length === 3 && segments[0] === "ultra" && segments[1] === "v1" && segments[2] === "shield") {
         return true;
       }
+      // Limit orders (Jupiter Trigger): trigger/v1/{createOrder,execute,cancelOrder,cancelOrders,getTriggerOrders}
+      if (
+        segments.length === 3 &&
+        segments[0] === "trigger" &&
+        segments[1] === "v1" &&
+        (segments[2] === "createOrder" ||
+          segments[2] === "execute" ||
+          segments[2] === "cancelOrder" ||
+          segments[2] === "cancelOrders" ||
+          segments[2] === "getTriggerOrders")
+      ) {
+        return true;
+      }
       return false;
     },
     allowedMethods: new Set(["GET", "POST", "OPTIONS"]),
@@ -217,6 +230,9 @@ const CONFIGS = {
       "limit",
       "ids",
       "mints",
+      "user",
+      "orderStatus",
+      "page",
     ],
     rateLimit: 60,
     rateWindowSec: 60,

@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import (jupiter.ts / providers pull
 // in web3.js) — keep this the very first import in this lazy chunk's entry.
 import '../lib/solanaPolyfill';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
@@ -36,10 +36,15 @@ import {
   routeLabels,
   getShield,
   simulateSwap,
+  createTriggerOrder,
+  getTriggerOrders,
+  cancelTriggerOrder,
+  orderKeyOf,
   toBaseUnits,
   fromBaseUnits,
   type JupiterQuote,
   type ShieldWarning,
+  type TriggerOrder,
 } from '../lib/jupiter';
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
@@ -405,6 +410,189 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
   );
 }
 
+// Limit orders — Jupiter Trigger: real ON-CHAIN orders, filled by keepers (no tab
+// to keep open, unlike the EVM browser-only Alerts). Shares the pair with swap.
+// v1 ships fee-off (integrator fees need a referral-account setup).
+function LimitTab({ payToken, buyToken, onPickPay, onPickBuy }: {
+  payToken: SolToken; buyToken: SolToken; onPickPay: () => void; onPickBuy: () => void;
+}) {
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction, connecting } = useWallet();
+  const { setVisible } = useWalletModal();
+
+  const [sellAmount, setSellAmount] = useState('');
+  const [price, setPrice] = useState('');
+  const [expiryDays, setExpiryDays] = useState(7);
+  const [placing, setPlacing] = useState(false);
+  const [orders, setOrders] = useState<TriggerOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+
+  const sameToken = payToken.mint === buyToken.mint;
+  const makingAmount = useMemo(() => toBaseUnits(sellAmount, payToken.decimals), [sellAmount, payToken.decimals]);
+  const takingAmount = useMemo(() => {
+    if (!makingAmount || !sellAmount || !price) return null;
+    const p = Number(price);
+    const a = Number(sellAmount);
+    if (!Number.isFinite(p) || !Number.isFinite(a) || p <= 0 || a <= 0) return null;
+    return toBaseUnits((a * p).toFixed(buyToken.decimals), buyToken.decimals);
+  }, [makingAmount, sellAmount, price, buyToken.decimals]);
+
+  const loadOrders = useCallback(() => {
+    if (!publicKey) { setOrders([]); return; }
+    setOrdersLoading(true);
+    getTriggerOrders(publicKey.toBase58())
+      .then((o) => setOrders(o))
+      .catch(() => setOrders([]))
+      .finally(() => setOrdersLoading(false));
+  }, [publicKey]);
+
+  useEffect(() => { loadOrders(); }, [loadOrders]);
+
+  async function signSend(b64: string): Promise<string> {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const tx = VersionedTransaction.deserialize(bytes);
+    const sig = await sendTransaction(tx, connection);
+    await pollConfirm(connection, sig);
+    return sig;
+  }
+
+  async function handlePlace() {
+    if (!publicKey || !makingAmount || !takingAmount || sameToken) return;
+    setPlacing(true);
+    try {
+      const expiredAt = expiryDays > 0 ? Math.floor(Date.now() / 1000) + expiryDays * 86400 : undefined;
+      const b64 = await createTriggerOrder({
+        inputMint: payToken.mint,
+        outputMint: buyToken.mint,
+        maker: publicKey.toBase58(),
+        makingAmount,
+        takingAmount,
+        expiredAt,
+      });
+      const sig = await signSend(b64);
+      toast.success('Limit order placed', {
+        description: shortSig(sig),
+        action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
+      });
+      setSellAmount(''); setPrice('');
+      loadOrders();
+    } catch (err) {
+      toast.error('Could not place order', { description: (err as Error).message });
+    } finally {
+      setPlacing(false);
+    }
+  }
+
+  async function handleCancel(o: TriggerOrder) {
+    const key = orderKeyOf(o);
+    if (!publicKey || !key) return;
+    setCancelling(key);
+    try {
+      const sig = await signSend(await cancelTriggerOrder(publicKey.toBase58(), key));
+      toast.success('Order cancelled', { description: shortSig(sig) });
+      loadOrders();
+    } catch (err) {
+      toast.error('Could not cancel', { description: (err as Error).message });
+    } finally {
+      setCancelling(null);
+    }
+  }
+
+  const canPlace = !!publicKey && !!makingAmount && !!takingAmount && !sameToken && !placing;
+
+  return (
+    <>
+      <div className="mb-1">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Sell</span>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+          <button type="button" onClick={onPickPay} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
+            <span className="text-white font-medium text-[14px]">{payToken.symbol}</span>
+            <span className="text-white/80" aria-hidden="true">▾</span>
+          </button>
+          <input type="number" inputMode="decimal" placeholder="0.0" aria-label={`Amount of ${payToken.symbol} to sell`} value={sellAmount} onChange={(e) => setSellAmount(e.target.value)} className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0" />
+        </div>
+      </div>
+
+      <div className="mt-3 mb-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>When 1 {payToken.symbol} =</span>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+          <button type="button" onClick={onPickBuy} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
+            <span className="text-white font-medium text-[14px]">{buyToken.symbol}</span>
+            <span className="text-white/80" aria-hidden="true">▾</span>
+          </button>
+          <input type="number" inputMode="decimal" placeholder="0.0" aria-label={`Target price in ${buyToken.symbol}`} value={price} onChange={(e) => setPrice(e.target.value)} className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0" />
+        </div>
+      </div>
+
+      <div className="mb-3 text-[11px] space-y-1">
+        {takingAmount && (
+          <div className="flex items-center justify-between text-white/70">
+            <span>You receive (at limit)</span>
+            <span className="font-mono">{prettyAmount(fromBaseUnits(takingAmount, buyToken.decimals))} {buyToken.symbol}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-white/70">
+          <span>Expires</span>
+          <select value={expiryDays} onChange={(e) => setExpiryDays(Number(e.target.value))} className="bg-black/40 text-white font-mono text-[11px] outline-none rounded-md px-1.5 py-0.5" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
+            <option value={1}>1 day</option>
+            <option value={7}>7 days</option>
+            <option value={30}>30 days</option>
+            <option value={0}>Never</option>
+          </select>
+        </div>
+        {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
+      </div>
+
+      {!publicKey ? (
+        <button type="button" onClick={() => setVisible(true)} disabled={connecting} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-60">
+          {connecting ? 'Connecting…' : 'Connect Solana Wallet'}
+        </button>
+      ) : (
+        <button type="button" onClick={() => void handlePlace()} disabled={!canPlace} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50">
+          {placing ? 'Placing…' : !makingAmount ? 'Enter an amount' : !takingAmount ? 'Enter a price' : 'Place limit order'}
+        </button>
+      )}
+
+      <p className="mt-3 text-center text-white/40 text-[10px]">
+        Real on-chain order, filled automatically by Jupiter keepers — no tab to keep open. Funds are reserved until fill, cancel, or expiry.
+      </p>
+
+      {publicKey && (
+        <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-white text-[12px] font-semibold">Open orders</span>
+            <button type="button" onClick={loadOrders} className="text-white/50 text-[10px] hover:text-white">Refresh</button>
+          </div>
+          {ordersLoading ? (
+            <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders.length === 0 ? (
+            <p className="text-white/40 text-[11px]">No open orders.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {orders.map((o, i) => {
+                const key = orderKeyOf(o);
+                return (
+                  <div key={key ?? i} className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.10)' }}>
+                    <span className="text-white/70 text-[11px] font-mono truncate">{key ? `${key.slice(0, 4)}…${key.slice(-4)}` : 'order'}</span>
+                    <button type="button" onClick={() => void handleCancel(o)} disabled={!key || cancelling === key} className="text-red-300 text-[11px] hover:text-red-200 disabled:opacity-50 flex-shrink-0">
+                      {cancelling === key ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function SolanaSwapInner() {
   const { connection } = useConnection();
   const { publicKey, sendTransaction, connecting } = useWallet();
@@ -419,6 +607,7 @@ function SolanaSwapInner() {
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
+  const [mode, setMode] = useState<'swap' | 'limit'>('swap');
   const [ack, setAck] = useState(false);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [shield, setShield] = useState<Record<string, ShieldWarning[]>>({});
@@ -595,6 +784,27 @@ function SolanaSwapInner() {
             ) : null}
           </div>
 
+          {/* Mode tabs */}
+          <div className="flex gap-1 mb-4">
+            {(['swap', 'limit'] as const).map((mTab) => (
+              <button
+                key={mTab}
+                type="button"
+                onClick={() => setMode(mTab)}
+                aria-pressed={mode === mTab}
+                className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white transition-colors"
+                style={{
+                  background: mode === mTab ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                  border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                }}
+              >
+                {mTab === 'swap' ? 'Instant swap' : 'Limit order'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'swap' ? (
+            <>
           {/* You pay */}
           <div className="mb-1">
             <div className="flex items-center justify-between mb-2">
@@ -753,12 +963,19 @@ function SolanaSwapInner() {
           <p className="mt-3 text-center text-white/40 text-[10px]">
             Swaps route through Jupiter on Solana. A {feePct}% platform fee applies on pairs that include SOL or USDC.
           </p>
+            </>
+          ) : (
+            <LimitTab payToken={payToken} buyToken={buyToken} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
+          )}
         </div>
       </m.div>
 
-      <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
-
-      <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+      {mode === 'swap' && (
+        <>
+          <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+          <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+        </>
+      )}
 
       {picker === 'pay' && (
         <TokenPicker

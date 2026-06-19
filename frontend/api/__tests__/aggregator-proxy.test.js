@@ -366,6 +366,22 @@ describe("aggregator proxy — jupiter trending + price paths", () => {
     expect(url).toContain("ultra/v1/shield");
     expect(url).toContain("mints=");
   });
+
+  it("allows GET trigger/v1/getTriggerOrders with user", async () => {
+    const req = makeReq({ method: "GET", query: { provider: "jupiter", path: ["trigger", "v1", "getTriggerOrders"], user: "abc", orderStatus: "active" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("getTriggerOrders");
+  });
+
+  it("allows POST trigger/v1/createOrder", async () => {
+    const req = makeReq({ method: "POST", query: { provider: "jupiter", path: ["trigger", "v1", "createOrder"] }, body: { inputMint: "x", outputMint: "y" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("trigger/v1/createOrder");
+  });
 });
 
 describe("aggregator proxy — body cap (32 KB)", () => {

@@ -249,3 +249,85 @@ export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise
   if (value.err === null || value.err === undefined) return { ok: true, reason: null };
   return { ok: false, reason: parseSimError(value.err, value.logs) };
 }
+
+// ─── Limit orders (Jupiter Trigger — real on-chain, keeper-filled) ──────────
+
+export interface TriggerOrder {
+  orderKey?: string;
+  publicKey?: string;
+  inputMint?: string;
+  outputMint?: string;
+  makingAmount?: string;
+  takingAmount?: string;
+  account?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * Create a limit order. Returns the base64 transaction for the wallet to
+ * sign+send (same flow as a swap). v1 ships FEE-OFF — integrator fees need a
+ * Jupiter referral-account setup (operator-gated follow-up).
+ */
+export async function createTriggerOrder(params: {
+  inputMint: string;
+  outputMint: string;
+  maker: string;
+  makingAmount: string;
+  takingAmount: string;
+  expiredAt?: number;
+}): Promise<string> {
+  const body: Record<string, unknown> = {
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    maker: params.maker,
+    payer: params.maker,
+    params: {
+      makingAmount: params.makingAmount,
+      takingAmount: params.takingAmount,
+      ...(params.expiredAt ? { expiredAt: String(params.expiredAt) } : {}),
+    },
+    computeUnitPrice: 'auto',
+  };
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/trigger/v1/createOrder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Could not create order (${res.status})`);
+  const json = (await res.json()) as { transaction?: string };
+  if (!json.transaction) throw new Error('No order transaction returned');
+  return json.transaction;
+}
+
+/** A wallet's active (unfilled) limit orders. */
+export async function getTriggerOrders(user: string, signal?: AbortSignal): Promise<TriggerOrder[]> {
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/trigger/v1/getTriggerOrders?user=${user}&orderStatus=active`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  if (!res.ok) throw new Error(`Could not load orders (${res.status})`);
+  const json = (await res.json()) as { orders?: TriggerOrder[] };
+  return Array.isArray(json.orders) ? json.orders : [];
+}
+
+/** Cancel a limit order. Returns the base64 tx for the wallet to sign+send. */
+export async function cancelTriggerOrder(maker: string, order: string): Promise<string> {
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/trigger/v1/cancelOrder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ maker, order, computeUnitPrice: 'auto' }),
+  });
+  if (!res.ok) throw new Error(`Could not cancel order (${res.status})`);
+  const json = (await res.json()) as { transaction?: string };
+  if (!json.transaction) throw new Error('No cancel transaction returned');
+  return json.transaction;
+}
+
+/** Best-effort extraction of an order's pubkey (the field name varies). */
+export function orderKeyOf(o: TriggerOrder): string | null {
+  const a = o.account as Record<string, unknown> | undefined;
+  if (typeof o.orderKey === 'string') return o.orderKey;
+  if (typeof o.publicKey === 'string') return o.publicKey;
+  if (a && typeof a.orderKey === 'string') return a.orderKey;
+  return null;
+}
