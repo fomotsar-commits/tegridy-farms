@@ -21,12 +21,18 @@ import {
   LEGACY_TOKEN_PROGRAM,
   searchTokens,
   looksLikeMint,
+  fetchTrending,
+  iconSrc,
   type SolToken,
+  type TrendingCategory,
+  type TrendingInterval,
 } from '../lib/solanaTokenList';
 import {
   getQuote,
   buildSwapTransaction,
   pickFeeMint,
+  getUsdPrices,
+  routeLabels,
   toBaseUnits,
   fromBaseUnits,
   type JupiterQuote,
@@ -75,6 +81,34 @@ function riskBadges(t: SolToken): { label: string; tone: 'amber' | 'red' }[] {
   return out;
 }
 
+// Token icon via the CSP-safe weserv proxy, falling back to an initials avatar
+// on missing/broken images (we never load arbitrary token-image hosts directly).
+function TokenAvatar({ token, size = 28 }: { token: SolToken; size?: number }) {
+  const [errored, setErrored] = useState(false);
+  const src = errored ? '' : iconSrc(token.logoURI);
+  const px = `${size}px`;
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onError={() => setErrored(true)}
+        className="rounded-full flex-shrink-0 object-cover"
+        style={{ width: px, height: px, background: 'var(--color-purple-25)' }}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+      style={{ width: px, height: px, background: 'var(--color-purple-25)' }}
+    >
+      {token.symbol.slice(0, 3)}
+    </div>
+  );
+}
+
 function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => void }) {
   const badges = riskBadges(t);
   return (
@@ -83,12 +117,7 @@ function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => voi
       onClick={() => onSelect(t)}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors text-left"
     >
-      <div
-        className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
-        style={{ background: 'var(--color-purple-25)' }}
-      >
-        {t.symbol.slice(0, 3)}
-      </div>
+      <TokenAvatar token={t} size={28} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="text-white text-[13px] font-medium truncate">{t.symbol}</span>
@@ -249,6 +278,95 @@ function useTokenBalance(token: SolToken): { raw: bigint | null; human: string |
   return { raw, human, loading };
 }
 
+// Trending Solana tokens — drives one-click, fee-bearing buys (pay SOL → token).
+function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
+  const [category, setCategory] = useState<TrendingCategory>('toptrending');
+  const [tokens, setTokens] = useState<SolToken[]>([]);
+  const [loading, setLoading] = useState(true);
+  const interval: TrendingInterval = '24h';
+
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    // setState in the deferred callback (not the synchronous effect body).
+    const t = setTimeout(() => {
+      setLoading(true);
+      fetchTrending(category, interval, 12, ctrl.signal)
+        .then((ts) => { if (!cancelled) { setTokens(ts); setLoading(false); } })
+        .catch((err: unknown) => {
+          if (ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+          if (!cancelled) { setTokens([]); setLoading(false); }
+        });
+    }, 0);
+    return () => { cancelled = true; ctrl.abort(); clearTimeout(t); };
+  }, [category]);
+
+  const CATS: { key: TrendingCategory; label: string }[] = [
+    { key: 'toptrending', label: 'Trending' },
+    { key: 'toptraded', label: 'Top Traded' },
+    { key: 'toporganicscore', label: 'Top Organic' },
+  ];
+
+  if (!loading && tokens.length === 0) return null;
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <h2 className="text-white text-[13px] font-semibold flex-shrink-0">Trending on Solana</h2>
+        <div className="flex gap-1">
+          {CATS.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => setCategory(c.key)}
+              aria-pressed={category === c.key}
+              className="px-2 py-1 rounded-md text-[10px] font-medium text-white transition-colors"
+              style={{
+                background: category === c.key ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                border: category === c.key ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+              }}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {loading
+          ? Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-[56px] rounded-xl animate-pulse" style={{ background: 'rgba(255,255,255,0.06)' }} />
+            ))
+          : tokens.map((t) => {
+              const chg = t.priceChange24h;
+              return (
+                <button
+                  key={t.mint}
+                  type="button"
+                  onClick={() => onPick(t)}
+                  className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left"
+                  style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.10)' }}
+                >
+                  <TokenAvatar token={t} size={26} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-white text-[12px] font-medium truncate">{t.symbol}</span>
+                      {t.verified === true && <span className="text-success text-[9px]" aria-label="Verified">✓</span>}
+                    </div>
+                    {typeof chg === 'number' && (
+                      <span className={`text-[10px] font-mono ${chg >= 0 ? 'text-success' : 'text-red-300'}`}>
+                        {chg >= 0 ? '+' : ''}{chg.toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+      </div>
+      <p className="text-white/30 text-[9px] mt-1.5">Trending data from Jupiter. Not an endorsement — verify before buying.</p>
+    </div>
+  );
+}
+
 function SolanaSwapInner() {
   const { connection } = useConnection();
   const { publicKey, sendTransaction, connecting } = useWallet();
@@ -264,6 +382,7 @@ function SolanaSwapInner() {
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
   const [ack, setAck] = useState(false);
+  const [prices, setPrices] = useState<Record<string, number>>({});
   const payBalance = useTokenBalance(payToken);
 
   const baseAmount = useMemo(() => toBaseUnits(amount, payToken.decimals), [amount, payToken.decimals]);
@@ -306,6 +425,15 @@ function SolanaSwapInner() {
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps]);
 
+  // USD prices for the pay + receive legs (one call, refreshed on pair change).
+  useEffect(() => {
+    let cancelled = false;
+    getUsdPrices([payToken.mint, buyToken.mint])
+      .then((p) => { if (!cancelled) setPrices(p); })
+      .catch(() => { /* USD context is best-effort */ });
+    return () => { cancelled = true; };
+  }, [payToken.mint, buyToken.mint]);
+
   const outputDisplay = quote ? prettyAmount(fromBaseUnits(quote.outAmount, buyToken.decimals)) : '0';
   const rawImpact = Number(quote?.priceImpactPct);
   const priceImpact = Number.isFinite(rawImpact) ? Math.abs(rawImpact * 100) : null;
@@ -316,6 +444,20 @@ function SolanaSwapInner() {
   const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
   const needsAck = payToken.verified === false || buyToken.verified === false;
   const insufficient = payBalance.raw !== null && baseAmount !== null && BigInt(baseAmount) > payBalance.raw;
+
+  const payUsd = (() => {
+    const p = prices[payToken.mint];
+    if (!p || !baseAmount) return null;
+    const amt = Number(fromBaseUnits(baseAmount, payToken.decimals));
+    return Number.isFinite(amt) ? amt * p : null;
+  })();
+  const receiveUsd = (() => {
+    const p = prices[buyToken.mint];
+    if (!p || !quote) return null;
+    const amt = Number(fromBaseUnits(quote.outAmount, buyToken.decimals));
+    return Number.isFinite(amt) ? amt * p : null;
+  })();
+  const fmtUsd = (n: number) => `~$${n < 0.01 ? '0.01' : n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 
   function handleMax() {
     if (payBalance.raw === null) return;
@@ -422,6 +564,7 @@ function SolanaSwapInner() {
                 className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
               />
             </div>
+            {payUsd !== null && <div className="text-right text-white/40 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>}
           </div>
 
           {/* You receive */}
@@ -445,6 +588,7 @@ function SolanaSwapInner() {
                 ) : outputDisplay}
               </div>
             </div>
+            {receiveUsd !== null && <div className="text-right text-white/40 text-[10px] mt-1 font-mono">{fmtUsd(receiveUsd)}</div>}
           </div>
 
           {/* Slippage */}
@@ -490,6 +634,12 @@ function SolanaSwapInner() {
               <div className="flex items-center justify-between text-white/70">
                 <span>Minimum received</span>
                 <span className="font-mono">{prettyAmount(fromBaseUnits(quote.otherAmountThreshold, buyToken.decimals))} {buyToken.symbol}</span>
+              </div>
+            )}
+            {quote && routeLabels(quote).length > 0 && (
+              <div className="flex items-center justify-between text-white/70">
+                <span>Route</span>
+                <span className="font-mono truncate ml-2" title={routeLabels(quote).join(' / ')}>via {routeLabels(quote).join(' / ')}</span>
               </div>
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
@@ -538,6 +688,8 @@ function SolanaSwapInner() {
           </p>
         </div>
       </m.div>
+
+      <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
 
       {picker === 'pay' && (
         <TokenPicker

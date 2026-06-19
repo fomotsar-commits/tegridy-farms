@@ -11,6 +11,7 @@ import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
   JUPITER_PROXY_BASE,
+  JUPITER_TOKENS_BASE,
   SOLANA_FEE_ACCOUNT,
   SOLANA_PLATFORM_FEE_BPS,
   SOL_MINT,
@@ -150,4 +151,33 @@ export function fromBaseUnits(raw: string, decimals: number): string {
   const whole = s.slice(0, s.length - decimals);
   const frac = s.slice(s.length - decimals).replace(/0+$/, '');
   return frac ? `${whole}.${frac}` : whole;
+}
+
+// ─── Conversion polish: USD prices + route transparency ─────────────────────
+
+/** USD prices for a set of mints in one keyless price/v3 call (via our proxy). */
+export async function getUsdPrices(mints: string[], signal?: AbortSignal): Promise<Record<string, number>> {
+  const ids = [...new Set(mints.filter(Boolean))];
+  if (ids.length === 0) return {};
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  if (!res.ok) throw new Error(`Price fetch failed (${res.status})`);
+  const json = (await res.json()) as Record<string, { usdPrice?: number } | null>;
+  const out: Record<string, number> = {};
+  for (const [mint, v] of Object.entries(json)) {
+    if (v && typeof v.usdPrice === 'number') out[mint] = v.usdPrice;
+  }
+  return out;
+}
+
+/** Distinct DEX names a quote routes through, e.g. ["Raydium","Orca"]. */
+export function routeLabels(quote: JupiterQuote): string[] {
+  const plan = quote.routePlan;
+  if (!Array.isArray(plan)) return [];
+  const labels = plan
+    .map((s) => (s as { swapInfo?: { label?: string } })?.swapInfo?.label)
+    .filter((l): l is string => typeof l === 'string' && l.length > 0);
+  return [...new Set(labels)];
 }

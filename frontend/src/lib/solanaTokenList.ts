@@ -28,6 +28,10 @@ export interface SolToken {
     freezeAuthorityDisabled?: boolean;
     topHoldersPercentage?: number;
   };
+  // Trending-card extras (present on top-tokens / search responses).
+  usdPrice?: number;
+  priceChange24h?: number;
+  mcap?: number;
 }
 
 // Native SOL (wrapped-SOL mint). Jupiter handles wrap/unwrap automatically.
@@ -84,6 +88,9 @@ interface JupTokenV2 {
   tokenProgram?: string;
   organicScoreLabel?: string;
   audit?: SolToken['audit'];
+  usdPrice?: number;
+  mcap?: number;
+  stats24h?: { priceChange?: number };
 }
 
 function mapV2(t: JupTokenV2): SolToken | null {
@@ -100,6 +107,9 @@ function mapV2(t: JupTokenV2): SolToken | null {
     tokenProgram: t.tokenProgram,
     organicScoreLabel: score === 'high' || score === 'medium' || score === 'low' ? score : undefined,
     audit: t.audit,
+    usdPrice: typeof t.usdPrice === 'number' ? t.usdPrice : undefined,
+    priceChange24h: typeof t.stats24h?.priceChange === 'number' ? t.stats24h.priceChange : undefined,
+    mcap: typeof t.mcap === 'number' ? t.mcap : undefined,
   };
 }
 
@@ -142,4 +152,42 @@ export async function resolveMint(mint: string, signal?: AbortSignal): Promise<S
 /** base58, 32–44 chars — a plausible Solana mint address pasted into search. */
 export function looksLikeMint(q: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q.trim());
+}
+
+// ─── Trending rails + CSP-safe icons ─────────────────────────────────────────
+
+export type TrendingCategory = 'toptrending' | 'toptraded' | 'toporganicscore';
+export type TrendingInterval = '5m' | '1h' | '6h' | '24h';
+
+/** Trending Solana tokens (drives one-click buys). Keyless, via our proxy. */
+export async function fetchTrending(
+  category: TrendingCategory = 'toptrending',
+  interval: TrendingInterval = '24h',
+  limit = 24,
+  signal?: AbortSignal,
+): Promise<SolToken[]> {
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/tokens/v2/${category}/${interval}?limit=${limit}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  if (!res.ok) throw new Error(`Trending fetch failed (${res.status})`);
+  const arr = (await res.json()) as unknown;
+  if (!Array.isArray(arr)) return [];
+  const out: SolToken[] = [];
+  for (const t of arr) {
+    const mapped = mapV2(t as JupTokenV2);
+    if (mapped) { _cache.set(mapped.mint, mapped); out.push(mapped); }
+  }
+  return out;
+}
+
+/**
+ * CSP-safe token icon URL via the weserv image proxy — so we never load (or leak
+ * the user's token interest to) arbitrary token-image hosts. Returns '' when no
+ * icon; callers fall back to the initials avatar. Only `wsrv.nl` needs to be in
+ * the img-src CSP.
+ */
+export function iconSrc(url?: string): string {
+  if (!url) return '';
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover&output=webp`;
 }

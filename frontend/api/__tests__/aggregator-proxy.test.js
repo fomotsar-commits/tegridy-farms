@@ -319,6 +319,45 @@ describe("aggregator proxy — jupiter swap (POST path)", () => {
   });
 });
 
+describe("aggregator proxy — jupiter trending + price paths", () => {
+  let handler;
+  let fetchMock;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    fetchMock = mockUpstreamOk({ ok: true });
+    globalThis.fetch = fetchMock;
+    handler = (await import(AGG_HANDLER)).default;
+  });
+
+  it("allows GET tokens/v2/toptrending/24h with limit", async () => {
+    const req = makeReq({ method: "GET", query: { provider: "jupiter", path: ["tokens", "v2", "toptrending", "24h"], limit: "12" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("toptrending/24h");
+  });
+
+  it("allows GET price/v3 with ids", async () => {
+    const req = makeReq({ method: "GET", query: { provider: "jupiter", path: ["price", "v3"], ids: "So111,EPjF" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("price/v3");
+    expect(url).toContain("ids=");
+  });
+
+  it("rejects a bad trending interval with 404", async () => {
+    const req = makeReq({ method: "GET", query: { provider: "jupiter", path: ["tokens", "v2", "toptrending", "99x"] } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("aggregator proxy — body cap (32 KB)", () => {
   let handler;
 

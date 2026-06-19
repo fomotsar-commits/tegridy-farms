@@ -176,6 +176,20 @@ const CONFIGS = {
       ) {
         return true;
       }
+      // Trending rails: tokens/v2/{toptrending,toptraded,toporganicscore}/{interval}
+      if (
+        segments.length === 4 &&
+        segments[0] === "tokens" &&
+        segments[1] === "v2" &&
+        (segments[2] === "toptrending" || segments[2] === "toptraded" || segments[2] === "toporganicscore") &&
+        (segments[3] === "5m" || segments[3] === "1h" || segments[3] === "6h" || segments[3] === "24h")
+      ) {
+        return true;
+      }
+      // USD prices for the pay/receive legs: price/v3?ids=A,B
+      if (segments.length === 2 && segments[0] === "price" && segments[1] === "v3") {
+        return true;
+      }
       return false;
     },
     allowedMethods: new Set(["GET", "POST", "OPTIONS"]),
@@ -196,6 +210,8 @@ const CONFIGS = {
       "dexes",
       "excludeDexes",
       "query",
+      "limit",
+      "ids",
     ],
     rateLimit: 60,
     rateWindowSec: 60,
