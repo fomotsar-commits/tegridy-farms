@@ -188,7 +188,7 @@ export function routeLabels(quote: JupiterQuote): string[] {
 export interface ShieldWarning {
   type?: string;
   message: string;
-  /** 'info' | 'warning' | 'critical' (codes evolve — render by severity). */
+  /** 'info' | 'warning' — the two tiers Jupiter Shield emits. Render by severity. */
   severity: string;
 }
 

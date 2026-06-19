@@ -20,6 +20,7 @@ import {
   USDC,
   LEGACY_TOKEN_PROGRAM,
   LST_TOKENS,
+  findSolToken,
   searchTokens,
   looksLikeMint,
   fetchTrending,
@@ -88,6 +89,19 @@ function riskBadges(t: SolToken): { label: string; tone: 'amber' | 'red' }[] {
   if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
   if (t.audit?.freezeAuthorityDisabled === false) out.push({ label: 'Can freeze', tone: 'red' });
   return out;
+}
+
+// Whether a mint's Shield warnings should FORCE the "swap anyway" ack. Jupiter
+// only emits info/warning severities (no critical tier), so we gate on warning+
+// — but a curated stablecoin/LST's expected freeze authority (USDC/USDT/LST) is
+// benign and shouldn't nag, while honeypot / transfer-hook / transfer-fee
+// warnings still gate.
+function dangerousShield(warnings: ShieldWarning[], mint: string): boolean {
+  return warnings.some((w) => {
+    if (!/warn|crit|danger|high|severe/i.test(w.severity)) return false;
+    if (w.type === 'HAS_FREEZE_AUTHORITY' && findSolToken(mint)) return false;
+    return true;
+  });
 }
 
 // Token icon via the CSP-safe weserv proxy, falling back to an initials avatar
@@ -413,8 +427,10 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
 // Limit orders — Jupiter Trigger: real ON-CHAIN orders, filled by keepers (no tab
 // to keep open, unlike the EVM browser-only Alerts). Shares the pair with swap.
 // v1 ships fee-off (integrator fees need a referral-account setup).
-function LimitTab({ payToken, buyToken, onPickPay, onPickBuy }: {
-  payToken: SolToken; buyToken: SolToken; onPickPay: () => void; onPickBuy: () => void;
+function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onPickPay, onPickBuy }: {
+  payToken: SolToken; buyToken: SolToken;
+  shieldWarnings: ShieldWarning[]; needsAck: boolean; ack: boolean; setAck: (v: boolean) => void;
+  onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction, connecting } = useWallet();
@@ -427,16 +443,19 @@ function LimitTab({ payToken, buyToken, onPickPay, onPickBuy }: {
   const [orders, setOrders] = useState<TriggerOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const payBalance = useTokenBalance(payToken);
 
   const sameToken = payToken.mint === buyToken.mint;
   const makingAmount = useMemo(() => toBaseUnits(sellAmount, payToken.decimals), [sellAmount, payToken.decimals]);
+  // takingAmount = makingAmount × price in BigInt fixed-point (no float / no
+  // exponential round-trip). price is the buyToken-per-1-payToken rate.
   const takingAmount = useMemo(() => {
-    if (!makingAmount || !sellAmount || !price) return null;
-    const p = Number(price);
-    const a = Number(sellAmount);
-    if (!Number.isFinite(p) || !Number.isFinite(a) || p <= 0 || a <= 0) return null;
-    return toBaseUnits((a * p).toFixed(buyToken.decimals), buyToken.decimals);
-  }, [makingAmount, sellAmount, price, buyToken.decimals]);
+    const priceBase = toBaseUnits(price, buyToken.decimals);
+    if (!makingAmount || !priceBase) return null;
+    const taking = (BigInt(makingAmount) * BigInt(priceBase)) / (10n ** BigInt(payToken.decimals));
+    return taking === 0n ? null : taking.toString();
+  }, [makingAmount, price, payToken.decimals, buyToken.decimals]);
+  const insufficient = payBalance.raw !== null && makingAmount !== null && BigInt(makingAmount) > payBalance.raw;
 
   const loadOrders = useCallback(() => {
     if (!publicKey) { setOrders([]); return; }
@@ -499,7 +518,7 @@ function LimitTab({ payToken, buyToken, onPickPay, onPickBuy }: {
     }
   }
 
-  const canPlace = !!publicKey && !!makingAmount && !!takingAmount && !sameToken && !placing;
+  const canPlace = !!publicKey && !!makingAmount && !!takingAmount && !sameToken && !placing && !insufficient && !(needsAck && !ack);
 
   return (
     <>
@@ -546,7 +565,23 @@ function LimitTab({ payToken, buyToken, onPickPay, onPickBuy }: {
           </select>
         </div>
         {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
+        {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
+        {makingAmount && Number(price) > 0 && !takingAmount && <p className="text-amber-300">Receive amount rounds to zero — increase the amount or price.</p>}
+        {shieldWarnings.map((w, i) => (
+          <p key={`lsh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
+            <span aria-hidden="true">⚠</span><span>{w.message}</span>
+          </p>
+        ))}
       </div>
+
+      {needsAck && (
+        <label className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg cursor-pointer" style={{ background: 'rgba(150,40,40,0.20)', border: '1px solid rgba(255,90,90,0.35)' }}>
+          <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
+          <span className="text-[11px] text-red-200">
+            This pair carries a risk warning (an unverified token, or flagged by Jupiter Shield above). I understand and want to place this order anyway.
+          </span>
+        </label>
+      )}
 
       {!publicKey ? (
         <button type="button" onClick={() => setVisible(true)} disabled={connecting} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-60">
@@ -554,7 +589,7 @@ function LimitTab({ payToken, buyToken, onPickPay, onPickBuy }: {
         </button>
       ) : (
         <button type="button" onClick={() => void handlePlace()} disabled={!canPlace} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50">
-          {placing ? 'Placing…' : !makingAmount ? 'Enter an amount' : !takingAmount ? 'Enter a price' : 'Place limit order'}
+          {placing ? 'Placing…' : !makingAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !price ? 'Enter a price' : !takingAmount ? 'Amount too small' : 'Place limit order'}
         </button>
       )}
 
@@ -576,9 +611,19 @@ function LimitTab({ payToken, buyToken, onPickPay, onPickBuy }: {
             <div className="space-y-1.5">
               {orders.map((o, i) => {
                 const key = orderKeyOf(o);
+                const fromTok = findSolToken(String(o.inputMint ?? ''));
+                const toTok = findSolToken(String(o.outputMint ?? ''));
+                const sell = o.makingAmount ? prettyAmount(fromBaseUnits(String(o.makingAmount), fromTok?.decimals ?? 9)) : null;
+                const buy = o.takingAmount ? prettyAmount(fromBaseUnits(String(o.takingAmount), toTok?.decimals ?? 9)) : null;
+                const keyShort = key ? `${key.slice(0, 4)}…${key.slice(-4)}` : 'order';
                 return (
                   <div key={key ?? i} className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.10)' }}>
-                    <span className="text-white/70 text-[11px] font-mono truncate">{key ? `${key.slice(0, 4)}…${key.slice(-4)}` : 'order'}</span>
+                    <div className="min-w-0">
+                      <div className="text-white/80 text-[11px] truncate">
+                        {sell && buy ? `Sell ${sell} ${fromTok?.symbol ?? '?'} → ${buy} ${toTok?.symbol ?? '?'}` : keyShort}
+                      </div>
+                      {sell && buy && <div className="text-white/40 text-[9px] font-mono truncate">{keyShort}</div>}
+                    </div>
                     <button type="button" onClick={() => void handleCancel(o)} disabled={!key || cancelling === key} className="text-red-300 text-[11px] hover:text-red-200 disabled:opacity-50 flex-shrink-0">
                       {cancelling === key ? 'Cancelling…' : 'Cancel'}
                     </button>
@@ -680,10 +725,12 @@ function SolanaSwapInner() {
   const feeMintForPair = isSolanaConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
   const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
   const shieldWarnings = [...(shield[payToken.mint] ?? []), ...(shield[buyToken.mint] ?? [])];
-  // Show ALL Shield warnings, but only FORCE the ack on critical/danger severity
-  // or an unverified token. `warning` (e.g. USDC's freeze authority — expected on
-  // legit stablecoins) is shown in red but doesn't gate, so we don't nag on USDC.
-  const hasBlockingShield = shieldWarnings.some((w) => /crit|danger|high|severe/i.test(w.severity));
+  // Show ALL Shield warnings, but only FORCE the ack on a genuinely dangerous
+  // warning (honeypot / transfer-hook / transfer-fee / non-curated freeze) or an
+  // unverified token — see dangerousShield (curated USDC freeze authority is benign).
+  const hasBlockingShield =
+    dangerousShield(shield[payToken.mint] ?? [], payToken.mint) ||
+    dangerousShield(shield[buyToken.mint] ?? [], buyToken.mint);
   const needsAck = payToken.verified === false || buyToken.verified === false || hasBlockingShield;
   const insufficient = payBalance.raw !== null && baseAmount !== null && BigInt(baseAmount) > payBalance.raw;
 
@@ -699,7 +746,7 @@ function SolanaSwapInner() {
     const amt = Number(fromBaseUnits(quote.outAmount, buyToken.decimals));
     return Number.isFinite(amt) ? amt * p : null;
   })();
-  const fmtUsd = (n: number) => `~$${n < 0.01 ? '0.01' : n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  const fmtUsd = (n: number) => (n < 0.01 ? '<$0.01' : `~$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
 
   function handleMax() {
     if (payBalance.raw === null) return;
@@ -965,7 +1012,7 @@ function SolanaSwapInner() {
           </p>
             </>
           ) : (
-            <LimitTab payToken={payToken} buyToken={buyToken} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
+            <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={setAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           )}
         </div>
       </m.div>
