@@ -1071,5 +1071,16 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
             pendingHarvestLpAmount = 0;
             emit POLHarvestCancelled();
         }
+        // AUDIT FIX 2026-06-18 (manual pass): the prior override flushed 5 of the 6
+        // timelock keys but omitted DAILY_ETH_CAP_CHANGE. An outgoing/compromised owner
+        // could `proposeDailyETHCap()` immediately before `transferOwnership`; the proposal
+        // survived the handoff and the new owner inherited an executable booby-trap (the
+        // same M19-PORT class this override exists to close). Mirrors cancelDailyETHCap().
+        if (_executeAfter[DAILY_ETH_CAP_CHANGE] != 0) {
+            uint256 cancelled = pendingDailyETHCap;
+            _cancel(DAILY_ETH_CAP_CHANGE);
+            pendingDailyETHCap = 0;
+            emit DailyETHCapChangeCancelled(cancelled);
+        }
     }
 }

@@ -177,6 +177,13 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     // ─── Pending Values (for timelocked changes) ─────────────────────
     address public pendingFeeReceiver;
 
+    /// @notice 2026-06-11 audit (acceptOwnership pending-proposal-flush): timestamp of the
+    ///         most recent ownership acceptance. A cancel-approved proposal whose propose
+    ///         time predates this is rejected by `executeCancelApproved`, so a cancellation
+    ///         queued by an outgoing owner cannot be finalized (permissionlessly) under the
+    ///         new owner. Zero until the first handoff (normal operation unaffected).
+    uint256 public lastOwnershipChangeAt;
+
     // ─── Fee Receiver Timelock Constants ─────────────────────────────
     uint256 public constant FEE_RECEIVER_TIMELOCK = 48 hours;
 
@@ -242,6 +249,11 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error RollingDisbursementExceeded();
 
     error AlreadyRefunded(); // AUDIT FIX H-01: Deposit already consumed or refunded
+    /// @dev 2026-06-11 audit (acceptOwnership pending-proposal-flush): a cancel-approved
+    ///      proposal queued before an ownership handoff must not be finalizable under the
+    ///      new owner — executeCancelApproved is permissionless, so the timelock queue
+    ///      cannot rely on the incoming owner declining to execute.
+    error CancelApprovedStaleAcrossHandoff();
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
     /// @notice AUDIT FIX: DEEP-GOV-05 — disbursement ring buffer is full and the
@@ -772,9 +784,26 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         if (proposal.status != ProposalStatus.Approved) revert NotApproved();
         if (depositRefunded[_proposalId]) revert AlreadyRefunded();
 
+        // 2026-06-11 audit (acceptOwnership pending-proposal-flush): reject a cancel-approved
+        // proposal queued before the latest ownership handoff. executeCancelApproved is
+        // permissionless, so without this an outgoing owner could pre-queue a cancellation of
+        // a community-Approved grant that ANYONE finalizes once the timelock elapses under the
+        // new owner. Propose-time is derived from the ready timestamp (readyAt - timelock) to
+        // avoid any new per-proposal storage.
+        bytes32 cancelKey = _cancelApprovedKey(_proposalId);
+        uint256 readyAt = _proposalReadyAt(cancelKey);
+        // `<=` (not `<`) closes the same-block edge: if the outgoing owner lands
+        // proposeCancelApproved in the SAME block as the incoming owner's acceptOwnership,
+        // proposeTime == lastOwnershipChangeAt — strict `<` would let that stale proposal
+        // survive. Rejecting at-or-before the handoff is safe: a genuinely new-owner cancel
+        // is proposed in a later block than its own acceptance (trivially re-proposed if not).
+        if (readyAt != 0 && readyAt - CANCEL_APPROVED_TIMELOCK <= lastOwnershipChangeAt) {
+            revert CancelApprovedStaleAcrossHandoff();
+        }
+
         // Consume the timelock slot. _execute clears _executeAfter[key] before any
         // external effects so a re-entrant call would see "no pending" and revert.
-        _execute(_cancelApprovedKey(_proposalId));
+        _execute(cancelKey);
 
         // Same accounting flow that the legacy owner-instant Approved cancel performed.
         totalApprovedPending -= proposal.amount;
@@ -1009,6 +1038,24 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         pendingFeeReceiver = address(0);
 
         emit FeeReceiverChangeCancelled(cancelled);
+    }
+
+    /// @notice 2026-06-11 audit (acceptOwnership pending-proposal-flush): on ownership
+    ///         handoff, stamp the handoff time (invalidating any pre-queued cancel-approved
+    ///         proposal — see executeCancelApproved) and flush the pending FEE_RECEIVER_CHANGE
+    ///         so the incoming owner inherits a clean timelock queue. Mirrors the pattern
+    ///         already shipped in PremiumAccess / TegridyStakingAdmin.
+    /// @dev    super.acceptOwnership() runs first so the pendingOwner→owner promotion (and the
+    ///         OwnableNoRenounce expiry guard) happens before we touch state.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        lastOwnershipChangeAt = block.timestamp;
+        if (_executeAfter[FEE_RECEIVER_CHANGE] != 0) {
+            address cancelled = pendingFeeReceiver;
+            _cancel(FEE_RECEIVER_CHANGE);
+            pendingFeeReceiver = address(0);
+            emit FeeReceiverChangeCancelled(cancelled);
+        }
     }
 
     // ─── Pausable ─────────────────────────────────────────────────────

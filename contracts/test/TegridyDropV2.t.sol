@@ -370,6 +370,46 @@ contract TegridyDropV2Test is Test {
         drop.setMintPhase(TegridyDropV2.MintPhase.PUBLIC);
     }
 
+    // ── AUDIT 2026-06-05 (MEDIUM, commit b4a4cf1): the H19 "toggle-to-free" guard
+    //    also covers DUTCH_AUCTION -> ALLOWLIST. ALLOWLIST prices off the SAME
+    //    storage `mintPrice` as PUBLIC (mint(): `mintPhase == DUTCH_AUCTION ?
+    //    _dutchAuctionPrice() : mintPrice`), so the same zero-price rug applies.
+    //    Sibling of the PUBLIC test above; the only structural difference is a
+    //    non-zero merkleRoot, so the ALLOWLIST-zero-root guard (src line 700)
+    //    does NOT fire first and mask the zero-price guard we're asserting. ──
+    function test_setMintPhase_revertsAllowlistZeroPriceAfterMint() public {
+        // Dutch drop with storage mintPrice == 0 (price comes from the curve) AND a
+        // non-zero merkleRoot, so `phase == ALLOWLIST && merkleRoot == bytes32(0)`
+        // can't short-circuit ahead of the ZeroPricePostMint guard under test.
+        TegridyDropV2.InitParams memory p = _defaults();
+        p.mintPrice = 0;
+        p.merkleRoot = bytes32(uint256(1));
+        p.dutchStartPrice = 1 ether;
+        p.dutchEndPrice = 0.1 ether;
+        p.dutchDuration = 3600;
+        p.dutchStartTime = block.timestamp;
+        p.initialPhase = TegridyDropV2.MintPhase.DUTCH_AUCTION;
+        _init(p);
+
+        // Mainnet deploy env: sequencerFeed == 0 is a no-op only on chainid 1
+        // (SequencerCheck.checkSequencerUp); the dutch mint path needs it.
+        vm.chainId(1);
+
+        // A buyer mints during the dutch phase at the real curve price.
+        vm.warp(block.timestamp + 900); // clearly inside the dutch window
+        bytes32[] memory proof;
+        vm.prank(alice);
+        drop.mint{value: 1 ether}(1, 0, proof);
+        assertEq(drop.totalSupply(), 1);
+
+        // Owner must NOT be able to flip to a zero-price ALLOWLIST phase post-mint —
+        // allowlist claims would price off storage mintPrice == 0 (free), rugging the
+        // dutch bidders exactly like the PUBLIC variant (H19).
+        vm.prank(creator);
+        vm.expectRevert(TegridyDropV2.ZeroPricePostMint.selector);
+        drop.setMintPhase(TegridyDropV2.MintPhase.ALLOWLIST);
+    }
+
     function test_setMintPhase_allowsPublicZeroPriceBeforeAnyMint() public {
         // Genesis free drop: zero mintPrice, no mints yet -> opening PUBLIC is allowed.
         TegridyDropV2.InitParams memory p = _defaults();

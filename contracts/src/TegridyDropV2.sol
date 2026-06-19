@@ -690,8 +690,15 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         // change is about to fire — cancel it first").
         if (_executeAfter[MINT_PRICE_CHANGE]   != 0) revert MerkleRotationPending();
         if (_executeAfter[DUTCH_CONFIG_CHANGE] != 0) revert MerkleRotationPending();
-        if (phase == MintPhase.DUTCH_AUCTION && dutchDuration == 0) {
-            revert DutchAuctionNotActive();
+        if (phase == MintPhase.DUTCH_AUCTION) {
+            if (dutchDuration == 0) revert DutchAuctionNotActive();
+            // AUDIT FIX (2026-06-11 audit, parity): mirror the already-ended guard that
+            // initialize() (DutchAuctionAlreadyEnded, ~L459) and executeDutchAuction()
+            // both enforce. Without it an owner could flip into a DUTCH_AUCTION whose
+            // curve has already fully decayed, making mint() quote dutchEndPrice (the
+            // floor) for every subsequent mint. setMintPhase was the lone DUTCH entry
+            // point missing this check.
+            if (dutchStartTime + dutchDuration <= block.timestamp) revert DutchAuctionAlreadyEnded();
         }
         // AUDIT FIX: DEEP-DROP-03: mirror the initialize-time guard so an owner cannot
         // flip into ALLOWLIST with a zero merkleRoot — every claim would silently

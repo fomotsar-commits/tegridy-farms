@@ -367,6 +367,27 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         pendingMinBountyReward = 0;
     }
 
+    /// @notice 2026-06-11 audit (acceptOwnership pending-proposal-flush): flush any
+    ///         in-flight TREASURY_CHANGE / MIN_REWARD_CHANGE proposal on ownership
+    ///         handoff so the incoming owner inherits a clean timelock queue — an
+    ///         outgoing owner cannot leave an executable treasury/min-reward change
+    ///         queued for the new owner to fire unawares. Mirrors the pattern already
+    ///         shipped in PremiumAccess / TegridyStakingAdmin. super.acceptOwnership()
+    ///         runs first so the pendingOwner→owner promotion happens before the flush.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            address cancelled = pendingTreasury;
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+            emit TreasuryChangeCancelled(cancelled);
+        }
+        if (_executeAfter[MIN_REWARD_CHANGE] != 0) {
+            _cancel(MIN_REWARD_CHANGE);
+            pendingMinBountyReward = 0;
+        }
+    }
+
     // ─── Bounty Management ────────────────────────────────────────────
 
     /// @notice Create a bounty. ETH sent with this call is the reward.

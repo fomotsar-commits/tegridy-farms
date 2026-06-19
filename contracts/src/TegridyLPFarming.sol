@@ -675,6 +675,24 @@ contract TegridyLPFarming is OwnableNoRenounce, ReentrancyGuard, Pausable, Timel
         pendingTreasury = address(0);
     }
 
+    /// @notice 2026-06-11 audit (acceptOwnership pending-proposal-flush): flush any
+    ///         in-flight REWARDS_DURATION_CHANGE / TREASURY_CHANGE proposal on ownership
+    ///         handoff so the incoming owner inherits a clean timelock queue. Mirrors the
+    ///         pattern already shipped in PremiumAccess / TegridyStakingAdmin.
+    ///         super.acceptOwnership() runs first so the pendingOwner→owner promotion
+    ///         (and the OwnableNoRenounce expiry guard) happens before the flush.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[REWARDS_DURATION_CHANGE] != 0) {
+            _cancel(REWARDS_DURATION_CHANGE);
+            pendingRewardsDuration = 0;
+        }
+        if (_executeAfter[TREASURY_CHANGE] != 0) {
+            _cancel(TREASURY_CHANGE);
+            pendingTreasury = address(0);
+        }
+    }
+
     // ─── Pause / Unpause ────────────────────────────────────────────
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
