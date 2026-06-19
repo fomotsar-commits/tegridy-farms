@@ -19,6 +19,7 @@ import {
   SOL,
   USDC,
   LEGACY_TOKEN_PROGRAM,
+  LST_TOKENS,
   searchTokens,
   looksLikeMint,
   fetchTrending,
@@ -366,6 +367,40 @@ function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
             })}
       </div>
       <p className="text-white/30 text-[9px] mt-1.5">Trending data from Jupiter. Not an endorsement — verify before buying.</p>
+    </div>
+  );
+}
+
+// "Earn" — buy a liquid-staking token to earn SOL staking yield. The buy IS the
+// product (value accrues each epoch, no lockup) and it's fee-bearing (SOL → LST).
+function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
+  return (
+    <div className="mt-6">
+      <div className="flex items-baseline justify-between mb-2">
+        <h2 className="text-white text-[13px] font-semibold">Earn SOL staking yield</h2>
+        <span className="text-white/40 text-[10px]">liquid staking · no lockup</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {LST_TOKENS.map((t) => (
+          <button
+            key={t.mint}
+            type="button"
+            onClick={() => onPick(t)}
+            className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left"
+            style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.10)' }}
+          >
+            <TokenAvatar token={t} size={26} />
+            <div className="min-w-0 flex-1">
+              <div className="text-white text-[12px] font-medium truncate">{t.symbol}</div>
+              <div className="text-success text-[10px] font-mono">~{t.apy.toFixed(1)}% APY · {t.provider}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+      <p className="text-white/30 text-[9px] mt-1.5">
+        Buy a liquid-staking token to earn ~validator APY automatically — its value grows each epoch, no lockup, sell
+        back to SOL anytime. APY is variable. A 1% fee applies on the SOL buy.
+      </p>
     </div>
   );
 }
@@ -720,6 +755,8 @@ function SolanaSwapInner() {
           </p>
         </div>
       </m.div>
+
+      <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
 
       <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
 

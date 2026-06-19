@@ -72,8 +72,26 @@ export const BUY_TOKENS: SolToken[] = [
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, verified: true },
 ];
 
+export interface LstToken extends SolToken {
+  /** Approximate, variable APY — a static label (operator-refreshed). */
+  apy: number;
+  provider: string;
+}
+
+// Liquid-staking tokens. "Stake SOL" = buy one of these via the NORMAL swap: the
+// token's value accrues validator/MEV yield each epoch (no claim, no lockup), and
+// the SOL→LST buy still earns our 1% fee on the wSOL leg — so the buy IS the
+// product (no stake-pool SDK needed). Mints byte-verified via the Jupiter token
+// API (all legacy SPL Token program, decimals 9, verified). APY is approximate.
+export const LST_TOKENS: LstToken[] = [
+  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', name: 'Jito Staked SOL', decimals: 9, verified: true, apy: 7.5, provider: 'Jito' },
+  { mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL', name: 'Marinade Staked SOL', decimals: 9, verified: true, apy: 7.2, provider: 'Marinade' },
+  { mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', symbol: 'bSOL', name: 'BlazeStake Staked SOL', decimals: 9, verified: true, apy: 7.0, provider: 'BlazeStake' },
+  { mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', symbol: 'INF', name: 'Infinity (Sanctum LST basket)', decimals: 9, verified: true, apy: 8.0, provider: 'Sanctum' },
+];
+
 export function findSolToken(mint: string): SolToken | undefined {
-  return [...PAY_WITH_TOKENS, ...BUY_TOKENS].find((t) => t.mint === mint);
+  return [...PAY_WITH_TOKENS, ...BUY_TOKENS, ...LST_TOKENS].find((t) => t.mint === mint);
 }
 
 // ─── Resolver (Jupiter token API v2 via our proxy) ───────────────────────────
