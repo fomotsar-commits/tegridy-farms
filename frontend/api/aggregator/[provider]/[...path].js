@@ -190,6 +190,10 @@ const CONFIGS = {
       if (segments.length === 2 && segments[0] === "price" && segments[1] === "v3") {
         return true;
       }
+      // Shield: per-mint risk warnings for a pair — ultra/v1/shield?mints=A,B
+      if (segments.length === 3 && segments[0] === "ultra" && segments[1] === "v1" && segments[2] === "shield") {
+        return true;
+      }
       return false;
     },
     allowedMethods: new Set(["GET", "POST", "OPTIONS"]),
@@ -212,6 +216,7 @@ const CONFIGS = {
       "query",
       "limit",
       "ids",
+      "mints",
     ],
     rateLimit: 60,
     rateWindowSec: 60,

@@ -12,6 +12,7 @@ import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
   JUPITER_PROXY_BASE,
   JUPITER_TOKENS_BASE,
+  SOLANA_RPC_PROXY_PATH,
   SOLANA_FEE_ACCOUNT,
   SOLANA_PLATFORM_FEE_BPS,
   SOL_MINT,
@@ -180,4 +181,71 @@ export function routeLabels(quote: JupiterQuote): string[] {
     .map((s) => (s as { swapInfo?: { label?: string } })?.swapInfo?.label)
     .filter((l): l is string => typeof l === 'string' && l.length > 0);
   return [...new Set(labels)];
+}
+
+// ─── Trust & safety: Shield warnings + pre-sign simulation ──────────────────
+
+export interface ShieldWarning {
+  type?: string;
+  message: string;
+  /** 'info' | 'warning' | 'critical' (codes evolve — render by severity). */
+  severity: string;
+}
+
+/**
+ * Jupiter Shield — curated per-mint risk warnings (honeypot / freeze authority /
+ * transfer fee / low liquidity …). Keyless via our proxy. Call once per pair on
+ * token-select; render by SEVERITY, never switch on `type` (Jupiter adds codes).
+ * Returns a map of mint → warnings.
+ */
+export async function getShield(mints: string[], signal?: AbortSignal): Promise<Record<string, ShieldWarning[]>> {
+  const ids = [...new Set(mints.filter(Boolean))];
+  if (ids.length === 0) return {};
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/ultra/v1/shield?mints=${ids.join(',')}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  if (!res.ok) throw new Error(`Shield failed (${res.status})`);
+  const json = (await res.json()) as { warnings?: Record<string, ShieldWarning[]> };
+  const warnings = json.warnings;
+  if (!warnings || typeof warnings !== 'object') return {};
+  const out: Record<string, ShieldWarning[]> = {};
+  for (const [mint, list] of Object.entries(warnings)) {
+    if (Array.isArray(list)) {
+      out[mint] = list.filter((w): w is ShieldWarning => !!w && typeof w.message === 'string' && typeof w.severity === 'string');
+    }
+  }
+  return out;
+}
+
+function parseSimError(err: unknown, logs?: string[]): string {
+  const failLog = (logs ?? []).find((l) => /failed|insufficient|slippage|custom program error|0x/i.test(l));
+  if (failLog) return failLog.replace(/^Program (log|failed): /, '').slice(0, 140);
+  const errStr = typeof err === 'string' ? err : JSON.stringify(err);
+  return errStr.slice(0, 140);
+}
+
+/**
+ * Pre-sign simulation of a built swap tx via our RPC proxy. Catches reverting
+ * swaps (honeypots, freeze, slippage, insufficient balance) BEFORE the user
+ * signs — saving gas. Best-effort: callers should FAIL OPEN if this throws.
+ */
+export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise<{ ok: boolean; reason: string | null }> {
+  const res = await fetch(SOLANA_RPC_PROXY_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'simulateTransaction',
+      params: [b64Tx, { encoding: 'base64', replaceRecentBlockhash: true, sigVerify: false, commitment: 'processed' }],
+    }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Simulation failed (${res.status})`);
+  const json = (await res.json()) as { result?: { value?: { err?: unknown; logs?: string[] } } };
+  const value = json.result?.value;
+  if (!value) throw new Error('No simulation result');
+  if (value.err === null || value.err === undefined) return { ok: true, reason: null };
+  return { ok: false, reason: parseSimError(value.err, value.logs) };
 }

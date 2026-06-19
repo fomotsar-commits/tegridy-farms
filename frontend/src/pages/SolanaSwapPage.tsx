@@ -33,9 +33,12 @@ import {
   pickFeeMint,
   getUsdPrices,
   routeLabels,
+  getShield,
+  simulateSwap,
   toBaseUnits,
   fromBaseUnits,
   type JupiterQuote,
+  type ShieldWarning,
 } from '../lib/jupiter';
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
@@ -383,6 +386,7 @@ function SolanaSwapInner() {
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
   const [ack, setAck] = useState(false);
   const [prices, setPrices] = useState<Record<string, number>>({});
+  const [shield, setShield] = useState<Record<string, ShieldWarning[]>>({});
   const payBalance = useTokenBalance(payToken);
 
   const baseAmount = useMemo(() => toBaseUnits(amount, payToken.decimals), [amount, payToken.decimals]);
@@ -434,6 +438,15 @@ function SolanaSwapInner() {
     return () => { cancelled = true; };
   }, [payToken.mint, buyToken.mint]);
 
+  // Jupiter Shield risk warnings for the pair (once per pair). Fail OPEN.
+  useEffect(() => {
+    let cancelled = false;
+    getShield([payToken.mint, buyToken.mint])
+      .then((s) => { if (!cancelled) setShield(s); })
+      .catch(() => { if (!cancelled) setShield({}); });
+    return () => { cancelled = true; };
+  }, [payToken.mint, buyToken.mint]);
+
   const outputDisplay = quote ? prettyAmount(fromBaseUnits(quote.outAmount, buyToken.decimals)) : '0';
   const rawImpact = Number(quote?.priceImpactPct);
   const priceImpact = Number.isFinite(rawImpact) ? Math.abs(rawImpact * 100) : null;
@@ -442,7 +455,12 @@ function SolanaSwapInner() {
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
   const feeMintForPair = isSolanaConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
   const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
-  const needsAck = payToken.verified === false || buyToken.verified === false;
+  const shieldWarnings = [...(shield[payToken.mint] ?? []), ...(shield[buyToken.mint] ?? [])];
+  // Show ALL Shield warnings, but only FORCE the ack on critical/danger severity
+  // or an unverified token. `warning` (e.g. USDC's freeze authority — expected on
+  // legit stablecoins) is shown in red but doesn't gate, so we don't nag on USDC.
+  const hasBlockingShield = shieldWarnings.some((w) => /crit|danger|high|severe/i.test(w.severity));
+  const needsAck = payToken.verified === false || buyToken.verified === false || hasBlockingShield;
   const insufficient = payBalance.raw !== null && baseAmount !== null && BigInt(baseAmount) > payBalance.raw;
 
   const payUsd = (() => {
@@ -484,6 +502,15 @@ function SolanaSwapInner() {
       });
       setQuote(fresh);
       const b64 = await buildSwapTransaction({ quote: fresh, userPublicKey: publicKey.toBase58() });
+      // Pre-sign simulation — refuse to send a swap that would revert (honeypot /
+      // freeze / slippage / insufficient). FAIL OPEN if simulation itself errors.
+      try {
+        const sim = await simulateSwap(b64);
+        if (!sim.ok) {
+          toast.error('Swap would fail — not sending', { description: sim.reason ?? 'Simulation reverted on-chain.' });
+          return;
+        }
+      } catch { /* simulation unavailable — proceed to the wallet */ }
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const tx = VersionedTransaction.deserialize(bytes);
       const sig = await sendTransaction(tx, connection);
@@ -646,9 +673,14 @@ function SolanaSwapInner() {
             {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
             {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
             {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
+            {shieldWarnings.map((w, i) => (
+              <p key={`sh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
+                <span aria-hidden="true">⚠</span><span>{w.message}</span>
+              </p>
+            ))}
           </div>
 
-          {/* Unverified-token warning — warn, don't block (any pair is allowed). */}
+          {/* Risk acknowledgement — warn, don't block (any pair is allowed). */}
           {needsAck && (
             <label
               className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg cursor-pointer"
@@ -656,8 +688,8 @@ function SolanaSwapInner() {
             >
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
               <span className="text-[11px] text-red-200">
-                One of these tokens isn't verified on Jupiter — it could be a scam or have transfer restrictions
-                (freeze authority / transfer fees). I understand and want to swap anyway.
+                This pair carries a risk warning (an unverified token, or flagged by Jupiter Shield above).
+                It could be a scam or have transfer restrictions. I understand and want to swap anyway.
               </span>
             </label>
           )}
