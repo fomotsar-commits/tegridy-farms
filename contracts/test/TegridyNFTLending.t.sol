@@ -167,6 +167,47 @@ contract TegridyNFTLendingTest is Test {
         assertEq(lending.offerCount(), 1);
     }
 
+    // AUDIT 2026-06-19 (econ pass) REGRESSION: the global MAX_TOTAL_OFFERS cap
+    // must track LIVE OPEN offers, not lifetime creations. Pre-fix the cap gated
+    // on the append-only `offers.length`, which is never popped on cancel/accept,
+    // so cancelled offers permanently consumed global capacity — createOffer would
+    // brick protocol-wide once 10k were EVER created (griefable at gas-only cost
+    // via a create->cancel loop, since cancel fully refunds). This asserts the new
+    // `openOffersCount` decrements on cancel while `offerCount()` (lifetime) grows,
+    // proving cancelled offers free the slot and the DoS is closed.
+    function test_globalOfferCap_tracksOpenNotLifetime() public {
+        uint256[] memory ids = new uint256[](5);
+        vm.startPrank(alice);
+        for (uint256 i = 0; i < 5; i++) {
+            // createOffer discards ownerOf(), so re-using bobTokenId is fine —
+            // this mirrors the griefing loop (no NFT ownership required).
+            ids[i] = lending.createOffer{value: 1 ether}(
+                1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            );
+        }
+        vm.stopPrank();
+        assertEq(lending.openOffersCount(), 5, "5 open after creates");
+        assertEq(lending.offerCount(), 5, "lifetime 5 after creates");
+
+        // Cancel all 5. Global OPEN count must return to zero; lifetime stays 5.
+        vm.startPrank(alice);
+        for (uint256 i = 0; i < 5; i++) {
+            lending.cancelOffer(ids[i]);
+        }
+        vm.stopPrank();
+        assertEq(lending.openOffersCount(), 0, "0 open after cancels (slot freed)");
+        assertEq(lending.offerCount(), 5, "lifetime unchanged at 5 (append-only)");
+
+        // A fresh create after the cancel churn still succeeds and re-increments
+        // the OPEN count — pre-fix this path is what would eventually brick.
+        vm.prank(alice);
+        lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+        );
+        assertEq(lending.openOffersCount(), 1, "1 open after post-churn create");
+        assertEq(lending.offerCount(), 6, "lifetime now 6");
+    }
+
     function test_createOffer_revert_zeroAmount() public {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.ZeroPrincipal.selector);

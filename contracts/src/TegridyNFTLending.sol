@@ -324,6 +324,18 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         Decremented when an offer flips inactive (cancel or accept).
     mapping(address => uint256) public openOffersOfLender;
 
+    // ─── AUDIT FIX 2026-06-19 (econ pass): global OPEN-offer count ──────
+    /// @notice Running count of OPEN (active) offers protocol-wide, used to
+    ///         enforce MAX_TOTAL_OFFERS. Previously the global cap gated on
+    ///         `offers.length` — but `offers` is append-only (never popped on
+    ///         cancel/accept), so the 10k cap was a LIFETIME-creation ceiling
+    ///         that permanently bricked `createOffer` for everyone once reached
+    ///         (griefable at gas-only cost via create→cancel, and reachable
+    ///         under normal load). This counter tracks live open pressure the
+    ///         same way `openOffersOfLender` does: +1 on create, -1 on the two
+    ///         active→inactive transitions (cancel + accept).
+    uint256 public openOffersCount;
+
     // ─── AUDIT FIX FRESH-2026: F-95-K-7 — stranded-NFT queue ─────────
     /// @notice Composite-key queue of unsolicited NFTs swept by
     ///         `executeSweepUnsolicitedNFT`. Recipient claims via
@@ -648,7 +660,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // `_collectionPendingRemoval` NatSpec for the M7 / M7-revised history.
         if (_collectionPendingRemoval(_collateralContract)) revert CollectionPendingRemoval();
         // AUDIT FIX FRESH-2026: F-95-K-2 — global + per-lender offer caps.
-        if (offers.length >= MAX_TOTAL_OFFERS) revert TooManyOffers();
+        // AUDIT FIX 2026-06-19: gate the global cap on live OPEN offers
+        // (`openOffersCount`), not the append-only `offers.length` — see the
+        // `openOffersCount` NatSpec for the lifetime-ceiling DoS this closes.
+        if (openOffersCount >= MAX_TOTAL_OFFERS) revert TooManyOffers();
         if (openOffersOfLender[msg.sender] >= MAX_OFFERS_PER_LENDER) {
             revert TooManyOffersPerLender();
         }
@@ -683,6 +698,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         }));
         // AUDIT FIX FRESH-2026: F-95-K-2 — increment per-lender open count.
         openOffersOfLender[msg.sender] += 1;
+        // AUDIT FIX 2026-06-19: increment global open count (paired with the
+        // cancel/accept decrements below).
+        openOffersCount += 1;
 
         emit LoanOfferCreated(
             offerId,
@@ -710,6 +728,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // AUDIT FIX FRESH-2026: F-95-K-2 — decrement per-lender open count.
         if (openOffersOfLender[msg.sender] > 0) {
             openOffersOfLender[msg.sender] -= 1;
+        }
+        // AUDIT FIX 2026-06-19: decrement global open count on cancel.
+        if (openOffersCount > 0) {
+            openOffersCount -= 1;
         }
         // AUDIT FIX: DEEP-LD-M8 — refund principal + held origination fee.
         uint256 refundAmount = offer.principal + offer.originationFee;
@@ -801,6 +823,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // when an offer flips inactive via acceptance.
         if (openOffersOfLender[lender] > 0) {
             openOffersOfLender[lender] -= 1;
+        }
+        // AUDIT FIX 2026-06-19: decrement global open count on acceptance.
+        if (openOffersCount > 0) {
+            openOffersCount -= 1;
         }
         // AUDIT FIX: DEEP-LD-M8 — clear escrowed origination fee.
         offer.originationFee = 0;
