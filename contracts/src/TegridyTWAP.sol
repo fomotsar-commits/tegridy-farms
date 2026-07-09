@@ -134,6 +134,17 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         emergency recovery primitive. 24h matches Compound governance.
     bytes32 public constant PAIR_RESET = keccak256("PAIR_RESET");
     uint256 public constant PAIR_RESET_DELAY = 24 hours;
+    /// @notice AUDIT FIX 2026-06-19 (econ pass): hard cap on the number of
+    ///         simultaneously-pending PAIR_RESET proposals. `acceptOwnership()`
+    ///         flushes `_pendingResetPairs` in a single atomic loop; without a
+    ///         cap, a malicious/compromised OUTGOING owner (the exact threat the
+    ///         H-07 flush defends against) could queue thousands of proposals so
+    ///         the incoming owner's `acceptOwnership()` reverts out-of-gas
+    ///         forever, permanently bricking the ownership-rotation recovery
+    ///         path. 64 is far above any legitimate concurrent-emergency-reset
+    ///         need, and execute/cancel free slots so the cap never blocks real
+    ///         use; the bounded flush can never approach the block gas limit.
+    uint256 public constant MAX_PENDING_PAIR_RESETS = 64;
 
     // AUDIT FIX 2026-05-26 [M-10] — per-pair reserve-floor timelock keys.
     // Mirrors PAIR_RESET shape (per-pair, propose/execute/cancel). 24h delay.
@@ -451,6 +462,9 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error OracleRebootstrapping();
     /// @notice AUDIT FIX D-AMM-H3: zero-address parameter on `proposeAdminResetPair`.
     error PairResetZeroAddress();
+    /// @dev AUDIT FIX 2026-06-19 (econ pass): `_pendingResetPairs` is at its
+    ///      MAX_PENDING_PAIR_RESETS cap — bounds the atomic acceptOwnership flush.
+    error TooManyPendingPairResets();
     // AUDIT FIX 2026-05-26 [M-13] — typed revert for the no-op `setUpdateFee`
     // call (caller submitted the same value already in storage).
     error SameValue();
@@ -1263,6 +1277,15 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     ///         observed and contested within the validity window.
     function proposeAdminResetPair(address pair) external onlyOwner {
         if (pair == address(0)) revert PairResetZeroAddress();
+        // AUDIT FIX 2026-06-19 (econ pass): validate the pair (parity with
+        // proposeAdminMinReserveFloor at the isPair gate) so the pending-reset
+        // set can't be polluted with arbitrary non-pair addresses, and CAP the
+        // set size so the atomic acceptOwnership() flush loop can never be grown
+        // past the block gas limit by an outgoing owner. See MAX_PENDING_PAIR_RESETS.
+        if (!factory.isPair(pair)) revert UnknownPair();
+        if (!_pendingResetPairs.contains(pair) && _pendingResetPairs.length() >= MAX_PENDING_PAIR_RESETS) {
+            revert TooManyPendingPairResets();
+        }
         bytes32 key = keccak256(abi.encodePacked(PAIR_RESET, pair));
         _propose(key, PAIR_RESET_DELAY);
         // AUDIT FIX 2026-05-26 [H-07] — track pair in pending-reset set so

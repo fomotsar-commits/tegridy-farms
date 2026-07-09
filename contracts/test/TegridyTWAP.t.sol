@@ -200,6 +200,29 @@ contract TegridyTWAPTest is Test {
         twap.consult(address(pair), fakeToken, 1 ether, 15 minutes);
     }
 
+    // AUDIT 2026-06-19 (econ pass) REGRESSION: proposeAdminResetPair must reject
+    // non-pair addresses (isPair parity with proposeAdminMinReserveFloor). Pre-fix
+    // an outgoing/compromised owner could queue thousands of ARBITRARY addresses
+    // into _pendingResetPairs so the incoming owner's acceptOwnership() flush loop
+    // OOG-reverted forever, permanently bricking ownership rotation. The isPair gate
+    // removes the cheap flood vector; MAX_PENDING_PAIR_RESETS hard-bounds the flush.
+    function test_proposeAdminResetPair_rejectsNonPair() public {
+        address notAPair = makeAddr("notAPair");
+        vm.expectRevert(TegridyTWAP.UnknownPair.selector);
+        twap.proposeAdminResetPair(notAPair);
+    }
+
+    function test_proposeAdminResetPair_acceptsRealPairAndTracks() public {
+        assertEq(twap.pendingResetPairsLength(), 0);
+        twap.proposeAdminResetPair(address(pair));
+        assertEq(twap.pendingResetPairsLength(), 1);
+        assertEq(twap.MAX_PENDING_PAIR_RESETS(), 64);
+        // Cancelling frees the slot so the bounded set tracks LIVE pending resets,
+        // never a monotonic lifetime count — the flush loop stays bounded.
+        twap.cancelAdminResetPair(address(pair));
+        assertEq(twap.pendingResetPairsLength(), 0);
+    }
+
     function test_consult_revertsWithZeroAmount() public {
         _seedObservations(5, 15 minutes);
 
