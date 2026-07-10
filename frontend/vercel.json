@@ -75,6 +75,6 @@
     { "source": "/api/paraswap/:path*", "destination": "/api/aggregator/paraswap/:path*" },
     { "source": "/api/swapapi/:path*", "destination": "/api/aggregator/swapapi/:path*" },
     { "source": "/api/jupiter/:path*", "destination": "/api/aggregator/jupiter/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
