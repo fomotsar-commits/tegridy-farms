@@ -18,7 +18,7 @@
 // `vercel.json` rewrites (`/api/odos/:path*` → `/api/aggregator/odos/:path*`
 // etc.) so no frontend changes required.
 
-import { runProxy } from "../../_lib/aggregator-proxy.js";
+import { runProxy } from "../_lib/aggregator-proxy.js";
 
 // ─── Per-provider configs (verbatim from the prior individual files) ─────────
 
@@ -240,12 +240,29 @@ const CONFIGS = {
 };
 
 export default async function handler(req, res) {
-  // `[provider]` is the first dynamic segment, `[...path]` is the rest.
-  // Vercel exposes both via req.query.
-  const provider = req.query.provider;
+  // Single `[...slug]` catch-all: slug = [provider, ...pathSegments].
+  // AUDIT FIX 2026-07-10: a doubly-nested `[provider]/[...path]` route compiles
+  // on Vercel to match the provider plus EXACTLY ONE path segment (not a true
+  // catch-all), so every multi-segment API path (all real Jupiter/EVM endpoints)
+  // 404'd on production. A single `[...slug]` catch-all matches all segments.
+  // Prod: Vercel provides `slug` = [provider, ...path]. Tests pass the
+  // normalized `provider` + `path` shape directly.
+  const slug = req.query.slug;
+  let provider, pathSegs;
+  if (slug !== undefined) {
+    const segs = Array.isArray(slug) ? slug : [slug];
+    provider = segs[0];
+    pathSegs = segs.slice(1);
+  } else {
+    provider = req.query.provider;
+    pathSegs = req.query.path;
+  }
   if (!provider || typeof provider !== "string" || !CONFIGS[provider]) {
     res.status(404).json({ error: "Unknown aggregator provider" });
     return;
   }
+  // Re-expose the remaining segments as `path` so runProxy's extractCatchAllPath
+  // (which reads req.query.path) keeps working unchanged.
+  req.query.path = pathSegs;
   return runProxy(req, res, CONFIGS[provider]);
 }

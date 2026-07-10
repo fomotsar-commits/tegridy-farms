@@ -194,9 +194,17 @@ export async function runProxy(req, res, cfg) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Origin allowlist (fail-closed in production)
+  // Origin allowlist (fail-closed in production).
+  // AUDIT FIX 2026-07-10: same-origin browser GET/HEAD requests carry NO Origin
+  // header (browsers only send Origin for cross-origin requests and for all
+  // non-GET methods), so a fail-closed empty-Origin gate 403'd every legitimate
+  // same-origin quote fetch on production (dev is permissive, which hid this).
+  // Allow a missing Origin ONLY for safe methods; state-changing methods (POST)
+  // still require an allowlisted Origin — which browsers always send — so
+  // cross-origin POST abuse through our trusted origin stays blocked.
   const origin = req.headers?.origin || "";
-  if (!isOriginAllowed(origin)) {
+  const safeMethod = req.method === "GET" || req.method === "HEAD";
+  if (!(safeMethod && !origin) && !isOriginAllowed(origin)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

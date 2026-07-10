@@ -52,14 +52,15 @@ function mockUpstreamOk(payload = { ok: true }) {
 }
 
 // 2026-05-27: the 7 per-provider catchalls (api/<provider>/[...path].js) were
-// consolidated into ONE serverless function — api/aggregator/[provider]/[...path].js
-// — to stay under the Vercel Hobby 12-function cap. Routing is by the `[provider]`
-// path segment (req.query.provider). These tests import that single handler and
-// pass `provider` in the query exactly the way the vercel.json rewrites do
-// (/api/odos/:path* → /api/aggregator/odos/:path*). The per-provider security
-// policy (matchPath / allowedQuery / method / origin) is preserved verbatim inside
-// the consolidated handler, so the matrix below still exercises each provider e2e.
-const AGG_HANDLER = "../aggregator/[provider]/[...path].js";
+// consolidated into ONE serverless function to stay under the Vercel Hobby
+// 12-function cap. 2026-07-10: the function was flattened from the doubly-nested
+// `[provider]/[...path]` to a single `[...slug]` catch-all, because Vercel
+// compiled the nested form to match provider + exactly ONE path segment (not a
+// true catch-all), 404ing every multi-segment API path on production. The
+// handler still accepts the normalized `provider` + `path` query shape these
+// tests pass (prod supplies `slug` = [provider, ...path]). Per-provider security
+// policy (matchPath / allowedQuery / method / origin) is preserved verbatim.
+const AGG_HANDLER = "../aggregator/[...slug].js";
 
 // ─── Provider matrix: name → expected good path/method ──────
 // Each row: [identifier, validQuery (object), validMethod, validBody]
