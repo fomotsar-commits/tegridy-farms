@@ -60,7 +60,7 @@ function mockUpstreamOk(payload = { ok: true }) {
 // handler still accepts the normalized `provider` + `path` query shape these
 // tests pass (prod supplies `slug` = [provider, ...path]). Per-provider security
 // policy (matchPath / allowedQuery / method / origin) is preserved verbatim.
-const AGG_HANDLER = "../aggregator/[...slug].js";
+const AGG_HANDLER = "../aggregator.js";
 
 // ─── Provider matrix: name → expected good path/method ──────
 // Each row: [identifier, validQuery (object), validMethod, validBody]

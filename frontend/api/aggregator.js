@@ -18,7 +18,7 @@
 // `vercel.json` rewrites (`/api/odos/:path*` → `/api/aggregator/odos/:path*`
 // etc.) so no frontend changes required.
 
-import { runProxy } from "../_lib/aggregator-proxy.js";
+import { runProxy } from "./_lib/aggregator-proxy.js";
 
 // ─── Per-provider configs (verbatim from the prior individual files) ─────────
 
@@ -240,21 +240,20 @@ const CONFIGS = {
 };
 
 export default async function handler(req, res) {
-  // Single `[...slug]` catch-all: slug = [provider, ...pathSegments].
-  // AUDIT FIX 2026-07-10: a doubly-nested `[provider]/[...path]` route compiles
-  // on Vercel to match the provider plus EXACTLY ONE path segment (not a true
-  // catch-all), so every multi-segment API path (all real Jupiter/EVM endpoints)
-  // 404'd on production. A single `[...slug]` catch-all matches all segments.
-  // Prod: Vercel provides `slug` = [provider, ...path]. Tests pass the
-  // normalized `provider` + `path` shape directly.
-  const slug = req.query.slug;
-  let provider, pathSegs;
-  if (slug !== undefined) {
-    const segs = Array.isArray(slug) ? slug : [slug];
-    provider = segs[0];
-    pathSegs = segs.slice(1);
+  // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
+  // catch-all dynamic function routing under /api/aggregator (both
+  // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with
+  // this project's vercel.json rewrites — multi-segment API paths (all real
+  // Jupiter/EVM endpoints) 404'd at the platform level. Flat functions route
+  // 100% reliably here, so the vercel.json rewrites now map
+  //   /api/<provider>/<path...>  ->  /api/aggregator?provider=<provider>&p=<path...>
+  // and this handler reconstructs the path from `p` (slash-joined string).
+  // Unit tests pass the normalized `provider` + `path` (array) shape directly.
+  const provider = req.query.provider;
+  let pathSegs;
+  if (typeof req.query.p === "string") {
+    pathSegs = req.query.p.split("/").filter(Boolean);
   } else {
-    provider = req.query.provider;
     pathSegs = req.query.path;
   }
   if (!provider || typeof provider !== "string" || !CONFIGS[provider]) {

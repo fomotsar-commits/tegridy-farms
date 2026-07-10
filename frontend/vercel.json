@@ -67,14 +67,14 @@
     { "source": "/api/alchemy", "destination": "/api/alchemy" },
     { "source": "/api/opensea", "destination": "/api/opensea" },
     { "source": "/api/orderbook", "destination": "/api/orderbook" },
-    { "source": "/api/odos/:path*", "destination": "/api/aggregator/odos/:path*" },
-    { "source": "/api/cow/:path*", "destination": "/api/aggregator/cow/:path*" },
-    { "source": "/api/lifi/:path*", "destination": "/api/aggregator/lifi/:path*" },
-    { "source": "/api/kyber/:path*", "destination": "/api/aggregator/kyber/:path*" },
-    { "source": "/api/openocean/:path*", "destination": "/api/aggregator/openocean/:path*" },
-    { "source": "/api/paraswap/:path*", "destination": "/api/aggregator/paraswap/:path*" },
-    { "source": "/api/swapapi/:path*", "destination": "/api/aggregator/swapapi/:path*" },
-    { "source": "/api/jupiter/:path*", "destination": "/api/aggregator/jupiter/:path*" },
+    { "source": "/api/odos/:path*", "destination": "/api/aggregator?provider=odos&p=:path*" },
+    { "source": "/api/cow/:path*", "destination": "/api/aggregator?provider=cow&p=:path*" },
+    { "source": "/api/lifi/:path*", "destination": "/api/aggregator?provider=lifi&p=:path*" },
+    { "source": "/api/kyber/:path*", "destination": "/api/aggregator?provider=kyber&p=:path*" },
+    { "source": "/api/openocean/:path*", "destination": "/api/aggregator?provider=openocean&p=:path*" },
+    { "source": "/api/paraswap/:path*", "destination": "/api/aggregator?provider=paraswap&p=:path*" },
+    { "source": "/api/swapapi/:path*", "destination": "/api/aggregator?provider=swapapi&p=:path*" },
+    { "source": "/api/jupiter/:path*", "destination": "/api/aggregator?provider=jupiter&p=:path*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
