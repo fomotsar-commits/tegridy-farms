@@ -3,8 +3,8 @@
 #
 # Prereqs:
 #   - solana CLI on PATH
-#   - the CI-built program binary at target/deploy/raydium_cp_swap.so:
-#       gh run download <solana-ci run id> --name tegridy-cp-amm-sbf --dir target/deploy
+#   - the CI-built DEVNET program binary at target/deploy/raydium_cp_swap.so:
+#       gh run download <solana-ci run id> --name tegridy-cp-amm-devnet-sbf --dir target/deploy
 #   - keys/devnet-admin.json (payer+admin) and keys/tegridy-amm-program.json (program id)
 #     — both devnet throwaways generated in Phase 0 (gitignored).
 #
@@ -42,7 +42,18 @@ solana program deploy "$SO" --program-id "$PROGRAM_KP" --keypair "$PAYER"
 
 echo "=== deployed — program account ==="
 solana program show "$PROGRAM"
+
 echo
-echo "NEXT: create_config (protocol_owner=treasury), init a pool, swap, and verify the"
-echo "protocol fee lands at the treasury. Then adapt tests/ + Anchor.toml program id to"
-echo "run the upstream anchor test suite against this fork."
+echo "=== required: the pool-fee receiver must be a WSOL token account (create_pool_fee_reveiver) ==="
+# Pool creation deserializes create_pool_fee_reveiver::ID as a WSOL TokenAccount, so it
+# MUST exist on-chain or every initialize() reverts. It is the deployer's WSOL ATA.
+WSOL=So11111111111111111111111111111111111111112
+spl-token create-account "$WSOL" --owner "$DEPLOYER" --fee-payer "$PAYER" 2>&1 | tail -2 || \
+  echo "  (WSOL ATA may already exist — ok)"
+echo "  WSOL ATA (must equal create_pool_fee_reveiver::ID = 27AC7Yww…): $(spl-token address --token $WSOL --owner $DEPLOYER --verbose 2>/dev/null | awk '/Associated/{print $NF}')"
+
+echo
+echo "NEXT (smoke test, via the client/ tooling): create_config (protocol_owner is set to the"
+echo "admin caller — repoint to a distinct treasury with update_config param=3 if desired),"
+echo "init a pool, swap, and verify the protocol fee accrues. Adapt tests/ + Anchor.toml for"
+echo "the fork program id + the WSOL create_pool_fee_reveiver to run the anchor test suite."

@@ -22,7 +22,7 @@ Confined to two files, four constants (verifiable + CI-enforced, see below):
 |---|---|---|
 | `declare_id!` (program ID) | `programs/cp-swap/src/lib.rs` | Raydium → Tegridy program keypair |
 | `admin::ID` | `lib.rs` | Raydium → Tegridy admin (mainnet: Squads multisig) |
-| `create_pool_fee_reveiver::ID` | `lib.rs` | Raydium → Tegridy treasury |
+| `create_pool_fee_reveiver::ID` | `lib.rs` | Raydium WSOL acct → Tegridy's WSOL ATA (token account) |
 | `create_support_mint_associated_owner::ID` | `instructions/admin/create_support_mint_associated.rs` | Raydium → Tegridy admin |
 
 **All swap / curve / fee / deposit / withdraw / oracle / state logic is byte-identical to
@@ -40,10 +40,14 @@ upstream** and out of scope beyond confirming it is unchanged.
    audited upstream commit; the underlying upstream is at a safe, audited revision.
 2. The four constants are wired correctly (each authority is used where intended; no
    authority path was missed or left pointing at a foreign key).
-3. **Mainnet build** sets `admin` + the two receivers to the **Squads multisig / treasury**,
-   and the **program upgrade authority** is the multisig (or burned).
-4. The intended **deploy + `create_config`** process (protocol_owner = treasury,
-   `protocol_fee_rate ≤ trade_fee_rate`) has no misconfiguration or front-running risk.
+3. **Mainnet build** sets `admin` + support-mint owner to the **Squads multisig**, the
+   `create_pool_fee_reveiver` to the treasury's **WSOL token account** (not a wallet — it's
+   consumed as an `InterfaceAccount<TokenAccount>`), a fresh mainnet program keypair, and the
+   **program upgrade authority** to the multisig (or burned). The non-devnet defaults are
+   fail-closed System-Program sentinels — confirm none survive into the mainnet build.
+4. The intended **deploy + `create_config`** process (create_config sets `protocol_owner =
+   admin caller`; the real bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000`) has no
+   misconfiguration or front-running risk.
 5. A **verifiable build** so on-chain bytecode is provably this source.
 
 ## Threat model / trust assumptions

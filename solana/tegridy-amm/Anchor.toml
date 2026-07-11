@@ -9,8 +9,12 @@ members = ["programs/cp-swap"]
 seeds = false
 skip-lint = false
 
+# TEGRIDY FORK: fork program id (matches declare_id / keys/tegridy-amm-program.json).
+# NOTE for whoever adapts the test suite: the create_pool_fee_reveiver is now a WSOL
+# token account (27AC7Yww… under --features devnet), NOT the upstream DNXge… clone
+# below — the create-pool tests must set up a WSOL account at that address instead.
 [programs.Localnet]
-raydium_cp_swap = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
+raydium_cp_swap = "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL"
 
 
 [registry]

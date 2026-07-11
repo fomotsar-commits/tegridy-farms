@@ -78,12 +78,15 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: solana --version
         run: solana --version
-      - name: Build SBF program (validates the fork compiles)
-        run: cargo build-sbf
-      - name: Publish compiled .so (deployable binary — sidesteps local Windows build wall)
+      - name: Build SBF program (validates the fork compiles; devnet feature = functional keys)
+        # `--features devnet` selects the real devnet authorities. A default (non-devnet)
+        # build compiles too but embeds fail-closed System-Program sentinels, so we do
+        # NOT publish that as a deployable artifact.
+        run: cargo build-sbf --features devnet
+      - name: Publish compiled .so (DEVNET deployable binary — mainnet is an operator verifiable build)
         uses: actions/upload-artifact@v4
         with:
-          name: tegridy-cp-amm-sbf
+          name: tegridy-cp-amm-devnet-sbf
           path: solana/tegridy-amm/target/deploy/*.so
           if-no-files-found: error
           retention-days: 14

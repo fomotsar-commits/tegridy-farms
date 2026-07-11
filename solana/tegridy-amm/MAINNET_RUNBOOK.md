@@ -20,20 +20,26 @@ solana-keygen pubkey keys/mainnet-program.json
 ```
 
 ## 2. 🔑 Set the mainnet authority constants (the 4-constant diff, mainnet side)
-Edit the `#[cfg(not(feature = "devnet"))]` values only:
+The `#[cfg(not(feature = "devnet"))]` values ship as **fail-closed System-Program sentinels
+(`1111…1111`)** — a mainnet build is non-functional until you replace ALL of them:
 - `programs/cp-swap/src/lib.rs`
   - `declare_id!(…)` → the pubkey from step 1
   - `admin::ID` → **Squads multisig**
-  - `create_pool_fee_reveiver::ID` → **treasury**
+  - `create_pool_fee_reveiver::ID` → the treasury's **WSOL associated-token-account** (a
+    native-SOL *token account*, NOT the treasury wallet — the create path consumes it as a
+    `TokenAccount`; derive it with `spl-token address --token So111…112 --owner <treasury>`)
 - `programs/cp-swap/src/instructions/admin/create_support_mint_associated.rs`
   - `create_support_mint_associated_owner::ID` → **Squads multisig**
 
-Commit → CI `diff-guard` must stay green (proves you changed only these constants).
+Commit → CI `diff-guard` stays green (it checks *which files* differ, not the *values*), so
+**also manually verify** all four mainnet constants now equal your multisig/treasury/WSOL-ATA,
+not the sentinels or the devnet keys.
 
 ## 3. Build the verifiable mainnet binary
-Prefer the reproducible CI build (download the `tegridy-cp-amm-sbf` artifact from the
-green `solana-ci` run), or a local **verifiable build** (`solana-verify build`) so the
-on-chain bytecode is provably this source. Confirm the built program-id matches step 1.
+The CI `tegridy-cp-amm-devnet-sbf` artifact is a **devnet** build — do NOT deploy it to mainnet.
+For mainnet, do a local **verifiable build** (`solana-verify build`, default/non-devnet features
+so it picks up your step-2 mainnet values) so the on-chain bytecode is provably this source.
+Confirm the built program-id matches step 1 and that the sentinels are gone.
 
 ## 4. 🔑💰 Deploy + lock down the upgrade authority
 ```bash
@@ -46,11 +52,20 @@ solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
 
 ## 5. 🔑 Create the AmmConfig (this is where Tegridy's fee is set)
 Use the repo's `client/` tooling (point it at mainnet + the multisig signer). `create_config`
-is **admin-only** and sets, for a chosen `index`:
-- `protocol_owner` → **treasury** (this is what makes every swap pay Tegridy)
-- `trade_fee_rate` (e.g. 2500 = 0.25%), `protocol_fee_rate` (share of the trade fee to
-  treasury; must be ≤ trade_fee_rate), `fund_fee_rate`, `create_pool_fee`
-Fee rates use denominator 1_000_000 (see `curve/fees.rs`).
+is **admin-only**. All fee rates use denominator **1_000_000** (`curve/fees.rs`):
+- `trade_fee_rate` — total swap fee, e.g. `2500` = 0.25%.
+- `protocol_fee_rate` — the protocol's **share of the trade fee**, out of 1_000_000
+  (Raydium default `120000` = **12% of the trade fee** ≈ 0.03% of volume at a 0.25% trade fee).
+  Enforced bound: **`protocol_fee_rate + fund_fee_rate ≤ 1_000_000`** (there is NO "≤ trade_fee_rate"
+  rule — setting it to `2500` would collect ~0.0006% of volume, i.e. almost nothing).
+- `fund_fee_rate`, `create_pool_fee`.
+- **`create_pool_fee` receiver** must be a **WSOL token account** (`create_pool_fee_reveiver::ID`
+  from step 2 = the treasury's WSOL ATA), not a wallet.
+
+`create_config` sets **`protocol_owner = fund_owner = the admin caller`** (the multisig) — there
+is no treasury parameter. To hand fee-collection authority to a *distinct* treasury, call
+`update_config` (param 3 = new protocol owner, param 4 = new fund owner) after this. Fees land at
+whatever token account you name at collection time regardless.
 
 ## 6. 🔑💰 Create + seed a pool
 Via `client/` (`initialize` / `initialize_customizable`): pick the Solana-native pair, seed

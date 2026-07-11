@@ -10,25 +10,34 @@ pub use states::CreatorFeeOn;
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
-    name: "raydium-cp-swap",
-    project_url: "https://raydium.io",
-    contacts: "link:https://immunefi.com/bounty/raydium",
-    policy: "https://immunefi.com/bounty/raydium",
-    source_code: "https://github.com/raydium-io/raydium-cp-swap",
-    preferred_languages: "en",
-    auditors: "https://github.com/raydium-io/raydium-docs/blob/master/audit/MadShield%20Q1%202024/raydium-cp-swap-v-1.0.0.pdf"
+    name: "tegridy-cp-amm",
+    project_url: "https://tegridyfarms.vercel.app",
+    contacts: "link:https://tegridyfarms.vercel.app",
+    policy: "https://tegridyfarms.vercel.app",
+    source_code: "https://github.com/fomotsar-commits/tegridy-farms/tree/main/solana/tegridy-amm",
+    preferred_languages: "en"
+    // AUDITORS line intentionally REMOVED (was upstream's Raydium/MadShield audit):
+    // this fork's diff-audit is PENDING; the upstream audit does NOT cover it, so
+    // claiming it on-chain would be false. ⚠️ OPERATOR: add a dedicated security
+    // disclosure email here before mainnet.
 }
 
-// ─── TEGRIDY FORK CHANGES (2026-07-10) ────────────────────────────────────────
-// These three authority/identity constants are the ONLY code delta from upstream
-// raydium-cp-swap (Apache-2.0). Every line of swap/curve/fee logic below is
-// byte-identical to the audited upstream — the re-audit scope is exactly "verify
-// only these constants changed." The per-swap PROTOCOL fee does NOT live here: it
-// routes to `amm_config.protocol_owner`, set to the Tegridy treasury at
-// create_config time (no code change needed for the fee recipient).
-// ⚠️ OPERATOR — before MAINNET: regenerate a dedicated mainnet program keypair and
-// set `admin` + `create_pool_fee_reveiver` to the Squads MULTISIG / TREASURY. The
-// values below are DEVNET throwaway keypairs (in keys/, gitignored).
+// ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
+// The ENTIRE code delta from upstream raydium-cp-swap (Apache-2.0) is 4 authority/
+// identity constants (3 here + create_support_mint_associated_owner in
+// instructions/admin/create_support_mint_associated.rs). Every line of swap/curve/
+// fee logic is byte-identical to the audited upstream. The per-swap PROTOCOL fee is
+// NOT here: it accrues per `amm_config.protocol_fee_rate` and is collected by
+// `amm_config.protocol_owner` (which create_config sets = the admin caller).
+//
+// FAIL-CLOSED MAINNET: the non-devnet branches of the AUTHORITY constants are the
+// System-Program sentinel (all-1s), NOT the devnet keys — so an accidental default
+// (non-devnet) build yields a NON-FUNCTIONAL program (admin can't sign; the fee
+// receiver isn't a token account) rather than one silently controlled by the devnet
+// throwaway keys. CI + devnet builds pass `--features devnet`.
+// ⚠️ OPERATOR before MAINNET: set the non-devnet values — a fresh program keypair,
+// admin = Squads MULTISIG, create_pool_fee_reveiver = the treasury's WSOL ATA (a
+// native-SOL TOKEN ACCOUNT, NOT a wallet) — then do a verifiable build.
 #[cfg(feature = "devnet")]
 declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
 #[cfg(not(feature = "devnet"))]
@@ -36,21 +45,26 @@ declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL"); // OPERATOR: replac
 
 pub mod admin {
     use super::{pubkey, Pubkey};
-    // Admin authority for create_config / update_config / update_pool_status.
+    // Admin authority: create_config / update_config / update_pool_status AND a
+    // fallback collector on collect_protocol_fee / collect_fund_fee (can sweep accrued
+    // protocol+fund fees to any recipient) — a fund-touching, top-tier key.
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a"); // OPERATOR: replace with Squads multisig
+    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set Squads multisig
 }
 
 pub mod create_pool_fee_reveiver {
     use super::{pubkey, Pubkey};
-    // Flat pool-creation fee recipient (distinct from the per-swap protocol fee,
-    // which routes to amm_config.protocol_owner set at create_config time).
+    // Flat pool-creation fee recipient. This account is consumed as a native-SOL
+    // (WSOL) SPL TOKEN ACCOUNT — the create path deserializes it as
+    // InterfaceAccount<TokenAccount> and calls sync_native — so it MUST be a WSOL
+    // token account (e.g. the treasury's WSOL ATA), NOT a wallet. Devnet = the
+    // treasury/admin's WSOL ATA (created before deploy; see deploy-devnet.sh).
     #[cfg(feature = "devnet")]
-    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+    pub const ID: Pubkey = pubkey!("27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a"); // OPERATOR: replace with treasury
+    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set treasury's WSOL ATA
 }
 
 pub const AUTH_SEED: &str = "vault_and_lp_mint_auth_seed";

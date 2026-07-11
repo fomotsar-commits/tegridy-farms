@@ -24,7 +24,7 @@ authority on this program**; every authority is the Tegridy admin/treasury.
 |---|---|---|---|
 | `declare_id!` — `lib.rs` | `CPMMoo8L…qKP1C` | `BvBkt84Z…pDodL` (devnet) | our program address |
 | `admin::ID` — `lib.rs` | `GThUX1…hFMJ` | `GgE6AfEH…Wq5a` (devnet) | create_config / update_config / update_pool_status |
-| `create_pool_fee_reveiver::ID` — `lib.rs` | `DNXge…dNC8` | `GgE6AfEH…Wq5a` (devnet) | flat pool-creation fee recipient |
+| `create_pool_fee_reveiver::ID` — `lib.rs` | `DNXge…dNC8` (WSOL acct) | `27AC7Yww…TQE9` (devnet WSOL ATA) | flat pool-creation fee recipient — **must be a WSOL token account**, not a wallet |
 | `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2…RKYZy` | `GgE6AfEH…Wq5a` (devnet) | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
 
 The devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are throwaway keypairs in `keys/` (gitignored).
@@ -48,11 +48,15 @@ The per-swap **protocol fee is config-driven**, not hardcoded:
 - Fee **rate**: `amm_config.protocol_fee_rate`, set once at `create_config` (admin-only).
 - Fee **recipient**: `collect_protocol_fee` requires `owner == amm_config.protocol_owner`.
 
-So Tegridy earns simply by creating an `AmmConfig` with **`protocol_owner = Tegridy treasury`**
-and a chosen `protocol_fee_rate`. Then **every swap on every pool using that config** pays a
-protocol cut to the treasury — regardless of who provides the liquidity. That is the venue
-economics the operator wanted. (`fund_fee` → `amm_config.fund_owner` and the disabled-by-default
-`creator_fee` are separate, optional levers.)
+So Tegridy earns by creating an `AmmConfig` with a chosen **`protocol_fee_rate`** (via
+`create_config`, admin-only). Note: `create_config` sets **`protocol_owner = fund_owner = the
+admin caller`** (the multisig) — there is no treasury parameter; to hand collection authority to
+a *distinct* treasury, call `update_config` (param 3 / 4) afterward. Either way, **every swap on
+every pool using that config** accrues a protocol cut (per `protocol_fee_rate`) the treasury
+receives at collection time — regardless of who provides the liquidity. That is the venue
+economics the operator wanted. `protocol_fee_rate` is a fraction of the trade fee out of
+1_000_000 (e.g. 120000 = 12% of the trade fee), bounded by `protocol_fee_rate + fund_fee_rate ≤
+1_000_000`. (`fund_fee` → `fund_owner`, disabled-by-default `creator_fee` = separate levers.)
 
 ---
 
@@ -64,7 +68,7 @@ economics the operator wanted. (`fund_fee` → `amm_config.fund_owner` and the d
 4. Build for mainnet (`anchor build` / `cargo build-sbf`, no `devnet` feature) + **verifiable build** so anyone can confirm on-chain bytecode == this source.
 5. **Professional audit of the diff** (see below) — do not deploy fund-holding code before this.
 6. Deploy; set the **program upgrade authority** to the multisig (or burn it).
-7. `create_config` with `protocol_owner = treasury`, `protocol_fee_rate = <chosen>`; seed a pool with treasury capital.
+7. `create_config` with `protocol_fee_rate = <chosen>` (protocol_owner defaults to the admin caller — `update_config` param 3/4 to repoint to a distinct treasury); the `create_pool_fee` receiver must be the treasury's **WSOL ATA**; seed a pool with treasury capital.
 8. **Submit to Jupiter's DEX integration** so retail routes to it (until then it's invisible — we drive volume via our own swap UI, which prefers our pools).
 
 ---
@@ -76,9 +80,9 @@ math, checked arithmetic, oracle, fee calc. Risk here ≈ the risk Raydium CPMM 
 production. We do not modify it.
 
 **New surface introduced by the fork (the whole audit focus):**
-- **`admin::ID`** — holder can `create_config`, `update_config`, `update_pool_status`. Compromise ⇒ can create hostile configs / pause pools. **Mitigation:** mainnet admin = Squads multisig, disjoint signer set.
+- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. **Mitigation:** mainnet admin = Squads multisig, disjoint signer set; the non-devnet default is a fail-closed sentinel until set.
 - **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** multisig or burned upgrade authority; verifiable build so the deployed bytes are provably this source.
-- **Config misconfiguration** — wrong `protocol_owner`/rates at `create_config`. **Mitigation:** the create_config step is scripted + reviewed in Phase 2; `protocol_fee_rate ≤ trade_fee_rate` is enforced upstream.
+- **Config misconfiguration** — wrong rates at `create_config`. The enforced bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000` (NOT ≤ trade_fee_rate); the `create_pool_fee` receiver MUST be a WSOL token account or every pool creation reverts. **Mitigation:** the create_config step is scripted + reviewed in Phase 2.
 - **`create_pool_fee_reveiver`** — only receives the flat creation fee; low impact.
 - **`create_support_mint_associated_owner`** — alt authority for the niche Token-2022
   support-mint allowlist. Now the Tegridy admin (upstream it was a Raydium key — that
