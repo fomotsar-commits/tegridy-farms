@@ -1,0 +1,73 @@
+name: solana-ci
+
+# Tegridy CP-AMM (solana/tegridy-amm) — a verbatim fork of raydium-cp-swap.
+# Two gates:
+#   1. diff-guard  — proves the fork is byte-identical to the pinned audited
+#      upstream EXCEPT programs/cp-swap/src/lib.rs (the 3 authority constants).
+#      This is the security invariant; it needs no Solana toolchain.
+#   2. build       — compiles the SBF program (validates our diff compiles).
+on:
+  push:
+    paths: ["solana/**", ".github/workflows/solana-ci.yml"]
+  pull_request:
+    paths: ["solana/**", ".github/workflows/solana-ci.yml"]
+
+permissions:
+  contents: read
+
+env:
+  # Upstream commit this fork is pinned to. Bump deliberately + re-diff on any
+  # intentional upstream sync.
+  UPSTREAM_REPO: https://github.com/raydium-io/raydium-cp-swap
+  UPSTREAM_COMMIT: 78f254e1023751e706df7dc15c453fc3e046697c
+  SOLANA_VERSION: v2.3.0
+
+jobs:
+  diff-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned upstream
+        run: |
+          git clone "$UPSTREAM_REPO" /tmp/upstream
+          git -C /tmp/upstream checkout --quiet "$UPSTREAM_COMMIT"
+      - name: Assert ONLY lib.rs differs from audited upstream
+        run: |
+          set -euo pipefail
+          # Any file under programs/cp-swap/src that differs and is NOT lib.rs = fail.
+          UNEXPECTED=$(diff -rq /tmp/upstream/programs/cp-swap/src \
+                                solana/tegridy-amm/programs/cp-swap/src \
+                        | grep -v '/lib.rs' || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Fork diverges from audited upstream beyond lib.rs — audit invariant broken:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+          echo "✅ Only programs/cp-swap/src/lib.rs differs from upstream $UPSTREAM_COMMIT"
+      - name: Show the lib.rs delta (for review)
+        run: diff /tmp/upstream/programs/cp-swap/src/lib.rs \
+                  solana/tegridy-amm/programs/cp-swap/src/lib.rs || true
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana/tegridy-amm/programs/cp-swap
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: solana-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+      - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: solana --version
+        run: solana --version
+      - name: Build SBF program (validates the fork compiles)
+        run: cargo build-sbf
