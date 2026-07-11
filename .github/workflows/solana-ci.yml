@@ -31,22 +31,29 @@ jobs:
         run: |
           git clone "$UPSTREAM_REPO" /tmp/upstream
           git -C /tmp/upstream checkout --quiet "$UPSTREAM_COMMIT"
-      - name: Assert ONLY lib.rs differs from audited upstream
+      - name: Assert ONLY the allowed authority files differ from audited upstream
         run: |
           set -euo pipefail
-          # Any file under programs/cp-swap/src that differs and is NOT lib.rs = fail.
+          # The ENTIRE code delta from audited upstream must be confined to these two
+          # files, which hold ONLY hardcoded authority/identity constants (program id,
+          # admin, fee receiver, support-mint owner). Anything else = audit invariant broken.
+          ALLOWED='/(lib\.rs|create_support_mint_associated\.rs)$'
           UNEXPECTED=$(diff -rq /tmp/upstream/programs/cp-swap/src \
                                 solana/tegridy-amm/programs/cp-swap/src \
-                        | grep -v '/lib.rs' || true)
+                        | grep -vE "$ALLOWED" || true)
           if [ -n "$UNEXPECTED" ]; then
-            echo "::error::Fork diverges from audited upstream beyond lib.rs — audit invariant broken:"
+            echo "::error::Fork diverges from audited upstream beyond the allowed authority files:"
             echo "$UNEXPECTED"
             exit 1
           fi
-          echo "✅ Only programs/cp-swap/src/lib.rs differs from upstream $UPSTREAM_COMMIT"
-      - name: Show the lib.rs delta (for review)
-        run: diff /tmp/upstream/programs/cp-swap/src/lib.rs \
-                  solana/tegridy-amm/programs/cp-swap/src/lib.rs || true
+          echo "✅ Only lib.rs + create_support_mint_associated.rs differ from upstream $UPSTREAM_COMMIT"
+      - name: Show the authority deltas (for review)
+        run: |
+          for f in lib.rs instructions/admin/create_support_mint_associated.rs; do
+            echo "═══ $f ═══"
+            diff "/tmp/upstream/programs/cp-swap/src/$f" \
+                 "solana/tegridy-amm/programs/cp-swap/src/$f" || true
+          done
 
   build:
     runs-on: ubuntu-latest

@@ -15,20 +15,25 @@ fallback for pairs we don't host well.
 
 ## The entire code diff from upstream
 
-Exactly **three authority/identity constants** in `programs/cp-swap/src/lib.rs`. **Nothing
-else** — all swap, curve, and fee math is byte-identical to upstream.
+Exactly **four authority/identity constants** across **two files** — `lib.rs` and
+`instructions/admin/create_support_mint_associated.rs`. **Nothing else** — all swap, curve,
+and fee math is byte-identical to upstream. After the fork, **no external party retains any
+authority on this program**; every authority is the Tegridy admin/treasury.
 
-| Constant | Upstream (Raydium) | Tegridy | Purpose |
+| Constant (file) | Upstream (Raydium) | Tegridy | Purpose |
 |---|---|---|---|
-| `declare_id!` (program ID) | `CPMMoo8L…qKP1C` | `BvBkt84Z…pDodL` (devnet) | Our program address |
-| `admin::ID` | `GThUX1…hFMJ` | `GgE6AfEH…Wq5a` (devnet) | create_config / update_config / update_pool_status authority |
-| `create_pool_fee_reveiver::ID` | `DNXge…dNC8` | `GgE6AfEH…Wq5a` (devnet) | flat pool-creation fee recipient |
+| `declare_id!` — `lib.rs` | `CPMMoo8L…qKP1C` | `BvBkt84Z…pDodL` (devnet) | our program address |
+| `admin::ID` — `lib.rs` | `GThUX1…hFMJ` | `GgE6AfEH…Wq5a` (devnet) | create_config / update_config / update_pool_status |
+| `create_pool_fee_reveiver::ID` — `lib.rs` | `DNXge…dNC8` | `GgE6AfEH…Wq5a` (devnet) | flat pool-creation fee recipient |
+| `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2…RKYZy` | `GgE6AfEH…Wq5a` (devnet) | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
 
-Verify the minimality of the diff at any time:
+The devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are throwaway keypairs in `keys/` (gitignored).
+The mainnet values are set to the Squads multisig / treasury by the operator before mainnet.
+
+Verify the minimality of the diff at any time (also enforced automatically by `solana-ci.yml`):
 ```bash
-# clone pristine upstream and diff the program src against our fork
-git clone --depth 1 https://github.com/raydium-io/raydium-cp-swap /tmp/up
-diff -r /tmp/up/programs/cp-swap/src programs/cp-swap/src   # only lib.rs constants differ
+git clone https://github.com/raydium-io/raydium-cp-swap /tmp/up && git -C /tmp/up checkout 78f254e
+diff -rq /tmp/up/programs/cp-swap/src programs/cp-swap/src   # only the 2 authority files differ
 ```
 
 The current devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are **throwaway devnet keypairs**
@@ -75,6 +80,9 @@ production. We do not modify it.
 - **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** multisig or burned upgrade authority; verifiable build so the deployed bytes are provably this source.
 - **Config misconfiguration** — wrong `protocol_owner`/rates at `create_config`. **Mitigation:** the create_config step is scripted + reviewed in Phase 2; `protocol_fee_rate ≤ trade_fee_rate` is enforced upstream.
 - **`create_pool_fee_reveiver`** — only receives the flat creation fee; low impact.
+- **`create_support_mint_associated_owner`** — alt authority for the niche Token-2022
+  support-mint allowlist. Now the Tegridy admin (upstream it was a Raydium key — that
+  residual external authority is now removed). Add-only allowlist, no fund path; low impact.
 
 **Non-code (operational) risks:** capital as LP bears impermanent loss; revenue depends on real
 volume; Jupiter de-routes under-funded pools (30-min liquidity recheck) — keep pools funded.
@@ -94,9 +102,10 @@ of the verbatim-fork approach.
 ## Layout
 ```
 programs/cp-swap/src/
-  lib.rs            ← the ONLY edited file (3 authority constants + fork header)
+  lib.rs            ← 3 of the 4 authority constants (+ fork header)
+  instructions/admin/create_support_mint_associated.rs  ← 4th authority constant
   curve/fees.rs     ← fee math (untouched, audited upstream)
   states/config.rs  ← AmmConfig: protocol_owner / fee rates (untouched)
-  instructions/     ← swap / deposit / withdraw / admin (untouched)
+  instructions/     ← swap / deposit / withdraw / admin (otherwise untouched)
 keys/               ← devnet throwaway keypairs (gitignored)
 ```

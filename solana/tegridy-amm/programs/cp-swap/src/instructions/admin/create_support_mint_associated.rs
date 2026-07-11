@@ -4,12 +4,17 @@ use anchor_lang::prelude::*;
 use anchor_spl::{token_2022, token_interface::Mint};
 use std::ops::DerefMut;
 
+// TEGRIDY FORK CHANGE (2026-07-10): upstream this alternate authority for the
+// Token-2022 support-mint allowlist was a Raydium-controlled key. Pointed at the
+// Tegridy admin so NO external party retains any authority on this program. This
+// is the 4th (and final) hardcoded-authority change; the other three are in lib.rs.
+// ⚠️ OPERATOR: replace the mainnet value with the Squads multisig before mainnet.
 pub mod create_support_mint_associated_owner {
     use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
-    pub const ID: Pubkey = pubkey!("DRaypyeDL6y1dUusMgwyeDM5JebjhsSi8aRXobKQ9DcQ");
+    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy");
+    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a"); // OPERATOR: replace with Squads multisig
 }
 
 #[derive(Accounts)]
