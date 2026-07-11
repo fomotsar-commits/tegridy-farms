@@ -37,7 +37,9 @@ jobs:
           # The ENTIRE code delta from audited upstream must be confined to these two
           # files, which hold ONLY hardcoded authority/identity constants (program id,
           # admin, fee receiver, support-mint owner). Anything else = audit invariant broken.
-          ALLOWED='/(lib\.rs|create_support_mint_associated\.rs)$'
+          # Match the differing file's path in a `diff -rq` line ("Files A and B differ").
+          # Do NOT anchor to end-of-line — the line ends in "differ", not the filename.
+          ALLOWED='/(lib\.rs|create_support_mint_associated\.rs) '
           UNEXPECTED=$(diff -rq /tmp/upstream/programs/cp-swap/src \
                                 solana/tegridy-amm/programs/cp-swap/src \
                         | grep -vE "$ALLOWED" || true)
