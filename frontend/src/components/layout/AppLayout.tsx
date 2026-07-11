@@ -30,6 +30,7 @@ import { LiveActivity } from '../LiveActivity';
 import { TowelieAssistant } from '../TowelieAssistant';
 import { TowelieProvider } from '../../hooks/useTowelie';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { PageTransition } from '../motion';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -165,11 +166,11 @@ export function AppLayout() {
             without it some browsers scroll but leave focus in the nav, sending
             the next Tab back to the header instead of into the content. */}
         <main id="main-content" tabIndex={-1}>
-          <div key={location.pathname}>
+          <PageTransition pathname={location.pathname}>
             <ErrorBoundary resetKeys={[location.pathname]}>
               <Outlet />
             </ErrorBoundary>
-          </div>
+          </PageTransition>
         </main>
         <Footer />
       </div>
