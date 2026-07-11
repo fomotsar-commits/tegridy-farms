@@ -71,3 +71,10 @@ jobs:
         run: solana --version
       - name: Build SBF program (validates the fork compiles)
         run: cargo build-sbf
+      - name: Publish compiled .so (deployable binary — sidesteps local Windows build wall)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tegridy-cp-amm-sbf
+          path: solana/tegridy-amm/target/deploy/*.so
+          if-no-files-found: error
+          retention-days: 14
