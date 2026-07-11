@@ -38,6 +38,7 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
     error TooLittleReceived();
     error TooMuchSpent();
     error NotPoolManager();
+    error NativeInputUnderfunded();
 
     struct CallbackData {
         address user; // authenticated initiator → hookData (grants the discount)
@@ -73,6 +74,15 @@ contract TegridyV4SwapRouter is IUnlockCallback, ReentrancyGuard {
             poolManager.unlock(abi.encode(CallbackData(msg.sender, to, key, params, minOut, maxIn))), (BalanceDelta)
         );
         uint256 bal = address(this).balance;
+        // econ-batch-3 [Low]: enforce native-balance conservation. `CurrencySettler.settle`
+        // sources native input from `address(this).balance` and IGNORES the payer arg — so a
+        // native-input swap could otherwise be funded from pre-existing/stuck ETH the router
+        // happens to hold (a caller passing msg.value < the native settled would drain it).
+        // `bal < preBal` means exactly that: this call's settlement dipped below the caller's
+        // own contribution (preBal = balance excluding msg.value). Forbid it. Honest swaps
+        // satisfy bal >= preBal (exact-spend: bal == preBal; exact-output leftover: bal > preBal,
+        // refunded below).
+        if (bal < preBal) revert NativeInputUnderfunded();
         if (bal > preBal) CurrencyLibrary.ADDRESS_ZERO.transfer(msg.sender, bal - preBal);
     }
 
