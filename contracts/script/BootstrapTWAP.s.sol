@@ -10,6 +10,22 @@ interface ITWAPBootstrap {
         external
         view
         returns (uint256 amountOut);
+    // update() charges a keeper fee (anti-grief). Effective fee = updateFee when
+    // the owner has configured it, else the MIN_UPDATE_FEE floor. Sending less
+    // reverts InsufficientFee(); excess is refunded.
+    function updateFee() external view returns (uint256);
+    function updateFeeConfigured() external view returns (bool);
+    function MIN_UPDATE_FEE() external view returns (uint256);
+    function canUpdate(address pair) external view returns (bool);
+    // Per-side reserve floor the TWAP enforces (anti-manipulation): update()
+    // reverts ReservesBelowFloor() unless BOTH reserves clear their floor.
+    // Default is 10 ether/side until an owner override is set.
+    function effectiveMinReserveFloor(address pair) external view returns (uint256);
+    function effectiveMinReserveFloor1(address pair) external view returns (uint256);
+}
+
+interface IPairReserves {
+    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
 }
 
 interface IRouterForWeth {
@@ -53,15 +69,46 @@ contract BootstrapTWAP is Script {
         require(router != address(0) && toweli != address(0), "ROUTER + TOWELI required");
 
         uint256 before = ITWAPBootstrap(twap).getObservationCount(pair);
+        // Effective keeper fee that update() will charge (mirrors the on-chain
+        // logic: configured value, else the MIN_UPDATE_FEE floor). Sent as
+        // msg.value; underpaying reverts InsufficientFee(), overpaying is refunded.
+        uint256 fee = ITWAPBootstrap(twap).updateFeeConfigured()
+            ? ITWAPBootstrap(twap).updateFee()
+            : ITWAPBootstrap(twap).MIN_UPDATE_FEE();
+
         console.log("=== BootstrapTWAP ===");
         console.log("TWAP:", twap);
         console.log("PAIR:", pair);
         console.log("Observations before:", before);
+        console.log("update fee (wei):", fee);
+
+        require(msg.sender.balance >= fee, "sender ETH balance < update fee");
+        // Fail with a clear message instead of a raw PeriodNotElapsed() revert
+        // mid-broadcast when run sooner than MIN_PERIOD (15 min) after the last obs.
+        require(
+            ITWAPBootstrap(twap).canUpdate(pair),
+            "MIN_PERIOD (15 min) not elapsed since last observation - wait, then retry"
+        );
+
+        // The TWAP rejects observations from pools below its per-side reserve
+        // floor (anti-manipulation: a thin pool's spot is cheap to move). Surface
+        // that as a clear, actionable error here instead of a raw
+        // ReservesBelowFloor() revert mid-broadcast. Default floor is 10 WETH/side.
+        {
+            (uint112 r0, uint112 r1,) = IPairReserves(pair).getReserves();
+            uint256 f0 = ITWAPBootstrap(twap).effectiveMinReserveFloor(pair);
+            uint256 f1 = ITWAPBootstrap(twap).effectiveMinReserveFloor1(pair);
+            console.log("reserve0 / floor0:", uint256(r0), f0);
+            console.log("reserve1 / floor1:", uint256(r1), f1);
+            require(
+                uint256(r0) >= f0 && uint256(r1) >= f1,
+                "pool reserves below TWAP floor - DEEPEN the pool first (default 10 WETH per side)"
+            );
+        }
 
         vm.startBroadcast();
-        // Records one observation. Reverts inside update() if MIN_PERIOD (15 min)
-        // hasn't elapsed since the last one — that's the signal you ran too soon.
-        ITWAPBootstrap(twap).update(pair);
+        // Records one observation. Pay the keeper fee via value; excess refunds.
+        ITWAPBootstrap(twap).update{value: fee}(pair);
         vm.stopBroadcast();
 
         uint256 nowCount = ITWAPBootstrap(twap).getObservationCount(pair);
