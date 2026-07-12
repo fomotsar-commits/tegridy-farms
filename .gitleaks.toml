@@ -1,0 +1,21 @@
+# Gitleaks configuration for Tegridy Farms.
+#
+# `useDefault = true` keeps the ENTIRE default gitleaks ruleset (all secret
+# detectors stay active — this does NOT weaken the gate). We only add a narrow
+# allowlist for KNOWN-PUBLIC on-chain constants that trip the `generic-api-key`
+# high-entropy heuristic. An Ethereum address is public data by definition and is
+# never a secret; a private key is 66 chars (0x + 64 hex), so exempting an exact
+# 42-char (0x + 40 hex) address does not exempt any key.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-public on-chain constants (not secrets)"
+# Match against the flagged finding.
+regexTarget = "match"
+regexes = [
+  # TOWELI token — canonical public mainnet address. Appears in Toweli.sol /
+  # SwapFeeRouter NatSpec, docs, and .well-known/security.txt. Tripped
+  # generic-api-key on 2026-07-12 (aee9f96); it is public, not a secret.
+  '''0x420698CFdEDdEa6bc78D59bC17798113ad278F9D''',
+]
