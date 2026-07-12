@@ -23,6 +23,7 @@ import { TOWELIE_QUOTES, FAQ_INTRO } from '../lib/copy';
 import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
 import { RealYieldProof } from '../components/RealYieldProof';
+import { ProtocolPulse } from '../components/ProtocolPulse';
 import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
@@ -441,6 +442,11 @@ export default function HomePage() {
           </div>
           <ProtocolStats />
         </m.div>
+
+        {/* Live Protocol Pulse — research-backed "what's moving in TOWELI" hook.
+            Self-gating: renders NOTHING while the protocol is dormant (currently
+            ~0 trades/24h), lights up automatically when real trading exists. */}
+        <ProtocolPulse limit={8} />
 
         {/* Real-yield proof — self-gating: renders nothing until the first
             ETH distribution lands, then lights up automatically. */}
