@@ -920,22 +920,29 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         Proposal storage proposal = proposals[_proposalId];
         if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
         if (block.timestamp <= proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineNotExpired();
-        // AUDIT FIX 2026-07-12 (MED): broaden the stale-lapse guard from "<3 voters"
-        // to "finalizeProposal can never APPROVE this proposal". Pre-fix, a
-        // past-deadline Active proposal with >= MIN_UNIQUE_VOTERS voters but below
-        // quorum (totalVotes < MIN_ABSOLUTE_QUORUM, or below the MIN_QUORUM_BPS
-        // fraction of snapshotTotalStake) was wedged Active forever: finalizeProposal
-        // reverts QuorumNotMet (~L499-505) and the old `< MIN_UNIQUE_VOTERS` guard
-        // here rejected it too, so only owner/proposer cancelProposal could free the
-        // MAX_ACTIVE_PROPOSALS slot + locked deposit. Even a natural low-turnout
-        // proposal reproduced it. Mirror the exact finalize-approve-fail conditions
-        // so ANY permanently-unapprovable proposal can be permissionlessly lapsed
-        // after the same deadline + EXECUTION_DEADLINE grace.
+        // AUDIT FIX 2026-07-12 (MED, revised): broaden the stale-lapse guard from
+        // "<3 voters" to "finalizeProposal can never RESOLVE this proposal". A
+        // past-deadline Active proposal that fails quorum (snapshotTotalStake == 0,
+        // totalVotes < MIN_ABSOLUTE_QUORUM, below the MIN_QUORUM_BPS fraction of
+        // snapshotTotalStake, or < MIN_UNIQUE_VOTERS) is wedged Active forever:
+        // finalizeProposal reverts QuorumNotMet / INSUFFICIENT_VOTERS (:499-508) and
+        // the old `< MIN_UNIQUE_VOTERS` guard here rejected it too, so only
+        // owner/proposer cancelProposal could free the MAX_ACTIVE_PROPOSALS slot +
+        // locked deposit. Even a natural low-turnout proposal reproduced it. Mirror
+        // ONLY those four finalize-REVERT conditions.
+        //
+        // Deliberately NOT `votesFor <= votesAgainst`: a quorum-MEETING proposal that
+        // was voted DOWN is NOT wedged — finalizeProposal permissionlessly Rejects it
+        // and refunds the proposer 50% (:550-566), and finalize has no upper time
+        // bound so anyone (including the proposer) can resolve it at any point after
+        // the deadline. Including the outcome term would let a third party lapse a
+        // legitimately voted-down proposal after the grace window and forfeit that
+        // refund to feeReceiver (a griefing / refund-denial path).
         uint256 totalVotes = proposal.votesFor + proposal.votesAgainst;
-        bool canNeverApprove = proposal.snapshotTotalStake == 0 || totalVotes < MIN_ABSOLUTE_QUORUM
+        bool canNeverFinalize = proposal.snapshotTotalStake == 0 || totalVotes < MIN_ABSOLUTE_QUORUM
             || totalVotes * 10000 < MIN_QUORUM_BPS * proposal.snapshotTotalStake
-            || proposalUniqueVoters[_proposalId] < MIN_UNIQUE_VOTERS || proposal.votesFor <= proposal.votesAgainst;
-        require(canNeverApprove, "PROPOSAL_CAN_APPROVE");
+            || proposalUniqueVoters[_proposalId] < MIN_UNIQUE_VOTERS;
+        require(canNeverFinalize, "PROPOSAL_CAN_FINALIZE");
         if (depositRefunded[_proposalId]) revert AlreadyRefunded();
 
         proposal.status = ProposalStatus.Rejected;

@@ -136,8 +136,11 @@ contract Audit20260712_StaleLapseTest is Test {
 
         // 3 unique voters, votesFor (3000e18) > votesAgainst (0), but totalVotes
         // (3000e18) < MIN_ABSOLUTE_QUORUM (4000e18) => finalize can never approve.
-        // Warp past deadline (createdAt + 7d) + EXECUTION_DEADLINE (30d).
-        vm.warp(block.timestamp + 31 days);
+        // Warp CLEAR of deadline (createdAt + VOTING_PERIOD 7d) + EXECUTION_DEADLINE
+        // (30d) = 37d from create. We are at ~t+1d here, so +38 days lands past the
+        // 37d grace (a +31d warp fell ~5d SHORT and reverted ExecutionDeadlineNotExpired
+        // before ever reaching the lapse-guard logic — matches the sibling tests below).
+        vm.warp(block.timestamp + 38 days);
     }
 
     /// @dev The proposal genuinely cannot be approved: finalizeProposal reverts.
@@ -210,12 +213,56 @@ contract Audit20260712_StaleLapseTest is Test {
         vm.warp(block.timestamp + 38 days);
 
         // This proposal is approvable -> lapseStaleProposal must revert.
-        vm.expectRevert(bytes("PROPOSAL_CAN_APPROVE"));
+        vm.expectRevert(bytes("PROPOSAL_CAN_FINALIZE"));
         grants.lapseStaleProposal(id);
 
         // And finalize actually approves it.
         grants.finalizeProposal(id);
         (,,,,,,, CommunityGrants.ProposalStatus status,,) = grants.getProposal(id);
         assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.Approved));
+    }
+
+    /// @dev AUDIT FIX 2026-07-12 (follow-up): a proposal that MET quorum but was
+    ///      voted DOWN (votesAgainst >= votesFor) must NOT be permissionlessly
+    ///      lapse-able. It is NOT wedged: finalizeProposal Rejects it and refunds
+    ///      the proposer 50%. If lapse could take it, a third party would forfeit
+    ///      that refund to feeReceiver after the grace window (a griefing path).
+    ///      This locks the narrowed `canNeverFinalize` guard (no `votesFor <=
+    ///      votesAgainst` term). Pre-narrowing this reverted "PROPOSAL_CAN_APPROVE"
+    ///      only for approvable proposals and WOULD have lapsed this one.
+    function test_lapseStaleProposal_rejectsQuorumMetVotedDown() public {
+        // Enough power to clear absolute + bps quorum.
+        ve.setPower(v1, 5000 ether);
+        ve.setPower(v2, 5000 ether);
+        ve.setPower(v3, 5000 ether);
+
+        grants.createProposal(artist, 1 ether, "quorum-met but voted-down grant");
+        uint256 id = 0;
+        vm.warp(block.timestamp + 1 days + 1);
+        // 2 AGAINST + 1 FOR => quorum met (15000e18) but votesFor (5000e18) <=
+        // votesAgainst (10000e18).
+        vm.prank(v1);
+        grants.voteOnProposal(id, false);
+        vm.prank(v2);
+        grants.voteOnProposal(id, false);
+        vm.prank(v3);
+        grants.voteOnProposal(id, true);
+        vm.warp(block.timestamp + 38 days); // past deadline + EXECUTION_DEADLINE
+
+        // MUST NOT be lapse-able — that would grief the proposer's refund.
+        vm.expectRevert(bytes("PROPOSAL_CAN_FINALIZE"));
+        grants.lapseStaleProposal(id);
+
+        // finalizeProposal Rejects it and refunds the proposer (this contract) 50%.
+        uint256 refundable = grants.PROPOSAL_FEE() - grants.PROPOSAL_FEE() / 2;
+        uint256 proposerBefore = token.balanceOf(address(this));
+        grants.finalizeProposal(id);
+        (,,,,,,, CommunityGrants.ProposalStatus status,,) = grants.getProposal(id);
+        assertEq(uint256(status), uint256(CommunityGrants.ProposalStatus.Rejected), "voted-down must Reject");
+        assertEq(
+            token.balanceOf(address(this)),
+            proposerBefore + refundable,
+            "proposer must keep the 50% refund on rejection"
+        );
     }
 }

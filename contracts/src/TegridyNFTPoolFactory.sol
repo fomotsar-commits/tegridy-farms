@@ -72,9 +72,22 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         this cap ONE actor could cheaply fill all MAX_POOLS_PER_COLLECTION
     ///         slots for a targeted collection and permanently censor pool
     ///         creation for everyone else on that collection. Bounding each
-    ///         creator to 20 pools per collection keeps the global 200-slot
-    ///         namespace open to ≥10 distinct creators while leaving ample room
-    ///         for any legitimate per-creator liquidity profile.
+    ///         creator to 20 pools per collection raises the bar from a single
+    ///         address to ≥10 distinct creators while leaving ample room for any
+    ///         legitimate per-creator liquidity profile.
+    /// @dev    RESIDUAL (accepted, LOW — this contract is gated / not live): this
+    ///         is a Sybil-MITIGATION, not a Sybil-PROOF. Because MIN_DEPOSIT is
+    ///         refundable (a never-swapped pool skips the withdraw cooldown) and
+    ///         fresh EOAs are free, a determined attacker using ~10 addresses (20
+    ///         pools each) can still fill the 200-slot namespace at ~gas cost and
+    ///         censor a targeted collection. A DURABLE close requires one of:
+    ///         (a) a lasting/non-refundable creation cost, (b) removing the hard
+    ///         MAX_POOLS_PER_COLLECTION cap in favour of bounded/paginated
+    ///         discovery so slot-exhaustion can no longer censor createPool, or
+    ///         (c) pruning/rotating stale never-swapped pools. Each carries a UX
+    ///         or functional trade-off (see the LOOP-01 rationale on
+    ///         MAX_POOLS_PER_COLLECTION), so it is deferred to a pre-deploy
+    ///         decision rather than shipped blind.
     uint256 public constant MAX_POOLS_PER_CREATOR_COLLECTION = 20;
 
     // ─── State ──────────────────────────────────────────────────────────

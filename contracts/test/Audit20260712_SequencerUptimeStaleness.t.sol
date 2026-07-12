@@ -74,7 +74,7 @@ contract Audit20260712_SequencerUptimeStalenessTest is Test {
     ///         4h `staleness` window. This is the exact healthy-uptime state of a
     ///         real event-driven uptime feed. Pre-fix: `checkSequencerUp` reverted
     ///         `SequencerDown`. Post-fix: it returns normally (no revert).
-    function test_healthyUptime_staleUpdatedAt_doesNotRevert() public view {
+    function test_healthyUptime_staleUpdatedAt_doesNotRevert() public {
         // startedAt = 2 days ago, updatedAt = 8h ago (> 4h STALENESS).
         feed_set(0, block.timestamp - 2 days, block.timestamp - 8 hours);
         // No expectRevert: this MUST NOT revert under the fix. It reverted pre-fix.
@@ -82,7 +82,7 @@ contract Audit20260712_SequencerUptimeStalenessTest is Test {
     }
 
     /// @notice Same state, default 24h staleness overload path — updatedAt 25h old.
-    function test_healthyUptime_staleUpdatedAt_default24h_doesNotRevert() public view {
+    function test_healthyUptime_staleUpdatedAt_default24h_doesNotRevert() public {
         feed_set(0, block.timestamp - 2 days, block.timestamp - 25 hours);
         // Exercises the 2-arg → 3-arg(MAX_FEED_STALENESS) default path.
         SequencerCheckHarness h = harness;
@@ -92,7 +92,7 @@ contract Audit20260712_SequencerUptimeStalenessTest is Test {
 
     /// @notice tryCheckSequencerUp: healthy uptime with old updatedAt must report
     ///         OK, not TRY_KEEPER_LAPSED (reason 3).
-    function test_try_healthyUptime_staleUpdatedAt_reportsOk() public view {
+    function test_try_healthyUptime_staleUpdatedAt_reportsOk() public {
         feed_set(0, block.timestamp - 2 days, block.timestamp - 8 hours);
         (bool ok, uint8 reason) = harness.tryCheck(address(feed), GRACE, STALENESS);
         assertTrue(ok, "healthy uptime must report ok despite old updatedAt");
@@ -101,7 +101,7 @@ contract Audit20260712_SequencerUptimeStalenessTest is Test {
 
     /// @notice getSequencerOutageBuffer: healthy uptime with old updatedAt must
     ///         return 0 (no outage), not `buffer`.
-    function test_outageBuffer_healthyUptime_staleUpdatedAt_returnsZero() public view {
+    function test_outageBuffer_healthyUptime_staleUpdatedAt_returnsZero() public {
         feed_set(0, block.timestamp - 2 days, block.timestamp - 8 hours);
         uint256 buf = harness.outageBuffer(address(feed), GRACE, STALENESS);
         assertEq(buf, 0, "no outage buffer when sequencer is healthily up");
@@ -110,9 +110,15 @@ contract Audit20260712_SequencerUptimeStalenessTest is Test {
     /// @notice getResumeTimestamp: healthy uptime with old updatedAt must return
     ///         the real `startedAt`, not the fail-closed `type(uint256).max`
     ///         sentinel that the removed staleness branch produced.
-    function test_resumeTimestamp_healthyUptime_staleUpdatedAt_returnsStartedAt() public view {
+    /// @dev    updatedAt is 25h old — OLDER than the hardcoded 24h
+    ///         MAX_FEED_STALENESS that the removed branch used (getResumeTimestamp
+    ///         takes no `staleness` param). So PRE-fix this tripped the stale
+    ///         branch → returned type(uint256).max; POST-fix it returns startedAt.
+    ///         (An 8h value would be < 24h and pass on BOTH old and new — no
+    ///         fail-on-old — which is why we use 25h here.)
+    function test_resumeTimestamp_healthyUptime_staleUpdatedAt_returnsStartedAt() public {
         uint256 resumedAt = block.timestamp - 2 days;
-        feed_set(0, resumedAt, block.timestamp - 8 hours);
+        feed_set(0, resumedAt, block.timestamp - 25 hours);
         uint256 got = harness.resumeTimestamp(address(feed));
         assertEq(got, resumedAt, "must return real startedAt, not fail-closed max sentinel");
     }
