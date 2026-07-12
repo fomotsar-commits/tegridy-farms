@@ -14,6 +14,7 @@ import { useTOWELIPrice } from '../contexts/PriceContext';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { formatCurrency } from '../lib/formatting';
 import { FlashValue } from '../components/FlashValue';
+import { CountUpText } from '../components/motion';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -292,10 +293,10 @@ export default function HomePage() {
                 <span className="text-[12px] flex items-center gap-1.5" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}{s.showSparkline && <PulseDot size={5} />}</span>
                 {s.showSparkline ? (
                   <FlashValue value={price.priceInUsd}>
-                    <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(s.loading || !s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
+                    <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(s.loading || !s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : <CountUpText value={s.v} />}</span>
                   </FlashValue>
                 ) : (
-                  <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(s.loading || !s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}</span>
+                  <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{(s.loading || !s.v || s.v === '–') ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : <CountUpText value={s.v} />}</span>
                 )}
                 {/* F85: TOWELI count as a secondary figure under the USD TVL. */}
                 {s.sub && (
