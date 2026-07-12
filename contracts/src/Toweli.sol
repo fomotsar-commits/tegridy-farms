@@ -16,6 +16,8 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 /// @notice Fixed-supply ERC-20 token for Tegridy Farms protocol. Immutable supply,
 ///         no mint function, no burn entrypoint, no pause, no blocklist, no owner.
 ///         EIP-2612 permit() support included for gasless approvals.
+/// @custom:security-contact fomotsar@gmail.com
+/// @dev Responsible-disclosure policy + PGP: https://tegridyfarms.vercel.app/.well-known/security.txt
 ///
 /// @dev Canonical deployment is `0x420698CFdEDdEa6bc78D59bC17798113ad278F9D` on
 ///      Ethereum Mainnet. The vanity address prefix (`0x420698`) was produced via

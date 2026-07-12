@@ -1,0 +1,21 @@
+{
+  // Recommended editor extensions for Tegridy Farms (VS Code shows a
+  // "Recommended" install prompt). Rationale + the full tooling checklist:
+  // docs/SECURITY_TOOLING.md
+  "recommendations": [
+    // In-editor audit-grade Solidity detectors (reentrancy/overflow/logic) +
+    // compile diagnostics WITHOUT a full `forge build` — mitigates the local
+    // build hang. (Ackee — Wake.)
+    "AckeeBlockchain.tools-for-solidity",
+    // Official Nomic Foundation Solidity LSP: solc errors + navigation, honors
+    // foundry.toml remappings, runs `forge fmt` on save (matches the fmt gate).
+    "NomicFoundation.hardhat-solidity",
+    // Inline audit annotations + call-graph / external-call highlighting.
+    "tintinweb.solidity-visual-auditor",
+    // Complexity / external-call / SLOC report to rank audit effort across the
+    // 49 contracts and flag EIP-170 creep.
+    "tintinweb.solidity-metrics",
+    // Schema-aware validation of the load-bearing foundry.toml.
+    "tamasfe.even-better-toml"
+  ]
+}

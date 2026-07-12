@@ -1,0 +1,24 @@
+# Tegridy Farms — security disclosure policy (RFC 9116)
+# https://tegridyfarms.vercel.app
+
+Contact: mailto:fomotsar@gmail.com
+Expires: 2027-07-12T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://tegridyfarms.vercel.app/.well-known/security.txt
+
+# ── In scope ──────────────────────────────────────────────────────────────
+#   - TOWELI token: 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D (Ethereum mainnet)
+#   - Tegridy Farms smart contracts (the verified/GitHub source is authoritative)
+#   - The dapp at https://tegridyfarms.vercel.app and its serverless API
+#
+# ── How to report ─────────────────────────────────────────────────────────
+# Please report vulnerabilities PRIVATELY to the contact above BEFORE any public
+# disclosure or on-chain exploitation. Good-faith researchers acting under
+# responsible disclosure will not be pursued, and will be credited. Do NOT run
+# destructive tests against mainnet — use a fork (Tenderly / Anvil).
+#
+# For an in-progress drain, the SEAL 911 emergency responder network can help:
+#   https://securityalliance.org/our-work/seal-911   (responders NEVER need your keys)
+#
+# No paid bug-bounty program is live yet. If/when one launches it will be linked here.
+# TODO(owner): consider a dedicated `security@` alias + a PGP key (Encryption: line).

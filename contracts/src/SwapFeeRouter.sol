@@ -39,6 +39,8 @@ interface IPremiumAccess {
 /// @notice Wraps Uniswap V2 swaps with a protocol fee.
 ///         Users swap through this contract instead of directly on Uniswap.
 ///         A small fee (default 0.3%) is taken from the input before swapping.
+/// @custom:security-contact fomotsar@gmail.com
+/// @dev Responsible-disclosure policy: https://tegridyfarms.vercel.app/.well-known/security.txt
 ///
 ///         Revenue: fees accumulate in this contract and can be withdrawn by owner.
 ///

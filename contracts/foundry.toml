@@ -92,3 +92,27 @@ sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api
 [rpc_endpoints]
 mainnet = "${ETH_RPC_URL}"
 sepolia = "${SEPOLIA_RPC_URL}"
+# OPS 2026-07-12: private-mempool send-paths so an admin/deployer broadcast
+# (acceptOwnership, deepen-LP into the shallow pool, BootstrapTWAP) can't be
+# sandwiched or front-run in the public mempool. Use ONLY for `--broadcast`
+# (send); keep `mainnet` for reads/nonce. Public URLs, no key. Private txs may
+# take a few blocks to land — expect slower receipt polling. See
+# docs/SECURITY_TOOLING.md.
+#   forge script script/Foo.s.sol --rpc-url flashbots --broadcast --slow
+flashbots = "https://rpc.flashbots.net/fast"
+mevblocker = "https://rpc.mevblocker.io/fullprivacy"
+
+# ─── Opt-in formal-verification profile (SMTChecker) ───────────────────────
+# solc's built-in model checker — a FREE formal layer, ZERO new dependency. It
+# runs ONLY when explicitly selected, so the default build + CI are unaffected.
+#   Run (in CI, or any machine where `forge build` completes — local hangs):
+#     FOUNDRY_PROFILE=smtcheck forge build
+# Scoped to the flagship fixed-supply token so the CHC engine stays bounded;
+# widen `contracts` to SwapFeeRouter fee-math / TWAP once tuned. Inherits
+# src/solc/via_ir/remappings from [profile.default].
+[profile.smtcheck.model_checker]
+engine = "chc"
+targets = ["assert", "overflow", "underflow", "divByZero"]
+timeout = 100000            # ms per solver query
+show_unproved = true
+contracts = { "src/Toweli.sol" = ["Toweli"] }
