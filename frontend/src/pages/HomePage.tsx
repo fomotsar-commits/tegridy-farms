@@ -24,6 +24,7 @@ import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
 import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
+import { ProofOfClaims } from '../components/ProofOfClaims';
 import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
@@ -447,6 +448,12 @@ export default function HomePage() {
             Self-gating: renders NOTHING while the protocol is dormant (currently
             ~0 trades/24h), lights up automatically when real trading exists. */}
         <ProtocolPulse limit={8} />
+
+        {/* Prove It — every headline claim rendered live from the chain (kills the
+            trust-copy drift the June audit caught). Always populated (cheap reads). */}
+        <m.div className="pb-16" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+          <ProofOfClaims />
+        </m.div>
 
         {/* Real-yield proof — self-gating: renders nothing until the first
             ETH distribution lands, then lights up automatically. */}
