@@ -1,5 +1,4 @@
 import { m } from 'framer-motion';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { pageArt, artStyle } from '../lib/artConfig';
@@ -16,7 +15,6 @@ import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ArtImg } from '../components/ArtImg';
 
 // AUDIT R035: Split mirrors TOKENOMICS.md (source of truth) — Circulating 45 /
@@ -31,6 +29,21 @@ const SUPPLY_DATA = [
   { name: 'Community', value: 10, color: '#22c55e' },
   { name: 'Team (locked by policy — on-chain vesting pending)', value: 5, color: '#3b82f6' },
 ];
+
+// Precomputed conic-gradient stops for a CSS donut. Replaces a Recharts
+// ResponsiveContainer that collapsed to 0 width on the keyed route remount
+// (the height fix in F50 wasn't enough — width="100%" still measured 0, so the
+// pie rendered blank on prod / a slivered stub in dev). A CSS donut has zero
+// measurement dependency, renders identically in dev+prod, and drops the chart
+// lib from this view. Legend below carries the exact percentages.
+const SUPPLY_CONIC = (() => {
+  let acc = 0;
+  return SUPPLY_DATA.map((d) => {
+    const start = acc * 3.6;
+    acc += d.value;
+    return `${d.color} ${start}deg ${acc * 3.6}deg`;
+  }).join(', ');
+})();
 
 // F388: dropped the per-row `live` flag — it had drifted (POLAccumulator was
 // flagged live:false although it deployed in the relaunch). Live/Pending now
@@ -115,28 +128,23 @@ export default function TokenomicsPage() {
             </div>
             <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h2 className="heading-luxury text-[15px] text-white mb-3">Supply Distribution</h2>
-            <div className="w-full h-48 min-h-[192px]">
-              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}>
-              {/* F50: a fluid height="100%" depended on the flex parent being
-                  measured at the moment recharts mounted — during the keyed route
-                  remount the container measured 0/-1 and the pie rendered blank
-                  (legend-only). Pin an explicit pixel height so the chart is
-                  size-deterministic on first paint; width still flows from w-full. */}
-              <ResponsiveContainer width="100%" height={192} minWidth={1} minHeight={192}>
-                <PieChart>
-                  <Pie data={SUPPLY_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
-                    {SUPPLY_DATA.map((e) => <Cell key={e.name} fill={e.color} />)}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: 'rgba(6,12,26,0.85)', border: '1px solid var(--color-purple-75)',
-                      borderRadius: '8px', fontFamily: 'var(--font-family-body)', color: '#f0ead6', fontSize: '12px',
-                    }}
-                    formatter={(v) => `${v}%`}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              </ErrorBoundary>
+            <div className="w-full h-48 min-h-[192px] flex items-center justify-center">
+              <m.div
+                role="img"
+                aria-label="TOWELI supply distribution — Circulating 45 percent, LP Seed 30 percent, Treasury 10 percent, Community 10 percent, Team 5 percent"
+                className="rounded-full"
+                initial={{ opacity: 0, rotate: -90, scale: 0.9 }}
+                animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                style={{
+                  width: 172,
+                  height: 172,
+                  background: `conic-gradient(${SUPPLY_CONIC})`,
+                  WebkitMask: 'radial-gradient(circle 86px at center, transparent 0 56px, #000 57px)',
+                  mask: 'radial-gradient(circle 86px at center, transparent 0 56px, #000 57px)',
+                  boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+                }}
+              />
             </div>
             <div className="grid grid-cols-2 gap-1.5 mt-2">
               {SUPPLY_DATA.map((d) => (
