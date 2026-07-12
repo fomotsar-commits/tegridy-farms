@@ -54,13 +54,28 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
 
     /// @notice Floor on the MIN_DEPOSIT spam-deterrent used in createPool.
     /// @dev    AUDIT FIX (pass-8): C5 / LOOP-01 — raised from 0.01 ETH to
-    ///         0.05 ETH. At 0.01 ETH per spam pool, 200 pools = 2 ETH (~$5k at
-    ///         current prices) which is cheap enough to attack. At 0.05 ETH, the
-    ///         200-pool cap costs 10 ETH (~$25k) — still attackable but at a
-    ///         level the protocol can detect and rate-limit at the operator
-    ///         layer. Combined with MAX_POOLS_PER_COLLECTION the spam vector is
-    ///         doubly closed.
+    ///         0.05 ETH.
+    ///         AUDIT FIX 2026-07-12: comment correction — MIN_DEPOSIT does NOT
+    ///         impose a lasting cost. The 0.05 ETH is REFUNDABLE: a pool that
+    ///         never swaps has `lastSwapBlock == 0`, so its withdraw cooldown is
+    ///         skipped and the creator can pull the seed ETH straight back out.
+    ///         The real marginal cost of filling a collection's 200-slot
+    ///         namespace is therefore ~gas, NOT the "~10 ETH / $25k" the old
+    ///         comment claimed. MIN_DEPOSIT is a griefing speed-bump only; the
+    ///         load-bearing single-actor-censorship defense is the per-creator
+    ///         cap (MAX_POOLS_PER_CREATOR_COLLECTION) added below.
     uint256 public constant MIN_DEPOSIT = 0.05 ether;
+
+    /// @notice AUDIT FIX 2026-07-12 [MED]: per-creator cap on pools created for
+    ///         a single collection. `_poolsByCollection` is append-only (no
+    ///         removal path) and the MIN_DEPOSIT seed is recoverable, so without
+    ///         this cap ONE actor could cheaply fill all MAX_POOLS_PER_COLLECTION
+    ///         slots for a targeted collection and permanently censor pool
+    ///         creation for everyone else on that collection. Bounding each
+    ///         creator to 20 pools per collection keeps the global 200-slot
+    ///         namespace open to ≥10 distinct creators while leaving ample room
+    ///         for any legitimate per-creator liquidity profile.
+    uint256 public constant MAX_POOLS_PER_CREATOR_COLLECTION = 20;
 
     // ─── State ──────────────────────────────────────────────────────────
     /// @notice Implementation contract used as the clone template
@@ -120,6 +135,16 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         24h has elapsed.
     uint256 public dayStart;
     uint256 public withdrawnToday;
+
+    /// @notice AUDIT FIX 2026-07-12 [MED]: number of pools each creator has
+    ///         created for each collection. Enforces
+    ///         MAX_POOLS_PER_CREATOR_COLLECTION in `createPool` so no single
+    ///         actor can exhaust a collection's shared 200-slot namespace and
+    ///         censor pool creation for that collection.
+    /// @dev    Storage-stable: appended AFTER every pre-existing state variable
+    ///         so no deployed slot shifts. mapping(creator => mapping(collection
+    ///         => count)).
+    mapping(address => mapping(address => uint256)) public poolsByCreatorCollection;
 
     // ─── Events ─────────────────────────────────────────────────────────
     event PoolCreated(
@@ -218,6 +243,13 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         // to defeat storage-bloat DoS on router discovery.
         require(msg.value >= MIN_DEPOSIT || initialTokenIds.length > 0, "MIN_DEPOSIT");
         require(_poolsByCollection[nftCollection].length < MAX_POOLS_PER_COLLECTION, "MAX_POOLS_PER_COLLECTION");
+        // AUDIT FIX 2026-07-12 [MED]: per-creator cap so one actor cannot fill
+        // the shared per-collection namespace and censor pool creation. The
+        // global cap above stays; this only bounds a single msg.sender.
+        require(
+            poolsByCreatorCollection[msg.sender][nftCollection] < MAX_POOLS_PER_CREATOR_COLLECTION,
+            "MAX_POOLS_PER_CREATOR_COLLECTION"
+        );
 
         // AUDIT H-08: deploy via CREATE2 with a deterministic salt that includes the
         // caller, a per-creator pool counter, and the target collection. The prior
@@ -272,6 +304,9 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         // Index the pool
         _allPools.push(pool);
         _poolsByCollection[nftCollection].push(pool);
+        // AUDIT FIX 2026-07-12 [MED]: track this creator's per-collection count
+        // for the anti-censorship cap checked above. Guarded by `nonReentrant`.
+        poolsByCreatorCollection[msg.sender][nftCollection]++;
         // R064 (MEDIUM): mark for O(1) membership lookups in claimPoolFeesBatch.
         isPool[pool] = true;
 

@@ -920,7 +920,22 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         Proposal storage proposal = proposals[_proposalId];
         if (proposal.status != ProposalStatus.Active) revert ProposalNotActive();
         if (block.timestamp <= proposal.deadline + EXECUTION_DEADLINE) revert ExecutionDeadlineNotExpired();
-        require(proposalUniqueVoters[_proposalId] < MIN_UNIQUE_VOTERS, "HAS_QUORUM_VOTERS");
+        // AUDIT FIX 2026-07-12 (MED): broaden the stale-lapse guard from "<3 voters"
+        // to "finalizeProposal can never APPROVE this proposal". Pre-fix, a
+        // past-deadline Active proposal with >= MIN_UNIQUE_VOTERS voters but below
+        // quorum (totalVotes < MIN_ABSOLUTE_QUORUM, or below the MIN_QUORUM_BPS
+        // fraction of snapshotTotalStake) was wedged Active forever: finalizeProposal
+        // reverts QuorumNotMet (~L499-505) and the old `< MIN_UNIQUE_VOTERS` guard
+        // here rejected it too, so only owner/proposer cancelProposal could free the
+        // MAX_ACTIVE_PROPOSALS slot + locked deposit. Even a natural low-turnout
+        // proposal reproduced it. Mirror the exact finalize-approve-fail conditions
+        // so ANY permanently-unapprovable proposal can be permissionlessly lapsed
+        // after the same deadline + EXECUTION_DEADLINE grace.
+        uint256 totalVotes = proposal.votesFor + proposal.votesAgainst;
+        bool canNeverApprove = proposal.snapshotTotalStake == 0 || totalVotes < MIN_ABSOLUTE_QUORUM
+            || totalVotes * 10000 < MIN_QUORUM_BPS * proposal.snapshotTotalStake
+            || proposalUniqueVoters[_proposalId] < MIN_UNIQUE_VOTERS || proposal.votesFor <= proposal.votesAgainst;
+        require(canNeverApprove, "PROPOSAL_CAN_APPROVE");
         if (depositRefunded[_proposalId]) revert AlreadyRefunded();
 
         proposal.status = ProposalStatus.Rejected;

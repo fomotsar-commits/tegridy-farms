@@ -118,6 +118,17 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
 
     mapping(PoolId => bool) public allowedPools;
 
+    /// @notice AUDIT FIX 2026-07-12 [HIGH]: dedicated per-currency POL accumulator
+    ///         (key = `currency.toId()`). The inherited `LiquidityPenaltyHook` parks
+    ///         withheld JIT LP fees as ERC-6909 claims in the SAME slot the POL skim
+    ///         uses — `poolManager.balanceOf(address(this), id)`. Reading the RAW
+    ///         balance in sweep/distribute would (1) drain the LPs' withheld fees to
+    ///         the protocol sinks and (2) then brick the LP's removal, because the
+    ///         base `_settleFeesFromHook` burns claims that are no longer there
+    ///         (underflow revert → locked principal). This tracks ONLY the protocol's
+    ///         own POL skim, so redemption can never touch the withheld-fee claims.
+    mapping(uint256 id => uint256 amount) public polAccrued;
+
     /// @notice Emergency stop. `_beforeSwap` reverts; liquidity removal stays open.
     bool public paused;
 
@@ -317,6 +328,9 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         if (feeAmount == 0) return (this.afterSwap.selector, 0);
 
         unspecified.take(poolManager, address(this), feeAmount, true);
+        // AUDIT FIX 2026-07-12 [HIGH]: credit ONLY the protocol POL pot, isolated from
+        // LiquidityPenaltyHook's withheld JIT-fee claims that share this ERC-6909 slot.
+        polAccrued[unspecified.toId()] += feeAmount;
         emit PolAccrued(unspecified, feeAmount);
         return (this.afterSwap.selector, feeAmount.toInt256().toInt128());
     }
@@ -332,8 +346,12 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     ///         `distributeFees`, which honours the split.
     function sweepPOL(Currency currency) external onlyParamAdmin {
         uint256 id = currency.toId();
-        uint256 bal = poolManager.balanceOf(address(this), id);
+        // AUDIT FIX 2026-07-12 [HIGH]: sweep ONLY the tracked POL pot, never the raw
+        // balance (which also holds LPs' withheld JIT-fee claims). Decrement first
+        // (checks-effects-interactions) before the claim transfer.
+        uint256 bal = polAccrued[id];
         if (bal == 0) return;
+        polAccrued[id] = 0;
         // AUDIT 2026-05-31 [slither unused-return FP]: Uniswap V4 PoolManager.transfer reverts
         // on failure (it does not return a falsifiable success bool to act on); the ERC-6909
         // claim transfer either moves the balance or reverts the whole call.
@@ -348,8 +366,13 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     ///         Permissionless (destinations are admin-set). Re-entrancy impossible:
     ///         opens a PoolManager lock; a nested unlock reverts while locked.
     function distributeFees(Currency currency) public {
-        uint256 bal = poolManager.balanceOf(address(this), currency.toId());
+        // AUDIT FIX 2026-07-12 [HIGH]: route ONLY the tracked POL pot, never the raw
+        // balance (which also holds LPs' withheld JIT-fee claims). Zero it first
+        // (checks-effects-interactions) before opening the PoolManager lock.
+        uint256 id = currency.toId();
+        uint256 bal = polAccrued[id];
         if (bal == 0) return;
+        polAccrued[id] = 0;
         uint256 stakerAmt = (bal * stakerShareBps) / BPS;
         uint256 treasuryAmt = (bal * treasuryShareBps) / BPS;
         uint256 polAmt = bal - stakerAmt - treasuryAmt;

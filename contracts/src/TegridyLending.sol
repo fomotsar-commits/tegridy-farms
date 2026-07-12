@@ -317,6 +317,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         on cancelOffer / acceptOffer so legitimate lenders are not
     ///         permanently capped by their own cancellation history.
     mapping(address => uint256) public activeOffersByLender;
+    // ─── AUDIT FIX 2026-07-12: global OPEN-offer count ──────────────────
+    /// @notice Running count of ACTIVE offers protocol-wide, used to enforce
+    ///         MAX_TOTAL_OFFERS. Previously the global cap gated on
+    ///         `offers.length` — but `offers` is append-only (never popped on
+    ///         cancel/accept), so the 10k cap was a LIFETIME-creation ceiling
+    ///         that permanently bricked offer creation for EVERY user once
+    ///         reached (griefable at gas-only cost via create→cancel, since the
+    ///         principal is fully refunded). This counter tracks live open
+    ///         pressure the same way `activeOffersByLender` does: +1 on create,
+    ///         -1 on the two active→inactive transitions (cancel + accept). The
+    ///         array stays append-only so existing offerId indices are stable.
+    ///         Mirrors the sibling TegridyNFTLending.openOffersCount fix.
+    uint256 public activeOfferCount;
 
     // ─── AUDIT FIX: DEEP-LD-M6 — minimum interest floor ──────────────
     /// @notice Minimum interest charged on any repayment, equivalent to 1 full day
@@ -1012,7 +1025,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // through noise. activeOffersByLender is a per-lender ACTIVE counter
         // (decremented on cancel/accept) so legitimate lenders are never
         // permanently squeezed out by their own cancel history.
-        if (offers.length >= MAX_TOTAL_OFFERS) revert TooManyOffers();
+        // AUDIT FIX 2026-07-12: gate the global cap on live ACTIVE offers
+        // (`activeOfferCount`), not the append-only `offers.length` — see the
+        // `activeOfferCount` NatSpec for the lifetime-ceiling DoS this closes.
+        if (activeOfferCount >= MAX_TOTAL_OFFERS) revert TooManyOffers();
         if (activeOffersByLender[msg.sender] >= MAX_OFFERS_PER_LENDER) {
             revert TooManyOffersPerLender();
         }
@@ -1028,6 +1044,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // but ordering here matches the cancel/accept decrements at the
         // counterpart sites.
         activeOffersByLender[msg.sender] += 1;
+        // AUDIT FIX 2026-07-12: increment global open count (paired with the
+        // cancel/accept decrements at the two active→inactive transitions).
+        activeOfferCount += 1;
         offers.push(LoanOffer({
             lender: msg.sender,
             principal: effectivePrincipal,
@@ -1085,6 +1104,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // AUDIT FIX (F-95-K-2): release lender's per-lender quota slot.
         if (activeOffersByLender[msg.sender] > 0) {
             activeOffersByLender[msg.sender] -= 1;
+        }
+        // AUDIT FIX 2026-07-12: decrement global open count on cancel. The
+        // `offer.active` guard above ensures this active→inactive transition
+        // runs at most once per offer (no double-decrement).
+        if (activeOfferCount > 0) {
+            activeOfferCount -= 1;
         }
         // AUDIT FIX: DEEP-LD-M8 — refund principal + held origination fee.
         uint256 refundAmount = offer.principal + offer.originationFee;
@@ -1208,6 +1233,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // ACTIVE budget).
         if (activeOffersByLender[lender] > 0) {
             activeOffersByLender[lender] -= 1;
+        }
+        // AUDIT FIX 2026-07-12: decrement global open count on accept. The
+        // `offer.active` guard above ensures this active→inactive transition
+        // runs at most once per offer (no double-decrement).
+        if (activeOfferCount > 0) {
+            activeOfferCount -= 1;
         }
         // AUDIT FIX: DEEP-LD-M8 — clear escrowed fee on offer.
         offer.originationFee = 0;

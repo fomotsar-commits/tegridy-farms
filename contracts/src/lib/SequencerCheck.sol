@@ -82,18 +82,20 @@ library SequencerCheck {
     ///         deploys and `gracePeriod = 0` bypass attempts.
     uint256 internal constant MIN_GRACE_PERIOD = 60;
 
-    /// @notice AUDIT MICROSCOPE_2026_04_30 M-Lib2 / DEEP-LIB-M3: max acceptable
-    ///         staleness on the uptime feed itself. Chainlink's L2 uptime feed is
-    ///         keeper-updated; if the keeper lapses, `latestRoundData` returns a
-    ///         previously-cached round whose `answer` may no longer reflect reality.
-    ///         Aave V3 `PriceOracleSentinel` and the Chainlink "Handling Outages"
-    ///         docs require `block.timestamp - updatedAt <= MAX_FEED_STALENESS`
-    ///         AND `answeredInRound >= roundId` to defend against this. 24h matches
-    ///         Aave's stable-asset default.
-    /// @dev    DEEP-LIB-M3: per-consumer tuning is offered through the `staleness`
-    ///         overload of `checkSequencerUp`. Lending / drop pricing should pick a
-    ///         tighter window (e.g. 4h) so a keeper lapse trips earlier on
-    ///         price-sensitive paths.
+    /// @notice Default value historically passed as the `staleness` argument.
+    /// @dev    AUDIT FIX 2026-07-12 — CORRECTION: the L2 Sequencer Uptime feed is
+    ///         EVENT-DRIVEN, not keeper-heartbeated. A new round is written ONLY
+    ///         when the sequencer transitions up→down or down→up, so `updatedAt`
+    ///         legitimately stays hours-to-weeks old during healthy continuous
+    ///         uptime. The prior comment claimed Aave V3 `PriceOracleSentinel` /
+    ///         the Chainlink "Handling Outages" docs REQUIRE
+    ///         `block.timestamp - updatedAt <= MAX_FEED_STALENESS` on this feed —
+    ///         that is INCORRECT: those canonical patterns deliberately do NOT
+    ///         staleness-check the uptime feed (staleness checks apply to *price*
+    ///         feeds, which this is not). The staleness reject has been removed
+    ///         from all four helpers. This constant is retained only as the
+    ///         backward-compatible default for the `staleness` parameter, which no
+    ///         longer gates anything on the uptime feed.
     uint256 internal constant MAX_FEED_STALENESS = 24 hours;
 
     // ─── Reasons reported by `tryCheckSequencerUp` (DEEP-LIB-M6) ─────
@@ -172,10 +174,14 @@ library SequencerCheck {
             uint80 answeredInRound
         ) = IChainlinkAggregator(feed).latestRoundData();
 
-        // AUDIT MICROSCOPE_2026_04_30 M-Lib2: round-validity / freshness checks
-        // PRECEDE the up/down decision so a stale feed can never fall through the
-        // `answer != 0` branch with a cached "up" reading. Pattern of record:
-        // Aave V3 PriceOracleSentinel + Chainlink "Handling Outages" docs.
+        // AUDIT MICROSCOPE_2026_04_30 M-Lib2 (as revised by AUDIT FIX 2026-07-12):
+        // round-validity checks PRECEDE the up/down decision so an *uninitialized*
+        // or *pre-dated* round can never fall through the `answer != 0` branch with
+        // a bogus reading. NOTE: there is deliberately no heartbeat/staleness check
+        // here — the uptime feed is event-driven (see MAX_FEED_STALENESS above and
+        // the AUDIT FIX 2026-07-12 note below). Pattern of record: Aave V3
+        // PriceOracleSentinel + Chainlink "Handling Outages" docs, which check the
+        // uptime feed's `answer` and post-resume grace, NOT its update age.
         if (updatedAt == 0) revert SequencerGracePeriodNotOver(); // round not initialized
         if (answeredInRound < roundId) revert SequencerDown();    // answer pre-dates round
         // AUDIT FIX: v3-LIB-M1 — directional ordering check BEFORE the
@@ -188,9 +194,18 @@ library SequencerCheck {
         // `getSequencerOutageBuffer` (closed in v2-LIB-M1) so the same input
         // class produces the same revert type across all three helpers.
         if (updatedAt > block.timestamp) revert SequencerDown(); // clock skew → fail-closed
-        unchecked {
-            if (block.timestamp - updatedAt > staleness) revert SequencerDown(); // keeper lapse
-        }
+        // AUDIT FIX 2026-07-12 — Do NOT heartbeat/staleness-check the L2 Sequencer
+        // Uptime feed. It is EVENT-DRIVEN: a new round is written ONLY on an
+        // up→down / down→up transition, so during healthy continuous uptime
+        // `updatedAt` legitimately stays hours-to-weeks old. The pre-fix reject
+        // `block.timestamp - updatedAt > staleness` therefore reverted every gated
+        // read a few hours after any L2 deploy (mainnet was unaffected — it
+        // early-returns on `feed == address(0)` above). Canonical Aave V3
+        // PriceOracleSentinel / Chainlink "Handling Outages" pattern deliberately
+        // does NOT staleness-check this feed; it relies on `answer`, the
+        // future-dated guard, and the post-resume grace window (all kept below).
+        // `staleness` is retained in the signature for API/ABI stability with
+        // existing callers but no longer gates the uptime feed.
 
         // AUDIT MICROSCOPE_2026_04_30 M-Lib3: strict equality to UP. Pre-fix
         // `answer == 1` only treats exactly 1 as down — values like 2 (a future
@@ -257,9 +272,9 @@ library SequencerCheck {
         // `Panic(0x11)`, breaking the "non-reverting" promise of this helper.
         // Treat any future-dated round as a clock-skew event (fail closed).
         if (updatedAt > block.timestamp) return (false, TRY_CLOCK_SKEW);
-        unchecked {
-            if (block.timestamp - updatedAt > staleness) return (false, TRY_KEEPER_LAPSED);
-        }
+        // AUDIT FIX 2026-07-12 — No heartbeat/staleness check on the EVENT-DRIVEN
+        // uptime feed (see checkSequencerUp). `staleness` / TRY_KEEPER_LAPSED are
+        // retained for API/ABI stability but no longer trip on healthy uptime.
         if (answer != 0) return (false, TRY_SEQ_DOWN);
         if (startedAt == 0) return (false, TRY_NO_RESUME);
         // AUDIT FIX: V2-LIB-M1 — same future-dated guard for `startedAt`.
@@ -332,9 +347,9 @@ library SequencerCheck {
         // soft-fail contract this helper offers to non-reverting consumers
         // (MemeBountyBoard refund / cancel paths).
         if (updatedAt > block.timestamp) return buffer;                    // clock skew → treat as outage
-        unchecked {
-            if (block.timestamp - updatedAt > staleness) return buffer;    // keeper lapse
-        }
+        // AUDIT FIX 2026-07-12 — No heartbeat/staleness check on the EVENT-DRIVEN
+        // uptime feed (see checkSequencerUp). `staleness` retained for API/ABI
+        // stability but a legitimately-old `updatedAt` no longer forces `buffer`.
         if (answer != 0) return buffer;                                    // sequencer down
         if (startedAt == 0) return buffer;                                 // no round yet
         // AUDIT FIX: V2-LIB-M1 — same future-dated guard for `startedAt`.
@@ -410,9 +425,11 @@ library SequencerCheck {
         // a `Panic(0x11)` to consumers that expect this helper to return a
         // sentinel on stale feeds. Treat any future-dated round as stale.
         if (updatedAt > block.timestamp) return type(uint256).max;
-        unchecked {
-            if (block.timestamp - updatedAt > MAX_FEED_STALENESS) return type(uint256).max;
-        }
+        // AUDIT FIX 2026-07-12 — No heartbeat/staleness check on the EVENT-DRIVEN
+        // uptime feed (see checkSequencerUp). A legitimately-old `updatedAt` during
+        // healthy uptime must NOT fail-close this resume-timestamp helper; the
+        // future-dated guard above plus the `answer`/`startedAt` checks below
+        // remain the correctness gates.
 
         // If the sequencer is currently down, there is no meaningful "resume"
         // timestamp — return 0 and let `checkSequencerUp` produce the typed

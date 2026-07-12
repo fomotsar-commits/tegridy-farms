@@ -376,8 +376,15 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // AUDIT FIX: V2-NFTPOOL-01
         _swapCaller = msg.sender;
 
+        // AUDIT FIX 2026-07-12: the slippage floor is enforced later against the
+        // NET proceeds the seller actually receives (gross curve payout minus the
+        // ERC-2981 royalty), NOT the gross `outputAmount` here. Pre-fix the check
+        // sat on this line against the pre-royalty gross, so a collection with up
+        // to a 25% royalty could pay the seller strictly LESS than the `minOutput`
+        // they specified. Canonical Sudoswap V2 (LSSVMPair) subtracts royalty
+        // BEFORE the `minExpectedTokenOutput` comparison; we mirror that. See the
+        // net-output check just before `_sendETH` below.
         (uint256 outputAmount, uint256 protocolFee, uint256 lpFee) = _getSellPriceFull(numItems);
-        if (outputAmount < minOutput) revert InsufficientPayout();
 
         spotPrice -= delta * numItems;
 
@@ -405,6 +412,13 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // (royalty receiver cannot brick the sale; mirror Sudoswap V2 / OS).
         uint256 royalty = _settleRoyalty(outputAmount, tokenIds[0]);
 
+        // AUDIT FIX 2026-07-12: enforce the slippage floor against the NET amount
+        // the seller actually receives (`outputAmount - royalty`). Reverting here
+        // rolls back the NFT inflow, fee accrual and the royalty payment above, so
+        // the seller is never forced to accept less than `minOutput`.
+        uint256 netOutput = outputAmount - royalty;
+        if (netOutput < minOutput) revert InsufficientPayout();
+
         // AUDIT FIX V4-NFTPOOL-01 (FRESH-2026 H2): clear `_swapCaller` BEFORE
         // the ETH payout. `_sendETH` reaches the seller's `receive()` (or a
         // malicious collection's `safeTransferFrom` hook earlier in the
@@ -416,7 +430,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // window. Same exploit shape that V3-NFTPOOL-01 already fixed in
         // the BUY direction; the SELL direction was missed.
         _swapCaller = address(0);
-        _sendETH(msg.sender, outputAmount - royalty);
+        _sendETH(msg.sender, netOutput);
 
         lastSwapBlock = block.timestamp;
         _swapInFlight = false;
