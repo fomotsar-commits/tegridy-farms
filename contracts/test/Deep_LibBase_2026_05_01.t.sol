@@ -260,13 +260,23 @@ contract Deep_LibBase_2026_05_01 is Test {
 
     // ─── DEEP-LIB-M3 — per-call staleness window ────────────────────
 
-    function test_DEEP_LIB_M3_TighterStaleness_Trips_Earlier() public {
-        // Sequencer is up but feed was last updated 6h ago.
+    /// @notice AUDIT FIX 2026-07-12 (finding #5): the L2 Sequencer Uptime feed is
+    ///         EVENT-DRIVEN — a new round is written ONLY on an up<->down transition,
+    ///         so `updatedAt` legitimately stays hours-to-weeks old during healthy
+    ///         continuous uptime. The staleness reject was therefore REMOVED from the
+    ///         uptime-feed path. This test previously asserted the OPPOSITE ("tighter
+    ///         staleness trips earlier"), which codified the bug the fix corrected; it
+    ///         now asserts that neither the default NOR a tighter staleness window
+    ///         reverts on a healthy-but-old uptime feed. (Canonical Aave V3
+    ///         PriceOracleSentinel does NOT staleness-check the uptime feed.) See the
+    ///         dedicated Audit20260712_SequencerUptimeStaleness suite for full coverage.
+    function test_DEEP_LIB_M3_StalenessDoesNotTripOnHealthyUptimeFeed() public {
+        // Sequencer up (resumed 8h ago, grace long elapsed), feed last updated 6h ago.
         feed.setStaleUpdated(int256(0), block.timestamp - 8 hours, block.timestamp - 6 hours);
-        // Default 24h staleness allows it.
+        // Default 24h staleness: no revert (unchanged).
         seqLib.check(address(feed), 1 hours);
-        // With a 4h staleness window, the keeper-lapse check trips.
-        vm.expectRevert(SequencerCheck.SequencerDown.selector);
+        // Tighter 4h staleness window: STILL no revert post-fix — the event-driven
+        // uptime feed's old `updatedAt` is legitimate and must not fail closed.
         seqLib.checkWithStaleness(address(feed), 1 hours, 4 hours);
     }
 
