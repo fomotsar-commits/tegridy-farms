@@ -3,6 +3,7 @@ import { TOKEN_LOGOS } from './poolConfig';
 import { PoolStatusBadge } from './PoolStatusBadge';
 import type { usePoolTVL } from '../../hooks/usePoolTVL';
 import { ArtImg } from '../ArtImg';
+import { CountUpText } from '../motion';
 
 /** Live TOWELI/ETH pool card with on-chain data */
 export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePoolTVL> }) {
@@ -34,17 +35,17 @@ export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePool
 
         {/* Stats Grid -- live data */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
-          <div className="rounded-lg p-2.5" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+          <div className="rounded-lg p-2.5" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-30)' }}>
             <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>TVL</p>
-            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{poolData.tvlFormatted}</p>
+            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}><CountUpText value={poolData.tvlFormatted} /></p>
           </div>
-          <div className="rounded-lg p-2.5" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+          <div className="rounded-lg p-2.5" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-30)' }}>
             <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Est. APR</p>
-            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{poolData.apr}</p>
+            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}><CountUpText value={poolData.apr} /></p>
           </div>
-          <div className="rounded-lg p-2.5" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
+          <div className="rounded-lg p-2.5" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-30)' }}>
             <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Est. 24h Vol</p>
-            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{poolData.vol24hFormatted}</p>
+            <p className="stat-value text-[14px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}><CountUpText value={poolData.vol24hFormatted} /></p>
           </div>
         </div>
 
