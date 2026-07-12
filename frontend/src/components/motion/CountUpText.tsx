@@ -24,6 +24,7 @@ export function CountUpText({ value, className }: { value: string; className?: s
     const match = value.match(NUM_RE);
     if (!match) return null;
     const [, prefix, numStr, suffix] = match;
+    if (numStr === undefined) return null;
     const grouped = numStr.includes(',');
     const clean = numStr.replace(/,/g, '');
     const dot = clean.indexOf('.');

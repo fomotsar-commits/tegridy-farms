@@ -44,13 +44,16 @@ function Row({ label, value, verified, href }: { label: string; value: string; v
 export function ProofOfClaims() {
   const feeDeployed = isDeployed(SWAP_FEE_ROUTER_ADDRESS);
 
+  // Static heterogeneous multicall (mirrors useProtocolStats/useRevenueStats). A
+  // conditional spread here collapses wagmi's per-entry tuple inference, so the
+  // feeBps read is always included; when the router isn't deployed the call simply
+  // returns status:'failure' (allowFailure defaults true) and the `feeDeployed`
+  // guard below discards it.
   const { data } = useReadContracts({
     contracts: [
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply' },
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [DEAD] },
-      ...(feeDeployed
-        ? [{ address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' } as const]
-        : []),
+      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' },
     ],
     query: { refetchInterval: 300_000, staleTime: 120_000 },
   });
