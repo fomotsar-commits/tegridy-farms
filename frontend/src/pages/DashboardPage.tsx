@@ -22,6 +22,7 @@ import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
 import { TegridyScoreMini } from '../components/TegridyScoreMini';
+import { PositionHealth } from '../components/PositionHealth';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
 import { PriceChart } from '../components/chart/PriceChart';
@@ -390,6 +391,12 @@ export default function DashboardPage() {
             </div>
           ))}
         </m.div>
+
+        {/* Position Health (#7) — proactive warnings (lock expiring, boost at
+            risk, rewards to claim). Self-gates to null when there's no position. */}
+        <div className="mb-6">
+          <PositionHealth />
+        </div>
 
         {/* AUDIT DASH-UX: tab bar — Header + Summary Stats above the bar stay
             visible on every tab so portfolio value is always in frame; tabs
