@@ -1228,6 +1228,42 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         emit RestakingContractProposalCancelled(pending);
     }
 
+    // ─── Ownership handoff (M19-PORT pending-proposal flush) ──────────
+    /// @notice AUDIT FIX 2026-07-12 (due-diligence follow-up): flush every in-flight
+    ///         timelock proposal on ownership handoff so a proposal queued by an
+    ///         outgoing/compromised owner cannot survive the handoff and mature under
+    ///         the incoming owner. Restores the M19-PORT invariant honored by the
+    ///         sister admin contracts — replicates each `cancelX` body verbatim under
+    ///         an `_executeAfter` guard (`_cancel` reverts when nothing is pending).
+    /// @dev    `super.acceptOwnership()` runs first (pendingOwner->owner promotion +
+    ///         the OwnableNoRenounce expiry guard) before the flush. The GAUGE_REMOVE
+    ///         guard mirrors `cancelRemoveGauge`; a deferred next-epoch prune (which
+    ///         sets `pendingGaugeRemove` without a live timelock slot) is a distinct
+    ///         owner-authorized flow, not a queued proposal, so it is intentionally
+    ///         untouched here.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[GAUGE_ADD] != 0) {
+            _cancel(GAUGE_ADD);
+            pendingGaugeAdd = address(0);
+            pendingPairForAdd = address(0);
+        }
+        if (_executeAfter[GAUGE_REMOVE] != 0) {
+            _cancel(GAUGE_REMOVE);
+            pendingGaugeRemove = address(0);
+        }
+        if (_executeAfter[EMISSION_BUDGET_CHANGE] != 0) {
+            _cancel(EMISSION_BUDGET_CHANGE);
+            pendingEmissionBudget = 0;
+        }
+        if (_executeAfter[RESTAKING_CHANGE] != 0) {
+            address pending = pendingRestakingContract;
+            pendingRestakingContract = address(0);
+            _cancel(RESTAKING_CHANGE);
+            emit RestakingContractProposalCancelled(pending);
+        }
+    }
+
     /// @notice AUDIT FIX FRESH-2026: F-65-2 — view helper for the pending
     ///         restaking-contract rotation's execute-after timestamp.
     function restakingChangeReadyAt() external view returns (uint256) {

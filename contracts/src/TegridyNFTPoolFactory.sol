@@ -40,16 +40,22 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         partial withdrawals must wait for the next 24h window.
     uint256 public constant MAX_DAILY_WITHDRAWAL = 1000 ether;
 
-    /// @notice Hard cap on pools per collection.
-    /// @dev    AUDIT FIX (pass-8): C5 / LOOP-01 — without a cap, an attacker can
-    ///         spam `createPool` for a target collection (≤0.05 ETH each — see
-    ///         MIN_DEPOSIT raise below) until `_poolsByCollection[c].length`
-    ///         exceeds the eth_call gas budget, bricking router discovery
-    ///         (`getBestBuyPool` / `getBestSellPool`) and any aggregator that
-    ///         depends on enumeration. 200 is the practical Sudoswap-derived
-    ///         ceiling: 200 × ~80k gas/iter ≈ 16M gas — fits in eth_call,
-    ///         leaves headroom for try/catch overhead, and is well above any
-    ///         legitimate per-collection liquidity profile.
+    /// @notice Max entries the LEGACY unbounded finders scan per collection.
+    /// @dev    AUDIT FIX (pass-8): C5 / LOOP-01 — the unbounded
+    ///         `getBestBuyPool` / `getBestSellPool` enumerate `_poolsByCollection`
+    ///         with an external CALL per pool, so a large array would exceed the
+    ///         eth_call gas budget and brick those views. 200 is the practical
+    ///         Sudoswap-derived ceiling: 200 × ~80k gas/iter ≈ 16M gas — fits in
+    ///         eth_call with headroom for try/catch overhead.
+    /// @dev    AUDIT FIX 2026-07-12 [MED, durable close]: this value NO LONGER caps
+    ///         pool CREATION (that made it a permanent single-actor censorship
+    ///         vector — see MAX_POOLS_PER_CREATOR_COLLECTION). It now bounds only the
+    ///         legacy finders' SCAN window (`getBestBuy/SellPool` scan the first
+    ///         MAX_POOLS_PER_COLLECTION entries), preserving the LOOP-01 gas envelope
+    ///         while leaving creation uncapped. For collections with more than this
+    ///         many pools, callers use the paginated finders / off-chain discovery
+    ///         (Sudoswap model). For any collection with ≤ this many pools the legacy
+    ///         finders behave exactly as before.
     uint256 public constant MAX_POOLS_PER_COLLECTION = 200;
 
     /// @notice Floor on the MIN_DEPOSIT spam-deterrent used in createPool.
@@ -75,19 +81,21 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         creator to 20 pools per collection raises the bar from a single
     ///         address to ≥10 distinct creators while leaving ample room for any
     ///         legitimate per-creator liquidity profile.
-    /// @dev    RESIDUAL (accepted, LOW — this contract is gated / not live): this
-    ///         is a Sybil-MITIGATION, not a Sybil-PROOF. Because MIN_DEPOSIT is
-    ///         refundable (a never-swapped pool skips the withdraw cooldown) and
-    ///         fresh EOAs are free, a determined attacker using ~10 addresses (20
-    ///         pools each) can still fill the 200-slot namespace at ~gas cost and
-    ///         censor a targeted collection. A DURABLE close requires one of:
-    ///         (a) a lasting/non-refundable creation cost, (b) removing the hard
-    ///         MAX_POOLS_PER_COLLECTION cap in favour of bounded/paginated
-    ///         discovery so slot-exhaustion can no longer censor createPool, or
-    ///         (c) pruning/rotating stale never-swapped pools. Each carries a UX
-    ///         or functional trade-off (see the LOOP-01 rationale on
-    ///         MAX_POOLS_PER_COLLECTION), so it is deferred to a pre-deploy
-    ///         decision rather than shipped blind.
+    /// @dev    DURABLE CLOSE SHIPPED (2026-07-12 follow-up): the censorship vector
+    ///         is now structurally gone — there is NO hard global cap on pool
+    ///         CREATION (the old MAX_POOLS_PER_COLLECTION creation cap was removed;
+    ///         that constant now only bounds the legacy finders' scan). Because
+    ///         creation can no longer be slot-exhausted, no combination of Sybil
+    ///         addresses can brick createPool for a collection. This per-creator cap
+    ///         is retained as defence-in-depth: it stops ONE actor from unilaterally
+    ///         bloating a collection's array (and thus dominating the legacy finders'
+    ///         first-N scan window). Residual after this close is only a best-effort
+    ///         legacy VIEW (`getBestBuy/SellPool`) that a flood can degrade for a
+    ///         collection — mitigated by the paginated finders / off-chain discovery,
+    ///         matching the Sudoswap model. Chosen over (a) non-refundable deposits
+    ///         (would only raise attacker cost, NOT un-censor, since the append-only
+    ///         slots are never freed) and (c) array pruning (needs removal logic on an
+    ///         append-only array); this option has no UX cost and no on-chain caller.
     uint256 public constant MAX_POOLS_PER_CREATOR_COLLECTION = 20;
 
     // ─── State ──────────────────────────────────────────────────────────
@@ -245,20 +253,32 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ) external payable whenNotPaused nonReentrant returns (address pool) {
         // AUDIT FIX (BATCH-H M9): added `nonReentrant`. Pre-fix, a malicious
         // `nftCollection` whose `safeTransferFrom` reentered `createPool` could
-        // bypass MAX_POOLS_PER_COLLECTION (the cap is read at re-entry before
-        // outer push) and deploy multiple pools in one tx. Defense-in-depth.
+        // bypass the per-creator cap (read at re-entry before the outer increment)
+        // and deploy multiple pools in one tx. Defense-in-depth.
         if (nftCollection == address(0)) revert ZeroAddress();
         // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
         uint256 _ncLen = nftCollection.code.length;
         require(_ncLen > 0 && _ncLen != 23, "NOT_CONTRACT");
-        // AUDIT FIX (pass-8): C5 / LOOP-01 — MIN_DEPOSIT raised to 0.05 ETH
-        // and per-collection pool count capped at MAX_POOLS_PER_COLLECTION
-        // to defeat storage-bloat DoS on router discovery.
+        // AUDIT FIX (pass-8): C5 / LOOP-01 — MIN_DEPOSIT (0.05 ETH) is a spam
+        // speed-bump on pool creation.
         require(msg.value >= MIN_DEPOSIT || initialTokenIds.length > 0, "MIN_DEPOSIT");
-        require(_poolsByCollection[nftCollection].length < MAX_POOLS_PER_COLLECTION, "MAX_POOLS_PER_COLLECTION");
-        // AUDIT FIX 2026-07-12 [MED]: per-creator cap so one actor cannot fill
-        // the shared per-collection namespace and censor pool creation. The
-        // global cap above stays; this only bounds a single msg.sender.
+        // AUDIT FIX 2026-07-12 [MED, durable close]: there is deliberately NO hard
+        // global cap on pools-per-collection. A prior wave capped it at
+        // MAX_POOLS_PER_COLLECTION to stop the legacy unbounded getBestBuy/SellPool
+        // views from OOG-ing (LOOP-01), but since `_poolsByCollection` is append-only
+        // that hard cap doubled as a PERMANENT single-actor censorship vector: fill
+        // the 200 slots (deposit is recoverable, so ~gas) and createPool bricks for
+        // that collection forever — and stays bricked even after the attacker
+        // withdraws the seed, since slots are never freed. We DECOUPLE creation from
+        // the cap: creation is bounded ONLY per-creator (below); the legacy finders
+        // instead scan at most MAX_POOLS_PER_COLLECTION entries (see getBestBuy/Sell)
+        // so they keep the exact LOOP-01 gas envelope without gating creation. No
+        // on-chain contract consumes those finders (frontend-only, which has the
+        // paginated variants), so bounding their scan is safe.
+        //
+        // The per-creator cap remains as defence-in-depth: it stops ONE actor from
+        // unilaterally bloating a collection's array (and the finders' first-N scan
+        // window). It cannot censor creation anymore (no shared finite namespace).
         require(
             poolsByCreatorCollection[msg.sender][nftCollection] < MAX_POOLS_PER_CREATOR_COLLECTION,
             "MAX_POOLS_PER_CREATOR_COLLECTION"
@@ -386,18 +406,20 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     /// @param numItems Number of items to buy
     /// @return bestPool Address of the cheapest pool (address(0) if none found)
     /// @return bestCost Total cost at the best pool
-    /// @dev R064 (LOW): UNBOUNDED enumeration of `_poolsByCollection`. Each
-    ///      pool incurs external CALLs into `pool.poolType()`,
-    ///      `pool.getHeldCount()`, and `pool.getBuyQuote(numItems)`, so this
-    ///      view CAN exceed the eth_call gas limit on collections with many
-    ///      pools. Routers / frontends that need bounded gas MUST use
-    ///      `getBestBuyPoolPaginated` and aggregate the best across pages
-    ///      off-chain. Kept for backwards compatibility.
+    /// @dev R064 (LOW): BOUNDED best-effort enumeration. Each pool incurs external
+    ///      CALLs into `pool.poolType()`, `pool.getHeldCount()`, and
+    ///      `pool.getBuyQuote(numItems)`, so the scan is capped at the first
+    ///      MAX_POOLS_PER_COLLECTION entries to stay within the eth_call gas budget
+    ///      (LOOP-01). AUDIT FIX 2026-07-12: previously scanned the FULL array; the
+    ///      global creation cap that kept that array ≤200 was removed to close the
+    ///      censorship DoS, so this now explicitly caps its own scan window.
+    ///      Collections with more pools than the cap MUST use
+    ///      `getBestBuyPoolPaginated` and aggregate across pages off-chain.
     function getBestBuyPool(
         address collection,
         uint256 numItems
     ) external view returns (address bestPool, uint256 bestCost) {
-        return _bestBuyIn(collection, 0, _poolsByCollection[collection].length, numItems);
+        return _bestBuyIn(collection, 0, MAX_POOLS_PER_COLLECTION, numItems);
     }
 
     /// @notice Find the highest-paying pool to sell `numItems` NFTs to a collection
@@ -405,13 +427,14 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     /// @param numItems Number of items to sell
     /// @return bestPool Address of the best-paying pool (address(0) if none found)
     /// @return bestPayout Total payout at the best pool
-    /// @dev R064 (LOW): UNBOUNDED enumeration — see warning on
-    ///      `getBestBuyPool`. Use `getBestSellPoolPaginated` for bounded gas.
+    /// @dev R064 (LOW): BOUNDED best-effort enumeration — scans the first
+    ///      MAX_POOLS_PER_COLLECTION entries (see `getBestBuyPool`). Use
+    ///      `getBestSellPoolPaginated` for completeness beyond the cap.
     function getBestSellPool(
         address collection,
         uint256 numItems
     ) external view returns (address bestPool, uint256 bestPayout) {
-        return _bestSellIn(collection, 0, _poolsByCollection[collection].length, numItems);
+        return _bestSellIn(collection, 0, MAX_POOLS_PER_COLLECTION, numItems);
     }
 
     /// @notice R064 (LOW): paginated cheapest-buy-pool finder. Scans

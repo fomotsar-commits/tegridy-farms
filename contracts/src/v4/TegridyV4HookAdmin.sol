@@ -299,4 +299,61 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     function hookSweepPOL(Currency currency) external onlyOwner hookWired {
         hook.sweepPOL(currency);
     }
+
+    // ─── Ownership handoff (M19-PORT pending-proposal flush) ──────────
+    /// @notice AUDIT FIX 2026-07-12 (due-diligence follow-up): flush every in-flight
+    ///         timelock proposal on ownership handoff so the incoming owner inherits a
+    ///         clean queue. Without this, a proposal queued by an outgoing/compromised
+    ///         owner survives the handoff in `_executeAfter[]` (bounded only by the
+    ///         7-day PROPOSAL_VALIDITY window) and could later mature under the new
+    ///         owner. Restores the M19-PORT invariant already honored by
+    ///         SwapFeeRouterAdmin / VoteIncentivesAdmin / POLAccumulator — replicates
+    ///         each `cancelX` body verbatim under an `_executeAfter` guard (`_cancel`
+    ///         reverts when nothing is pending, so the guard is required).
+    /// @dev    `super.acceptOwnership()` runs first so the pendingOwner->owner promotion
+    ///         (and the OwnableNoRenounce expiry guard) happens before the flush; the
+    ///         typed `*Cancelled` events then emit under the NEW owner's authority.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[BASE_FEE_CHANGE] != 0) {
+            _cancel(BASE_FEE_CHANGE);
+            emit BaseFeeChangeCancelled(pendingBaseFee);
+            pendingBaseFee = 0;
+        }
+        if (_executeAfter[POL_SKIM_CHANGE] != 0) {
+            _cancel(POL_SKIM_CHANGE);
+            emit PolSkimChangeCancelled(pendingPolSkimBps);
+            pendingPolSkimBps = 0;
+        }
+        if (_executeAfter[POL_RECIPIENT_CHANGE] != 0) {
+            _cancel(POL_RECIPIENT_CHANGE);
+            emit PolRecipientChangeCancelled(pendingPolRecipient);
+            pendingPolRecipient = address(0);
+        }
+        if (_executeAfter[POOL_ALLOW_CHANGE] != 0) {
+            _cancel(POOL_ALLOW_CHANGE);
+            delete pendingPoolKey;
+            pendingPoolAllowed = false;
+            emit PoolAllowChangeCancelled();
+        }
+        if (_executeAfter[DISCOUNT_CONFIG_CHANGE] != 0) {
+            _cancel(DISCOUNT_CONFIG_CHANGE);
+            pendingPremiumAccess = address(0);
+            pendingTrustedRouter = address(0);
+            pendingDiscountBps = 0;
+            emit DiscountConfigChangeCancelled();
+        }
+        if (_executeAfter[FEE_SPLIT_CHANGE] != 0) {
+            _cancel(FEE_SPLIT_CHANGE);
+            pendingStakerShareBps = 0;
+            pendingTreasuryShareBps = 0;
+            emit FeeSplitChangeCancelled();
+        }
+        if (_executeAfter[FEE_SINKS_CHANGE] != 0) {
+            _cancel(FEE_SINKS_CHANGE);
+            pendingStakerSink = address(0);
+            pendingTreasuryAddr = address(0);
+            emit FeeSinksChangeCancelled();
+        }
+    }
 }

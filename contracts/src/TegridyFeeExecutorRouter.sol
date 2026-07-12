@@ -560,4 +560,30 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
     function guardianPause() external onlyPauseGuardian {
         _pause();
     }
+
+    // ─── Ownership handoff (M19-PORT pending-proposal flush) ──────────
+    /// @notice AUDIT FIX 2026-07-12 (due-diligence follow-up): flush every in-flight
+    ///         timelock proposal on ownership handoff so a proposal queued by an
+    ///         outgoing/compromised owner cannot survive the handoff and mature under
+    ///         the incoming owner. Restores the M19-PORT invariant honored by the
+    ///         sister admin contracts — replicates each `cancelX` body verbatim under
+    ///         an `_executeAfter` guard (`_cancel` reverts when nothing is pending).
+    /// @dev    `super.acceptOwnership()` runs first (pendingOwner->owner promotion +
+    ///         the OwnableNoRenounce expiry guard) before the flush.
+    function acceptOwnership() public override {
+        super.acceptOwnership();
+        if (_executeAfter[ALLOW_TARGET] != 0) {
+            _cancel(ALLOW_TARGET);
+            emit TargetAllowCancelled(pendingAllowTarget, pendingAllowSpender);
+            pendingAllowTarget = address(0);
+            pendingAllowSpender = address(0);
+        }
+        if (_executeAfter[FEE_SPLIT_CHANGE] != 0) {
+            _cancel(FEE_SPLIT_CHANGE);
+        }
+        if (_executeAfter[POL_ACCUMULATOR_CHANGE] != 0) {
+            _cancel(POL_ACCUMULATOR_CHANGE);
+            pendingPolAccumulator = address(0);
+        }
+    }
 }

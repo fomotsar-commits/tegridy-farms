@@ -15,11 +15,18 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 // could fill all 200 slots for a targeted collection for ~gas and permanently
 // censor pool creation for everyone else on that collection.
 //
-// FIX: a per-creator-per-collection cap (MAX_POOLS_PER_CREATOR_COLLECTION = 20)
-// so no single msg.sender can exhaust the shared 200-slot namespace.
+// FIX (two parts):
+//   1. Per-creator-per-collection cap (MAX_POOLS_PER_CREATOR_COLLECTION = 20) so no
+//      single msg.sender can dominate a collection's namespace.
+//   2. DURABLE CLOSE (2026-07-12 follow-up): the hard global MAX_POOLS_PER_COLLECTION
+//      *creation* cap was REMOVED — it's now only the legacy finders' scan bound — so
+//      slot exhaustion can no longer permanently brick createPool for a collection.
+//      (Non-refundable deposits were rejected: they'd only raise attacker cost, not
+//      un-censor, since the append-only slots are never freed.)
 //
-// These tests FAIL on the pre-fix contract (alice could create an unbounded
-// number of pools for one collection) and PASS with the cap in place.
+// The per-creator-cap tests FAIL on the pre-fix contract and PASS with the cap;
+// test_creationNotCensored_beyondOldGlobalCap FAILS on the pre-close contract (the
+// 201st createPool reverted) and PASSES after the durable close.
 // ─────────────────────────────────────────────────────────────────────────────
 
 contract MockNFT is ERC721 {
@@ -131,5 +138,36 @@ contract Audit20260712_PoolFactoryCensorshipTest is Test {
         );
         assertTrue(p != address(0));
         assertEq(factory.poolsByCreatorCollection(attacker, address(other)), 1);
+    }
+
+    /// @notice AUDIT FIX 2026-07-12 [durable close]: pool CREATION is no longer
+    ///         gated by a hard global MAX_POOLS_PER_COLLECTION cap, so slot
+    ///         exhaustion can never PERMANENTLY censor a collection. We create one
+    ///         MORE than the old 200-slot cap (across distinct creators, each within
+    ///         the 20/creator cap) and assert the (cap+1)-th still succeeds. On the
+    ///         pre-close contract the 201st createPool reverted
+    ///         "MAX_POOLS_PER_COLLECTION" -> permanent censorship. The per-creator
+    ///         cap is unchanged (see tests above).
+    function test_creationNotCensored_beyondOldGlobalCap() public {
+        uint256 perCreator = factory.MAX_POOLS_PER_CREATOR_COLLECTION(); // 20
+        uint256 oldGlobalCap = factory.MAX_POOLS_PER_COLLECTION(); // 200 (now only a scan bound)
+        uint256 target = oldGlobalCap + 1; // one past the removed hard creation cap
+
+        uint256 created;
+        uint256 creatorIdx;
+        while (created < target) {
+            address creator = address(uint160(0xC0FFEE + creatorIdx));
+            vm.deal(creator, 100 ether);
+            for (uint256 i = 0; i < perCreator && created < target; i++) {
+                _create(creator);
+                created++;
+            }
+            creatorIdx++;
+        }
+
+        // The collection's array grew PAST the old hard cap with no revert ->
+        // creation is structurally uncensorable.
+        assertEq(factory.getPoolsForCollection(address(nft)).length, target, "creation must exceed the old global cap");
+        assertGt(target, oldGlobalCap, "sanity: created past the removed cap");
     }
 }
