@@ -34,16 +34,31 @@ TOWELI ($18k). 382M TOWELI = 38% of supply — the protocol holds ~680K (treasur
 is empty), and that much TOWELI is not market-buyable.** This is a real strategic
 constraint, not a scripting gap.
 
-### Options for the oracle track (operator decision)
-1. **Owner supplies TOWELI from a personal stash** (if one exists off-treasury) +
-   ~10 WETH → deepen → bootstrap → full, safe oracle. Best if the TOWELI exists.
-2. **Lower the reserve floor** to an achievable depth via `proposeAdminMinReserveFloor(pair, floor)`
-   → wait 24h → `executeAdminMinReserveFloor(pair)`, then deepen to that floor.
-   ⚠️ A lower floor = a thinner pool the TWAP trusts = more manipulable; launch
-   NFT-lending with conservative LTVs or keep it gated. Even a 1-WETH floor needs
-   ~38M TOWELI (3.8% of supply) the protocol doesn't currently hold.
-3. **Keep the oracle track gated** (default). Ship everything below that doesn't
-   need the oracle; revisit NFT-finance when TOWELI liquidity is resolved.
+### DECIDED (owner has 50M TOWELI) — deepen + lower the floor to 1.0 WETH
+The owner holds ~50M TOWELI off-treasury. At the current ratio that pairs with
+~1.31 ETH and lifts the native pool to **~50.8M TOWELI + ~1.33 WETH** (~$4,800 =
+65× current, 18% of Uniswap). That's below the 10-WETH default floor, so the
+**WETH-side floor is lowered to exactly 1.0 WETH** (24h timelock) to accept it.
+
+**Adversarial safety review (2026-07-11, 4-agent, read the real code) verdict:
+GO-WITH-CONDITIONS.** A ~1.33-WETH pool at floor 1.0 is NOT exploitable for
+over-valuation — the oracle fails *closed*:
+- `consult()` reads only stored ≥15-min observations → single-block spot pumps
+  can't move it; `_assertSpotWithinTWAP` (50 bps) blocks the pumped-spot origination.
+- consult()-time floor re-check → a drained pool reverts (never serves a stale price).
+- The multi-block TWAP grind is defeated by the deep arb-linked Uniswap pool
+  (~$26k, ~100% UNCX-locked to ~2093): sustaining a 2× dislocation for the 30-min
+  window costs ~3.6 WETH of double-peg capital vs a few-$k loan → EV negative.
+- Only residual: a transient, self-healing DoS (Low) if someone drains below floor.
+
+**Conditions to satisfy before enabling NFT-lending collateral:**
+1. Set the WETH-side floor to **exactly 1.0 WETH** — not lower (lower widens the
+   manipulable band for no safety gain).
+2. Launch NFT-lending at **≤ 50% LTV** (hard ceiling 60%; keep 1/LTV well above 1.5).
+3. Wire an **arb-linkage monitor + auto-pause**: alert/emergency-disable if the
+   Uniswap TOWELI/WETH WETH depth drops below ~3× the native pool (the one
+   load-bearing assumption is that the native pool is not the only liquid venue).
+4. Deepen further over time (the real robustness lever) as more TOWELI is available.
 
 ## Turnkey sequence
 
@@ -56,30 +71,45 @@ constraint, not a scripting gap.
   [`GOLIVE_HANDOFF.md`](GOLIVE_HANDOFF.md). 🔑 deployer + multisig. Gas ~$0.
 - **A3. VerifyMVP** after A2 (`script/VerifyMVP.s.sol`).
 
-### Track B — oracle unlock, gated on the capital decision above
-- **B1. Deepen the native pool** to ≥ the (possibly-lowered) reserve floor. The
-  pool is seeded, so `SeedLP.s.sol` aborts — deepen via `Router.addLiquidityETH`
-  at the current ratio (approve TOWELI → `addLiquidityETH{value:eth}` with tight
-  mins, via a Flashbots-protect RPC). Ask me to write a `DeepenLP.s.sol` once you
-  fix the target depth + have the TOWELI. 🔑💰
-- **B2. Bootstrap the TWAP** — `script/BootstrapTWAP.s.sol` (dry-run-verified;
-  pays the 0.0001-ETH update fee, guards the reserve floor with a clear error).
-  Run 4× ≥15 min apart until it reports ORACLE WARM, then wait 60 min before any
-  `POL.accumulate` (audit H-18). 🔑 deployer.
-  ```bash
-  cd contracts
-  export RPC=https://ethereum-rpc.publicnode.com
-  export TWAP=0xdFdd6D72539A425dC917F49FB834901105cA98c9
-  export PAIR=0x55875887B43C2E23aE424AF0FC8606Fdb058a481
-  export ROUTER=0xE9F83A07b071748E795d2489651d5310fA098Db8
-  export TOWELI=0x420698CFdEDdEa6bc78D59bC17798113ad278F9D
-  # dry-run (no key needed):
-  forge script script/BootstrapTWAP.s.sol --rpc-url $RPC --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E -vvv
-  # real, repeat 4×, ≥15 min apart:
-  forge script script/BootstrapTWAP.s.sol --rpc-url $RPC --broadcast --private-key $DEPLOYER_KEY -vvv
-  ```
-- **B3. Deploy the oracle-gated features** (NFT lending, token lending) per their
-  audit-wave order once the oracle is warm.
+### Track B — oracle unlock (owner: ~50M TOWELI + ~1.31 ETH + 24h). ALL dry-run-verified.
+Start B0 now (24h clock); B1 anytime; B2 after 24h; then B3/B4.
+`RPC=https://ethereum-rpc.publicnode.com`, `TWAP=0xdFdd…98c9`, `PAIR=0x5587…a481`,
+`ROUTER=0xE9F8…8Db8`, `TOWELI=0x4206…8F9D`.
+
+**B0 — Propose the floor lower to 1.0 WETH** (starts the 24h timelock). From the
+TWAP owner (deployer EOA today; multisig after handoff): 🔑
+```bash
+cast send $TWAP "proposeAdminMinReserveFloor1(address,uint256)" $PAIR 1000000000000000000 \
+  --rpc-url $RPC --private-key $OWNER_KEY        # 1e18 = 1.0 WETH
+```
+
+**B1 — Deepen the pool** with the 50M TOWELI — `script/DeepenLP.s.sol` (dry-run-
+verified). From the wallet holding the TOWELI + ETH, via a Flashbots-Protect RPC: 🔑💰
+```bash
+cd contracts
+export TO=<treasury Safe 0x7D26…Bd7d for protocol-owned LP, or your wallet>
+export TOWELI_AMOUNT=50000000000000000000000000    # 50,000,000 TOWELI
+export ETH_AMOUNT=1350000000000000000              # 1.35 ETH buffer (~1.31 used, rest refunded)
+forge script script/DeepenLP.s.sol --rpc-url $FLASHBOTS_RPC --sender <wallet> -vvv   # dry-run
+forge script script/DeepenLP.s.sol --rpc-url $FLASHBOTS_RPC --broadcast --private-key $KEY -vvv
+```
+Pool → ~50.8M TOWELI + ~1.33 WETH.
+
+**B2 — Execute the floor lower** (after 24h): 🔑
+```bash
+cast send $TWAP "executeAdminMinReserveFloor1(address)" $PAIR --rpc-url $RPC --private-key $OWNER_KEY
+```
+
+**B3 — Bootstrap the TWAP** — `script/BootstrapTWAP.s.sol` (dry-run-verified; pays
+the 0.0001-ETH fee, guards the floor). Run 4× ≥15 min apart until it reports ORACLE
+WARM, then wait 60 min before any `POL.accumulate` (audit H-18). 🔑
+```bash
+forge script script/BootstrapTWAP.s.sol --rpc-url $RPC --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E -vvv  # dry-run
+forge script script/BootstrapTWAP.s.sol --rpc-url $RPC --broadcast --private-key $DEPLOYER_KEY -vvv              # ×4
+```
+
+**B4 — Deploy NFT-lending / token-lending at ≤ 50% LTV** with the arb-linkage
+monitor + auto-pause wired (safety conditions above). Per each feature's audit wave.
 
 ## Bottom line
 The swap/stake/farm loop is **live**; ship it to prod + hand off ownership (Track
