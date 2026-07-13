@@ -98,4 +98,34 @@ describe("solrpc proxy", () => {
     expect(statusSpy).toHaveBeenCalledWith(413);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // AUDIT 2026-07-12 (L-1): method allowlist — expensive/unbounded scans must be
+  // rejected before hitting the (keyed/paid) upstream RPC.
+  it("rejects a disallowed method (getProgramAccounts) with 403", async () => {
+    const req = makeReq({
+      method: "POST",
+      body: { jsonrpc: "2.0", method: "getProgramAccounts", params: ["Tokenkeg…", {}], id: 1 },
+    });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows a whitelisted method (sendTransaction) through to upstream", async () => {
+    const req = makeReq({ method: "POST", body: { jsonrpc: "2.0", method: "sendTransaction", params: ["base64tx"], id: 1 } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an oversized JSON-RPC batch with 400", async () => {
+    const batch = Array.from({ length: 25 }, (_, i) => ({ jsonrpc: "2.0", method: "getBalance", params: [], id: i }));
+    const req = makeReq({ method: "POST", body: batch });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

@@ -23,6 +23,30 @@ const SOLANA_RPC_UPSTREAM =
 // JSON-RPC requests are small (a signed tx is a few KB; batches a bit more).
 const MAX_REQUEST_BODY_SIZE = 64 * 1024;
 
+// AUDIT 2026-07-12 (backend audit, L-1): JSON-RPC method allowlist. Without it,
+// the Origin header (a browser-CSRF control any non-browser client sets trivially)
+// was the ONLY content gate, turning this into an open, arbitrary-method proxy to
+// a keyed/paid Solana RPC — a caller could burn compute units with unbounded scans
+// (getProgramAccounts, getBlock ranges, getSupply). Mirrors alchemy.js's
+// ALLOWED_RPC_METHODS: allow only the read + tx send/confirm methods the wallet
+// adapter + Jupiter swap flow actually use; reject expensive scans + cap batch size.
+// EXTEND THIS SET (never the origin check) if a legitimate wallet call is rejected.
+const ALLOWED_SOL_METHODS = new Set([
+  // blockhash / slot / cluster meta
+  "getLatestBlockhash", "getRecentBlockhash", "isBlockhashValid",
+  "getSlot", "getBlockHeight", "getEpochInfo", "getVersion", "getHealth", "getGenesisHash",
+  // balances / accounts
+  "getBalance", "getAccountInfo", "getMultipleAccounts", "getMinimumBalanceForRentExemption",
+  // tokens (client getParsed* map to these base RPC methods)
+  "getTokenAccountsByOwner", "getTokenAccountBalance", "getTokenSupply",
+  // fees / priority
+  "getFeeForMessage", "getRecentPrioritizationFees",
+  // transaction send / confirm / inspect
+  "sendTransaction", "simulateTransaction", "getSignatureStatuses", "getSignatureStatus",
+  "getTransaction", "getSignaturesForAddress",
+]);
+const MAX_RPC_BATCH = 20;
+
 // AUDIT FIX F1: treat Vercel preview AND production as prod-like. Preview deploys
 // inherit prod env but DO NOT set NODE_ENV=production, so a bare NODE_ENV check
 // would leave the origin gate open on every preview URL.
@@ -88,6 +112,23 @@ export default async function handler(req, res) {
   const raw = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
   if (raw.length > MAX_REQUEST_BODY_SIZE) {
     return res.status(413).json({ error: "Request body too large" });
+  }
+
+  // AUDIT 2026-07-12 (L-1): enforce the JSON-RPC method allowlist before forwarding.
+  let parsedBody;
+  try {
+    parsedBody = typeof req.body === "object" && req.body !== null ? req.body : JSON.parse(raw);
+  } catch {
+    return res.status(400).json({ error: "Invalid JSON-RPC body" });
+  }
+  const calls = Array.isArray(parsedBody) ? parsedBody : [parsedBody];
+  if (calls.length === 0 || calls.length > MAX_RPC_BATCH) {
+    return res.status(400).json({ error: "Invalid or oversized JSON-RPC batch" });
+  }
+  for (const c of calls) {
+    if (!c || typeof c.method !== "string" || !ALLOWED_SOL_METHODS.has(c.method)) {
+      return res.status(403).json({ error: `RPC method not allowed: ${c && c.method}` });
+    }
   }
 
   let upstreamRes;
