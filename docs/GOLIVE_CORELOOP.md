@@ -76,6 +76,13 @@ Start B0 now (24h clock); B1 anytime; B2 after 24h; then B3/B4.
 `RPC=https://ethereum-rpc.publicnode.com`, `TWAP=0xdFdd…98c9`, `PAIR=0x5587…a481`,
 `ROUTER=0xE9F8…8Db8`, `TOWELI=0x4206…8F9D`.
 
+> **Private send-path (anti-sandwich).** `flashbots` and `mevblocker` are now named RPC
+> endpoints in `contracts/foundry.toml`, so any BROADCAST below can use `--rpc-url flashbots`
+> directly (no `$FLASHBOTS_RPC` export needed — that var is the same URL). Route every
+> `--broadcast` that MOVES the pool or TOUCHES the oracle (B1 deepen, B3 TWAP) through it so
+> it can't be sandwiched/front-run; keep dry-runs and reads on the public `$RPC`. Private txs
+> land in a few blocks — add `--slow` and expect slower receipt polling. (See docs/SECURITY_TOOLING.md.)
+
 **B0 — Propose the floor lower to 1.0 WETH** (starts the 24h timelock). From the
 TWAP owner (deployer EOA today; multisig after handoff): 🔑
 ```bash
@@ -104,8 +111,8 @@ cast send $TWAP "executeAdminMinReserveFloor1(address)" $PAIR --rpc-url $RPC --p
 the 0.0001-ETH fee, guards the floor). Run 4× ≥15 min apart until it reports ORACLE
 WARM, then wait 60 min before any `POL.accumulate` (audit H-18). 🔑
 ```bash
-forge script script/BootstrapTWAP.s.sol --rpc-url $RPC --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E -vvv  # dry-run
-forge script script/BootstrapTWAP.s.sol --rpc-url $RPC --broadcast --private-key $DEPLOYER_KEY -vvv              # ×4
+forge script script/BootstrapTWAP.s.sol --rpc-url $RPC --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E -vvv  # dry-run (public RPC ok)
+forge script script/BootstrapTWAP.s.sol --rpc-url flashbots --broadcast --slow --private-key $DEPLOYER_KEY -vvv  # ×4 — private send-path
 ```
 
 **B4 — Deploy NFT-lending / token-lending at ≤ 50% LTV** with the arb-linkage
