@@ -313,7 +313,18 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         uint256 availableBalance = address(this).balance > totalApprovedPending
             ? address(this).balance - totalApprovedPending
             : 0;
-        if (_amount > (availableBalance * MAX_GRANT_PERCENT_BPS) / 10000) revert AmountTooLarge();
+        // AUDIT 2026-07-14 (pre-deploy batch): cap the grant at the MORE RESTRICTIVE of the
+        // per-grant cap (MAX_GRANT_PERCENT_BPS) and the per-window rolling-disbursement cap
+        // (MAX_ROLLING_DISBURSEMENT_BPS). A grant is paid in ONE atomic transfer that must
+        // clear BOTH caps at execute; when the creation cap (50%) exceeded the rolling cap
+        // (30%), a grant sized in the gap (e.g. 30-50% of a stable treasury) was approvable
+        // but structurally un-executable — it reverted RollingDisbursementExceeded on every
+        // attempt and locked its ETH in totalApprovedPending until lapse. Aligning the caps
+        // rejects such un-payable grants up front.
+        uint256 grantCapBps =
+            MAX_GRANT_PERCENT_BPS < MAX_ROLLING_DISBURSEMENT_BPS ? MAX_GRANT_PERCENT_BPS : MAX_ROLLING_DISBURSEMENT_BPS;
+        uint256 grantCap = (availableBalance * grantCapBps) / 10000;
+        if (_amount > grantCap) revert AmountTooLarge();
 
         // Collect submission fee — 50% to fee receiver, 50% held for potential refund on rejection
         uint256 nonRefundable = PROPOSAL_FEE / 2;
@@ -396,7 +407,7 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             // executeProposal/retryExecution validate `amount <= absoluteCap` instead
             // of re-deriving the cap from current balance, preventing post-approval
             // DoS via balance drops between approval and execution.
-            absoluteCap: (availableBalance * MAX_GRANT_PERCENT_BPS) / 10000,
+            absoluteCap: grantCap, // 2026-07-14: aligned to min(grant, rolling) cap — see createProposal above
             // AUDIT FIX D-CG-M1: zero at creation; populated at finalize-approve
             // with the contract's then-current balance so the rolling cap binds
             // to the community's approval-time spending envelope.

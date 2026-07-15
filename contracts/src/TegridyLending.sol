@@ -2540,9 +2540,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         a (possibly worthless) NFT of any whitelisted collection into
     ///         this contract; without this admin sweeper the NFT was orphaned
     ///         forever and the contract's balanceOf(collection) was polluted
-    ///         off-chain. The active-loan gate uses a tokenId scan over loans[]
-    ///         (capped by MAX_TOTAL_OFFERS — bounded enumeration). Pattern
-    ///         mirrored from every mature P2P NFT-lending protocol.
+    ///         off-chain. The active-loan gate scans loans[] — an O(lifetime-loans)
+    ///         scan (loans[] is append-only), NOT bounded by MAX_TOTAL_OFFERS; see the
+    ///         pre-deploy note in the body. Pattern mirrored from mature P2P NFT-lending.
     /// @param  _collection ERC721 contract whose NFT is stuck in this address.
     /// @param  _tokenId    Token ID held at `address(this)`.
     /// @param  _to         Recipient. Owner-controlled to avoid griefer-influences.
@@ -2558,13 +2558,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         (bool ownerOk, address currentOwner) = SafeERC721Call.safeOwnerOfBounded(_collection, _tokenId);
         if (!ownerOk) revert NotHeldByContract();
         if (currentOwner != address(this)) revert NotHeldByContract();
-        // Refuse to sweep an NFT that is collateral to an active loan. We
-        // walk loans[] and check (collateralContract, tokenId, !repaid &&
-        // !defaultClaimed) — bounded by MAX_TOTAL_OFFERS in the worst case.
-        // For typical operating volumes this scan is well under any block
-        // gas limit; the alternative (a per-(collection, tokenId) reverse
-        // index) costs a slot per active loan and is overkill given owner-
-        // only callability + nonReentrant + bounded loans[] cap.
+        // Refuse to sweep an NFT that is collateral to an active loan. We walk
+        // loans[] and check (collateralContract, tokenId, !repaid && !defaultClaimed).
+        // AUDIT 2026-07-14 (pre-deploy batch, LOW): loans[] is APPEND-ONLY (sole mutation
+        // is loans.push; no pop), so this is an O(lifetime-loans) scan — NOT bounded by
+        // MAX_TOTAL_OFFERS, which caps LIVE offers (activeOfferCount), not loans.length.
+        // The prior "bounded" claim became false when the lifetime offer cap was replaced
+        // with a live counter in 3f87bd8. This onlyOwner recovery path can gas-brick past
+        // ~2-3k lifetime loans. Non-critical (owner-only; unsolicited NFTs are never loan
+        // collateral), but BEFORE this contract's (oracle-gated) deploy window, replace the
+        // scan with an O(1) per-(collection,tokenId) reverse index (set on acceptOffer,
+        // cleared on repay/claimDefault) or add pagination.
         uint256 nLoans = loans.length;
         for (uint256 i = 0; i < nLoans; i++) {
             Loan storage l = loans[i];
