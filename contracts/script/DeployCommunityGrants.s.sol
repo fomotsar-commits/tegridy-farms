@@ -18,6 +18,9 @@ contract DeployCommunityGrantsScript is Script {
         address multisig = vm.envAddress("MULTISIG");
         require(votingEscrow != address(0) && toweli != address(0) && feeReceiver != address(0) && weth != address(0), "zero env");
         require(multisig != address(0), "set MULTISIG");
+        // 2026-07-15 pre-deploy hardening: fleet-standard mainnet + Safe-owner guards.
+        require(block.chainid == 1, "MAINNET_ONLY: gated features deploy to Ethereum mainnet");
+        require(multisig.code.length > 0, "MULTISIG must be a contract (Safe)");
 
         vm.startBroadcast();
         console2.log("Deployer:", msg.sender);

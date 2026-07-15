@@ -26,6 +26,12 @@ contract DeployNFTLendingScript is Script {
         address multisig = vm.envAddress("MULTISIG");
         require(treasury != address(0) && weth != address(0), "zero env");
         require(multisig != address(0), "set MULTISIG");
+        // 2026-07-15 pre-deploy hardening (NEEDS-FIX in the deploy-script audit): mainnet guard
+        // + Safe-owner + mainnet-feed-zero. sequencerFeed is L2-only, baked immutable via the
+        // ctor one-shot; on mainnet it MUST be address(0).
+        require(block.chainid == 1, "MAINNET_ONLY: gated features deploy to Ethereum mainnet");
+        require(sequencerFeed == address(0), "mainnet: SEQUENCER_FEED must be address(0)");
+        require(multisig.code.length > 0, "MULTISIG must be a contract (Safe)");
 
         vm.startBroadcast();
         console2.log("Deployer:", msg.sender);

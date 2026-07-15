@@ -19,6 +19,10 @@ contract DeployNFTPoolFactoryScript is Script {
         address weth = vm.envAddress("WETH");
         require(multisig != address(0), "set MULTISIG");
         require(treasury != address(0) && weth != address(0), "zero env");
+        // 2026-07-15 pre-deploy hardening: fleet-standard mainnet + Safe-owner guards. Owner is
+        // set DIRECTLY in the ctor (no 2-step recovery), so the code.length check is critical.
+        require(block.chainid == 1, "MAINNET_ONLY: gated features deploy to Ethereum mainnet");
+        require(multisig.code.length > 0, "MULTISIG must be a contract (Safe)");
 
         vm.startBroadcast();
         console2.log("Deployer:", msg.sender);

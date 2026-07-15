@@ -39,8 +39,10 @@ contract DeployLaunchpadV2Script is Script {
         // AUDIT R062: per-chain Chainlink L2 Sequencer Uptime feed via SEQUENCER_FEED env;
         //             address(0) on mainnet / non-L2 (no-op).
         address SEQUENCER_FEED = vm.envOr("SEQUENCER_FEED", address(0));
-        // AUDIT FIX FRESH-2026: H-9 follow-on — fail loud at deploy on L2 if feed unset.
-        require(block.chainid == 1 || SEQUENCER_FEED != address(0), "DEPLOY: L2 needs SEQUENCER_FEED env");
+        // 2026-07-15 pre-deploy hardening: line 23 already forces mainnet, so enforce
+        // feed==0 — it is baked immutable into the launchpad AND every TegridyDropV2 clone.
+        // (A future L2 deploy would drop the line-23 guard and require a non-zero feed.)
+        require(SEQUENCER_FEED == address(0), "mainnet: SEQUENCER_FEED must be address(0)");
         TegridyLaunchpadV2 factory = new TegridyLaunchpadV2(
             deployer,          // deployer owns first so we can transfer via 2-step
             LAUNCHPAD_FEE_BPS,

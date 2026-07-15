@@ -17,6 +17,11 @@ contract DeployGaugeControllerScript is Script {
         address multisig = vm.envAddress("MULTISIG");
         require(staking != address(0), "zero env");
         require(multisig != address(0), "set MULTISIG");
+        // 2026-07-15 pre-deploy hardening: fleet-standard guards (siblings DeployMVP/DeployTWAP/
+        // DeployLaunchpadV2 carry these). Refuse a wrong-network broadcast + require the owner
+        // to be a contract (Safe) so a typo'd/EOA MULTISIG can't take pending ownership.
+        require(block.chainid == 1, "MAINNET_ONLY: gated features deploy to Ethereum mainnet");
+        require(multisig.code.length > 0, "MULTISIG must be a contract (Safe)");
 
         vm.startBroadcast();
         console2.log("Deployer:", msg.sender);
