@@ -11,7 +11,10 @@ import "../src/TegridyLaunchpadV2.sol";
 ///         exposes it for verification.
 contract DeployLaunchpadV2Script is Script {
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address constant TREASURY = 0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e;
+    // RELAUNCH 2026-06-06: re-pointed from the stale pre-relaunch treasury
+    // (0xE9B7…f53e) to the relaunch 2-of-2 Safe. This is the protocol-fee recipient
+    // for EVERY launchpad mint, so it MUST be the live relaunch treasury.
+    address constant TREASURY = 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d;
 
     // Same 5% fee as v1. Change via proposeProtocolFee() after deploy (48h timelock).
     uint16 constant LAUNCHPAD_FEE_BPS = 500;
