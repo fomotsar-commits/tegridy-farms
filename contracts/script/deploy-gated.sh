@@ -57,30 +57,52 @@ export GAS_PRICE_WEI="${GAS_PRICE_WEI:-200000000}"   # 0.2 gwei
 #    ownership transfer with OwnableUnauthorizedAccount. ──
 export DEPLOYER_ADDR="${DEPLOYER_ADDR:-0x14898258122C0740106391E6e8E4F17F3b6d456E}"
 
-SIGNER="${SIGNER:-}"   # signing method for --broadcast: '--account deployer' (keystore) or '--ledger'
+SIGNER="${SIGNER:-}"        # signing method for --broadcast: '--account deployer' (keystore) or '--ledger'
+START_AT="${START_AT:-1}"   # resume from contract N (1-8); earlier indexes are skipped
 
 BROADCAST=""; RPC="mainnet"
 if [ "${1:-}" = "--broadcast" ]; then
   : "${SIGNER:?For --broadcast set SIGNER='--account deployer' (keystore) or SIGNER='--ledger'}"
   : "${ETHERSCAN_API_KEY:?Set ETHERSCAN_API_KEY to broadcast (rotate the leaked key first)}"
   BROADCAST="--broadcast --verify --etherscan-api-key $ETHERSCAN_API_KEY"
-  RPC="flashbots"   # private send-path only when broadcasting real txs
+  # These are plain CREATE deploys with NO sandwichable action, so the PUBLIC mempool is safe and
+  # far more reliable than the Flashbots relay — whose aggressive receipt-poll rate-limit (429) can
+  # abort the run mid-deploy AFTER a tx already landed. Reserve Flashbots for sandwichable txs
+  # (LP-deepen / TWAP bootstrap):  BROADCAST_RPC=flashbots ./script/deploy-gated.sh --broadcast
+  RPC="${BROADCAST_RPC:-mainnet}"
 fi
 # --sender is ALWAYS set (fixes the LaunchpadV2 msg.sender-as-owner mismatch); for --broadcast the
 # keystore/Ledger does the signing and its address MUST equal DEPLOYER_ADDR.
 COMMON="--rpc-url $RPC --slow --with-gas-price $GAS_PRICE_WEI --sender $DEPLOYER_ADDR $SIGNER $BROADCAST"
 
-echo "MODE: $([ -n "$BROADCAST" ] && echo 'BROADCAST (REAL MAINNET)' || echo 'DRY-RUN (safe)')  |  owner MULTISIG=$MULTISIG  |  treasury=$TREASURY"
-run() { echo ""; echo "════════ $1 ════════"; forge script "$2" $COMMON; }
+echo "MODE: $([ -n "$BROADCAST" ] && echo "BROADCAST (REAL MAINNET, rpc=$RPC)" || echo 'DRY-RUN (safe)')  |  owner MULTISIG=$MULTISIG  |  treasury=$TREASURY  |  START_AT=$START_AT"
 
-run "1/8 GaugeController" "script/DeployGaugeController.s.sol:DeployGaugeControllerScript"
-run "2/8 VoteIncentives"  "script/DeployVoteIncentives.s.sol:DeployVoteIncentivesScript"
-run "3/8 PremiumAccess"   "script/DeployPremiumAccess.s.sol:DeployPremiumAccessScript"
-( export PROTOCOL_FEE_BPS="$NFT_POOL_FEE_BPS"; run "4/8 NFTPoolFactory (0.5% fee)" "script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript" )
-run "5/8 NFTLending"      "script/DeployNFTLending.s.sol:DeployNFTLendingScript"
-run "6/8 MemeBountyBoard" "script/DeployMemeBountyBoard.s.sol:DeployMemeBountyBoardScript"
-run "7/8 CommunityGrants" "script/DeployCommunityGrants.s.sol:DeployCommunityGrantsScript"
-run "8/8 LaunchpadV2"     "script/DeployLaunchpadV2.s.sol:DeployLaunchpadV2Script"
+# run <index> <title> <script>. Skips indexes < START_AT. On a broadcast, a receipt-poll hiccup
+# (429/504) can abort forge AFTER the tx already landed — so on failure we auto-retry with --resume,
+# which finds the mined tx and continues/verifies instead of re-deploying a duplicate.
+run() {
+  local idx="$1" title="$2" script="$3"
+  if [ "$idx" -lt "$START_AT" ]; then echo ""; echo "──────── skip $title (START_AT=$START_AT) ────────"; return 0; fi
+  echo ""; echo "════════ $title ════════"
+  if forge script "$script" $COMMON; then return 0; fi
+  if [ -z "$BROADCAST" ]; then return 1; fi   # a dry-run failure is real — never retry it
+  echo "⚠ $title: forge exited non-zero (usually a receipt-poll hiccup; the tx may have landed)."
+  local i
+  for i in 1 2 3 4 5; do
+    echo "   …retry $i/5 with --resume in 8s…"; sleep 8
+    if forge script "$script" $COMMON --resume; then echo "✓ $title recovered via --resume"; return 0; fi
+  done
+  echo "✗ $title still failing after 5 --resume retries — STOP and paste the output."; return 1
+}
+
+run 1 "1/8 GaugeController" "script/DeployGaugeController.s.sol:DeployGaugeControllerScript"
+run 2 "2/8 VoteIncentives"  "script/DeployVoteIncentives.s.sol:DeployVoteIncentivesScript"
+run 3 "3/8 PremiumAccess"   "script/DeployPremiumAccess.s.sol:DeployPremiumAccessScript"
+( export PROTOCOL_FEE_BPS="$NFT_POOL_FEE_BPS"; run 4 "4/8 NFTPoolFactory (0.5% fee)" "script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript" )
+run 5 "5/8 NFTLending"      "script/DeployNFTLending.s.sol:DeployNFTLendingScript"
+run 6 "6/8 MemeBountyBoard" "script/DeployMemeBountyBoard.s.sol:DeployMemeBountyBoardScript"
+run 7 "7/8 CommunityGrants" "script/DeployCommunityGrants.s.sol:DeployCommunityGrantsScript"
+run 8 "8/8 LaunchpadV2"     "script/DeployLaunchpadV2.s.sol:DeployLaunchpadV2Script"
 
 cat <<'EOF'
 
