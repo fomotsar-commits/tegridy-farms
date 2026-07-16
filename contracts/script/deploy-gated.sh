@@ -46,6 +46,11 @@ NFT_POOL_FEE_BPS="${NFT_POOL_FEE_BPS:-50}"                                # 0.5%
 # ── RPC: public read endpoint for dry-run; Flashbots private send-path for broadcast ──
 export ETH_RPC_URL="${ETH_RPC_URL:-https://ethereum-rpc.publicnode.com}"
 
+# ── Gas price (wei). 0.2 gwei is a comfortable buffer over a ~0.08 gwei base fee and lands
+#    fine via Flashbots (no MEV auction on a plain deploy). BUMP IT if gas has spiked:
+#    check with `cast base-fee` and set e.g. GAS_PRICE_WEI=500000000 (0.5 gwei). ──
+export GAS_PRICE_WEI="${GAS_PRICE_WEI:-200000000}"   # 0.2 gwei
+
 : "${SIGNER:?Set SIGNER — e.g. '--sender 0x<deployer>' (dry-run) or '--account deployer' / '--ledger' (broadcast)}"
 
 BROADCAST=""; RPC="mainnet"
@@ -54,7 +59,7 @@ if [ "${1:-}" = "--broadcast" ]; then
   BROADCAST="--broadcast --verify --etherscan-api-key $ETHERSCAN_API_KEY"
   RPC="flashbots"   # private send-path only when broadcasting real txs
 fi
-COMMON="--rpc-url $RPC --slow --with-gas-price 500000000 $SIGNER $BROADCAST"
+COMMON="--rpc-url $RPC --slow --with-gas-price $GAS_PRICE_WEI $SIGNER $BROADCAST"
 
 echo "MODE: $([ -n "$BROADCAST" ] && echo 'BROADCAST (REAL MAINNET)' || echo 'DRY-RUN (safe)')  |  owner MULTISIG=$MULTISIG  |  treasury=$TREASURY"
 run() { echo ""; echo "════════ $1 ════════"; forge script "$2" $COMMON; }
@@ -73,7 +78,7 @@ cat <<'EOF'
 ════════ AFTER BROADCAST ════════
 • TegridyLending is ORACLE-GATED — deploy it separately AFTER BootstrapTWAP warms the TWAP:
     forge script script/DeployTegridyLending.s.sol:DeployTegridyLendingScript --rpc-url flashbots --slow \
-      --with-gas-price 500000000 --account deployer --broadcast --verify --etherscan-api-key "$ETHERSCAN_API_KEY"
+      --with-gas-price "$GAS_PRICE_WEI" --account deployer --broadcast --verify --etherscan-api-key "$ETHERSCAN_API_KEY"
 • From the Safe, acceptOwnership() on every 2-step contract (each as its own Safe tx):
     to = <deployed contract>, value = 0, data = 0x79ba5097     (VoteIncentives, NFTLending, [TegridyLending]
     each need it on BOTH the contract AND its Admin sister). NFTPoolFactory is ctor-direct — no accept.
