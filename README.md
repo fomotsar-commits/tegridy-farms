@@ -13,12 +13,12 @@
 
 > **A DeFi yield protocol on Ethereum where swap fees flow to stakers, votes are weighted by how long you've locked, and the whole thing runs on fixed-supply TOWELI. Real yield. No inflation tricks. Farm with tegridy.**
 
-> ⚠️ **Status: relaunch live, hardening in progress.** The core protocol was **redeployed to Ethereum mainnet on 2026-06-06** from a fresh deployer wallet (the "MVP" set — ~14 contracts). It is **live but not yet decentralized**: ownership still sits behind a single deployer key (Safe multisig handoff in progress — [`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)), several surfaces are **gated dark** pending per-feature audit + deploy, and there is **no professional human-firm audit yet**. Size deposits accordingly.
+> ⚠️ **Status: relaunch live, hardening in progress.** The core protocol was **redeployed to Ethereum mainnet on 2026-06-06** from a fresh deployer wallet (the "MVP" set — ~14 contracts), and on **2026-07-16** the audited **gated-feature batch — 11 contracts spanning governance, NFT-finance, the launchpad, and the premium/community tier — was deployed on-chain and Etherscan-verified.** It is **live but not yet decentralized**: ownership still sits behind a single deployer key (Safe multisig handoff in progress — [`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)), so the newly-deployed surfaces are **on-chain but still frontend-gated** until that handoff completes, and there is **no professional human-firm audit yet**. Size deposits accordingly.
 
 ### The 30-second version
 
 1. TOWELI is fixed supply (1B, no mint function, no rebase).
-2. The protocol runs a DEX, staking, revenue distribution, an oracle, and LP farming today — with lending, NFT-fi, governance, a launchpad, and a premium tier staged behind audit gates.
+2. The protocol runs a DEX, staking, revenue distribution, an oracle, and LP farming live today; NFT-fi, governance, a launchpad, and a premium tier are **deployed on-chain + verified (2026-07-16)** and un-gate in the app as ownership hands off to the Safe. (Token lending is audited and staged, pending the oracle bootstrap.)
 3. Fees from live surfaces route to TOWELI stakers, in ETH.
 4. The longer you lock (up to 4y), the more ETH you earn and the louder you'll vote once governance is live.
 5. A Solana surface earns fees too (swap fee-capture live; a Tegridy-owned Solana AMM is in devnet groundwork).
@@ -63,14 +63,14 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 | **LP Farming** | Synthetix-style boosted LP staking. Deposit TOWELI/WETH LP, earn TOWELI; your boost comes from your existing staking NFT. | `TegridyLPFarming` | 🟢 Live |
 | **Protocol-owned liquidity** | Captures POL from a share of swap fees so liquidity isn't 100% mercenary. | `POLAccumulator` | 🟢 Live |
 | **Referrals** | Stake-gated referral rewards — only stakers (≥1000 TOWELI power) can earn. | `ReferralSplitter` | 🟢 Live |
-| **NFT Finance** | ERC-20 lending against TOWELI positions; peer-to-peer NFT lending (Gondi pattern, lender-only liquidation, sequencer-aware grace); Sudoswap-style bonding-curve NFT AMM. | `TegridyLending`, `TegridyNFTLending`, `TegridyNFTPool(Factory)` | 🟡 Gated |
-| **Governance** | Curve-style gauge voting with commit-reveal, plus a permissionless bribe market ("Cartman's Market"). | `GaugeController`, `VoteIncentives` | 🟡 Gated |
-| **NFT Launchpad** | Click-deploy ERC-721 collections (Merkle allowlist, Dutch auction, delayed reveal, ERC-2981/7572) via a single `createCollection` tx. | `TegridyLaunchpadV2`, `TegridyDropV2` | 🟡 Gated |
-| **Premium / community** | Subscription premium tier, staker-voted community grants, meme-bounty board. | `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard` | 🟡 Gated |
+| **NFT Finance** | ERC-20 lending against TOWELI positions; peer-to-peer NFT lending (Gondi pattern, lender-only liquidation, sequencer-aware grace); Sudoswap-style bonding-curve NFT AMM. | `TegridyNFTLending`(+Admin), `TegridyNFTPoolFactory`, `TegridyLending` | 🔵 On-chain † |
+| **Governance** | Curve-style gauge voting with commit-reveal, plus a permissionless bribe market ("Cartman's Market"). | `GaugeController`, `VoteIncentives`(+Admin) | 🔵 On-chain |
+| **NFT Launchpad** | Click-deploy ERC-721 collections (Merkle allowlist, Dutch auction, delayed reveal, ERC-2981/7572) via a single `createCollection` tx. | `TegridyLaunchpadV2`, `TegridyDropV2` | 🔵 On-chain |
+| **Premium / community** | Subscription premium tier, staker-voted community grants, meme-bounty board. | `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard` | 🔵 On-chain |
 | **Restaking** | Restake the position NFT for a second reward stream (EigenLayer-operator pattern). | `TegridyRestaking` | 🟡 Deferred (Phase 7 / EIP-170) |
 | **Uniswap V4 module** | V4 hook (per-user premium fee discount + POL skim) + trusted swap router + boosted LP staker. | `v4/TegridyV4Hook`, `TegridyV4SwapRouter`, `TegridyBoostedLPStaker` | 🟡 Next-wave (unaudited, gated) |
 
-**🟡 Gated** means the contract source is in the repo and tested, but the on-chain address is intentionally zeroed in the frontend ([`isDeployed()`](frontend/src/lib/constants.ts) gate) until it clears a per-feature audit wave and gets deployed. The UI shows a placeholder for gated surfaces rather than pointing at a stale address. They auto-activate the moment the operator sets the real address.
+**🔵 On-chain** means the contract is **deployed to mainnet and Etherscan-verified** (the 2026-07-16 gated batch), but the frontend address is still zeroed so the UI stays gated until the Safe ownership handoff completes. **🟡 Gated** means the source is in the repo and tested but **not yet deployed** — the on-chain address is intentionally zeroed in the frontend ([`isDeployed()`](frontend/src/lib/constants.ts) gate) until it clears its audit wave and deploys. Both auto-activate the moment the operator sets the real address. († `TegridyLending` is the one on-chain exception that is *not* yet deployed: it is pre-deploy-audited and hardened but **oracle-gated**, so it ships only after the TWAP is bootstrapped.)
 
 **Why this over Curve / Aave / Yearn?** Fixed-supply token — what you earn is *revenue*, not inflation. Every live fee mechanism routes to stakers by default. The whole thing is one self-contained economic loop: stake → earn ETH → (soon) vote → direct emissions → farm → bribes flow back to stakers.
 
@@ -81,9 +81,10 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 Honest snapshot as of the latest commit:
 
 - ✅ **Relaunch MVP is live on mainnet** (deployed 2026-06-06 via `DeployMVP`, block ~25,263,328). Staking, the native DEX, SwapFeeRouter, RevenueDistributor, TWAP, POLAccumulator, ReferralSplitter, TokenURIReader, and (since 2026-06-08) LP Farming are all deployed and wired.
+- ✅ **Gated-feature batch deployed on-chain 2026-07-16** (11 contracts, all Etherscan-verified): GaugeController, VoteIncentives (+Admin), PremiumAccess, TegridyNFTPoolFactory, TegridyNFTLending (+Admin), MemeBountyBoard, CommunityGrants, and TegridyLaunchpadV2 (+ its DropV2 template). Each cleared a fresh pre-deploy adversarial audit wave. They are **not yet wired into the app** — the frontend un-gates them once ownership lands on the rebuilt Safe.
 - ⏳ **Ownership is not yet decentralized.** All live contracts are still owned by the deployer EOA. A 2-step Safe multisig handoff is in progress; the first attempt's 14-day window lapsed and is being re-initiated ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). **This single-key window is the biggest current risk — bigger than any specific code finding.**
-- ⏳ **The protocol-owned TOWELI/WETH pool is not seeded yet.** Until it is, the smart front-door routes swaps to the deepest available venue (the Uniswap V2 pool). Seeding + TWAP bootstrap are scripted go-live steps ([`SeedLP.s.sol`](contracts/script/SeedLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)).
-- 🟡 **~11 surfaces are gated dark** pending per-feature audit + deploy (see the table above).
+- ⏳ **The protocol-owned TOWELI/WETH pool is seeded but shallow.** It holds live liquidity at market price, but the TWAP oracle bootstrap is still gated on deepening it past the oracle's reserve floor; until then the smart front-door routes swaps to the deepest venue (the Uniswap V2 pool). Deepen + bootstrap are scripted go-live steps ([`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)).
+- 🟡 **A few surfaces remain not-yet-deployed:** token lending (`TegridyLending` — pre-deploy-audited but oracle-gated), restaking (EIP-170 split / Phase 7), the Pro Pass (a launchpad operation), and the Uniswap V4 module (next-wave, unaudited).
 - 🟡 **No professional firm audit yet.** Extensive internal adversarial multi-agent audits are ongoing; a paid human-firm review is the gate before scaling TVL.
 
 ---
@@ -275,7 +276,7 @@ forge build
 forge test
 ```
 
-The Foundry suite (**95 test files**, most of them audit-derived regressions) is gated in CI — **Contracts CI + Slither + CodeQL run on every PR**. CI is the compile/test source of truth.
+The Foundry suite (**100+ test files**, most of them audit-derived regressions) is gated in CI — **Contracts CI + Slither + CodeQL run on every PR**. CI is the compile/test source of truth.
 
 Go-live scripts (operator-run, dry-run first, submit via a private RPC):
 `SeedLP.s.sol` (seed the TOWELI/WETH pool) · `BootstrapTWAP.s.sol` (warm the oracle) · `VerifyMVP.s.sol` (post-deploy invariant check) · `TransferOwnershipToMultisig.s.sol` (Safe handoff).
@@ -306,7 +307,7 @@ tegriddy-farms/
 │   │   ├── base/        OwnableNoRenounce, PauseGuardian, TimelockAdmin
 │   │   └── lib/         9 shared libraries (SequencerCheck, StakingViewLib, VotePowerOracle, …)
 │   ├── script/          Deploy + go-live scripts (DeployMVP, SeedLP, BootstrapTWAP, VerifyMVP, …)
-│   └── test/            95 test files — most are audit-derived regressions
+│   └── test/            100+ test files — most are audit-derived regressions
 ├── frontend/            Vite + React 19 + TypeScript (+ Solana swap surface)
 │   ├── src/pages/       Routed pages (Swap, Farm, SolanaSwap, NFT surfaces, …)
 │   ├── src/lib/         constants.ts (canonical addresses), ABIs, solana.ts, Irys client
@@ -338,7 +339,7 @@ tegriddy-farms/
 
 Tegridy Farms treats its own custom code as a known-risk attack surface: the standing mandate is **minimal surface, copy verbatim from battle-tested protocols** (OpenZeppelin, Uniswap V2/V4, Curve, Aave V3, Synthetix, Gondi, Solady, Raydium), and only conservative tweaks on top.
 
-- **Internal adversarial audits are continuous.** The protocol has been through many waves of multi-agent adversarial review (find → independent refute-by-default verify), most recently across the full ~50-contract surface through mid-2026. Findings that could be expressed as a regression test have one. Historical artifacts are indexed in [`AUDITS.md`](AUDITS.md) and [`FIX_STATUS.md`](FIX_STATUS.md).
+- **Internal adversarial audits are continuous.** The protocol has been through many waves of multi-agent adversarial review (find → independent refute-by-default verify), most recently the **2026-07-16 gated-batch pre-deploy waves** — each deployed contract cleared a fresh audit — plus a dedicated **TegridyLending pre-deploy re-audit** (0 Critical/High/Medium/Low). Findings that could be expressed as a regression test have one. Historical artifacts are indexed in [`AUDITS.md`](AUDITS.md) and [`FIX_STATUS.md`](FIX_STATUS.md).
 - **One external review** (Spartan, [`SPARTAN_AUDIT.txt`](SPARTAN_AUDIT.txt)) has been done.
 - **No professional-firm audit yet.** A paid review (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Gated surfaces each get a dedicated audit wave before they deploy.
 - **Responsible disclosure:** see [`SECURITY.md`](SECURITY.md). Please don't file security reports as public issues.
@@ -367,7 +368,7 @@ Tegridy Farms treats its own custom code as a known-risk attack surface: the sta
 |---|---|
 | TegridyFactory | [`0xa24C7…67a52`](https://etherscan.io/address/0xa24C7287eC56A7DEFDc70033803451240e267a52) |
 | TegridyRouter | [`0xE9F83…98Db8`](https://etherscan.io/address/0xE9F83A07b071748E795d2489651d5310fA098Db8) |
-| TOWELI/WETH pair (native — seeding pending) | [`0x55875…a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) |
+| TOWELI/WETH pair (native — seeded, shallow) | [`0x55875…a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) |
 
 #### Revenue, fees & farming
 | Contract | Address |
@@ -393,7 +394,22 @@ Tegridy Farms treats its own custom code as a known-risk attack surface: the sta
 | JBAY Gold — 3rd-party | [`0x6Aa03…92F3`](https://etherscan.io/address/0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3) |
 | Uniswap V2 TOWELI/WETH LP (price/liquidity) | [`0x6682A…104D`](https://etherscan.io/address/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) |
 
-**Gated / not-yet-redeployed:** Restaking, GaugeController, VoteIncentives, TegridyLending, TegridyNFTLending, TegridyNFTPoolFactory, TegridyLaunchpadV2 / DropV2, PremiumAccess, CommunityGrants, MemeBountyBoard, the Pro Pass, and the V4 module — each deploys after its audit wave, and the frontend un-gates it automatically once the address is set. The Wave-0 (April 2026) contracts are superseded and retained only for provenance in [`docs/MIGRATION_HISTORY.md`](docs/MIGRATION_HISTORY.md).
+#### Gated-feature batch — deployed 2026-07-16 (Etherscan-verified; frontend-gated pending ownership handoff)
+| Contract | Address |
+|---|---|
+| GaugeController | [`0x6c79…1054`](https://etherscan.io/address/0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054) |
+| VoteIncentives | [`0x6e1d…21AF`](https://etherscan.io/address/0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF) |
+| VoteIncentivesAdmin | [`0xf87E…B300`](https://etherscan.io/address/0xf87Ec231BA7FA3975619309bc16C698B2ea3B300) |
+| PremiumAccess | [`0x9DC2…A3f5`](https://etherscan.io/address/0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5) |
+| TegridyNFTPoolFactory | [`0xbB8E…6F5B`](https://etherscan.io/address/0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B) |
+| TegridyNFTLending | [`0x89Be…f14F`](https://etherscan.io/address/0x89BeB6cc0255B7465c01aA38a6f937efd345f14F) |
+| TegridyNFTLendingAdmin | [`0x6937…0a9C`](https://etherscan.io/address/0x693787831e9C36A98aFEDAd39f8728491F580a9C) |
+| MemeBountyBoard | [`0x6D2C…d890`](https://etherscan.io/address/0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890) |
+| CommunityGrants | [`0xeBC3…D471`](https://etherscan.io/address/0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471) |
+| TegridyLaunchpadV2 | [`0xa614…0dF7`](https://etherscan.io/address/0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7) |
+| TegridyDropV2 (launchpad template) | [`0xA35e…e872`](https://etherscan.io/address/0xA35ec3e20C4361144b0D99573DEa00B67873e872) |
+
+**Still not deployed:** `TegridyLending` (pre-deploy-audited; oracle-gated — deploys after the TWAP bootstrap), `TegridyRestaking` (EIP-170 split / Phase 7), the Pro Pass (a `TegridyLaunchpadV2.createCollection` operation, not a standalone contract), and the Uniswap V4 module — each deploys after its audit wave, and the frontend un-gates it automatically once the address is set. The Wave-0 (April 2026) contracts are superseded and retained only for provenance in [`docs/MIGRATION_HISTORY.md`](docs/MIGRATION_HISTORY.md).
 
 Live directory in the app: [tegridyfarms.vercel.app](https://tegridyfarms.vercel.app).
 
@@ -404,9 +420,9 @@ Live directory in the app: [tegridyfarms.vercel.app](https://tegridyfarms.vercel
 Full roadmap in [`ROADMAP.md`](ROADMAP.md) · shipping cadence in [`CHANGELOG.md`](CHANGELOG.md).
 
 **Near-term go-live gates:**
-1. **Decentralize ownership** — rebuild the Safe signer sets, re-initiate `transferOwnership`, and `acceptOwnership` on all owned contracts ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). The single biggest item.
-2. **Seed the native pool + bootstrap the TWAP** (`SeedLP.s.sol` → `BootstrapTWAP.s.sol`), then run `VerifyMVP`.
-3. **Professional firm audit**, then roll out gated surfaces one audit-wave at a time.
+1. **Decentralize ownership** — rebuild the Safe signer sets, re-initiate `transferOwnership`, and `acceptOwnership` on all owned contracts, including the 2026-07-16 batch ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). The single biggest item.
+2. **Deepen the native pool + bootstrap the TWAP** (`DeepenLP.s.sol` → `BootstrapTWAP.s.sol`), then run `VerifyMVP` — this also unblocks the oracle-gated `TegridyLending` deploy.
+3. **Un-gate the deployed batch in the app** once ownership lands on the rebuilt Safe; then a **professional firm audit** before scaling TVL.
 
 **Medium-term:**
 - Keeper infrastructure for DCA / limit orders
