@@ -8,8 +8,8 @@
 #
 # USAGE
 #   1) Rotate + export your Etherscan key:   export ETHERSCAN_API_KEY=<key>
-#   2) DRY-RUN everything (no broadcast, no funds moved) — set a --sender address:
-#        SIGNER="--sender 0x<your-deployer-address>" ./script/deploy-gated.sh
+#   2) DRY-RUN everything (no broadcast, no funds, no signer needed):
+#        ./script/deploy-gated.sh
 #   3) When the dry-run output looks right, BROADCAST for real with your signer:
 #        SIGNER="--account deployer" ./script/deploy-gated.sh --broadcast     # keystore
 #        SIGNER="--ledger"           ./script/deploy-gated.sh --broadcast     # hardware
@@ -51,15 +51,24 @@ export ETH_RPC_URL="${ETH_RPC_URL:-https://ethereum-rpc.publicnode.com}"
 #    check with `cast base-fee` and set e.g. GAS_PRICE_WEI=500000000 (0.5 gwei). ──
 export GAS_PRICE_WEI="${GAS_PRICE_WEI:-200000000}"   # 0.2 gwei
 
-: "${SIGNER:?Set SIGNER — e.g. '--sender 0x<deployer>' (dry-run) or '--account deployer' / '--ledger' (broadcast)}"
+# ── Deployer address = the --sender / msg.sender for the scripts (MUST equal your keystore/Ledger
+#    address). Some scripts (LaunchpadV2) read msg.sender as the INITIAL owner, so --sender must be
+#    set explicitly — `--account` alone leaves msg.sender as Foundry's default and breaks the
+#    ownership transfer with OwnableUnauthorizedAccount. ──
+export DEPLOYER_ADDR="${DEPLOYER_ADDR:-0x14898258122C0740106391E6e8E4F17F3b6d456E}"
+
+SIGNER="${SIGNER:-}"   # signing method for --broadcast: '--account deployer' (keystore) or '--ledger'
 
 BROADCAST=""; RPC="mainnet"
 if [ "${1:-}" = "--broadcast" ]; then
+  : "${SIGNER:?For --broadcast set SIGNER='--account deployer' (keystore) or SIGNER='--ledger'}"
   : "${ETHERSCAN_API_KEY:?Set ETHERSCAN_API_KEY to broadcast (rotate the leaked key first)}"
   BROADCAST="--broadcast --verify --etherscan-api-key $ETHERSCAN_API_KEY"
   RPC="flashbots"   # private send-path only when broadcasting real txs
 fi
-COMMON="--rpc-url $RPC --slow --with-gas-price $GAS_PRICE_WEI $SIGNER $BROADCAST"
+# --sender is ALWAYS set (fixes the LaunchpadV2 msg.sender-as-owner mismatch); for --broadcast the
+# keystore/Ledger does the signing and its address MUST equal DEPLOYER_ADDR.
+COMMON="--rpc-url $RPC --slow --with-gas-price $GAS_PRICE_WEI --sender $DEPLOYER_ADDR $SIGNER $BROADCAST"
 
 echo "MODE: $([ -n "$BROADCAST" ] && echo 'BROADCAST (REAL MAINNET)' || echo 'DRY-RUN (safe)')  |  owner MULTISIG=$MULTISIG  |  treasury=$TREASURY"
 run() { echo ""; echo "════════ $1 ════════"; forge script "$2" $COMMON; }

@@ -16,10 +16,11 @@ only the signer + Etherscan key. It runs the 8 non-oracle-gated contracts in ord
 ```bash
 cd contracts
 export ETHERSCAN_API_KEY=<your rotated key>
-# 1) DRY-RUN everything (no broadcast, no funds) — sender is just an address, no key:
-SIGNER="--sender 0x<your-deployer-address>" ./script/deploy-gated.sh
+# 1) DRY-RUN everything (no broadcast, no funds, no signer needed — --sender is baked into the driver):
+./script/deploy-gated.sh
 # 2) Review the console output, then BROADCAST with your signer (keystore or Ledger):
 SIGNER="--account deployer" ./script/deploy-gated.sh --broadcast      # or SIGNER="--ledger"
+# (Driver pins --sender to DEPLOYER_ADDR=0x1489…456E; override DEPLOYER_ADDR if you sign from another wallet.)
 ```
 The manual per-contract steps below are the reference the driver automates (and the source for the
 `acceptOwnership` / verify / wiring you still do by hand). TegridyLending is run separately (§4).
