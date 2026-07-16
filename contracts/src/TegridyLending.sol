@@ -406,6 +406,24 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice AUDIT FIX: DEEP-LD-M1 — active-loan count per collateral contract.
     mapping(address => uint256) public activeLoansAgainstCollateral;
 
+    /// @notice AUDIT FIX (2026-07-16 pre-deploy): O(1) escrow reverse-index so
+    ///         `sweepUnsolicitedNFT` no longer walks the append-only `loans[]`
+    ///         array (an O(lifetime-loans) scan that gas-bricks past a few
+    ///         thousand loans). Maps (collateralContract => tokenId => loanId+1)
+    ///         for the ONE loan currently escrowing that specific NFT; the `+1`
+    ///         makes `0` unambiguously mean "not held as collateral" (the
+    ///         Seaport / Sudoswap sentinel idiom). Set in `acceptOffer` once the
+    ///         inbound escrow is confirmed; cleared ONLY when the NFT physically
+    ///         leaves this contract (the success branch of the repay / default
+    ///         outbound transfer, and `claimStuckCollateral`). A stuck-but-
+    ///         unresolved collateral KEEPS its entry (the NFT is still here,
+    ///         reserved for the recovery recipient) — exactly matching the retired
+    ///         scan's "active-loan OR stuck-reserved => in use" semantics. A given
+    ///         NFT can only escrow one loan at a time (once escrowed the contract
+    ///         owns it, so it cannot be `transferFrom`'d into a second loan), so an
+    ///         occupied entry is never overwritten.
+    mapping(address => mapping(uint256 => uint256)) public collateralEscrowLoanIdPlus1;
+
     /// @notice AUDIT FIX: LD3-M3 — cancel-rate-limit per collateral so a captured
     ///         admin cannot loop cancel-and-re-propose to keep a flagged
     ///         staking contract on the whitelist indefinitely. Mirrors LD-L2 on
@@ -1288,6 +1306,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         // AUDIT FIX: DEEP-LD-M1 — register loan against collateral.
         activeLoansAgainstCollateral[collateralContract] += 1;
+        // AUDIT FIX (2026-07-16): register the O(1) escrow reverse-index for this
+        // specific (collateralContract, _tokenId). Set only AFTER the ownerOf
+        // post-check above confirms the NFT is truly escrowed here; cleared when
+        // the NFT leaves (repay / default success branch, or claimStuckCollateral).
+        // Fail-closed defense-in-depth (pre-deploy audit Info): against an honest
+        // ERC721 this slot is ALWAYS 0 here — the inbound transferFrom above reverts
+        // if the contract already holds _tokenId — so this never trips in normal
+        // operation. It exists so a whitelisted-then-malicious collateral that lies
+        // about ownerOf cannot silently OVERWRITE a still-stuck reservation (which
+        // would otherwise let the single-slot index diverge from the retired O(n)
+        // scan's "active-loan OR stuck-reserved => in use" semantics).
+        if (collateralEscrowLoanIdPlus1[collateralContract][_tokenId] != 0) revert CollateralInUse();
+        collateralEscrowLoanIdPlus1[collateralContract][_tokenId] = loanId + 1;
 
         // AUDIT FIX: DEEP-LD-M8 — forward escrowed origination fee to treasury.
         // AUDIT FIX: LD3-H3 — route to the snapshotted feeRecipient so a
@@ -1470,6 +1501,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (!moved) {
             stuckCollateralRecipient[_loanId] = borrower;
             emit CollateralStuck(_loanId, borrower, tokenId, address(staking));
+        } else {
+            // AUDIT FIX (2026-07-16): NFT physically returned — clear the escrow
+            // reverse-index. On the stuck branch we intentionally KEEP it (the NFT
+            // is still here, reserved for the borrower's claimStuckCollateral).
+            delete collateralEscrowLoanIdPlus1[collateralContract][tokenId];
         }
 
         try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _postPaid) {
@@ -1637,6 +1673,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (!moved) {
             stuckCollateralRecipient[_loanId] = lender;
             emit CollateralStuck(_loanId, lender, tokenId, address(staking));
+        } else {
+            // AUDIT FIX (2026-07-16): collateral seized to lender — clear the escrow
+            // reverse-index. Stuck branch keeps it (reserved for claimStuckCollateral).
+            delete collateralEscrowLoanIdPlus1[collateralContract][tokenId];
         }
 
         try staking.claimUnsettledForTokenId(tokenId, address(this)) returns (uint256 _postPaid) {
@@ -1773,6 +1813,11 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (!moved) revert StuckCollateralStillStuck();
 
         delete stuckCollateralRecipient[_loanId];
+        // AUDIT FIX (2026-07-16): NFT finally left — clear the escrow reverse-index so
+        // an admin can later sweep this (collection, tokenId) if it is ever re-donated
+        // unsolicited. (On the revert branch above nothing is cleared, preserving the
+        // recipient's recovery right AND the "in use" sweep-guard.)
+        delete collateralEscrowLoanIdPlus1[collateralContract][tokenId];
         emit StuckCollateralClaimed(_loanId, recipient, tokenId);
     }
 
@@ -2540,9 +2585,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         a (possibly worthless) NFT of any whitelisted collection into
     ///         this contract; without this admin sweeper the NFT was orphaned
     ///         forever and the contract's balanceOf(collection) was polluted
-    ///         off-chain. The active-loan gate scans loans[] — an O(lifetime-loans)
-    ///         scan (loans[] is append-only), NOT bounded by MAX_TOTAL_OFFERS; see the
-    ///         pre-deploy note in the body. Pattern mirrored from mature P2P NFT-lending.
+    ///         off-chain. The active-loan gate is an O(1) lookup in the
+    ///         `collateralEscrowLoanIdPlus1` reverse-index (set on acceptOffer, cleared
+    ///         when the NFT leaves), replacing a former O(lifetime-loans) loans[] scan.
+    ///         Pattern mirrored from mature P2P NFT-lending.
     /// @param  _collection ERC721 contract whose NFT is stuck in this address.
     /// @param  _tokenId    Token ID held at `address(this)`.
     /// @param  _to         Recipient. Owner-controlled to avoid griefer-influences.
@@ -2558,37 +2604,18 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         (bool ownerOk, address currentOwner) = SafeERC721Call.safeOwnerOfBounded(_collection, _tokenId);
         if (!ownerOk) revert NotHeldByContract();
         if (currentOwner != address(this)) revert NotHeldByContract();
-        // Refuse to sweep an NFT that is collateral to an active loan. We walk
-        // loans[] and check (collateralContract, tokenId, !repaid && !defaultClaimed).
-        // AUDIT 2026-07-14 (pre-deploy batch, LOW): loans[] is APPEND-ONLY (sole mutation
-        // is loans.push; no pop), so this is an O(lifetime-loans) scan — NOT bounded by
-        // MAX_TOTAL_OFFERS, which caps LIVE offers (activeOfferCount), not loans.length.
-        // The prior "bounded" claim became false when the lifetime offer cap was replaced
-        // with a live counter in 3f87bd8. This onlyOwner recovery path can gas-brick past
-        // ~2-3k lifetime loans. Non-critical (owner-only; unsolicited NFTs are never loan
-        // collateral), but BEFORE this contract's (oracle-gated) deploy window, replace the
-        // scan with an O(1) per-(collection,tokenId) reverse index (set on acceptOffer,
-        // cleared on repay/claimDefault) or add pagination.
-        uint256 nLoans = loans.length;
-        for (uint256 i = 0; i < nLoans; i++) {
-            Loan storage l = loans[i];
-            // AUDIT FIX (2026-06-05 deep-audit, LOW — sibling-divergence with NFTLending):
-            // also refuse to sweep collateral reserved for a stuck-transfer recipient (a
-            // RESOLVED loan whose collateral return no-op'd, recoverable by the rightful
-            // party via claimStuckCollateral). The active-loan scan below `continue`s past
-            // resolved loans, so without this a stuck-but-resolved NFT owed to
-            // `stuckCollateralRecipient[i]` could be swept to an arbitrary `_to`, overriding
-            // the rightful recovery. Mirrors TegridyNFTLending's sweep guard
-            // (TegridyNFTLending.sol:1604).
-            if (
-                stuckCollateralRecipient[i] != address(0) && l.tokenId == _tokenId
-                    && offers[l.offerId].collateralContract == _collection
-            ) revert CollateralInUse();
-            if (l.repaid || l.defaultClaimed) continue;
-            if (l.tokenId != _tokenId) continue;
-            address coll = offers[l.offerId].collateralContract;
-            if (coll == _collection) revert CollateralInUse();
-        }
+        // AUDIT FIX (2026-07-16 pre-deploy): O(1) escrow reverse-index replaces the
+        // former O(lifetime-loans) walk of the append-only loans[] array (which could
+        // gas-brick this onlyOwner recovery path past a few thousand lifetime loans).
+        // `collateralEscrowLoanIdPlus1[_collection][_tokenId] != 0` is true iff this
+        // exact NFT is currently escrowed as collateral for a live loan OR is
+        // stuck-reserved for a claimStuckCollateral recovery — precisely the two cases
+        // the retired scan revert'd on (active-loan, and stuck-transfer-recipient of a
+        // resolved loan). The index is set in acceptOffer once escrow is confirmed and
+        // cleared only when the NFT physically leaves (repay/default success branch, or
+        // claimStuckCollateral), so it can never diverge from real custody. Unsolicited
+        // (donated) NFTs are never registered, so they remain sweepable.
+        if (collateralEscrowLoanIdPlus1[_collection][_tokenId] != 0) revert CollateralInUse();
         // Use the bounded transferFrom helper so a malicious whitelisted
         // collection cannot OOG-grief this admin path via giant returndata.
         bool moved = SafeERC721Call.safeTransferFromBounded(_collection, address(this), _to, _tokenId);
