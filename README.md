@@ -93,50 +93,70 @@ Honest snapshot as of the latest commit:
 
 The `contracts/src/` tree holds **50 Solidity files**: ~34 at the root (primitives + their EIP-170 admin/vault sisters), a 4-file Uniswap V4 next-wave module under `v4/`, and 12 shared `base/` + `lib/` utilities. None are redundant — every revenue surface feeds the same staker reward stream; every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. It's **one flywheel** spread across many files.
 
-### 1. The revenue flywheel (where ETH actually comes from)
+### 1. The revenue flywheel (where the ETH actually comes from)
 
-Every user action on every live surface routes ETH through `SwapFeeRouter` or directly into `RevenueDistributor`, which streams it to stakers proportionally to boosted balance + historical lock. **No revenue surface keeps its fees.**
+**In one sentence:** the protocol skims a small fee off trades routed through its smart front-door, turns that fee into ETH, and pays it out to people who've locked TOWELI — so your yield is a share of *real trading fees*, not freshly-minted tokens.
+
+There are two swap-fee rails, and **only the front-door pays stakers today:**
+
+| Rail | Fee | Who actually gets it |
+|---|---|---|
+| **Native pair** (`TegridyPair`) — a raw swap on the TOWELI/WETH pool | 0.3% | ~0.25% grows the pool for **LPs**; the ~0.05% protocol slice accrues to the **treasury as LP tokens** — *not* to stakers as ETH. |
+| **Smart front-door** (`SwapFeeRouter`) — the app's default swap route | **0.5%** (hard-capped at 1%) | Collected in ETH, then **100% to stakers** by default (governance can never set it below 50%). **This is the staker-yield rail.** |
+
+**How you actually get paid — three steps:**
+1. **Fees pool up.** The front-door skims 0.5% off each swap into an ETH pot. (Fees taken in a token — e.g. a token→token swap — are held as that token and swept to ETH by a keeper, price-guarded by the TWAP, before they count.)
+2. **The pot is split and pushed.** Anyone can call `distributeFeesToStakers()`; by default the whole staker slice goes to `RevenueDistributor` (a configurable cut — never more than 25% — can instead deepen protocol-owned liquidity).
+3. **You claim — anytime.** `RevenueDistributor` snapshots an *epoch* (the fresh ETH + everyone's locked stake at that instant). Call `claim()` whenever; your cut is `epoch ETH × your boosted power ÷ total boosted power`. Unclaimed ETH never expires, and **longer locks + a JBAC boost raise your share.**
+
+> ⏱ **It's epoch-based, not a live drip.** An epoch only opens once **≥ 1 ETH** of fees has pooled *and* it's been **≥ 4 hours** since the last one — so low volume accumulates before it reaches stakers. Each epoch measures your stake at the *previous second*; that snapshot is what stops anyone flash-staking to skim a payout.
+
+**Worked example.** Swap **1 ETH** through the front-door → it takes **0.005 ETH** (0.5%) and swaps the other 0.995 ETH; that 0.005 ETH is earmarked 100% for stakers. Once enough swaps have pooled ≥ 1 ETH and an epoch opens, a staker holding **5%** of the boosted stake claims **0.05 ETH** from a 1-ETH epoch. Trade that same 1 ETH *directly on the native pair* and stakers get **nothing in ETH** — the fee just grows the pool for LPs.
 
 ```mermaid
 flowchart LR
     subgraph users[" "]
         direction TB
         U1[Trader]
-        U2[NFT Borrower]
-        U3[NFT Trader]
-        U4[NFT Minter]
-        U5[Premium Subscriber]
+        U2["NFT Borrower 🔒"]
+        U3["NFT Trader 🔒"]
+        U4["NFT Minter 🔒"]
+        U5["Premium Sub 🔒"]
     end
 
-    subgraph features["Revenue surfaces (charge ETH fees)"]
+    subgraph features["Revenue surfaces"]
         direction TB
-        DEX["Native DEX<br/>pair + front-door fees"]
-        LEND["Lending<br/>(origination + interest)"]
-        NFTPOOL["NFT AMM Pools<br/>(curve trade fee)"]
-        DROP["Launchpad / Drop<br/>(platform fee on mint)"]
-        PREMIUM["Premium Access<br/>(subscription fee)"]
+        DEX["Smart front-door<br/>0.5% fee — LIVE"]
+        LEND["Lending<br/>gated — not flowing"]
+        NFTPOOL["NFT AMM Pools<br/>gated — not flowing"]
+        DROP["Launchpad / Drop<br/>gated — not flowing"]
+        PREMIUM["Premium Access<br/>gated — not flowing"]
     end
 
     U1 --> DEX
-    U2 --> LEND
-    U3 --> NFTPOOL
-    U4 --> DROP
-    U5 --> PREMIUM
+    U2 -.-> LEND
+    U3 -.-> NFTPOOL
+    U4 -.-> DROP
+    U5 -.-> PREMIUM
 
-    DEX -->|fee| SFR[SwapFeeRouter]
-    LEND -->|protocol fee| RD
-    NFTPOOL -->|protocol fee| RD
-    DROP -->|platform fee| RD
-    PREMIUM -->|subscription fee| RD
+    DEX -->|0.5% skimmed in ETH| SFR[SwapFeeRouter]
+    LEND -.protocol fee.-> RD
+    NFTPOOL -.protocol fee.-> RD
+    DROP -.platform fee.-> RD
+    PREMIUM -.subscription.-> RD
 
-    SFR -->|converts to ETH<br/>via TegridyRouter| RD[RevenueDistributor]
-    RD -->|continuous ETH stream<br/>weighted by lock + boost| STAKERS((TOWELI Stakers))
+    SFR -->|split: 100% to stakers by default| RD[RevenueDistributor]
+    RD -->|claim your epoch share<br/>ETH, weighted by lock + boost| STAKERS((TOWELI Stakers))
 
-    classDef revenue fill:#ffe1c4,stroke:#cc7a00
+    classDef live fill:#ffe1c4,stroke:#cc7a00
+    classDef gated fill:#eeeeee,stroke:#999999,stroke-dasharray:4 3,color:#777777
     classDef sink fill:#d4f1d4,stroke:#2d8a2d
-    class DEX,LEND,NFTPOOL,DROP,PREMIUM revenue
+    class DEX,SFR live
+    class LEND,NFTPOOL,DROP,PREMIUM gated
     class STAKERS sink
 ```
+
+**Not flowing yet:** the lending, NFT-pool, launchpad, and premium fees are deployed on-chain but frontend-gated, so they add **zero** revenue today. Each plugs into the same `RevenueDistributor` the moment it un-gates — the flywheel is built; it's just waiting on the gates.
 
 ### 2. The staking position as universal collateral
 
@@ -243,9 +263,9 @@ Tegridy runs a Solana surface too — but **TOWELI never touches Solana** (no br
 
 - **Total supply:** 1,000,000,000 TOWELI. **Fixed.** No mint function. No burn entrypoint.
 - **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) — an engagement/leaderboard window. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
-- **Revenue flow:** swap fees → `SwapFeeRouter` → `RevenueDistributor` → stakers (ETH, continuous stream).
+- **Revenue flow (live):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). The native pair's separate 0.3% grows the pool for LPs.
 - **Penalty flow:** 25% early-exit penalty → stakers still locked (pro-rata).
-- **Treasury take:** the native pair keeps ⅙ of its 0.3% at `feeTo`; the smart front-door's 0.5% is split per config (default: 100% to stakers). Lending/launchpad protocol fees flow to stakers once those surfaces are live.
+- **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is what actually streams to stakers (default 100%, floor 50%). Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate.
 
 Full detail: **[TOKENOMICS.md](TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
 
