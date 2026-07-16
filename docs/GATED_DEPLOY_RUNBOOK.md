@@ -10,6 +10,22 @@ Safe-owner / feed-zero guards). Contracts pre-deploy-audited: **8 GO + Launchpad
 
 ---
 
+## ⚡ Fast path — one command (`contracts/script/deploy-gated.sh`)
+All env values (addresses + last-known policy + MULTISIG) are pre-filled in the driver; you supply
+only the signer + Etherscan key. It runs the 8 non-oracle-gated contracts in order.
+```bash
+cd contracts
+export ETHERSCAN_API_KEY=<your rotated key>
+# 1) DRY-RUN everything (no broadcast, no funds) — sender is just an address, no key:
+SIGNER="--sender 0x<your-deployer-address>" ./script/deploy-gated.sh
+# 2) Review the console output, then BROADCAST with your signer (keystore or Ledger):
+SIGNER="--account deployer" ./script/deploy-gated.sh --broadcast      # or SIGNER="--ledger"
+```
+The manual per-contract steps below are the reference the driver automates (and the source for the
+`acceptOwnership` / verify / wiring you still do by hand). TegridyLending is run separately (§4).
+
+---
+
 ## 0. Prerequisites (do these first — from [[project_pending_operator_tasks]])
 1. **Rotate the leaked read-only Etherscan API key** → set `ETHERSCAN_API_KEY` in your shell (NOT `VITE_`-prefixed).
 2. **Rebuild the 3 Safes** → the **`MULTISIG`** below MUST be the rebuilt **3-of-N governance Safe** (a *contract* — the scripts now `require(multisig.code.length > 0)`), and **`TREASURY`** the rebuilt 2-of-2 fee Safe. Don't deploy with the compromised-quorum Safes.
@@ -29,15 +45,16 @@ export JBAC_NFT=0xd37264c71e9af940e49795F0d3a8336afAaFDdA9
 export TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d     # rebuilt 2-of-2 fee Safe (NOT stale 0xE9B7…f53e)
 export SEQUENCER_FEED=0x0000000000000000000000000000000000000000  # mainnet = 0 (scripts enforce this)
 
-# ── YOURS to set: the rebuilt governance Safe (owner target) ──
-export MULTISIG=0x<REBUILT_3_of_N_GOVERNANCE_SAFE>              # (prev pendingOwner of record: 0xA36053477568Fb5382492F3A5970D35Fe896b7F8 — confirm on-chain)
+# ── Owner Safe (pre-filled). ⚠ This is your CURRENT governance Safe — the red-team flagged its
+#    signer set as compromised-quorum. IDEAL: rebuild the Safe first, then swap this address. ──
+export MULTISIG=0xA36053477568Fb5382492F3A5970D35Fe896b7F8      # current governance Safe (verified: has code)
 
 # ── Policy params — REVIEW each before broadcast (defaults = last-known; scripts flag them) ──
 export EMISSION_BUDGET=1000000000000000000000000                # Gauge: 1,000,000 TOWELI/epoch — REVIEW
 export BRIBE_FEE_BPS=300                                        # VoteIncentives: 3% — REVIEW (max 500)
 export PROTOCOL_FEE_BPS=500                                     # lending: 5% — REVIEW (max 1000)
 export NFT_POOL_FEE_BPS=50                                      # NFTPoolFactory: 0.5% — REVIEW (used as PROTOCOL_FEE_BPS for that deploy)
-export MONTHLY_FEE=<TOWELI_wei_per_month>                       # PremiumAccess: REQUIRED, no default — set it
+export MONTHLY_FEE=10000000000000000000000                     # PremiumAccess: 10,000 TOWELI/mo (last-known live, read from old contract)
 ```
 
 ## 2. Deploy loop — per contract
