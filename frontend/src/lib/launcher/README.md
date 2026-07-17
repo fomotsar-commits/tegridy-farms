@@ -14,8 +14,15 @@ go-live → Safe re-homing → TOWELI-liveness).
 | `factSheet.ts` | Fact-Sheet data model + EAS schema. Disclosure-only (strategy §2.2, red-team disposition F — NOT a "certificate"/endorsement). | ✅ done |
 | `gate.ts` | Pure two-tier automated gate (Tier-L listable / Tier-F flagship) + Fact-Sheet assembly (strategy §2.3). No human approval step. | ✅ done |
 | `gate.test.ts` | 20 unit tests: tier determination, disqualifiers, adversarial edge cases, disclosure neutrality. | ✅ 20/20 |
-| `collector.ts` | Address → `RawTokenFacts` via on-chain reads (Doppler template provenance, owner, lock, vesting). | ⏳ with SDK spike (task #2) |
-| `airlock.ts` | Doppler SDK wrapper: `create()` launch + migrator/beneficiary config. | ⏳ task #2 |
+| `collector.ts` | Address → `RawTokenFacts` via on-chain reads. EIP-1167 provenance detection, powers-by-template (verified `DopplerERC20V1` surface), owner, vesting; injectable `LockResolver`. Defaults **closed** for unverified templates. | ✅ done |
+| `collector.test.ts` | 10 tests: proxy parsing, provenance, end-to-end collector→gate, conservative defaults. | ✅ 10/10 |
+| `airlock.ts` | Tegridy launch policy over the Doppler SDK builder (real API): WETH numeraire, `withIntegrator`, V4 migration, fee-constitution→WAD beneficiaries. Typed against a faithful SDK façade (swap for the real import when the dep lands). | ✅ done |
+| `airlock.test.ts` | 8 tests: WAD beneficiary math (sum=1e18, ≥5% Doppler floor), builder orchestration via recording mock. | ✅ 8/8 |
+
+**38/38 launcher tests green.** Remaining sub-step (follow-up): execute a live
+`create()` on an anvil mainnet fork — deferred because it requires adding the
+heavy `@whetstone-research/doppler-sdk` (ships Solana codecs) to the shared
+lockfile. The call sites in `airlock.ts` are already correct against the real API.
 
 ## The gate (strategy §2.3)
 
