@@ -19,10 +19,20 @@ go-live → Safe re-homing → TOWELI-liveness).
 | `airlock.ts` | Tegridy launch policy over the Doppler SDK builder (real API): WETH numeraire, `withIntegrator`, V4 migration, fee-constitution→WAD beneficiaries. Typed against a faithful SDK façade (swap for the real import when the dep lands). | ✅ done |
 | `airlock.test.ts` | 8 tests: WAD beneficiary math (sum=1e18, ≥5% Doppler floor), builder orchestration via recording mock. | ✅ 8/8 |
 
-**38/38 launcher tests green.** Remaining sub-step (follow-up): execute a live
-`create()` on an anvil mainnet fork — deferred because it requires adding the
-heavy `@whetstone-research/doppler-sdk` (ships Solana codecs) to the shared
-lockfile. The call sites in `airlock.ts` are already correct against the real API.
+| `config.ts` | UI feature gate (`isLauncherEnabled`), integrator address, draft fee constitution, tier menu. | ✅ done |
+| `ordering.ts` | Deterministic flagship-surface ordering (strategy §2.7). **No pay-to-rank field exists** — enforced at the type level. Log-scaled, capped, tie-broken by address. | ✅ done |
+| `ordering.test.ts` | 8 tests: flagship-outranks-listable, tier-none excluded, determinism, anti-wash log scaling, recency decay. | ✅ 8/8 |
+| `outcomes.ts` | Outcomes-tracking model + `deriveOutcomeFlags` (strategy §2.5). Disclosed-risk only (red-team J) — factual wording, never "rug"/"safe". | ✅ done |
+| `outcomes.test.ts` | 8 tests: drain/unlock-dump/abandonment detection, disclosure-neutrality, price return. | ✅ 8/8 |
+
+The wizard page lives at `../../pages/LaunchPage.tsx` (route `/launch`, gated).
+
+**54/54 launcher tests green.** Remaining follow-ups: (1) live `create()` on an
+anvil mainnet fork — needs the heavy `@whetstone-research/doppler-sdk` (ships
+Solana codecs) in the shared lockfile; the `airlock.ts` call sites are already
+correct against the real API. (2) The outcomes **serverless indexer** that
+populates `OutcomeRecord`/`LaunchSummary` from chain (Gecko/Etherscan reads —
+eth_getLogs is dead on free RPCs) within the Vercel 12-function cap.
 
 ## The gate (strategy §2.3)
 
