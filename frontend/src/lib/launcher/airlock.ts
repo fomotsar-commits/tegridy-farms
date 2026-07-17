@@ -26,6 +26,13 @@ import { DOPPLER_MAINNET } from './doppler.constants';
 
 /** Canonical WETH on Ethereum mainnet (numeraire for our launches). */
 export const WETH_MAINNET: Address = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+/**
+ * Native ETH — the DEFAULT numeraire for Doppler dynamic auctions. Verified on a
+ * mainnet fork (2026-07-17): pairing against WETH reverts `InvalidTokenOrder()`
+ * (V4 currency ordering / CREATE2 token-address mining). address(0) is always
+ * currency0, so the launched token sorts deterministically. Use native ETH.
+ */
+export const NATIVE_ETH: Address = '0x0000000000000000000000000000000000000000';
 
 /** WAD (1e18) — the Doppler locker requires beneficiary shares to sum to exactly this. */
 const WAD = 10n ** 18n;
@@ -71,8 +78,12 @@ export interface TegridyLaunchConfig {
   token: { name: string; symbol: string; tokenURI: string };
   initialSupply: bigint;
   numTokensToSell: bigint;
-  /** Target market cap band (numeraire units) + numeraire price in USD, per SDK withMarketCapRange. */
-  marketCap: { start: number; end: number };
+  /**
+   * Dutch-auction market-cap band in USD: `start` (launch cap) DESCENDS to `min`
+   * (floor). Verified: dynamic auctions use start/min (not start/end) — the SDK
+   * derives a gamma-valid, tickSpacing<=30 curve from this + numerairePrice.
+   */
+  marketCap: { start: number; min: number };
   numerairePriceUsd: number;
   minProceeds: bigint;
   maxProceeds: bigint;
@@ -84,25 +95,33 @@ export interface TegridyLaunchConfig {
   lockDurationSeconds: number;
   /** Creator / launcher user address. */
   userAddress: Address;
+  /** Numeraire to pair against. Default native ETH (address(0)); WETH reverts InvalidTokenOrder. */
+  numeraire?: Address;
+  /** Trade-fee tier (hundredths of a bip). Default 10000 = 1%, auto-derives a valid tickSpacing. */
+  feeTier?: number;
+  /**
+   * Seconds to schedule the auction start ahead of `now`. REQUIRED buffer: the
+   * start is fixed at build time, and if block.timestamp passes it before the tx
+   * mines, the hook reverts `InvalidStartTime()`. Default 600s (>> mainnet latency).
+   */
+  startTimeOffsetSeconds?: number;
 }
 
-/** Pool params per tier (flagship uses the dynamic Dutch-auction curve; both graduate to V4). */
-function poolParamsForTier(tier: TegridyLaunchConfig['tier']): { fee: number; tickSpacing: number } {
-  // 0.30% / 60 is the Doppler example default and a sane meme/utility pool.
-  return tier === 'flagship' ? { fee: 3000, tickSpacing: 60 } : { fee: 3000, tickSpacing: 60 };
-}
+/** Migration (graduated) V4 pool params. Unlike the auction pool, this has no <=30 constraint. */
+const MIGRATION_POOL = { fee: 3000, tickSpacing: 60 } as const;
 
 /** Minimal faithful façade of the real doppler-sdk/evm surface we call. */
 export interface DopplerAuctionBuilder {
   tokenConfig(c: { name: string; symbol: string; tokenURI: string }): DopplerAuctionBuilder;
   saleConfig(c: { initialSupply: bigint; numTokensToSell: bigint; numeraire: Address }): DopplerAuctionBuilder;
   withMarketCapRange(c: {
-    marketCap: { start: number; end: number };
+    marketCap: { start: number; min: number };
     numerairePrice: number;
     minProceeds: bigint;
     maxProceeds: bigint;
+    fee: number;
   }): DopplerAuctionBuilder;
-  poolConfig(c: { fee: number; tickSpacing: number }): DopplerAuctionBuilder;
+  withTime(c: { startTimeOffset: number }): DopplerAuctionBuilder;
   withMigration(c: {
     type: 'uniswapV4';
     fee: number;
@@ -134,23 +153,30 @@ export interface DopplerEvmSdkLike {
  * built params ready for `sdk.factory.createDynamicAuction` (or simulate first).
  */
 export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLaunchConfig): unknown {
-  const pool = poolParamsForTier(cfg.tier);
   const beneficiaries = feeConstitutionToBeneficiaries(cfg.feeConstitution);
+  // withMarketCapRange handles the auction pool (tickSpacing<=30, tick direction,
+  // gamma) from the fee tier — so we do NOT call poolConfig (which reverts on a
+  // >30 tickSpacing). The migration pool is configured separately below.
   return sdk
     .buildDynamicAuction()
     .tokenConfig(cfg.token)
-    .saleConfig({ initialSupply: cfg.initialSupply, numTokensToSell: cfg.numTokensToSell, numeraire: WETH_MAINNET })
+    .saleConfig({
+      initialSupply: cfg.initialSupply,
+      numTokensToSell: cfg.numTokensToSell,
+      numeraire: cfg.numeraire ?? NATIVE_ETH,
+    })
     .withMarketCapRange({
       marketCap: cfg.marketCap,
       numerairePrice: cfg.numerairePriceUsd,
       minProceeds: cfg.minProceeds,
       maxProceeds: cfg.maxProceeds,
+      fee: cfg.feeTier ?? 10_000, // 1% — our constitution's trade fee
     })
-    .poolConfig(pool)
+    .withTime({ startTimeOffset: cfg.startTimeOffsetSeconds ?? 600 })
     .withMigration({
       type: 'uniswapV4',
-      fee: pool.fee,
-      tickSpacing: pool.tickSpacing,
+      fee: MIGRATION_POOL.fee,
+      tickSpacing: MIGRATION_POOL.tickSpacing,
       streamableFees: { lockDuration: cfg.lockDurationSeconds, beneficiaries },
     })
     .withGovernance({ type: cfg.tier === 'flagship' ? 'default' : 'noOp' })

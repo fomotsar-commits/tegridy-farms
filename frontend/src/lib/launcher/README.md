@@ -58,6 +58,28 @@ code, no human vouching (which is both a liability and a bus-factor per the
 red-team). It composes: bots, screeners, and terminals can consume the Fact
 Sheet as a safety primitive.
 
+## Fork-verified findings (2026-07-17)
+
+Ran the real `@whetstone-research/doppler-sdk` (v1.0.29) `createDynamicAuction`
+through `airlock.ts`'s exact policy against an **anvil fork of Ethereum mainnet**
+(scratchpad spike). `simulateCreateDynamicAuction` returned a valid deployed token
+address — the authoritative proof the launch is valid. Cross-validated:
+`getAddresses(1)` returns byte-for-byte the addresses in `doppler.constants.ts`;
+the Airlock owner is `0x21E2…7A66` (matches on-chain); the protocol beneficiary
+default is exactly `5e16` = 5% (matches `DOPPLER_MIN_SHARE_BPS`).
+
+Five real constraints the reverts taught us — now encoded in `airlock.ts`:
+1. **Dynamic auctions require tickSpacing ≤ 30** (`InvalidGamma`/MAX_TICK_SPACING).
+   Use `withMarketCapRange` (auto-derives from the fee tier); never `poolConfig(…, 60)`.
+2. **Market cap is `{ start, min }`** (Dutch descends), not `{ start, end }`.
+3. **Numeraire defaults to native ETH (address(0))**, not WETH — WETH reverts
+   `InvalidTokenOrder()` (V4 currency ordering / token-address mining).
+4. **Beneficiaries must include the Airlock owner ≥ 5%** or `create()` reverts
+   `InvalidProtocolOwnerBeneficiary()` — `feeConstitutionToBeneficiaries` enforces it.
+5. **A `startTimeOffset` buffer is required** — the auction start is fixed at build
+   time; if `block.timestamp` passes it before the tx mines, the hook reverts
+   `InvalidStartTime()`. Default 600s (>> mainnet confirmation latency).
+
 ## Verified on-chain foundation
 
 The full V4-native launch→graduate path is **live and whitelisted** on the

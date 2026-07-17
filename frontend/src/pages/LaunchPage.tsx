@@ -26,8 +26,8 @@ type WizardState = {
   tier: LaunchTierId;
   totalSupply: string; // whole tokens
   premineBps: number; // insider allocation, on-chain vested
-  mcapStartK: number; // starting market cap, $ thousands
-  mcapEndK: number;
+  mcapStartK: number; // Dutch-auction START (high) market cap, $ thousands
+  mcapFloorK: number; // descends toward this FLOOR, $ thousands
   lpLockMonths: number;
 };
 
@@ -38,8 +38,8 @@ const INITIAL: WizardState = {
   tier: 'flagship',
   totalSupply: '1000000000',
   premineBps: 0,
-  mcapStartK: 30,
-  mcapEndK: 300,
+  mcapStartK: 300, // Dutch auction starts high…
+  mcapFloorK: 30, // …and descends to the floor
   lpLockMonths: 12,
 };
 
@@ -238,8 +238,8 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
         <Field label="Start mcap ($k)">
           <input className={inputCls} inputMode="numeric" value={w.mcapStartK} onChange={(e) => set('mcapStartK', Number(e.target.value.replace(/\D/g, '')) || 0)} />
         </Field>
-        <Field label="End mcap ($k)">
-          <input className={inputCls} inputMode="numeric" value={w.mcapEndK} onChange={(e) => set('mcapEndK', Number(e.target.value.replace(/\D/g, '')) || 0)} />
+        <Field label="Floor mcap ($k)">
+          <input className={inputCls} inputMode="numeric" value={w.mcapFloorK} onChange={(e) => set('mcapFloorK', Number(e.target.value.replace(/\D/g, '')) || 0)} />
         </Field>
         <Field label="LP lock (months)">
           <input className={inputCls} inputMode="numeric" value={w.lpLockMonths} onChange={(e) => set('lpLockMonths', Number(e.target.value.replace(/\D/g, '')) || 0)} />
@@ -280,7 +280,7 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
     ['Total supply', Number(w.totalSupply || '0').toLocaleString()],
     ['Tier', LAUNCH_TIERS.find((t) => t.id === w.tier)?.label ?? w.tier],
     ['Curve', LAUNCH_TIERS.find((t) => t.id === w.tier)?.curve ?? '—'],
-    ['Market cap band', `$${w.mcapStartK}k → $${w.mcapEndK}k`],
+    ['Market cap (Dutch)', `$${w.mcapStartK}k → $${w.mcapFloorK}k (descends)`],
     ['LP lock', `${w.lpLockMonths} months`],
     ['Team allocation', `${(w.premineBps / 100).toFixed(1)}% (vested)`],
     ['Graduation', 'Uniswap V4 pool (fees stream to the constitution)'],

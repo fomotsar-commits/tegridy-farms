@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Address } from 'viem';
 import {
   WETH_MAINNET,
+  NATIVE_ETH,
   feeConstitutionToBeneficiaries,
   buildTegridyLaunchParams,
   dopplerBeneficiaryLine,
@@ -67,7 +68,7 @@ function recordingSdk(): { sdk: DopplerEvmSdkLike; calls: Record<string, unknown
     tokenConfig(c) { calls.tokenConfig = c; return builder; },
     saleConfig(c) { calls.saleConfig = c; return builder; },
     withMarketCapRange(c) { calls.marketCap = c; return builder; },
-    poolConfig(c) { calls.poolConfig = c; return builder; },
+    withTime(c) { calls.time = c; return builder; },
     withMigration(c) { calls.migration = c; return builder; },
     withGovernance(c) { calls.governance = c; return builder; },
     withIntegrator(a) { calls.integrator = a; return builder; },
@@ -87,7 +88,7 @@ function config(tier: TegridyLaunchConfig['tier']): TegridyLaunchConfig {
     token: { name: 'Tegridy Launch', symbol: 'TGL', tokenURI: 'ipfs://x' },
     initialSupply: 1_000_000_000n,
     numTokensToSell: 900_000_000n,
-    marketCap: { start: 30_000, end: 300_000 },
+    marketCap: { start: 300_000, min: 30_000 },
     numerairePriceUsd: 1881,
     minProceeds: 5n * 10n ** 18n,
     maxProceeds: 100n * 10n ** 18n,
@@ -99,14 +100,22 @@ function config(tier: TegridyLaunchConfig['tier']): TegridyLaunchConfig {
 }
 
 describe('buildTegridyLaunchParams — policy encoding', () => {
-  it('wires WETH numeraire, integrator, V4 migration, and beneficiaries', () => {
+  it('wires native-ETH numeraire, integrator, V4 migration, start-time buffer, and beneficiaries', () => {
     const { sdk, calls } = recordingSdk();
     const params = buildTegridyLaunchParams(sdk, config('flagship'));
     expect(params).toEqual({ ok: true });
-    expect((calls.saleConfig as { numeraire: Address }).numeraire).toBe(WETH_MAINNET);
+    // Native ETH, NOT WETH (WETH reverts InvalidTokenOrder on a real fork).
+    expect((calls.saleConfig as { numeraire: Address }).numeraire).toBe(NATIVE_ETH);
+    expect((calls.saleConfig as { numeraire: Address }).numeraire).not.toBe(WETH_MAINNET);
     expect(calls.integrator).toBe(STAKERS);
-    const mig = calls.migration as { type: string; streamableFees: { lockDuration: number; beneficiaries: unknown[] } };
+    // Start-time buffer present (defends against InvalidStartTime on slow confirmation).
+    expect((calls.time as { startTimeOffset: number }).startTimeOffset).toBeGreaterThanOrEqual(600);
+    // withMarketCapRange carries the fee tier; poolConfig is NOT called (would revert >30 tickSpacing).
+    expect((calls.marketCap as { fee: number }).fee).toBe(10_000);
+    expect(calls.poolConfig).toBeUndefined();
+    const mig = calls.migration as { type: string; tickSpacing: number; streamableFees: { lockDuration: number; beneficiaries: unknown[] } };
     expect(mig.type).toBe('uniswapV4');
+    expect(mig.tickSpacing).toBe(60);
     expect(mig.streamableFees.lockDuration).toBe(365 * 24 * 60 * 60);
     expect(mig.streamableFees.beneficiaries).toHaveLength(4);
   });
@@ -124,8 +133,8 @@ describe('buildTegridyLaunchParams — policy encoding', () => {
   it('propagates the market-cap band and proceeds bounds', () => {
     const { sdk, calls } = recordingSdk();
     buildTegridyLaunchParams(sdk, config('flagship'));
-    const mc = calls.marketCap as { marketCap: { start: number; end: number }; minProceeds: bigint };
-    expect(mc.marketCap).toEqual({ start: 30_000, end: 300_000 });
+    const mc = calls.marketCap as { marketCap: { start: number; min: number }; minProceeds: bigint };
+    expect(mc.marketCap).toEqual({ start: 300_000, min: 30_000 });
     expect(mc.minProceeds).toBe(5n * 10n ** 18n);
   });
 });
