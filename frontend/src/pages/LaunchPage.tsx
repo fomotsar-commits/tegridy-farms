@@ -14,6 +14,10 @@ import type { LaunchFactSheet } from '../lib/launcher/factSheet';
 import { DOPPLER_MAINNET } from '../lib/launcher/doppler.constants';
 
 const DAY = 86_400;
+// 365/12 days per month, so a 12-month lock is exactly 365 days and meets the
+// flagship LP-lock floor (a "12-month lock" must satisfy "locked >= 12 months").
+// A flat 30-day month would make 12mo = 360d and silently downgrade to Listable.
+const MONTH = (365 / 12) * DAY;
 
 type WizardState = {
   name: string;
@@ -59,7 +63,7 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
     owner: '0x0000000000000000000000000000000000000000',
     ownerRenounced: true,
     ownerIsTimelock: false,
-    liquidity: { locked: true, locker: DOPPLER_MAINNET.support.streamableFeesLocker, unlockAt: nowSeconds + w.lpLockMonths * 30 * DAY },
+    liquidity: { locked: true, locker: DOPPLER_MAINNET.support.streamableFeesLocker, unlockAt: Math.round(nowSeconds + w.lpLockMonths * MONTH) },
     feeConstitution: [...DEFAULT_FEE_CONSTITUTION],
     vesting: [],
     teamAllocationBps: w.premineBps,
