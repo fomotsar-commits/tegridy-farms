@@ -88,7 +88,11 @@ Five real constraints the reverts taught us — now encoded in `airlock.ts`:
    recognises zero real Doppler tokens.
 
 A full `createDynamicAuction` **succeeded green on the fork** (status 1, token
-`RANDY` deployed, `totalSupply` 1e27, 10.6M gas) once findings 1–5 were applied.
+`RANDY` deployed, `totalSupply` 1e27, ~10.6M gas) once findings 1–5 were applied.
+With the safe template pinned (finding 6), the deployed token's bytecode is a
+**Solady clone of `0xdb7b…` (DopplerERC20V1)** and `isPoolLocked()` returns true —
+i.e. the exact impl our known-safe set expects, so `collector` → `gate` rates a
+real launch FLAGSHIP end-to-end. The whole loop is validated on live fork state.
 
 ## Verified on-chain foundation
 
