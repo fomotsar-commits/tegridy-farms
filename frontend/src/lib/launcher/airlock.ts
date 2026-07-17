@@ -112,7 +112,7 @@ const MIGRATION_POOL = { fee: 3000, tickSpacing: 60 } as const;
 
 /** Minimal faithful façade of the real doppler-sdk/evm surface we call. */
 export interface DopplerAuctionBuilder {
-  tokenConfig(c: { name: string; symbol: string; tokenURI: string }): DopplerAuctionBuilder;
+  tokenConfig(c: { type?: 'dopplerERC20V1'; name: string; symbol: string; tokenURI: string }): DopplerAuctionBuilder;
   saleConfig(c: { initialSupply: bigint; numTokensToSell: bigint; numeraire: Address }): DopplerAuctionBuilder;
   withMarketCapRange(c: {
     marketCap: { start: number; min: number };
@@ -159,7 +159,10 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
   // >30 tickSpacing). The migration pool is configured separately below.
   return sdk
     .buildDynamicAuction()
-    .tokenConfig(cfg.token)
+    // Pin the VERIFIED-SAFE template. Without `type: 'dopplerERC20V1'` the SDK
+    // defaults to a StandardToken (CloneERC20) that our gate does not whitelist;
+    // DopplerERC20V1 is the audited no-mint/no-tax/pool-lock/vesting template.
+    .tokenConfig({ type: 'dopplerERC20V1', ...cfg.token })
     .saleConfig({
       initialSupply: cfg.initialSupply,
       numTokensToSell: cfg.numTokensToSell,

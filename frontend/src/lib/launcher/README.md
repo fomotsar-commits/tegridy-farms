@@ -79,6 +79,16 @@ Five real constraints the reverts taught us — now encoded in `airlock.ts`:
 5. **A `startTimeOffset` buffer is required** — the auction start is fixed at build
    time; if `block.timestamp` passes it before the tx mines, the hook reverts
    `InvalidStartTime()`. Default 600s (>> mainnet confirmation latency).
+6. **Pin `type: 'dopplerERC20V1'`** in `tokenConfig` — the SDK default deployed a
+   `StandardToken` (`CloneERC20`, `0x215b2ce3…`), NOT the verified-safe template.
+   Our gate only whitelists `DopplerERC20V1` (`0xdb7b…`, no mint/tax/blacklist,
+   pool-lock + vesting), so the pin is what makes launches pass their own gate.
+7. **Doppler tokens use the Solady LibClone proxy layout** (`3d3d3d3d363d3d37363d73…5af43d3d93803e602a57fd5bf3`),
+   NOT canonical EIP-1167 — `collector.ts` parses both (`cloneImplTarget`), else it
+   recognises zero real Doppler tokens.
+
+A full `createDynamicAuction` **succeeded green on the fork** (status 1, token
+`RANDY` deployed, `totalSupply` 1e27, 10.6M gas) once findings 1–5 were applied.
 
 ## Verified on-chain foundation
 

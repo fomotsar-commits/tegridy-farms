@@ -104,6 +104,9 @@ describe('buildTegridyLaunchParams — policy encoding', () => {
     const { sdk, calls } = recordingSdk();
     const params = buildTegridyLaunchParams(sdk, config('flagship'));
     expect(params).toEqual({ ok: true });
+    // Pins the verified-safe DopplerERC20V1 template (else SDK defaults to CloneERC20,
+    // which our gate does not whitelist).
+    expect((calls.tokenConfig as { type: string }).type).toBe('dopplerERC20V1');
     // Native ETH, NOT WETH (WETH reverts InvalidTokenOrder on a real fork).
     expect((calls.saleConfig as { numeraire: Address }).numeraire).toBe(NATIVE_ETH);
     expect((calls.saleConfig as { numeraire: Address }).numeraire).not.toBe(WETH_MAINNET);

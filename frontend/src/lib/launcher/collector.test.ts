@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Address, Hex } from 'viem';
-import { collectTokenFacts, eip1167Target, type ChainReader } from './collector';
+import { collectTokenFacts, cloneImplTarget, eip1167Target, type ChainReader } from './collector';
 import { buildFactSheet, defaultGateConfig } from './gate';
 import { DOPPLER_MAINNET } from './doppler.constants';
 
@@ -8,11 +8,20 @@ const NOW = 1_800_000_000;
 const DAY = 86_400;
 const IMPL = DOPPLER_MAINNET.support.dopplerErc20V1Impl;
 
-/** Build the runtime bytecode of an EIP-1167 minimal proxy pointing at `impl`. */
-function cloneCode(impl: Address): Hex {
+/** EIP-1167 minimal-proxy runtime pointing at `impl`. */
+function eip1167Code(impl: Address): Hex {
   const body = impl.slice(2).toLowerCase();
   return `0x363d3d373d3d3d363d73${body}5af43d82803e903d91602b57fd5bf3` as Hex;
 }
+
+/** Solady LibClone runtime pointing at `impl` — the layout Doppler ACTUALLY deploys. */
+function soladyCloneCode(impl: Address): Hex {
+  const body = impl.slice(2).toLowerCase();
+  return `0x3d3d3d3d363d3d37363d73${body}5af43d3d93803e602a57fd5bf3` as Hex;
+}
+
+/** Default clone helper uses the real Doppler (Solady) layout. */
+const cloneCode = soladyCloneCode;
 
 /** Mock reader: a Doppler clone with configurable balance-limit / vesting / owner. */
 function mockReader(cfg: {
@@ -47,16 +56,28 @@ const lockedTwoYears = async () => ({
   unlockAt: NOW + 730 * DAY,
 });
 
-describe('eip1167Target', () => {
-  it('extracts the implementation address from a minimal proxy', () => {
-    expect(eip1167Target(cloneCode(IMPL))?.toLowerCase()).toBe(IMPL.toLowerCase());
+describe('cloneImplTarget — recognises both proxy layouts', () => {
+  it('parses a canonical EIP-1167 proxy', () => {
+    expect(cloneImplTarget(eip1167Code(IMPL))?.toLowerCase()).toBe(IMPL.toLowerCase());
+  });
+  it('parses a Solady LibClone proxy (the real Doppler layout)', () => {
+    expect(cloneImplTarget(soladyCloneCode(IMPL))?.toLowerCase()).toBe(IMPL.toLowerCase());
+  });
+  it('parses the exact RANDY bytecode observed on the mainnet fork', () => {
+    // 0x3d3d3d3d363d3d37363d73 <CloneERC20 impl> 5af43d3d93803e602a57fd5bf3
+    const real = '0x3d3d3d3d363d3d37363d73215b2ce3dd8d110394e94a868580d61a77adec4a5af43d3d93803e602a57fd5bf3' as Hex;
+    expect(cloneImplTarget(real)?.toLowerCase()).toBe('0x215b2ce3dd8d110394e94a868580d61a77adec4a');
   });
   it('returns null for non-proxy bytecode', () => {
-    expect(eip1167Target('0x6080604052' as Hex)).toBeNull();
+    expect(cloneImplTarget('0x6080604052' as Hex)).toBeNull();
   });
   it('returns null for empty / undefined code (EOA or non-contract)', () => {
-    expect(eip1167Target('0x' as Hex)).toBeNull();
-    expect(eip1167Target(undefined)).toBeNull();
+    expect(cloneImplTarget('0x' as Hex)).toBeNull();
+    expect(cloneImplTarget(undefined)).toBeNull();
+  });
+  it('legacy eip1167Target still rejects the Solady layout (EIP-1167 only)', () => {
+    expect(eip1167Target(soladyCloneCode(IMPL))).toBeNull();
+    expect(eip1167Target(eip1167Code(IMPL))?.toLowerCase()).toBe(IMPL.toLowerCase());
   });
 });
 

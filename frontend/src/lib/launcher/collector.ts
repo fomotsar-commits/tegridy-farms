@@ -42,19 +42,35 @@ export interface CollectOptions {
   feeConstitution?: FeeConstitutionLine[];
 }
 
-// Canonical OZ / EIP-1167 minimal-proxy runtime bytecode:
-//   363d3d373d3d3d363d73 <20-byte impl> 5af43d82803e903d91602b57fd5bf3
-const EIP1167_PREFIX = '363d3d373d3d3d363d73';
-const EIP1167_SUFFIX = '5af43d82803e903d91602b57fd5bf3';
+// Two minimal-proxy layouts we must recognise:
+//  - Canonical OZ / EIP-1167: 363d3d373d3d3d363d73 <impl> 5af43d82803e903d91602b57fd5bf3
+//  - Solady LibClone (what Doppler's token factories DEPLOY — VERIFIED on a mainnet
+//    fork 2026-07-17): 3d3d3d3d363d3d37363d73 <impl> 5af43d3d93803e602a57fd5bf3
+// A launched Doppler token uses the Solady layout, so parsing ONLY EIP-1167 would
+// make the gate fail to recognise every real Doppler launch (default-closed for all).
+const CLONE_LAYOUTS: { prefix: string; suffix: string }[] = [
+  { prefix: '363d3d373d3d3d363d73', suffix: '5af43d82803e903d91602b57fd5bf3' }, // EIP-1167
+  { prefix: '3d3d3d3d363d3d37363d73', suffix: '5af43d3d93803e602a57fd5bf3' }, // Solady LibClone
+];
 
-/** Extract the implementation address from an EIP-1167 minimal proxy's runtime code, or null. */
-export function eip1167Target(code: Hex | undefined): Address | null {
+/** Extract the implementation address from a known minimal-proxy runtime, or null. */
+export function cloneImplTarget(code: Hex | undefined): Address | null {
   if (!code) return null;
   const c = code.slice(2).toLowerCase();
-  if (!c.startsWith(EIP1167_PREFIX) || !c.endsWith(EIP1167_SUFFIX)) return null;
-  const middle = c.slice(EIP1167_PREFIX.length, c.length - EIP1167_SUFFIX.length);
-  if (middle.length !== 40) return null;
-  return (`0x${middle}`) as Address;
+  for (const { prefix, suffix } of CLONE_LAYOUTS) {
+    if (c.startsWith(prefix) && c.endsWith(suffix)) {
+      const middle = c.slice(prefix.length, c.length - suffix.length);
+      if (middle.length === 40) return (`0x${middle}`) as Address;
+    }
+  }
+  return null;
+}
+
+/** @deprecated use cloneImplTarget — kept for existing callers. EIP-1167 only. */
+export function eip1167Target(code: Hex | undefined): Address | null {
+  const c = (code ?? '0x').slice(2).toLowerCase();
+  if (!c.startsWith('363d3d373d3d3d363d73')) return null;
+  return cloneImplTarget(code);
 }
 
 const DEFAULT_LOCK_RESOLVER: LockResolver = async () => ({
@@ -82,7 +98,7 @@ export async function collectTokenFacts(
   );
 
   const code = await reader.getCode(token);
-  const impl = eip1167Target(code);
+  const impl = cloneImplTarget(code);
   const isDopplerTemplate = impl != null && knownImpls.has(impl.toLowerCase());
   // tokenFactory the gate recognises: only assert the Doppler factory when the impl matches.
   const tokenFactory: Address | null = isDopplerTemplate
