@@ -41,6 +41,9 @@ const InfoPage = lazy(() => import('./pages/InfoPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
+// Token launch rail (Doppler V4 integration). Gated in-page (isLauncherEnabled)
+// until go-live -> re-homing -> TOWELI-liveness; renders the SOON placeholder meanwhile.
+const LaunchPage = lazy(() => import('./pages/LaunchPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -186,6 +189,7 @@ function AnimatedRoutes() {
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
+        <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
