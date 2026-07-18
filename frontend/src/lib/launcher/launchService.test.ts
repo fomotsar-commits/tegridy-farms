@@ -65,40 +65,119 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
   });
 
   it('resolves fee-constitution roles to concrete addresses', () => {
-    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ kolAddress: KOL }));
-    const byRole = Object.fromEntries(cfg.feeConstitution.map((l) => [l.role, l.address]));
-    expect(byRole['creator']).toBe(USER);
-    expect(byRole['attention-beneficiary']).toBe(KOL);
-    expect(byRole['protocol-stakers']).toBe(REVENUE_DISTRIBUTOR_ADDRESS);
-    expect(byRole['doppler']).toBe(DOPPLER_MAINNET.airlockOwner);
+    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: KOL, shareBps: 1000 }] }));
+    const byAddress = Object.fromEntries(cfg.feeConstitution.map((l) => [l.address, l]));
+    expect(byAddress[USER].role).toBe('creator');
+    expect(byAddress[KOL].role).toBe('attention-beneficiary');
+    expect(byAddress[REVENUE_DISTRIBUTOR_ADDRESS].role).toBe('protocol-stakers');
+    expect(byAddress[DOPPLER_MAINNET.airlockOwner].role).toBe('doppler');
   });
 
   it('fee lines sum to exactly 10000 bps with the Doppler line >= 500', () => {
-    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ kolAddress: KOL }));
+    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: KOL, shareBps: 1000 }] }));
     const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
     expect(total).toBe(10_000);
     const doppler = cfg.feeConstitution.filter((l) => l.role === 'doppler').reduce((n, l) => n + l.shareBps, 0);
     expect(doppler).toBeGreaterThanOrEqual(500);
   });
 
-  it('coalesces creator + attention into one line when no distinct KOL (unique beneficiaries)', () => {
-    const cfg = wizardConfigToLaunchConfig(wizard(), opts()); // no kolAddress -> attention == user
+  it('attention splits carve from the creator pool; protocol + doppler are untouched', () => {
+    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: KOL, shareBps: 2000 }] }));
+    const byAddress = Object.fromEntries(cfg.feeConstitution.map((l) => [l.address, l.shareBps]));
+    // Creator keeps the 8000 pool minus the 2000 carve; KOL gets the 2000.
+    expect(byAddress[USER]).toBe(6000);
+    expect(byAddress[KOL]).toBe(2000);
+    // Fixed lines never move.
+    expect(byAddress[REVENUE_DISTRIBUTOR_ADDRESS]).toBe(1500);
+    expect(byAddress[DOPPLER_MAINNET.airlockOwner]).toBe(500);
+    const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
+    expect(total).toBe(10_000);
+  });
+
+  it('supports multiple KOL splits, each to its own address', () => {
+    const KOL2 = '0x3333333333333333333333333333333333333333' as Address;
+    const cfg = wizardConfigToLaunchConfig(
+      wizard(),
+      opts({
+        attentionSplits: [
+          { address: KOL, shareBps: 1500 },
+          { address: KOL2, shareBps: 500 },
+        ],
+      }),
+    );
+    const byAddress = Object.fromEntries(cfg.feeConstitution.map((l) => [l.address, l.shareBps]));
+    expect(byAddress[USER]).toBe(6000); // 8000 - 1500 - 500
+    expect(byAddress[KOL]).toBe(1500);
+    expect(byAddress[KOL2]).toBe(500);
+    expect(byAddress[REVENUE_DISTRIBUTOR_ADDRESS]).toBe(1500);
+    expect(byAddress[DOPPLER_MAINNET.airlockOwner]).toBe(500);
+    const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
+    expect(total).toBe(10_000);
+  });
+
+  it('throws a clear error when a creator over-allocates the pool (> 8000 bps)', () => {
+    expect(() =>
+      wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: KOL, shareBps: 8001 }] })),
+    ).toThrow(/over-allocate/);
+    // Multiple splits that sum past the pool also throw.
+    const KOL2 = '0x3333333333333333333333333333333333333333' as Address;
+    expect(() =>
+      wizardConfigToLaunchConfig(
+        wizard(),
+        opts({
+          attentionSplits: [
+            { address: KOL, shareBps: 5000 },
+            { address: KOL2, shareBps: 4000 },
+          ],
+        }),
+      ),
+    ).toThrow(/over-allocate/);
+  });
+
+  it('coalesces a KOL split pointed at the creator back into the creator line', () => {
+    // A "split" to the creator's own address is a no-op: creator keeps the full 8000.
+    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: USER, shareBps: 2000 }] }));
     const addrs = cfg.feeConstitution.map((l) => l.address.toLowerCase());
     expect(new Set(addrs).size).toBe(addrs.length); // all unique
     const userLine = cfg.feeConstitution.find((l) => l.address === USER)!;
-    expect(userLine.shareBps).toBe(8000); // 7000 creator + 1000 attention merged
-    // Still sums to 10000 and remains locker-valid.
+    expect(userLine.shareBps).toBe(8000); // 6000 remainder + 2000 split merged
+    expect(userLine.role).toBe('creator'); // creator line wins the merge
+    const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
+    expect(total).toBe(10_000);
+  });
+
+  it('coalesces creator + attention into one line when there are no splits (unique beneficiaries)', () => {
+    const cfg = wizardConfigToLaunchConfig(wizard(), opts()); // no splits -> creator keeps 8000
+    const addrs = cfg.feeConstitution.map((l) => l.address.toLowerCase());
+    expect(new Set(addrs).size).toBe(addrs.length); // all unique
+    const userLine = cfg.feeConstitution.find((l) => l.address === USER)!;
+    expect(userLine.shareBps).toBe(8000); // whole creator+attention pool
+    // Only three lines: creator, protocol, doppler.
+    expect(cfg.feeConstitution).toHaveLength(3);
     const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
     expect(total).toBe(10_000);
   });
 
   it('produces a constitution the locker accepts (sums to 1e18, doppler floor, sorted)', () => {
-    // With a distinct KOL (4 unique addresses) and without (3 unique) — both valid.
-    for (const o of [opts(), opts({ kolAddress: KOL })]) {
+    // No splits (3 unique), one KOL (4 unique), two KOLs (5 unique) — all valid.
+    const KOL2 = '0x3333333333333333333333333333333333333333' as Address;
+    const cases: LaunchMapOptions[] = [
+      opts(),
+      opts({ attentionSplits: [{ address: KOL, shareBps: 1000 }] }),
+      opts({
+        attentionSplits: [
+          { address: KOL, shareBps: 1500 },
+          { address: KOL2, shareBps: 500 },
+        ],
+      }),
+    ];
+    for (const o of cases) {
       const cfg = wizardConfigToLaunchConfig(wizard(), o);
       const beneficiaries = feeConstitutionToBeneficiaries(cfg.feeConstitution);
       const sum = beneficiaries.reduce((n, b) => n + b.shares, 0n);
       expect(sum).toBe(10n ** 18n);
+      const doppler = cfg.feeConstitution.filter((l) => l.role === 'doppler').reduce((n, l) => n + l.shareBps, 0);
+      expect(doppler).toBeGreaterThanOrEqual(500);
     }
   });
 
@@ -124,7 +203,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
 describe('launchToken — gate guard (no chain access)', () => {
   it('refuses to launch while the launcher is gated (LAUNCHER_ENABLED=false)', async () => {
     // isLauncherEnabled() is false by default -> throws before ever touching the clients.
-    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ kolAddress: KOL }));
+    const cfg = wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: KOL, shareBps: 1000 }] }));
     // Dummy clients: they must never be used because the guard fires first.
     const dummy = {} as never;
     await expect(launchToken(dummy, dummy, cfg)).rejects.toBeInstanceOf(LaunchError);

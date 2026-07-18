@@ -86,13 +86,29 @@ export interface LaunchWizardInput {
   lpLockMonths: number;
 }
 
+/**
+ * A creator-directed beneficiary that carves part of the creator's launch share
+ * to a KOL / community address (the Bags-style perpetual-split lever). Its bps
+ * come OUT OF the combined creator+attention pool (never out of protocol/Doppler).
+ */
+export interface AttentionSplit {
+  address: Address;
+  /** Basis points directed to this beneficiary, out of the creator+attention pool. */
+  shareBps: number;
+}
+
 export interface LaunchMapOptions {
   /** Creator / launcher (connected wallet). Receives the creator fee line. */
   userAddress: Address;
   /** Current ETH/USD price — the numeraire price the market-cap curve is derived from. */
   numerairePriceUsd: number;
-  /** Optional attention-beneficiary/KOL address; defaults to userAddress (merged into creator). */
-  kolAddress?: Address;
+  /**
+   * Creator-directed KOL/community beneficiaries. Each shareBps is carved out of
+   * the combined creator+attention pool (8000 bps); the creator keeps the
+   * remainder. Omitted/empty => the whole pool stays with the creator. A split
+   * pointed at the creator's own address simply merges back into the creator line.
+   */
+  attentionSplits?: readonly AttentionSplit[];
   /** Override the default proceeds band (numeraire wei). */
   minProceeds?: bigint;
   maxProceeds?: bigint;
@@ -100,30 +116,55 @@ export interface LaunchMapOptions {
 
 type ResolvedLine = FeeConstitutionLine & { address: Address };
 
+/** The combined creator+attention pool (bps) — the only creator-directable portion. */
+const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION.filter(
+  (l) => l.role === 'creator' || l.role === 'attention-beneficiary',
+).reduce((n, l) => n + l.shareBps, 0);
+
 /**
- * Resolve DEFAULT_FEE_CONSTITUTION's roles to concrete addresses, then COALESCE
- * lines that resolve to the same address (summing bps). The StreamableFeesLocker
- * requires unique beneficiaries — without merging, a launch with no distinct KOL
- * would submit two lines at the creator's address (creator + attention) and could
- * revert. Coalescing keeps the set unique while preserving the 10000-bps total and
- * the >=500-bps Doppler floor.
+ * Resolve DEFAULT_FEE_CONSTITUTION to concrete addresses, carving the creator's
+ * attention splits out of the combined creator+attention pool, then COALESCE
+ * lines that resolve to the same address (summing bps).
+ *
+ * The creator+attention pool (8000 bps) is split as (8000 - sum(splits)) to the
+ * creator plus each split to its address; the protocol (1500) and Doppler (500)
+ * lines are FIXED and never touched. The StreamableFeesLocker requires unique
+ * beneficiaries, so coalescing keeps the set unique (a KOL == creator merges)
+ * while preserving the 10000-bps total and the >=500-bps Doppler floor.
  */
-function resolveFeeConstitution(userAddress: Address, kolAddress: Address): ResolvedLine[] {
-  const resolved: ResolvedLine[] = DEFAULT_FEE_CONSTITUTION.map((line): ResolvedLine => {
-    switch (line.role) {
-      case 'creator':
-        return { ...line, address: userAddress };
-      case 'attention-beneficiary':
-        return { ...line, address: kolAddress };
-      case 'protocol-stakers':
-        return { ...line, address: REVENUE_DISTRIBUTOR_ADDRESS };
-      case 'doppler':
-        // Carries the Airlock owner + enforces the >=5% floor.
-        return dopplerBeneficiaryLine(line.shareBps);
-      default:
-        return { ...line, address: userAddress };
+function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly AttentionSplit[] = []): ResolvedLine[] {
+  // Validate the creator's carve-out: non-negative whole bps that don't over-allocate.
+  let splitSum = 0;
+  for (const s of attentionSplits) {
+    if (!Number.isInteger(s.shareBps) || s.shareBps < 0) {
+      throw new Error('Attention split shares must be non-negative whole basis points.');
     }
+    splitSum += s.shareBps;
+  }
+  if (splitSum > CREATOR_ATTENTION_POOL_BPS) {
+    throw new Error(
+      `Attention splits over-allocate the creator pool: ${splitSum} bps directed of ${CREATOR_ATTENTION_POOL_BPS} bps available.`,
+    );
+  }
+
+  const resolved: ResolvedLine[] = [];
+  // Creator keeps the pool remainder after the directed carve-outs.
+  resolved.push({
+    recipient: 'Creator',
+    role: 'creator',
+    shareBps: CREATOR_ATTENTION_POOL_BPS - splitSum,
+    address: userAddress,
   });
+  // Each creator-directed KOL/community beneficiary.
+  for (const s of attentionSplits) {
+    resolved.push({ recipient: s.address, role: 'attention-beneficiary', shareBps: s.shareBps, address: s.address });
+  }
+  // FIXED protocol + Doppler lines (untouched by the creator's carve-out).
+  for (const line of DEFAULT_FEE_CONSTITUTION) {
+    if (line.role === 'protocol-stakers') resolved.push({ ...line, address: REVENUE_DISTRIBUTOR_ADDRESS });
+    // Carries the Airlock owner + enforces the >=5% floor.
+    else if (line.role === 'doppler') resolved.push(dopplerBeneficiaryLine(line.shareBps));
+  }
 
   // Coalesce by address (case-insensitive), summing bps. Preserve a 'doppler' role
   // if any merged line held it (so the >=500 floor check in airlock.ts still sees it).
@@ -138,7 +179,9 @@ function resolveFeeConstitution(userAddress: Address, kolAddress: Address): Reso
       if (line.role === 'doppler') existing.role = 'doppler';
     }
   }
-  return [...byAddress.values()];
+  // Drop any fully-carved-away line (e.g. creator directed its entire pool to KOLs),
+  // so the locker never sees a zero-share beneficiary.
+  return [...byAddress.values()].filter((l) => l.shareBps > 0);
 }
 
 /**
@@ -146,8 +189,6 @@ function resolveFeeConstitution(userAddress: Address, kolAddress: Address): Reso
  * access. The resulting config is what buildTegridyLaunchParams consumes.
  */
 export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMapOptions): TegridyLaunchConfig {
-  const kol = opts.kolAddress ?? opts.userAddress;
-
   // HONESTY GUARD: airlock.ts does not (yet) wire Doppler's on-chain VestingConfig,
   // so a premine would be reserved out of the sale but NOT actually vested — while
   // the Fact Sheet's gate reports teamAllocationVestedBps = premineBps ("vested").
@@ -185,7 +226,7 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     numerairePriceUsd: opts.numerairePriceUsd,
     minProceeds: opts.minProceeds ?? DEFAULT_MIN_PROCEEDS,
     maxProceeds: opts.maxProceeds ?? DEFAULT_MAX_PROCEEDS,
-    feeConstitution: resolveFeeConstitution(opts.userAddress, kol),
+    feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits),
     integrator: LAUNCHER_INTEGRATOR_ADDRESS,
     lockDurationSeconds: Math.round(w.lpLockMonths * MONTH_SECONDS),
     userAddress: opts.userAddress,

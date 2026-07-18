@@ -41,6 +41,9 @@ const InfoPage = lazy(() => import('./pages/InfoPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
+// Solana launch sub-brand (Meteora DBC). Gated in-page (isSolanaLauncherEnabled)
+// — renders the SOON placeholder until an operator enables it + a verified vault.
+const SolanaLaunchPage = lazy(() => import('./pages/SolanaLaunchPage'));
 // Token launch rail (Doppler V4 integration). Gated in-page (isLauncherEnabled)
 // until go-live -> re-homing -> TOWELI-liveness; renders the SOON placeholder meanwhile.
 const LaunchPage = lazy(() => import('./pages/LaunchPage'));
@@ -189,6 +192,7 @@ function AnimatedRoutes() {
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
+        <Route path="solana-launch" element={<Suspense fallback={<PageSkeleton />}><SolanaLaunchPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
