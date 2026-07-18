@@ -58,6 +58,9 @@ over-valuation — the oracle fails *closed*:
 3. Wire an **arb-linkage monitor + auto-pause**: alert/emergency-disable if the
    Uniswap TOWELI/WETH WETH depth drops below ~3× the native pool (the one
    load-bearing assumption is that the native pool is not the only liquid venue).
+   **The monitor is built** — `contracts/monitoring/arbLinkageMonitor.mjs`
+   (read-only; GO/WARN/HALT + exit code; run on a 5-min cron and page on HALT).
+   The auto-pause hook (consumes a HALT → `PauseGuardian`) is the remaining wire-up.
 4. Deepen further over time (the real robustness lever) as more TOWELI is available.
 
 ## Turnkey sequence
