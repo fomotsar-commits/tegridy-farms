@@ -27,16 +27,22 @@ export default function ComparableSales({ nft, allTokens }) {
   useEffect(() => {
     if (!similarTokenIds.length) { setLoading(false); return; }
     setLoading(true);
+    // Guard against a stale response: when `nft` changes this effect re-runs, and an
+    // earlier (slower) fetch could resolve last and overwrite the current token's
+    // sales with the wrong token's data (also blocks set-state after unmount).
+    let cancelled = false;
     fetchActivity({ contract: collection.contract, limit: 50, daysBack: 90 })
       .then((data) => {
+        if (cancelled) return;
         const idSet = new Set(similarTokenIds.map((t) => t.id));
         const matching = (data.activities || []).filter(
           (a) => a.type === "sale" && a.price && idSet.has(a.token?.id)
         );
         setSales(matching.slice(0, 8));
       })
-      .catch(() => setSales([]))
-      .finally(() => setLoading(false));
+      .catch(() => { if (!cancelled) setSales([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [similarTokenIds, collection.contract]);
 
   if (loading && similarTokenIds.length > 0) {

@@ -366,6 +366,10 @@ export default function ShoppingCart({
         role="dialog"
         aria-label="Shopping cart"
         aria-modal="true"
+        // When closed the drawer is only slid off-screen (translateX), so without
+        // `inert` its Close/Remove/Sweep/Clear controls stay in the keyboard tab
+        // order and a11y tree. `inert` removes them from both while closed.
+        {...(isOpen ? {} : { inert: "" })}
         style={{
           position: "fixed",
           top: 0,

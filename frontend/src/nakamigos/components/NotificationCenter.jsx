@@ -242,7 +242,15 @@ function NotificationItem({ notification, onRead, onRemove }) {
         opacity: notification.read ? 0.6 : 1,
         borderLeft: notification.read ? "3px solid transparent" : "3px solid var(--naka-blue)",
       }}
+      role={notification.read ? undefined : "button"}
+      tabIndex={notification.read ? undefined : 0}
       onClick={() => !notification.read && onRead(notification.id)}
+      onKeyDown={(e) => {
+        if (!notification.read && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onRead(notification.id);
+        }
+      }}
     >
       <div style={{ fontSize: 16, lineHeight: 1, flexShrink: 0, width: 20, textAlign: "center" }}>{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>

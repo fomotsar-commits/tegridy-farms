@@ -170,11 +170,16 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
     // NFT detail Modal (which also locks) or opened standalone from
     // CollectionOffersPanel / TraitExplorer (which don't).
     lockScroll();
+    const previouslyFocused = document.activeElement;
     const closeBtn = modalRef.current?.querySelector('[aria-label="Close modal"]');
     closeBtn?.focus();
     return () => {
       window.removeEventListener("keydown", h);
       unlockScroll();
+      // Restore focus to the pre-open element (matches Modal.jsx / TheaterMode.jsx).
+      // Opened standalone from CollectionOffersPanel / TraitExplorer there is no
+      // parent dialog to do this, so focus would otherwise fall to <body>.
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
     };
   }, [onClose]);
 
@@ -194,6 +199,10 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
           background: "var(--card)", border: "1px solid var(--border)",
           borderRadius: 14, maxWidth: 420, width: "90%", margin: "auto",
           padding: "28px 24px", position: "relative",
+          // Match TradeWindow / BulkListingWizard so a tall offer form (balances,
+          // warnings, expiry buttons) scrolls instead of clipping the close button
+          // off the top of short viewports.
+          maxHeight: "90vh", overflowY: "auto",
         }}
       >
         <button

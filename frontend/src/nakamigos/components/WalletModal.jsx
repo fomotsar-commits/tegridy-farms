@@ -36,11 +36,15 @@ export default function WalletModal({ onClose, addToast }) {
     document.addEventListener("keydown", handleKey);
     lockScroll();
     // Focus close button on mount
+    const previouslyFocused = document.activeElement;
     const closeBtn = modalRef.current?.querySelector('[aria-label="Close modal"]');
     closeBtn?.focus();
     return () => {
       document.removeEventListener("keydown", handleKey);
       unlockScroll();
+      // Restore focus to the pre-open element (matches Modal.jsx / TheaterMode.jsx),
+      // otherwise keyboard/SR focus falls to <body> on close.
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
     };
   }, [onClose]);
 

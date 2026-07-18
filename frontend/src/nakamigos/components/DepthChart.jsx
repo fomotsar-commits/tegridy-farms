@@ -16,7 +16,10 @@ function bucketPrices(prices, count = 12) {
   if (!prices.length) return [];
   const min = Math.min(...prices);
   const max = Math.max(...prices);
-  if (max === min) return [{ price: min, count: prices.length, cumulative: prices.length }];
+  // Include lo/hi (equal here) so downstream xScale(b.lo)/xScale(b.hi) don't resolve
+  // to undefined → NaN and blank the whole chart when every price is identical (e.g. a
+  // single offer degenerates the bid side). priceRange's `|| 1` keeps it renderable.
+  if (max === min) return [{ price: min, lo: min, hi: max, count: prices.length, cumulative: prices.length }];
   const step = (max - min) / count;
   const buckets = [];
   for (let i = 0; i < count; i++) {
