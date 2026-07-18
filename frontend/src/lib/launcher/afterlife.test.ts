@@ -10,6 +10,7 @@ import {
   type AfterlifeAddressBook,
   type AfterlifeLaunch,
 } from './afterlife';
+import { AFTERLIFE_GAUGE_CONTROLLER_ADDRESS } from './constants';
 
 const TOKEN = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as Address;
 const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as Address;
@@ -186,14 +187,18 @@ describe('afterlifeEligibility', () => {
     expect(r.anyAvailable).toBe(true);
   });
 
-  it('pending-deployment when the V4 PositionManager is zero (real default state)', () => {
-    const r = afterlifeEligibility(graduated); // default address book: PositionManager + GaugeController are zero
+  it('default state: boosted pending (PositionManager zero), gauge eligible (real controller wired)', () => {
+    const r = afterlifeEligibility(graduated); // default book: PositionManager zero, GaugeController = real deployed addr
+    // PositionManager is still unwired -> boosted-LP farming stays honestly gated.
     expect(feat(r, 'boosted-lp-farming').status).toBe('pending-deployment');
-    expect(feat(r, 'gauge-application').status).toBe('pending-deployment');
-    expect(r.anyAvailable).toBe(false);
-    // dependency deployed-flags are reported honestly
+    // GaugeController is the real deployed mainnet address -> gauge application is eligible.
+    expect(feat(r, 'gauge-application').status).toBe('eligible');
+    expect(r.anyAvailable).toBe(true);
+    // dependency deployed-flags are reported honestly: PositionManager false, GaugeController true.
     const pm = feat(r, 'boosted-lp-farming').requires.find((d) => /PositionManager/.test(d.label))!;
     expect(pm.deployed).toBe(false);
+    const gc = feat(r, 'gauge-application').requires.find((d) => /GaugeController/.test(d.label))!;
+    expect(gc.deployed).toBe(true);
   });
 
   it('gauge pending-deployment while boosted-LP eligible (independent gating)', () => {
@@ -210,10 +215,14 @@ describe('afterlifeEligibility', () => {
     expect(afterlifeEligibility({ ...graduated, tier: 'none' }, allDeployed).fastTrack).toBe(false);
   });
 
-  it('default address book zeroes PositionManager and GaugeController (gated posture)', () => {
+  it('default address book: PositionManager zeroed, GaugeController = real deployed controller', () => {
     const book = defaultAfterlifeAddressBook();
+    // PositionManager stays zero (not deployed / not configured anywhere in repo).
     expect(book.positionManager).toBe(ZERO_ADDRESS);
-    expect(book.gaugeController).toBe(ZERO_ADDRESS);
+    // GaugeController is the real deployed mainnet address (launcher-local, not the
+    // app-global gauge gate) — verified from the DeployGaugeController broadcast.
+    expect(book.gaugeController).toBe(AFTERLIFE_GAUGE_CONTROLLER_ADDRESS);
+    expect(book.gaugeController).not.toBe(ZERO_ADDRESS);
     expect(book.rewardToken).not.toBe(ZERO_ADDRESS);
     expect(book.staking).not.toBe(ZERO_ADDRESS);
   });

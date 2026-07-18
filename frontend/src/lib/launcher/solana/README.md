@@ -9,6 +9,18 @@ custom Rust program of our own**.
   a `Connection`, never signs, and imports the SDK **type-only** (zero runtime
   SDK weight, matching the `airlock.ts` façade doctrine). It emits typed
   descriptors the operator's out-of-band signing wrapper feeds into the real SDK.
+- `squads.ts` — **on-chain Squads v4 vault verification.** Derives the canonical
+  vault PDA from a multisig + vault index (`deriveSquadsVaultPda`) and confirms it
+  on-chain (`verifySquadsVault`). This is the real invariant behind the off-chain
+  `SquadsVault` brand — see "Why the fee claimer MUST be a Squads vault" below.
+- `dbcClient.ts` — **the thin signing wrapper** (out of band, never bundled). Pulls
+  in the real `@meteora-ag` SDK, maps `dbc.ts`'s base58/bigint descriptors to
+  web3.js `PublicKey` / anchor `BN`, verifies every fee authority is a Squads vault
+  on-chain, and partial-signs the ephemeral keypairs it owns. Exports
+  `createPartnerConfig` / `launchToken` / `claimPartnerFees`.
+- `../../../../scripts/solana-dbc-operator.mjs` — **the runnable operator harness**
+  that drives `dbcClient.ts` from the CLI (config from ENV/CLI only). See "Operator
+  flow" below.
 - `dbc.test.ts` — validation of the invariants below.
 
 ## Why the fee claimer MUST be a Squads vault
@@ -23,10 +35,20 @@ claimer is therefore a single-key drain of all Solana revenue. So:
   **and** the `receiver` are Squads vaults — fees can never be redirected to an EOA.
 
 `asSquadsVault` is a syntactic + affirmation gate (rejects empty / malformed /
-the default `1111…1111` system pubkey and brands the string). Off-chain we can't
-prove multisig ownership without RPC, so **the wrapper SHOULD additionally verify
-on-chain that the account is owned by the Squads program before the first real
-launch.**
+the default `1111…1111` system pubkey and brands the string). Off-chain it
+**cannot** prove multisig custody — that needs an RPC round-trip — so the wrapper
+verifies it on-chain via `squads.ts` before building any real tx.
+
+**The verification is subtle** (see `squads.ts` for the full rationale): the real
+Squads v4 vault is a **System-owned PDA** derived from the multisig
+(`seeds = ["multisig", <multisig>, "vault", u8 index]`), **not** the Squads-owned
+config account. A naive "owner == Squads program" check would therefore *reject the
+real vault* and only pass the config account — which can never sign a claim — a
+funds-lock trap. Instead, the operator supplies each fee address **together with its
+provenance** (parent multisig + vault index) as a `vaultProvenance` map. The wrapper
+(1) re-derives the canonical vault PDA from that provenance and requires the fee
+address to equal it, and (2) confirms the parent multisig account is Squads-owned.
+Missing provenance for any vault **fails closed**.
 
 ## Fee economics (disclosed, never a hidden dial)
 
@@ -58,85 +80,103 @@ LP fees stream to the vault forever — the fee-capture flywheel.
 
 Network is chosen **only** by the RPC endpoint of the `Connection` you pass.
 
-## Operator flow (the thin signing wrapper — out of band, not in the bundle)
+## Operator flow (the harness + the signing wrapper — out of band, not in the bundle)
 
-`dbc.ts` produces base58/bigint descriptors. The operator's signing script maps
-them to web3.js `PublicKey` / `BN` just before submitting:
+`dbc.ts` produces base58/bigint descriptors. **`dbcClient.ts`** maps them to web3.js
+`PublicKey` / anchor `BN`, verifies the vault provenance on-chain, partial-signs the
+ephemeral keypairs, and returns the tx. **`scripts/solana-dbc-operator.mjs`** is the
+runnable driver — it reads every secret from ENV/CLI (nothing hardcoded), derives the
+Squads vault PDA from the multisig + vault index, and either prints the partial-signed
+tx (default, for out-of-band Squads co-signing) or broadcasts it (`--send`).
+
+### Run it
+
+Runs on the repo's Node 24 with **no extra deps and no build step** — an inline
+`module.register` loader makes the bundler-targeted TS graph load under Node
+(extensionless `.ts` resolution, `stripTypeScriptTypes`, an `import.meta.env` shim for
+`solana.ts`, and the `@coral-xyz/anchor` `BN` CJS-interop rewrite). Run from `frontend/`:
+
+```sh
+# Pure helper — print the vault PDA for a multisig + index (no RPC, no gate):
+SQUADS_MULTISIG=<multisig-base58> SQUADS_VAULT_INDEX=0 \
+  node scripts/solana-dbc-operator.mjs derive-vault
+
+# 1) Partner config-key (once per fee policy):
+SOLANA_RPC_URL=https://your-keyed-rpc \
+OPERATOR_KEYPAIR=/abs/path/payer.json \
+SQUADS_MULTISIG=<multisig-base58> SQUADS_VAULT_INDEX=0 \
+  node scripts/solana-dbc-operator.mjs create-config \
+    --initial-market-cap 5000 --migration-market-cap 50000
+# → prints the CONFIG ADDRESS (record it) + a partial-signed tx (or --send).
+
+# 2) Launch a token against that config key:
+SOLANA_RPC_URL=… OPERATOR_KEYPAIR=… \
+  node scripts/solana-dbc-operator.mjs launch \
+    --config <config-address> --name 'Tegridy Meme' --symbol TMEME --uri ipfs://…
+
+# 3) Claim partner fees back to the vault (print-only — the vault co-signs in Squads):
+SOLANA_RPC_URL=… OPERATOR_KEYPAIR=… \
+SQUADS_MULTISIG=<multisig-base58> SQUADS_VAULT_INDEX=0 \
+  node scripts/solana-dbc-operator.mjs claim --pool <pool-address>
+```
+
+`node scripts/solana-dbc-operator.mjs help` lists every flag.
+
+### The wrapper API it drives
+
+The harness calls these three `dbcClient.ts` entry points. Each takes a
+`vaultProvenance` map (`{ [vaultAddress]: { multisig, vaultIndex } }`) that the
+harness builds from `SQUADS_MULTISIG` + `SQUADS_VAULT_INDEX`, and each throws while
+`SOLANA_LAUNCHER_ENABLED === false`:
 
 ```ts
-import {
-  DynamicBondingCurveClient,
-  buildCurveWithMarketCap,
-} from '@meteora-ag/dynamic-bonding-curve-sdk';
-import { PublicKey, Keypair, Connection } from '@solana/web3.js';
-import { BN } from '@coral-xyz/anchor';
-import {
-  asSquadsVault,
-  buildDbcPartnerConfig,
-  buildLaunchParams,
-  claimPartnerFeesParams,
-  isSolanaLauncherEnabled,
-} from './dbc';
+import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
+import { Keypair } from '@solana/web3.js';
+import { asSquadsVault, buildDbcPartnerConfig, buildLaunchParams, claimPartnerFeesParams } from './dbc';
+import { deriveSquadsVaultPda } from './squads';
+import { createPartnerConfig, launchToken, claimPartnerFees } from './dbcClient';
 
-if (!isSolanaLauncherEnabled()) throw new Error('Solana launcher is gated');
-
-const connection = new Connection(RPC_URL, 'confirmed');
 const client = DynamicBondingCurveClient.create(connection, 'confirmed');
 
-// 1) Partner config-key (once). `config` is a fresh keypair that must sign.
+// Derive the vault PDA from provenance so the on-chain address ALWAYS matches what
+// the wrapper re-derives + verifies (verifySquadsVault). A wrong index fails closed.
+const vaultAddr = deriveSquadsVaultPda(SQUADS_MULTISIG, SQUADS_VAULT_INDEX);
+const vault = asSquadsVault(vaultAddr);
+const vaultProvenance = { [vaultAddr]: { multisig: SQUADS_MULTISIG, vaultIndex: SQUADS_VAULT_INDEX } };
+
+// 1) createConfig — the wrapper runs buildCurveWithMarketCap + client.partner.createConfig,
+//    verifies feeClaimer + leftoverReceiver on-chain, and partial-signs configKp.
 const configKp = Keypair.generate();
-const vault = asSquadsVault(SQUADS_VAULT_BASE58);
-const { curve, accounts } = buildDbcPartnerConfig({
+const partnerConfig = buildDbcPartnerConfig({
   feeClaimer: vault,
   config: configKp.publicKey.toBase58(),
   payer: payer.publicKey.toBase58(),
   initialMarketCap: 5_000,
   migrationMarketCap: 50_000, // quote-token units
 });
-const configParams = buildCurveWithMarketCap(curve); // → ConfigParameters
-const cfgTx = await client.partner.createConfig({
-  config: new PublicKey(accounts.config),
-  feeClaimer: new PublicKey(accounts.feeClaimer),
-  leftoverReceiver: new PublicKey(accounts.leftoverReceiver),
-  quoteMint: new PublicKey(accounts.quoteMint),
-  payer: new PublicKey(accounts.payer),
-  ...configParams,
-});
-// sign with [payer, configKp] and send.
+const cfgTx = await createPartnerConfig(client, partnerConfig, signerOrUndefined, configKp, vaultProvenance);
 
-// 2) Launch a token against the config key.
+// 2) launchToken — the wrapper calls client.creator.createPool (NOT client.pool) and
+//    partial-signs the base-mint keypair. No vault verify here: the fee authority is
+//    inherited from the config created above.
 const baseMintKp = Keypair.generate();
-const p = buildLaunchParams(
-  {
-    config: accounts.config,
-    baseMint: baseMintKp.publicKey.toBase58(),
-    poolCreator: creator.toBase58(),
-    payer: payer.publicKey.toBase58(),
-  },
+const launchParams = buildLaunchParams(
+  { config: partnerConfig.accounts.config, baseMint: baseMintKp.publicKey.toBase58(), poolCreator, payer },
   { name: 'Tegridy Meme', symbol: 'TMEME', uri: 'ipfs://…' },
 );
-const poolTx = await client.pool.createPool({
-  name: p.name,
-  symbol: p.symbol,
-  uri: p.uri,
-  config: new PublicKey(p.config),
-  baseMint: new PublicKey(p.baseMint),
-  poolCreator: new PublicKey(p.poolCreator),
-  payer: new PublicKey(p.payer),
-});
-// sign with [payer, baseMintKp] and send.
+const poolTx = await launchToken(client, launchParams, signerOrUndefined, baseMintKp);
 
-// 3) Claim partner fees to the vault (never an EOA).
-const c = claimPartnerFeesParams({ feeClaimer: vault, pool: POOL_BASE58, payer: payer.publicKey.toBase58() });
-const claimTx = await client.partner.claimPartnerTradingFee({
-  feeClaimer: new PublicKey(c.feeClaimer),
-  payer: new PublicKey(c.payer),
-  pool: new PublicKey(c.pool),
-  receiver: new PublicKey(c.receiver),
-  maxBaseAmount: new BN(c.maxBaseAmount.toString()),
-  maxQuoteAmount: new BN(c.maxQuoteAmount.toString()),
-});
+// 3) claimPartnerFees — the wrapper verifies feeClaimer AND receiver are the vault,
+//    then calls client.partner.claimPartnerTradingFeeToReceiver (explicit receiver).
+const claimParams = claimPartnerFeesParams({ feeClaimer: vault, receiver: vault, pool: POOL, payer });
+const claimTx = await claimPartnerFees(client, claimParams, undefined, vaultProvenance);
 ```
+
+`signerOrUndefined` is a `WalletSigner` (a `signTransaction`-capable wallet) when you
+want the wrapper to co-sign, or `undefined` to get the partial-signed tx back for
+out-of-band Squads co-signing. **A `claim` is always co-signed by the vault** (a Squads
+PDA that signs via `invoke_signed`), so it can never be broadcast by the operator alone
+— the harness rejects `claim --send`.
 
 ## Gating + wizard integration (not yet wired)
 

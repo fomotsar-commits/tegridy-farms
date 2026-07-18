@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { Address, Hex } from 'viem';
-import { collectTokenFacts, cloneImplTarget, eip1167Target, type ChainReader } from './collector';
+import {
+  collectTokenFacts,
+  cloneImplTarget,
+  eip1167Target,
+  viemChainReader,
+  TOKEN_READER_ABI,
+  type ChainReader,
+  type ReadOnlyPublicClient,
+} from './collector';
 import { buildFactSheet, defaultGateConfig } from './gate';
 import { DOPPLER_MAINNET } from './doppler.constants';
 
@@ -55,6 +63,43 @@ const lockedTwoYears = async () => ({
   locker: DOPPLER_MAINNET.support.streamableFeesLocker,
   unlockAt: NOW + 730 * DAY,
 });
+
+const ZERO = '0x0000000000000000000000000000000000000000' as Address;
+const TOKEN = '0xabc0000000000000000000000000000000000abc' as Address;
+
+/**
+ * Mock viem PublicClient (ReadOnlyPublicClient subset). `getCode` returns the
+ * configured bytecode; `readContract` returns a value per functionName or REVERTS
+ * for any name not in `reads` (mirroring a token that doesn't implement it).
+ * Every call is captured so tests can assert the adapter's read-only wiring.
+ */
+function mockPublicClient(cfg: {
+  code: Hex | undefined;
+  reads?: Record<string, unknown>;
+  calls?: { fn: string; address: Address; abiRef: unknown }[];
+}): ReadOnlyPublicClient {
+  const reads = cfg.reads ?? {};
+  return {
+    async getCode({ address: _address }) {
+      return cfg.code;
+    },
+    async readContract({ address, abi, functionName }) {
+      cfg.calls?.push({ fn: functionName, address, abiRef: abi });
+      if (!(functionName in reads)) throw new Error(`execution reverted: no ${functionName}()`);
+      return reads[functionName];
+    },
+  };
+}
+
+/** The full DopplerERC20V1 read surface for a clean, renounced, no-float clone. */
+const CLEAN_DOPPLER_READS = {
+  name: 'Randy',
+  symbol: 'RANDY',
+  totalSupply: 1_000_000_000n,
+  owner: ZERO,
+  isBalanceLimitActive: false,
+  vestedTotalAmount: 0n,
+} as const;
 
 describe('cloneImplTarget — recognises both proxy layouts', () => {
   it('parses a canonical EIP-1167 proxy', () => {
@@ -149,5 +194,69 @@ describe('collectTokenFacts — unverified template defaults closed', () => {
     expect(facts.liquidity.locked).toBe(false);
     const sheet = buildFactSheet(facts, defaultGateConfig(NOW));
     expect(sheet.tier).toBe('none');
+  });
+});
+
+describe('viemChainReader — read-only PublicClient adapter', () => {
+  it('drives a known-safe DopplerERC20V1 clone end-to-end => flagship', async () => {
+    const client = mockPublicClient({ code: soladyCloneCode(IMPL), reads: { ...CLEAN_DOPPLER_READS } });
+    const facts = await collectTokenFacts(viemChainReader(client), TOKEN, {
+      now: NOW,
+      lockResolver: lockedTwoYears,
+    });
+    expect(facts.tokenFactory).toBe(DOPPLER_MAINNET.modules.dopplerErc20V1Factory.address);
+    expect(facts.powers.mint).toBe(false); // proven-false by construction
+    expect(facts.powers.upgrade).toBe(false);
+    expect(facts.ownerRenounced).toBe(true); // zero-address owner
+    expect(buildFactSheet(facts, defaultGateConfig(NOW)).tier).toBe('flagship');
+  });
+
+  it('routes every view read through the shared ABI at the token address (read-only wiring)', async () => {
+    const calls: { fn: string; address: Address; abiRef: unknown }[] = [];
+    const client = mockPublicClient({ code: soladyCloneCode(IMPL), reads: { ...CLEAN_DOPPLER_READS }, calls });
+    await collectTokenFacts(viemChainReader(client), TOKEN, { now: NOW, lockResolver: lockedTwoYears });
+    // The Doppler-template path reads the ERC-20 basics plus the two DopplerERC20V1 getters.
+    expect(calls.map((c) => c.fn).sort()).toEqual(
+      ['isBalanceLimitActive', 'name', 'owner', 'symbol', 'totalSupply', 'vestedTotalAmount'].sort(),
+    );
+    expect(calls.every((c) => c.address === TOKEN)).toBe(true);
+    expect(calls.every((c) => c.abiRef === TOKEN_READER_ABI)).toBe(true);
+  });
+
+  it('defaults CLOSED for an unverified/opaque token (non-clone bytecode, reverting reads)', async () => {
+    // Opaque runtime that is NOT a recognised minimal-proxy, and every view reverts
+    // (the collector's safeRead degrades each to its conservative fallback).
+    const client = mockPublicClient({ code: '0x60806040523480156100' as Hex, reads: {} });
+    const facts = await collectTokenFacts(viemChainReader(client), TOKEN, {
+      now: NOW,
+      lockResolver: lockedTwoYears,
+    });
+    expect(facts.tokenFactory).toBeNull();
+    expect(facts.name).toBe(''); // reverted read => conservative fallback, no fabricated value
+    expect(facts.powers.mint).toBe(true); // unverified => dangerous powers reported present
+    expect(facts.powers.upgrade).toBe(true);
+    expect(buildFactSheet(facts, defaultGateConfig(NOW)).tier).toBe('none');
+  });
+
+  it('a Solady clone of a NON-Doppler impl is not vouched for => none', async () => {
+    const client = mockPublicClient({
+      code: soladyCloneCode('0xdead00000000000000000000000000000000dead'),
+      reads: { ...CLEAN_DOPPLER_READS },
+    });
+    const facts = await collectTokenFacts(viemChainReader(client), TOKEN, {
+      now: NOW,
+      lockResolver: lockedTwoYears,
+    });
+    expect(facts.tokenFactory).toBeNull();
+    expect(facts.powers.mint).toBe(true);
+    expect(buildFactSheet(facts, defaultGateConfig(NOW)).tier).toBe('none');
+  });
+
+  it('a non-contract address (undefined code) collapses to unverified => none', async () => {
+    const client = mockPublicClient({ code: undefined, reads: {} });
+    const facts = await collectTokenFacts(viemChainReader(client), TOKEN, { now: NOW });
+    expect(facts.tokenFactory).toBeNull();
+    expect(facts.powers.upgrade).toBe(true);
+    expect(buildFactSheet(facts, defaultGateConfig(NOW)).tier).toBe('none');
   });
 });

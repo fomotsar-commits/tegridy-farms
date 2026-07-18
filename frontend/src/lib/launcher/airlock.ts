@@ -14,11 +14,12 @@
 //     .build()
 //   sdk.factory.createDynamicAuction(params) -> { hookAddress, tokenAddress, poolId, transactionHash }
 //
-// SPIKE NOTE: to avoid mutating the shared frontend lockfile with the heavy SDK
-// (it ships Solana codecs) during the spike, we type against a faithful FAÇADE
-// of the real surface. Swap `DopplerEvmSdkLike` for
-// `import { DopplerSDK } from '@whetstone-research/doppler-sdk/evm'` when the
-// dependency is added — the call sites are already correct.
+// FAÇADE SEAM: `@whetstone-research/doppler-sdk` IS a dependency (see
+// launchService.ts, which imports the real `DopplerSDK` and casts it through the
+// `DopplerEvmSdkLike` façade below). The façade is retained deliberately — it is the
+// tested boundary this policy is written against and keeps airlock.ts free of the
+// heavy SDK's runtime weight (it ships Solana codecs). The call sites match the real
+// surface, verified end-to-end on a mainnet fork.
 
 import type { Address } from 'viem';
 import type { FeeConstitutionLine, LaunchTier } from './factSheet';

@@ -20,11 +20,13 @@
 import type { Address, Hex } from 'viem';
 import { keccak256, encodeAbiParameters } from 'viem';
 import type { LaunchTier } from './factSheet';
-import {
-  TOWELI_ADDRESS,
-  TEGRIDY_STAKING_ADDRESS,
-  GAUGE_CONTROLLER_ADDRESS,
-} from '../constants';
+import { TOWELI_ADDRESS, TEGRIDY_STAKING_ADDRESS } from '../constants';
+// GaugeController is sourced from the launcher-LOCAL address book, NOT the
+// app-global `GAUGE_CONTROLLER_ADDRESS`. The global gates live gauge-voting UI on
+// `isDeployed(...)` with no separate flag, and the controller's ownership is not
+// yet re-homed — so afterlife reports the real address without lighting that up.
+// See constants.ts (AFTERLIFE_GAUGE_CONTROLLER_ADDRESS) for the full rationale.
+import { AFTERLIFE_GAUGE_CONTROLLER_ADDRESS } from './constants';
 
 export const ZERO_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
 const ZERO_BYTES32: Hex = '0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -84,11 +86,13 @@ export function computeV4PoolId(key: V4PoolKey): Hex {
  * every field is overridable so the pure logic (and its gating) is deterministic
  * under test.
  *
- * NOTE: there is currently NO Uniswap V4 PositionManager address in
- * `constants.ts`, so `positionManager` defaults to the zero address —
- * boosted-LP farming reports 'pending-deployment' until the human wires the
- * canonical V4 PositionManager in. Same for `gaugeController` (intentionally
- * zeroed — see constants.ts / pending operator tasks).
+ * NOTE: there is currently NO Uniswap V4 PositionManager address anywhere in the
+ * repo (app-global or launcher-local), so `positionManager` defaults to the zero
+ * address — boosted-LP farming reports 'pending-deployment' until the human wires
+ * the canonical V4 PositionManager in. `gaugeController`, by contrast, IS deployed
+ * and defaults to the real mainnet address from the launcher-local address book
+ * (AFTERLIFE_GAUGE_CONTROLLER_ADDRESS in ./constants) — deliberately kept out of
+ * the app-global gauge gate, which is not yet turned on (ownership not re-homed).
  */
 export interface AfterlifeAddressBook {
   /** Emissions reward token — TOWELI. */
@@ -97,7 +101,7 @@ export interface AfterlifeAddressBook {
   staking: Address;
   /** Uniswap V4 PositionManager (the escrowed NFT's issuer). */
   positionManager: Address;
-  /** GaugeController — zeroed until deployed. */
+  /** GaugeController — the real deployed mainnet controller (launcher-local). */
   gaugeController: Address;
 }
 
@@ -106,7 +110,7 @@ export function defaultAfterlifeAddressBook(): AfterlifeAddressBook {
     rewardToken: TOWELI_ADDRESS,
     staking: TEGRIDY_STAKING_ADDRESS,
     positionManager: ZERO_ADDRESS,
-    gaugeController: GAUGE_CONTROLLER_ADDRESS,
+    gaugeController: AFTERLIFE_GAUGE_CONTROLLER_ADDRESS,
   };
 }
 

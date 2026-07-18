@@ -173,3 +173,51 @@ async function safeRead<T>(reader: ChainReader, token: Address, fn: string, fall
     return fallback;
   }
 }
+
+// ---------------------------------------------------------------------------
+// viem PublicClient adapter (READ-ONLY). Turns a live client into the ChainReader
+// collectTokenFacts consumes. No writes, no signing — only getCode + view calls.
+// ---------------------------------------------------------------------------
+
+/**
+ * The read-only DopplerERC20V1 view surface the collector consults. Every entry
+ * is a zero-arg `view`: name/symbol/totalSupply/owner are the ERC-20 + Ownable
+ * basics; isBalanceLimitActive/vestedTotalAmount are DopplerERC20V1's own getters.
+ * A read of a function a token does NOT implement reverts — which safeRead()
+ * catches and degrades to the conservative fallback, so an opaque/unverified
+ * token defaults CLOSED rather than being vouched for.
+ */
+export const TOKEN_READER_ABI = [
+  { type: 'function', name: 'name', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'isBalanceLimitActive', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool' }] },
+  { type: 'function', name: 'vestedTotalAmount', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+] as const;
+
+/**
+ * The read-only subset of a viem PublicClient this adapter uses. A real
+ * PublicClient satisfies it structurally (it has both getCode + readContract);
+ * tests supply a lightweight mock. Kept deliberately minimal so nothing routed
+ * through here can write, sign, or send.
+ */
+export interface ReadOnlyPublicClient {
+  getCode(args: { address: Address }): Promise<Hex | undefined>;
+  readContract(args: { address: Address; abi: typeof TOKEN_READER_ABI; functionName: string }): Promise<unknown>;
+}
+
+/**
+ * Wrap a viem PublicClient into the {@link ChainReader} collectTokenFacts needs.
+ * Pure read-only: `getCode` returns the runtime bytecode (the collector resolves
+ * the EIP-1167 / Solady clone-impl target itself via cloneImplTarget), and
+ * `readToken` issues one zero-arg `view` call, letting reverts propagate so the
+ * collector's safeRead can degrade to the conservative (gate-closing) fallback.
+ */
+export function viemChainReader(client: ReadOnlyPublicClient): ChainReader {
+  return {
+    getCode: (address: Address) => client.getCode({ address }),
+    readToken: <T>(address: Address, functionName: string): Promise<T> =>
+      client.readContract({ address, abi: TOKEN_READER_ABI, functionName }) as Promise<T>,
+  };
+}
