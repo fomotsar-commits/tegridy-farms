@@ -20,6 +20,12 @@
 // no "rug"/"scam"/"safe"/"guaranteed" wording enters. Missing data degrades safely
 // (fields fall back to conservative defaults, no throw) so a flaky upstream never
 // fabricates a rosy — or a damning — picture.
+//
+// ⚠ SYNC: the serverless adapter api/_lib/launcher-outcomes.js carries a plain-JS PORT
+// of the pure builders below (buildOutcomeRecord/Summary + normalizers). It does NOT
+// import this file — a Vercel function compiles under node16 moduleResolution, which
+// rejects this file's extensionless bundler-style imports (TS2835). Change one, change
+// both. This file remains the unit-tested source of truth.
 
 import type { Address } from 'viem';
 import type { LaunchTier } from './factSheet';

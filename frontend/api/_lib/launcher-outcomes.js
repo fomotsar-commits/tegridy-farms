@@ -23,13 +23,96 @@
 // degrades safely inside the reader (marketObserved:false, no fabricated crash),
 // never throws, never invents a rosy or a damning signal.
 
-// Pure reader core. Type-only viem import inside → zero runtime deps pulled in.
-// Bundled by @vercel/node (esbuild) at deploy; the extensionless specifier
-// resolves to the .ts source the same way the frontend build resolves it.
-import { buildOutcomeRecords, buildLaunchSummaries } from "../../src/lib/launcher/outcomesReader";
 import { checkRateLimit } from "./ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
+
+// ── Pure reader core — JS PORT of src/lib/launcher/outcomesReader.ts ──────────
+// Ported to plain JS (NOT imported from src/) DELIBERATELY: a Vercel serverless
+// function compiles under node16 moduleResolution, but the frontend TS uses
+// extensionless bundler-style relative imports (e.g. `./factSheet`), which node16
+// rejects (TS2835) — shipping the function broken (FUNCTION_INVOCATION_FAILED at
+// invoke). Keeping this function self-contained removes that api→src boundary hazard.
+// KEEP IN SYNC with outcomesReader.ts — the frontend source of truth (unit-tested there);
+// this is a faithful 1:1 port of its pure logic (no types, same behavior).
+function finiteOr(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function nonNegOr(value, fallback) {
+  const n = finiteOr(value, fallback);
+  return n < 0 ? fallback : n;
+}
+function marketIsObserved(m) {
+  return m != null && Number.isFinite(m.priceEth) && Number.isFinite(m.liquidityEth);
+}
+function normalizeMarket(m) {
+  if (!m) return { priceEth: 0, liquidityEth: 0, uniqueBuyers24h: 0, feeRevenueEth24h: 0 };
+  return {
+    priceEth: nonNegOr(m.priceEth, 0),
+    liquidityEth: nonNegOr(m.liquidityEth, 0),
+    uniqueBuyers24h: Math.floor(nonNegOr(m.uniqueBuyers24h, 0)),
+    feeRevenueEth24h: nonNegOr(m.feeRevenueEth24h, 0),
+  };
+}
+function normalizeChain(c) {
+  if (!c) return { holderCount: null, lastTeamActivityAt: null };
+  return {
+    holderCount: c.holderCount == null ? null : Math.max(0, Math.floor(finiteOr(c.holderCount, 0))),
+    lastTeamActivityAt:
+      c.lastTeamActivityAt == null ? null : Math.max(0, Math.floor(finiteOr(c.lastTeamActivityAt, 0))),
+  };
+}
+async function safeCall(fn) {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
+}
+async function buildOutcomeRecord(baseline, fetcher, observedAt) {
+  const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  const marketObserved = marketIsObserved(rawMarket);
+  const market = normalizeMarket(rawMarket);
+  const chain = normalizeChain(await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)));
+  const launchPriceEth = nonNegOr(baseline.launchPriceEth, 0);
+  const launchLiquidityEth = nonNegOr(baseline.launchLiquidityEth, 0);
+  return {
+    token: baseline.token,
+    tier: baseline.tier,
+    launchedAt: baseline.launchedAt,
+    observedAt,
+    priceEth: marketObserved ? market.priceEth : launchPriceEth,
+    launchPriceEth,
+    liquidityEth: marketObserved ? market.liquidityEth : launchLiquidityEth,
+    launchLiquidityEth,
+    holderCount: chain.holderCount ?? 0,
+    unlocks: baseline.unlocks ?? [],
+    lastTeamActivityAt: chain.lastTeamActivityAt,
+    marketObserved,
+  };
+}
+async function buildLaunchSummary(baseline, fetcher) {
+  const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  if (!marketIsObserved(rawMarket)) return null;
+  const market = normalizeMarket(rawMarket);
+  const chain = normalizeChain(await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)));
+  return {
+    token: baseline.token,
+    tier: baseline.tier,
+    launchedAt: baseline.launchedAt,
+    uniqueBuyers24h: market.uniqueBuyers24h,
+    liquidityEth: market.liquidityEth,
+    feeRevenueEth24h: market.feeRevenueEth24h,
+    holderCount: chain.holderCount ?? 0,
+  };
+}
+async function buildOutcomeRecords(baselines, fetcher, observedAt) {
+  return Promise.all(baselines.map((b) => buildOutcomeRecord(b, fetcher, observedAt)));
+}
+async function buildLaunchSummaries(baselines, fetcher) {
+  const rows = await Promise.all(baselines.map((b) => buildLaunchSummary(b, fetcher)));
+  return rows.filter((r) => r !== null);
+}
 
 // ── Config ───────────────────────────────────────────────────────────────
 const GECKO_BASE = "https://api.geckoterminal.com/api/v2";
