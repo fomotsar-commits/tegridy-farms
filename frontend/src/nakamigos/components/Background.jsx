@@ -3,6 +3,27 @@ import React from "react";
 import { motion } from "framer-motion";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion";
 
+// Touch devices (phones + iPads) report a coarse pointer. On those, the full
+// animated background — dozens of infinitely-animating blur() layers + a starfield
+// rAF loop — pegs the GPU and makes the whole marketplace janky. We fall back to a
+// LITE static background there (keeps the gradient + ghost art, drops the per-frame
+// motion). Desktop (fine pointer) keeps the full experience. Mirrors the
+// usePrefersReducedMotion pattern (SSR-safe + live updates).
+function useCoarsePointer() {
+  const [coarse, setCoarse] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    try { return window.matchMedia("(pointer: coarse)").matches; } catch { return false; }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(pointer: coarse)");
+    const onChange = (e) => setCoarse(e.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return coarse;
+}
+
 // ═══ Theme-aware color palette ═══
 function useThemeColors() {
   const [colors, setColors] = useState(getColors());
@@ -142,6 +163,21 @@ function GhostArt({ art, opacity, reduced }) {
         }}
       />
     </motion.div>
+  );
+}
+
+// ═══ Static mesh gradient — the LITE (touch/reduced-motion) atmosphere ═══
+// Same radial-gradient palette as the animated MeshGradient but a single static
+// layer with no blur-animated children — a one-time paint instead of per-frame GPU work.
+function StaticMesh({ colors }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+        background: colors.meshBg,
+      }}
+    />
   );
 }
 
@@ -634,6 +670,31 @@ class BackgroundErrorBoundary extends React.Component {
 export default memo(function Background() {
   const colors = useThemeColors();
   const reduced = usePrefersReducedMotion(); // F543/F558
+  const coarse = useCoarsePointer();
+  // LITE mode on touch devices (phones/iPads) OR reduced-motion: the full animated
+  // background (dozens of infinitely-animating blur() layers + a starfield rAF loop)
+  // is the dominant cause of marketplace jank on mobile. Keep the atmosphere + ghost
+  // art but STATIC, and drop the pure-motion layers (orbs/motes/rays/starfield/aurora).
+  const lite = reduced || coarse;
+
+  if (lite) {
+    return (
+      <BackgroundErrorBoundary>
+        <StaticMesh colors={colors} />
+        {/* Ghost art kept but STATIC and thinned to ~1/3 (every 3rd, spread across the
+            grid): all 20 are position:fixed so loading="lazy" can't defer them — 20 large
+            JPGs (~2.4MB) decoding at mount competed with the NFT gallery thumbnails and made
+            product images slow to appear on mobile. A ~7-image spread keeps the atmosphere
+            at a fraction of the decode/compositing cost. Desktop still gets all 20 animated. */}
+        {BG_ART.filter((_, i) => i % 3 === 0).map((art, i) => (
+          <GhostArt key={i} art={art} opacity={colors.artOpacity} reduced />
+        ))}
+        <GridOverlay color={colors.gridColor} />
+        <NoiseOverlay opacity={colors.noiseOpacity} />
+        <Vignette />
+      </BackgroundErrorBoundary>
+    );
+  }
 
   return (
     <BackgroundErrorBoundary>

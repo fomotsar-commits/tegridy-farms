@@ -9,6 +9,16 @@ const prefersReducedMotion =
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+// Touch devices (phones/iPads) report a coarse pointer. We skip the 2x srcSet upgrade
+// there: the grid srcSet uses density descriptors (1x/2x) with NO `sizes`, so a retina
+// phone would fetch imageLarge (up to a 2000px IPFS original) into a ~200px cell — huge
+// wasted bandwidth + slow decode (the "images slow to appear" symptom). The small `src`
+// thumbnail is plenty on mobile; desktop retina still gets the crisp 2x variant.
+const IS_COARSE_POINTER =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  (() => { try { return window.matchMedia("(pointer: coarse)").matches; } catch { return false; } })();
+
 // (The old nft-cdn.alchemy.com/<contract>/<tokenId> direct-URL fallback was
 // removed 2026-06-11: that format now returns 403 for every collection here.
 // BidManager/MyListings still carry their own copies as last-resort fallbacks.)
@@ -99,7 +109,7 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
   // thumbnail and a larger CDN size exist — map thumb -> 1x, large -> 2x so
   // retina displays fetch the crisper variant without bloating 1x bandwidth.
   const srcSet =
-    !large && !dynamicSrc && nft.imageThumb && nft.imageLarge && nft.imageThumb !== nft.imageLarge
+    !IS_COARSE_POINTER && !large && !dynamicSrc && nft.imageThumb && nft.imageLarge && nft.imageThumb !== nft.imageLarge
       ? `${nft.imageThumb} 1x, ${nft.imageLarge} 2x`
       : undefined;
 

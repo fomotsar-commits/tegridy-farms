@@ -2552,7 +2552,11 @@
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
-@media (prefers-reduced-motion: reduce) {
+/* Disable the loading shimmer on reduced-motion AND touch devices: it animates
+   background-position (a paint, not a compositor transform), and during the initial
+   grid enrichment 60+ placeholders repaint every frame — a real mobile-jank source.
+   The static placeholder gradient still communicates "loading". */
+@media (prefers-reduced-motion: reduce), (pointer: coarse) {
   .nft-placeholder.loading::before { animation: none; }
 }
 .nft-placeholder.loading > div { position: relative; z-index: 1; }

@@ -444,6 +444,15 @@ function ParticleCanvas() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Skip the 50-particle canvas rAF loop on touch devices / reduced-motion — it makes
+    // the splash intro janky on phones. The splash still renders (framer entrances); it
+    // just doesn't run a continuous particle animation there. (Mobile-perf pass.)
+    if (
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ||
+      window.matchMedia?.("(pointer: coarse)").matches
+    ) {
+      return;
+    }
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
 

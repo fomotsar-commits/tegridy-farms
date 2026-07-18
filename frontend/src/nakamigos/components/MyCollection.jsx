@@ -34,6 +34,9 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
   const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [bulkListOpen, setBulkListOpen] = useState(false);
   const [bundleOpen, setBundleOpen] = useState(false);
+  // Cap the initial grid render so a large wallet doesn't mount ~100 animated image
+  // cards at once (mobile jank). "Show more" loads the rest in chunks (mirrors Listings).
+  const [visibleCount, setVisibleCount] = useState(60);
   // Monotonic counter to discard stale retry responses after collection switch
   const retryGenRef = useRef(0);
 
@@ -392,7 +395,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
       ) : (
         <>
           <div className="gallery-grid gallery" style={{ padding: "0 32px 24px" }}>
-            {tokens.map((nft, i) => (
+            {tokens.slice(0, visibleCount).map((nft, i) => (
               <AnimatedCard
                 key={nft.id}
                 nft={nft}
@@ -403,6 +406,21 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
               />
             ))}
           </div>
+          {tokens.length > visibleCount && (
+            <div style={{ textAlign: "center", margin: "0 32px 32px" }}>
+              <button
+                onClick={() => setVisibleCount((c) => c + 60)}
+                style={{
+                  fontFamily: "var(--mono)", fontSize: 12, padding: "9px 22px",
+                  borderRadius: 8, cursor: "pointer",
+                  background: "var(--surface-glass, rgba(255,255,255,0.04))",
+                  border: "1px solid var(--border)", color: "var(--text-dim)",
+                }}
+              >
+                Show more ({tokens.length - visibleCount} left)
+              </button>
+            </div>
+          )}
 
           {/* Portfolio Stats expandable section */}
           {portfolioStats && (
