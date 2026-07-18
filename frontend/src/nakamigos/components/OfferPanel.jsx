@@ -162,6 +162,10 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
       ) : (
         <div style={{ maxHeight: 200, overflowY: "auto" }}>
           {offers.filter(o => {
+            // Drop cancelled/finalized (not just expired) so the owner's Accept button
+            // never fires setApprovalForAll into a dead-order fulfillment_data error —
+            // mirrors BidManager's received-offers guard.
+            if (o.cancelled || o.finalized) return false;
             if (!o.expiry) return true;
             const ms = o.expiry instanceof Date ? o.expiry.getTime() : new Date(o.expiry).getTime();
             return !Number.isFinite(ms) || ms > Date.now();

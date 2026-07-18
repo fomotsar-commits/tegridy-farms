@@ -355,16 +355,19 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       const tx = await cancelSeaportOrder({ ethers, signer, params: listing.rawParameters, seaportAddress: SEAPORT_ADDRESS });
       await tx.wait();
 
-      // Step 2: Update native orderbook backend status
-      // AUDIT FIX D-FE-M2: bind cancel signature to chainId + timestamp so a
-      // captured signature cannot be replayed cross-environment or after the
-      // 5-minute server-side window expires. Server validates both fields.
-      const _cancelTs = Math.floor(Date.now() / 1000);
-      const _cancelChainId = 1;
-      const cancelMessage = `Cancel order ${listing.orderHash} | Chain: ${_cancelChainId} | Time: ${_cancelTs}`;
-      const cancelSignature = await signer.signMessage(cancelMessage);
-
+      // Step 2: Update native orderbook backend status — BEST-EFFORT. The on-chain
+      // cancel above already invalidated the order, so the backend notify (INCLUDING
+      // its signMessage) must not be able to report "declined" or keep the listing
+      // shown. F631: the fill path already moved signMessage inside its best-effort
+      // try for exactly this reason; the cancel path was missed.
+      // AUDIT FIX D-FE-M2: bind cancel signature to chainId + timestamp so a captured
+      // signature cannot be replayed cross-environment or after the 5-minute server
+      // window expires. Server validates both fields.
       try {
+        const _cancelTs = Math.floor(Date.now() / 1000);
+        const _cancelChainId = 1;
+        const cancelMessage = `Cancel order ${listing.orderHash} | Chain: ${_cancelChainId} | Time: ${_cancelTs}`;
+        const cancelSignature = await signer.signMessage(cancelMessage);
         const res = await fetch("/api/orderbook", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -381,8 +384,9 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
           console.warn("Backend cancel failed (on-chain cancel succeeded):", err.error);
         }
       } catch (backendErr) {
-        // Non-critical: on-chain cancel already succeeded
-        console.warn("Backend cancel request failed:", backendErr.message);
+        // Non-critical: on-chain cancel already succeeded (includes a rejected
+        // notify-signature — the order is dead on-chain regardless).
+        console.warn("Backend cancel notify failed (on-chain cancel succeeded):", backendErr.message);
       }
 
       addToast?.("Listing cancelled successfully!", "success");

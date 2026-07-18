@@ -737,7 +737,12 @@ function mapNativeListings(nativeResult) {
       maker: order.maker,
       expiry: order.end_time ? new Date(order.end_time).toISOString() : null,
       createdAt: order.created_at || null,
-      orderData: order.parameters || null,
+      // Nest under `parameters` to match the OpenSea shape (protocol_data) the shared
+      // validator reads (orderValidator.js: order.orderData.parameters). Left flat, every
+      // native listing's ownership/approval/expiry pre-checks silently no-op and it paints
+      // a false "order data incomplete" warning. Native FULFILLMENT is unaffected — it
+      // reads nativeOrder.parameters (orderbook.js fulfillNativeOrder), not orderData.
+      orderData: order.parameters ? { parameters: order.parameters, protocolAddress: order.protocol_address } : null,
       orderHash: order.order_hash || null,
       protocolAddress: order.protocol_address || null,
       // Flag for native orderbook fulfillment (uses Seaport directly, not OpenSea API)
