@@ -30,7 +30,7 @@
 | Decision | Where it lands | Notes |
 |---|---|---|
 | **Integrator multisig** | `config.ts` `LAUNCHER_INTEGRATOR_ADDRESS` | Captures Doppler integrator fees (~80–95% of trade fees). MUST be a **re-homed Safe** — never the flagged deployer or the old 0xA360 Safe. |
-| **Fee constitution (final numbers)** | `config.ts` `DEFAULT_FEE_CONSTITUTION` | Draft: creator 60 / attention 15 / protocol 20 / Doppler 5. Protocol take ≤20% (survivor ceiling). The Doppler line points at the Airlock owner and must be ≥5% (enforced in `airlock.ts`). |
+| ~~Fee constitution~~ **DONE** | `config.ts` `DEFAULT_FEE_CONSTITUTION` | **Finalized 2026-07-17: 1% total — creator 70 / attention 10 / Tegridy 15 / Doppler 5.** Tegridy 15% is below Clanker's 20% survivor ceiling; routes to RevenueDistributor. Doppler ≥5% enforced. Tunable ~10–20% Tegridy if posture changes. |
 
 ## 3. Un-gate steps (code — once gates + decisions are met)
 

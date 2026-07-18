@@ -135,8 +135,11 @@ scored, no "safe" label anywhere. Featuring/promotion status never appears in it
   "prevented" claims.
 
 ### 2.4 Constitutional fees
-Split fixed at launch, published in the Fact Sheet. Draft (EVM): creator 60 /
-attention-beneficiaries 15 / Tegridy 20 (½ stakers, ½ POL) / Doppler ~5.
+Split fixed at launch, published in the Fact Sheet. **FINALIZED (EVM), 1% total
+fee:** creator 70 / attention 10 (both creator-directed) / Tegridy 15 (→
+RevenueDistributor, sub-split ½ stakers ½ POL) / Doppler 5. Tegridy sits BELOW
+Clanker's 20% survivor ceiling on purpose — the Afterlife economy is the draw,
+not the cheapest fee. See `config.ts DEFAULT_FEE_CONSTITUTION`.
 Honest caveats attached (red-team): Doppler's protocol cut is theirs to define
 within their cap, and "constitutional" binds *us*, not the market — it is an
 honesty artifact, not a moat.
