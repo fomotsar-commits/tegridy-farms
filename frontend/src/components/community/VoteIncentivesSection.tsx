@@ -255,7 +255,7 @@ function HowItWorks() {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           {[
-            { n: 1, title: 'Deposit', body: 'Project posts a bribe on a gauge — ETH or a whitelisted ERC20. A 3% fee goes to treasury; the rest is reserved for voters.' },
+            { n: 1, title: 'Deposit', body: 'Project posts a bribe on a gauge — ETH or a whitelisted ERC20. A small protocol fee goes to treasury (shown live at deposit); the rest is reserved for voters.' },
             { n: 2, title: 'Snapshot', tip: TIPS.snapshot, body: 'advanceEpoch() locks every staker\'s voting power at that moment. A 7-day voting window opens.' },
             { n: 3, title: 'Vote', body: 'veTOWELI holders allocate power toward chosen gauges within the window. Votes cap at your snapshot power.' },
             { n: 4, title: 'Claim', tip: TIPS.proRata, body: 'When the window closes, voters claim their pro-rata slice of every bribe token on every gauge they voted for.' },

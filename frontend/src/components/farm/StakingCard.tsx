@@ -12,9 +12,10 @@ import { ArtImg } from '../ArtImg';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS } from '../../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS } from '../../lib/constants';
 
-const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
+// Derive from the canonical constant so the penalty label + math track one source.
+const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
 
 export interface ConfirmState {
   withdraw: boolean;

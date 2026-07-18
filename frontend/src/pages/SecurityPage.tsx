@@ -272,7 +272,7 @@ export default function SecurityPage() {
           <ArtCard art={pageArt('security', 15)}>
             <div className="space-y-3">
               {[
-                '100% of swap fees distributed to TOWELI stakers',
+                'Protocol swap fees route on-chain to stakers (split is governance-adjustable — see Treasury)',
                 'All admin changes are timelocked (24-48h delay)',
                 'No proxy contracts — all code is immutable after deployment',
                 'Source code available for independent review',

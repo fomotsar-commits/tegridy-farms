@@ -31,7 +31,7 @@ const TIMELINE = [
   {
     phase: '06',
     title: 'Tegridy Farms',
-    description: 'Built by the community, for the community. A DeFi platform where 100% of protocol swap fees go to stakers. No VC money. No insider allocations. Just pure, unadulterated TEGRIDY.',
+    description: 'Built by the community, for the community. A DeFi platform where protocol swap fees route on-chain to stakers. No VC money. No insider allocations. Just pure, unadulterated TEGRIDY.',
   },
   {
     phase: '07',

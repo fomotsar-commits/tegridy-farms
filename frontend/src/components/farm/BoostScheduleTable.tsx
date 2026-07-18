@@ -1,9 +1,10 @@
 import { m } from 'framer-motion';
-import { JBAC_BONUS_BPS, LOCK_OPTIONS } from '../../lib/constants';
+import { JBAC_BONUS_BPS, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS } from '../../lib/constants';
 import { calculateBoost } from '../../lib/boostCalculations';
 import { ArtImg } from '../ArtImg';
 
-const EARLY_WITHDRAWAL_PENALTY_PCT = 25;
+// Derive from the canonical constant so this table can't drift from the on-chain penalty.
+const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
 
 interface BoostScheduleTableProps {
   selectedLockLabel: string;

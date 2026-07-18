@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { SWAP_FEE_BPS } from '../lib/constants';
 
 // Protocol-specific risks that reflect the actual current state of Tegridy Farms
 // (as of the last RisksPage refresh). Distinct from the generic DeFi risks
@@ -90,7 +91,7 @@ const PROTOCOL_LIMITS: Array<{
     feature: 'Swap',
     status: 'Live',
     items: [
-      { label: 'Protocol fee', value: '0.5% (1% hard cap)', why: 'Revenue to stakers; fee routing being finalized' },
+      { label: 'Protocol fee', value: `${SWAP_FEE_BPS / 100}% (1% hard cap)`, why: 'Revenue to stakers; fee routing being finalized' },
       { label: 'Pool trading fee', value: '0.3%', why: 'Standard AMM fee, paid to liquidity providers' },
       { label: 'Slippage', value: 'You choose', why: 'Caps adverse price movement / MEV' },
     ],

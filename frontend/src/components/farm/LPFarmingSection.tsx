@@ -139,7 +139,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     ? 'be the first to stake LP to activate the live APR'
                     : !lpFarm.isActive
                       ? 'reward period ended — awaiting refill'
-                      : 'calculating&hellip;'}
+                      : 'calculating…'}
                 </span>
               </>
             )}

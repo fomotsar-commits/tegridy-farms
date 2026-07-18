@@ -154,13 +154,17 @@ export function LiquidityTab() {
     setAmountA(''); setAmountB(''); setRemovePct(0);
   }, [tokenA.address, tokenB.address]);
 
-  // LP amount derived from percent slider
+  // LP amount derived from percent slider. Compute the burn from the EXACT on-chain LP
+  // bigint (liq.lpBalance), not a lossy float of the formatted balance: at 100% this burns
+  // exactly liq.lpBalance (float rounding could otherwise exceed it and revert the burn),
+  // and tiny balances never round-trip through exponential strings that parseUnits rejects.
+  // formatUnits(x,18) -> parseUnits(x,18) is exact, so downstream tx math is unchanged.
   const lpRemoveAmount = useMemo(() => {
-    if (removePct === 0) return '';
-    const lpBal = parseFloat(liq.lpBalanceFormatted || '0');
-    if (!isFinite(lpBal) || lpBal === 0) return '';
-    return ((lpBal * removePct) / 100).toString();
-  }, [removePct, liq.lpBalanceFormatted]);
+    if (removePct === 0 || liq.lpBalance === 0n) return '';
+    const lpWei = (liq.lpBalance * BigInt(removePct)) / 100n;
+    if (lpWei === 0n) return '';
+    return formatUnits(lpWei, 18);
+  }, [removePct, liq.lpBalance]);
 
   // Approval checks — bigint-safe comparison
   const needsApproveA = useMemo(() => {
