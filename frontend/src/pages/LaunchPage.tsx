@@ -3,6 +3,7 @@ import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
+import { LaunchExplorer } from '../components/launcher/LaunchExplorer';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_TIERS,
@@ -116,7 +117,7 @@ export default function LaunchPage() {
       >
         {step === 0 && <StepDetails w={w} set={set} />}
         {step === 1 && <StepTier w={w} set={set} />}
-        {step === 2 && <StepFees w={w} set={set} sheet={sheet} />}
+        {step === 2 && <StepFees sheet={sheet} />}
         {step === 3 && <StepReview w={w} sheet={sheet} />}
       </m.div>
 
@@ -144,6 +145,12 @@ export default function LaunchPage() {
             Review &amp; launch
           </button>
         )}
+      </div>
+
+      {/* Discovery / outcomes surface. Empty until a data source is wired at un-gate
+          (the aggregator-catchall adapter over outcomesReader); degrades to "No launches yet". */}
+      <div className="mt-12">
+        <LaunchExplorer launches={[]} outcomes={{}} />
       </div>
     </div>
   );
@@ -252,8 +259,7 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
   );
 }
 
-function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof WizardState>(k: K, v: WizardState[K]) => void; sheet: LaunchFactSheet }) {
-  void set;
+function StepFees({ sheet }: { sheet: LaunchFactSheet }) {
   return (
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">Constitutional fee split</h3>

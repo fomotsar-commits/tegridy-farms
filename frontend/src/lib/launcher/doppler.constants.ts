@@ -12,14 +12,16 @@
 
 import type { Address } from 'viem';
 
-/** ModuleState enum as defined in Airlock.sol. */
-export enum DopplerModuleState {
-  NotWhitelisted = 0,
-  TokenFactory = 1,
-  GovernanceFactory = 2,
-  PoolInitializer = 3,
-  LiquidityMigrator = 4,
-}
+/** ModuleState as defined in Airlock.sol. Const object (not `enum`) — the project
+ *  builds with `erasableSyntaxOnly`, which forbids TS enums. */
+export const DopplerModuleState = {
+  NotWhitelisted: 0,
+  TokenFactory: 1,
+  GovernanceFactory: 2,
+  PoolInitializer: 3,
+  LiquidityMigrator: 4,
+} as const;
+export type DopplerModuleState = (typeof DopplerModuleState)[keyof typeof DopplerModuleState];
 
 /**
  * Ethereum mainnet (chainId 1) canonical Doppler addresses.

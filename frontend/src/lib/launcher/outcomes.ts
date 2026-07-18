@@ -34,6 +34,13 @@ export interface OutcomeRecord {
   unlocks: UnlockEvent[];
   /** Last on-chain activity from the creator/team address (unix seconds). */
   lastTeamActivityAt: number | null;
+  /**
+   * Whether live market data was actually observed at `observedAt`. When false
+   * (upstream outage/rate-limit), price/liquidity mirror the baseline so no false
+   * crash/drain signal is derived — consumers should render "unavailable" rather
+   * than "no adverse signals". Undefined = observed (back-compat with existing records).
+   */
+  marketObserved?: boolean;
 }
 
 export interface OutcomeFlags {
