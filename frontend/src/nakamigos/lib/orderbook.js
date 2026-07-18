@@ -50,7 +50,7 @@ export function bundleAuthItemsString(items) {
 // ═══ FETCH NATIVE LISTINGS ═══
 // Query active native listings for a given contract address.
 
-export async function fetchNativeListings(contract, { sort = "price_eth", limit = 50 } = {}) {
+export async function fetchNativeListings(contract, { sort = "price_eth", limit = 50, bundles = false } = {}) {
   if (!contract) return { orders: [], count: 0 };
   const params = new URLSearchParams({
     action: "query",
@@ -59,6 +59,8 @@ export async function fetchNativeListings(contract, { sort = "price_eth", limit 
     limit: String(limit),
     status: "active",
   });
+  // Bundles are excluded from the default per-token feed; ask for them explicitly.
+  if (bundles) params.set("bundles", "true");
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -77,6 +79,13 @@ export async function fetchNativeListings(contract, { sort = "price_eth", limit 
     if (e.name === "AbortError") return { orders: [], count: 0, error: "Request timed out" };
     return { orders: [], count: 0, error: e.message };
   }
+}
+
+// Fetch active BUNDLE listings (is_bundle rows) for a collection. Thin wrapper over
+// fetchNativeListings — same shape, same error handling. Returns [] while the feature is
+// off (the server returns empty for ?bundles=true when BUNDLE_LISTING_ENABLED is unset).
+export async function fetchNativeBundles(contract, opts = {}) {
+  return fetchNativeListings(contract, { ...opts, bundles: true });
 }
 
 // ═══ FULFILL NATIVE ORDER ═══

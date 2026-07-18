@@ -2,9 +2,9 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { Eth } from "./Icons";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
-import { fetchNativeListings, fulfillNativeOrder } from "../lib/orderbook";
+import { fetchNativeListings, fetchNativeBundles, fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
-import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS } from "../constants";
+import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS, BUNDLE_LISTING_ENABLED } from "../constants";
 import { getProvider } from "../api";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import { getFriendlyError } from "../lib/errorMessages";
@@ -26,6 +26,7 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
   const { isWrongNetwork } = useWalletState();
   const { switchChain } = useWalletActions();
   const [orders, setOrders] = useState([]);
+  const [bundles, setBundles] = useState([]); // gated: package listings (is_bundle rows)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [buying, setBuying] = useState(null); // order_hash being purchased
@@ -121,6 +122,11 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       }
       setLoading(false);
     });
+    // Bundles (gated): a separate fetch so a bundle fetch failure never blocks the main
+    // per-token listings. Returns [] while the feature is off.
+    if (BUNDLE_LISTING_ENABLED) {
+      fetchNativeBundles(collection.contract).then((r) => setBundles(r?.error ? [] : (r?.orders || [])));
+    }
   }, [collection?.contract]);
 
   useEffect(() => {
@@ -144,21 +150,23 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       return;
     }
     if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
+    // A bundle has no single token_id — label it by its item count for toasts/history.
+    const label = order.is_bundle ? `bundle (${order.token_ids?.length || 0} NFTs)` : `#${order.token_id}`;
     setBuying(order.order_hash);
-    addToast?.(`Purchasing #${order.token_id} for ${order.price_eth} ETH via native orderbook...`, "info");
+    addToast?.(`Purchasing ${label} for ${order.price_eth} ETH via native orderbook...`, "info");
 
     const result = await fulfillNativeOrder(order);
 
     if (result.success) {
       recordTransaction({
         type: "buy",
-        nft: { id: order.token_id, name: `${collection.name} #${order.token_id}` },
+        nft: { id: order.token_id || order.order_hash, name: `${collection.name} ${label}` },
         price: parseFloat(order.price_eth),
         hash: result.hash,
         wallet,
         slug: collection.slug,
       });
-      addToast?.(`Purchased #${order.token_id} for ${order.price_eth} ETH! Tx: ${result.hash.slice(0, 10)}...`, "success");
+      addToast?.(`Purchased ${label} for ${order.price_eth} ETH! Tx: ${result.hash.slice(0, 10)}...`, "success");
       // Refresh listings after successful purchase
       fetchOrders();
     } else if (result.error === "rejected") {
@@ -184,6 +192,11 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
       return new Date(o.end_time).getTime() > now;
     });
   }, [orders]);
+
+  const activeBundles = useMemo(() => {
+    const now = Date.now();
+    return bundles.filter((o) => !o.end_time || new Date(o.end_time).getTime() > now);
+  }, [bundles]);
 
   return (
     <div style={{
@@ -284,6 +297,26 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
           onBuy={handleBuy}
           onCancel={handleCancel}
         />
+      )}
+
+      {/* Bundles (gated by BUNDLE_LISTING_ENABLED) — package listings, bought atomically
+          in one Seaport tx. Reuses the same list + buy/cancel handlers; NativeListingsList
+          renders bundle rows with a "Bundle · N NFTs" label. Renders nothing while off. */}
+      {BUNDLE_LISTING_ENABLED && !loading && !error && activeBundles.length > 0 && (
+        <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+          <div style={{ fontFamily: "var(--pixel)", fontSize: 10, color: "var(--gold)", letterSpacing: "0.1em", marginBottom: 8 }}>
+            BUNDLES · buy every NFT in one transaction
+          </div>
+          <NativeListingsList
+            orders={activeBundles}
+            wallet={wallet}
+            isNarrow={isNarrow}
+            buying={buying}
+            cancelling={cancelling}
+            onBuy={handleBuy}
+            onCancel={handleCancel}
+          />
+        </div>
       )}
     </div>
   );

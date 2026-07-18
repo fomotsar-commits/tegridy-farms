@@ -233,13 +233,17 @@ export default async function handler(req, res) {
       .order(safeSort, { ascending: safeSort === "price_eth" })
       .limit(safeLimit);
 
-    // Exclude bundle rows from the per-token listings feed (this handler also powers the
-    // floor stat via fetchNativeListings), so a package-priced bundle can't poison the
-    // per-token price_eth sort / collection floor. ENV-GATED because the is_bundle column
-    // only exists after migration 012 — and enabling bundles REQUIRES that migration — so
-    // a pre-enable deployment never references a missing column. (Bundle re-audit wf_ed656ebf.)
+    // Bundles are a separate object (a package, not a per-token listing). The default feed
+    // EXCLUDES them — a bundle at its package total would poison the per-token price_eth
+    // sort / collection floor (this handler also powers the floor stat). The bundle surface
+    // explicitly requests them with ?bundles=true. ENV-GATED because the is_bundle column
+    // only exists after migration 012 — enabling bundles REQUIRES that migration — so a
+    // pre-enable deployment never references a missing column. (Bundle re-audit wf_ed656ebf.)
     if (process.env.BUNDLE_LISTING_ENABLED === "true") {
-      query = query.eq("is_bundle", false);
+      query = query.eq("is_bundle", req.query.bundles === "true");
+    } else if (req.query.bundles === "true") {
+      // Feature off → no bundle rows exist (and the column may not); return empty, not an error.
+      return res.status(200).json({ orders: [], count: 0 });
     }
 
     // Contract is required — never return orders across all collections

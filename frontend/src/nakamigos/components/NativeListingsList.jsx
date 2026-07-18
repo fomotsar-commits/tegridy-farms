@@ -6,6 +6,18 @@ function formatAddress(addr) {
   return addr.slice(0, 6) + "..." + addr.slice(-4);
 }
 
+// A single listing shows its token (#123); a bundle shows "Bundle · N NFTs" with the
+// first few ids. token_ids is [{ contract, token_id }, ...] (migration 012).
+function tokenLabel(order) {
+  if (order.is_bundle) {
+    const ids = Array.isArray(order.token_ids) ? order.token_ids : [];
+    const shown = ids.slice(0, 3).map((t) => `#${t.token_id}`).join(", ");
+    const more = ids.length > 3 ? ` +${ids.length - 3}` : "";
+    return `Bundle · ${ids.length} NFTs${shown ? ` (${shown}${more})` : ""}`;
+  }
+  return `#${order.token_id || "?"}`;
+}
+
 function formatDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -117,7 +129,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--naka-blue)", fontWeight: 600 }}>
-                  #{order.token_id || "?"}
+                  {tokenLabel(order)}
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: "var(--mono)", fontSize: 13, color: "var(--gold)" }}>
                   <Eth size={11} /> {Number(order.price_eth).toFixed(4)}
@@ -156,7 +168,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
             return (
               <tr key={order.order_hash} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                 <td style={tdStyle}>
-                  <span style={{ color: "var(--naka-blue)", fontWeight: 600 }}>#{order.token_id || "?"}</span>
+                  <span style={{ color: "var(--naka-blue)", fontWeight: 600 }}>{tokenLabel(order)}</span>
                 </td>
                 <td style={{ ...tdStyle, textAlign: "right" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--gold)" }}>
