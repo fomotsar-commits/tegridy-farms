@@ -170,6 +170,16 @@ export const OPENSEA_FEE_BPS = 100;
 export const PLATFORM_FEE_RECIPIENT = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
 export const PLATFORM_FEE_BPS = 100; // 1%
 
+// ── Bundle listing feature flag ──────────────────────────────────────────────
+// Multi-NFT "list as a package" (one atomic Seaport order, one price). This is a
+// NEW money-path (multi-item order construction + a dedicated server action + a DB
+// migration). It stays OFF until: (1) supabase migration 012 is applied to prod,
+// (2) the server env BUNDLE_LISTING_ENABLED=true is set, and (3) the money-path
+// passes a re-audit. With this false, BundleListing shows an honest "coming soon"
+// state instead of listing anything — it never fakes success. Server also enforces
+// its own env gate, so flipping this client flag alone cannot expose the feature.
+export const BUNDLE_LISTING_ENABLED = false;
+
 export const OPENSEA_ITEM = (id, contract = CONTRACT) => `https://opensea.io/item/ethereum/${contract}/${id}`;
 export const ETHERSCAN_TOKEN = (id, contract = CONTRACT) => `https://etherscan.io/nft/${contract}/${id}`;
 

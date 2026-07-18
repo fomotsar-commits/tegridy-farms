@@ -727,28 +727,38 @@ function normalizeOpenSeaListings(allRawListings) {
 // Map native-orderbook orders into our listing shape (same fields as OpenSea).
 function mapNativeListings(nativeResult) {
   try {
-    return (nativeResult.orders || []).map(order => ({
-      tokenId: order.token_id ? String(order.token_id) : null,
-      price: order.price_eth != null ? Number(order.price_eth) : null,
-      priceWei: order.price_wei || null,
-      priceUsd: null,
-      marketplace: "Native Orderbook",
-      marketplaceIcon: null,
-      maker: order.maker,
-      expiry: order.end_time ? new Date(order.end_time).toISOString() : null,
-      createdAt: order.created_at || null,
-      // Nest under `parameters` to match the OpenSea shape (protocol_data) the shared
-      // validator reads (orderValidator.js: order.orderData.parameters). Left flat, every
-      // native listing's ownership/approval/expiry pre-checks silently no-op and it paints
-      // a false "order data incomplete" warning. Native FULFILLMENT is unaffected — it
-      // reads nativeOrder.parameters (orderbook.js fulfillNativeOrder), not orderData.
-      orderData: order.parameters ? { parameters: order.parameters, protocolAddress: order.protocol_address } : null,
-      orderHash: order.order_hash || null,
-      protocolAddress: order.protocol_address || null,
-      // Flag for native orderbook fulfillment (uses Seaport directly, not OpenSea API)
-      isNative: true,
-      nativeOrder: order,
-    })).filter(l => l.tokenId != null && l.price != null);
+    return (nativeResult.orders || [])
+      // Bundle orders (is_bundle, migration 012) are a DIFFERENT object — N NFTs for one
+      // total price — and must NOT be folded into the per-token gallery/floor. Mapping a
+      // bundle onto a representative token at its whole-bundle total poisons the price_eth
+      // ASC floor sort with a non-per-token price and evicts/hides genuine single listings
+      // of that token. Bundles are stored + Seaport-fulfillable, but surfacing them needs a
+      // dedicated bundle card; until that lands they are excluded from this per-token path.
+      // (Bundle re-audit 2026-07-18 wf_ed656ebf — findings 1-4.) Defense-in-depth: the
+      // server listings query also filters is_bundle=false.
+      .filter(order => !order.is_bundle)
+      .map(order => ({
+        tokenId: order.token_id ? String(order.token_id) : null,
+        price: order.price_eth != null ? Number(order.price_eth) : null,
+        priceWei: order.price_wei || null,
+        priceUsd: null,
+        marketplace: "Native Orderbook",
+        marketplaceIcon: null,
+        maker: order.maker,
+        expiry: order.end_time ? new Date(order.end_time).toISOString() : null,
+        createdAt: order.created_at || null,
+        // Nest under `parameters` to match the OpenSea shape (protocol_data) the shared
+        // validator reads (orderValidator.js: order.orderData.parameters). Left flat, every
+        // native listing's ownership/approval/expiry pre-checks silently no-op and it paints
+        // a false "order data incomplete" warning. Native FULFILLMENT is unaffected — it
+        // reads nativeOrder.parameters (orderbook.js fulfillNativeOrder), not orderData.
+        orderData: order.parameters ? { parameters: order.parameters, protocolAddress: order.protocol_address } : null,
+        orderHash: order.order_hash || null,
+        protocolAddress: order.protocol_address || null,
+        // Flag for native orderbook fulfillment (uses Seaport directly, not OpenSea API)
+        isNative: true,
+        nativeOrder: order,
+      })).filter(l => l.tokenId != null && l.price != null);
   } catch (err) {
     console.warn("Error mapping native listings:", err.message);
     return [];

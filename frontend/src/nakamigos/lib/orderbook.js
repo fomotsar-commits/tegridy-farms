@@ -10,10 +10,15 @@
  * calling Seaport.fulfillOrder() directly — no marketplace dependency.
  */
 
-import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "../constants";
+import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED } from "../constants";
 import { getProvider } from "../api";
 
 const ORDERBOOK_API = "/api/orderbook";
+
+// Max NFTs in one bundle. MUST equal the server's MAX_BUNDLE_ITEMS (api/orderbook.js) so
+// the client fails fast instead of signing twice + paying approval gas for an order the
+// server would reject at 400/413. Exported so the seller UI caps selection at the same value.
+export const MAX_BUNDLE_ITEMS = 50;
 
 async function withRetry(fn, retries = 2) {
   for (let i = 0; i <= retries; i++) {
@@ -22,6 +27,24 @@ async function withRetry(fn, retries = 2) {
       await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
   }
+}
+
+/**
+ * Deterministic canonical string of a bundle's NFT items, embedded in the create
+ * auth message so the wallet signature binds the EXACT set of NFTs. Each item is
+ * `${contract.toLowerCase()}:${tokenId}`, the list is SORTED (so item ordering can't
+ * change the signature), and joined with ",".
+ *
+ * IN LOCKSTEP with the server: api/orderbook.js `create-bundle` rebuilds this same
+ * string from params.offer (o.token.toLowerCase() + ":" + o.identifierOrCriteria,
+ * sorted, joined) and recovers the signer. If you change the format here, change it
+ * there too or every bundle create will 403.
+ */
+export function bundleAuthItemsString(items) {
+  return items
+    .map((it) => `${String(it.contract).toLowerCase()}:${String(it.tokenId)}`)
+    .sort()
+    .join(",");
 }
 
 // ═══ FETCH NATIVE LISTINGS ═══
@@ -404,5 +427,198 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     }
     console.error("Native listing error:", err);
     return { error: "failed", message: err.shortMessage || err.message || "Failed to create listing" };
+  }
+}
+
+// ═══ CREATE NATIVE BUNDLE LISTING ═══
+// One Seaport order offering N NFTs for one total price, fulfillable atomically via
+// Seaport.fulfillOrder (buyer receives all N or none). Extends createNativeListing
+// VERBATIM — identical fee split, EIP-712 signing, orderHash derivation, and submit —
+// changing only: (1) a multi-item `offer` array, (2) a per-collection approval loop,
+// (3) a bundle auth message that binds the full item set. Gated by BUNDLE_LISTING_ENABLED
+// (client) AND the server's own env gate; either off → refused. Money-path: unaudited
+// until the re-audit + migration 012 land, so it stays off.
+export async function createNativeBundleListing({ items, priceEth, expirationHours = 168 }) {
+  if (!BUNDLE_LISTING_ENABLED) {
+    return { error: "disabled", message: "Bundle listing is not enabled yet." };
+  }
+  if (!Array.isArray(items) || items.length < 2) {
+    return { error: "too-few-items", message: "A bundle needs at least 2 NFTs." };
+  }
+  // Fail fast on oversized bundles BEFORE any approval/signature — the server caps at
+  // MAX_BUNDLE_ITEMS (and a 10KB body), so without this the seller pays approval gas and
+  // signs twice for an order that can never be stored.
+  if (items.length > MAX_BUNDLE_ITEMS) {
+    return { error: "too-many-items", message: `A bundle can hold at most ${MAX_BUNDLE_ITEMS} NFTs.` };
+  }
+  // Reject malformed / duplicate items up front (Seaport would accept a dup offer item
+  // but it's a footgun — the seller would escrow the same NFT twice in one order).
+  const seenItems = new Set();
+  for (const it of items) {
+    if (!it || !it.contract || it.tokenId == null) {
+      return { error: "bad-item", message: "Every bundle item needs a contract and tokenId." };
+    }
+    const key = `${String(it.contract).toLowerCase()}:${String(it.tokenId)}`;
+    if (seenItems.has(key)) return { error: "dup-item", message: "The same NFT appears twice in the bundle." };
+    seenItems.add(key);
+  }
+  // Single-collection bundles only (mirrors the server guard). The row is stored + floored
+  // under one contract, so a cross-collection bundle would leak into one collection's
+  // listings at a price spanning others. The seller UI only ever builds from one active
+  // collection; this is fail-fast + defense-in-depth.
+  if (new Set(items.map((it) => String(it.contract).toLowerCase())).size !== 1) {
+    return { error: "multi-collection", message: "All NFTs in a bundle must be from the same collection." };
+  }
+
+  const ethProvider = getProvider();
+  if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
+
+  try {
+    const { ethers } = await import("ethers");
+    const provider = new ethers.BrowserProvider(ethProvider);
+    const network = await provider.getNetwork();
+    if (Number(network.chainId) !== 1) {
+      return { error: "wrong-chain", message: "Please switch to Ethereum Mainnet to list NFTs" };
+    }
+    const signer = await provider.getSigner();
+    const sellerAddress = await signer.getAddress();
+
+    // Approve the Seaport conduit for each UNIQUE collection in the bundle (one
+    // setApprovalForAll per collection, not per NFT). Same check-then-set-then-reverify
+    // pattern as createNativeListing.
+    const uniqueContracts = [...new Set(items.map((it) => String(it.contract).toLowerCase()))];
+    for (const contractAddr of uniqueContracts) {
+      const nftContract = new ethers.Contract(contractAddr, [
+        "function isApprovedForAll(address,address) view returns (bool)",
+        "function setApprovalForAll(address,bool)",
+      ], signer);
+      const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
+      if (!isApproved) {
+        const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
+        const approveReceipt = await approveTx.wait();
+        if (!approveReceipt || approveReceipt.status === 0) {
+          return { error: "approval-failed", message: "NFT approval transaction reverted" };
+        }
+        const stillApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
+        if (!stillApproved) {
+          return { error: "approval-failed", message: "NFT approval did not take effect" };
+        }
+      }
+    }
+
+    const priceWei = ethers.parseEther(String(priceEth));
+    const now = Math.floor(Date.now() / 1000);
+    const endTime = now + expirationHours * 3600;
+
+    // Platform fee: 1% of the TOTAL bundle price (same split as a single listing).
+    const platformFee = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
+    const sellerReceives = priceWei - platformFee;
+
+    // Multi-item offer: one ERC721 offer item per NFT. Consideration stays the SAME
+    // 2-item split (seller receives + platform fee) — one price for the whole bundle —
+    // so totalOriginalConsiderationItems is still 2.
+    const offer = items.map((it) => ({
+      itemType: 2, // ERC721
+      token: String(it.contract),
+      identifierOrCriteria: String(it.tokenId),
+      startAmount: "1",
+      endAmount: "1",
+    }));
+
+    const orderParameters = {
+      offerer: sellerAddress,
+      zone: "0x0000000000000000000000000000000000000000",
+      offer,
+      consideration: [
+        {
+          itemType: 0, // NATIVE ETH
+          token: "0x0000000000000000000000000000000000000000",
+          identifierOrCriteria: "0",
+          startAmount: sellerReceives.toString(),
+          endAmount: sellerReceives.toString(),
+          recipient: sellerAddress,
+        },
+        {
+          itemType: 0,
+          token: "0x0000000000000000000000000000000000000000",
+          identifierOrCriteria: "0",
+          startAmount: platformFee.toString(),
+          endAmount: platformFee.toString(),
+          recipient: PLATFORM_FEE_RECIPIENT,
+        },
+      ],
+      // FULL_OPEN = 0 for public listings (see createNativeListing's AUDIT note).
+      orderType: 0,
+      startTime: String(now),
+      endTime: String(endTime),
+      zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      salt: ethers.hexlify(ethers.randomBytes(32)),
+      conduitKey: CONDUIT_KEY,
+      totalOriginalConsiderationItems: 2,
+    };
+
+    const seaport = new ethers.Contract(SEAPORT_ADDRESS, [
+      "function getCounter(address) view returns (uint256)",
+    ], provider);
+    const counter = await seaport.getCounter(sellerAddress);
+
+    const signData = { ...orderParameters, counter: counter.toString() };
+    const seaportSignature = await signer.signTypedData(SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, signData);
+    const seaportOrderHash = ethers.TypedDataEncoder
+      .from(SEAPORT_ORDER_TYPES)
+      .hash(signData)
+      .toLowerCase();
+
+    // Bundle auth message: same fields as the single-listing message but binds the FULL
+    // item set (deterministic sorted digest) instead of one Contract. MUST match the
+    // server-side reconstruction in api/orderbook.js create-bundle exactly. Price is
+    // sellerReceives (consideration[0].startAmount), matching createNativeListing.
+    const itemsStr = bundleAuthItemsString(items);
+    const authMessage = `Create bundle for ${sellerAddress.toLowerCase()} | Items: ${itemsStr} | Count: ${items.length} | Price: ${sellerReceives.toString()} | StartTime: ${now} | EndTime: ${endTime}`;
+    const authSignature = await signer.signMessage(authMessage);
+
+    const createController = new AbortController();
+    const createTimeout = setTimeout(() => createController.abort(), 30000);
+    let res;
+    try {
+      res = await withRetry(async () => {
+        const r = await fetch(ORDERBOOK_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: createController.signal,
+          body: JSON.stringify({
+            action: "create-bundle",
+            order: {
+              parameters: orderParameters,
+              signature: authSignature,
+              seaportSignature,
+              protocol_address: SEAPORT_ADDRESS,
+              seaportOrderHash,
+              seaportCounter: counter.toString(),
+            },
+          }),
+        });
+        clearTimeout(createTimeout);
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to submit bundle");
+        }
+        return r;
+      });
+    } catch (fetchErr) {
+      clearTimeout(createTimeout);
+      if (fetchErr.name === "AbortError") return { error: "timeout", message: "Bundle submission timed out" };
+      throw fetchErr;
+    }
+
+    let result;
+    try { result = await res.json(); } catch { return { error: "post-failed", message: "Invalid response from orderbook" }; }
+    return { success: true, orderHash: result.orderHash };
+  } catch (err) {
+    if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+      return { error: "rejected", message: "Bundle listing cancelled by user" };
+    }
+    console.error("Native bundle listing error:", err);
+    return { error: "failed", message: err.shortMessage || err.message || "Failed to create bundle listing" };
   }
 }

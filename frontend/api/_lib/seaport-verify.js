@@ -428,6 +428,45 @@ export async function verifyNftOwnership({ parameters }) {
   return { ok: true };
 }
 
+/**
+ * Bundle variant of verifyNftOwnership: the offerer must own EVERY ERC721 offer
+ * item. Mirrors verifyNftOwnership's per-item logic + error mapping exactly, looped
+ * over all offer items — any single item failing fails the whole bundle (all-or-
+ * nothing, like the Seaport order itself). Returns `{ ok: true }` or `{ ok: false, error }`.
+ * Only reached from the env-gated create-bundle handler, which already restricts offer
+ * items to ERC721 from allowed collections.
+ */
+export async function verifyBundleOwnership({ parameters }) {
+  if (!alchemyUrl()) {
+    if (IS_PRODUCTION) return { ok: false, error: "rpc-unavailable" };
+    console.warn("[seaport-verify] ALCHEMY_API_KEY missing — skipping bundle ownership check (non-prod)");
+    return { ok: true, skipped: true };
+  }
+  const offer = parameters.offer;
+  if (!Array.isArray(offer) || offer.length === 0) return { ok: false, error: "no-offer-item" };
+  for (const item of offer) {
+    // Only ERC721 enforced (matches verifyNftOwnership). ERC1155 ownership is a
+    // balance check, out of scope; the create-bundle handler rejects non-ERC721 anyway.
+    if (Number(item.itemType) !== 2) continue;
+    const tokenId = item.identifierOrCriteria;
+    if (tokenId == null) return { ok: false, error: "no-token-id" };
+    let owner;
+    try {
+      owner = await fetchNftOwner(item.token, tokenId);
+    } catch (err) {
+      if (err.code === "OWNER_OF_REVERT" || err.code === "OWNER_OF_EMPTY") {
+        return { ok: false, error: "token-not-found" };
+      }
+      console.error("[seaport-verify] bundle ownerOf failed:", err.message);
+      return { ok: false, error: "rpc-unavailable" };
+    }
+    if (owner !== String(parameters.offerer).toLowerCase()) {
+      return { ok: false, error: "not-owner" };
+    }
+  }
+  return { ok: true };
+}
+
 // ── Price sanity ────────────────────────────────────────────────────
 // Hard cap on `priceWei` so a single overflowing listing can't pollute the
 // `price_eth ASC` sort. 10**24 wei = 1,000,000 ETH. Real-world floor for any

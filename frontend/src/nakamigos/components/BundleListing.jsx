@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
-import { PLATFORM_FEE_BPS, PLATFORM_FEE_RECIPIENT } from "../constants";
+import { PLATFORM_FEE_BPS, PLATFORM_FEE_RECIPIENT, BUNDLE_LISTING_ENABLED } from "../constants";
+import { createNativeBundleListing, MAX_BUNDLE_ITEMS } from "../lib/orderbook";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useToast } from "../contexts/ToastContext";
 import { formatPrice } from "../lib/formatPrice";
@@ -74,16 +75,19 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
     if (isSubmitting) return;
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else if (next.size >= MAX_BUNDLE_ITEMS) return prev; // cap — ignore adds past the server max
+      else next.add(id);
       return next;
     });
   }, [isSubmitting]);
 
-  // Select / deselect all
+  // Select / deselect all — capped at MAX_BUNDLE_ITEMS (the server rejects larger bundles).
   const selectAll = useCallback(() => {
     if (isSubmitting) return;
-    if (selected.size === allNfts.length) setSelected(new Set());
-    else setSelected(new Set(allNfts.map((n) => n.id)));
+    const selectable = Math.min(allNfts.length, MAX_BUNDLE_ITEMS);
+    if (selected.size >= selectable) setSelected(new Set());
+    else setSelected(new Set(allNfts.slice(0, MAX_BUNDLE_ITEMS).map((n) => n.id)));
   }, [selected.size, allNfts, isSubmitting]);
 
   // Price parsing
@@ -102,24 +106,41 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
   }, [priceEth, selected.size]);
 
   // Validation
-  const canSubmit = selected.size >= MIN_BUNDLE_SIZE && priceEth > 0 && !isSubmitting;
+  const canSubmit = selected.size >= MIN_BUNDLE_SIZE && selected.size <= MAX_BUNDLE_ITEMS && priceEth > 0 && !isSubmitting;
 
-  // Submit handler
+  // Submit handler — creates a REAL multi-item Seaport bundle order via
+  // createNativeBundleListing. When the feature flag is off it is honest: it tells the
+  // user it's coming soon and lists NOTHING (no fake success toast). It only reports
+  // success on an actual signed + stored order.
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
+    if (!BUNDLE_LISTING_ENABLED) {
+      addToast("Bundle listing is coming soon — it isn't live yet, so nothing was listed.", "info");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      // Simulate brief processing delay
-      await new Promise((r) => setTimeout(r, 600));
-      addToast("Bundle listing submitted! Your NFTs will be listed as a package.", "info");
-      onListingCreated?.();
-      onClose();
+      const items = allNfts
+        .filter((n) => selected.has(n.id))
+        .map((n) => ({ contract: n.contract || collection?.contract, tokenId: n.id }));
+      const result = await createNativeBundleListing({
+        items,
+        priceEth,
+        expirationHours: DURATION_OPTIONS[durationIdx].hours,
+      });
+      if (result?.success) {
+        addToast(`Bundle listed — ${items.length} NFTs for ${priceEth} ETH.`, "success");
+        onListingCreated?.();
+        onClose();
+      } else {
+        addToast(result?.message || "Failed to create bundle listing", "error");
+      }
     } catch (err) {
       addToast(err.message || "Failed to create bundle listing", "error");
     } finally {
       setIsSubmitting(false);
     }
-  }, [canSubmit, addToast, onListingCreated, onClose]);
+  }, [canSubmit, allNfts, selected, priceEth, durationIdx, collection, addToast, onListingCreated, onClose]);
 
   return (
     <div className="modal-bg" onClick={onClose} style={{ zIndex: 1100 }} role="dialog" aria-modal="true" aria-label="Bundle Listing">
@@ -344,18 +365,31 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
           </div>
         )}
 
+        {!BUNDLE_LISTING_ENABLED && (
+          <div style={{
+            fontSize: 11, color: "var(--gold, #c8a850)", textAlign: "center",
+            marginBottom: 10, padding: "8px 10px", borderRadius: 8,
+            background: "rgba(200,168,80,0.08)", border: "1px solid rgba(200,168,80,0.25)",
+          }}>
+            Bundle listing is coming soon. You can set one up to preview the fees, but it
+            isn't live yet — nothing will be listed.
+          </div>
+        )}
+
         {/* ═══ CREATE BUNDLE BUTTON ═══ */}
         <button
           className="btn-primary"
-          disabled={!canSubmit}
+          disabled={!canSubmit || !BUNDLE_LISTING_ENABLED}
           onClick={handleSubmit}
           style={{
             width: "100%", textAlign: "center", fontSize: 12,
-            opacity: canSubmit ? 1 : 0.5,
-            cursor: canSubmit ? "pointer" : "not-allowed",
+            opacity: canSubmit && BUNDLE_LISTING_ENABLED ? 1 : 0.5,
+            cursor: canSubmit && BUNDLE_LISTING_ENABLED ? "pointer" : "not-allowed",
           }}
         >
-          {isSubmitting ? "Creating Bundle..." : `Create Bundle (${selected.size} NFTs)`}
+          {!BUNDLE_LISTING_ENABLED
+            ? "Coming Soon"
+            : isSubmitting ? "Creating Bundle..." : `Create Bundle (${selected.size} NFTs)`}
         </button>
 
         {/* Cancel */}

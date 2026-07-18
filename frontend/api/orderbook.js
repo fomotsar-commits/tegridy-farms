@@ -13,7 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
-import { verifySeaportSignature, verifyNftOwnership, fetchNftOwner, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
+import { verifySeaportSignature, verifyNftOwnership, verifyBundleOwnership, fetchNftOwner, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
 // AUDIT FIX 2026-05-26 [H-20]: bound the Alchemy RPC response so a hostile /
 // compromised RPC cannot OOM the lambda or rack up memory-time billing with a
@@ -27,6 +27,10 @@ const ALLOWED_CONTRACTS = new Set([
   "0xa1de9f93c56c290c48849b1393b09eb616d55dbb", // GNSS Art
   "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
 ]);
+
+// Max NFTs in one bundle listing. Bounds the per-item ownership RPC fan-out (one
+// ownerOf call each) and the signed-message size. 50 is generous vs any real bundle.
+const MAX_BUNDLE_ITEMS = 50;
 
 // Token decimals for price calculation (lowercase address → decimals)
 const TOKEN_DECIMALS = {
@@ -228,6 +232,15 @@ export default async function handler(req, res) {
     query = query
       .order(safeSort, { ascending: safeSort === "price_eth" })
       .limit(safeLimit);
+
+    // Exclude bundle rows from the per-token listings feed (this handler also powers the
+    // floor stat via fetchNativeListings), so a package-priced bundle can't poison the
+    // per-token price_eth sort / collection floor. ENV-GATED because the is_bundle column
+    // only exists after migration 012 — and enabling bundles REQUIRES that migration — so
+    // a pre-enable deployment never references a missing column. (Bundle re-audit wf_ed656ebf.)
+    if (process.env.BUNDLE_LISTING_ENABLED === "true") {
+      query = query.eq("is_bundle", false);
+    }
 
     // Contract is required — never return orders across all collections
     if (!contract) return res.status(400).json({ error: "contract parameter is required" });
@@ -631,6 +644,261 @@ export default async function handler(req, res) {
 
       if (error) { console.error("Orderbook error:", error.message); return res.status(500).json({ error: "Internal error" }); }
       return res.status(201).json({ success: true, orderHash, orderType });
+    }
+
+    // ═══ CREATE BUNDLE ═══
+    // One Seaport order offering N NFTs for one total price (atomic all-or-none fill).
+    // Isolated from the audited single `create` above so that path's blast radius stays
+    // zero. Reuses the SAME audited helpers (verifySeaportSignature, computeSeaportOrderHash,
+    // priceWeiToEthNumber) plus verifyBundleOwnership (per-item). NEW money-path: gated by
+    // the BUNDLE_LISTING_ENABLED env kill-switch AND depends on migration 012 columns
+    // (is_bundle, token_ids) — so a deployed-but-un-migrated build refuses bundles here
+    // before any DB write.
+    if (action === "create-bundle") {
+      if (process.env.BUNDLE_LISTING_ENABLED !== "true") {
+        return res.status(403).json({ error: "Bundle listing is not enabled" });
+      }
+      const { order } = req.body;
+      if (!order?.parameters || !order?.signature) {
+        return res.status(400).json({ error: "Missing order parameters or signature" });
+      }
+      const params = order.parameters;
+
+      if (!params.offerer || typeof params.offerer !== "string") {
+        return res.status(400).json({ error: "Missing or invalid offerer" });
+      }
+      if (!params.offer || !Array.isArray(params.offer) || params.offer.length < 2) {
+        return res.status(400).json({ error: "A bundle must offer at least 2 NFTs" });
+      }
+      if (params.offer.length > MAX_BUNDLE_ITEMS) {
+        return res.status(400).json({ error: `Bundle exceeds max ${MAX_BUNDLE_ITEMS} items` });
+      }
+      if (!params.consideration || !Array.isArray(params.consideration) || params.consideration.length === 0) {
+        return res.status(400).json({ error: "Missing or empty consideration array" });
+      }
+      if (!params.startTime || !params.endTime) {
+        return res.status(400).json({ error: "Missing startTime or endTime" });
+      }
+      const startSec = parseInt(params.startTime);
+      const endSec = parseInt(params.endTime);
+      if (isNaN(startSec) || isNaN(endSec) || endSec <= startSec) {
+        return res.status(400).json({ error: "Invalid startTime/endTime" });
+      }
+      if (endSec * 1000 < Date.now()) {
+        return res.status(400).json({ error: "Order already expired" });
+      }
+      // Replay window — identical to `create` (startTime IS the sign timestamp).
+      const MAX_SIGNATURE_AGE_SEC = 300;
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (startSec < nowSec - MAX_SIGNATURE_AGE_SEC) {
+        return res.status(400).json({ error: "Order signature is stale — resign with a fresh startTime" });
+      }
+      if (startSec > nowSec + MAX_SIGNATURE_AGE_SEC) {
+        return res.status(400).json({ error: "Order startTime is too far in the future" });
+      }
+
+      // Every offer item must be a distinct ERC721 from an allowed collection.
+      const bundleKeys = new Set();
+      const bundleItems = [];
+      for (const item of params.offer) {
+        if (Number(item.itemType) !== 2) {
+          return res.status(400).json({ error: "Bundle items must all be ERC721" });
+        }
+        const c = (item.token || "").toLowerCase();
+        const tid = item.identifierOrCriteria;
+        if (!c || !ALLOWED_CONTRACTS.has(c)) {
+          return res.status(403).json({ error: "Bundle contains an unsupported collection" });
+        }
+        if (tid == null || !/^[0-9]+$/.test(String(tid))) {
+          return res.status(400).json({ error: "Bundle item has an invalid tokenId" });
+        }
+        const key = `${c}:${tid}`;
+        if (bundleKeys.has(key)) {
+          return res.status(400).json({ error: "Bundle contains a duplicate NFT" });
+        }
+        bundleKeys.add(key);
+        bundleItems.push({ contract: c, token_id: String(tid) });
+      }
+
+      // Single-collection bundles only. The row is stored + floored under
+      // bundleItems[0].contract, so a cross-collection bundle would leak into one
+      // collection's listings/floor at a price spanning others. Mirrors the audited
+      // single path's H-4 mixed-currency guard. (Bundle re-audit finding 6.)
+      if (new Set(bundleItems.map((i) => i.contract)).size !== 1) {
+        return res.status(400).json({ error: "All NFTs in a bundle must be from the same collection" });
+      }
+
+      // Price: sum consideration (same as `create`'s listing branch), single currency, cap.
+      const parseAmount = (raw) => {
+        if (raw == null) return 0n;
+        if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "bigint") throw new Error("amount out of range");
+        const s = String(raw).trim();
+        if (!/^[0-9]+$/.test(s)) throw new Error("amount out of range");
+        return BigInt(s);
+      };
+      const considerationItem = params.consideration[0];
+      const baseToken = (considerationItem?.token || "").toLowerCase();
+      let priceWeiBig;
+      try {
+        let totalWei = 0n;
+        for (const item of params.consideration) {
+          if ((item?.token || "").toLowerCase() !== baseToken) {
+            return res.status(400).json({ error: "Mixed-currency consideration not supported" });
+          }
+          const amt = parseAmount(item.startAmount);
+          if (amt > MAX_PRICE_WEI) throw new Error("amount out of range");
+          totalWei += amt;
+        }
+        priceWeiBig = totalWei;
+      } catch (e) {
+        return res.status(400).json({ error: "startAmount out of range or non-numeric" });
+      }
+      if (priceWeiBig > MAX_PRICE_WEI) {
+        return res.status(400).json({ error: "priceWei out of range (exceeds MAX_PRICE_WEI cap)" });
+      }
+      const currencyAddr = baseToken || "0x0000000000000000000000000000000000000000";
+      const decimals = TOKEN_DECIMALS[currencyAddr];
+      if (decimals === undefined) {
+        return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });
+      }
+      const priceWei = priceWeiBig.toString();
+      const priceEth = priceWeiToEthNumber(priceWeiBig, decimals);
+
+      // Rebuild the deterministic items digest the client signed (bundleAuthItemsString)
+      // from params.offer. IN LOCKSTEP with src/nakamigos/lib/orderbook.js — same format
+      // (`${token.toLowerCase()}:${identifierOrCriteria}`, sorted, comma-joined).
+      const itemsStr = params.offer
+        .map((o) => `${(o.token || "").toLowerCase()}:${o.identifierOrCriteria}`)
+        .sort()
+        .join(",");
+      const authPriceWei = considerationItem?.startAmount || "0";
+      const createMessage = `Create bundle for ${params.offerer.toLowerCase()} | Items: ${itemsStr} | Count: ${params.offer.length} | Price: ${authPriceWei} | StartTime: ${startSec} | EndTime: ${endSec}`;
+      let recoveredCreator;
+      try {
+        recoveredCreator = (await recoverMessageAddress({ message: createMessage, signature: order.signature })).toLowerCase();
+      } catch (e) {
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+      if (recoveredCreator !== params.offerer.toLowerCase()) {
+        return res.status(403).json({ error: "Signer does not match offerer" });
+      }
+
+      // Independently verify the Seaport EIP-712 signature over the FULL multi-item order.
+      const seaportSig = order.seaportSignature || order.signature;
+      const sigCheck = await verifySeaportSignature({ parameters: params, signature: seaportSig });
+      if (!sigCheck.ok) {
+        const status = sigCheck.error === "rpc-unavailable" ? 503 : 403;
+        return res.status(status).json({ error: `Seaport signature verification failed: ${sigCheck.error}` });
+      }
+
+      // On-chain ownership for EVERY item — offerer must own all N.
+      const ownerCheck = await verifyBundleOwnership({ parameters: params });
+      if (!ownerCheck.ok) {
+        let status, message;
+        if (ownerCheck.error === "rpc-unavailable") {
+          status = 503; message = "On-chain ownership verification temporarily unavailable";
+        } else if (ownerCheck.error === "token-not-found" || ownerCheck.error === "no-offer-item" || ownerCheck.error === "no-token-id") {
+          status = 400; message = `NFT ownership check failed: ${ownerCheck.error}`;
+        } else {
+          status = 403; message = "Offerer does not own every NFT in the bundle";
+        }
+        return res.status(status).json({ error: message });
+      }
+
+      // Rate limit: same 20/maker/hour as `create`.
+      const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
+      const { count: makerOrderCount } = await supabase
+        .from("native_orders")
+        .select("*", { count: "exact", head: true })
+        .eq("maker", recoveredCreator)
+        .gte("created_at", oneHourAgo);
+      if (makerOrderCount != null && makerOrderCount >= 20) {
+        return res.status(429).json({ error: "Rate limit exceeded — max 20 orders per hour" });
+      }
+
+      // App primary-key hash (sha256 of canonical params) — same scheme as `create`.
+      const hashInput = JSON.stringify({
+        offerer: params.offerer?.toLowerCase(),
+        offer: params.offer,
+        consideration: params.consideration,
+        startTime: params.startTime,
+        endTime: params.endTime,
+        salt: params.salt || randomUUID(),
+      });
+      const orderHash = "0x" + createHash("sha256").update(hashInput).digest("hex");
+
+      // Canonical Seaport orderHash — REQUIRED (fill verifier rejects NULL). Same
+      // client-provides + server-re-derives defense-in-depth as `create`; multi-item
+      // is handled by computeSeaportOrderHash (hashes the full offer array).
+      const clientSeaportHash = order.seaportOrderHash;
+      if (clientSeaportHash === undefined || clientSeaportHash === null) {
+        return res.status(400).json({ error: "Missing seaportOrderHash — required so the order can be verified at fill time" });
+      }
+      if (!isValidSeaportOrderHash(clientSeaportHash)) {
+        return res.status(400).json({ error: "Invalid seaportOrderHash format (expected 0x + 64 lowercase hex)" });
+      }
+      const counter = order.seaportCounter;
+      if (counter == null) {
+        return res.status(400).json({ error: "Missing seaportCounter — required to derive canonical orderHash" });
+      }
+      let counterBig;
+      try {
+        if (typeof counter === "string") {
+          if (!/^[0-9]+$/.test(counter)) throw new Error("non-numeric");
+          counterBig = BigInt(counter);
+        } else if (typeof counter === "number" && Number.isInteger(counter) && counter >= 0) {
+          counterBig = BigInt(counter);
+        } else if (typeof counter === "bigint") {
+          counterBig = counter;
+        } else {
+          throw new Error("bad-type");
+        }
+      } catch (e) {
+        return res.status(400).json({ error: "Invalid seaportCounter — must be a non-negative integer" });
+      }
+      let derivedHash;
+      try {
+        derivedHash = computeSeaportOrderHash(params, counterBig);
+      } catch (e) {
+        return res.status(400).json({ error: "Could not derive Seaport orderHash from parameters" });
+      }
+      if (derivedHash !== clientSeaportHash.toLowerCase()) {
+        return res.status(400).json({ error: "seaportOrderHash mismatch — client hash does not match server-derived hash" });
+      }
+
+      // Store: token_id NULL (a bundle spans many); is_bundle true; token_ids = the full
+      // set (migration 012 columns). contract_address is the first item's collection as a
+      // representative — every item also lives in `parameters.offer` and `token_ids`.
+      const { error: insertErr } = await supabase.from("native_orders").insert({
+        order_hash: orderHash,
+        order_type: "listing",
+        contract_address: bundleItems[0].contract,
+        token_id: null,
+        is_bundle: true,
+        token_ids: bundleItems,
+        maker: params.offerer?.toLowerCase() || "",
+        price_wei: priceWei,
+        price_eth: priceEth,
+        currency: currencyAddr,
+        zone: params.zone || null,
+        parameters: params,
+        signature: order.seaportSignature || order.signature,
+        protocol_address: order.protocol_address || "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC",
+        start_time: new Date(startSec * 1000).toISOString(),
+        end_time: new Date(endSec * 1000).toISOString(),
+        status: "active",
+        seaport_order_hash: derivedHash,
+      });
+      if (insertErr) {
+        // 23505 = unique_violation: the same signed order was already stored (retry
+        // after a lost response) — idempotent success rather than a spurious 500.
+        if (insertErr.code === "23505") {
+          return res.status(200).json({ success: true, orderHash, duplicate: true });
+        }
+        console.error("Bundle insert failed:", insertErr.message);
+        return res.status(500).json({ error: "Failed to store bundle order" });
+      }
+      return res.status(201).json({ success: true, orderHash, orderType: "listing", bundle: true });
     }
 
     if (action === "cancel") {
