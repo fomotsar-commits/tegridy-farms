@@ -19,7 +19,10 @@ import {
   wizardConfigToLaunchConfig,
   LaunchError,
   type LaunchResult,
+  type AttentionSplit,
 } from '../lib/launcher/launchService';
+import { attestFactSheet } from '../lib/launcher/attestation';
+import { isAddress, type Address } from 'viem';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 
 const DAY = 86_400;
@@ -38,6 +41,8 @@ type WizardState = {
   mcapStartK: number; // Dutch-auction START (high) market cap, $ thousands
   mcapFloorK: number; // descends toward this FLOOR, $ thousands
   lpLockMonths: number;
+  /** Creator-directed KOL/community fee beneficiaries — carved from the creator's 80% pool. */
+  attentionSplits: { address: string; shareBps: number }[];
 };
 
 const INITIAL: WizardState = {
@@ -50,7 +55,15 @@ const INITIAL: WizardState = {
   mcapStartK: 300, // Dutch auction starts high…
   mcapFloorK: 30, // …and descends to the floor
   lpLockMonths: 12,
+  attentionSplits: [],
 };
+
+/** Parse the wizard's KOL rows into valid AttentionSplits (drop blank/invalid rows). */
+function parseAttentionSplits(rows: WizardState['attentionSplits']): AttentionSplit[] {
+  return rows
+    .filter((r) => isAddress(r.address) && Number.isInteger(r.shareBps) && r.shareBps > 0)
+    .map((r) => ({ address: r.address as Address, shareBps: r.shareBps }));
+}
 
 /**
  * Project the Fact Sheet a launch WILL have, from the wizard config, by running
@@ -92,6 +105,12 @@ type LaunchStatus =
   | { phase: 'success'; result: LaunchResult }
   | { phase: 'error'; message: string };
 
+type AttestStatus =
+  | { phase: 'idle' }
+  | { phase: 'pending' }
+  | { phase: 'done'; uid: string; txHash: string }
+  | { phase: 'error'; message: string };
+
 export default function LaunchPage() {
   usePageTitle('Launch', 'Launch a token on the verifiable, V4-native Tegridy rail.');
   useMemo(() => trackPageView('/launch'), []);
@@ -107,6 +126,7 @@ export default function LaunchPage() {
   const publicClient = usePublicClient();
   const price = useTOWELIPriceOptional();
   const [launch, setLaunch] = useState<LaunchStatus>({ phase: 'idle' });
+  const [attest, setAttest] = useState<AttestStatus>({ phase: 'idle' });
 
   const onLaunch = async () => {
     if (launch.phase === 'pending') return;
@@ -128,12 +148,31 @@ export default function LaunchPage() {
     }
     setLaunch({ phase: 'pending' });
     try {
-      const cfg = wizardConfigToLaunchConfig(w, { userAddress: address, numerairePriceUsd: ethUsd });
+      const cfg = wizardConfigToLaunchConfig(w, {
+        userAddress: address,
+        numerairePriceUsd: ethUsd,
+        attentionSplits: parseAttentionSplits(w.attentionSplits),
+      });
       const result = await launchToken(walletClient, publicClient, cfg);
       setLaunch({ phase: 'success', result });
     } catch (e) {
       const message = e instanceof LaunchError ? e.message : e instanceof Error ? e.message : 'Launch failed.';
       setLaunch({ phase: 'error', message });
+    }
+  };
+
+  // Post-launch: write the Fact Sheet on-chain as an EAS attestation (the disclosure
+  // becomes verifiable + composable). Non-fatal to the launch — the token is already live.
+  const onAttest = async () => {
+    if (attest.phase === 'pending' || launch.phase !== 'success') return;
+    if (!isLauncherEnabled() || !isConnected || !walletClient || !publicClient) return;
+    setAttest({ phase: 'pending' });
+    try {
+      const sheetForToken = { ...sheet, token: launch.result.tokenAddress as Address };
+      const { uid, txHash } = await attestFactSheet(walletClient, publicClient, sheetForToken);
+      setAttest({ phase: 'done', uid, txHash });
+    } catch (e) {
+      setAttest({ phase: 'error', message: e instanceof Error ? e.message : 'Attestation failed.' });
     }
   };
 
@@ -169,7 +208,7 @@ export default function LaunchPage() {
       >
         {step === 0 && <StepDetails w={w} set={set} />}
         {step === 1 && <StepTier w={w} set={set} />}
-        {step === 2 && <StepFees sheet={sheet} />}
+        {step === 2 && <StepFees w={w} set={set} sheet={sheet} />}
         {step === 3 && <StepReview w={w} sheet={sheet} />}
       </m.div>
 
@@ -205,7 +244,9 @@ export default function LaunchPage() {
         )}
       </div>
 
-      {step === STEPS.length - 1 && launch.phase !== 'idle' && <LaunchStatusBanner status={launch} />}
+      {step === STEPS.length - 1 && launch.phase !== 'idle' && (
+        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} />
+      )}
 
       {/* Discovery / outcomes surface. Empty until a data source is wired at un-gate
           (the aggregator-catchall adapter over outcomesReader); degrades to "No launches yet". */}
@@ -216,7 +257,7 @@ export default function LaunchPage() {
   );
 }
 
-function LaunchStatusBanner({ status }: { status: LaunchStatus }) {
+function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void }) {
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
@@ -252,6 +293,41 @@ function LaunchStatusBanner({ status }: { status: LaunchStatus }) {
           </a>
         </div>
       </div>
+
+      {/* Attest the Fact Sheet on-chain — makes the disclosure verifiable + composable. */}
+      <div className="mt-3 pt-3 border-t border-emerald-500/20">
+        {attest.phase === 'done' ? (
+          <div className="text-emerald-200/90 break-all">
+            Disclosures attested on-chain (EAS).{' '}
+            <a
+              href={`https://easscan.org/attestation/view/${attest.uid}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-white"
+            >
+              View attestation
+            </a>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onAttest}
+              disabled={attest.phase === 'pending'}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
+            >
+              {attest.phase === 'pending' ? 'Attesting…' : 'Attest disclosures on-chain'}
+            </button>
+            {attest.phase === 'error' && <span className="text-rose-300 text-xs break-words">{attest.message}</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Afterlife — what a graduated Tegridy launch gets that no other launcher offers. */}
+      <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
+        After the auction graduates into a V4 pool, this token can plug into the Tegridy
+        economy — boosted LP farming and a gauge-emissions application. No other launcher
+        gives a launch a day-2 economy.
+      </p>
     </div>
   );
 }
@@ -361,7 +437,9 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
   );
 }
 
-function StepFees({ sheet }: { sheet: LaunchFactSheet }) {
+function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof WizardState>(k: K, v: WizardState[K]) => void; sheet: LaunchFactSheet }) {
+  const totalSplitBps = w.attentionSplits.reduce((n, s) => n + (s.shareBps || 0), 0);
+  const creatorKeepsBps = 8000 - totalSplitBps; // creator+attention pool = 80%
   return (
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">Constitutional fee split</h3>
@@ -373,6 +451,40 @@ function StepFees({ sheet }: { sheet: LaunchFactSheet }) {
             <span className="text-white/60 tabular-nums">{(l.shareBps / 100).toFixed(0)}%</span>
           </div>
         ))}
+      </div>
+
+      <h3 className="text-white font-semibold text-sm mb-1">Attention beneficiaries <span className="text-white/40 font-normal">(optional)</span></h3>
+      <p className="text-white/50 text-xs mb-2">
+        Direct part of your creator share to KOLs/community who bring buyers — the proven distribution
+        lever. Carved from your 80% pool; protocol + Doppler are untouched.
+      </p>
+      <div className="rounded-xl border border-white/12 p-3 mb-6 space-y-2">
+        {w.attentionSplits.map((row, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              placeholder="0x… beneficiary"
+              value={row.address}
+              onChange={(e) => { const next = [...w.attentionSplits]; next[i] = { ...row, address: e.target.value }; set('attentionSplits', next); }}
+              className={`${inputCls} flex-1 mt-0 font-mono text-xs`}
+            />
+            <input
+              inputMode="decimal"
+              placeholder="%"
+              value={row.shareBps ? String(row.shareBps / 100) : ''}
+              onChange={(e) => { const pct = Number(e.target.value.replace(/[^\d.]/g, '')) || 0; const next = [...w.attentionSplits]; next[i] = { ...row, shareBps: Math.round(pct * 100) }; set('attentionSplits', next); }}
+              className={`${inputCls} w-16 mt-0`}
+            />
+            <button onClick={() => set('attentionSplits', w.attentionSplits.filter((_, j) => j !== i))} className="text-white/40 hover:text-rose-300 text-sm px-1" aria-label="remove">✕</button>
+          </div>
+        ))}
+        <div className="flex items-center justify-between">
+          <button onClick={() => set('attentionSplits', [...w.attentionSplits, { address: '', shareBps: 0 }])} className="text-emerald-400/80 hover:text-emerald-300 text-xs">
+            + Add beneficiary
+          </button>
+          <span className={`text-xs tabular-nums ${creatorKeepsBps < 0 ? 'text-rose-300' : 'text-white/50'}`}>
+            {creatorKeepsBps < 0 ? `over-allocated by ${(-creatorKeepsBps / 100).toFixed(1)}%` : `you keep ${(creatorKeepsBps / 100).toFixed(1)}% of the 80%`}
+          </span>
+        </div>
       </div>
 
       <h3 className="text-white font-semibold text-sm mb-1">Fact Sheet preview</h3>
