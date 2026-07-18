@@ -87,7 +87,12 @@ Execute in this order. For each: `transferOwnership(ADMIN_SAFE)` from deployer �
 
 **TegridyFactory — DIFFERENT MODEL (no 14d expiry):**
 
-- [ ] **TegridyFactory** `0xa24C7287eC56A7DEFDc70033803451240e267a52` — owner-equivalent is **feeToSetter** (custom `TimelockAdmin` propose/accept, NOT Ownable2Step). Re-home via `proposeFeeToSetter(TREASURY_or_ADMIN_SAFE)` then Safe `acceptFeeToSetter()`. **⚠ VERIFY ON-CHAIN:** likely NO expiry, so `pendingFeeToSetter = 0xA360` may STILL be acceptable by 0xA360 — re-point it promptly with `proposeFeeToSetter(SAFE)`. Also governs the TOWELI/WETH pair fee config; it separately proposed `feeTo=RevenueDistributor` and a guardian — confirm those are correct and unchanged.
+- [ ] **TegridyFactory** `0xa24C7287eC56A7DEFDc70033803451240e267a52` — owner-equivalent is **feeToSetter** (custom `TimelockAdmin` propose/accept, NOT Ownable2Step). Re-home it to the **ADMIN_SAFE** (it governs pair fee config — an admin role, not the treasury fund sink). **⚠ VERIFY ON-CHAIN FIRST** — read live `feeToSetter()`, `pendingFeeToSetter()`, `feeToSetterChangeTime()`, then:
+  1. **If `feeToSetterChangeTime != 0`** a proposal is still live (likely the stale `0xA360` one from deploy) — you MUST call **`cancelFeeToSetterProposal()` FIRST**, because `proposeFeeToSetter` reverts `CANCEL_EXISTING_FIRST` while any proposal exists (`TegridyFactory.sol:358`). Skipping this makes the re-point revert.
+  2. `proposeFeeToSetter(ADMIN_SAFE)` from the deployer.
+  3. After the `FEE_TO_SETTER_DELAY` timelock elapses, ADMIN_SAFE calls `acceptFeeToSetter()` — **within the 7-day `MAX_SETTER_PROPOSAL_VALIDITY` window** (`:368`) or it reverts `PROPOSAL_EXPIRED` and must be re-proposed.
+  - **NOT a live seizure threat:** any `0xA360` proposal from the 2026-06-06 deploy is ALREADY EXPIRED — `acceptFeeToSetter` enforces a 7-day validity (`:368`, `MAX_SETTER_PROPOSAL_VALIDITY=7 days` `:143`), so a June-06 proposal lapsed ~2026-06-14. 0xA360 can no longer accept it; the only action is the re-point above (this corrects an earlier draft that wrongly said it "may STILL be acceptable by 0xA360").
+  - Also governs the TOWELI/WETH pair fee config; it separately proposed `feeTo=RevenueDistributor` + a guardian — confirm those are correct/unchanged via the same propose/accept flow.
 
 **Gated batch (Wave-2, windows OPEN until ~2026-07-30 — act before expiry, see 4.1):**
 

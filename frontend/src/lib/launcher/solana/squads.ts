@@ -26,6 +26,28 @@
 // parent multisig account is owned by the Squads v4 program — proving the parent is a
 // genuine Squads multisig, not a look-alike. Fail-closed: any mismatch returns false.
 //
+// ⚠️⚠️  THRESHOLD IS NOT ENFORCED — HARD GO-LIVE REQUIREMENT  ⚠️⚠️
+// -----------------------------------------------------------------------------
+// `verifySquadsVault` proves ONLY (1) owner: the parent is a Squads-v4-owned account,
+// and (2) PDA binding: the fee address is that parent's canonical vault PDA. It does
+// NOT deserialize the multisig config, so it CANNOT and DOES NOT check the multisig
+// THRESHOLD or member set. Consequences the current runtime check will happily pass:
+//   • a 1-of-1 Squads multisig (threshold = 1) — functionally a SINGLE-KEY drain of
+//     ALL accrued Solana fees, defeating the entire "multisig custody" invariant; and
+//   • any OTHER Squads-program-owned account type (a Proposal / VaultTransaction /
+//     ProgramConfig), since only the program-owner is checked, not the 8-byte anchor
+//     discriminator that distinguishes a `Multisig` account.
+// Closing this in-code needs the `@sqds/multisig` SDK (accounts.Multisig.fromAccountInfo
+// → assert discriminator + threshold >= 2 over >= 2 distinct members). That dep is NOT
+// installed and no new deps are permitted on this branch, so hand-rolled byte-offset
+// parsing is deliberately AVOIDED — a wrong offset could ACCEPT a 1-of-1 (not fail
+// closed), which is strictly worse than the honest gap documented here.
+// THEREFORE, before the Solana launcher flag flips at go-live, the operator MUST
+// verify with Squads tooling (Squads app / SDK) that the configured feeClaimer's parent
+// is a genuine `Multisig` account with threshold >= 2. The `derive-vault` command in
+// scripts/solana-dbc-operator.mjs prints this same warning at operate time.
+// -----------------------------------------------------------------------------
+//
 // Program id verified 2026-07-17 against the Squads Protocol v4 deployment
 // (github.com/Squads-Protocol/v4, docs.squads.so, Solscan) — mainnet-beta:
 //   SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf
@@ -86,6 +108,12 @@ export function deriveSquadsVaultPda(multisig: string, vaultIndex: number): stri
  *      unrelated account. This is a pure string compare (no fetch).
  *   2. the parent `ref.multisig` account exists and is owned by the Squads v4 program
  *      — proving the parent is a genuine Squads multisig config, not a look-alike.
+ *
+ * ⚠️ DOES NOT CHECK THRESHOLD: this proves owner + PDA binding ONLY. A 1-of-1 multisig
+ * (threshold = 1) — a single-key drain — passes, as would a non-`Multisig` Squads
+ * account type. Enforcing threshold >= 2 needs the `@sqds/multisig` SDK (not installed;
+ * no new deps) and is a HARD go-live requirement verified out-of-band. See the module
+ * header block for the full rationale.
  *
  * Returns:
  *   • `true`  — both checks pass.

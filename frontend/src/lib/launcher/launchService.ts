@@ -259,6 +259,24 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     throw new Error('A valid ETH price is required to build the launch.');
   }
 
+  // Enforce the per-tier LP-lock floor at build time, so a launch can never ship
+  // with lockDuration below its tier minimum relying only on gate.ts's post-hoc
+  // reclassifier. gate.ts's floors are listable >= 30 days and flagship >= 365
+  // days (defaultGateConfig); expressed in whole months at 365/12 days/month
+  // (1mo = 365/12 d >= 30 d; 12mo = 365 d), that is listable >= 1 and flagship
+  // >= 12 months. Keep these in sync with gate.ts if those constants change.
+  if (!(Number.isFinite(w.lpLockMonths) && w.lpLockMonths >= 0)) {
+    throw new Error('LP lock duration (months) must be a non-negative finite number.');
+  }
+  const minLpLockMonths = w.tier === 'flagship' ? 12 : 1;
+  if (w.lpLockMonths < minLpLockMonths) {
+    throw new Error(
+      w.tier === 'flagship'
+        ? 'A flagship launch requires an LP lock of at least 12 months.'
+        : 'A listable launch requires an LP lock of at least 1 month.',
+    );
+  }
+
   return {
     tier: w.tier,
     token: { name: w.name, symbol: w.symbol, tokenURI: w.tokenURI },

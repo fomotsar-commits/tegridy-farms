@@ -62,6 +62,11 @@ export interface VestingSchedule {
  * the attestation boundary, not here.
  */
 export interface LaunchFactSheet {
+  /**
+   * Envelope version. Committed by the disclosures digest (see
+   * attestation.canonicalDisclosuresJson) so a silently bumped schemaVersion is
+   * tamper-evident even though it is not a flat ABI column.
+   */
   schemaVersion: 1;
   // identity
   token: Address;
@@ -102,13 +107,17 @@ export interface GateCheck {
 
 /**
  * Canonical EAS schema string for on-chain Fact Sheets. Kept deliberately
- * flat + primitive so it encodes cleanly and stays cheap. Every field NOT a flat
- * column here — the rich arrays (residualPowers, liquidity, feeConstitution,
- * vesting) AND gateChecks / totalSupply / tokenFactory / name / symbol — is
- * committed via a keccak digest of their canonical JSON (see
- * attestation.canonicalDisclosuresJson). The full JSON is published off-chain and
- * pinned, so the attestation commits to the WHOLE sheet (a forged gate check or an
- * altered supply changes the digest) without bloating calldata.
+ * flat + primitive so it encodes cleanly and stays cheap. The disclosuresDigest
+ * column commits to the ENTIRE sheet — the flat columns here AND everything else
+ * (the rich arrays residualPowers / liquidity / feeConstitution / vesting, plus
+ * gateChecks / totalSupply / tokenFactory / name / symbol / schemaVersion) are all
+ * folded into the keccak digest of the canonical JSON (see
+ * attestation.canonicalDisclosuresJson). Folding the flat columns in too is
+ * belt-and-suspenders: a consumer verifying tamper-evidence by recomputing the
+ * digest alone still catches a forged flat field. The full JSON is published
+ * off-chain and pinned, so the attestation commits to the WHOLE sheet (a forged
+ * gate check, an altered supply, or a swapped tier changes the digest) without
+ * bloating calldata.
  *
  * Revocable by design (red-team F): if facts change or an error is found, the
  * attester revokes. An attestation is a timestamped disclosure, not a warranty.

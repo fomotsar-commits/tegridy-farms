@@ -43,10 +43,17 @@ const ETHERSCAN_BASE = ETHERSCAN_USE_HEADER
   ? "https://api.etherscan.io/v2/api"
   : "https://api.etherscan.io/api";
 
-// Bound the upstream fan-out: each baseline can cost up to 3 upstream calls
-// (1 GeckoTerminal + 2 Etherscan). 50 caps a single request at ~150 upstream
-// hits so a caller can't burn the shared GT/Etherscan quota with one POST.
+// Bound the upstream fan-out. buildOutcomeRecords and buildLaunchSummaries each
+// enrich the SAME baselines, so unshared they'd DOUBLE every read (2 GeckoTerminal
+// + 4 Etherscan per token). The per-request memoized fetchers below collapse that
+// duplication back to at most 1 GeckoTerminal read + 2 Etherscan reads (holderCount
+// + creator txlist) per unique token. 50 therefore caps a request at ~50 GT + ~100
+// Etherscan reads, and the ~5-in-flight limiter around fetchMarket keeps GeckoTerminal
+// under its ~30/min keyless ceiling regardless of how the reader fans out.
 const MAX_BASELINES = 50;
+// Max concurrent GeckoTerminal reads in flight for one request. Keyless GT tolerates
+// ~30/min from an IP; ~5 in flight leaves ample headroom under bursty fan-out.
+const MAX_MARKET_CONCURRENCY = 5;
 
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const TIERS = new Set(["flagship", "listable", "none"]);
@@ -132,6 +139,17 @@ function poolAttrsToMarket(attrs) {
   };
 }
 
+// Extract the pool's BASE token address (lowercased) from a GeckoTerminal pool
+// object. GT returns it as relationships.base_token.data.id in "{network}_{addr}"
+// form (e.g. "eth_0xabc…"); we pull the 0x…40hex out tolerantly. Returns null if
+// the shape is missing so callers treat an unverifiable pool as a mismatch.
+function poolBaseTokenAddress(json) {
+  const id = json?.data?.relationships?.base_token?.data?.id;
+  if (typeof id !== "string") return null;
+  const m = id.match(/0x[a-fA-F0-9]{40}/);
+  return m ? m[0].toLowerCase() : null;
+}
+
 function makeFetchMarket(poolByToken) {
   return async function fetchMarket(token) {
     try {
@@ -141,9 +159,24 @@ function makeFetchMarket(poolByToken) {
         const json = await geckoFetchJson(
           `${GECKO_BASE}/networks/${GECKO_NETWORK}/pools/${pool}`,
         );
-        return poolAttrsToMarket(json?.data?.attributes);
+        if (json) {
+          // L11: the caller-supplied pool is UNTRUSTED. poolAttrsToMarket reads
+          // base_token_price_native_currency as THIS token's price — so a stale or
+          // hostile mapping pointing at an unrelated (possibly healthy) pool would
+          // attribute that pool's price/liquidity to `token`. Only trust the mapping
+          // when the pool's base token actually IS the requested token; otherwise
+          // fall through to the token→pool discovery path below rather than lie.
+          if (poolBaseTokenAddress(json) === key) {
+            return poolAttrsToMarket(json?.data?.attributes);
+          }
+        } else {
+          // Upstream miss/429 for a mapped pool — degrade to null (don't spend a
+          // second GT read chasing discovery; the reader mirrors the baseline).
+          return null;
+        }
       }
-      // Fallback: resolve the token's deepest pool.
+      // Fallback: resolve the token's deepest pool. GT scopes /tokens/{token}/pools
+      // to the token itself, so pools it returns already belong to the token.
       const json = await geckoFetchJson(
         `${GECKO_BASE}/networks/${GECKO_NETWORK}/tokens/${key}/pools?page=1`,
       );
@@ -217,6 +250,81 @@ async function fetchChainStats(token, creator) {
   }
 
   return { holderCount, lastTeamActivityAt };
+}
+
+// ── Per-request memoization + bounded concurrency ──────────────────────────
+//
+// The reader enriches the SAME baseline list twice (buildOutcomeRecords AND
+// buildLaunchSummaries), and both run their own unbounded Promise.all. Left raw,
+// that fires 2 GeckoTerminal reads per token with no ceiling — one 50-baseline
+// POST would burst ~100 GT fetches from one IP and trip the ~30/min keyless
+// limit, 429-ing the whole disclosure feed to "unavailable".
+//
+// makeMemoizedFetcher fixes both, per request (never module-global — stale market
+// data must not leak across POSTs):
+//   • MEMOIZE: repeated fetchMarket/fetchChainStats for the same lowercased token
+//     return the SAME in-flight Promise, collapsing the record/summary duplication.
+//   • BOUND: a tiny hand-rolled semaphore caps GeckoTerminal reads at ~5 in flight.
+//     Memoization means each unique token enters the limiter once.
+
+// Dependency-light concurrency limiter (no p-limit). run(task) queues `task`
+// (a () => Promise) and resolves with its result once a slot is free; at most
+// `maxInFlight` tasks execute at once. Rejections propagate but never wedge the
+// queue (the slot is always released).
+function createConcurrencyLimiter(maxInFlight) {
+  let active = 0;
+  const queue = [];
+  const pump = () => {
+    if (active >= maxInFlight || queue.length === 0) return;
+    active++;
+    const { task, resolve, reject } = queue.shift();
+    Promise.resolve()
+      .then(task)
+      .then(resolve, reject)
+      .finally(() => {
+        active--;
+        pump();
+      });
+  };
+  return function run(task) {
+    return new Promise((resolve, reject) => {
+      queue.push({ task, resolve, reject });
+      pump();
+    });
+  };
+}
+
+// Build the { fetchMarket, fetchChainStats } the reader consumes, scoped to ONE
+// request: memoized by lowercased token and (for market reads) concurrency-bounded.
+function makeMemoizedFetcher(poolByToken) {
+  const rawFetchMarket = makeFetchMarket(poolByToken);
+  const limit = createConcurrencyLimiter(MAX_MARKET_CONCURRENCY);
+  const marketCache = new Map();
+  const chainCache = new Map();
+
+  function fetchMarket(token) {
+    const key = String(token).toLowerCase();
+    let p = marketCache.get(key);
+    if (!p) {
+      // Memoize the LIMITER-wrapped promise so the two readers share one queued
+      // read and each unique token consumes exactly one concurrency slot.
+      p = limit(() => rawFetchMarket(token));
+      marketCache.set(key, p);
+    }
+    return p;
+  }
+
+  function fetchChainStatsMemo(token, creator) {
+    const key = String(token).toLowerCase();
+    let p = chainCache.get(key);
+    if (!p) {
+      p = fetchChainStats(token, creator);
+      chainCache.set(key, p);
+    }
+    return p;
+  }
+
+  return { fetchMarket, fetchChainStats: fetchChainStatsMemo };
 }
 
 // ── Input sanitation ───────────────────────────────────────────────────────
@@ -307,7 +415,10 @@ export async function handleLauncherOutcomes(req, res) {
   // abandonment/recency math). Deterministic within one request.
   const observedAt = Math.floor(Date.now() / 1000);
 
-  const fetcher = { fetchMarket: makeFetchMarket(poolByToken), fetchChainStats };
+  // Per-request memoized + concurrency-bounded fetchers: the record and summary
+  // passes share every in-flight upstream read instead of duplicating it, and
+  // GeckoTerminal stays under ~5 concurrent reads no matter the fan-out.
+  const fetcher = makeMemoizedFetcher(poolByToken);
 
   try {
     const [records, summaries] = await Promise.all([

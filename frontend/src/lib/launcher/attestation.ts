@@ -35,6 +35,7 @@ import {
   TIER_CODE,
   type LaunchFactSheet,
 } from './factSheet';
+import { isLauncherEnabled } from './config';
 
 /** Canonical EAS deployment — Ethereum mainnet. */
 export const EAS_MAINNET: Address = '0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587';
@@ -167,37 +168,55 @@ function canonicalize(value: unknown): unknown {
 }
 
 /**
- * Stable JSON of everything the on-chain digest commits to. This deliberately
- * covers EVERY tamper-sensitive field that is NOT already a flat column of
- * FACT_SHEET_EAS_SCHEMA — including `gateChecks` (the audit trail that justifies
- * the tier), `totalSupply`, `tokenFactory`, `name`, and `symbol`. Without them a
- * pinned off-chain JSON could carry a FORGED passing audit trail or an inflated
- * supply while the attestation still "verified". The flat schema commits token /
- * chainId / templateCodehash / knownSafeTemplate / tier / teamAllocation* /
- * liquidityUnlockAt / observedAt directly; this digest commits the rest.
+ * Stable JSON of the ENTIRE Fact Sheet — every tamper-sensitive field, with NO
+ * exceptions. The flat FACT_SHEET_EAS_SCHEMA columns (token / chainId /
+ * templateCodehash / knownSafeTemplate / tier / teamAllocation* /
+ * liquidityUnlockAt / observedAt) ARE also folded in here alongside the rich
+ * arrays (residualPowers / liquidity / feeConstitution / vesting) and the
+ * committed-nowhere-else fields (gateChecks / totalSupply / tokenFactory / name /
+ * symbol / schemaVersion). This is belt-and-suspenders on the flat columns: a
+ * consumer who verifies tamper-evidence by recomputing the digest ALONE (without
+ * separately re-checking each ABI column) would otherwise NOT detect a forged flat
+ * field. With every field folded in, ONE digest covers the whole sheet — a forged
+ * tier, an inflated supply, a doctored gate check, or a bumped schemaVersion all
+ * change the digest. `liquidity.unlockAt` is covered transitively via `liquidity`.
  */
 export function canonicalDisclosuresJson(sheet: LaunchFactSheet): string {
   return JSON.stringify(
     canonicalize({
+      // schema envelope
+      schemaVersion: sheet.schemaVersion,
+      // identity
+      token: sheet.token,
+      chainId: sheet.chainId,
+      name: sheet.name,
+      symbol: sheet.symbol,
+      totalSupply: sheet.totalSupply,
+      // provenance
+      tokenFactory: sheet.tokenFactory,
+      templateCodehash: sheet.templateCodehash,
+      knownSafeTemplate: sheet.knownSafeTemplate,
+      // disclosures
       residualPowers: sheet.residualPowers,
       liquidity: sheet.liquidity,
       feeConstitution: sheet.feeConstitution,
       vesting: sheet.vesting,
+      teamAllocationBps: sheet.teamAllocationBps,
+      teamAllocationVestedBps: sheet.teamAllocationVestedBps,
+      // outcome
+      tier: sheet.tier,
       gateChecks: sheet.gateChecks,
-      totalSupply: sheet.totalSupply,
-      tokenFactory: sheet.tokenFactory,
-      name: sheet.name,
-      symbol: sheet.symbol,
+      observedAt: sheet.observedAt,
     }),
   );
 }
 
 /**
- * keccak digest of the disclosure set (residualPowers + liquidity + feeConstitution
- * + vesting + gateChecks + totalSupply + tokenFactory + name + symbol). The full
- * JSON is published off-chain + pinned; the on-chain attestation commits only to
- * this 32-byte digest, so the WHOLE disclosure is tamper-evident (a forged gate
- * check or an altered supply changes the digest) without bloating calldata.
+ * keccak digest of the WHOLE Fact Sheet (see canonicalDisclosuresJson — every
+ * field, flat columns included). The full JSON is published off-chain + pinned;
+ * the on-chain attestation commits only to this 32-byte digest, so the ENTIRE
+ * sheet is tamper-evident (a forged gate check, an altered supply, a swapped tier,
+ * or a changed observation time all change the digest) without bloating calldata.
  */
 export function disclosuresDigest(sheet: LaunchFactSheet): Hex {
   return keccak256(toHex(canonicalDisclosuresJson(sheet)));
@@ -238,9 +257,9 @@ export interface AttestFactSheetOptions {
  * UID and surface reverts cleanly), then sends. The recipient is the launched
  * token — so the attestation is discoverable by token address.
  *
- * The caller is responsible for gating (isLauncherEnabled()) and for only invoking
- * this post-launch; this helper performs no gate check of its own by design (it is
- * a pure chain-write seam), but it also fires no transaction unless called.
+ * The caller already gates (isLauncherEnabled()) and only invokes this post-launch.
+ * This helper ALSO checks the gate itself — defense-in-depth belt-and-suspenders on
+ * a chain-WRITE seam — throwing before any client interaction if the launcher is off.
  */
 export async function attestFactSheet(
   walletClient: WalletClient,
@@ -248,6 +267,7 @@ export async function attestFactSheet(
   sheet: LaunchFactSheet,
   opts: AttestFactSheetOptions = {},
 ): Promise<{ uid: Hex; txHash: Hex }> {
+  if (!isLauncherEnabled()) throw new Error('launcher gated');
   const account = walletClient.account;
   if (!account) throw new Error('attestFactSheet: walletClient has no account');
 
@@ -284,6 +304,7 @@ export async function attestFactSheet(
  * transaction hash; the resulting schema UID is always factSheetSchemaUid().
  */
 export async function registerFactSheetSchema(walletClient: WalletClient): Promise<{ uid: Hex; txHash: Hex }> {
+  if (!isLauncherEnabled()) throw new Error('launcher gated');
   const account = walletClient.account;
   if (!account) throw new Error('registerFactSheetSchema: walletClient has no account');
 

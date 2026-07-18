@@ -23,6 +23,7 @@ import {
   type AttentionSplit,
 } from '../lib/launcher/launchService';
 import { attestFactSheet } from '../lib/launcher/attestation';
+import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
 import type { OutcomeRecord } from '../lib/launcher/outcomes';
@@ -204,7 +205,19 @@ export default function LaunchPage() {
     if (!isLauncherEnabled() || !isConnected || !walletClient || !publicClient) return;
     setAttest({ phase: 'pending' });
     try {
-      const sheetForToken = { ...sheet, token: launch.result.tokenAddress as Address };
+      // Attest FACTS RE-COLLECTED FROM THE DEPLOYED TOKEN — never the mutable wizard
+      // projection (`sheet`), which a launcher could edit post-launch to attest a false
+      // disclosure (e.g. deploy 20% insider, set the slider to 0%, attest "0%"). The
+      // collector reads the token's REAL powers (via template-match), supply, factory +
+      // codehash; LP-lock/tier stay conservative until graduation, so the attestation is
+      // a truthful point-in-time snapshot, not an aspirational projection.
+      const observedAt = Math.floor(Date.now() / 1000);
+      const raw = await collectTokenFacts(viemChainReader(publicClient), launch.result.tokenAddress as Address, {
+        chainId: DOPPLER_MAINNET.chainId,
+        now: observedAt,
+        feeConstitution: [...DEFAULT_FEE_CONSTITUTION],
+      });
+      const sheetForToken = buildFactSheet(raw);
       const { uid, txHash } = await attestFactSheet(walletClient, publicClient, sheetForToken);
       setAttest({ phase: 'done', uid, txHash });
     } catch (e) {

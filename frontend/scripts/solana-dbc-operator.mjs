@@ -117,6 +117,18 @@ const dbcClient = await import(SOLANA_DIR + 'dbcClient.ts');
 const meteora = await import('@meteora-ag/dynamic-bonding-curve-sdk');
 
 // ─── Tiny CLI arg parser (flags + positionals; no dependency) ───────────────────
+//
+// Valueless (boolean) flags MUST be listed here so they never swallow the token that
+// follows them. Without this, a boolean flag placed BEFORE the subcommand — e.g.
+// `--send create-config …` — would greedily consume `create-config` as its value,
+// leaving positional[0] empty so `main` silently falls through to `help`. Listing
+// `--send` here makes the first positional (the subcommand) parse correctly no matter
+// where the flag sits relative to it.
+// SELF-CHECK: `node scripts/solana-dbc-operator.mjs --send derive-vault …` must run
+// derive-vault (not help), i.e. parseArgs(['--send','derive-vault']).positional[0]
+// === 'derive-vault' and flags.send === true.
+const BOOLEAN_FLAGS = new Set(['send']);
+
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -125,8 +137,8 @@ function parseArgs(argv) {
     if (a.startsWith('--')) {
       const key = a.slice(2);
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith('--')) {
-        flags[key] = true; // boolean flag
+      if (BOOLEAN_FLAGS.has(key) || next === undefined || next.startsWith('--')) {
+        flags[key] = true; // boolean flag — never consumes the next token
       } else {
         flags[key] = next;
         i++;
@@ -369,6 +381,16 @@ function cmdDeriveVault() {
   console.log(`  vaultIndex : ${vaultIndex}`);
   console.log(`  vault PDA  : ${address}`);
   console.log(`  program id : ${squads.SQUADS_V4_PROGRAM_ID}`);
+  console.log('');
+  console.log('  ⚠️  THRESHOLD IS NOT VERIFIED HERE. The on-chain verifySquadsVault check');
+  console.log('      proves owner + PDA binding ONLY — it does NOT check the multisig');
+  console.log('      threshold or member set. A 1-of-1 Squads multisig (threshold=1) is a');
+  console.log('      single-key drain of ALL Solana fees and would still pass every gate.');
+  console.log('      HARD go-live requirement — verify with Squads tooling BEFORE using this');
+  console.log('      address as feeClaimer:');
+  console.log(`        • the account at ${multisig} is a Squads MULTISIG`);
+  console.log('          (not a Proposal / VaultTransaction / other Squads account type), and');
+  console.log('        • its threshold >= 2 over >= 2 distinct members.');
 }
 
 function printHelp() {

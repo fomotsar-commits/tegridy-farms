@@ -204,7 +204,13 @@ export const TOKEN_READER_ABI = [
  */
 export interface ReadOnlyPublicClient {
   getCode(args: { address: Address }): Promise<Hex | undefined>;
-  readContract(args: { address: Address; abi: typeof TOKEN_READER_ABI; functionName: string }): Promise<unknown>;
+  // `readContract` args are intentionally `any`: a REAL viem PublicClient's overload
+  // infers a literal `functionName` union from the abi, so it is NOT assignable to a
+  // `functionName: string` param (contravariance) — `any` short-circuits the variance
+  // check so both a real client AND a lightweight test mock satisfy this interface. The
+  // adapter casts the result and never trusts the shape (every read is safeRead-guarded).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readContract(args: any): Promise<unknown>;
 }
 
 /**

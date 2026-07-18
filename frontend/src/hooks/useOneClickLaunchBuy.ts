@@ -56,7 +56,17 @@ export function useOneClickLaunchBuy() {
       if (chainId !== CHAIN_ID) throw new Error('Wrong network');
       const provider = (await connector.getProvider()) as Eip1193Like;
       const calls = buildLaunchBuyCalls(params);
-      const id = await sendCalls(provider, { from: address, chainId: CHAIN_HEX, calls });
+      // atomicRequired: the approve + swap MUST land all-or-nothing. Without it, a
+      // wallet that supports non-atomic batching could execute the approve without
+      // the swap (or vice-versa), leaving a dangling allowance / partial state.
+      // `canBatch` already gates the affordance on atomic support, so this only
+      // tightens the guarantee — it never routes to an unsupported wallet.
+      const id = await sendCalls(provider, {
+        from: address,
+        chainId: CHAIN_HEX,
+        calls,
+        atomicRequired: true,
+      });
       return String(id);
     },
     [address, connector, chainId],

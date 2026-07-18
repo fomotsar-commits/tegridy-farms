@@ -1,4 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// The write helpers (attestFactSheet / registerFactSheetSchema) carry an internal
+// defense-in-depth gate (INFO#17). Mock the launcher gate so we can drive both the
+// happy path (enabled) and the gated-throw path (disabled). Pure digest/encode
+// helpers don't touch the gate, so their tests are unaffected.
+const gate = vi.hoisted(() => ({ enabled: true }));
+vi.mock('./config', () => ({ isLauncherEnabled: () => gate.enabled }));
+
 import {
   decodeAbiParameters,
   encodePacked,
@@ -165,10 +173,32 @@ describe('disclosuresDigest', () => {
     expect(disclosuresDigest(changed)).not.toBe(disclosuresDigest(base));
   });
 
-  it('does NOT depend on fields outside the disclosure set (e.g. observedAt)', () => {
+  it('changes when observedAt changes (now folded into the whole-sheet digest)', () => {
     const base = factSheet();
     const laterObservation = factSheet({ observedAt: 1_752_799_999 });
-    expect(disclosuresDigest(laterObservation)).toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(laterObservation)).not.toBe(disclosuresDigest(base));
+  });
+
+  it('changes when the tier changes (flat column now folded into the digest)', () => {
+    const base = factSheet({ tier: 'flagship' });
+    expect(disclosuresDigest(factSheet({ tier: 'listable' }))).not.toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(factSheet({ tier: 'none' }))).not.toBe(disclosuresDigest(base));
+  });
+
+  it('changes when team allocation bps change (flat columns now folded into the digest)', () => {
+    const base = factSheet();
+    expect(disclosuresDigest(factSheet({ teamAllocationBps: 251 }))).not.toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(factSheet({ teamAllocationVestedBps: 0 }))).not.toBe(disclosuresDigest(base));
+  });
+
+  it('changes when other flat columns change (token / chainId / codehash / knownSafeTemplate / schemaVersion)', () => {
+    const base = factSheet();
+    expect(disclosuresDigest(factSheet({ chainId: 8453 }))).not.toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(factSheet({ knownSafeTemplate: false }))).not.toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(factSheet({ templateCodehash: keccak256('0xbeef') }))).not.toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(factSheet({ token: '0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead' as Address }))).not.toBe(
+      disclosuresDigest(base),
+    );
   });
 
   it('serialises bigints in vesting without throwing', () => {
@@ -207,6 +237,10 @@ describe('disclosuresDigest', () => {
 });
 
 describe('attestFactSheet — request shape (no live chain)', () => {
+  beforeEach(() => {
+    gate.enabled = true; // happy-path shape tests need the launcher gate open
+  });
+
   it('simulates then writes an EAS.attest call with the token as recipient', async () => {
     const sheet = factSheet();
     let simulateArgs: any;
@@ -275,9 +309,36 @@ describe('attestFactSheet — request shape (no live chain)', () => {
     const walletClient = { writeContract: async () => '0x' } as unknown as WalletClient;
     await expect(attestFactSheet(walletClient, publicClient, factSheet())).rejects.toThrow(/no account/);
   });
+
+  it('throws before any client interaction when the launcher is gated (INFO#17)', async () => {
+    gate.enabled = false;
+    let simulated = false;
+    let wrote = false;
+    const publicClient = {
+      simulateContract: async () => {
+        simulated = true;
+        return { request: {}, result: ZERO_BYTES32 };
+      },
+    } as unknown as PublicClient;
+    const walletClient = {
+      account: { address: ATTESTER },
+      writeContract: async () => {
+        wrote = true;
+        return '0x' as Hex;
+      },
+    } as unknown as WalletClient;
+
+    await expect(attestFactSheet(walletClient, publicClient, factSheet())).rejects.toThrow(/launcher gated/);
+    expect(simulated).toBe(false);
+    expect(wrote).toBe(false);
+  });
 });
 
 describe('registerFactSheetSchema — request shape (no live chain)', () => {
+  beforeEach(() => {
+    gate.enabled = true; // happy-path shape tests need the launcher gate open
+  });
+
   it('calls SchemaRegistry.register with resolver=0, revocable=true and returns the deterministic UID', async () => {
     let writeArg: any;
     const TX = ('0x' + 'cd'.repeat(32)) as Hex;
@@ -303,5 +364,21 @@ describe('registerFactSheetSchema — request shape (no live chain)', () => {
   it('throws if the wallet has no account', async () => {
     const walletClient = { writeContract: async () => '0x' } as unknown as WalletClient;
     await expect(registerFactSheetSchema(walletClient)).rejects.toThrow(/no account/);
+  });
+
+  it('throws before any client interaction when the launcher is gated (INFO#17)', async () => {
+    gate.enabled = false;
+    let wrote = false;
+    const walletClient = {
+      account: { address: ATTESTER },
+      chain: { id: 1 },
+      writeContract: async () => {
+        wrote = true;
+        return '0x' as Hex;
+      },
+    } as unknown as WalletClient;
+
+    await expect(registerFactSheetSchema(walletClient)).rejects.toThrow(/launcher gated/);
+    expect(wrote).toBe(false);
   });
 });

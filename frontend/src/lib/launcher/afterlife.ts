@@ -9,7 +9,12 @@
 //      into a per-pool `TegridyBoostedLPStaker`, earning veTOWELI-boosted
 //      emissions (Aerodrome/Curve gauge model; see TegridyBoostedLPStaker.sol).
 //   2. gauge application — apply to the GaugeController for a share of protocol
-//      emissions (gated: the controller is not yet deployed).
+//      emissions. The controller IS deployed and wired here (launcher-local
+//      AFTERLIFE_GAUGE_CONTROLLER_ADDRESS, 0x6c79…1054), so a graduated launch
+//      reports gauge application as 'eligible'. Its ownership still sits on the
+//      flagged Safe pending re-home, so it is deliberately kept out of the
+//      app-global gauge gate (see constants.ts). Boosted-LP (feature 1) stays
+//      'pending-deployment' until the V4 PositionManager is wired (still zero).
 //
 // This module is PURE PARAM COMPUTATION ONLY. It builds typed, testable inputs —
 // the V4 PoolId, the staker's five constructor args, the eligibility verdict.

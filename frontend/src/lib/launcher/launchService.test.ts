@@ -94,8 +94,32 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
   it('computes lockDuration from months at 365/12 days/month (12mo === 365 days)', () => {
     const cfg = wizardConfigToLaunchConfig(wizard({ lpLockMonths: 12 }), opts());
     expect(cfg.lockDurationSeconds).toBe(365 * 86_400); // exactly one year
-    const six = wizardConfigToLaunchConfig(wizard({ lpLockMonths: 6 }), opts());
+    // 6 months is below the flagship floor (12), so use a listable tier here.
+    const six = wizardConfigToLaunchConfig(wizard({ tier: 'listable', lpLockMonths: 6 }), opts());
     expect(six.lockDurationSeconds).toBe(Math.round(6 * (365 / 12) * 86_400));
+  });
+
+  it('enforces the per-tier LP-lock floor (flagship >= 12mo, listable >= 1mo)', () => {
+    // Flagship below the 12-month floor throws.
+    expect(() => wizardConfigToLaunchConfig(wizard({ tier: 'flagship', lpLockMonths: 0 }), opts())).toThrow(
+      /flagship launch requires an LP lock of at least 12 months/,
+    );
+    expect(() => wizardConfigToLaunchConfig(wizard({ tier: 'flagship', lpLockMonths: 6 }), opts())).toThrow(
+      /flagship launch requires an LP lock of at least 12 months/,
+    );
+    // Listable below the 1-month floor throws.
+    expect(() => wizardConfigToLaunchConfig(wizard({ tier: 'listable', lpLockMonths: 0 }), opts())).toThrow(
+      /listable launch requires an LP lock of at least 1 month/,
+    );
+    // A non-finite lock is rejected up front.
+    expect(() => wizardConfigToLaunchConfig(wizard({ tier: 'listable', lpLockMonths: Number.NaN }), opts())).toThrow(
+      /non-negative finite number/,
+    );
+    // Valid locks at each tier minimum pass and map through.
+    const flag = wizardConfigToLaunchConfig(wizard({ tier: 'flagship', lpLockMonths: 12 }), opts());
+    expect(flag.lockDurationSeconds).toBe(365 * 86_400);
+    const list = wizardConfigToLaunchConfig(wizard({ tier: 'listable', lpLockMonths: 1 }), opts());
+    expect(list.lockDurationSeconds).toBe(Math.round(1 * (365 / 12) * 86_400));
   });
 
   it('resolves fee-constitution roles to concrete addresses', () => {
