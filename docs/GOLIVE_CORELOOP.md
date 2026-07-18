@@ -79,6 +79,16 @@ Start B0 now (24h clock); B1 anytime; B2 after 24h; then B3/B4.
 `RPC=https://ethereum-rpc.publicnode.com`, `TWAP=0xdFdd…98c9`, `PAIR=0x5587…a481`,
 `ROUTER=0xE9F8…8Db8`, `TOWELI=0x4206…8F9D`.
 
+> **✅ Pre-flight re-verified on-chain 2026-07-18** (nothing drifted; B0–B4 valid as written):
+> - Native pair `0x5587…a481`: **776,678 TOWELI + 0.0203 WETH** (unchanged; deepen still needed).
+> - TWAP floor `effectiveMinReserveFloor(PAIR)` = **10 WETH** (`1e19`) — B0 not yet started.
+> - TWAP `owner()` = **`0x1489…456E`** (deployer EOA) — can call `proposeAdminMinReserveFloor1`
+>   / `executeAdminMinReserveFloor1` (both exist; `FloorTooLow` guard is `< 1000` wei, so 1.0 WETH passes).
+> - Arb venue (Uniswap `0x6682…104D`) = **7.26 WETH** → post-B1 native ~1.33 WETH gives a **~5.5× ratio**,
+>   above the 3× safety floor. The **arb-linkage monitor is built + live-tested**:
+>   `contracts/monitoring/arbLinkageMonitor.mjs` (run it before B4 and on a 5-min cron).
+> - Owner-side precondition to confirm YOURSELF: the signing wallet holds ≥50M TOWELI + ~1.35 ETH.
+
 > **Private send-path (anti-sandwich).** `flashbots` and `mevblocker` are now named RPC
 > endpoints in `contracts/foundry.toml`, so any BROADCAST below can use `--rpc-url flashbots`
 > directly (no `$FLASHBOTS_RPC` export needed — that var is the same URL). Route every
