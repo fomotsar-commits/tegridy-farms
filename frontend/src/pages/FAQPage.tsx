@@ -46,7 +46,7 @@ const FAQ_DATA: FAQSection[] = [
   {
     category: 'NFT Finance',
     items: [
-      { q: 'What is NFT Lending?', a: 'Borrow ETH by locking your NFTs (JBAC, Nakamigos, GNSS) as collateral. It is fully peer-to-peer with no oracles and no liquidation auctions. The lending contracts are audited but not yet redeployed after the June 2026 relaunch — the page un-gates automatically when they go live.' },
+      { q: 'What is NFT Lending?', a: 'Borrow ETH by locking your NFTs (JBAC, Nakamigos, GNSS) as collateral. It is fully peer-to-peer with no oracles and no liquidation auctions. The lending contracts have been extensively internally reviewed (not yet third-party audited) and are not yet redeployed after the June 2026 relaunch — the page un-gates automatically when they go live.' },
       { q: 'What happens if I default on a loan?', a: 'The lender claims your NFT permanently. There is no liquidation auction — the NFT simply transfers to the lender after the loan expires unpaid.' },
       { q: 'What is the NFT AMM?', a: 'Bonding curve pools for instant NFT trading. Provide liquidity by depositing NFTs and ETH into a pool to earn fees on every trade that occurs in that pool. Not yet redeployed post-relaunch — it un-gates when the contracts go live.' },
       { q: 'What is pro-rata interest?', a: 'Interest is calculated based on the actual time borrowed, not the full loan term. If you repay early, you pay proportionally less interest than the maximum.' },
@@ -63,7 +63,7 @@ const FAQ_DATA: FAQSection[] = [
   {
     category: 'Premium',
     items: [
-      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium tier that grants 3x points multiplier, priority access to new features, and exclusive benefits, paid monthly in ETH. The premium contract is built and audited but not yet deployed — the page un-gates when it goes live.' },
+      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium tier that grants 3x points multiplier, priority access to new features, and exclusive benefits, paid monthly in ETH. The premium contract is built and internally reviewed (not yet third-party audited) but not yet deployed — the page un-gates when it goes live.' },
       { q: 'Do JBAC holders get free access?', a: 'Yes — once premium is live, JBAC NFT holders receive lifetime Gold Card access at no cost. Simply hold a JBAC in your connected wallet to activate premium benefits.' },
     ],
   },

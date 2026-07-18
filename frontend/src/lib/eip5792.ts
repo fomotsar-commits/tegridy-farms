@@ -74,6 +74,18 @@ export function getWalletCapabilities(provider: Eip1193Like, account: `0x${strin
   return provider.request({ method: 'wallet_getCapabilities', params: [account] });
 }
 
+/**
+ * Extract the batch id string from a `wallet_sendCalls` result. The EIP-5792 v2.0.0
+ * envelope resolves to `{ id: string }` (usable with wallet_getCallsStatus); some
+ * wallets still return a bare string. `String(result)` on the object form yields the
+ * useless literal "[object Object]", so callers MUST normalize through this.
+ */
+export function callsId(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (result && typeof result === 'object' && 'id' in result) return String((result as { id: unknown }).id);
+  return String(result);
+}
+
 /** Thin wrapper over the `wallet_sendCalls` RPC (EIP-5792 v2.0.0 envelope). */
 export function sendCalls(provider: Eip1193Like, params: SendCallsParams): Promise<unknown> {
   return provider.request({

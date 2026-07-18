@@ -1971,7 +1971,7 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
       {!deployed && (
         <ArtPanel art={pageArt('lending-section', 14)} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
-            Lending contracts are being audited and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
+            Lending contracts are in final internal review and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
           </div>
         </ArtPanel>
       )}

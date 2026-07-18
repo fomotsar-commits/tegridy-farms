@@ -51,14 +51,23 @@ const LaunchPage = lazy(() => import('./pages/LaunchPage'));
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
 // Error boundary catches render errors in lazy-loaded pages and prevents white-screen crashes
-class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: ReactNode }) {
+class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode; resetKey?: string }) {
     super(props);
     this.state = { hasError: false };
   }
   static getDerivedStateFromError() { return { hasError: true }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Route render error:', error, info.componentStack);
+  }
+  // Recover on client-side navigation: once a route crashes, a location change (resetKey)
+  // clears the error so the user isn't stranded on the fallback until a full page reload.
+  // We reset on nav rather than key={pathname} to avoid remounting AnimatedRoutes (which
+  // would break its page transitions).
+  componentDidUpdate(prevProps: { resetKey?: string }) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
   render() {
     if (this.state.hasError) {
@@ -246,10 +255,11 @@ const rainbowLight = lightTheme({
 
 function AppInner() {
   const { isDark } = useTheme();
+  const { pathname } = useLocation();
 
   return (
     <RainbowKitProvider theme={isDark ? rainbowDark : rainbowLight}>
-      <RouteErrorBoundary>
+      <RouteErrorBoundary resetKey={pathname}>
         <Suspense fallback={<PageSkeleton />}>
           <AnimatedRoutes />
         </Suspense>

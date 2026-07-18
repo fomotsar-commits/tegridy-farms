@@ -123,7 +123,7 @@ type AttestStatus =
 
 export default function LaunchPage() {
   usePageTitle('Launch', 'Launch a token on the verifiable, V4-native Tegridy rail.');
-  useMemo(() => trackPageView('/launch'), []);
+  useEffect(() => { trackPageView('/launch'); }, []);
 
   const [step, setStep] = useState(0);
   const [w, setW] = useState<WizardState>(INITIAL);
@@ -387,9 +387,9 @@ function LaunchHeader() {
     <div className="mb-6">
       <h1 className="text-2xl font-bold text-white">Launch a token</h1>
       <p className="text-white/60 text-sm mt-1 max-w-xl">
-        The verifiable, V4-native rail. Every launch uses an audited non-upgradeable template, publishes a
+        The verifiable, V4-native rail. Every launch uses Doppler's audited non-upgradeable template, publishes a
         machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy (farming, gauges)
-        that no other launcher offers.
+        that few other launchers offer.
       </p>
     </div>
   );
@@ -397,9 +397,12 @@ function LaunchHeader() {
 
 function Stepper({ step }: { step: number }) {
   return (
-    <div className="flex items-center gap-2">
+    // overflow-x-auto (matching LendingPage/DashboardPage tab strips) so the 4 steps SCROLL
+    // instead of clipping off the right edge on iPhone-14-width — body{overflow-x:hidden}
+    // would otherwise hide step 4 ("Review") entirely.
+    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
       {STEPS.map((label, i) => (
-        <div key={label} className="flex items-center gap-2">
+        <div key={label} className="flex items-center gap-2 shrink-0">
           <div
             className={`h-6 w-6 rounded-full grid place-items-center text-[11px] font-semibold ${
               i <= step ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white/50'
@@ -407,7 +410,7 @@ function Stepper({ step }: { step: number }) {
           >
             {i + 1}
           </div>
-          <span className={`text-xs ${i === step ? 'text-white' : 'text-white/50'}`}>{label}</span>
+          <span className={`text-xs whitespace-nowrap ${i === step ? 'text-white' : 'text-white/50'}`}>{label}</span>
           {i < STEPS.length - 1 && <span className="text-white/20 mx-1">—</span>}
         </div>
       ))}
@@ -605,7 +608,7 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
       <FactSheetCard sheet={sheet} />
       <p className="text-white/40 text-xs mt-4">
         Launching submits a single Doppler <code className="text-white/60">create()</code> transaction on Ethereum
-        mainnet. Your token deploys from the audited template, the V4 auction opens, and on graduation liquidity
+        mainnet. Your token deploys from Doppler's audited template, the V4 auction opens, and on graduation liquidity
         migrates to a V4 pool with fees locked to the constitution above.
       </p>
     </div>

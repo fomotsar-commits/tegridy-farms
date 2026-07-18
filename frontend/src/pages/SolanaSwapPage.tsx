@@ -418,7 +418,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
       </div>
       <p className="text-white/30 text-[9px] mt-1.5">
         Buy a liquid-staking token to earn ~validator APY automatically — its value grows each epoch, no lockup, sell
-        back to SOL anytime. APY is variable. A 1% fee applies on the SOL buy.
+        back to SOL anytime. APY is variable. A {SOLANA_PLATFORM_FEE_BPS / 100}% fee applies on the SOL buy.
       </p>
     </div>
   );

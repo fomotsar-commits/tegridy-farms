@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useChainId } from 'wagmi';
-import { getWalletCapabilities, isAtomicBatchSupported, sendCalls, type Eip1193Like } from '../lib/eip5792';
+import { getWalletCapabilities, isAtomicBatchSupported, sendCalls, callsId, type Eip1193Like } from '../lib/eip5792';
 import { buildLaunchBuyCalls, type LaunchBuyParams } from '../lib/launcher/launchBuy';
 import { isLauncherEnabled } from '../lib/launcher/config';
 import { CHAIN_ID } from '../lib/constants';
@@ -61,13 +61,13 @@ export function useOneClickLaunchBuy() {
       // the swap (or vice-versa), leaving a dangling allowance / partial state.
       // `canBatch` already gates the affordance on atomic support, so this only
       // tightens the guarantee — it never routes to an unsupported wallet.
-      const id = await sendCalls(provider, {
+      const res = await sendCalls(provider, {
         from: address,
         chainId: CHAIN_HEX,
         calls,
         atomicRequired: true,
       });
-      return String(id);
+      return callsId(res);
     },
     [address, connector, chainId],
   );

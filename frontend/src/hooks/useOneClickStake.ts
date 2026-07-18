@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useChainId } from 'wagmi';
-import { getWalletCapabilities, isAtomicBatchSupported, sendCalls, type Eip1193Like } from '../lib/eip5792';
+import { getWalletCapabilities, isAtomicBatchSupported, sendCalls, callsId, type Eip1193Like } from '../lib/eip5792';
 import { buildApproveStakeCalls } from '../lib/stakeBatch';
 import { CHAIN_ID } from '../lib/constants';
 
@@ -49,8 +49,8 @@ export function useOneClickStake() {
       if (chainId !== CHAIN_ID) throw new Error('Wrong network');
       const provider = (await connector.getProvider()) as Eip1193Like;
       const calls = buildApproveStakeCalls(amountWei, lockDurationSeconds);
-      const id = await sendCalls(provider, { from: address, chainId: CHAIN_HEX, calls });
-      return String(id);
+      const res = await sendCalls(provider, { from: address, chainId: CHAIN_HEX, calls });
+      return callsId(res);
     },
     [address, connector, chainId],
   );

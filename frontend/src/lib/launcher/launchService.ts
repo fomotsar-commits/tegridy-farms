@@ -8,7 +8,11 @@
 //   buildTegridyLaunchParams(sdk) -> simulate (surfaces reverts) -> create.
 
 import { parseEther, type Address, type PublicClient, type WalletClient } from 'viem';
-import { DopplerSDK, type CreateDynamicAuctionParams } from '@whetstone-research/doppler-sdk/evm';
+// DopplerSDK is dynamically imported inside launchToken() so the ~589KB SDK becomes
+// its own lazy chunk instead of loading with the gated LaunchPage. The type import is
+// erased at build time (zero runtime weight), so pure helpers (wizardConfigToLaunchConfig)
+// can be imported from this module without dragging in the SDK.
+import type { CreateDynamicAuctionParams } from '@whetstone-research/doppler-sdk/evm';
 import {
   buildTegridyLaunchParams,
   dopplerBeneficiaryLine,
@@ -322,6 +326,7 @@ export async function launchToken(
     throw new LaunchError('invalid-integrator', 'No integrator address is configured; refusing to launch.');
   }
 
+  const { DopplerSDK } = await import('@whetstone-research/doppler-sdk/evm');
   const sdk = new DopplerSDK({ publicClient, walletClient, chainId: DOPPLER_MAINNET.chainId });
 
   // buildTegridyLaunchParams applies OUR policy over the SDK builder. The real SDK
