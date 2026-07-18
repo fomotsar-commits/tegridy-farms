@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { m } from 'framer-motion';
+import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
@@ -13,6 +14,13 @@ import {
 import { buildFactSheet, type RawTokenFacts } from '../lib/launcher/gate';
 import type { LaunchFactSheet } from '../lib/launcher/factSheet';
 import { DOPPLER_MAINNET } from '../lib/launcher/doppler.constants';
+import {
+  launchToken,
+  wizardConfigToLaunchConfig,
+  LaunchError,
+  type LaunchResult,
+} from '../lib/launcher/launchService';
+import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 
 const DAY = 86_400;
 // 365/12 days per month, so a 12-month lock is exactly 365 days and meets the
@@ -76,6 +84,12 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
 
 const STEPS = ['Details', 'Tier & curve', 'Fees & disclosure', 'Review'] as const;
 
+type LaunchStatus =
+  | { phase: 'idle' }
+  | { phase: 'pending' }
+  | { phase: 'success'; result: LaunchResult }
+  | { phase: 'error'; message: string };
+
 export default function LaunchPage() {
   usePageTitle('Launch', 'Launch a token on the verifiable, V4-native Tegridy rail.');
   useMemo(() => trackPageView('/launch'), []);
@@ -84,6 +98,35 @@ export default function LaunchPage() {
   const [w, setW] = useState<WizardState>(INITIAL);
   const now = useMemo(() => Math.floor(Date.now() / 1000), []);
   const sheet = useMemo(() => projectFactSheet(w, now), [w, now]);
+
+  const { address, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const price = useTOWELIPriceOptional();
+  const [launch, setLaunch] = useState<LaunchStatus>({ phase: 'idle' });
+
+  const onLaunch = async () => {
+    if (launch.phase === 'pending') return;
+    if (!isConnected || !address || !walletClient || !publicClient) {
+      setLaunch({ phase: 'error', message: 'Connect a wallet to launch.' });
+      return;
+    }
+    // ethUsd from the shared price context; a launch cannot proceed without it.
+    const ethUsd = price?.ethUsd ?? 0;
+    if (!ethUsd || ethUsd <= 0) {
+      setLaunch({ phase: 'error', message: 'ETH price unavailable right now — try again shortly.' });
+      return;
+    }
+    setLaunch({ phase: 'pending' });
+    try {
+      const cfg = wizardConfigToLaunchConfig(w, { userAddress: address, numerairePriceUsd: ethUsd });
+      const result = await launchToken(walletClient, publicClient, cfg);
+      setLaunch({ phase: 'success', result });
+    } catch (e) {
+      const message = e instanceof LaunchError ? e.message : e instanceof Error ? e.message : 'Launch failed.';
+      setLaunch({ phase: 'error', message });
+    }
+  };
 
   if (!isLauncherEnabled()) {
     return (
@@ -139,18 +182,66 @@ export default function LaunchPage() {
           </button>
         ) : (
           <button
-            className="px-5 py-2 rounded-lg text-sm font-semibold bg-emerald-500/90 text-black hover:bg-emerald-400 transition"
-            title="Submits the Doppler create() transaction once wallet + gates are wired."
+            onClick={onLaunch}
+            disabled={launch.phase === 'pending' || !isConnected}
+            className="px-5 py-2 rounded-lg text-sm font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
+            title={
+              isConnected
+                ? 'Submits the Doppler create() transaction on Ethereum mainnet.'
+                : 'Connect a wallet to launch.'
+            }
           >
-            Review &amp; launch
+            {launch.phase === 'pending' ? 'Launching…' : isConnected ? 'Review & launch' : 'Connect wallet to launch'}
           </button>
         )}
       </div>
+
+      {step === STEPS.length - 1 && launch.phase !== 'idle' && <LaunchStatusBanner status={launch} />}
 
       {/* Discovery / outcomes surface. Empty until a data source is wired at un-gate
           (the aggregator-catchall adapter over outcomesReader); degrades to "No launches yet". */}
       <div className="mt-12">
         <LaunchExplorer launches={[]} outcomes={{}} />
+      </div>
+    </div>
+  );
+}
+
+function LaunchStatusBanner({ status }: { status: LaunchStatus }) {
+  if (status.phase === 'idle') return null;
+  if (status.phase === 'pending') {
+    return (
+      <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+        Submitting the Doppler <code className="text-emerald-100">create()</code> transaction — confirm in your wallet…
+      </div>
+    );
+  }
+  if (status.phase === 'error') {
+    return (
+      <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 break-words">
+        {status.message}
+      </div>
+    );
+  }
+  const { result } = status;
+  const txUrl = `https://etherscan.io/tx/${result.transactionHash}`;
+  const tokenUrl = `https://etherscan.io/token/${result.tokenAddress}`;
+  return (
+    <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+      <div className="font-semibold mb-1">Launched.</div>
+      <div className="text-emerald-200/90 space-y-0.5 break-all">
+        <div>
+          Token:{' '}
+          <a href={tokenUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+            {result.tokenAddress}
+          </a>
+        </div>
+        <div>
+          Transaction:{' '}
+          <a href={txUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+            {result.transactionHash}
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -252,8 +343,10 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
           <input className={inputCls} inputMode="numeric" value={w.lpLockMonths} onChange={(e) => set('lpLockMonths', Number(e.target.value.replace(/\D/g, '')) || 0)} />
         </Field>
       </div>
-      <Field label={`Team allocation: ${(w.premineBps / 100).toFixed(1)}% (on-chain vested)`} hint="Flagship caps insider float at 20%. Higher drops the launch to Community.">
-        <input type="range" min={0} max={5000} step={50} value={w.premineBps} onChange={(e) => set('premineBps', Number(e.target.value))} className="w-full accent-emerald-500" />
+      {/* Team allocation is disabled until on-chain vesting is wired — we won't offer a
+          premine the Fact Sheet would have to (falsely) claim as "vested". */}
+      <Field label="Team allocation: 0% (fair launch)" hint="Vested team allocations are coming once on-chain vesting is wired. For now every launch is 100% fair — no premine.">
+        <input type="range" min={0} max={0} step={50} value={0} disabled readOnly className="w-full accent-emerald-500 opacity-40 cursor-not-allowed" />
       </Field>
     </div>
   );
