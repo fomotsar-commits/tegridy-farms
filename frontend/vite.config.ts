@@ -314,9 +314,6 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules/html2canvas')) {
               return 'vendor-html2canvas';
             }
-            if (id.includes('node_modules/recharts')) {
-              return 'vendor-recharts';
-            }
           },
         },
       },

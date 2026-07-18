@@ -1,5 +1,8 @@
-import { WebUploader } from '@irys/web-upload';
-import { WebEthereum } from '@irys/web-upload-ethereum';
+// @irys/web-upload{,-ethereum} bundle the Irys SDK + ethers + arbundles + a full
+// crypto stack (~1.1MB). They are imported DYNAMICALLY inside build() so that stays
+// its own lazy chunk, loaded only when a user actually uploads (Step 4+ of the gated
+// launchpad wizard). Pure helpers below (arweaveUri/arweaveHttpUrl) carry zero SDK
+// weight, so the wizard can import them without pulling the SDK into the page chunk.
 
 /// @irys/web-upload-ethereum accepts an EIP-1193 provider via `.withProvider()`
 /// and internally wraps it as an ethers Web3Provider. wagmi's walletClient is
@@ -22,9 +25,14 @@ export async function buildIrysUploader(): Promise<ReturnType<typeof build>> {
 }
 
 async function build() {
-  // The @ts-ignore is because WebUploader is a type Constructable, and Irys's
-  // typings for Builder.build() are loose. The runtime behavior is the
-  // documented ethereum flow.
+  // Lazy-load the heavy Irys SDK only at the moment an upload is initiated. This is
+  // what keeps the ~1.1MB out of the launchpad page chunk (see the module header).
+  const [{ WebUploader }, { WebEthereum }] = await Promise.all([
+    import('@irys/web-upload'),
+    import('@irys/web-upload-ethereum'),
+  ]);
+  // The `as any` is because WebUploader is a type Constructable, and Irys's typings
+  // for Builder.build() are loose. The runtime behavior is the documented ethereum flow.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const irys = await WebUploader(WebEthereum as any).withProvider(window.ethereum);
   return irys;

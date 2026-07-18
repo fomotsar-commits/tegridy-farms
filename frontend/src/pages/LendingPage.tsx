@@ -1,15 +1,29 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { pageArt, artStyle } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { LendingSection } from '../components/nftfinance/LendingSection';
-import { AMMSection } from '../components/nftfinance/AMMSection';
-import { NFTLendingSection } from '../components/nftfinance/NFTLendingSection';
-import { LaunchpadSection } from '../components/nftfinance/LaunchpadSection';
+// Each NFT-Finance section is a large (50–120KB source) tab-gated surface and only ONE
+// mounts at a time (see the tabpanel below). Lazy-loading them splits what was a single
+// ~1.27MB page chunk into per-tab chunks: opening /nft-finance now pulls only the active
+// tab (default: Token Lending); AMM / NFT-lending / Launchpad load on first tab-switch.
+// The named exports are remapped to `default` so React.lazy can consume them.
+const LendingSection = lazy(() =>
+  import('../components/nftfinance/LendingSection').then((mod) => ({ default: mod.LendingSection })),
+);
+const AMMSection = lazy(() =>
+  import('../components/nftfinance/AMMSection').then((mod) => ({ default: mod.AMMSection })),
+);
+const NFTLendingSection = lazy(() =>
+  import('../components/nftfinance/NFTLendingSection').then((mod) => ({ default: mod.NFTLendingSection })),
+);
+const LaunchpadSection = lazy(() =>
+  import('../components/nftfinance/LaunchpadSection').then((mod) => ({ default: mod.LaunchpadSection })),
+);
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
+import { PageSkeleton } from '../components/PageSkeleton';
 import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
@@ -282,12 +296,17 @@ export default function LendingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         >
-          {section === 'lending' && <LendingSection address={address} />}
-          {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
-            ? <NFTLendingSection />
-            : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
-          {section === 'amm' && <AMMSection />}
-          {section === 'launchpad' && <LaunchpadSection />}
+          {/* Lazy sections resolve behind a Suspense fallback. React.lazy caches the
+              resolved module, so only the FIRST visit to a tab shows the spinner —
+              revisits render synchronously. */}
+          <Suspense fallback={<PageSkeleton />}>
+            {section === 'lending' && <LendingSection address={address} />}
+            {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
+              ? <NFTLendingSection />
+              : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
+            {section === 'amm' && <AMMSection />}
+            {section === 'launchpad' && <LaunchpadSection />}
+          </Suspense>
         </m.div>
       </div>
     </div>
