@@ -168,7 +168,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['nft', 'lending', 'borrow', 'collateral'],
-    answer: "NFT Finance → NFT Lending. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH. No oracles needed. Audited but not redeployed since the relaunch — the page un-gates when it's live.",
+    answer: "NFT Finance → NFT Lending. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH. No oracles needed. Internally reviewed (no third-party audit yet), not redeployed since the relaunch — the page un-gates when it's live.",
   },
   {
     keywords: ['liquidation', 'liquidate', 'default'],
@@ -276,7 +276,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   {
     // HONESTY PASS 2026-06-11: PremiumAccess is not deployed (zeroed address).
     keywords: ['premium', 'gold', 'card', 'subscription'],
-    answer: "Randy's Gold Card — bonus rewards + perks, paid in ETH. Built and audited, not deployed yet. /premium lights up the day it ships.",
+    answer: "Randy's Gold Card — bonus rewards + perks, paid in ETH. Built and internally reviewed (no third-party audit yet), not deployed yet. /premium lights up the day it ships.",
   },
   {
     // AUDIT R073: prior copy said "no refund mid-period" — wrong. PremiumAccess

@@ -49,6 +49,7 @@ export function PriceAlertWidget() {
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as 'above' | 'below')}
+                aria-label="Alert when price is above or below"
                 className="rounded-lg px-2 py-1.5 text-[12px] bg-white/5 border border-white/10 text-white outline-none"
               >
                 <option value="above">Above</option>
@@ -59,6 +60,7 @@ export function PriceAlertWidget() {
                 step="any"
                 min="0"
                 placeholder="Price ($)"
+                aria-label="Alert price in USD"
                 value={priceInput}
                 onChange={(e) => setPriceInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}

@@ -372,11 +372,11 @@ function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus
         )}
       </div>
 
-      {/* Afterlife — what a graduated Tegridy launch gets that no other launcher offers. */}
+      {/* Afterlife — a day-2 economy that few other launchers offer. */}
       <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
         After the auction graduates into a V4 pool, this token can plug into the Tegridy
-        economy — boosted LP farming and a gauge-emissions application. No other launcher
-        gives a launch a day-2 economy.
+        economy — boosted LP farming and a gauge-emissions application. Few launchers
+        give a launch a day-2 economy.
       </p>
     </div>
   );
