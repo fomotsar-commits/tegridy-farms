@@ -143,21 +143,39 @@ export function factSheetSchemaUid(): Hex {
  * order (order is meaningful for our disclosure lists), bigints stringified. This
  * is the ONLY place disclosuresDigest input is shaped, so the digest is stable
  * across key-insertion order and JS engine quirks.
+ *
+ * `null` and `undefined`/omitted are normalised to a SINGLE canonical form (an
+ * absent object key): the collector may represent "unknown holder/locker" as either
+ * `null` or an omitted key across code paths, and both must digest identically or
+ * the same launch would attest two distinct digests.
  */
 function canonicalize(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
   if (typeof value === 'bigint') return value.toString();
   if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === 'object') {
+  if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      out[key] = canonicalize((value as Record<string, unknown>)[key]);
+      const cv = canonicalize((value as Record<string, unknown>)[key]);
+      // Drop null/undefined keys so `holder: null` ≡ omitted `holder` — one form.
+      if (cv === null) continue;
+      out[key] = cv;
     }
     return out;
   }
   return value;
 }
 
-/** Stable JSON of the rich disclosure arrays that the on-chain digest commits to. */
+/**
+ * Stable JSON of everything the on-chain digest commits to. This deliberately
+ * covers EVERY tamper-sensitive field that is NOT already a flat column of
+ * FACT_SHEET_EAS_SCHEMA — including `gateChecks` (the audit trail that justifies
+ * the tier), `totalSupply`, `tokenFactory`, `name`, and `symbol`. Without them a
+ * pinned off-chain JSON could carry a FORGED passing audit trail or an inflated
+ * supply while the attestation still "verified". The flat schema commits token /
+ * chainId / templateCodehash / knownSafeTemplate / tier / teamAllocation* /
+ * liquidityUnlockAt / observedAt directly; this digest commits the rest.
+ */
 export function canonicalDisclosuresJson(sheet: LaunchFactSheet): string {
   return JSON.stringify(
     canonicalize({
@@ -165,15 +183,21 @@ export function canonicalDisclosuresJson(sheet: LaunchFactSheet): string {
       liquidity: sheet.liquidity,
       feeConstitution: sheet.feeConstitution,
       vesting: sheet.vesting,
+      gateChecks: sheet.gateChecks,
+      totalSupply: sheet.totalSupply,
+      tokenFactory: sheet.tokenFactory,
+      name: sheet.name,
+      symbol: sheet.symbol,
     }),
   );
 }
 
 /**
- * keccak digest of the rich disclosure arrays (residualPowers + liquidity +
- * feeConstitution + vesting). The full JSON is published off-chain + pinned; the
- * on-chain attestation commits only to this 32-byte digest, so the disclosure is
- * tamper-evident without bloating calldata.
+ * keccak digest of the disclosure set (residualPowers + liquidity + feeConstitution
+ * + vesting + gateChecks + totalSupply + tokenFactory + name + symbol). The full
+ * JSON is published off-chain + pinned; the on-chain attestation commits only to
+ * this 32-byte digest, so the WHOLE disclosure is tamper-evident (a forged gate
+ * check or an altered supply changes the digest) without bloating calldata.
  */
 export function disclosuresDigest(sheet: LaunchFactSheet): Hex {
   return keccak256(toHex(canonicalDisclosuresJson(sheet)));

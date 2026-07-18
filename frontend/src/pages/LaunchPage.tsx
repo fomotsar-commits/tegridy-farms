@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useChainId, usePublicClient, useWalletClient } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -18,10 +18,15 @@ import {
   launchToken,
   wizardConfigToLaunchConfig,
   LaunchError,
+  MAX_PREMINE_BPS,
   type LaunchResult,
   type AttentionSplit,
 } from '../lib/launcher/launchService';
 import { attestFactSheet } from '../lib/launcher/attestation';
+import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
+import type { LaunchSummary } from '../lib/launcher/ordering';
+import type { OutcomeRecord } from '../lib/launcher/outcomes';
+import type { LaunchBaseline } from '../lib/launcher/outcomesReader';
 import { isAddress, type Address } from 'viem';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 
@@ -38,6 +43,8 @@ type WizardState = {
   tier: LaunchTierId;
   totalSupply: string; // whole tokens
   premineBps: number; // insider allocation, on-chain vested
+  vestMonths: number; // on-chain vesting duration for the premine
+  cliffMonths: number; // optional cliff before premine vesting begins
   mcapStartK: number; // Dutch-auction START (high) market cap, $ thousands
   mcapFloorK: number; // descends toward this FLOOR, $ thousands
   lpLockMonths: number;
@@ -52,6 +59,8 @@ const INITIAL: WizardState = {
   tier: 'flagship',
   totalSupply: '1000000000',
   premineBps: 0,
+  vestMonths: 12,
+  cliffMonths: 0,
   mcapStartK: 300, // Dutch auction starts high…
   mcapFloorK: 30, // …and descends to the floor
   lpLockMonths: 12,
@@ -127,6 +136,33 @@ export default function LaunchPage() {
   const price = useTOWELIPriceOptional();
   const [launch, setLaunch] = useState<LaunchStatus>({ phase: 'idle' });
   const [attest, setAttest] = useState<AttestStatus>({ phase: 'idle' });
+  const [explorer, setExplorer] = useState<{ launches: LaunchSummary[]; outcomes: Record<string, OutcomeRecord> }>({
+    launches: [],
+    outcomes: {},
+  });
+
+  // Discovery / outcomes surface. The client enriches a CONSUMED launch list
+  // (LaunchBaseline[]) with real GeckoTerminal + Etherscan data via the aggregator
+  // catchall (Etherscan key stays server-side). Launch DISCOVERY — which tokens to
+  // list — is the one remaining external dependency, sourced from GeckoTerminal
+  // new_pools / an indexer at un-gate; until then `baselines` is empty and the
+  // explorer degrades to its clean empty state. Wiring is complete; only the feed
+  // is pending.
+  useEffect(() => {
+    if (!isLauncherEnabled()) return;
+    const baselines: LaunchBaseline[] = []; // TODO(go-live): populate from new_pools / indexer discovery
+    if (baselines.length === 0) return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const r = await fetchLauncherOutcomes({ baselines, signal: ac.signal });
+        setExplorer({ launches: r.launches, outcomes: r.outcomes });
+      } catch {
+        setExplorer({ launches: [], outcomes: {} }); // client throws on net/HTTP — degrade to empty
+      }
+    })();
+    return () => ac.abort();
+  }, []);
 
   const onLaunch = async () => {
     if (launch.phase === 'pending') return;
@@ -248,10 +284,11 @@ export default function LaunchPage() {
         <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} />
       )}
 
-      {/* Discovery / outcomes surface. Empty until a data source is wired at un-gate
-          (the aggregator-catchall adapter over outcomesReader); degrades to "No launches yet". */}
+      {/* Discovery / outcomes surface. Enriched via the aggregator-catchall adapter
+          (GeckoTerminal + Etherscan) once a discovery feed populates baselines;
+          degrades to "No launches yet" until then. */}
       <div className="mt-12">
-        <LaunchExplorer launches={[]} outcomes={{}} />
+        <LaunchExplorer launches={explorer.launches} outcomes={explorer.outcomes} />
       </div>
     </div>
   );
@@ -428,11 +465,43 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
           <input className={inputCls} inputMode="numeric" value={w.lpLockMonths} onChange={(e) => set('lpLockMonths', Number(e.target.value.replace(/\D/g, '')) || 0)} />
         </Field>
       </div>
-      {/* Team allocation is disabled until on-chain vesting is wired — we won't offer a
-          premine the Fact Sheet would have to (falsely) claim as "vested". */}
-      <Field label="Team allocation: 0% (fair launch)" hint="Vested team allocations are coming once on-chain vesting is wired. For now every launch is 100% fair — no premine.">
-        <input type="range" min={0} max={0} step={50} value={0} disabled readOnly className="w-full accent-emerald-500 opacity-40 cursor-not-allowed" />
+      {/* Team allocation — reserved out of the auction and locked to the creator under
+          an ON-CHAIN Doppler vesting schedule (so "vested" in the Fact Sheet is a real
+          lock, not a promise). 0% = fully fair launch. Capped at the policy maximum. */}
+      <Field
+        label={w.premineBps > 0 ? `Team allocation: ${(w.premineBps / 100).toFixed(1)}% (vested)` : 'Team allocation: 0% (fair launch)'}
+        hint={`Reserved out of the auction and locked to you on-chain (Doppler vesting). 0% is a fully fair launch. Capped at ${MAX_PREMINE_BPS / 100}%.`}
+      >
+        <input
+          type="range"
+          min={0}
+          max={MAX_PREMINE_BPS}
+          step={50}
+          value={w.premineBps}
+          onChange={(e) => set('premineBps', Number(e.target.value) || 0)}
+          className="w-full accent-emerald-500"
+        />
       </Field>
+      {w.premineBps > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Vesting duration (months)" hint="How long your allocation vests on-chain.">
+            <input
+              className={inputCls}
+              inputMode="numeric"
+              value={w.vestMonths}
+              onChange={(e) => set('vestMonths', Number(e.target.value.replace(/\D/g, '')) || 0)}
+            />
+          </Field>
+          <Field label="Cliff (months, optional)" hint="No tokens unlock before the cliff. Must be ≤ the duration.">
+            <input
+              className={inputCls}
+              inputMode="numeric"
+              value={w.cliffMonths}
+              onChange={(e) => set('cliffMonths', Number(e.target.value.replace(/\D/g, '')) || 0)}
+            />
+          </Field>
+        </div>
+      )}
     </div>
   );
 }
@@ -502,7 +571,12 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
     ['Curve', LAUNCH_TIERS.find((t) => t.id === w.tier)?.curve ?? '—'],
     ['Market cap (Dutch)', `$${w.mcapStartK}k → $${w.mcapFloorK}k (descends)`],
     ['LP lock', `${w.lpLockMonths} months`],
-    ['Team allocation', w.premineBps > 0 ? `${(w.premineBps / 100).toFixed(1)}% (vested)` : '0% (fair launch)'],
+    [
+      'Team allocation',
+      w.premineBps > 0
+        ? `${(w.premineBps / 100).toFixed(1)}% — vested ${w.vestMonths}mo${w.cliffMonths ? `, ${w.cliffMonths}mo cliff` : ''}`
+        : '0% (fair launch)',
+    ],
     ['Graduation', 'Uniswap V4 pool (fees stream to the constitution)'],
   ];
   return (

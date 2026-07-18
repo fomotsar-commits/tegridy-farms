@@ -67,6 +67,7 @@ function recordingSdk(): { sdk: DopplerEvmSdkLike; calls: Record<string, unknown
   const builder: DopplerAuctionBuilder = {
     tokenConfig(c) { calls.tokenConfig = c; return builder; },
     saleConfig(c) { calls.saleConfig = c; return builder; },
+    withVesting(c) { calls.vesting = c; return builder; },
     withMarketCapRange(c) { calls.marketCap = c; return builder; },
     withTime(c) { calls.time = c; return builder; },
     withMigration(c) { calls.migration = c; return builder; },
@@ -139,5 +140,60 @@ describe('buildTegridyLaunchParams — policy encoding', () => {
     const mc = calls.marketCap as { marketCap: { start: number; min: number }; minProceeds: bigint };
     expect(mc.marketCap).toEqual({ start: 300_000, min: 30_000 });
     expect(mc.minProceeds).toBe(5n * 10n ** 18n);
+  });
+});
+
+describe('buildTegridyLaunchParams — on-chain vesting (premine)', () => {
+  it('does NOT call withVesting on a fair launch (no vesting config)', () => {
+    const { sdk, calls } = recordingSdk();
+    buildTegridyLaunchParams(sdk, config('flagship'));
+    expect(calls.vesting).toBeUndefined();
+  });
+
+  it('does NOT call withVesting when a vesting amount is 0', () => {
+    const { sdk, calls } = recordingSdk();
+    const cfg = config('flagship');
+    cfg.vesting = { amount: 0n, durationSeconds: 180 * 24 * 60 * 60 };
+    buildTegridyLaunchParams(sdk, cfg);
+    expect(calls.vesting).toBeUndefined();
+  });
+
+  it('vests the reserved premine to the creator with the mapped schedule', () => {
+    const { sdk, calls } = recordingSdk();
+    const cfg = config('flagship');
+    // Reserved premine = initialSupply - numTokensToSell = 100_000_000.
+    const premine = cfg.initialSupply - cfg.numTokensToSell;
+    cfg.vesting = { amount: premine, durationSeconds: 180 * 24 * 60 * 60, cliffSeconds: 30 * 24 * 60 * 60 };
+    buildTegridyLaunchParams(sdk, cfg);
+    const v = calls.vesting as { recipients: Address[]; amounts: bigint[]; duration: bigint; cliffDuration: number };
+    expect(v.recipients).toEqual([cfg.userAddress]);
+    expect(v.amounts).toEqual([premine]);
+    // duration is a bigint of seconds; cliff maps through.
+    expect(v.duration).toBe(BigInt(180 * 24 * 60 * 60));
+    expect(v.cliffDuration).toBe(30 * 24 * 60 * 60);
+  });
+
+  it('defaults the cliff to 0 when cliffSeconds is omitted', () => {
+    const { sdk, calls } = recordingSdk();
+    const cfg = config('flagship');
+    cfg.vesting = { amount: 100_000_000n, durationSeconds: 365 * 24 * 60 * 60 };
+    buildTegridyLaunchParams(sdk, cfg);
+    const v = calls.vesting as { cliffDuration: number };
+    expect(v.cliffDuration).toBe(0);
+  });
+
+  it('leaves the sale/market-cap/migration wiring unchanged when vesting is added', () => {
+    const withV = recordingSdk();
+    const cfg = config('flagship');
+    cfg.vesting = { amount: 100_000_000n, durationSeconds: 365 * 24 * 60 * 60 };
+    buildTegridyLaunchParams(withV.sdk, cfg);
+
+    const without = recordingSdk();
+    buildTegridyLaunchParams(without.sdk, config('flagship'));
+
+    expect(withV.calls.saleConfig).toEqual(without.calls.saleConfig);
+    expect(withV.calls.marketCap).toEqual(without.calls.marketCap);
+    expect(withV.calls.migration).toEqual(without.calls.migration);
+    expect(withV.calls.integrator).toEqual(without.calls.integrator);
   });
 });

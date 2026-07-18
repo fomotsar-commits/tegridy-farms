@@ -12,10 +12,15 @@
 //     launcher is gated — the submit path is unreachable while the flag is false.
 //   • Vault-involved ops (createPartnerConfig, claimPartnerFees) additionally
 //     re-affirm the fee authority via `asSquadsVault` (shape) AND verify it
-//     on-chain via `verifySquadsVault` (owner == Squads v4 program) BEFORE building
-//     the tx — the off-chain brand alone is not proof of multisig custody.
+//     on-chain via `verifySquadsVault` BEFORE building the tx — the off-chain brand
+//     alone is not proof of multisig custody. Because the Squads v4 vault PDA is
+//     SYSTEM-owned (see squads.ts), verification needs the vault's PROVENANCE
+//     (parent multisig + vault index); the caller supplies it as `vaultProvenance`,
+//     a map keyed by the vault address. We derive the canonical vault PDA from that
+//     provenance, require the fee address to equal it, and confirm the multisig is
+//     Squads-owned. Missing provenance for any vault throws (fail-closed).
 //   • No real `feeClaimer` / receiver is hardcoded — the caller supplies affirmed
-//     Squads vaults through the dbc.ts descriptors.
+//     Squads vaults through the dbc.ts descriptors + their provenance here.
 //
 // The SDK methods return an unsigned web3.js `Transaction`. These wrappers
 // partial-sign the EPHEMERAL keypairs they own (the fresh config / base-mint
@@ -29,6 +34,7 @@ import { PublicKey, type Keypair, type Transaction } from '@solana/web3.js';
 import {
   asSquadsVault,
   isSolanaLauncherEnabled,
+  U64_MAX,
   type DbcClaimPartnerFeesParams,
   type DbcLaunchParams,
   type DbcPartnerConfig,
@@ -45,24 +51,56 @@ export interface WalletSigner {
   signTransaction?: (tx: Transaction) => Promise<Transaction>;
 }
 
+/**
+ * Provenance for a Squads v4 vault address — the parent multisig + vault index the
+ * address derives from. Required to verify the address is a genuine vault PDA (which
+ * is System-owned and so cannot be verified from the address alone). See squads.ts.
+ */
+export interface SquadsVaultProvenance {
+  multisig: string;
+  vaultIndex: number;
+}
+
+/** Map of vault address → its provenance. The caller supplies one entry per vault used. */
+export type VaultProvenanceMap = Record<string, SquadsVaultProvenance>;
+
 function assertEnabled(op: string): void {
   if (!isSolanaLauncherEnabled()) {
     throw new Error(`Solana launcher is gated (SOLANA_LAUNCHER_ENABLED=false) — refusing to ${op}`);
   }
 }
 
+function provenanceFor(map: VaultProvenanceMap, addr: string, label: string): SquadsVaultProvenance {
+  const p = map[addr];
+  if (!p) {
+    throw new Error(
+      `missing Squads vault provenance (multisig + vaultIndex) for ${label} ${addr} — cannot verify vault custody`,
+    );
+  }
+  return p;
+}
+
 /**
- * Re-affirm + on-chain-verify a fee authority is a Squads v4 multisig-governed
- * account (owner == Squads program), not an EOA. Throws on a non-vault so accrued
- * fees can never be custodied by a single key.
+ * Re-affirm + on-chain-verify a fee authority is the Squads v4 vault PDA of a real
+ * multisig (multisig-custodied, can sign the claim), not an EOA or a look-alike.
+ * Throws on a non-vault so accrued fees can never be custodied by a single key.
  */
-async function assertSquadsVaultOnChain(client: DynamicBondingCurveClient, label: string, addr: string): Promise<void> {
+async function assertSquadsVaultOnChain(
+  client: DynamicBondingCurveClient,
+  label: string,
+  addr: string,
+  prov: SquadsVaultProvenance,
+): Promise<void> {
   asSquadsVault(addr); // shape/affirmation (rejects empty / malformed / system pubkey)
-  const ok = await verifySquadsVault(client.connection, addr);
+  const ok = await verifySquadsVault(client.connection, {
+    address: addr,
+    multisig: prov.multisig,
+    vaultIndex: prov.vaultIndex,
+  });
   if (!ok) {
     throw new Error(
-      `${label} (${addr}) is not owned by the Squads v4 program — it is not a multisig-governed vault. ` +
-        'Refusing to build: fee authority must be a Squads v4 multisig, never an EOA.',
+      `${label} (${addr}) is not the Squads v4 vault PDA of multisig ${prov.multisig} (index ${prov.vaultIndex}). ` +
+        'Refusing to build: the fee authority must be a multisig-custodied vault that can sign the claim, never an EOA or a look-alike.',
     );
   }
 }
@@ -104,6 +142,7 @@ export async function createPartnerConfig(
   partnerConfig: DbcPartnerConfig,
   signer: WalletSigner | undefined,
   configKeypair: Keypair,
+  vaultProvenance: VaultProvenanceMap,
 ): Promise<Transaction> {
   assertEnabled('create a partner config');
   const { curve, accounts } = partnerConfig;
@@ -114,8 +153,18 @@ export async function createPartnerConfig(
     );
   }
 
-  await assertSquadsVaultOnChain(client, 'feeClaimer', accounts.feeClaimer);
-  await assertSquadsVaultOnChain(client, 'leftoverReceiver', accounts.leftoverReceiver);
+  await assertSquadsVaultOnChain(
+    client,
+    'feeClaimer',
+    accounts.feeClaimer,
+    provenanceFor(vaultProvenance, accounts.feeClaimer, 'feeClaimer'),
+  );
+  await assertSquadsVaultOnChain(
+    client,
+    'leftoverReceiver',
+    accounts.leftoverReceiver,
+    provenanceFor(vaultProvenance, accounts.leftoverReceiver, 'leftoverReceiver'),
+  );
 
   const configParams = buildCurveWithMarketCap(curve); // pure → ConfigParameters
 
@@ -135,8 +184,17 @@ export async function createPartnerConfig(
 
 /**
  * Build (and partial-sign) the `createPool` transaction that launches a token
- * against an existing partner config key. No vault is involved (the config key
- * already encodes the fee authority), so only the feature gate is enforced.
+ * against an existing partner config key. No vault is involved at this step (the
+ * config key already encodes the fee authority), so only the feature gate is
+ * enforced here.
+ *
+ * VAULT GUARANTEE (L4): `createPool` inherits its fee authority from the referenced
+ * config key, whose `feeClaimer` was vault-verified at `createPartnerConfig` time.
+ * This wrapper therefore does NOT re-verify it (that would require an extra fetch of
+ * the config account). The guarantee holds ONLY when the config was created via
+ * `createPartnerConfig` in THIS wrapper; launching against a config built out-of-band
+ * inherits whatever fee authority that config baked in. Operators must only launch
+ * against configs created through `createPartnerConfig`.
  *
  * `baseMintKeypair` is the fresh base-mint account (`signer: true`) and is
  * partial-signed here; its pubkey MUST equal `launchParams.baseMint`.
@@ -184,11 +242,33 @@ export async function claimPartnerFees(
   client: DynamicBondingCurveClient,
   claimParams: DbcClaimPartnerFeesParams,
   signer: WalletSigner | undefined,
+  vaultProvenance: VaultProvenanceMap,
 ): Promise<Transaction> {
   assertEnabled('claim partner fees');
 
-  await assertSquadsVaultOnChain(client, 'feeClaimer', claimParams.feeClaimer);
-  await assertSquadsVaultOnChain(client, 'receiver', claimParams.receiver);
+  // Re-assert u64 bounds at the edge (L3): dbc.claimPartnerFeesParams enforces these,
+  // but an operator-built params object could bypass it — mirror the vault re-affirmation.
+  for (const [label, v] of [
+    ['maxBaseAmount', claimParams.maxBaseAmount],
+    ['maxQuoteAmount', claimParams.maxQuoteAmount],
+  ] as const) {
+    if (v < 0n || v > U64_MAX) {
+      throw new Error(`${label} must be in [0, U64_MAX], got ${v}`);
+    }
+  }
+
+  await assertSquadsVaultOnChain(
+    client,
+    'feeClaimer',
+    claimParams.feeClaimer,
+    provenanceFor(vaultProvenance, claimParams.feeClaimer, 'feeClaimer'),
+  );
+  await assertSquadsVaultOnChain(
+    client,
+    'receiver',
+    claimParams.receiver,
+    provenanceFor(vaultProvenance, claimParams.receiver, 'receiver'),
+  );
 
   const tx = await client.partner.claimPartnerTradingFeeToReceiver({
     feeClaimer: new PublicKey(claimParams.feeClaimer),

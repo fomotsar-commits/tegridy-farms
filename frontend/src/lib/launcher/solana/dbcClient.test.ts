@@ -1,3 +1,8 @@
+// @vitest-environment node
+// The operator signing wrapper is Node-only (never bundled into the browser wizard,
+// which imports dbc.ts alone). Squads vault-PDA derivation uses web3.js's SYNC sha256
+// path, which the jsdom/browser build of web3.js stubs out — so this suite runs under
+// the node environment where findProgramAddressSync works.
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { Keypair, PublicKey, SystemProgram, type Transaction } from '@solana/web3.js';
 
@@ -24,12 +29,13 @@ import {
   isSolanaLauncherEnabled,
   U64_MAX,
 } from './dbc';
-import { SQUADS_V4_PROGRAM_ID, verifySquadsVault } from './squads';
-import { createPartnerConfig, launchToken, claimPartnerFees, type WalletSigner } from './dbcClient';
+import { SQUADS_V4_PROGRAM_ID, deriveSquadsVaultPda, verifySquadsVault } from './squads';
+import { createPartnerConfig, launchToken, claimPartnerFees, type WalletSigner, type VaultProvenanceMap } from './dbcClient';
 
 const gateMock = isSolanaLauncherEnabled as unknown as Mock;
 const buildCurveMock = buildCurveWithMarketCap as unknown as Mock;
 const SQUADS_PROGRAM = new PublicKey(SQUADS_V4_PROGRAM_ID);
+const VAULT_INDEX = 0;
 
 // Fresh, valid 32-byte pubkeys (the wrapper constructs real PublicKeys from them).
 let configKp: Keypair;
@@ -37,8 +43,13 @@ let baseMintKp: Keypair;
 let payerKp: Keypair;
 let creatorKp: Keypair;
 let poolKp: Keypair;
+// Squads multisig configs + their DERIVED vault PDAs (System-owned, the real
+// fee-claim signer). `vault` is the fee address; `provenance` binds it to its multisig.
+let multisigKp: Keypair;
+let multisig2Kp: Keypair;
 let vault: ReturnType<typeof asSquadsVault>;
 let vault2: ReturnType<typeof asSquadsVault>;
+let provenance: VaultProvenanceMap;
 
 beforeEach(() => {
   configKp = Keypair.generate();
@@ -46,8 +57,14 @@ beforeEach(() => {
   payerKp = Keypair.generate();
   creatorKp = Keypair.generate();
   poolKp = Keypair.generate();
-  vault = asSquadsVault(Keypair.generate().publicKey.toBase58());
-  vault2 = asSquadsVault(Keypair.generate().publicKey.toBase58());
+  multisigKp = Keypair.generate();
+  multisig2Kp = Keypair.generate();
+  vault = asSquadsVault(deriveSquadsVaultPda(multisigKp.publicKey.toBase58(), VAULT_INDEX));
+  vault2 = asSquadsVault(deriveSquadsVaultPda(multisig2Kp.publicKey.toBase58(), VAULT_INDEX));
+  provenance = {
+    [vault]: { multisig: multisigKp.publicKey.toBase58(), vaultIndex: VAULT_INDEX },
+    [vault2]: { multisig: multisig2Kp.publicKey.toBase58(), vaultIndex: VAULT_INDEX },
+  };
   gateMock.mockReturnValue(true);
   buildCurveMock.mockClear();
 });
@@ -56,8 +73,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// A mock DBC client. `owner` decides what getAccountInfo reports for vault checks:
-// the Squads program (vault ok), the System program (an EOA), or null (missing).
+// A mock DBC client. `owner` decides what getAccountInfo reports for the MULTISIG
+// account verifySquadsVault fetches: the Squads program (real multisig), the System
+// program (a look-alike), or null (missing).
 function makeClient(owner: PublicKey | null | 'throw' = SQUADS_PROGRAM) {
   const getAccountInfo = vi.fn(async () => {
     if (owner === 'throw') throw new Error('RPC down');
@@ -107,7 +125,7 @@ describe('createPartnerConfig — base58 → PublicKey mapping', () => {
     const client = makeClient();
     const pc = partnerConfig();
 
-    await createPartnerConfig(asClient(client), pc, undefined, configKp);
+    await createPartnerConfig(asClient(client), pc, undefined, configKp, provenance);
 
     expect(buildCurveMock).toHaveBeenCalledWith(pc.curve);
     expect(client.partner.createConfig).toHaveBeenCalledTimes(1);
@@ -127,8 +145,16 @@ describe('createPartnerConfig — base58 → PublicKey mapping', () => {
 
   it('verifies feeClaimer AND leftoverReceiver on-chain before building', async () => {
     const client = makeClient(SQUADS_PROGRAM);
-    await createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp);
+    await createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp, provenance);
     expect(client.connection.getAccountInfo).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws when a vault is missing its provenance (fail-closed)', async () => {
+    const client = makeClient();
+    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp, {})).rejects.toThrow(
+      /missing Squads vault provenance/,
+    );
+    expect(client.partner.createConfig).not.toHaveBeenCalled();
   });
 
   it('partial-signs the config keypair and returns the wallet-signed tx', async () => {
@@ -138,7 +164,7 @@ describe('createPartnerConfig — base58 → PublicKey mapping', () => {
       publicKey: payerKp.publicKey,
       signTransaction: vi.fn(async () => signed),
     };
-    const out = await createPartnerConfig(asClient(client), partnerConfig(), signer, configKp);
+    const out = await createPartnerConfig(asClient(client), partnerConfig(), signer, configKp, provenance);
     expect(signer.signTransaction).toHaveBeenCalledTimes(1);
     // The tx handed to the wallet was first partial-signed with the config keypair.
     const handed = (signer.signTransaction as Mock).mock.calls[0]![0] as { partialSign: Mock };
@@ -148,9 +174,9 @@ describe('createPartnerConfig — base58 → PublicKey mapping', () => {
 
   it('rejects when the config keypair pubkey does not match the descriptor', async () => {
     const client = makeClient();
-    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, Keypair.generate())).rejects.toThrow(
-      /does not match the descriptor config/,
-    );
+    await expect(
+      createPartnerConfig(asClient(client), partnerConfig(), undefined, Keypair.generate(), provenance),
+    ).rejects.toThrow(/does not match the descriptor config/);
     expect(client.partner.createConfig).not.toHaveBeenCalled();
   });
 });
@@ -200,7 +226,7 @@ describe('claimPartnerFees — bigint → BN mapping', () => {
       payer: payerKp.publicKey.toBase58(),
     });
 
-    await claimPartnerFees(asClient(client), params);
+    await claimPartnerFees(asClient(client), params, undefined, provenance);
 
     const arg = client.partner.claimPartnerTradingFeeToReceiver.mock.calls[0]![0] as Record<string, unknown>;
     for (const key of ['feeClaimer', 'payer', 'pool', 'receiver'] as const) {
@@ -222,14 +248,29 @@ describe('claimPartnerFees — bigint → BN mapping', () => {
       maxQuoteAmount: 456n,
     });
 
-    await claimPartnerFees(asClient(client), params);
+    await claimPartnerFees(asClient(client), params, undefined, provenance);
 
     const arg = client.partner.claimPartnerTradingFeeToReceiver.mock.calls[0]![0] as Record<string, unknown>;
     expect(String(arg.maxBaseAmount)).toBe('123');
     expect(String(arg.maxQuoteAmount)).toBe('456');
     expect((arg.receiver as PublicKey).toBase58()).toBe(vault2);
-    // feeClaimer + receiver both verified on-chain.
+    // feeClaimer + receiver both verified on-chain (their multisigs fetched).
     expect(client.connection.getAccountInfo).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-asserts u64 bounds on an operator-built params object (L3)', async () => {
+    const client = makeClient();
+    // Bypass the pure builder's bounds check with a hand-built params object.
+    const bad = {
+      feeClaimer: vault,
+      receiver: vault,
+      pool: poolKp.publicKey.toBase58(),
+      payer: payerKp.publicKey.toBase58(),
+      maxBaseAmount: -1n,
+      maxQuoteAmount: 0n,
+    } as ReturnType<typeof claimPartnerFeesParams>;
+    await expect(claimPartnerFees(asClient(client), bad, undefined, provenance)).rejects.toThrow(/maxBaseAmount/);
+    expect(client.partner.claimPartnerTradingFeeToReceiver).not.toHaveBeenCalled();
   });
 });
 
@@ -237,9 +278,9 @@ describe('feature gate', () => {
   beforeEach(() => gateMock.mockReturnValue(false));
 
   it('createPartnerConfig throws when the launcher is gated', async () => {
-    await expect(createPartnerConfig(asClient(makeClient()), partnerConfig(), undefined, configKp)).rejects.toThrow(
-      /gated/i,
-    );
+    await expect(
+      createPartnerConfig(asClient(makeClient()), partnerConfig(), undefined, configKp, provenance),
+    ).rejects.toThrow(/gated/i);
   });
   it('launchToken throws when the launcher is gated', async () => {
     await expect(launchToken(asClient(makeClient()), launchParams(), undefined, baseMintKp)).rejects.toThrow(/gated/i);
@@ -250,39 +291,55 @@ describe('feature gate', () => {
       pool: poolKp.publicKey.toBase58(),
       payer: payerKp.publicKey.toBase58(),
     });
-    await expect(claimPartnerFees(asClient(makeClient()), params)).rejects.toThrow(/gated/i);
+    await expect(claimPartnerFees(asClient(makeClient()), params, undefined, provenance)).rejects.toThrow(/gated/i);
   });
 });
 
-describe('Squads-vault assertion (on-chain owner check)', () => {
-  it('createPartnerConfig rejects when the fee authority is an EOA (System-owned)', async () => {
+describe('Squads-vault assertion (on-chain vault-PDA check)', () => {
+  it('createPartnerConfig rejects when the parent multisig is a look-alike (System-owned)', async () => {
     const client = makeClient(SystemProgram.programId);
-    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp)).rejects.toThrow(
-      /not owned by the Squads v4 program/,
+    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp, provenance)).rejects.toThrow(
+      /not the Squads v4 vault PDA/,
     );
     expect(client.partner.createConfig).not.toHaveBeenCalled();
   });
 
-  it('createPartnerConfig rejects when the fee authority account does not exist', async () => {
+  it('createPartnerConfig rejects when the parent multisig does not exist', async () => {
     const client = makeClient(null);
-    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp)).rejects.toThrow(
-      /not owned by the Squads v4 program/,
+    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp, provenance)).rejects.toThrow(
+      /not the Squads v4 vault PDA/,
     );
   });
 
-  it('claimPartnerFees rejects when the receiver is not a Squads vault', async () => {
+  it('rejects when the fee address is not the multisig vault PDA (an EOA / wrong provenance)', async () => {
+    const client = makeClient(SQUADS_PROGRAM);
+    // vault is derived from multisigKp; point its provenance at multisig2Kp so the
+    // derived PDA no longer matches — a stand-in for an EOA fee address.
+    const wrong: VaultProvenanceMap = {
+      [vault]: { multisig: multisig2Kp.publicKey.toBase58(), vaultIndex: VAULT_INDEX },
+    };
+    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp, wrong)).rejects.toThrow(
+      /not the Squads v4 vault PDA/,
+    );
+    // Rejected on the pure derive/compare — the multisig was never fetched.
+    expect(client.connection.getAccountInfo).not.toHaveBeenCalled();
+  });
+
+  it('claimPartnerFees rejects when the receiver multisig is not Squads-owned', async () => {
     const client = makeClient(SystemProgram.programId);
     const params = claimPartnerFeesParams({
       feeClaimer: vault,
       pool: poolKp.publicKey.toBase58(),
       payer: payerKp.publicKey.toBase58(),
     });
-    await expect(claimPartnerFees(asClient(client), params)).rejects.toThrow(/not owned by the Squads v4 program/);
+    await expect(claimPartnerFees(asClient(client), params, undefined, provenance)).rejects.toThrow(
+      /not the Squads v4 vault PDA/,
+    );
     expect(client.partner.claimPartnerTradingFeeToReceiver).not.toHaveBeenCalled();
   });
 });
 
-describe('verifySquadsVault', () => {
+describe('verifySquadsVault (correct vault-PDA model)', () => {
   const conn = (owner: PublicKey | null | 'throw') =>
     ({
       getAccountInfo: vi.fn(async () => {
@@ -291,30 +348,71 @@ describe('verifySquadsVault', () => {
       }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }) as any;
+  const ms = () => Keypair.generate().publicKey.toBase58();
 
-  it('returns true when the account is owned by the Squads v4 program', async () => {
-    await expect(verifySquadsVault(conn(SQUADS_PROGRAM), Keypair.generate().publicKey.toBase58())).resolves.toBe(true);
+  it('returns true when the address is the derived vault PDA and the multisig is Squads-owned', async () => {
+    const multisig = ms();
+    const address = deriveSquadsVaultPda(multisig, 0);
+    await expect(verifySquadsVault(conn(SQUADS_PROGRAM), { address, multisig, vaultIndex: 0 })).resolves.toBe(true);
   });
 
-  it('returns false for an EOA (System-program-owned account)', async () => {
-    await expect(verifySquadsVault(conn(SystemProgram.programId), Keypair.generate().publicKey.toBase58())).resolves.toBe(
+  it('returns false (without fetching) when the address is not the multisig vault PDA', async () => {
+    const multisig = ms();
+    const c = conn(SQUADS_PROGRAM);
+    await expect(
+      verifySquadsVault(c, { address: Keypair.generate().publicKey.toBase58(), multisig, vaultIndex: 0 }),
+    ).resolves.toBe(false);
+    expect(c.getAccountInfo).not.toHaveBeenCalled();
+  });
+
+  it('returns false when the multisig is not Squads-owned (System program)', async () => {
+    const multisig = ms();
+    const address = deriveSquadsVaultPda(multisig, 0);
+    await expect(verifySquadsVault(conn(SystemProgram.programId), { address, multisig, vaultIndex: 0 })).resolves.toBe(
       false,
     );
   });
 
-  it('returns false when the account does not exist', async () => {
-    await expect(verifySquadsVault(conn(null), Keypair.generate().publicKey.toBase58())).resolves.toBe(false);
+  it('returns false when the multisig account does not exist', async () => {
+    const multisig = ms();
+    const address = deriveSquadsVaultPda(multisig, 0);
+    await expect(verifySquadsVault(conn(null), { address, multisig, vaultIndex: 0 })).resolves.toBe(false);
   });
 
-  it('throws on an empty address', async () => {
-    await expect(verifySquadsVault(conn(SQUADS_PROGRAM), '   ')).rejects.toThrow(/empty/);
+  it('throws on an empty address or empty multisig', async () => {
+    await expect(verifySquadsVault(conn(SQUADS_PROGRAM), { address: '   ', multisig: ms(), vaultIndex: 0 })).rejects.toThrow(
+      /empty/,
+    );
+    await expect(verifySquadsVault(conn(SQUADS_PROGRAM), { address: ms(), multisig: '   ', vaultIndex: 0 })).rejects.toThrow(
+      /empty/,
+    );
   });
 
-  it('throws on a malformed base58 address', async () => {
-    await expect(verifySquadsVault(conn(SQUADS_PROGRAM), 'not-a-valid-key!!!')).rejects.toThrow();
+  it('throws on a malformed multisig base58', async () => {
+    await expect(
+      verifySquadsVault(conn(SQUADS_PROGRAM), { address: ms(), multisig: 'not-a-valid-key!!!', vaultIndex: 0 }),
+    ).rejects.toThrow();
   });
 
   it('propagates an RPC failure instead of coercing it to false', async () => {
-    await expect(verifySquadsVault(conn('throw'), Keypair.generate().publicKey.toBase58())).rejects.toThrow(/RPC down/);
+    const multisig = ms();
+    const address = deriveSquadsVaultPda(multisig, 0);
+    await expect(verifySquadsVault(conn('throw'), { address, multisig, vaultIndex: 0 })).rejects.toThrow(/RPC down/);
+  });
+});
+
+describe('deriveSquadsVaultPda', () => {
+  it('is deterministic, off-curve, and index-sensitive', () => {
+    const multisig = Keypair.generate().publicKey.toBase58();
+    const a = deriveSquadsVaultPda(multisig, 0);
+    expect(deriveSquadsVaultPda(multisig, 0)).toBe(a);
+    expect(PublicKey.isOnCurve(new PublicKey(a))).toBe(false); // a PDA is off the ed25519 curve
+    expect(deriveSquadsVaultPda(multisig, 1)).not.toBe(a); // the vault index is part of the seed
+  });
+
+  it('rejects an out-of-range vault index', () => {
+    const multisig = Keypair.generate().publicKey.toBase58();
+    expect(() => deriveSquadsVaultPda(multisig, 256)).toThrow(/u8/);
+    expect(() => deriveSquadsVaultPda(multisig, -1)).toThrow(/u8/);
   });
 });

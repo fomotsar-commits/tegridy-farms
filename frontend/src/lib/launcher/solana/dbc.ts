@@ -8,9 +8,12 @@
 //     can redirect them to ANY receiver). Therefore the `feeClaimer` MUST be a
 //     Squads v4 multisig vault — NEVER an EOA. This module gates every fee
 //     authority behind a `SquadsVault` brand + an `asSquadsVault` shape/affirmation
-//     check. That is NOT proof of multisig ownership (it cannot be, off-chain), so
-//     the operator's signing wrapper MUST verify the account is owned by the Squads
-//     program before the first real launch (see §Squads-vault invariant + README).
+//     check. That is NOT proof of multisig custody (it cannot be, off-chain), so the
+//     operator's signing wrapper MUST verify it on-chain before the first real
+//     launch. NOTE: the real Squads v4 vault is a SYSTEM-owned PDA derived from the
+//     multisig (not the Squads-owned config account) — so verification derives that
+//     vault PDA from the multisig + index and confirms the fee address equals it
+//     (see squads.ts `verifySquadsVault` + README §Squads-vault invariant).
 //   • Sub-brand, GATED: SOLANA_LAUNCHER_ENABLED stays false; the operator submit
 //     path is unreachable until an operator flips it AND supplies a real vault.
 //

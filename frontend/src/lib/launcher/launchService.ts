@@ -30,6 +30,15 @@ const ZERO: Address = '0x0000000000000000000000000000000000000000';
 /** 365/12 days per month (matches LaunchPage's MONTH), so a "12-month lock" is exactly 365 days. */
 const MONTH_SECONDS = (365 / 12) * 86_400;
 
+/**
+ * Conservative policy cap on the insider premine (20%). The premine is placed under
+ * an on-chain vesting schedule (see airlock.ts), but a large insider allocation is a
+ * structural risk regardless of vesting — cap it, consistent with the minimal-surface
+ * stance. A creator wanting more must do it outside this rail. Exported so the wizard
+ * slider and this mapper share one source of truth.
+ */
+export const MAX_PREMINE_BPS = 2000;
+
 /** Auction-start buffer; the auction start is fixed at build time (see airlock.ts). */
 const START_TIME_OFFSET_SECONDS = 600;
 
@@ -77,8 +86,17 @@ export interface LaunchWizardInput {
   tier: TegridyLaunchConfig['tier'];
   /** Whole tokens (no decimals) — scaled to 18-decimal base units by the mapper. */
   totalSupply: string;
-  /** Insider allocation in bps; reserved out of the auctioned amount. */
+  /** Insider allocation in bps; reserved out of the auctioned amount and on-chain vested. */
   premineBps: number;
+  /**
+   * On-chain vesting duration for the premine, in months. Required (> 0) whenever
+   * `premineBps > 0` — the reserved premine is locked to the creator under a Doppler
+   * vesting schedule for this long, which is what makes the Fact Sheet's "vested"
+   * disclosure truthful. Ignored when `premineBps === 0`.
+   */
+  vestMonths: number;
+  /** Optional cliff (months) before premine vesting begins; 0..vestMonths. */
+  cliffMonths?: number;
   /** Dutch-auction START (high) market cap, in $ thousands. */
   mcapStartK: number;
   /** Descends toward this FLOOR market cap, in $ thousands. */
@@ -147,6 +165,26 @@ function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly 
     );
   }
 
+  // FIXED protocol + Doppler lines (resolved addresses; never touched by the carve-out).
+  const fixedLines: ResolvedLine[] = [];
+  for (const line of DEFAULT_FEE_CONSTITUTION) {
+    if (line.role === 'protocol-stakers') fixedLines.push({ ...line, address: REVENUE_DISTRIBUTOR_ADDRESS });
+    // Carries the Airlock owner + enforces the >=5% floor.
+    else if (line.role === 'doppler') fixedLines.push(dopplerBeneficiaryLine(line.shareBps));
+  }
+
+  // A creator-directed split must NOT target a fixed protocol/Doppler beneficiary:
+  // coalescing would silently fold the carve into that payout AND mislabel the line
+  // (the protocol/Doppler role masked as 'attention-beneficiary'), skimming the
+  // creator's directed share into the protocol Safe with no error. There is no
+  // legitimate reason to direct a KOL carve to those addresses — reject it.
+  const fixedAddrs = new Set(fixedLines.map((l) => l.address.toLowerCase()));
+  for (const s of attentionSplits) {
+    if (fixedAddrs.has(s.address.toLowerCase())) {
+      throw new Error('An attention split cannot be directed to the protocol or Doppler beneficiary address.');
+    }
+  }
+
   const resolved: ResolvedLine[] = [];
   // Creator keeps the pool remainder after the directed carve-outs.
   resolved.push({
@@ -159,15 +197,13 @@ function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly 
   for (const s of attentionSplits) {
     resolved.push({ recipient: s.address, role: 'attention-beneficiary', shareBps: s.shareBps, address: s.address });
   }
-  // FIXED protocol + Doppler lines (untouched by the creator's carve-out).
-  for (const line of DEFAULT_FEE_CONSTITUTION) {
-    if (line.role === 'protocol-stakers') resolved.push({ ...line, address: REVENUE_DISTRIBUTOR_ADDRESS });
-    // Carries the Airlock owner + enforces the >=5% floor.
-    else if (line.role === 'doppler') resolved.push(dopplerBeneficiaryLine(line.shareBps));
-  }
+  resolved.push(...fixedLines);
 
-  // Coalesce by address (case-insensitive), summing bps. Preserve a 'doppler' role
-  // if any merged line held it (so the >=500 floor check in airlock.ts still sees it).
+  // Coalesce by address (case-insensitive), summing bps. A FIXED role (protocol-stakers
+  // / doppler) must SURVIVE a merge so the disclosure stays truthful and airlock.ts's
+  // >=500 doppler-floor check still sees the doppler line — preserved symmetrically,
+  // not just for 'doppler'.
+  const FIXED_ROLES: ReadonlySet<ResolvedLine['role']> = new Set(['protocol-stakers', 'doppler']);
   const byAddress = new Map<string, ResolvedLine>();
   for (const line of resolved) {
     const key = line.address.toLowerCase();
@@ -176,7 +212,7 @@ function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly 
       byAddress.set(key, { ...line });
     } else {
       existing.shareBps += line.shareBps;
-      if (line.role === 'doppler') existing.role = 'doppler';
+      if (FIXED_ROLES.has(line.role)) existing.role = line.role;
     }
   }
   // Drop any fully-carved-away line (e.g. creator directed its entire pool to KOLs),
@@ -189,21 +225,27 @@ function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly 
  * access. The resulting config is what buildTegridyLaunchParams consumes.
  */
 export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMapOptions): TegridyLaunchConfig {
-  // HONESTY GUARD: airlock.ts does not (yet) wire Doppler's on-chain VestingConfig,
-  // so a premine would be reserved out of the sale but NOT actually vested — while
-  // the Fact Sheet's gate reports teamAllocationVestedBps = premineBps ("vested").
-  // Refuse rather than ship a false "vested" disclosure. Re-enable only once the
-  // token's VestingConfig is wired end-to-end (see launcher README follow-up).
-  if (w.premineBps > 0) {
-    throw new Error(
-      'Team allocation / premine is not supported yet (on-chain vesting is not wired) — launch with 0% team allocation.',
-    );
+  // Premine is placed under an ON-CHAIN Doppler vesting schedule to the creator
+  // (see airlock.ts `withVesting`), so the Fact Sheet's teamAllocationVestedBps =
+  // premineBps is backed by a real lock, not a promise. Bound it conservatively.
+  if (!Number.isInteger(w.premineBps) || w.premineBps < 0 || w.premineBps > MAX_PREMINE_BPS) {
+    throw new Error(`Team allocation must be a whole number of bps between 0% and ${MAX_PREMINE_BPS / 100}%.`);
+  }
+  // A premine with no vesting window would be an instant unlock — that is not "vested".
+  if (w.premineBps > 0 && !(Number.isFinite(w.vestMonths) && w.vestMonths > 0)) {
+    throw new Error('A team allocation requires a positive on-chain vesting duration (months).');
+  }
+  if (w.cliffMonths != null && (!Number.isFinite(w.cliffMonths) || w.cliffMonths < 0 || w.cliffMonths > w.vestMonths)) {
+    throw new Error('Vesting cliff (months) must be between 0 and the vesting duration.');
   }
 
-  // 18-decimal base units. With premine blocked, numTokensToSell == initialSupply.
+  // 18-decimal base units. The sale auctions (10000 - premineBps); the reserved
+  // premine is exactly the non-sold remainder — the DopplerERC20V1 template mints it
+  // and the locker holds it under the vesting schedule (see airlock.ts).
   const initialSupply = parseEther(w.totalSupply || '0');
-  const sellBps = BigInt(Math.max(0, 10_000 - w.premineBps));
+  const sellBps = BigInt(10_000 - w.premineBps);
   const numTokensToSell = (initialSupply * sellBps) / 10_000n;
+  const premineAmount = initialSupply - numTokensToSell;
 
   // Fail fast on invalid wizard state rather than shipping bad params deep into the SDK.
   if (initialSupply <= 0n || numTokensToSell <= 0n) {
@@ -232,6 +274,16 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     userAddress: opts.userAddress,
     feeTier: LAUNCH_FEE_TIER,
     startTimeOffsetSeconds: START_TIME_OFFSET_SECONDS,
+    // On-chain vesting of the reserved premine to the creator. Omitted entirely on a
+    // fair launch (premineBps === 0), so the no-premine path is byte-identical to before.
+    vesting:
+      w.premineBps > 0
+        ? {
+            amount: premineAmount,
+            durationSeconds: Math.round(w.vestMonths * MONTH_SECONDS),
+            cliffSeconds: w.cliffMonths ? Math.round(w.cliffMonths * MONTH_SECONDS) : undefined,
+          }
+        : undefined,
   };
 }
 

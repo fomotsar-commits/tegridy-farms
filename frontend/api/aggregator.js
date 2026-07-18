@@ -240,6 +240,17 @@ const CONFIGS = {
 };
 
 export default async function handler(req, res) {
+  // RESOURCE BRANCH (2026-07-17): the catchall doubles as the home for small,
+  // low-traffic first-party resources that would otherwise each cost one of the
+  // scarce Hobby-plan function slots (12-cap; see api/SERVERLESS_BUDGET.md).
+  // `?resource=launcher-outcomes` builds real LaunchExplorer data (GeckoTerminal
+  // market + Etherscan chain stats) behind the pure outcomesReader core. Lazy
+  // dynamic import so the swap hot-path (provider dispatch below) never loads it.
+  if (req.query.resource === "launcher-outcomes") {
+    const { handleLauncherOutcomes } = await import("./_lib/launcher-outcomes.js");
+    return handleLauncherOutcomes(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

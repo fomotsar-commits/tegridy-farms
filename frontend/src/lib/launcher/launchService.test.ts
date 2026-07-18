@@ -23,6 +23,8 @@ function wizard(overrides: Partial<LaunchWizardInput> = {}): LaunchWizardInput {
     tier: 'flagship',
     totalSupply: '1000000000', // 1B whole tokens
     premineBps: 0,
+    vestMonths: 12,
+    cliffMonths: 0,
     mcapStartK: 300, // $300k
     mcapFloorK: 30, // $30k
     lpLockMonths: 12,
@@ -41,8 +43,40 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     expect(cfg.numTokensToSell).toBe(parseEther('1000000000')); // fair launch -> sell all
   });
 
-  it('REFUSES a premine until on-chain vesting is wired (no false "vested" disclosure)', () => {
-    expect(() => wizardConfigToLaunchConfig(wizard({ premineBps: 1000 }), opts())).toThrow(/not supported yet/);
+  it('wires a premine to an on-chain vesting schedule (reserved remainder, sale reduced)', () => {
+    const cfg = wizardConfigToLaunchConfig(wizard({ premineBps: 1000, vestMonths: 6, cliffMonths: 1 }), opts());
+    // 10% reserved -> 90% auctioned; the reserved remainder is vested to the creator.
+    expect(cfg.numTokensToSell).toBe(parseEther('900000000'));
+    const premine = cfg.initialSupply - cfg.numTokensToSell;
+    expect(premine).toBe(parseEther('100000000'));
+    expect(cfg.vesting).toBeDefined();
+    expect(cfg.vesting!.amount).toBe(premine);
+    // Duration/cliff map through at 365/12 days per month.
+    expect(cfg.vesting!.durationSeconds).toBe(Math.round(6 * (365 / 12) * 86_400));
+    expect(cfg.vesting!.cliffSeconds).toBe(Math.round(1 * (365 / 12) * 86_400));
+  });
+
+  it('omits vesting entirely on a fair launch (byte-identical no-premine path)', () => {
+    const cfg = wizardConfigToLaunchConfig(wizard({ premineBps: 0 }), opts());
+    expect(cfg.vesting).toBeUndefined();
+  });
+
+  it('caps the premine at the policy maximum and requires a positive vest duration', () => {
+    // Over the 20% cap.
+    expect(() => wizardConfigToLaunchConfig(wizard({ premineBps: 2001, vestMonths: 12 }), opts())).toThrow(/between 0% and 20%/);
+    // A premine with no vesting window is not "vested" — refuse.
+    expect(() => wizardConfigToLaunchConfig(wizard({ premineBps: 500, vestMonths: 0 }), opts())).toThrow(/vesting duration/);
+    // A cliff longer than the vest is nonsensical.
+    expect(() => wizardConfigToLaunchConfig(wizard({ premineBps: 500, vestMonths: 6, cliffMonths: 7 }), opts())).toThrow(/cliff/);
+  });
+
+  it('rejects an attention split directed at the protocol or Doppler beneficiary address', () => {
+    expect(() =>
+      wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: REVENUE_DISTRIBUTOR_ADDRESS, shareBps: 2000 }] })),
+    ).toThrow(/protocol or Doppler/);
+    expect(() =>
+      wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: DOPPLER_MAINNET.airlockOwner, shareBps: 500 }] })),
+    ).toThrow(/protocol or Doppler/);
   });
 
   it('rejects invalid wizard state (zero supply, non-descending mcap, bad ETH price)', () => {

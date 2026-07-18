@@ -105,15 +105,40 @@ export interface TegridyLaunchConfig {
    * mines, the hook reverts `InvalidStartTime()`. Default 600s (>> mainnet latency).
    */
   startTimeOffsetSeconds?: number;
+  /**
+   * OPTIONAL premine placed under an ON-CHAIN Doppler vesting schedule to the
+   * creator (`userAddress`). `amount` is the reserved premine — expected to be
+   * `initialSupply - numTokensToSell` (the DopplerERC20V1 template mints the
+   * non-sold remainder and the locker holds it under this schedule). When absent
+   * (or amount is 0), we DO NOT call `.withVesting` — a pure fair launch, byte-for-byte
+   * identical to the no-premine path. This is what lets the Fact Sheet truthfully
+   * claim "vested": the tokens are locked by the on-chain schedule, not merely promised.
+   */
+  vesting?: { amount: bigint; durationSeconds: number; cliffSeconds?: number };
 }
 
 /** Migration (graduated) V4 pool params. Unlike the auction pool, this has no <=30 constraint. */
 const MIGRATION_POOL = { fee: 3000, tickSpacing: 60 } as const;
 
+/**
+ * Doppler `BuilderVestingInput` (simple recipients/amounts form), mirrored from
+ * `@whetstone-research/doppler-sdk/dist/evm` (BuilderVestingInput, read 2026-07-17).
+ * `duration` is a bigint (seconds); `cliffDuration` is a number (seconds). We use the
+ * recipients/amounts variant — one creator recipient — not the `allocations[]` variant.
+ */
+export interface BuilderVestingInput {
+  duration?: bigint;
+  cliffDuration?: number;
+  recipients?: Address[];
+  amounts?: bigint[];
+}
+
 /** Minimal faithful façade of the real doppler-sdk/evm surface we call. */
 export interface DopplerAuctionBuilder {
   tokenConfig(c: { type?: 'dopplerERC20V1'; name: string; symbol: string; tokenURI: string }): DopplerAuctionBuilder;
   saleConfig(c: { initialSupply: bigint; numTokensToSell: bigint; numeraire: Address }): DopplerAuctionBuilder;
+  /** Configure on-chain vesting for a premine. Omitted entirely on a fair launch. */
+  withVesting(params: BuilderVestingInput): DopplerAuctionBuilder;
   withMarketCapRange(c: {
     marketCap: { start: number; min: number };
     numerairePrice: number;
@@ -157,7 +182,7 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
   // withMarketCapRange handles the auction pool (tickSpacing<=30, tick direction,
   // gamma) from the fee tier — so we do NOT call poolConfig (which reverts on a
   // >30 tickSpacing). The migration pool is configured separately below.
-  return sdk
+  let builder = sdk
     .buildDynamicAuction()
     // Pin the VERIFIED-SAFE template. Without `type: 'dopplerERC20V1'` the SDK
     // defaults to a StandardToken (CloneERC20) that our gate does not whitelist;
@@ -167,7 +192,20 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
       initialSupply: cfg.initialSupply,
       numTokensToSell: cfg.numTokensToSell,
       numeraire: cfg.numeraire ?? NATIVE_ETH,
-    })
+    });
+  // ON-CHAIN premine vesting: only when a premine is actually reserved. This is
+  // the sole path that makes a "vested" Fact Sheet claim TRUE — the reserved
+  // premine (initialSupply - numTokensToSell) is locked to the creator under a
+  // Doppler vesting schedule. Absent/zero => never called => byte-identical fair launch.
+  if (cfg.vesting && cfg.vesting.amount > 0n) {
+    builder = builder.withVesting({
+      recipients: [cfg.userAddress],
+      amounts: [cfg.vesting.amount],
+      duration: BigInt(cfg.vesting.durationSeconds),
+      cliffDuration: cfg.vesting.cliffSeconds ?? 0,
+    });
+  }
+  return builder
     .withMarketCapRange({
       marketCap: cfg.marketCap,
       numerairePrice: cfg.numerairePriceUsd,

@@ -102,10 +102,13 @@ export interface GateCheck {
 
 /**
  * Canonical EAS schema string for on-chain Fact Sheets. Kept deliberately
- * flat + primitive so it encodes cleanly and stays cheap. The rich arrays
- * (residualPowers, vesting) are committed as a keccak digest of their
- * canonical JSON; the full JSON is published off-chain and pinned, so the
- * attestation proves integrity without bloating calldata.
+ * flat + primitive so it encodes cleanly and stays cheap. Every field NOT a flat
+ * column here — the rich arrays (residualPowers, liquidity, feeConstitution,
+ * vesting) AND gateChecks / totalSupply / tokenFactory / name / symbol — is
+ * committed via a keccak digest of their canonical JSON (see
+ * attestation.canonicalDisclosuresJson). The full JSON is published off-chain and
+ * pinned, so the attestation commits to the WHOLE sheet (a forged gate check or an
+ * altered supply changes the digest) without bloating calldata.
  *
  * Revocable by design (red-team F): if facts change or an error is found, the
  * attester revokes. An attestation is a timestamped disclosure, not a warranty.

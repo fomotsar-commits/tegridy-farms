@@ -175,6 +175,35 @@ describe('disclosuresDigest', () => {
     const json = canonicalDisclosuresJson(factSheet());
     expect(json).toContain('5000000000000000000000'); // 5000e18 vesting amount, stringified
   });
+
+  it('commits to gateChecks — a forged passing audit trail changes the digest', () => {
+    const base = factSheet({ gateChecks: [] });
+    const forged = factSheet({
+      gateChecks: [{ id: 'lp-lock', requiredFor: 'flagship', passed: true, detail: 'FORGED: locked forever' }],
+    });
+    expect(disclosuresDigest(forged)).not.toBe(disclosuresDigest(base));
+  });
+
+  it('commits to totalSupply, tokenFactory, name, and symbol', () => {
+    const base = factSheet();
+    expect(disclosuresDigest(factSheet({ totalSupply: base.totalSupply + 1n }))).not.toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(factSheet({ tokenFactory: '0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead' as Address }))).not.toBe(
+      disclosuresDigest(base),
+    );
+    expect(disclosuresDigest(factSheet({ name: 'Different' }))).not.toBe(disclosuresDigest(base));
+    expect(disclosuresDigest(factSheet({ symbol: 'XXX' }))).not.toBe(disclosuresDigest(base));
+  });
+
+  it('treats a null field and an omitted field identically (canonicalization symmetry)', () => {
+    // holder: null vs holder omitted — the same "unknown" fact must digest the same.
+    const withNull = factSheet({
+      residualPowers: [{ power: 'mint', present: false, holder: null, disclosure: 'No mint function.' }],
+    });
+    const omitted = factSheet({
+      residualPowers: [{ power: 'mint', present: false, disclosure: 'No mint function.' }],
+    });
+    expect(disclosuresDigest(withNull)).toBe(disclosuresDigest(omitted));
+  });
 });
 
 describe('attestFactSheet — request shape (no live chain)', () => {
