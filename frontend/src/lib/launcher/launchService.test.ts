@@ -45,6 +45,12 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     expect(() => wizardConfigToLaunchConfig(wizard({ premineBps: 1000 }), opts())).toThrow(/not supported yet/);
   });
 
+  it('rejects invalid wizard state (zero supply, non-descending mcap, bad ETH price)', () => {
+    expect(() => wizardConfigToLaunchConfig(wizard({ totalSupply: '0' }), opts())).toThrow(/positive/);
+    expect(() => wizardConfigToLaunchConfig(wizard({ mcapStartK: 30, mcapFloorK: 300 }), opts())).toThrow(/descend/);
+    expect(() => wizardConfigToLaunchConfig(wizard(), { ...opts(), numerairePriceUsd: 0 })).toThrow(/ETH price/);
+  });
+
   it('builds a descending market-cap band (start > min) in USD', () => {
     const cfg = wizardConfigToLaunchConfig(wizard(), opts());
     expect(cfg.marketCap).toEqual({ start: 300_000, min: 30_000 });

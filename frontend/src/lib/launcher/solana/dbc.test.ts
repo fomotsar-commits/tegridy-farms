@@ -229,6 +229,21 @@ describe('buildDbcPartnerConfig — token + curve invariants', () => {
     ).toThrow(/sum to 100/);
   });
 
+  it('rejects < 10% permanently-locked LP (SDK MIN_LOCKED_LIQUIDITY — would revert on-chain)', () => {
+    expect(() =>
+      buildDbcPartnerConfig(
+        partnerOpts({
+          liquidityDistribution: {
+            partnerPermanentLockedLiquidityPercentage: 5, // only 5% locked
+            partnerLiquidityPercentage: 45,
+            creatorPermanentLockedLiquidityPercentage: 0,
+            creatorLiquidityPercentage: 50,
+          },
+        }),
+      ),
+    ).toThrow(/permanently locked/);
+  });
+
   it('rejects migrationMarketCap <= initialMarketCap', () => {
     expect(() => buildDbcPartnerConfig(partnerOpts({ initialMarketCap: 50_000, migrationMarketCap: 50_000 }))).toThrow(
       /must exceed initialMarketCap/,

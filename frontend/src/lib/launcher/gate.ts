@@ -97,7 +97,7 @@ export function runGate(raw: RawTokenFacts, cfg: GateConfig): { tier: LaunchTier
     requiredFor: 'listable',
     passed: knownSafe,
     detail: knownSafe
-      ? `Token deployed by a known-safe factory (${raw.tokenFactory}).`
+      ? `Token deployed by a recognised non-upgradeable template factory (${raw.tokenFactory}).`
       : 'Token was not deployed by a recognised non-upgradeable template factory.',
   });
   checks.push({

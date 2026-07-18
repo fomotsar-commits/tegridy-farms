@@ -61,7 +61,7 @@ export const LAUNCH_TIERS = [
     id: 'flagship' as const,
     label: 'Flagship',
     curve: 'Dynamic Dutch auction (Doppler V4)',
-    blurb: 'Full price discovery. Structurally rug-impossible config required (renounced/timelock admin, 12-month LP lock, capped insider float). Eligible for the Launch Afterlife fast-track.',
+    blurb: 'Full price discovery. Requires the strictest structural config — renounced or timelock admin, 12-month LP lock, capped insider float. Eligible for the Launch Afterlife fast-track.',
   },
   {
     id: 'listable' as const,

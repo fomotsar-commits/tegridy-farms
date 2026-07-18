@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { m } from 'framer-motion';
-import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
+import { useAccount, useChainId, usePublicClient, useWalletClient } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
@@ -68,10 +68,12 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
     tokenFactory: DOPPLER_MAINNET.modules.dopplerErc20V1Factory.address,
     templateCodehash: null,
     powers: { mint: false, pause: false, blacklist: false, feeOnTransfer: false, upgrade: false, balanceLimit: false },
-    // Flagship graduates with governance/timelock-neutralised admin; community keeps noOp (renounced).
+    // Accurate per tier: Flagship graduates under a Governor+timelock (withGovernance
+    // 'default'), Community is noOp (renounced). Both satisfy the gate's admin check,
+    // but the DISCLOSURE must not claim "renounced" for a timelock-governed flagship.
     owner: '0x0000000000000000000000000000000000000000',
-    ownerRenounced: true,
-    ownerIsTimelock: false,
+    ownerRenounced: w.tier !== 'flagship',
+    ownerIsTimelock: w.tier === 'flagship',
     liquidity: { locked: true, locker: DOPPLER_MAINNET.support.streamableFeesLocker, unlockAt: Math.round(nowSeconds + w.lpLockMonths * MONTH) },
     feeConstitution: [...DEFAULT_FEE_CONSTITUTION],
     vesting: [],
@@ -100,6 +102,7 @@ export default function LaunchPage() {
   const sheet = useMemo(() => projectFactSheet(w, now), [w, now]);
 
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const price = useTOWELIPriceOptional();
@@ -109,6 +112,12 @@ export default function LaunchPage() {
     if (launch.phase === 'pending') return;
     if (!isConnected || !address || !walletClient || !publicClient) {
       setLaunch({ phase: 'error', message: 'Connect a wallet to launch.' });
+      return;
+    }
+    // The SDK is pinned to Ethereum mainnet (Doppler chainId 1). Refuse a wrong-chain
+    // wallet up front rather than build params against a mismatched address book.
+    if (chainId !== DOPPLER_MAINNET.chainId) {
+      setLaunch({ phase: 'error', message: 'Switch your wallet to Ethereum mainnet to launch.' });
       return;
     }
     // ethUsd from the shared price context; a launch cannot proceed without it.
@@ -381,7 +390,7 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
     ['Curve', LAUNCH_TIERS.find((t) => t.id === w.tier)?.curve ?? '—'],
     ['Market cap (Dutch)', `$${w.mcapStartK}k → $${w.mcapFloorK}k (descends)`],
     ['LP lock', `${w.lpLockMonths} months`],
-    ['Team allocation', `${(w.premineBps / 100).toFixed(1)}% (vested)`],
+    ['Team allocation', w.premineBps > 0 ? `${(w.premineBps / 100).toFixed(1)}% (vested)` : '0% (fair launch)'],
     ['Graduation', 'Uniswap V4 pool (fees stream to the constitution)'],
   ];
   return (

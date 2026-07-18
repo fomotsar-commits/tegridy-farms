@@ -49,6 +49,7 @@ export interface LaunchResult {
 export type LaunchErrorCode =
   | 'launcher-disabled' // gate is shut (isLauncherEnabled() === false)
   | 'invalid-integrator' // integrator is the zero address (defense in depth)
+  | 'invalid-config' // params could not be built from the config (bad tier/fee/tick input)
   | 'simulation-failed' // simulateCreateDynamicAuction reverted (bad config / on-chain preconditions)
   | 'submit-failed'; // createDynamicAuction failed (user rejected / tx reverted)
 
@@ -163,12 +164,24 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
   const sellBps = BigInt(Math.max(0, 10_000 - w.premineBps));
   const numTokensToSell = (initialSupply * sellBps) / 10_000n;
 
+  // Fail fast on invalid wizard state rather than shipping bad params deep into the SDK.
+  if (initialSupply <= 0n || numTokensToSell <= 0n) {
+    throw new Error('Total supply must be a positive number.');
+  }
+  const marketCap = { start: w.mcapStartK * 1000, min: w.mcapFloorK * 1000 };
+  if (!(marketCap.start > marketCap.min && marketCap.min > 0)) {
+    throw new Error('Market cap must descend from a positive start to a lower positive floor.');
+  }
+  if (!Number.isFinite(opts.numerairePriceUsd) || opts.numerairePriceUsd <= 0) {
+    throw new Error('A valid ETH price is required to build the launch.');
+  }
+
   return {
     tier: w.tier,
     token: { name: w.name, symbol: w.symbol, tokenURI: w.tokenURI },
     initialSupply,
     numTokensToSell,
-    marketCap: { start: w.mcapStartK * 1000, min: w.mcapFloorK * 1000 },
+    marketCap,
     numerairePriceUsd: opts.numerairePriceUsd,
     minProceeds: opts.minProceeds ?? DEFAULT_MIN_PROCEEDS,
     maxProceeds: opts.maxProceeds ?? DEFAULT_MAX_PROCEEDS,
@@ -202,10 +215,13 @@ export async function launchToken(
 
   // buildTegridyLaunchParams applies OUR policy over the SDK builder. The real SDK
   // structurally satisfies the DopplerEvmSdkLike façade; the cast is the tested seam.
-  const params = buildTegridyLaunchParams(
-    sdk as unknown as DopplerEvmSdkLike,
-    cfg,
-  ) as CreateDynamicAuctionParams;
+  // Wrapped so a build/tick/fee error still surfaces as a typed LaunchError (contract).
+  let params: CreateDynamicAuctionParams;
+  try {
+    params = buildTegridyLaunchParams(sdk as unknown as DopplerEvmSdkLike, cfg) as CreateDynamicAuctionParams;
+  } catch (e) {
+    throw new LaunchError('invalid-config', `Could not build launch parameters: ${errText(e)}`, e);
+  }
 
   try {
     await sdk.factory.simulateCreateDynamicAuction(params);

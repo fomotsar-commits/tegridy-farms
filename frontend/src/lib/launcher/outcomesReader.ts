@@ -139,6 +139,15 @@ const EMPTY_CHAIN: TokenChainStats = {
   lastTeamActivityAt: null,
 };
 
+/**
+ * A market read counts as OBSERVED only when the disclosure-critical fields
+ * (price + liquidity) are finite numbers. A null or partial read is "unobserved"
+ * so callers mirror the baseline instead of deriving a fabricated crash/drain.
+ */
+function marketIsObserved(m: TokenMarket | null | undefined): boolean {
+  return m != null && Number.isFinite(m.priceEth) && Number.isFinite(m.liquidityEth);
+}
+
 /** Coerce a possibly-partial/hostile TokenMarket into fully-defined safe numbers. */
 function normalizeMarket(m: TokenMarket | null | undefined): TokenMarket {
   if (!m) return { ...EMPTY_MARKET };
@@ -186,7 +195,10 @@ export async function buildOutcomeRecord(
   // is UNOBSERVED we mirror the baseline (→ 0% change, no drain flag) and flag
   // marketObserved:false so the UI renders "unavailable" instead of "no adverse signals".
   const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
-  const marketObserved = rawMarket != null;
+  // Observed only when the fields the disclosures depend on are actually present.
+  // A partial object (e.g. price but no liquidity) would otherwise coerce liquidity
+  // to 0 and fabricate a 100% drain — treat it as unobserved instead.
+  const marketObserved = marketIsObserved(rawMarket);
   const market = normalizeMarket(rawMarket);
   const chain = normalizeChain(
     await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)),
@@ -225,7 +237,7 @@ export async function buildLaunchSummary(
   // zero-activity summary — an outage-hit launch keeps its PRIOR rank instead of
   // being unfairly deranked to the bottom. buildLaunchSummaries filters nulls.
   const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
-  if (rawMarket == null) return null;
+  if (!marketIsObserved(rawMarket)) return null;
   const market = normalizeMarket(rawMarket);
   const chain = normalizeChain(
     await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)),

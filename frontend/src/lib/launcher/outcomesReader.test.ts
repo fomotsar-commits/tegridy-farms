@@ -119,21 +119,28 @@ describe('buildOutcomeRecord', () => {
     expect(rec.lastTeamActivityAt).toBeNull();
   });
 
-  it('sanitizes hostile/negative/non-finite upstream values', async () => {
+  it('sanitizes hostile/negative values on an OBSERVED market (both required fields finite)', async () => {
     const f = mockFetcher({
-      market: {
-        priceEth: -5,
-        liquidityEth: Number.NaN,
-        uniqueBuyers24h: -3,
-        feeRevenueEth24h: Infinity,
-      },
+      market: { priceEth: -5, liquidityEth: -3, uniqueBuyers24h: -3, feeRevenueEth24h: Infinity },
       chain: { holderCount: -1, lastTeamActivityAt: -99 },
     });
     const rec = await buildOutcomeRecord(baseline(), f, NOW);
+    expect(rec.marketObserved).toBe(true); // price + liquidity are finite (if hostile) -> observed
     expect(rec.priceEth).toBe(0);
     expect(rec.liquidityEth).toBe(0);
     expect(rec.holderCount).toBe(0);
     expect(rec.lastTeamActivityAt).toBe(0);
+  });
+
+  it('a PARTIAL market (a required field non-finite) is UNOBSERVED, not a fabricated drain', async () => {
+    const f = mockFetcher({
+      market: { priceEth: 0.002, liquidityEth: Number.NaN, uniqueBuyers24h: 5, feeRevenueEth24h: 0.1 },
+      chain: null,
+    });
+    const rec = await buildOutcomeRecord(baseline({ launchLiquidityEth: 10 }), f, NOW);
+    expect(rec.marketObserved).toBe(false); // NaN liquidity => not observed
+    expect(rec.liquidityEth).toBe(10); // mirrors baseline -> no false drain
+    expect(deriveOutcomeFlags(rec).liquidityDrained).toBe(false);
   });
 
   it('preserves null holder count vs zero distinction at the chain layer but fills 0 in record', async () => {

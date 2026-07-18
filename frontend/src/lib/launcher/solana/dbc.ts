@@ -6,8 +6,11 @@
 //     program (dbcij3…SMaqN, identical on mainnet-beta + devnet) via its TS SDK.
 //   • The `claimPartnerTradingFee` signer has FULL custody of accrued fees (it
 //     can redirect them to ANY receiver). Therefore the `feeClaimer` MUST be a
-//     Squads v4 multisig vault — NEVER an EOA. This module refuses to build any
-//     config or claim whose fee authority is not an affirmed Squads vault.
+//     Squads v4 multisig vault — NEVER an EOA. This module gates every fee
+//     authority behind a `SquadsVault` brand + an `asSquadsVault` shape/affirmation
+//     check. That is NOT proof of multisig ownership (it cannot be, off-chain), so
+//     the operator's signing wrapper MUST verify the account is owned by the Squads
+//     program before the first real launch (see §Squads-vault invariant + README).
 //   • Sub-brand, GATED: SOLANA_LAUNCHER_ENABLED stays false; the operator submit
 //     path is unreachable until an operator flips it AND supplies a real vault.
 //
@@ -73,8 +76,14 @@ export const METEORA_PROTOCOL_FEE_PERCENT = 20;
 /** Fee-bps bounds enforced by the DBC program (SDK MIN_FEE_BPS / MAX_FEE_BPS). */
 export const MIN_FEE_BPS = 25;
 export const MAX_FEE_BPS = 9900;
-/** Max fee-scheduler / rate-limiter decay window (SDK MAX_RATE_LIMITER_DURATION_IN_SECONDS). */
+/**
+ * Self-imposed conservative cap on the anti-snipe decay window (12h). Borrowed from
+ * the SDK's rate-limiter constant (MAX_RATE_LIMITER_DURATION_IN_SECONDS); the fee
+ * SCHEDULER path we use imposes no max totalDuration of its own.
+ */
 export const MAX_ANTI_SNIPE_DURATION_SECONDS = 43200; // 12h
+/** SDK MIN_LOCKED_LIQUIDITY_BPS (1000 = 10%) as a percent — min migrated-LP permanently locked. */
+export const MIN_PERMANENT_LOCKED_LIQUIDITY_PERCENT = 10;
 export const SECONDS_PER_DAY = 86400;
 /** u64 max — the "claim everything available" sentinel for trading-fee claims. */
 export const U64_MAX = 2n ** 64n - 1n;
@@ -234,6 +243,13 @@ function toBaseFeeParams(s: AntiSnipeSchedule): BaseFeeParams {
   if (s.totalDuration > MAX_ANTI_SNIPE_DURATION_SECONDS) {
     throw new Error(`anti-snipe totalDuration must be <= ${MAX_ANTI_SNIPE_DURATION_SECONDS}s, got ${s.totalDuration}`);
   }
+  // The SDK derives periodFrequency = BN(totalDuration / numberOfPeriod) — a non-integer
+  // truncates, silently shortening the decay window vs the disclosed one. Require exactness.
+  if (s.totalDuration % s.numberOfPeriod !== 0) {
+    throw new Error(
+      `anti-snipe totalDuration (${s.totalDuration}) must be divisible by numberOfPeriod (${s.numberOfPeriod}) so the on-chain window matches the disclosed one`,
+    );
+  }
   return {
     baseFeeMode: s.mode === 'linear' ? FEE_SCHEDULER_LINEAR : FEE_SCHEDULER_EXPONENTIAL,
     feeSchedulerParam: {
@@ -382,6 +398,16 @@ export function buildDbcPartnerConfig(opts: BuildDbcPartnerConfigOpts): DbcPartn
     liq.creatorLiquidityPercentage;
   if (liqSum !== 100) {
     throw new Error(`liquidityDistribution percentages must sum to 100, got ${liqSum}`);
+  }
+  // The DBC program requires a minimum permanently-locked share (validateMinimumLockedLiquidity);
+  // a "hand LP to the creator" override that sums to 100 but locks < 10% builds cleanly here then
+  // reverts inside buildCurveWithMarketCap — reject it up front.
+  const permanentLocked =
+    liq.partnerPermanentLockedLiquidityPercentage + liq.creatorPermanentLockedLiquidityPercentage;
+  if (permanentLocked < MIN_PERMANENT_LOCKED_LIQUIDITY_PERCENT) {
+    throw new Error(
+      `>= ${MIN_PERMANENT_LOCKED_LIQUIDITY_PERCENT}% of migrated LP must be permanently locked (SDK MIN_LOCKED_LIQUIDITY), got ${permanentLocked}%`,
+    );
   }
 
   // Validate + disclose the fee split (also throws on bad creator %).
