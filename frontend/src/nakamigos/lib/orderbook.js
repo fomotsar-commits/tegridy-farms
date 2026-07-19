@@ -10,7 +10,7 @@
  * calling Seaport.fulfillOrder() directly — no marketplace dependency.
  */
 
-import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED } from "../constants";
+import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED, resolveSeaportTarget } from "../constants";
 import { getProvider } from "../api";
 
 const ORDERBOOK_API = "/api/orderbook";
@@ -120,6 +120,19 @@ export async function fulfillNativeOrder(order) {
       }
     }
 
+    // SECURITY: pin the fulfillment target before we touch it. `protocol_address`
+    // arrives on the server-supplied order row, and below it becomes both the
+    // contract we call and the recipient of `{ value: totalWei }`. An unpinned
+    // value would let a tampered/poisoned row point the buyer's ETH at an
+    // arbitrary contract. The Seaport/OpenSea sibling path already aborts on an
+    // unexpected target; this closes the same hole on the native path. Fail
+    // CLOSED — never fall back to the default, because a row naming a foreign
+    // target is exactly the case we must refuse, not silently rewrite.
+    const seaportTarget = resolveSeaportTarget(order.protocol_address);
+    if (!seaportTarget) {
+      return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
+    }
+
     // Pre-flight Seaport status check: the backend can miss a fill
     // notification (the post-fill POST below is best-effort), so a stored row
     // may still say "active" for an order already filled or cancelled
@@ -130,7 +143,7 @@ export async function fulfillNativeOrder(order) {
         const statusAbi = [
           "function getOrderStatus(bytes32 orderHash) view returns (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize)",
         ];
-        const seaportRead = new ethers.Contract(order.protocol_address || SEAPORT_ADDRESS, statusAbi, provider);
+        const seaportRead = new ethers.Contract(seaportTarget, statusAbi, provider);
         const [, isCancelled, totalFilled] = await seaportRead.getOrderStatus(order.order_hash);
         if (isCancelled) {
           return { error: "cancelled", message: "This listing was cancelled by the seller" };
@@ -156,7 +169,7 @@ export async function fulfillNativeOrder(order) {
       "function fulfillOrder(((address offerer, address zone, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems) parameters, bytes signature) order, bytes32 fulfillerConduitKey) payable returns (bool fulfilled)",
     ];
     const seaport = new ethers.Contract(
-      order.protocol_address || SEAPORT_ADDRESS,
+      seaportTarget, // pinned + allowlisted above — never the raw row value
       seaportAbi,
       signer
     );

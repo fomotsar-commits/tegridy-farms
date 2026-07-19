@@ -32,6 +32,27 @@ const ALLOWED_CONTRACTS = new Set([
 // ownerOf call each) and the signed-message size. 50 is generous vs any real bundle.
 const MAX_BUNDLE_ITEMS = 50;
 
+// SECURITY: the only fulfillment contracts a stored order may name. Every other
+// field on this write path is validated (currency, price cap, signature recovery,
+// on-chain ownership) but `protocol_address` was persisted verbatim from the
+// request body — and the client later uses it as BOTH the contract it calls and
+// the recipient of the buyer's ETH. Allowlisting on write (and pinning on read,
+// see src/nakamigos/constants.js resolveSeaportTarget) keeps a poisoned row from
+// ever reaching a wallet. Same allowlist the OpenSea/Seaport path already pins to.
+const ALLOWED_PROTOCOL_ADDRESSES = new Set([
+  "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", // Seaport 1.5
+  "0x0000000000000068f116a894984e2db1123eb395", // Seaport 1.6
+]);
+const DEFAULT_PROTOCOL_ADDRESS = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
+
+/** Returns the address to store, or null if the caller named a foreign target. */
+function validatedProtocolAddress(protocolAddress) {
+  if (!protocolAddress) return DEFAULT_PROTOCOL_ADDRESS;
+  return ALLOWED_PROTOCOL_ADDRESSES.has(String(protocolAddress).toLowerCase())
+    ? protocolAddress
+    : null;
+}
+
 // Token decimals for price calculation (lowercase address → decimals)
 const TOKEN_DECIMALS = {
   "0x0000000000000000000000000000000000000000": 18, // ETH
@@ -627,6 +648,12 @@ export default async function handler(req, res) {
         seaportOrderHash = derivedHash;
       }
 
+      // Reject a foreign fulfillment target before it is ever persisted.
+      const protocolAddress = validatedProtocolAddress(order.protocol_address);
+      if (!protocolAddress) {
+        return res.status(400).json({ error: "Unsupported protocol address" });
+      }
+
       const { error } = await supabase.from("native_orders").insert({
         order_hash: orderHash,
         order_type: orderType,
@@ -639,7 +666,7 @@ export default async function handler(req, res) {
         zone: params.zone || null,
         parameters: params,
         signature: order.seaportSignature || order.signature,
-        protocol_address: order.protocol_address || "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC",
+        protocol_address: protocolAddress,
         start_time: new Date(startSec * 1000).toISOString(),
         end_time: new Date(endSec * 1000).toISOString(),
         status: "active",
@@ -873,6 +900,12 @@ export default async function handler(req, res) {
       // Store: token_id NULL (a bundle spans many); is_bundle true; token_ids = the full
       // set (migration 012 columns). contract_address is the first item's collection as a
       // representative — every item also lives in `parameters.offer` and `token_ids`.
+      // Reject a foreign fulfillment target before it is ever persisted.
+      const bundleProtocolAddress = validatedProtocolAddress(order.protocol_address);
+      if (!bundleProtocolAddress) {
+        return res.status(400).json({ error: "Unsupported protocol address" });
+      }
+
       const { error: insertErr } = await supabase.from("native_orders").insert({
         order_hash: orderHash,
         order_type: "listing",
@@ -887,7 +920,7 @@ export default async function handler(req, res) {
         zone: params.zone || null,
         parameters: params,
         signature: order.seaportSignature || order.signature,
-        protocol_address: order.protocol_address || "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC",
+        protocol_address: bundleProtocolAddress,
         start_time: new Date(startSec * 1000).toISOString(),
         end_time: new Date(endSec * 1000).toISOString(),
         status: "active",

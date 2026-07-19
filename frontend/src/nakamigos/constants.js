@@ -117,6 +117,31 @@ export const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 // Seaport v1.5 — verify compatibility if OpenSea migrates to v1.6 (0x0000000000000068F116a894984e2DB1123eB395)
 export const SEAPORT_ADDRESS = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 
+// SECURITY: the ONLY contracts we will ever send a fulfillment (and its ETH) to.
+// A native-orderbook row carries its own `protocol_address`, and that value is
+// server-supplied — so it must never be trusted as a call target on its own.
+// The OpenSea/Seaport sibling path already pins its target this way
+// ("Unexpected transaction target — aborting for safety", api.js), and this is
+// the same allowlist so the native path can't be the weaker of the two.
+// Lowercased for case-insensitive comparison.
+export const KNOWN_SEAPORT_ADDRESSES = new Set([
+  "0x00000000000000adc04c56bf30ac9d3c0aaf14dc", // Seaport 1.5
+  "0x0000000000000068f116a894984e2db1123eb395", // Seaport 1.6
+]);
+
+/**
+ * Resolve the contract a native order may be fulfilled against.
+ * Returns the pinned address, or null if the row names an unknown target
+ * (callers MUST abort — never fall back to a default, which would silently
+ * execute an order whose signed domain doesn't match where we're sending ETH).
+ */
+export function resolveSeaportTarget(protocolAddress) {
+  if (!protocolAddress) return SEAPORT_ADDRESS;
+  return KNOWN_SEAPORT_ADDRESSES.has(String(protocolAddress).toLowerCase())
+    ? protocolAddress
+    : null;
+}
+
 // Shared EIP-712 domain — use this everywhere for Seaport signing.
 // Single source of truth prevents version mismatch bugs.
 export const SEAPORT_DOMAIN = {
