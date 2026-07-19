@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useChainId, usePublicClient, useWalletClient } from 'wagmi';
+import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
@@ -535,6 +536,17 @@ function LauncherExplainer() {
           advertises the emptiness. We are not naming a date.
         </p>
       </ExplainerCard>
+
+      {/* Cross-link to the Solana sub-brand rail. Secondary by design: the destination is
+          gated too (SOLANA_LAUNCHER_ENABLED = false in lib/launcher/solana/dbc.ts), so this
+          is wayfinding, not a call to action. Fee capture only — no TOWELI on Solana. */}
+      <p className="text-white/40 text-xs leading-relaxed">
+        There is also a Solana leg — a separate fee-capture sub-brand over Meteora&rsquo;s Dynamic Bonding Curve, with no
+        TOWELI on Solana and no AMM of our own there. It is gated as well.{' '}
+        <Link to="/solana-launch" className="text-white/60 hover:text-white underline transition-colors">
+          See the Solana rail
+        </Link>
+      </p>
     </div>
   );
 }

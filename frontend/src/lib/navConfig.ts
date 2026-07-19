@@ -11,10 +11,18 @@ import {
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
 import { isSolanaConfigured } from './solana';
+import { isLauncherEnabled } from './launcher/config';
 
 export interface NavItem {
   to: string;
   label: string;
+  /**
+   * Renders a small amber "Soon" pill beside the label. For destinations that
+   * are routable and worth discovering but are still flag-gated shut — the
+   * link must never read as live, and never as broken either. Reuses the same
+   * amber token as FeatureNotDeployed.tsx:40 so nav and page agree visually.
+   */
+  soon?: boolean;
 }
 
 /**
@@ -99,6 +107,13 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Tegridy Score' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
+      // Routable and worth discovering, but the launch rail is gated shut
+      // (LAUNCHER_ENABLED=false + zero integrator, launcher/config.ts:14,21).
+      // Shown with a "Soon" pill rather than hidden: /launch teaches the rail
+      // (LaunchPage renders the SOON wall + LauncherExplainer while gated), so
+      // the entry is honest, not a dead link. The pill clears itself when
+      // isLauncherEnabled() flips.
+      { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
     ],
   },
   {

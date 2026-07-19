@@ -3,6 +3,7 @@
 import '../lib/solanaPolyfill';
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { Keypair } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
@@ -18,6 +19,7 @@ import {
   buildDbcPartnerConfig,
   buildLaunchParams,
   DEFAULT_ANTI_SNIPE,
+  DYNAMIC_BONDING_CURVE_PROGRAM_ID,
   METEORA_PROTOCOL_FEE_PERCENT,
   MIN_PERMANENT_LOCKED_LIQUIDITY_PERCENT,
   type DbcPartnerConfig,
@@ -267,6 +269,117 @@ function SolanaLaunchInner() {
   );
 }
 
+function ExplainerCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="rounded-2xl p-5"
+      style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
+    >
+      <h2 className="text-white font-semibold text-[13px] mb-2">{title}</h2>
+      <div className="text-white/60 text-[11px] leading-relaxed space-y-2">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Pre-launch explainer — rendered ONLY in the gated (not-live) branch, BENEATH the
+ * SOON wall, mirroring LaunchPage.tsx's LauncherExplainer.
+ *
+ * Every claim is grounded in shipped code/docs, and every number is READ from dbc.ts
+ * (program id, Meteora's protocol take, the anti-snipe defaults, the LP-lock floor) so
+ * this copy cannot drift from the builders that actually run. Nothing here names a
+ * date, quotes a metric, or implies a launch has happened — while SOLANA_LAUNCHER_ENABLED
+ * is false the submit path does not exist (dbcClient.ts throws on every entry point).
+ */
+function SolanaLauncherExplainer() {
+  const openPct = (DEFAULT_ANTI_SNIPE.startingFeeBps / 100).toFixed(0);
+  const restPct = (DEFAULT_ANTI_SNIPE.endingFeeBps / 100).toFixed(2);
+  const decayHours = (DEFAULT_ANTI_SNIPE.totalDuration / 3600).toFixed(0);
+  return (
+    <div className="mt-8 space-y-4">
+      <ExplainerCard title="What the Solana rail is — and is not">
+        <p>
+          A separate, fee-capture sub-brand: a rail for launching{' '}
+          <span className="text-white/80">other people&apos;s</span> tokens on Solana through Meteora&apos;s Dynamic
+          Bonding Curve. Tegridy&apos;s only position in a launch is the partner fee claimer.
+        </p>
+        <p>
+          <span className="text-white/80">TOWELI is never deployed on Solana</span>, and there is no Tegridy AMM here.
+          Solana is fee capture only. Graduated liquidity migrates into Meteora&apos;s own DAMM v2 pool, not into
+          anything we run.
+        </p>
+        <p className="text-white/40">
+          It is deliberately a sub-brand, kept separate from the Ethereum flagship launcher so the two do not share a
+          reputation.
+        </p>
+      </ExplainerCard>
+
+      <ExplainerCard title="The token contract is Meteora's, not ours">
+        <p>
+          We deploy no custom Solana program of our own. Every launch runs against Meteora&apos;s audited Dynamic
+          Bonding Curve program, integrated through its published SDK:
+        </p>
+        <p className="font-mono text-[10px] text-white/50 break-all">{DYNAMIC_BONDING_CURVE_PROGRAM_ID}</p>
+        <p>
+          The curve pins an immutable SPL token — no mint authority and no update authority — with trading fees
+          collected in the quote token, either SOL or USDC.
+        </p>
+      </ExplainerCard>
+
+      <ExplainerCard title="Fees are published, not a hidden dial">
+        <ul className="list-disc pl-4 space-y-1">
+          <li>
+            Meteora takes a fixed {METEORA_PROTOCOL_FEE_PERCENT}% of every trade fee. The remainder is split between
+            the launching creator and the Tegridy partner vault, creator-majority by default.
+          </li>
+          <li>
+            Launches open with a decaying anti-snipe fee — {openPct}% at open, decaying to a {restPct}% resting fee
+            over {decayHours} hours — so buying in block 0 is unprofitable.
+          </li>
+          <li>
+            At least {MIN_PERMANENT_LOCKED_LIQUIDITY_PERCENT}% of migrated liquidity is permanently locked; the
+            default configuration locks the whole partner side, and those locked-LP fees stream to the vault.
+          </li>
+        </ul>
+        <p className="text-white/40">
+          Whatever a launch is configured with is surfaced in its Fact Sheet rather than left implicit. These are the
+          defaults the builders emit today — not a quote of any past launch, because there have been none.
+        </p>
+      </ExplainerCard>
+
+      <ExplainerCard title="What has to exist before this opens">
+        <ul className="list-disc pl-4 space-y-1">
+          <li>
+            <span className="text-white/80">A Squads v4 multisig vault.</span> Meteora&apos;s fee-claim signer has full
+            custody of accrued fees and can name any receiver on each claim, so the fee claimer must be a multisig
+            vault and never a single key. The builders refuse to produce a config or a claim otherwise.
+          </li>
+          <li>
+            <span className="text-white/80">On-chain verification of that vault.</span> The operator supplies the
+            vault&apos;s provenance — its parent multisig and vault index — and the signing wrapper re-derives the
+            canonical vault address and confirms the parent is a genuine Squads account before building any
+            transaction. A mismatch fails closed.
+          </li>
+          <li>
+            <span className="text-white/80">A signing threshold confirmed out of band.</span> That on-chain check
+            proves the vault&apos;s derivation, not its threshold; that the multisig genuinely requires more than one
+            signer is verified with Squads&apos; own tooling before the flag is flipped.
+          </li>
+          <li>
+            <span className="text-white/80">Sequencing.</span> Solana is a later phase, deliberately behind the
+            Ethereum rail — it opens only once that one shows real activity. We are not naming a date.
+          </li>
+        </ul>
+      </ExplainerCard>
+
+      <p className="text-center text-white/40 text-[10px] leading-relaxed px-2">
+        Nothing here is live. While the launcher is gated there is no submit path — the operator tooling itself
+        refuses to build a transaction.
+      </p>
+    </div>
+  );
+}
+
 export default function SolanaLaunchPage() {
   usePageTitle('Solana Launch', 'Preview the Tegridy Solana fee-capture launch config (Meteora DBC).');
   useEffect(() => {
@@ -282,6 +395,20 @@ export default function SolanaLaunchPage() {
           title="Solana launch isn't live yet"
           subtitle="A fee-capture sub-brand launcher over Meteora's Dynamic Bonding Curve — disclosed fees, anti-snipe schedule, locked liquidity. Coming soon."
         />
+        {/* Pre-launch explainer. Rendered only in the gated state, BENEATH the SOON
+            wall (which stays exactly as-is), so /solana-launch teaches the rail instead
+            of being a bare placeholder. Mirrors LaunchPage's LauncherExplainer. No
+            dates, no metrics, no simulated activity — and it states plainly that this
+            rail launches OTHER people's tokens: TOWELI is never deployed on Solana. */}
+        <SolanaLauncherExplainer />
+        {/* Reciprocal cross-link back to the EVM flagship rail. Also gated
+            (LAUNCHER_ENABLED = false in lib/launcher/config.ts), so keep it secondary. */}
+        <p className="text-white/40 text-xs leading-relaxed mt-6 text-center">
+          The flagship rail is on Ethereum mainnet, built on Doppler V4. It is gated as well.{' '}
+          <Link to="/launch" className="text-white/60 hover:text-white underline transition-colors">
+            See the mainnet rail
+          </Link>
+        </p>
       </div>
     );
   }

@@ -225,9 +225,14 @@ export const TopNav = React.memo(function TopNav() {
                             key={n.to}
                             to={n.to}
                             role="menuitem"
-                            className={({ isActive }) => `nav-link block px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${isActive ? 'active' : ''}`}
+                            className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${isActive ? 'active' : ''}`}
                           >
-                            {n.label}
+                            <span>{n.label}</span>
+                            {n.soon && (
+                              <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                                Soon
+                              </span>
+                            )}
                           </NavLink>
                         ))}
                       </div>
@@ -397,8 +402,13 @@ export const TopNav = React.memo(function TopNav() {
                     <div className="space-y-0.5">
                       {section.items.map((n) => (
                         <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
-                          className={({ isActive }) => `nav-link block px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
-                          {n.label}
+                          className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
+                          <span>{n.label}</span>
+                          {n.soon && (
+                            <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                              Soon
+                            </span>
+                          )}
                         </NavLink>
                       ))}
                     </div>
