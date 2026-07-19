@@ -29,7 +29,17 @@ function makeRes() {
   return { res, headerSpy, statusSpy, jsonSpy };
 }
 
-describe("etherscan — R048 auth header (Bearer not querystring)", () => {
+// R048 originally moved auth to an `Authorization: Bearer` header to keep the key
+// out of the URL. VERIFIED LIVE 2026-07-19: Etherscan v2 REJECTS Bearer with
+// {"status":"0","message":"NOTOK","result":"Missing/Invalid API Key"}; the same key
+// succeeds as `?apikey=`. So Bearer was silently breaking every authenticated call
+// (and with no key we fell back to v1, which Etherscan has since deprecated — the
+// endpoint returned NOTOK either way, which is how this went unnoticed).
+//
+// R048's underlying concern — the key leaking into logs — still holds and is still
+// covered: api/etherscan.js never logs the URL, and its error path goes through
+// logSafe(), which redacts `apikey=<value>` (asserted below).
+describe("etherscan — auth is querystring apikey (v2 rejects Bearer)", () => {
   let handler;
   let fetchMock;
 
@@ -49,7 +59,7 @@ describe("etherscan — R048 auth header (Bearer not querystring)", () => {
 
   afterEach(() => { delete process.env.ETHERSCAN_API_KEY; });
 
-  it("sets Authorization: Bearer header on the outbound fetch", async () => {
+  it("sends the key as ?apikey= and NOT as a Bearer header", async () => {
     const req = makeReq({
       query: { module: "account", action: "txlist", address: "0x" + "a".repeat(40) },
     });
@@ -57,10 +67,21 @@ describe("etherscan — R048 auth header (Bearer not querystring)", () => {
     await handler(req, res);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(opts.headers.Authorization).toBe("Bearer real-etherscan-key-1234567890");
-    // URL must NOT contain the secret as a querystring param.
-    expect(String(url)).not.toContain("real-etherscan-key");
-    expect(String(url)).not.toContain("apikey=real");
+    // Querystring auth is the ONLY form Etherscan v2 accepts.
+    expect(String(url)).toContain("apikey=real-etherscan-key-1234567890");
+    // A Bearer header would be rejected upstream — make sure we never send one again.
+    expect(opts.headers?.Authorization).toBeUndefined();
+  });
+
+  it("logSafe redacts the key if a fetch error ever embeds the URL", async () => {
+    // The log-leak guard R048 was reaching for. Querystring auth is unavoidable,
+    // so this is what actually keeps the secret out of logs.
+    const { logSafe } = await import("../_lib/logSafe.js");
+    const out = String(logSafe(new Error(
+      "request to https://api.etherscan.io/v2/api?chainid=1&apikey=real-etherscan-key-1234567890 failed"
+    )));
+    expect(out).not.toContain("real-etherscan-key-1234567890");
+    expect(out).toContain("REDACTED");
   });
 
   it("uses v2 multichain endpoint with chainid param when key configured", async () => {

@@ -10,16 +10,22 @@ import { logSafe } from "./_lib/logSafe.js";
 // (Authorization: Bearer header) when a real key is set. v2 returns the same
 // `{ status, message, result }` shape as v1, so callers don't change. Falls
 // back to v1 querystring auth only when no key is configured (legacy dev).
+// FIX 2026-07-19: v2 does NOT accept `Authorization: Bearer <key>` — it returns
+// {"status":"0","message":"NOTOK","result":"Missing/Invalid API Key"}. Verified
+// live against a valid key: Bearer is rejected, `?apikey=<key>` succeeds. The
+// key goes in the QUERYSTRING for both v1 and v2; v2 additionally needs chainid.
+// (The old Bearer path meant a correctly-configured key still failed, and with
+// no key at all we fell through to v1 — which Etherscan has since deprecated —
+// so this endpoint returned NOTOK either way.)
 const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY || "";
-const USE_HEADER_AUTH = !!ETHERSCAN_KEY;
-const ETHERSCAN_BASE = USE_HEADER_AUTH
+const USE_V2 = !!ETHERSCAN_KEY;
+const ETHERSCAN_BASE = USE_V2
   ? "https://api.etherscan.io/v2/api"
   : "https://api.etherscan.io/api";
 
 function authHeaders(extra = {}) {
-  const headers = { Accept: "application/json", ...extra };
-  if (USE_HEADER_AUTH) headers["Authorization"] = `Bearer ${ETHERSCAN_KEY}`;
-  return headers;
+  // Auth travels in the querystring, never a header — see the note above.
+  return { Accept: "application/json", ...extra };
 }
 
 // Shared CORS helpers
@@ -113,12 +119,11 @@ export default async function handler(req, res) {
 
   // Build Etherscan URL with server-side API key
   const params = new URLSearchParams({ module, action });
-  // AUDIT R048: v2 requires chainid; v1 fallback uses apikey querystring.
-  if (USE_HEADER_AUTH) {
-    params.set("chainid", "1");
-  } else {
-    params.set("apikey", ETHERSCAN_KEY);
-  }
+  // AUDIT R048 + FIX 2026-07-19: v2 requires chainid, and BOTH versions take the
+  // key as an `apikey` querystring param. Previously v2 set chainid but sent the
+  // key as a Bearer header, which v2 rejects outright.
+  if (USE_V2) params.set("chainid", "1");
+  if (ETHERSCAN_KEY) params.set("apikey", ETHERSCAN_KEY);
   if (address) params.set("address", address);
   if (startblock) params.set("startblock", String(startblock));
   if (endblock) params.set("endblock", String(endblock));

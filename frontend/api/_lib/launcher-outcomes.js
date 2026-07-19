@@ -274,13 +274,12 @@ function makeFetchMarket(poolByToken) {
 // ── Etherscan chain-stats fetch (server-side key ONLY) ─────────────────────
 async function etherscanCall(params) {
   const qs = new URLSearchParams(params);
-  if (ETHERSCAN_USE_HEADER) {
-    qs.set("chainid", "1");
-  } else {
-    qs.set("apikey", ETHERSCAN_KEY);
-  }
+  // FIX 2026-07-19: mirrors api/etherscan.js — v2 REJECTS `Authorization: Bearer`
+  // ("Missing/Invalid API Key", verified live). The key belongs in the
+  // querystring for both versions; v2 additionally needs chainid.
+  if (ETHERSCAN_USE_HEADER) qs.set("chainid", "1");
+  if (ETHERSCAN_KEY) qs.set("apikey", ETHERSCAN_KEY);
   const headers = { Accept: "application/json" };
-  if (ETHERSCAN_USE_HEADER) headers.Authorization = `Bearer ${ETHERSCAN_KEY}`;
   const resp = await fetch(`${ETHERSCAN_BASE}?${qs}`, { headers });
   if (resp.status === 429 || !resp.ok) return null;
   const { text, truncated } = await readBoundedText(resp, MAX_RESPONSE_BYTES);
