@@ -113,8 +113,7 @@ export function LimitOrderTab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[11px] mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Set a price target. When the market price reaches your target, your wallet prompts you to sign the swap &mdash; keep this tab open to see it fire. (Not an on-chain limit order.)</p>
-      <p className="text-amber-300 text-[10px] mb-4 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&#9888; Browser-only feature: Orders only execute while this tab is open. This is not an on-chain limit order &mdash; closing the tab cancels all pending orders. Use for convenience, not reliability.</p>
+      <p className="text-white text-[12px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Buy {toToken.symbol} automatically when it reaches your target price &mdash; a real on-chain order that fills even after you close the tab.</p>
 
       {/* Amount */}
       <div className="mb-3">
@@ -164,12 +163,20 @@ export function LimitOrderTab() {
         </div>
       </div>
 
+      {/* PRIMARY — real on-chain limit order via CoW Protocol. Settles when the
+          price is met, survives closing the tab, gasless to place, MEV-protected.
+          CoW sells ERC-20s, so it sells WETH (the user wraps ETH first). This is
+          the strictly-better path, so it gets the primary button; the browser-only
+          watcher below keeps only its one real edge (native ETH, no wrap). */}
+      <p className="text-emerald-300 text-[10px] mb-2 rounded px-2 py-1.5 border border-emerald-500/40" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+        &#10003; <strong>On-chain order via CoW Protocol</strong> &mdash; settles when your price is met, <strong>survives closing the tab</strong>, gasless to place, and MEV-protected. Sells <strong>WETH</strong>, so wrap your ETH first.
+      </p>
       {isConnected ? (
-        <button type="button" onClick={handleCreate}
-          disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
-          aria-disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
+        <button type="button" onClick={handleCreateCow}
+          disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
+          aria-disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
           className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
-          Create Limit Order
+          {cow.isPlacing ? 'Placing on CoW…' : `Place Limit Order (WETH → ${toToken.symbol})`}
         </button>
       ) : (
         <ConnectButton.Custom>
@@ -181,20 +188,28 @@ export function LimitOrderTab() {
         </ConnectButton.Custom>
       )}
 
-      {/* CoW Protocol — real on-chain limit order (survives tab close) */}
+      {/* SECONDARY — quick browser-only watcher. Native ETH, no wrap, but only
+          runs while this tab is open (no keeper) and each fill needs a signature.
+          Demoted behind a disclosure so it stops competing with the real order. */}
       {isConnected && (
-        <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
-          <p className="text-emerald-300 text-[10px] mb-2 rounded px-2 py-1.5 border border-emerald-500/40" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            &#10003; Real on-chain order via CoW Protocol &mdash; settles when your price is met and <strong>survives closing the tab</strong> (no keeper; gasless to place). CoW sells ERC-20s, so this sells <strong>WETH</strong> &mdash; wrap your ETH first.
-          </p>
-          <button type="button" onClick={handleCreateCow}
-            disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
-            aria-disabled={cow.isPlacing || !amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
-            className="w-full py-3 min-h-[44px] text-[13px] rounded-lg font-medium text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{ background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.55)' }}>
-            {cow.isPlacing ? 'Placing on CoW…' : `Place CoW Order (WETH → ${toToken.symbol})`}
-          </button>
-        </div>
+        <details className="mt-3 group">
+          <summary className="text-white/70 text-[11px] cursor-pointer select-none hover:text-white transition-colors list-none [&::-webkit-details-marker]:hidden flex items-center gap-1.5 min-h-[44px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+            <span className="text-white/50 group-open:rotate-90 transition-transform" aria-hidden="true">&#9656;</span>
+            Or use a quick browser watch (native ETH, no wrap)
+          </summary>
+          <div className="mt-2">
+            <p className="text-amber-300 text-[10px] mb-2 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              &#9888; Runs only while this tab is open &mdash; <strong>not an on-chain order</strong>. Closing the tab cancels it, and each fill needs a wallet signature. Use for convenience, not reliability.
+            </p>
+            <button type="button" onClick={handleCreate}
+              disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
+              aria-disabled={!amount || !targetPrice || parseFloat(amount) <= 0 || amountExceedsCap || parseFloat(targetPrice) <= 0}
+              className="w-full py-3 min-h-[44px] text-[13px] rounded-lg font-medium text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+              Create browser watch (tab-only)
+            </button>
+          </div>
+        </details>
       )}
 
       {/* CoW Orders */}
