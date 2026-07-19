@@ -269,6 +269,19 @@ export default function FarmPage() {
             <div className="mb-2">
               <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
             </div>
+
+            {/* Affordance for the wallet-less estimator on the home page. This
+                branch only renders while disconnected, which is exactly when
+                HomePage renders <YieldCalculator/> (it is gated on !address),
+                so the deep-link can never land on a missing anchor. */}
+            <div className="mb-6">
+              <Link
+                to="/#yield-calculator"
+                className="inline-flex items-center gap-1.5 text-[12px] text-white/70 hover:text-white transition-colors"
+              >
+                See what you&rsquo;d earn &mdash; estimate before connecting &#8594;
+              </Link>
+            </div>
           </div>
           <ConnectPrompt surface="farm" />
         </div>

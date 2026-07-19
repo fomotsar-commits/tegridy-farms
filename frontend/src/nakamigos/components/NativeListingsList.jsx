@@ -30,6 +30,67 @@ function formatDate(iso) {
   return d.toLocaleDateString();
 }
 
+// Order-validity + floor-relative context for a row. Both values come from data
+// the row already carries — `end_time` (native_orders.end_time, NOT NULL per
+// migration 002; the same field OrderBookPanel uses to drop expired rows) and
+// the collection floor already passed into OrderBookPanel as `floorPrice`.
+// Each helper returns null when its source is missing, so a row never shows a
+// number we don't actually have.
+function expiryLabel(endTime) {
+  if (!endTime) return null;
+  const ms = new Date(endTime).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return "Expired";
+  // Only warn when the window is actually closing — a 7-day-TTL listing with 5
+  // days left is not news.
+  if (ms > 24 * 3600 * 1000) return null;
+  const hours = Math.floor(ms / 3600000);
+  return hours >= 1 ? `Expires in ${hours}h` : `Expires in ${Math.max(1, Math.round(ms / 60000))}m`;
+}
+
+function floorDelta(priceEth, floorPrice) {
+  const price = Number(priceEth);
+  const floor = Number(floorPrice);
+  if (!Number.isFinite(price) || !Number.isFinite(floor) || floor <= 0 || price <= 0) return null;
+  const pct = ((price - floor) / floor) * 100;
+  if (Math.abs(pct) < 1) return { label: "At floor", below: false };
+  return { label: `${Math.abs(pct).toFixed(0)}% ${pct < 0 ? "below" : "above"} floor`, below: pct < 0 };
+}
+
+// Renders 0-2 chips. `floorPrice` is intentionally omitted for bundle rows by
+// the caller: a bundle's price is a package total for N NFTs, so a floor-
+// relative % would be nonsense. Expiry still applies to bundles.
+function RowContext({ order, floorPrice }) {
+  const expiry = expiryLabel(order.end_time);
+  const delta = floorDelta(order.price_eth, floorPrice);
+  if (!expiry && !delta) return null;
+  const chip = {
+    display: "inline-block", padding: "1px 5px", borderRadius: 4,
+    fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.03em",
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 6, flexWrap: "wrap" }}>
+      {delta && (
+        <span style={{
+          ...chip,
+          background: delta.below ? "rgba(76,175,80,0.10)" : "rgba(255,255,255,0.05)",
+          color: delta.below ? "var(--green)" : "var(--text-muted)",
+        }}>
+          {delta.label}
+        </span>
+      )}
+      {expiry && (
+        <span
+          style={{ ...chip, background: "rgba(255,178,55,0.10)", color: "var(--gold)" }}
+          title={`Listing valid until ${new Date(order.end_time).toLocaleString()}`}
+        >
+          {expiry}
+        </span>
+      )}
+    </span>
+  );
+}
+
 const thStyle = {
   textAlign: "left",
   padding: "8px 10px",
@@ -116,7 +177,7 @@ function ActionButton({ order, wallet, isMine, buying, cancelling, onBuy, onCanc
  * horizontally scrolling on phones (the least-native pattern in the app). All
  * data and handlers come in as props — see OrderBookPanel for the source.
  */
-export default function NativeListingsList({ orders, wallet, isNarrow, buying, cancelling, onBuy, onCancel }) {
+export default function NativeListingsList({ orders, wallet, isNarrow, buying, cancelling, onBuy, onCancel, floorPrice }) {
   if (isNarrow) {
     return (
       <div data-testid="orderbook-cards" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -137,7 +198,10 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 7, fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
                 <span>{isMine ? "You" : formatAddress(order.maker)} &middot; {formatDate(order.created_at)}</span>
-                <StatusBadge status={order.status} />
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <RowContext order={order} floorPrice={floorPrice} />
+                  <StatusBadge status={order.status} />
+                </span>
               </div>
               <div style={{ marginTop: 10 }}>
                 <ActionButton order={order} wallet={wallet} isMine={isMine} buying={buying} cancelling={cancelling} onBuy={onBuy} onCancel={onCancel} full />
@@ -169,6 +233,7 @@ export default function NativeListingsList({ orders, wallet, isNarrow, buying, c
               <tr key={order.order_hash} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                 <td style={tdStyle}>
                   <span style={{ color: "var(--naka-blue)", fontWeight: 600 }}>{tokenLabel(order)}</span>
+                  <RowContext order={order} floorPrice={floorPrice} />
                 </td>
                 <td style={{ ...tdStyle, textAlign: "right" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--gold)" }}>

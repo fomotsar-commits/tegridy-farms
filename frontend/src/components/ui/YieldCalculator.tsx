@@ -112,6 +112,7 @@ export function YieldCalculator() {
         border: '1px solid rgba(245, 228, 184, 0.15)',
         backdropFilter: 'blur(12px)',
       }}
+      id="yield-calculator"
       aria-label="Yield calculator"
     >
       <header className="px-5 py-4 border-b border-white/5 flex items-center justify-between flex-wrap gap-2">

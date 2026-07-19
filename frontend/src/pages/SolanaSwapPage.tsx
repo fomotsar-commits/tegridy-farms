@@ -883,7 +883,7 @@ function SolanaSwapInner() {
                 className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
               />
             </div>
-            {payUsd !== null && <div className="text-right text-white/40 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>}
+            {payUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>}
           </div>
 
           {/* Flip pay/receive */}
@@ -920,7 +920,7 @@ function SolanaSwapInner() {
                 ) : outputDisplay}
               </div>
             </div>
-            {receiveUsd !== null && <div className="text-right text-white/40 text-[10px] mt-1 font-mono">{fmtUsd(receiveUsd)}</div>}
+            {receiveUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(receiveUsd)}</div>}
           </div>
 
           {/* Slippage */}

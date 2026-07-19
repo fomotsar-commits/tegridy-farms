@@ -21,7 +21,7 @@ import NativeListingsList from "./NativeListingsList";
 const NATIVE_FEE_PCT = PLATFORM_FEE_BPS / 100; // 1%
 
 // ── Native Listings Table ──
-function NativeListingsTable({ wallet, onConnect, addToast }) {
+function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
   const collection = useActiveCollection();
   const { isWrongNetwork } = useWalletState();
   const { switchChain } = useWalletActions();
@@ -296,6 +296,7 @@ function NativeListingsTable({ wallet, onConnect, addToast }) {
           cancelling={cancelling}
           onBuy={handleBuy}
           onCancel={handleCancel}
+          floorPrice={floorPrice}
         />
       )}
 
@@ -472,7 +473,7 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
 export default function OrderBookPanel({ listings = [], collectionOffers = [], floorPrice, wallet, onConnect, addToast }) {
   return (
     <>
-      <NativeListingsTable wallet={wallet} onConnect={onConnect} addToast={addToast} />
+      <NativeListingsTable wallet={wallet} onConnect={onConnect} addToast={addToast} floorPrice={floorPrice} />
       <DepthChart listings={listings} collectionOffers={collectionOffers} />
     </>
   );

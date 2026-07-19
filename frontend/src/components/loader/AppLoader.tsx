@@ -46,7 +46,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
   const audioRef = useRef<AudioEngine | null>(null);
   const postfxRef = useRef<PostFX | null>(null);
   const [muted, setMuted] = useState(false);
-  // F304: surface a visible, labeled Skip affordance ~2s in so first-time
+  // F304: surface a visible, labeled Skip affordance 400ms in so first-time
   // visitors aren't held for the full ~15-19s intro. The art/choreography is
   // unchanged — this only adds an opt-out (mirrors the existing Escape-to-skip).
   const [showSkip, setShowSkip] = useState(false);
@@ -152,7 +152,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     return () => window.removeEventListener('keydown', onKey);
   }, [skipIntro]);
 
-  /* F304: reveal the visible Skip button ~2s after the intro starts. */
+  /* F304: reveal the visible Skip button 400ms after the intro starts. */
   useEffect(() => {
     if (!visible) return;
     const id = window.setTimeout(() => setShowSkip(true), 400);
@@ -671,7 +671,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
           >
             {muted ? '\u{1F507}' : '\u{1F50A}'}
           </button>
-          {/* F304: visible, labeled Skip affordance — appears ~2s in. */}
+          {/* F304: visible, labeled Skip affordance — appears 400ms in. */}
           {showSkip && (
             <button
               onClick={(e) => { e.stopPropagation(); skipIntro(); }}
