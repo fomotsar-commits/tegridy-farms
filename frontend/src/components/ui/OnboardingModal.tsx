@@ -3,9 +3,10 @@ import { m, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 // R039: refactor onto the shared Modal primitive. Modal already handles focus
 // trap, focus restore, body scroll lock, Escape close, and aria-labelledby.
-// Onboarding sets dismissOnBackdrop={false} so users have to explicitly
-// acknowledge the introduction (Skip/Start Farming/Buy TOWELI) — a stray
-// background click shouldn't dismiss what's effectively a TOS-style flow.
+// Onboarding is dismissOnBackdrop={true} so it's NON-BLOCKING: a first-timer can click
+// the backdrop (or press Escape / Skip) to dismiss the welcome and start exploring the
+// hero immediately. It's a friendly intro, not a TOS gate — forcing a 4-step click-through
+// before the value prop is usable was pure funnel leakage on mobile.
 import { Modal } from './Modal';
 
 const STORAGE_KEY = 'tegridy-onboarding-seen';
@@ -57,7 +58,7 @@ export function OnboardingModal() {
     <Modal
       open={open}
       onClose={close}
-      dismissOnBackdrop={false}
+      dismissOnBackdrop={true}
       title={steps[step]!.title}
     >
       {/* Step content — Modal renders the title via aria-labelledby, so the

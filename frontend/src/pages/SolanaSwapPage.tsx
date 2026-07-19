@@ -886,6 +886,19 @@ function SolanaSwapInner() {
             {payUsd !== null && <div className="text-right text-white/40 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>}
           </div>
 
+          {/* Flip pay/receive */}
+          <div className="flex justify-center -my-1 relative z-10">
+            <button
+              type="button"
+              onClick={() => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); }}
+              aria-label="Flip pay and receive tokens"
+              className="w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-105"
+              style={{ background: 'var(--color-stan)', border: '2px solid rgba(255,255,255,0.95)', boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)' }}
+            >
+              <span className="text-white text-[16px] font-bold leading-none">&#8645;</span>
+            </button>
+          </div>
+
           {/* You receive */}
           <div className="mt-3 mb-3">
             <div className="flex items-center justify-between mb-2">

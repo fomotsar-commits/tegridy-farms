@@ -155,7 +155,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
   /* F304: reveal the visible Skip button ~2s after the intro starts. */
   useEffect(() => {
     if (!visible) return;
-    const id = window.setTimeout(() => setShowSkip(true), 2000);
+    const id = window.setTimeout(() => setShowSkip(true), 400);
     return () => window.clearTimeout(id);
   }, [visible]);
 

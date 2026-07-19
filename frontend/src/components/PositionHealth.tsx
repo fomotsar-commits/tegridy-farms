@@ -80,8 +80,8 @@ export function PositionHealth() {
       id: 'claim',
       sev: 'info',
       title: `${compact(claimable)} TOWELI ready to claim`,
-      detail: 'Claim and re-stake to compound your rewards.',
-      cta: { label: 'Claim & compound', to: '/farm' },
+      detail: 'Claim your TOWELI rewards — re-stake on the Farm page to compound.',
+      cta: { label: 'Claim rewards', to: '/farm' },
     });
   }
 

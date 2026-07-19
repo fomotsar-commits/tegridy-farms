@@ -275,7 +275,7 @@ export default function TradePage() {
                       )}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(255,255,255,0.22)' }}>
                     <button
                       type="button"
                       onClick={() => setShowTokenSelect('from')}
@@ -323,7 +323,7 @@ export default function TradePage() {
                     <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Receive</span>
                     <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.toBalance)}</span>
                   </div>
-                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                  <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(255,255,255,0.22)' }}>
                     <button
                       type="button"
                       onClick={() => setShowTokenSelect('to')}
