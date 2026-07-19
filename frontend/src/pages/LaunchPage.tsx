@@ -431,6 +431,50 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 const inputCls =
   'w-full mt-1 px-3 py-2 rounded-lg bg-black/30 border border-white/12 text-white text-sm outline-none focus:border-emerald-500/60 transition';
 
+// One attention-split row. Uses a LOCAL text buffer for the % input so decimals are
+// typeable ("1.5"): a value re-derived from rounded bps on every keystroke drops the
+// trailing "." and snaps back to a whole number. shareBps stays the source of truth; the
+// local text resyncs only on EXTERNAL bps changes (e.g. a row above is removed and this
+// one reindexes), never while the user types (their text already produces the current bps).
+function AttentionSplitRow({
+  row, onAddress, onShare, onRemove,
+}: {
+  row: WizardState['attentionSplits'][number];
+  onAddress: (v: string) => void;
+  onShare: (bps: number) => void;
+  onRemove: () => void;
+}) {
+  const [pctText, setPctText] = useState(row.shareBps ? String(row.shareBps / 100) : '');
+  useEffect(() => {
+    if (Math.round((Number(pctText) || 0) * 100) !== row.shareBps) {
+      setPctText(row.shareBps ? String(row.shareBps / 100) : '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.shareBps]);
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        placeholder="0x… beneficiary"
+        value={row.address}
+        onChange={(e) => onAddress(e.target.value)}
+        className={`${inputCls} flex-1 mt-0 font-mono text-xs`}
+      />
+      <input
+        inputMode="decimal"
+        placeholder="%"
+        value={pctText}
+        onChange={(e) => {
+          const clean = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+          setPctText(clean);
+          onShare(Math.round((Number(clean) || 0) * 100));
+        }}
+        className={`${inputCls} w-16 mt-0`}
+      />
+      <button onClick={onRemove} className="text-white/40 hover:text-rose-300 text-sm px-1" aria-label="remove">✕</button>
+    </div>
+  );
+}
+
 function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardState>(k: K, v: WizardState[K]) => void }) {
   return (
     <div>
@@ -545,22 +589,13 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
       </p>
       <div className="rounded-xl border border-white/12 p-3 mb-6 space-y-2">
         {w.attentionSplits.map((row, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <input
-              placeholder="0x… beneficiary"
-              value={row.address}
-              onChange={(e) => { const next = [...w.attentionSplits]; next[i] = { ...row, address: e.target.value }; set('attentionSplits', next); }}
-              className={`${inputCls} flex-1 mt-0 font-mono text-xs`}
-            />
-            <input
-              inputMode="decimal"
-              placeholder="%"
-              value={row.shareBps ? String(row.shareBps / 100) : ''}
-              onChange={(e) => { const pct = Number(e.target.value.replace(/[^\d.]/g, '')) || 0; const next = [...w.attentionSplits]; next[i] = { ...row, shareBps: Math.round(pct * 100) }; set('attentionSplits', next); }}
-              className={`${inputCls} w-16 mt-0`}
-            />
-            <button onClick={() => set('attentionSplits', w.attentionSplits.filter((_, j) => j !== i))} className="text-white/40 hover:text-rose-300 text-sm px-1" aria-label="remove">✕</button>
-          </div>
+          <AttentionSplitRow
+            key={i}
+            row={row}
+            onAddress={(v) => { const next = [...w.attentionSplits]; next[i] = { ...row, address: v }; set('attentionSplits', next); }}
+            onShare={(bps) => { const next = [...w.attentionSplits]; next[i] = { ...row, shareBps: bps }; set('attentionSplits', next); }}
+            onRemove={() => set('attentionSplits', w.attentionSplits.filter((_, j) => j !== i))}
+          />
         ))}
         <div className="flex items-center justify-between">
           <button onClick={() => set('attentionSplits', [...w.attentionSplits, { address: '', shareBps: 0 }])} className="text-emerald-400/80 hover:text-emerald-300 text-xs">
