@@ -548,7 +548,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               List wizard (pure navigation — no new money-path code). Fee is parity
               with OpenSea (~1%), so the honest edge is that fees fund the Tegridy
               treasury with 0% royalty — not a cheaper headline. */}
-          {onList && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
+          {/* Suppressed once the token already has a live order — "List for sale"
+              on an active listing is redundant; cancelling lives in My Listings. */}
+          {onList && wallet && nft?.owner && !nft.orderHash && wallet.toLowerCase() === nft.owner.toLowerCase() && (
             <button
               type="button"
               className="btn-secondary"

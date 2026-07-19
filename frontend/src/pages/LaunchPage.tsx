@@ -11,7 +11,7 @@ import {
   type LaunchTierId,
   isLauncherEnabled,
 } from '../lib/launcher/config';
-import { buildFactSheet, type RawTokenFacts } from '../lib/launcher/gate';
+import { buildFactSheet, defaultGateConfig, type RawTokenFacts } from '../lib/launcher/gate';
 import type { LaunchFactSheet } from '../lib/launcher/factSheet';
 import { DOPPLER_MAINNET } from '../lib/launcher/doppler.constants';
 import {
@@ -235,6 +235,10 @@ export default function LaunchPage() {
           title="The launch rail isn't live yet"
           subtitle="Launching opens once the core loop is live, treasury ownership is re-homed, and TOWELI has an active market. The engine (Doppler V4 on mainnet) is integrated and verified — this is a sequencing gate, not a build gate."
         />
+        {/* Pre-launch explainer. Rendered only in the gated state, BENEATH the SOON
+            wall (which stays exactly as-is), so /launch teaches the rail instead of
+            being a bare placeholder. No dates, no metrics, no simulated activity. */}
+        <LauncherExplainer />
       </div>
     );
   }
@@ -378,6 +382,159 @@ function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus
         economy — boosted LP farming and a gauge-emissions application. Few launchers
         give a launch a day-2 economy.
       </p>
+    </div>
+  );
+}
+
+function ExplainerCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="rounded-2xl p-5 sm:p-6"
+      style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
+    >
+      <h2 className="text-white font-semibold text-sm mb-2">{title}</h2>
+      <div className="text-white/60 text-xs leading-relaxed space-y-2">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Pre-launch explainer — rendered ONLY in the gated (not-live) branch.
+ *
+ * Every claim here is already true of the shipped code or docs/LAUNCHER_STRATEGY.md:
+ * the wizard/gate/attestation modules exist and are tested, they are simply behind
+ * the §6 sequencing gates. The gate floors are READ from defaultGateConfig() and the
+ * fee rows from DEFAULT_FEE_CONSTITUTION, so this copy cannot drift from the checker
+ * that actually runs. Nothing here promises a date, quotes a yield, or implies any
+ * launch has happened.
+ */
+function LauncherExplainer() {
+  const g = defaultGateConfig(0);
+  const listableLockDays = Math.floor(g.listableLpLockMinSeconds / DAY);
+  const flagshipLockDays = Math.floor(g.flagshipLpLockMinSeconds / DAY);
+  const flagshipTeamPct = g.flagshipMaxTeamBps / 100;
+  return (
+    <div className="mt-8 space-y-4">
+      <ExplainerCard title="What the launch rail will do">
+        <ol className="list-decimal pl-4 space-y-1.5 marker:text-white/30">
+          <li>
+            <span className="text-white/80">Configure.</span> Name, supply, tier and curve range, LP lock, and any
+            team allocation — in a four-step wizard.
+          </li>
+          <li>
+            <span className="text-white/80">Launch.</span> One Doppler <code className="text-white/70">create()</code>{' '}
+            transaction on Ethereum mainnet. The token deploys from Doppler's audited template and its V4 auction opens.
+          </li>
+          <li>
+            <span className="text-white/80">Disclose.</span> The launcher re-reads the deployed token on-chain and
+            publishes its Fact Sheet, which can then be written as an on-chain EAS attestation.
+          </li>
+          <li>
+            <span className="text-white/80">Graduate.</span> When price discovery completes, liquidity migrates into a
+            canonical Uniswap V4 pool — LP locked, trading fees streaming to the split published at launch.
+          </li>
+        </ol>
+      </ExplainerCard>
+
+      <ExplainerCard title="Why an audited template matters">
+        <p>
+          Neither you nor Tegridy writes the token contract. Every launch is pinned to Doppler's{' '}
+          <code className="text-white/70">DopplerERC20V1</code> factory — the template already whitelisted on Doppler's
+          mainnet Airlock, with no mint, no fee-on-transfer, no blacklist, and no upgrade path.
+        </p>
+        <p>
+          That is what makes a disclosure checkable instead of merely promised. The gate reads the deployed token's
+          factory and clone bytecode, so “supply is fixed” is provenance rather than a claim in a chat group. A token
+          that did not come from a recognised template factory fails the very first check.
+        </p>
+      </ExplainerCard>
+
+      <ExplainerCard title="What a Fact Sheet is">
+        <p>
+          A machine-generated disclosure — not a certificate, not a safety rating, and not an endorsement. Nothing is
+          scored and no human vouches for anything. It records:
+        </p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li>the originating factory and template codehash;</li>
+          <li>every residual power — mint, pause, blacklist, fee-on-transfer, upgrade, wallet cap — in plain language,
+            and who holds it;</li>
+          <li>whether liquidity is locked, by which locker, and until when;</li>
+          <li>the team allocation and how much of it is under on-chain vesting;</li>
+          <li>the fee split fixed at launch.</li>
+        </ul>
+        <p className="pt-1">Two structural tiers, decided by code rather than by us:</p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li>
+            <span className="text-white/80">Community.</span> Recognised template; no mint, transfer tax, blacklist or
+            upgrade power; LP locked at least {listableLockDays} days; any team allocation vested on-chain.
+          </li>
+          <li>
+            <span className="text-white/80">Flagship.</span> All of the above, plus admin renounced or held by a
+            timelock, LP locked at least {flagshipLockDays} days, no pause power, and team allocation at most{' '}
+            {flagshipTeamPct}% of supply.
+          </li>
+          <li>
+            <span className="text-white/80">Below the bar.</span> Still published, and not labelled unsafe. Buyers read
+            the same facts and judge for themselves.
+          </li>
+        </ul>
+        <p className="text-white/40">
+          A tier describes structural configuration at a point in time, not the quality of a project. Off-template
+          outcomes — post-cliff selling, abandonment — are disclosed and tracked, never claimed to be prevented.
+        </p>
+      </ExplainerCard>
+
+      <ExplainerCard title="The fee split is fixed at launch">
+        <p>
+          A 1% total trade fee, published in the Fact Sheet and never a marketing dial. These are the shares the rail
+          will launch with:
+        </p>
+        <div className="rounded-xl border border-white/12 overflow-hidden mt-1">
+          {DEFAULT_FEE_CONSTITUTION.map((l, i) => (
+            <div
+              key={l.recipient}
+              className={`flex items-center justify-between px-3 py-2 ${i % 2 ? 'bg-white/[0.02]' : ''}`}
+            >
+              <span className="text-white/70">{l.recipient}</span>
+              <span className="text-white/50 tabular-nums">{(l.shareBps / 100).toFixed(0)}%</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-white/40">
+          Creator and attention shares are both creator-directed. Doppler's share is theirs to define within their cap,
+          and “constitutional” binds us — not the market.
+        </p>
+      </ExplainerCard>
+
+      <ExplainerCard title="The Launch Afterlife — a day 2">
+        <p>
+          Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
+          already deployed, a graduated Tegridy launch has somewhere to go: a boosted LP-farming program on its own
+          graduated pool — one per-pool staker escrowing Uniswap V4 position NFTs, boosted by veTOWELI — and the
+          ability to apply to the existing GaugeController for a share of TOWELI emissions.
+        </p>
+        <ul className="list-disc pl-4 space-y-1">
+          <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>
+          <li>A gauge is an <em>application</em> through the standard timelocked process — not a promise of emissions.</li>
+          <li>
+            Boosted-LP farming for launched pools still needs the V4 PositionManager wired. Until it is, the code
+            reports that feature as pending deployment rather than available.
+          </li>
+        </ul>
+      </ExplainerCard>
+
+      <ExplainerCard title="What is built, and what we are waiting on">
+        <p>
+          The engine is integrated rather than sketched: Doppler's mainnet modules are address-verified on-chain, the
+          gate and Fact Sheet are pure, unit-tested code, and a full auction creation has been run green against a fork
+          of Ethereum mainnet.
+        </p>
+        <p>
+          What remains is sequencing, not construction. The rail opens after the core loop is live, treasury ownership
+          is re-homed to the new Safe, and TOWELI has an active market — because a launcher on a dead protocol only
+          advertises the emptiness. We are not naming a date.
+        </p>
+      </ExplainerCard>
     </div>
   );
 }

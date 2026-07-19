@@ -54,6 +54,21 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     return map;
   }, [listings]);
 
+  // Stamp ownership before opening the detail modal. These tokens come from
+  // `fetchWalletNfts(wallet)` = Alchemy getNFTsForOwner, so the connected wallet
+  // IS the owner by construction — this component can never show a third party's
+  // holdings (that's OnChainProfile, which passes its own `address`). Without
+  // this, normalizeToken leaves `owner` null and every owner-gated affordance in
+  // Modal (List for sale, NFT finance) silently never renders. `orderHash` is
+  // carried too so the modal can tell an already-listed token from an unlisted
+  // one. Spreads into a new object rather than mutating `tokens`, which is also
+  // read by the CSV export, portfolioStats and BulkListingWizard. Stable
+  // useCallback because AnimatedCard is memo'd.
+  const handlePick = useCallback((nft) => {
+    const l = listingMap.get(String(nft.id));
+    onPick?.({ ...nft, owner: nft.owner || wallet, orderHash: nft.orderHash || l?.orderHash || null });
+  }, [onPick, wallet, listingMap]);
+
   // Portfolio stats derived from tokens + floor price
   const floorPrice = stats?.floor != null && isFinite(stats.floor) ? stats.floor : null;
 
@@ -400,7 +415,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
                 key={nft.id}
                 nft={nft}
                 index={i}
-                onPick={onPick}
+                onPick={handlePick}
                 view="gallery"
                 listingPrice={listingMap.get(String(nft.id))?.price}
               />
