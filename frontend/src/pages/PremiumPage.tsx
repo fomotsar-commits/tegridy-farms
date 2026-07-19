@@ -24,14 +24,13 @@ const PLANS = [
   { months: 12, label: '1 Year', discount: 0 },
 ];
 
+// HONESTY PASS 2026-07-18: cut vapor benefits. The contract has NO fee discount (see F375
+// above), points are derived on-chain from activity (no subscription "3x multiplier"), and
+// "priority gas" is not a real mechanic. Smart Alerts + Advanced Analytics already ship free
+// to every wallet on the Dashboard. Keep only the two genuinely real mechanics.
 const ACTIVE_BENEFITS = [
-  { icon: '\u{1F4C8}', title: '3x Points Multiplier', desc: 'Earn points 3x faster on every action. Climb the leaderboard.' },
-  { icon: '\u{1F451}', title: 'JBAC Lifetime Access', desc: 'Jungle Bay Ape Club holders get permanent Gold Card access for free.' },
-  { icon: '\u{1F4B0}', title: 'Revenue Sharing', desc: 'Earn ETH from 100% of protocol swap fees distributed to stakers.' },
-  { icon: '\u{1F4B8}', title: 'Reduced Fees', desc: 'Gold Card holders pay lower swap fees via the premium discount applied on-chain.' },
-  { icon: '\u{26A1}', title: 'Priority Harvesting', desc: 'Reward claims are processed with priority gas during high-traffic periods.' },
-  { icon: '\u{1F514}', title: 'Smart Alerts', desc: 'Custom price alerts, whale movement notifications, and yield opportunity updates.' },
-  { icon: '\u{1F4CA}', title: 'Advanced Analytics', desc: 'Deep portfolio analytics, P&L tracking, and yield projections on your dashboard.' },
+  { icon: '\u{1F4B0}', title: 'Real ETH yield', desc: 'Like every staker, Gold Card holders earn ETH from protocol swap fees — real revenue, not emissions.' },
+  { icon: '\u{1F451}', title: 'JBAC Lifetime Access', desc: 'Jungle Bay Ape Club holders get permanent Gold Card access — no subscription needed.' },
 ];
 
 /* Shimmer skeleton block */

@@ -7,6 +7,7 @@ import { getTxUrl } from '../lib/explorer';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
+import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { formatTokenAmountGrouped, formatBalance } from '../lib/formatting';
 import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
 import { DCATab } from '../components/swap/DCATab';
@@ -110,6 +111,19 @@ export default function TradePage() {
   const tabKeys = useTabListKeys(VALID_TABS, tab, handleTabChange);
 
   const swap = useSwap();
+
+  // Best-effort USD estimate under the pay/receive amounts. ETH/WETH via ethUsd, TOWELI via
+  // priceInUsd; returns null (line hidden, never "$0.00") for unpriced tokens or missing data.
+  const priceCtx = useTOWELIPriceOptional();
+  const usdFor = (token: { isNative?: boolean; symbol?: string } | null | undefined, amountStr: string | undefined) => {
+    const amt = Number(amountStr);
+    if (!priceCtx || !token || !Number.isFinite(amt) || amt <= 0) return null;
+    const unit = token.isNative ? priceCtx.ethUsd : (token.symbol === 'TOWELI' ? priceCtx.priceInUsd : null);
+    if (!unit || !Number.isFinite(unit) || unit <= 0) return null;
+    return amt * unit;
+  };
+  const payUsd = usdFor(swap.fromToken, swap.inputAmount);
+  const receiveUsd = usdFor(swap.toToken, swap.outputFormatted);
 
   // F226/F227/F235/F196: aggregator `amountOut` is WEI while the on-chain
   // outputs are human token amounts — normalize before comparing/displaying.
@@ -280,6 +294,9 @@ export default function TradePage() {
                       className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
                     />
                   </div>
+                  {payUsd != null && (
+                    <div className="text-right text-white/55 text-[10px] font-mono mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>≈ ${payUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                  )}
                 </div>
 
                 {/* Flip Button — solid Stan blue + thick white ring so it pops
@@ -331,6 +348,9 @@ export default function TradePage() {
                       ) : swap.outputFormatted ? formatTokenAmountGrouped(swap.outputFormatted) : '0.0'}
                     </div>
                   </div>
+                  {receiveUsd != null && (
+                    <div className="text-right text-white/55 text-[10px] font-mono mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>≈ ${receiveUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                  )}
                 </div>
 
                 {/* Slippage tolerance — always visible so users can see + adjust
