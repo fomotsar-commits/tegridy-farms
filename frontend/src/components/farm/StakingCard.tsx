@@ -126,9 +126,27 @@ export function StakingCard({
               </div>
               {/* F104 (T10): announce claimable-reward changes to screen readers
                   so they aren't silent visual-only updates. */}
-              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }} aria-live="polite">
+              <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Claimable</p>
-                <AnimatedCounter value={parseFloat(pos.pendingFormatted) || 0} decimals={4} className="stat-value text-[16px] text-white" />
+                <div aria-hidden="true">
+                  <AnimatedCounter
+                    value={pos.accrualPerSec > 0 ? pos.pendingLive : (parseFloat(pos.pendingFormatted) || 0)}
+                    decimals={pos.accrualPerSec > 0 ? 6 : 4}
+                    duration={900}
+                    className="stat-value text-[16px] text-white" />
+                </div>
+                <span className="sr-only" aria-live="polite">
+                  {parseFloat(pos.pendingFormatted) || 0} TOWELI claimable
+                </span>
+                {/* Only rendered when a real on-chain rate exists. Labelled "est."
+                    because it is an interpolation between refreshes, not a fresh read. */}
+                {pos.accrualPerSec > 0 && (
+                  <p
+                    className="text-white/45 text-[9px] mt-0.5 font-mono"
+                    title="Estimated between the 30-second on-chain refreshes, using this position's live reward rate. Snaps back to the exact value on each refresh.">
+                    est. live &middot; +{pos.accrualPerSec.toFixed(6)}/s
+                  </p>
+                )}
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Lock Expires</p>

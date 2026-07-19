@@ -348,7 +348,12 @@ export default function DashboardPage() {
             // the price feed — gate the value's skeleton on pos.isLoading so it
             // doesn't flash "0.00" while the position loads, nor spin forever when
             // only the price feed is unavailable (the USD sub-line still uses price).
-            { l: 'Claimable', numVal: pendingTotal, decimals: 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
+            // Live accrual: between the 30s position refetches the counter interpolates
+            // from this position's real on-chain rate and snaps back to the exact
+            // `earned` value on each refetch. Falls back to the static figure when no
+            // rate is derivable. The USD sub-line and Portfolio Value deliberately stay
+            // on the settled `pendingTotal` so the dollar figure doesn't jitter.
+            { l: 'Claimable', numVal: pos.accrualPerSec > 0 ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
             { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: !price.isLoaded },
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
