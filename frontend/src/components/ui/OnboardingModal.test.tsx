@@ -118,15 +118,14 @@ describe('OnboardingModal', () => {
     expect(backBtn.className).not.toContain('invisible');
   });
 
-  it('clicking backdrop overlay does NOT close modal (dismissOnBackdrop=false)', () => {
-    // R039: onboarding is treated as TOS-style explicit-acknowledgment, so a
-    // stray background click must not dismiss it. The Modal primitive's
-    // `dismissOnBackdrop` is set to false here; only Start Farming / Skip /
-    // Buy TOWELI / Escape close the modal.
+  it('clicking backdrop overlay closes the modal (non-blocking, dismissOnBackdrop=true)', () => {
+    // 2026-07-18: onboarding is NON-BLOCKING — a backdrop click (or Escape / Skip) dismisses
+    // the welcome so a first-timer can start exploring the hero immediately. close() sets
+    // the seen flag so it doesn't reappear.
     const { container } = renderWithRouter();
     const backdrop = container.querySelector('.fixed.inset-0') as HTMLElement;
     fireEvent.click(backdrop);
-    expect(localStorage.getItem('tegridy-onboarding-seen')).toBeNull();
-    expect(screen.getByText('Welcome to Tegridy Farms')).toBeInTheDocument();
+    expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
+    expect(screen.queryByText('Welcome to Tegridy Farms')).not.toBeInTheDocument();
   });
 });

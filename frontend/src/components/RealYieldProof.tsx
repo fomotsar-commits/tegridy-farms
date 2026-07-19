@@ -16,7 +16,7 @@ import { useTOWELIPrice } from '../contexts/PriceContext';
  * without adding another zero to the page — and lights up on its own the
  * day the flywheel turns. Additive — drop <RealYieldProof/> on any page.
  */
-export function RealYieldProof() {
+export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: boolean } = {}) {
   const deployed = isDeployed(REVENUE_DISTRIBUTOR_ADDRESS);
   const price = useTOWELIPrice();
 
@@ -33,8 +33,12 @@ export function RealYieldProof() {
   const totalClaimed = data?.[1]?.status === 'success' ? (data[1].result as bigint) : 0n;
   const epochCount = data?.[2]?.status === 'success' ? (data[2].result as bigint) : 0n;
 
-  // Nothing real to prove yet — render nothing (never a zero-stat).
-  if (!deployed || totalDistributed === 0n) return null;
+  // Self-gating: by default render nothing until the first distribution lands (never a
+  // zero-stat). With showWhenEmpty (the Farm staking loop) surface the thesis + mechanism +
+  // Etherscan link in a graceful "accrues as volume grows" state instead of a stark zero.
+  if (!deployed) return null;
+  const isEmpty = totalDistributed === 0n;
+  if (isEmpty && !showWhenEmpty) return null;
 
   const distEth = Number(formatEther(totalDistributed));
   const distUsd = distEth * price.ethUsd;
@@ -69,26 +73,34 @@ export function RealYieldProof() {
           </a>
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {items.map((it) => (
-          <div
-            key={it.l}
-            className="rounded-xl p-3 md:p-4"
-            style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
-          >
-            <p
-              className="text-[11px] uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
-              style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+      {isEmpty ? (
+        <div className="rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
+          <p className="text-[13px] leading-relaxed" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+            ETH distributions to stakers begin as native-pool swap volume comes online — 100% of protocol swap fees route here on-chain. This panel fills with the live cumulative the moment the first epoch settles.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {items.map((it) => (
+            <div
+              key={it.l}
+              className="rounded-xl p-3 md:p-4"
+              style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
             >
-              <span aria-hidden="true">{it.icon}</span>{it.l}
-            </p>
-            <p className="stat-value text-lg md:text-xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}>
-              {it.v}
-            </p>
-            <p className="text-[10px] mt-0.5" style={{ color: '#22c55e', opacity: 0.75 }}>{it.sub}</p>
-          </div>
-        ))}
-      </div>
+              <p
+                className="text-[11px] uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+                style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+              >
+                <span aria-hidden="true">{it.icon}</span>{it.l}
+              </p>
+              <p className="stat-value text-lg md:text-xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}>
+                {it.v}
+              </p>
+              <p className="text-[10px] mt-0.5" style={{ color: '#22c55e', opacity: 0.75 }}>{it.sub}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </m.div>
   );
 }

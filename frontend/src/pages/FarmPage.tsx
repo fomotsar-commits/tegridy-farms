@@ -27,6 +27,7 @@ import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
+import { RealYieldProof } from '../components/RealYieldProof';
 import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
@@ -238,6 +239,10 @@ export default function FarmPage() {
               daysLeft={daysLeft}
             />
 
+            {/* Real-yield thesis surfaced in the staking loop: 100% of swap fees → stakers
+                as ETH, live-cumulative once the flywheel turns (graceful pre-volume state). */}
+            <RealYieldProof showWhenEmpty />
+
             {/* Native LP Pools — read-only pool cards (TVL, reserves, fees). */}
             <div className="mb-10 mt-2">
               <div className="flex items-center justify-between mb-5">
@@ -303,6 +308,9 @@ export default function FarmPage() {
           priceError={priceError}
           daysLeft={daysLeft}
         />
+
+        {/* Real-yield thesis in the staking loop — 100% swap fees → stakers as ETH. */}
+        <RealYieldProof showWhenEmpty />
 
         {/* Season banner */}
         <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-8" style={{ border: '1px solid var(--color-purple-75)' }}
