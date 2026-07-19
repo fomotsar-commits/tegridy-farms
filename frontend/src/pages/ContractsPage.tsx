@@ -405,7 +405,7 @@ export default function ContractsPage() {
         <div className="mt-12 text-center text-white/35 text-[11px]">
           Chain ID 1 (Ethereum mainnet). Last regenerated from{' '}
           <code className="font-mono text-white/55">frontend/src/lib/constants.ts</code>.
-          {' '}Last reviewed: June 2026.
+          {' '}Last reviewed: July 2026.
         </div>
       </m.div>
     </div>

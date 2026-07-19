@@ -328,13 +328,13 @@ export default function SecurityPage() {
                 next operational milestone (see the Risks page). */}
             <div className="mt-4 pt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               <a href={`https://etherscan.io/address/${TREASURY_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200 transition-colors">Treasury Safe ↗</a>
-              <span className="text-white/40">Transitioning to multisig control · as of June 2026</span>
+              <span className="text-white/40">Transitioning to multisig control · as of July 2026</span>
             </div>
           </ArtCard>
         </m.section>
 
         <p className="text-center text-white/40 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-          Last reviewed: June 2026
+          Last reviewed: July 2026
         </p>
 
       </div>

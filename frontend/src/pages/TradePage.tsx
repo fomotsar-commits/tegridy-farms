@@ -242,7 +242,24 @@ export default function TradePage() {
                 <div className="mb-5">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
-                    <span className="text-white text-[10px] font-mono" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.fromBalance)}</span>
+                    <span className="flex items-center gap-1.5 text-[10px] font-mono">
+                      <span className="text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Balance: {formatBalance(swap.fromBalance)}</span>
+                      {Number(swap.fromBalance) > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => { const b = Number(swap.fromBalance) || 0; if (b > 0) swap.setInputAmount(String(Number((b * 0.5).toFixed(6)))); }}
+                            className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
+                          >50%</button>
+                          <button
+                            type="button"
+                            /* Reserve a little native ETH for gas so a MAX swap never leaves the user unable to pay for it. */
+                            onClick={() => { const b = Number(swap.fromBalance) || 0; const amt = swap.fromToken?.isNative ? Math.max(0, b - 0.002) : b; if (amt > 0) swap.setInputAmount(String(Number(amt.toFixed(6)))); }}
+                            className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
+                          >MAX</button>
+                        </>
+                      )}
+                    </span>
                   </div>
                   <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
                     <button

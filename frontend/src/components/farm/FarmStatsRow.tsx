@@ -19,7 +19,7 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLe
   const items = [
     { l: 'Total Value Locked', v: stats.tvl, art: pageArt('farm-stats', 0), pos: 'center 30%' },
     { l: 'TOWELI Price', v: stats.toweliPrice + (price.displayPriceStale ? ' (stale)' : ''), art: pageArt('farm-stats', 1), pos: 'center 30%' },
-    { l: 'Base APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: pageArt('farm-stats', 2), pos: 'center 0%', sub: pool.aprDisclaimer },
+    { l: 'Emissions APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: pageArt('farm-stats', 2), pos: 'center 0%', sub: pool.aprDisclaimer },
     { l: 'Season', v: `${daysLeft}d left`, sub: CURRENT_SEASON.name, art: pageArt('farm-stats', 3), pos: 'center 30%' },
   ];
 

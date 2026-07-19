@@ -30,7 +30,7 @@ import { useTabListKeys } from '../hooks/useTabListKeys';
 type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
 
 const SECTIONS: { key: Section; label: string; subtitle?: string }[] = [
-  { key: 'lending', label: 'Token Lending', subtitle: 'Staking + Restake' },
+  { key: 'lending', label: 'Token Lending', subtitle: 'ETH loans + restake' },
   { key: 'nftlending', label: 'NFT Lending', subtitle: 'Generic NFTs' },
   { key: 'amm', label: 'NFT AMM', subtitle: 'Bonding curves' },
   { key: 'launchpad', label: 'Launchpad' },
@@ -149,7 +149,7 @@ export default function LendingPage() {
               the painting. Force white + a dark scrim inline so it stays legible. */}
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight" style={{ color: '#ffffff', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Finance</h1>
           <p className="text-white max-w-md mx-auto text-[14px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            Lend, borrow, and trade NFTs — institutional-grade tools, all in one place.
+            Peer-to-peer NFT lending, an NFT AMM, and a launchpad — no oracles, terms you set yourself.
           </p>
         </m.div>
 

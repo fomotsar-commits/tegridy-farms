@@ -256,7 +256,7 @@ export default function FAQPage() {
         ))}
 
         <p className="text-center text-white/40 text-xs mt-10" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          Last reviewed: June 2026
+          Last reviewed: July 2026
         </p>
       </div>
     </div>

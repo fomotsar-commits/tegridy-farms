@@ -61,10 +61,10 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
   const runway = secondsRemaining && secondsRemaining > 0 ? formatRunway(secondsRemaining) : '';
   const items = [
     {
-      l: 'Staking APR',
+      l: 'Emissions APR',
       v: apr && apr !== '0' && apr !== '–' ? `${apr}%` : '–',
       icon: '📈',
-      sub: isBootstrap ? 'early-TVL bootstrap rate — normalizes as TVL grows' : undefined,
+      sub: isBootstrap ? 'TOWELI emission incentive — bootstrap rate, falls as TVL grows' : undefined,
     },
     {
       l: hasRemaining ? 'Rewards Remaining' : 'Reward Pool',

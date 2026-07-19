@@ -280,14 +280,14 @@ export default function HomePage() {
               // price outage (stats.tvlUsd is '' then).
               { l: 'TVL', v: stats.tvlUsd || stats.tvl, sub: stats.tvlUsd && stats.tvl !== '–' ? stats.tvl : undefined },
               { l: 'TOWELI Price', v: effectiveToweliPrice || '–', showSparkline: true },
-              { l: 'Base APR', v: pool.isDeployed && pool.apr !== '0' ? `${pool.apr}%` : '–' },
+              { l: 'Emissions APR', v: pool.isDeployed && pool.apr !== '0' ? `${pool.apr}%` : '–' },
               // F47 (T7 + T11): the global lifetime-ETH read now fires logged-out
               // (useRevenueStats split the global query off the wallet gate), and
               // we stop conflating loaded-zero with loading: shimmer ONLY while
               // genuinely loading; once resolved, render the honest "0.0000 ETH"
               // (the value that backs the on-chain-verifiable pitch) instead of an
               // eternal skeleton. `loading: true` forces the shimmer branch below.
-              { l: 'ETH Distributed', v: `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading },
+              { l: 'ETH Distributed', v: `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && revenueStats.totalDistributed === 0) ? 'fee rail live · first at native-pool launch' : undefined },
             ] as { l: string; v: string; sub?: string; showSparkline?: boolean; loading?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
@@ -306,7 +306,7 @@ export default function HomePage() {
                     {s.sub}
                   </span>
                 )}
-                {s.l === 'Base APR' && s.v && s.v !== '–' && (
+                {s.l === 'Emissions APR' && s.v && s.v !== '–' && (
                   <span
                     title="High at launch because total staked is still small — it falls toward steady-state as staking grows. The real yield is the ETH paid to stakers."
                     className="text-[10px] italic cursor-help"

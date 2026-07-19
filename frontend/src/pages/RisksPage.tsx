@@ -425,7 +425,7 @@ export default function RisksPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: June 11, 2026 (post-relaunch honesty pass)
+            Last updated: July 2026
           </p>
         </m.div>
       </div>
