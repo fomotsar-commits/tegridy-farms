@@ -1,6 +1,27 @@
-# URGENT — Close the 0xA360 acceptOwnership windows (deadline 2026-07-30 ~04:39 UTC)
+# ✅ EXECUTED — 0xA360 acceptOwnership windows CLOSED (2026-07-19)
 
-**Status:** ready to send. Every command below was verified against mainnet on
+> **DONE. Do not re-run.** All 9 `cancelOwnershipTransfer(string)` transactions were sent
+> from the deployer keystore on **2026-07-19**, blocks **25564409–25564548**, ~32k gas each,
+> **0.0000147 ETH total**. Verified on-chain afterwards: **`owner = 0x1489…456E` (unchanged),
+> `pendingOwner = 0x0`, `ownershipTransferExpiresAt = 0` on all 9.** Re-running now reverts
+> `NoPendingOwnershipTransfer()`.
+>
+> **Still open (separate work):**
+> - **NFTPoolFactory `0xbB8E…6F5B`** is still `owner = 0xA360` (ctor-direct, never had a
+>   window) → re-home during the Safe rebuild.
+> - **The 9 are not yet re-homed.** After the Safe rebuild: deployer
+>   `transferOwnership(newSafe)` → `newSafe.acceptOwnership()` within 14 days. See
+>   [`SAFE_REHOME_RUNBOOK.md`](SAFE_REHOME_RUNBOOK.md).
+>
+> **Windows-closed ≠ re-homed.** Keep fund-touching features gated in
+> `frontend/src/lib/constants.ts` until ownership sits on a clean Safe.
+>
+> *Environment note:* `cast` is not on the PowerShell PATH (Git Bash only) — use the full
+> path `C:\Users\jimbo\.foundry\bin\cast.exe`.
+
+---
+
+**Original status when written:** ready to send. Every command below was verified against mainnet on
 **2026-07-19 04:17 UTC** (block 25,564,314) — state read live, calldata generated,
 and each call **simulated from the deployer via `eth_call` (all 9 returned OK)**.
 Nothing here has been signed or broadcast; that is yours to do.
