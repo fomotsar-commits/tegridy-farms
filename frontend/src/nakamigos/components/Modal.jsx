@@ -134,7 +134,7 @@ function PriceHistoryChart({ tokenId, contract }) {
   );
 }
 
-export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, onToggleFavorite, wallet, onConnect, addToast, onViewProfile, floorPrice, statsSupply, allTokens }) {
+export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, onToggleFavorite, wallet, onConnect, addToast, onViewProfile, floorPrice, statsSupply, allTokens, onList }) {
   const collection = useActiveCollection();
   const { isLite } = useTradingMode();
   const { isWrongNetwork } = useWalletState();
@@ -539,6 +539,24 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
               onClick={() => setShowTradeWindow(true)}
             >
               {"⇄"} Offer a trade for this NFT
+            </button>
+          )}
+
+          {/* List-for-sale funnel — owner-only. Native listing creation is only
+              reachable from the "My NFTs" tab today, so surface it here where the
+              owner is already looking at their token. Routes to the tested Bulk
+              List wizard (pure navigation — no new money-path code). Fee is parity
+              with OpenSea (~1%), so the honest edge is that fees fund the Tegridy
+              treasury with 0% royalty — not a cheaper headline. */}
+          {onList && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ width: "100%", marginTop: 10, fontSize: 11 }}
+              aria-label="List this NFT for sale on the Tegridy order book"
+              onClick={onList}
+            >
+              {"🏷"} List for sale on the Tegridy order book {"→"}
             </button>
           )}
 

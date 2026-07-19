@@ -887,6 +887,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         floorPrice={stats?.floor}
         statsSupply={stats?.supply}
         allTokens={nfts.allTokens}
+        onList={() => { setSelected(null); handleTabChange("collection"); }}
       />
       </Suspense>
       </ErrorBoundary>

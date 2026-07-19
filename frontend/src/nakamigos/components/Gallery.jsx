@@ -32,25 +32,45 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
     setMobileSidebarOpen(false);
   }, [collection.slug]);
 
-  // Listing price lookup — normalizeToken hard-sets price:null, so the only
-  // source of a gallery card's price is the listings feed. Join it on by tokenId.
-  const priceById = useMemo(() => {
+  // Listing lookup — normalizeToken hard-sets price:null, so the listings feed is
+  // the only source of a gallery card's price AND its buy route. Carry the FULL
+  // native/Seaport fields (not just price) so a listed NFT opened from the gallery
+  // fulfills in-app — natively via the Tegridy order book (fees fund the treasury,
+  // 0% royalty) or via Seaport for OpenSea listings — instead of falling through
+  // to the "Buy on OpenSea" redirect in Modal.jsx. Mirrors Listings.jsx's enrichment
+  // so the gallery and Floor grids route an identical listing the same way.
+  const listingById = useMemo(() => {
     const m = new Map();
     for (const l of listings || []) {
       const id = String(l.tokenId ?? l.id);
-      if (id && l.price != null) m.set(id, l.price);
+      if (id && l.price != null) m.set(id, l);
     }
     return m;
   }, [listings]);
 
   // Client-side search + listed-only + price range filtering on loaded tokens (debounced).
-  // Merge listing prices onto tokens first so the price-range filter, the price
-  // sort, and the card price badge all operate on real prices instead of null.
+  // Merge listing fields onto tokens first so the price-range filter, the price
+  // sort, the card price badge, and the detail-modal buy route all operate on real
+  // listing data instead of null. Unlisted tokens keep their identity (no new object).
   const displayed = useMemo(() => {
-    let result = priceById.size
+    let result = listingById.size
       ? tokens.map((n) => {
-          const p = priceById.get(String(n.id));
-          return p != null && p !== n.price ? { ...n, price: p } : n;
+          const l = listingById.get(String(n.id));
+          if (!l) return n;
+          return {
+            ...n,
+            price: l.price,
+            priceWei: l.priceWei,
+            priceUsd: l.priceUsd,
+            marketplace: l.marketplace,
+            marketplaceIcon: l.marketplaceIcon,
+            maker: l.maker,
+            orderData: l.orderData,
+            orderHash: l.orderHash,
+            protocolAddress: l.protocolAddress,
+            isNative: l.isNative || false,
+            nativeOrder: l.nativeOrder || null,
+          };
         })
       : tokens;
 
@@ -108,7 +128,7 @@ export default memo(function Gallery({ tokens, loading, error, hasMore, onLoadMo
     }
 
     return result;
-  }, [tokens, priceById, debouncedSearch, listedOnly, listings, priceRange, sortBy]);
+  }, [tokens, listingById, debouncedSearch, listedOnly, listings, priceRange, sortBy]);
 
   // Scroll-reset key: changes only on a genuine filter/sort/search change, never
   // on a loadMore append — so infinite scroll keeps the viewport in place (F562).
