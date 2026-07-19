@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -76,6 +76,36 @@ export default function CommunityPage() {
           <p className="text-white max-w-md mx-auto text-[14px]">
             Governance, bounties, and vote incentives — powered by the community.
           </p>
+        </m.div>
+
+        {/* Live now — lead with what actually works. The on-chain governance / bounty /
+            vote-incentive tabs below are pre-relaunch, so instead of opening on a wall of
+            "isn't live yet" this surfaces the community surfaces that ARE live. */}
+        <m.div
+          className="mb-8"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08, duration: 0.4 }}
+        >
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" style={{ boxShadow: '0 0 8px rgba(52,211,153,0.85)' }} />
+            <span className="text-white/80 text-[11px] font-mono uppercase tracking-[0.14em]">Live now</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
+            <Link to="/leaderboard" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Tegridy Score →</div>
+              <div className="text-white/60 text-xs mt-1 leading-relaxed">On-chain reputation from your real activity — staking, LP, lock duration.</div>
+            </Link>
+            <Link to="/nakamigos" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Community chat →</div>
+              <div className="text-white/60 text-xs mt-1 leading-relaxed">Live chat, P2P trades, and whale intel over in Tradermigos.</div>
+            </Link>
+            <Link to="/gallery" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Gallery →</div>
+              <div className="text-white/60 text-xs mt-1 leading-relaxed">Browse the full Tegridy art collection.</div>
+            </Link>
+          </div>
+          <p className="text-center text-white/40 text-[11px] mt-7 font-mono uppercase tracking-[0.14em]">On-chain governance · coming with the relaunch</p>
         </m.div>
 
         {/* AUDIT BRIBES-UX: wrong-chain banner via the shared primitive.
