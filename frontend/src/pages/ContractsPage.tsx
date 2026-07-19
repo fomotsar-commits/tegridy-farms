@@ -1,5 +1,8 @@
+import { useMemo } from 'react';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useSourceVerification, type VerificationState } from '../hooks/useSourceVerification';
+import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 import { CopyButton } from '../components/ui/CopyButton';
 import { shortenAddress } from '../lib/formatting';
 import { ArtImg } from '../components/ArtImg';
@@ -182,7 +185,7 @@ const GROUPS: ContractGroup[] = [
   },
 ];
 
-function ContractRow({ entry }: { entry: ContractEntry }) {
+function ContractRow({ entry, verification }: { entry: ContractEntry; verification: VerificationState }) {
   const isExternal = entry.source.startsWith('external');
   const sourceHref = isExternal ? undefined : `${GITHUB_BASE}/${entry.source}`;
   // Our own contracts with an unset (zero) address aren't part of the current
@@ -226,6 +229,12 @@ function ContractRow({ entry }: { entry: ContractEntry }) {
             >
               awaiting multisig
             </span>
+          )}
+          {/* Live Etherscan source-verification. Only for deployed addresses —
+              `isPending` covers zero-address entries, which are never queried.
+              The badge asserts nothing when the lookup didn't resolve. */}
+          {!isPending && (
+            <VerifiedBadge state={verification} address={entry.address} label={entry.label} />
           )}
         </div>
         {isExternal ? (
@@ -295,6 +304,21 @@ export default function ContractsPage() {
   // pending (invalid key at deploy). Soften to "deployed" — the addresses are live
   // on mainnet and source is linked; we don't assert source-verification we can't back yet.
   usePageTitle('Contracts', 'Tegridy Farms smart contract addresses, deployed on Ethereum mainnet.');
+
+  // Live Etherscan source-verification — one batched, throttled query for the
+  // whole page. Only OUR OWN deployed contracts are queried: external deps
+  // (Uniswap, WETH, Chainlink, the Safe) aren't our claim to make, and
+  // zero-address entries keep their untouched "pending deploy" path — the same
+  // gate ContractRow uses for `undeployed`. Results cache in localStorage for
+  // days, so a repeat visit costs zero requests.
+  const verifiableAddresses = useMemo(
+    () =>
+      GROUPS.flatMap((g) => g.entries)
+        .filter((e) => !e.source.startsWith('external') && isDeployed(e.address))
+        .map((e) => e.address),
+    [],
+  );
+  const verification = useSourceVerification(verifiableAddresses);
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -394,7 +418,11 @@ export default function ContractsPage() {
                 </div>
                 <div className="relative z-10">
                   {group.entries.map((entry) => (
-                    <ContractRow key={entry.address + entry.label} entry={entry} />
+                    <ContractRow
+                      key={entry.address + entry.label}
+                      entry={entry}
+                      verification={verification[entry.address.toLowerCase()] ?? 'unchecked'}
+                    />
                   ))}
                 </div>
               </div>

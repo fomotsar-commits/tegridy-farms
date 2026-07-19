@@ -1,6 +1,9 @@
+import { useMemo } from 'react';
 import { m } from 'framer-motion';
 import { pageArt, artStyle, type ArtPiece } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useSourceVerification } from '../hooks/useSourceVerification';
+import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 import { ArtImg } from '../components/ArtImg';
 import { CopyButton } from '../components/ui/CopyButton';
 import {
@@ -106,6 +109,18 @@ const iconMap: Record<string, () => React.ReactNode> = {
 
 export default function SecurityPage() {
   usePageTitle('Security', 'Smart contract audits, bug bounty program, and security practices.');
+
+  // Live source-verification for the deployed contracts listed below. This page
+  // claims "Source code available for independent review" — the badge is the
+  // checkable proof of that claim, on the page that makes it. Undeployed
+  // (zero-address) entries are filtered out and never queried; they keep their
+  // existing "Soon" pill. Shares a localStorage cache with the Contracts page,
+  // so this usually costs zero extra requests.
+  const verifiableAddresses = useMemo(
+    () => CONTRACTS.filter((c) => isDeployed(c.address)).map((c) => c.address),
+    [],
+  );
+  const verification = useSourceVerification(verifiableAddresses);
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -264,6 +279,11 @@ export default function SecurityPage() {
                     </div>
                     {deployed ? (
                       <div className="flex items-center gap-2 shrink-0">
+                        <VerifiedBadge
+                          state={verification[c.address.toLowerCase()] ?? 'unchecked'}
+                          address={c.address}
+                          label={c.name}
+                        />
                         <a href={`https://etherscan.io/address/${c.address}`} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-300 hover:text-purple-200 transition-colors">Etherscan</a>
                         <CopyButton text={c.address} display="" className="text-[#22c55e] hover:text-white transition-colors p-2 min-w-[44px] min-h-[44px] justify-center" />
                       </div>
