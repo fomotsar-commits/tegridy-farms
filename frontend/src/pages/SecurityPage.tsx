@@ -32,17 +32,17 @@ const CONTRACTS = [
 const PROTECTIONS = [
   { title: 'Reentrancy Guards', desc: 'All high-risk functions protected with nonReentrant modifiers', icon: 'shield' },
   { title: 'Timelock Admin', desc: '24-48h delay on all admin parameter changes', icon: 'clock' },
-  { title: 'No Oracle Risk', desc: 'Protocol does not depend on external price oracles', icon: 'eye-off' },
+  { title: 'On-Chain TWAP Pricing', desc: 'Prices derive from a time-weighted average of our own pools — no external price feeds like Chainlink', icon: 'eye-off' },
   { title: 'No Flash Loans', desc: 'Flash swaps explicitly disabled at the router level', icon: 'zap-off' },
   { title: 'Ownership Protection', desc: '2-step ownership transfer, renouncement disabled', icon: 'lock' },
   { title: 'Pausable', desc: 'Emergency pause mechanism on all core contracts', icon: 'pause' },
 ];
 
 const BOUNTY_TIERS = [
-  { severity: 'Critical', reward: '$10,000', color: '#ef4444' },
-  { severity: 'High', reward: '$5,000', color: '#f97316' },
-  { severity: 'Medium', reward: '$1,000', color: '#eab308' },
-  { severity: 'Low', reward: '$500', color: '#22c55e' },
+  { severity: 'Critical', reward: 'Top priority', color: '#ef4444' },
+  { severity: 'High', reward: 'High priority', color: '#f97316' },
+  { severity: 'Medium', reward: 'Considered', color: '#eab308' },
+  { severity: 'Low', reward: 'Recognition', color: '#22c55e' },
 ];
 
 
@@ -118,6 +118,17 @@ export default function SecurityPage() {
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl font-bold mb-4 text-white" style={{ fontFamily: 'Playfair Display, serif', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Security &amp; Transparency</h1>
           <p className="text-white/85 max-w-2xl mx-auto text-lg" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Our commitment to protecting your assets through rigorous testing, transparent practices, and battle-tested smart contract design.</p>
+        </m.div>
+
+        {/* Honest audit-status banner: leads the page. No paid outside-firm
+            audit has been commissioned; this states that plainly and points to
+            what we actually do instead. Additive copy — every claim is already
+            true elsewhere on this page. */}
+        <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6, delay: 0.1 }} className="mb-14">
+          <div className="rounded-2xl p-5 md:p-6" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(234,179,8,0.35)' }}>
+            <h2 className="text-lg md:text-xl font-bold text-amber-300 mb-2" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>No paid third-party audit yet — here is exactly what we do instead</h2>
+            <p className="text-white/85 text-sm md:text-base" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>We have not commissioned a paid audit from an outside security firm. In its place we run repeated internal multi-agent security reviews backed by an extensive Foundry test suite, track every finding and fix in public audit files, and keep the code immutable and non-upgradeable after deployment. The methodology, artifacts, and still-open items are all linked below — read the source of truth directly.</p>
+          </div>
         </m.div>
 
         {/* Audit Methodology */}
@@ -328,12 +339,12 @@ export default function SecurityPage() {
                 next operational milestone (see the Risks page). */}
             <div className="mt-4 pt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               <a href={`https://etherscan.io/address/${TREASURY_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200 transition-colors">Treasury Safe ↗</a>
-              <span className="text-white/40">Transitioning to multisig control · as of July 2026</span>
+              <span className="text-white/70">Transitioning to multisig control · as of July 2026</span>
             </div>
           </ArtCard>
         </m.section>
 
-        <p className="text-center text-white/40 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+        <p className="text-center text-white/70 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
           Last reviewed: July 2026
         </p>
 

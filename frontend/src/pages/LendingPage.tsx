@@ -24,7 +24,13 @@ const LaunchpadSection = lazy(() =>
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { PageSkeleton } from '../components/PageSkeleton';
-import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../lib/constants';
+import {
+  TEGRIDY_LENDING_ADDRESS,
+  TEGRIDY_NFT_LENDING_ADDRESS,
+  TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+  TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+  isDeployed,
+} from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
@@ -96,6 +102,18 @@ const INTRO_CARDS = [
 const INTRO_DISMISSED_KEY = 'tegridy-nft-finance-intro-dismissed';
 
 const VALID_SECTIONS: Section[] = ['lending', 'nftlending', 'amm', 'launchpad'];
+
+// Per-section contract-deploy state. Every NFT-Finance contract is currently the
+// zero address (constants.ts, ZEROED 2026-05-31), so each surface renders its
+// honest pre-deploy state. This map drives the amber "Soon" chips on the tab row
+// + intro cards so visitors can see which surfaces are gated before clicking in;
+// each chip flips off automatically when a real address lands in constants.ts.
+const SECTION_DEPLOYED: Record<Section, boolean> = {
+  lending: isDeployed(TEGRIDY_LENDING_ADDRESS),
+  nftlending: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS),
+  amm: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS),
+  launchpad: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS),
+};
 
 function sectionFromQuery(v: string | null): Section | null {
   if (!v) return null;
@@ -190,7 +208,14 @@ export default function LendingPage() {
                         </svg>
                       </div>
                       <div>
-                        <h3 className="text-[13px] font-semibold text-white mb-1">{card.title}</h3>
+                        <h3 className="text-[13px] font-semibold text-white mb-1 flex items-center gap-1.5">
+                          {card.title}
+                          {!SECTION_DEPLOYED[card.key] && (
+                            <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                              Soon
+                            </span>
+                          )}
+                        </h3>
                         <p className="text-[11px] text-white/70 leading-relaxed">{card.desc}</p>
                       </div>
                     </div>
@@ -252,7 +277,14 @@ export default function LendingPage() {
               {/* F309: surface the section subtitle on desktop — "Staking + Restake"
                   under Token Lending is the only hint restaking lives here. */}
               <span className="relative z-10 flex flex-col items-center leading-tight">
-                <span>{label}</span>
+                <span className="inline-flex items-center gap-1.5">
+                  {label}
+                  {!SECTION_DEPLOYED[key] && (
+                    <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                      Soon
+                    </span>
+                  )}
+                </span>
                 {subtitle && (
                   <span className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
                     {subtitle}

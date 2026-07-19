@@ -188,7 +188,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['launchpad'],
-    answer: "Launchpad lets project owners create gated NFT collections with a wizard. Built and audited; the NFT Finance → Launchpad tab un-gates when it redeploys.",
+    answer: "Launchpad lets project owners create gated NFT collections with a wizard. Built and internally reviewed (no third-party audit yet); the NFT Finance → Launchpad tab un-gates when it redeploys.",
   },
 
   // ── Governance ──────────────────────────────────────────────
@@ -197,7 +197,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // Answers describe them as built-and-audited-but-not-live, with what to do now.
   {
     keywords: ['vote', 'voting', 'governance', 'gauge'],
-    answer: "Gauge voting's built and audited but not live on mainnet yet — /community un-gates when it deploys. The plan: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
+    answer: "Gauge voting's built and internally reviewed (no third-party audit yet), not live on mainnet yet — /community un-gates when it deploys. The plan: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
   },
   {
     keywords: ['weight', 'power', 'vote'],
@@ -209,7 +209,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['bribes', 'bribe', 'incentive', 'cartman'],
-    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Built and audited, not deployed yet — it lands on /community alongside gauge voting.",
+    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Built and internally reviewed (no third-party audit yet), not deployed yet — it lands on /community alongside gauge voting.",
   },
   {
     keywords: ['bounty', 'bounties', 'task'],
@@ -217,7 +217,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['grants', 'proposal', 'fund'],
-    answer: "Community Grants is built and audited but not redeployed yet. When it's live: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
+    answer: "Community Grants is built and internally reviewed (no third-party audit yet) but not redeployed yet. When it's live: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
   },
 
   // ── Wallet / network ────────────────────────────────────────

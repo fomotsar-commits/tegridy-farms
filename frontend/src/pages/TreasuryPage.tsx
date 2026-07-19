@@ -271,6 +271,15 @@ export default function TreasuryPage() {
           ))}
         </div>
 
+        {/* Treasury-by-design note: a near-zero treasury balance is intentional.
+            Design intent (docs/OPEX.md self-sustain bar, decided 2026-06-07) is to
+            fund off-chain opex from ETH swap + marketplace fees before any
+            ETH-outflow feature ships — no pre-funded war chest, no ETH held or
+            spent ahead of the revenue meant to back it. Additive copy only. */}
+        <p className="text-white/55 text-[12px] max-w-[720px] leading-relaxed mb-10" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+          A near-zero treasury is by design — the protocol is built to fund its operating costs from ETH swap and marketplace fees rather than a pre-funded war chest, so no ETH is held or spent ahead of the revenue meant to back it.
+        </p>
+
         {/* Distribution split — inner card layer over the page art. */}
         <div className="relative overflow-hidden rounded-xl p-6 md:p-8 mb-10" style={glass}>
           <div className="absolute inset-0 opacity-30">
