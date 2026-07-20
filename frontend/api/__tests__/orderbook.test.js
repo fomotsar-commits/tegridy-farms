@@ -82,6 +82,12 @@ function buildValidOrder({ offerer = OWNER, priceWei = "1000000000000000000" } =
       startTime: String(nowSec),
       endTime: String(nowSec + 7 * 24 * 3600),
       salt: "0x123",
+      // The server pins the protocol shape on create (orderType 0 / zero zone / zero
+      // zoneHash / canonical conduit), so a fixture must carry the conduit key or it is
+      // refused at 400 before reaching the check under test. The other three pinned
+      // fields default to their zero values when absent, matching how a signer encodes
+      // them, so only this one has to be spelled out.
+      conduitKey: "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
     },
     signature: "0xfake-signature-for-test",
   };

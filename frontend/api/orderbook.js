@@ -62,13 +62,33 @@ const MAX_BUNDLE_ITEMS = 15;
  */
 async function findOverlappingListings(supabase, { contract, maker, keys }) {
   const wanted = new Set(keys);
-  const { data: rows } = await supabase
+  const { data: rows, error } = await supabase
     .from("native_orders")
     .select("order_hash, token_id, is_bundle, token_ids")
     .eq("contract_address", contract)
     .eq("maker", maker)
     .eq("order_type", "listing")
-    .eq("status", "active");
+    .eq("status", "active")
+    // EXPIRY. Nothing ever transitions status off 'active' at expiry — the read path
+    // only FILTERS on end_time. Without this predicate an expired bundle stays invisible
+    // in My Listings (the feed filtered it out) while still blocking, so every bundle
+    // ever created would permanently brick per-token relisting of all its NFTs once it
+    // aged out, with no UI affordance to clear it. A guard that can never be satisfied is
+    // worse than no guard.
+    .gt("end_time", new Date().toISOString())
+    // Bound the scan so PostgREST's default max-rows cap can never silently truncate the
+    // dedupe (a truncated scan reads as "no overlap" — the unsafe direction).
+    .limit(500);
+
+  // FAIL CLOSED. This used to destructure `data` only: on a paused or rate-limited
+  // Supabase, `rows` was null, `rows || []` became empty, and both callers read that as
+  // "nothing overlaps" and inserted. This is the single security control on this money
+  // path — it must not fail silently in the permissive direction.
+  if (error) {
+    const err = new Error(`overlap-check-failed: ${error.message}`);
+    err.code = "OVERLAP_CHECK_FAILED";
+    throw err;
+  }
 
   const singles = [];
   const bundles = [];
@@ -78,14 +98,85 @@ async function findOverlappingListings(supabase, { contract, maker, keys }) {
       // than throwing on a money path.
       const items = Array.isArray(row.token_ids) ? row.token_ids : [];
       const shared = items
-        .map((i) => (i && typeof i === "object" ? `${String(i.contract).toLowerCase()}:${String(i.token_id)}` : null))
+        .map((i) => (i && typeof i === "object" ? overlapKey(i.contract, i.token_id) : null))
         .filter((k) => k && wanted.has(k));
       if (shared.length) bundles.push({ order_hash: row.order_hash, shared });
-    } else if (row.token_id != null && wanted.has(`${contract}:${String(row.token_id)}`)) {
+    } else if (row.token_id != null && wanted.has(overlapKey(contract, row.token_id))) {
       singles.push(row.order_hash);
     }
   }
   return { singles, bundles };
+}
+
+/**
+ * Canonical `contract:tokenId` key for overlap comparison.
+ *
+ * The tokenId MUST be numerically canonicalized. Every security gate downstream coerces
+ * through BigInt — pad32 for the ownerOf staticcall, and the EIP-712 struct for the order
+ * digest — so "123", "0123" and "0x7b" are the SAME on-chain token and produce the SAME
+ * Seaport signature. As raw strings they are three different keys, which let a
+ * hand-crafted POST slip past the overlap guard while presenting as a clean "no overlap".
+ * The honest client can't do this, but the party who can hand-craft the request is the
+ * seller — exactly the party a server-side guard exists to hold against.
+ *
+ * Returns null for anything not parseable as a non-negative integer, so callers can 400.
+ */
+function overlapKey(contract, tokenId) {
+  const canon = canonicalTokenId(tokenId);
+  return canon === null ? null : `${String(contract).toLowerCase()}:${canon}`;
+}
+
+/**
+ * Decimal-canonical form of a token id, or null if it isn't a non-negative integer.
+ *
+ * Deliberately NOT isValidTokenId (which caps at 10 digits): that cap is right for the
+ * query path but would silently make a large-id collection unlistable if one is ever
+ * added to ALLOWED_CONTRACTS. BigInt canonicalization is what actually closes the
+ * key-mismatch hole, and it is size-agnostic.
+ */
+function canonicalTokenId(tokenId) {
+  if (tokenId == null) return null;
+  const s = String(tokenId).trim();
+  if (!/^(0|[1-9][0-9]*|0[0-9]+)$/.test(s)) return null; // decimal digits only — no 0x, no signs
+  try {
+    return BigInt(s).toString();
+  } catch {
+    return null;
+  }
+}
+
+// The only Seaport order shape this orderbook stores: FULL_OPEN, no zone, no zoneHash,
+// canonical conduit.
+//
+// Without this pin a seller can post an orderType-2 (RESTRICTED) order naming a zone they
+// control. It renders in the public book as an ordinary listing with a live Buy button,
+// but only fills when their zone allows — so every other buyer's transaction reverts after
+// they pay gas. `zone` is persisted and handed to the buyer's client, so it has to be
+// refused at the door.
+//
+// Hoisted out of create-bundle 2026-07-19: the guard existed on the bundle path and the
+// P2P-trades path, but NOT on single `create` — which is the path already serving
+// production traffic. Same attack, left open on the live surface. All three write paths
+// now share this.
+const CANONICAL_CONDUIT_KEY = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
+const ZERO32 = "0x" + "0".repeat(64);
+const ZERO_ADDR = "0x" + "0".repeat(40);
+
+/**
+ * Returns an error string, or null if the shape is acceptable.
+ *
+ * Semantics: the EFFECTIVE value must equal the pinned value, where an absent field means
+ * the zero value — that is how a signer encodes it into the struct, so absent zone /
+ * zoneHash / orderType legitimately equal their pinned zeros. conduitKey is the exception:
+ * its pinned value is NON-zero, so an absent conduitKey really is a different order and is
+ * correctly refused.
+ */
+function validateOrderShape(params, label) {
+  if (Number(params.orderType || 0) !== 0) return `${label} must use orderType 0 (FULL_OPEN)`;
+  if ((params.zone || ZERO_ADDR).toLowerCase() !== ZERO_ADDR) return `${label} must use the zero zone`;
+  if ((params.zoneHash || ZERO32).toLowerCase() !== ZERO32) return `${label} must use a zero zoneHash`;
+  if ((params.conduitKey || "").toLowerCase() !== CANONICAL_CONDUIT_KEY) return `${label} must use the canonical conduit`;
+  return null;
 }
 
 /** Mark orders cancelled. Guarded on status so a concurrent fill isn't overwritten. */
@@ -489,6 +580,13 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Order startTime is too far in the future" });
       }
 
+      // Pin the protocol shape on THIS path too. It was guarded on create-bundle and on
+      // P2P trades but not here — the path already serving production traffic. Verified
+      // against what createNativeListing signs (src/nakamigos/lib/orderbook.js): zero
+      // zone, zero zoneHash, orderType 0, CONDUIT_KEY. No legitimate listing is affected.
+      const shapeError = validateOrderShape(params, "Orders");
+      if (shapeError) return res.status(400).json({ error: shapeError });
+
       const offerItem = params.offer[0];
       const considerationItem = params.consideration[0];
 
@@ -579,7 +677,15 @@ export default async function handler(req, res) {
       // Extract contract + tokenId
       const nftItem = isListing ? offerItem : considerationItem;
       const contract = nftItem?.token?.toLowerCase() || "";
-      const tokenId = nftItem?.identifierOrCriteria || null;
+      // Canonicalized at the point of read so the value that gets STORED, compared, and
+      // echoed back is one representation. "123" and "0123" are the same token to the
+      // ownerOf call and the Seaport digest; leaving them distinct here is what let a
+      // hand-crafted POST slip past the overlap guard. null tokenId stays null (offers).
+      const rawTokenId = nftItem?.identifierOrCriteria ?? null;
+      const tokenId = rawTokenId == null ? null : canonicalTokenId(rawTokenId);
+      if (rawTokenId != null && tokenId === null) {
+        return res.status(400).json({ error: "Invalid tokenId" });
+      }
 
       // Validate contract belongs to an allowed collection
       if (!contract || !ALLOWED_CONTRACTS.has(contract)) {
@@ -654,12 +760,24 @@ export default async function handler(req, res) {
       // eventual buyer with a guaranteed revert. findOverlappingListings covers both.
       // (Bundle go-live re-audit, must-fix 2.)
       if (isListing && tokenId) {
-        const overlap = await findOverlappingListings(supabase, {
-          contract,
-          maker: recoveredCreator,
-          keys: [`${contract}:${String(tokenId)}`],
-        });
-        await cancelOrderHashes(supabase, overlap.singles);
+        const key = overlapKey(contract, tokenId);
+        if (!key) {
+          return res.status(400).json({ error: "Invalid tokenId" });
+        }
+        let overlap;
+        try {
+          overlap = await findOverlappingListings(supabase, { contract, maker: recoveredCreator, keys: [key] });
+        } catch (e) {
+          // The overlap check is the control that stops two live orders over one NFT.
+          // If it can't run, refuse the write rather than inserting blind.
+          console.error("[orderbook] overlap check failed:", e.message);
+          return res.status(503).json({ error: "Listing checks temporarily unavailable — please retry" });
+        }
+        // ORDER MATTERS: refuse BEFORE mutating. This cancel used to run first, so a
+        // request that was then refused with a 409 had already destroyed the seller's
+        // prior listing — a 4xx must not leave side effects. create-bundle already
+        // ordered these correctly; this makes the two paths symmetric.
+        //
         // A bundle is a package the seller deliberately assembled — silently deleting it
         // to relist one NFT would destroy more than it fixes. Refuse instead and name the
         // conflict so they can choose.
@@ -669,6 +787,7 @@ export default async function handler(req, res) {
             conflictingBundles: overlap.bundles.map((b) => b.order_hash),
           });
         }
+        await cancelOrderHashes(supabase, overlap.singles);
       }
 
       // Rate limit: max 20 orders per maker per hour (persists across cold starts)
@@ -848,29 +967,9 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Order startTime is too far in the future" });
       }
 
-      // Pin the protocol shape: FULL_OPEN + zero zone + zero zoneHash + canonical
-      // conduit. Copied verbatim from the audited P2P-trades guard below. Without it a
-      // seller can post a RESTRICTED order with a zone they control: it renders in the
-      // public book as an ordinary listing, but only fills when their zone says so, so
-      // every other buyer's transaction reverts. `zone` is persisted and honored by the
-      // buyer client, so this has to be refused at the door. The honest client already
-      // signs all four of these correctly, so no legitimate bundle is affected.
-      // (Bundle go-live re-audit, must-fix 3.)
-      const CANONICAL_CONDUIT_KEY = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
-      const ZERO32 = "0x" + "0".repeat(64);
-      const ZERO_ADDR = "0x" + "0".repeat(40);
-      if (Number(params.orderType) !== 0) {
-        return res.status(400).json({ error: "Bundles must use orderType 0 (FULL_OPEN)" });
-      }
-      if ((params.zone || "").toLowerCase() !== ZERO_ADDR) {
-        return res.status(400).json({ error: "Bundles must use the zero zone" });
-      }
-      if ((params.zoneHash || ZERO32).toLowerCase() !== ZERO32) {
-        return res.status(400).json({ error: "Bundles must use a zero zoneHash" });
-      }
-      if ((params.conduitKey || "").toLowerCase() !== CANONICAL_CONDUIT_KEY) {
-        return res.status(400).json({ error: "Bundles must use the canonical conduit" });
-      }
+      // Pin the protocol shape. See validateOrderShape.
+      const bundleShapeError = validateOrderShape(params, "Bundles");
+      if (bundleShapeError) return res.status(400).json({ error: bundleShapeError });
 
       // Every offer item must be a distinct ERC721 from an allowed collection.
       const bundleKeys = new Set();
@@ -884,15 +983,21 @@ export default async function handler(req, res) {
         if (!c || !ALLOWED_CONTRACTS.has(c)) {
           return res.status(403).json({ error: "Bundle contains an unsupported collection" });
         }
-        if (tid == null || !/^[0-9]+$/.test(String(tid))) {
+        // Canonicalize: "5" and "05" are the SAME on-chain token to every downstream
+        // gate (BigInt-coerced), so comparing them raw let the intra-bundle duplicate
+        // check pass on a bundle that offers one NFT twice — and let the cross-order
+        // overlap key miss entirely. Store the canonical form so every later comparison,
+        // here and in findOverlappingListings, is over one representation.
+        const canonTid = canonicalTokenId(tid);
+        if (canonTid === null) {
           return res.status(400).json({ error: "Bundle item has an invalid tokenId" });
         }
-        const key = `${c}:${tid}`;
+        const key = `${c}:${canonTid}`;
         if (bundleKeys.has(key)) {
           return res.status(400).json({ error: "Bundle contains a duplicate NFT" });
         }
         bundleKeys.add(key);
-        bundleItems.push({ contract: c, token_id: String(tid) });
+        bundleItems.push({ contract: c, token_id: canonTid });
       }
 
       // Single-collection bundles only. The row is stored + floored under
@@ -1060,11 +1165,19 @@ export default async function handler(req, res) {
       // an overlapping bundle is refused, since silently discarding an assembled package
       // is worse than making the seller choose. (Bundle go-live re-audit, must-fix 1.)
       const bundleContract = bundleItems[0].contract;
-      const bundleOverlap = await findOverlappingListings(supabase, {
-        contract: bundleContract,
-        maker: recoveredCreator,
-        keys: bundleItems.map((i) => `${i.contract}:${i.token_id}`),
-      });
+      let bundleOverlap;
+      try {
+        bundleOverlap = await findOverlappingListings(supabase, {
+          contract: bundleContract,
+          maker: recoveredCreator,
+          // bundleItems carry the CANONICAL token id (see the create-bundle item loop),
+          // so these keys are directly comparable to the ones built from stored rows.
+          keys: bundleItems.map((i) => overlapKey(i.contract, i.token_id)),
+        });
+      } catch (e) {
+        console.error("[orderbook] bundle overlap check failed:", e.message);
+        return res.status(503).json({ error: "Listing checks temporarily unavailable — please retry" });
+      }
       if (bundleOverlap.bundles.length > 0) {
         const shared = [...new Set(bundleOverlap.bundles.flatMap((b) => b.shared))]
           .map((k) => `#${k.split(":")[1]}`);

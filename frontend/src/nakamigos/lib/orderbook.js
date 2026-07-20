@@ -24,7 +24,9 @@ export const MAX_BUNDLE_ITEMS = 15;
 async function withRetry(fn, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try { return await fn(); } catch (e) {
-      if (i === retries) throw e;
+      // Callers tag deterministic rejections (4xx) with noRetry: the answer will not
+      // change, and retrying re-runs the server's expensive per-item on-chain checks.
+      if (e?.noRetry || i === retries) throw e;
       await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
   }
@@ -630,14 +632,31 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
         });
         clearTimeout(createTimeout);
         if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          throw new Error(err.error || "Failed to submit bundle");
+          const body = await r.json().catch(() => ({}));
+          const err = new Error(body.error || "Failed to submit bundle");
+          err.status = r.status;
+          err.body = body;
+          // A 4xx is a verdict, not a blip. Retrying one re-runs the server's whole
+          // per-item on-chain ownership fan-out for an answer that cannot change —
+          // three times the RPC load on every conflict, and three times the latency
+          // before the seller sees a message they could have acted on immediately.
+          if (r.status >= 400 && r.status < 500) err.noRetry = true;
+          throw err;
         }
         return r;
       });
     } catch (fetchErr) {
       clearTimeout(createTimeout);
       if (fetchErr.name === "AbortError") return { error: "timeout", message: "Bundle submission timed out" };
+      // Surface the server's structured conflict so the UI can tell the seller WHICH
+      // bundle blocks them instead of an opaque failure they cannot act on.
+      if (fetchErr.status === 409) {
+        return {
+          error: "conflict",
+          message: fetchErr.message,
+          conflictingBundles: fetchErr.body?.conflictingBundles || [],
+        };
+      }
       throw fetchErr;
     }
 

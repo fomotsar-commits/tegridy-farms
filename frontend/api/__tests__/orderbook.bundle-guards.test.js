@@ -49,6 +49,10 @@ vi.mock("../_lib/push.js", () => ({ sendPushToWallet: vi.fn(async () => {}) }));
 let selectRows = [];
 let updates = [];
 let inserted = [];
+// `selectError` forces the SELECT to fail, so we can prove the overlap guard fails CLOSED.
+// `gtCalls` records end_time predicates so we can prove expired rows are excluded.
+let selectError = null;
+let gtCalls = [];
 function makeChain(table) {
   const chain = {
     _isUpdate: false,
@@ -59,11 +63,16 @@ function makeChain(table) {
       if (chain._isUpdate && col === "order_hash") updates.push({ hash: val, patch: chain._patch });
       return chain;
     }),
-    gt: vi.fn(() => chain), gte: vi.fn(() => chain),
+    gt: vi.fn((col, val) => { gtCalls.push([col, val]); return chain; }),
+    gte: vi.fn(() => chain),
     order: vi.fn(() => chain), limit: vi.fn(() => chain),
     single: vi.fn(async () => ({ data: selectRows[0] || null, error: null })),
     maybeSingle: vi.fn(async () => ({ data: selectRows[0] || null, error: null })),
-    then: (resolve) => resolve({ data: selectRows, error: null, count: selectRows.length }),
+    then: (resolve) => resolve(
+      selectError
+        ? { data: null, error: selectError, count: null }
+        : { data: selectRows, error: null, count: selectRows.length },
+    ),
   };
   return chain;
 }
@@ -130,7 +139,7 @@ describe("orderbook create-bundle — order-shape pin", () => {
   let handler;
   beforeEach(async () => {
     vi.resetModules();
-    selectRows = []; updates = []; inserted = [];
+    selectRows = []; updates = []; inserted = []; selectError = null; gtCalls = [];
     process.env.SUPABASE_URL = "https://test.supabase.co";
     process.env.SUPABASE_SERVICE_KEY = "service-role";
     process.env.BUNDLE_LISTING_ENABLED = "true";
@@ -175,7 +184,7 @@ describe("orderbook — NFT cannot sit in two live orders", () => {
   let handler;
   beforeEach(async () => {
     vi.resetModules();
-    selectRows = []; updates = []; inserted = [];
+    selectRows = []; updates = []; inserted = []; selectError = null; gtCalls = [];
     process.env.SUPABASE_URL = "https://test.supabase.co";
     process.env.SUPABASE_SERVICE_KEY = "service-role";
     process.env.BUNDLE_LISTING_ENABLED = "true";
@@ -258,11 +267,145 @@ describe("orderbook — NFT cannot sit in two live orders", () => {
   });
 });
 
+describe("orderbook create — a refused request must not mutate", () => {
+  let handler;
+  beforeEach(async () => {
+    vi.resetModules();
+    selectRows = []; updates = []; inserted = []; selectError = null; gtCalls = [];
+    process.env.SUPABASE_URL = "https://test.supabase.co";
+    process.env.SUPABASE_SERVICE_KEY = "service-role";
+    process.env.BUNDLE_LISTING_ENABLED = "true";
+    process.env.NODE_ENV = "test";
+    handler = (await import("../orderbook.js")).default;
+  });
+
+  function singleParams(tokenId, overrides = {}) {
+    return {
+      offerer: SELLER, zone: ZERO_ADDR, zoneHash: ZERO32, orderType: 0,
+      conduitKey: CANONICAL_CONDUIT,
+      startTime: String(Math.floor(Date.now() / 1000)),
+      endTime: String(Math.floor(Date.now() / 1000) + 86400),
+      salt: "0x1", totalOriginalConsiderationItems: 1,
+      offer: [{ itemType: 2, token: NAKAMIGOS, identifierOrCriteria: String(tokenId), startAmount: "1", endAmount: "1" }],
+      consideration: [{
+        itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0",
+        startAmount: "1000000000000000000", endAmount: "1000000000000000000", recipient: SELLER,
+      }],
+      ...overrides,
+    };
+  }
+  async function postSingle(params) {
+    const { res, calls } = makeRes();
+    await handler({
+      method: "POST", headers: { origin: "https://nakamigos.gallery" }, query: {},
+      body: {
+        action: "create",
+        order: {
+          parameters: params,
+          signature: "0x" + "c".repeat(130),
+          seaportSignature: "0x" + "c".repeat(130),
+          seaportOrderHash: "0x" + "b".repeat(64),
+          seaportCounter: "0",
+          protocol_address: "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC",
+        },
+      },
+    }, res);
+    return calls;
+  }
+
+  // The cancel used to run BEFORE the 409, so a request the server then refused had
+  // already destroyed the seller's prior listing. A 4xx must leave no side effects.
+  it("does not cancel the overlapping single when the request is refused with 409", async () => {
+    selectRows = [
+      { order_hash: "0xsingle", token_id: "5", is_bundle: false, token_ids: null },
+      { order_hash: "0xbundle", token_id: null, is_bundle: true, token_ids: [{ contract: NAKAMIGOS, token_id: "5" }] },
+    ];
+    const c = await postSingle(singleParams(5));
+    expect(c.status).toBe(409);
+    expect(updates).toHaveLength(0); // nothing cancelled on a refused request
+  });
+
+  // Same attack the bundle path pins against, on the path already serving production.
+  it("pins the order shape on the single-listing path too", async () => {
+    const c = await postSingle(singleParams(5, { zone: "0x" + "9".repeat(40) }));
+    expect(c.status).toBe(400);
+    expect(c.json.error).toMatch(/zero zone/i);
+  });
+
+  it("accepts the shape the live single-listing client signs", async () => {
+    const c = await postSingle(singleParams(5));
+    expect(c.status).not.toBe(400);
+  });
+});
+
+describe("orderbook overlap guard — the ways it could silently not work", () => {
+  let handler;
+  beforeEach(async () => {
+    vi.resetModules();
+    selectRows = []; updates = []; inserted = []; selectError = null; gtCalls = [];
+    process.env.SUPABASE_URL = "https://test.supabase.co";
+    process.env.SUPABASE_SERVICE_KEY = "service-role";
+    process.env.BUNDLE_LISTING_ENABLED = "true";
+    process.env.NODE_ENV = "test";
+    handler = (await import("../orderbook.js")).default;
+  });
+
+  // Nothing transitions status off 'active' at expiry — the read path only FILTERS on
+  // end_time. Without an expiry predicate here, every bundle ever created would
+  // permanently brick relisting of its NFTs once it aged out, while being invisible in
+  // My Listings. A guard that can never be satisfied is worse than no guard.
+  it("excludes expired rows from the overlap scan", async () => {
+    await postBundle(handler, bundleParams([1, 2]));
+    const endTimeGuard = gtCalls.find(([col]) => col === "end_time");
+    expect(endTimeGuard, "overlap scan must filter on end_time").toBeTruthy();
+    expect(new Date(endTimeGuard[1]).getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  // Every downstream gate BigInt-coerces, so "5" and "05" are the same on-chain token and
+  // produce the same Seaport digest — but as raw strings they were different overlap keys.
+  // A hand-crafted POST could use that to keep two live orders over one NFT.
+  it("matches a stored non-canonical token_id against a canonical bundle key", async () => {
+    selectRows = [{ order_hash: "0xsingle", token_id: "005", is_bundle: false, token_ids: null }];
+    const c = await postBundle(handler, bundleParams([5, 9]));
+    expect(c.status).not.toBe(409);
+    expect(updates.map((u) => u.hash)).toContain("0xsingle"); // matched despite "005" vs "5"
+  });
+
+  it("matches a non-canonical incoming tokenId against a stored canonical bundle", async () => {
+    selectRows = [{
+      order_hash: "0xbundle", token_id: null, is_bundle: true,
+      token_ids: [{ contract: NAKAMIGOS, token_id: "7" }],
+    }];
+    const c = await postBundle(handler, bundleParams(["007", 9]));
+    expect(c.status).toBe(409);
+  });
+
+  it("treats leading-zero duplicates within one bundle as duplicates", async () => {
+    const c = await postBundle(handler, bundleParams([5, "05"]));
+    expect(c.status).toBe(400);
+    expect(c.json.error).toMatch(/duplicate/i);
+  });
+
+  it("rejects a non-numeric tokenId rather than keying on it", async () => {
+    const c = await postBundle(handler, bundleParams(["0x5", 9]));
+    expect(c.status).toBe(400);
+  });
+
+  // This is the only control stopping two live orders over one NFT. On a paused or
+  // rate-limited database it used to read as "nothing overlaps" and insert anyway.
+  it("FAILS CLOSED when the overlap query errors — never inserts blind", async () => {
+    selectError = { message: "connection terminated" };
+    const c = await postBundle(handler, bundleParams([1, 2]));
+    expect(c.status).toBe(503);
+    expect(inserted).toHaveLength(0);
+  });
+});
+
 describe("orderbook query — seller's own view is never served from a shared cache", () => {
   let handler;
   beforeEach(async () => {
     vi.resetModules();
-    selectRows = []; updates = []; inserted = [];
+    selectRows = []; updates = []; inserted = []; selectError = null; gtCalls = [];
     process.env.SUPABASE_URL = "https://test.supabase.co";
     process.env.SUPABASE_SERVICE_KEY = "service-role";
     process.env.NODE_ENV = "test";

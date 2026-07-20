@@ -112,12 +112,17 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
   }, [isSubmitting]);
 
   // Select / deselect all — capped at MAX_BUNDLE_ITEMS (the server rejects larger bundles).
+  // `atCap` drives the label: once the cap is below the wallet size, "Select All" can
+  // never reach allNfts.length, so the old `selected.size >= selectable` test made a
+  // full-to-the-cap selection silently DESELECT everything on the next click while the
+  // button still read "Select All".
+  const selectable = Math.min(allNfts.length, MAX_BUNDLE_ITEMS);
+  const atCap = selected.size >= selectable && selectable > 0;
   const selectAll = useCallback(() => {
     if (isSubmitting) return;
-    const selectable = Math.min(allNfts.length, MAX_BUNDLE_ITEMS);
-    if (selected.size >= selectable) setSelected(new Set());
+    if (atCap) setSelected(new Set());
     else setSelected(new Set(allNfts.slice(0, MAX_BUNDLE_ITEMS).map((n) => n.id)));
-  }, [selected.size, allNfts, isSubmitting]);
+  }, [atCap, allNfts, isSubmitting]);
 
   // Price parsing
   const priceEth = useMemo(() => {
@@ -167,6 +172,12 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         addToast(`Bundle listed — ${items.length} NFTs for ${priceEth} ETH.`, "success");
         onListingCreated?.();
         onClose();
+      } else if (result?.error === "conflict") {
+        // The server refused because one of these NFTs is already in another live
+        // bundle. Say so and refresh, so the seller can go cancel the blocker rather
+        // than re-signing into the same wall.
+        addToast(result.message || "Some of these NFTs are already listed in another bundle.", "error");
+        onListingCreated?.();
       } else if (result?.error === "timeout") {
         // A timeout is INDETERMINATE, not a failure — the abort fires client-side and
         // the server may well have stored the row. Telling the seller it failed invites
@@ -230,7 +241,10 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em" }}>
-              SELECT NFTS ({selected.size} selected{selected.size < MIN_BUNDLE_SIZE ? `, min ${MIN_BUNDLE_SIZE}` : ""})
+              {/* State the maximum. Clicks past the cap are silently ignored, so without
+                  it the UI just stops responding with no stated reason. */}
+              SELECT NFTS ({selected.size} selected{selected.size < MIN_BUNDLE_SIZE ? `, min ${MIN_BUNDLE_SIZE}` : ""}
+              {atCap && allNfts.length > MAX_BUNDLE_ITEMS ? `, max ${MAX_BUNDLE_ITEMS}` : ""})
             </span>
             <button
               onClick={selectAll}
@@ -240,7 +254,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
                 fontFamily: "var(--mono)", fontSize: 10, color: "var(--naka-blue)", textDecoration: "underline",
               }}
             >
-              {selected.size === allNfts.length ? "Deselect All" : "Select All"}
+              {atCap ? "Deselect All" : `Select ${selectable}`}
             </button>
           </div>
 

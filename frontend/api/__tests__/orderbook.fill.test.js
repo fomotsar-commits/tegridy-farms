@@ -75,7 +75,7 @@ function buildSampleParams({ offerer = OFFERER } = {}) {
       endAmount: "1000000000000000000",
       recipient: offerer,
     }],
-    orderType: 2,
+    orderType: 0, // FULL_OPEN (was a stale pre-2026-06-10 fixture; 2 = FULL_RESTRICTED is unbuyable with a zero zone, and the server now refuses it)
     startTime: "0",
     endTime: "99999999999",
     zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -119,7 +119,7 @@ describe("seaportHash helper", () => {
         { itemType: 0, token: "0x0000000000000000000000000000000000000000", identifierOrCriteria: "0", startAmount: "990000000000000000", endAmount: "990000000000000000", recipient: "0x1111111111111111111111111111111111111111" },
         { itemType: 0, token: "0x0000000000000000000000000000000000000000", identifierOrCriteria: "0", startAmount: "10000000000000000", endAmount: "10000000000000000", recipient: "0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e" },
       ],
-      orderType: 2,
+      orderType: 2, // arbitrary INPUT to the hash function — this test pins a known struct-hash vector, not the create path's accepted shape
       startTime: "0",
       endTime: "99999999999",
       zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -549,7 +549,7 @@ describe("orderbook create — F10 seaportOrderHash claim verification", () => {
         endAmount: "1000000000000000000",
         recipient: offerer,
       }],
-      orderType: 2,
+      orderType: 0, // FULL_OPEN (was a stale pre-2026-06-10 fixture; 2 = FULL_RESTRICTED is unbuyable with a zero zone, and the server now refuses it)
       startTime: String(now),
       endTime: String(now + 86400),
       zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",

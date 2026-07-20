@@ -126,7 +126,7 @@ function buildOrder({ priceWei = "1000000000000000000", offerer = OFFERER } = {}
         endAmount: priceWei,
         recipient: offerer,
       }],
-      orderType: 2,
+      orderType: 0, // FULL_OPEN (was a stale pre-2026-06-10 fixture; 2 = FULL_RESTRICTED is unbuyable with a zero zone, and the server now refuses it)
       startTime: String(now),
       endTime: String(now + 86400),
       zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
