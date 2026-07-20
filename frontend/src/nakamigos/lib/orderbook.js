@@ -138,13 +138,20 @@ export async function fulfillNativeOrder(order) {
     // may still say "active" for an order already filled or cancelled
     // on-chain. Ask Seaport directly before broadcasting so the buyer fails
     // fast instead of burning gas on a doomed fulfillOrder.
-    if (order.order_hash) {
+    // FIX 2026-07-19: this used to pass `order.order_hash` — the app's OWN sha256
+    // row id, which Seaport has never seen. getOrderStatus then returned all-zeros,
+    // so isCancelled was always false and totalFilled always 0: the cancelled /
+    // already-filled early exit was a PERMANENT NO-OP. Query the canonical
+    // `seaport_order_hash` (what lib/trades.js:498-502 already does correctly), and
+    // SKIP the pre-flight entirely for legacy rows where it is null rather than
+    // querying with a hash that silently reports "fine".
+    if (order.seaport_order_hash) {
       try {
         const statusAbi = [
           "function getOrderStatus(bytes32 orderHash) view returns (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize)",
         ];
         const seaportRead = new ethers.Contract(seaportTarget, statusAbi, provider);
-        const [, isCancelled, totalFilled] = await seaportRead.getOrderStatus(order.order_hash);
+        const [, isCancelled, totalFilled] = await seaportRead.getOrderStatus(order.seaport_order_hash);
         if (isCancelled) {
           return { error: "cancelled", message: "This listing was cancelled by the seller" };
         }

@@ -243,7 +243,17 @@ export default async function handler(req, res) {
     let query = supabase
       .from("native_orders")
       .select("*")
-      .eq("status", safeStatus);
+      .eq("status", safeStatus)
+      // SECURITY 2026-07-19: this feed powers the NATIVE LISTINGS table, which
+      // renders a Buy button on every row. Without this predicate it also returned
+      // order_type="offer" rows — and the create path deliberately SKIPS on-chain
+      // ownership verification (`if (isListing)`) and the ETH-only currency guard
+      // for non-listings, so anyone could POST a validly-signed "offer" whose
+      // consideration demands SOMEONE ELSE's NFT, priced from a 1-wei ERC-20 offer
+      // item so it sorts to the top of the price-ascending book. A holder clicking
+      // Buy would have been asked to hand over their own NFT. Nothing in the app
+      // ever creates a native offer row, so every such row is attacker-authored.
+      .eq("order_type", "listing");
 
     // Only filter by end_time for active orders — filled/cancelled orders are historical
     if (safeStatus === "active") {
@@ -260,12 +270,18 @@ export default async function handler(req, res) {
     // explicitly requests them with ?bundles=true. ENV-GATED because the is_bundle column
     // only exists after migration 012 — enabling bundles REQUIRES that migration — so a
     // pre-enable deployment never references a missing column. (Bundle re-audit wf_ed656ebf.)
-    if (process.env.BUNDLE_LISTING_ENABLED === "true") {
-      query = query.eq("is_bundle", req.query.bundles === "true");
-    } else if (req.query.bundles === "true") {
-      // Feature off → no bundle rows exist (and the column may not); return empty, not an error.
+    // FIX 2026-07-19 — the kill-switch used to FAIL OPEN. The is_bundle filter sat
+    // INSIDE `if (BUNDLE_LISTING_ENABLED === "true")`, so turning the flag OFF did
+    // not harden the feed, it REMOVED the filter — letting a bundle's package total
+    // leak into the per-token feed and the collection floor stat, which is exactly
+    // the design law this filter exists to enforce. The env gate was only ever about
+    // the column's existence pre-migration-012; that migration is now APPLIED, so
+    // the filter is unconditional and the flag gates only the bundles=true opt-in.
+    if (req.query.bundles === "true" && process.env.BUNDLE_LISTING_ENABLED !== "true") {
+      // Feature off → don't serve the bundle surface. Empty, not an error.
       return res.status(200).json({ orders: [], count: 0 });
     }
+    query = query.eq("is_bundle", req.query.bundles === "true");
 
     // Contract is required — never return orders across all collections
     if (!contract) return res.status(400).json({ error: "contract parameter is required" });
@@ -342,8 +358,18 @@ export default async function handler(req, res) {
       if (!params.offerer || typeof params.offerer !== "string") {
         return res.status(400).json({ error: "Missing or invalid offerer" });
       }
+      // SECURITY 2026-07-19: a single listing is exactly ONE item. verifyNftOwnership
+      // and the tokenId/contract extraction below all read offer[0], so a multi-item
+      // offer sent here would be stored as a single listing with only its FIRST item
+      // ownership-checked — bypassing every create-bundle gate (per-item ownership,
+      // dedupe, single-collection, MAX_BUNDLE_ITEMS, is_bundle/token_ids bookkeeping)
+      // and mislabelling an N-NFT package as a one-token listing. Multi-item offers
+      // must go through create-bundle.
       if (!params.offer || !Array.isArray(params.offer) || params.offer.length === 0) {
         return res.status(400).json({ error: "Missing or empty offer array" });
+      }
+      if (params.offer.length !== 1) {
+        return res.status(400).json({ error: "A single listing must offer exactly one item — use create-bundle for multiple NFTs" });
       }
       if (!params.consideration || !Array.isArray(params.consideration) || params.consideration.length === 0) {
         return res.status(400).json({ error: "Missing or empty consideration array" });
