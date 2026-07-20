@@ -12,7 +12,7 @@
  * fillable. Correct approach mirrors lib/trades.js cancelTradeOnChain: read the
  * live counter via getCounter(offerer) and rebuild OrderComponents.
  */
-import { CONDUIT_KEY } from "../constants";
+import { CONDUIT_KEY, resolveSeaportTarget } from "../constants";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -65,7 +65,14 @@ export function buildOrderComponents(params, counter) {
  * error (callers already map err.code 4001 → "rejected").
  */
 export async function cancelSeaportOrder({ ethers, signer, params, seaportAddress }) {
-  const seaport = new ethers.Contract(seaportAddress, SEAPORT_CANCEL_ABI, signer);
+  // SECURITY: pin the target HERE, at the sink, rather than at each call site —
+  // every caller passes a server-supplied `protocol_address` (MyListings,
+  // OrderBookPanel), and this is the one place that turns it into a contract the
+  // user signs against. Fail closed: an unrecognised target is refused, never
+  // silently rewritten to the default.
+  const target = resolveSeaportTarget(seaportAddress);
+  if (!target) throw new Error('Unexpected transaction target — aborting for safety');
+  const seaport = new ethers.Contract(target, SEAPORT_CANCEL_ABI, signer);
   const counter = await seaport.getCounter(params.offerer);
   const components = buildOrderComponents(params, counter);
   return seaport.cancel([components]);

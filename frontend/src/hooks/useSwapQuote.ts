@@ -353,8 +353,14 @@ export function useSwapQuote(
     return selectedOnChainRoute.source;
   }, [aggBetter, selectedOnChainRoute.source]);
 
-  // Best route output: full aggregator output or on-chain winner
-  const outputAmount = aggBetter ? aggComparison.userReceives : selectedOnChainRoute.output;
+  // R033 display==submit: this MUST be the output of the route that actually
+  // executes. executeSwap never calls an aggregator — for selectedRoute
+  // 'aggregator' it still submits `selectedOnChainRoute` via SwapFeeRouter or
+  // Uniswap V2 (useSwap.ts). Previously this showed the aggregator's (higher)
+  // quote as "You Receive" while signing the on-chain route, i.e. a number the
+  // transaction could not deliver. The aggregator comparison is still surfaced
+  // as context in routeLabel, but never as the headline figure.
+  const outputAmount = selectedOnChainRoute.output;
   const outputFormatted = useMemo(
     () => formatUnits(outputAmount, toDecimals),
     [outputAmount, toDecimals],
@@ -469,13 +475,20 @@ export function useSwapQuote(
   }, [fromToken, toToken, path]);
 
   const routeLabel = useMemo(() => {
-    if (selectedRoute === 'aggregator') return `Best rate via ${bestAggregatorName ?? 'Aggregator'}`;
+    // Name the venue that ACTUALLY executes. When an aggregator quotes higher we
+    // disclose that as context rather than claiming to route through it — the
+    // swap is still submitted on-chain via SwapFeeRouter / Uniswap V2.
+    if (selectedRoute === 'aggregator') {
+      const execDex = selectedOnChainRoute.source === 'tegridy' ? 'Tegridy DEX' : 'Uniswap V2';
+      const who = bestAggregatorName ?? 'An aggregator';
+      return `Swapping via ${execDex} — ${who} quotes more, but isn't routable in-app`;
+    }
     const dex = selectedRoute === 'tegridy' ? 'Tegridy DEX' : 'Uniswap V2';
     // Native route carries the protocol fee; disclose it (the shown output already nets it).
     const feeNote = selectedRoute === 'tegridy' ? ` (incl. ${feeBpsNum / 100}% fee)` : '';
     if (path.length <= 2) return `Direct swap via ${dex}${feeNote}`;
     return `Routed through WETH via ${dex}${feeNote}`;
-  }, [path, selectedRoute, bestAggregatorName, feeBpsNum]);
+  }, [path, selectedRoute, bestAggregatorName, feeBpsNum, selectedOnChainRoute.source]);
 
   // R033 H-02: stale flag flips reactively when (now - quoteFetchedAt) > MAX.
   const isQuoteStale = useMemo(

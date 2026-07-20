@@ -1,28 +1,36 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 
-const SEASONAL_EVENTS = [
-  {
-    id: 'harvest-season-q2-2026',
-    name: 'Harvest Season',
-    description: '2x points on all staking activity',
-    startDate: '2026-06-01T00:00:00Z',
-    endDate: '2026-06-05T00:00:00Z',
-    multiplier: 2,
-    color: '#f59e0b', // amber
-  },
-  {
-    id: 'ape-month-2026',
-    name: 'Ape Month',
-    description: 'NFT boost bonus +10% for all holders',
-    startDate: '2026-07-01T00:00:00Z',
-    endDate: '2026-07-31T00:00:00Z',
-    multiplier: 1.1,
-    color: '#8b5cf6', // purple
-  },
-] as const;
+interface SeasonalEvent {
+  id: string;
+  name: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  /** ONLY meaningful if a contract actually pays it — see the rule below. */
+  multiplier: number;
+  color: string;
+}
 
-type SeasonalEvent = (typeof SEASONAL_EVENTS)[number];
+/**
+ * EMPTIED 2026-07-19 — these were advertising rewards nothing paid.
+ *
+ * The list held "Harvest Season — 2x points on all staking activity" and
+ * "Ape Month — NFT boost bonus +10% for all holders". Ape Month was LIVE
+ * sitewide (2026-07-01 → 07-31, rendered from AppLayout) telling every visitor
+ * they were earning a +10% bonus. Nothing implemented it: `multiplier` is read
+ * in exactly one place in this file — to choose an emoji — and SEASONAL_EVENTS
+ * is module-local, so no reward path could consume it even in principle. The
+ * real NFT boost is the flat on-chain +0.5x JBAC bonus (JBAC_BONUS_BPS), which
+ * is date-independent and unchanged, and FAQPage says exactly that — so the
+ * banner also contradicted our own FAQ.
+ *
+ * RULE: do not add an entry whose `description` promises a number unless a
+ * contract actually pays it. A countdown on an unbacked reward is worse than
+ * no banner: it manufactures urgency for something that does not exist.
+ * A future entry describing a real, code-backed event is fine.
+ */
+export const SEASONAL_EVENTS: readonly SeasonalEvent[] = [];
 
 function getActiveEvent(): SeasonalEvent | null {
   const now = Date.now();

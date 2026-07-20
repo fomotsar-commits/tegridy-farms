@@ -22,7 +22,7 @@
  * cannot return the magic value).
  */
 
-import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, WETH } from "../constants";
+import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, WETH, resolveSeaportTarget } from "../constants";
 import { getProvider } from "../api";
 import { getWethBalance, getWethAllowance, approveWeth, wrapEth } from "./weth";
 
@@ -482,11 +482,23 @@ export async function acceptTrade(trade) {
       return { error: "expired", message: "This trade offer has expired" };
     }
 
+    // SECURITY: pin the fulfillment target before touching it. `protocol_address`
+    // rides on the server-supplied trade row and below becomes both the contract
+    // we call and the `to:` of the transaction the user signs. Unpinned, a
+    // poisoned row could aim an accept at an arbitrary contract. Fail CLOSED —
+    // never fall back to the default, because a row naming a foreign target is
+    // exactly the case to refuse. (Mirrors the native-listing path in
+    // lib/orderbook.js; this trade path was missed in that first pass.)
+    const seaportTarget = resolveSeaportTarget(trade.protocol_address);
+    if (!seaportTarget) {
+      return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
+    }
+
     // Pre-flight 1: Seaport order status (cancelled / already filled)
     if (trade.seaport_order_hash) {
       try {
         const statusAbi = ["function getOrderStatus(bytes32) view returns (bool,bool,uint256,uint256)"];
-        const seaportRead = new ethers.Contract(trade.protocol_address || SEAPORT_ADDRESS, statusAbi, provider);
+        const seaportRead = new ethers.Contract(seaportTarget, statusAbi, provider);
         const [, isCancelled, totalFilled] = await seaportRead.getOrderStatus(trade.seaport_order_hash);
         if (isCancelled) return { error: "cancelled", message: "The maker cancelled this trade on-chain" };
         if (totalFilled > 0n) return { error: "filled", message: "This trade was already executed" };
@@ -540,7 +552,7 @@ export async function acceptTrade(trade) {
     const seaportAbi = [
       "function fulfillOrder(((address offerer, address zone, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems) parameters, bytes signature) order, bytes32 fulfillerConduitKey) payable returns (bool fulfilled)",
     ];
-    const seaport = new ethers.Contract(trade.protocol_address || SEAPORT_ADDRESS, seaportAbi, signer);
+    const seaport = new ethers.Contract(seaportTarget, seaportAbi, signer);
 
     const orderStruct = {
       offerer: params.offerer,
@@ -588,7 +600,7 @@ export async function acceptTrade(trade) {
           data: approvalIface.encodeFunctionData("setApprovalForAll", [CONDUIT_ADDRESS, true]),
         })),
         {
-          to: trade.protocol_address || SEAPORT_ADDRESS,
+          to: seaportTarget,
           data: fulfillData,
           ...(totalWei > 0n ? { value: "0x" + totalWei.toString(16) } : {}),
         },
@@ -755,6 +767,11 @@ export async function acceptOpenTrade(trade, selections) {
     if (params.endTime && parseInt(params.endTime) * 1000 <= Date.now()) {
       return { error: "expired", message: "This trade offer has expired" };
     }
+    // SECURITY: pin the fulfillment target — see the note in acceptTrade. Fail closed.
+    const seaportTarget = resolveSeaportTarget(trade.protocol_address);
+    if (!seaportTarget) {
+      return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
+    }
 
     let resolvers;
     try {
@@ -770,7 +787,7 @@ export async function acceptOpenTrade(trade, selections) {
     if (trade.seaport_order_hash) {
       try {
         const statusAbi = ["function getOrderStatus(bytes32) view returns (bool,bool,uint256,uint256)"];
-        const seaportRead = new ethers.Contract(trade.protocol_address || SEAPORT_ADDRESS, statusAbi, provider);
+        const seaportRead = new ethers.Contract(seaportTarget, statusAbi, provider);
         const [, isCancelled, totalFilled] = await seaportRead.getOrderStatus(trade.seaport_order_hash);
         if (isCancelled) return { error: "cancelled", message: "The maker cancelled this trade on-chain" };
         if (totalFilled > 0n) return { error: "filled", message: "Someone already accepted this trade" };
@@ -834,7 +851,7 @@ export async function acceptOpenTrade(trade, selections) {
     const advancedAbi = [
       "function fulfillAdvancedOrder(((address offerer, address zone, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 totalOriginalConsiderationItems) parameters, uint120 numerator, uint120 denominator, bytes signature, bytes extraData) advancedOrder, (uint256 orderIndex, uint8 side, uint256 index, uint256 identifier, bytes32[] criteriaProof)[] criteriaResolvers, bytes32 fulfillerConduitKey, address recipient) payable returns (bool fulfilled)",
     ];
-    const seaport = new ethers.Contract(trade.protocol_address || SEAPORT_ADDRESS, advancedAbi, signer);
+    const seaport = new ethers.Contract(seaportTarget, advancedAbi, signer);
 
     const orderStruct = {
       offerer: params.offerer,
@@ -888,7 +905,7 @@ export async function acceptOpenTrade(trade, selections) {
           data: approvalIface.encodeFunctionData("setApprovalForAll", [CONDUIT_ADDRESS, true]),
         })),
         {
-          to: trade.protocol_address || SEAPORT_ADDRESS,
+          to: seaportTarget,
           data: seaport.interface.encodeFunctionData("fulfillAdvancedOrder", fulfillArgs),
           ...(totalWei > 0n ? { value: "0x" + totalWei.toString(16) } : {}),
         },
@@ -990,8 +1007,13 @@ export async function cancelTradeOnChain(trade) {
     if (trade.offerer && trade.offerer.toLowerCase() !== address) {
       return { error: "not-maker", message: "Only the trade creator can cancel on-chain" };
     }
+    // SECURITY: pin the target — see the note in acceptTrade. Fail closed.
+    const seaportTarget = resolveSeaportTarget(trade.protocol_address);
+    if (!seaportTarget) {
+      return { error: "failed", message: "Unexpected transaction target — aborting for safety" };
+    }
     const params = trade.parameters;
-    const seaport = new ethers.Contract(trade.protocol_address || SEAPORT_ADDRESS, [
+    const seaport = new ethers.Contract(seaportTarget, [
       "function getCounter(address) view returns (uint256)",
       "function cancel((address offerer, address zone, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount)[] offer, (uint8 itemType, address token, uint256 identifierOrCriteria, uint256 startAmount, uint256 endAmount, address recipient)[] consideration, uint8 orderType, uint256 startTime, uint256 endTime, bytes32 zoneHash, uint256 salt, bytes32 conduitKey, uint256 counter)[] orders) returns (bool)",
     ], signer);

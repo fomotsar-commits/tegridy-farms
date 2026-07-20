@@ -256,10 +256,15 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Pull your /history page or use Etherscan to export tx data. I'm a towel — talk to a tax pro for the rest.",
   },
   {
-    // HONESTY PASS 2026-06-11: Etherscan source-verification is still rolling out
-    // post-relaunch (e.g. staking not yet verified) — don't claim it blanket-done.
+    // UPDATED 2026-07-19: source-verification is now COMPLETE for all 8 core
+    // contracts (TOWELI, Staking, Factory, Router, RevenueDistributor,
+    // SwapFeeRouter, POLAccumulator, ReferralSplitter). The old "rolling out
+    // contract by contract" hedge was accurate on 2026-06-11 and is now false —
+    // it understated us on exactly the question a skeptic asks. /contracts shows
+    // a LIVE per-address badge read from Etherscan, so this is checkable, not a
+    // claim. Keep this answer in sync with reality in both directions.
     keywords: ['etherscan', 'verify', 'contract', 'address'],
-    answer: "All contract addresses + Etherscan links live at /contracts. Code's open on GitHub, ABIs public; Etherscan source-verification is rolling out contract by contract post-relaunch.",
+    answer: "All 8 core contracts are source-verified on Etherscan — you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus the full code on GitHub and public ABIs.",
   },
 
   // ── Premium / referrals / scoring ──────────────────────────

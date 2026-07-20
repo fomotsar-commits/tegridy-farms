@@ -21,6 +21,15 @@ import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
 
+/**
+ * Truncate to 6dp, never round up. The 50%/MAX quick-fills previously used
+ * `Number(x.toFixed(6))`, which rounds HALF-UP — so for any balance whose 7th
+ * decimal rounds up (common with 18-decimal tokens) MAX produced an amount
+ * ABOVE the wallet balance, which fails the balance check and disables the
+ * Swap button. Flooring can only ever under-fill, which is safe.
+ */
+const floor6 = (n: number): number => Math.floor(n * 1e6) / 1e6;
+
 // AUDIT FIX H-2 (2026-04-20 / battle-tested Option C): honest-UX labels. The DCA and
 // Limit Order features are not on-chain — they persist in browser localStorage and
 // run only while the tab is open. Renaming to "Recurring Swap" / "Price Alert" makes
@@ -70,7 +79,11 @@ export default function TradePage() {
     liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on Tegridy Farms native pools.' },
     // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
     dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
-    limit:     { title: 'Price Alert', desc: 'Set a price target and get a signing prompt when the market reaches it. Keep this tab open to see it fire.' },
+    // UPDATED 2026-07-19: CoW is now the PRIMARY path in this tab — a real
+    // on-chain limit order that settles when the price is met and survives
+    // closing the tab. "Price Alert / keep this tab open" described the
+    // browser-only watcher, which is now the demoted secondary option.
+    limit:     { title: 'Limit Order', desc: 'Set a price target. Places a real on-chain order via CoW Protocol that fills when the market reaches it — no need to keep this tab open.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
@@ -262,13 +275,16 @@ export default function TradePage() {
                         <>
                           <button
                             type="button"
-                            onClick={() => { const b = Number(swap.fromBalance) || 0; if (b > 0) swap.setInputAmount(String(Number((b * 0.5).toFixed(6)))); }}
+                            /* floor6, not toFixed: toFixed rounds HALF-UP, which for
+                               many balances produces an amount ABOVE the wallet
+                               balance and disables the Swap button. */
+                            onClick={() => { const b = Number(swap.fromBalance) || 0; if (b > 0) swap.setInputAmount(String(floor6(b * 0.5))); }}
                             className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
                           >50%</button>
                           <button
                             type="button"
                             /* Reserve a little native ETH for gas so a MAX swap never leaves the user unable to pay for it. */
-                            onClick={() => { const b = Number(swap.fromBalance) || 0; const amt = swap.fromToken?.isNative ? Math.max(0, b - 0.002) : b; if (amt > 0) swap.setInputAmount(String(Number(amt.toFixed(6)))); }}
+                            onClick={() => { const b = Number(swap.fromBalance) || 0; const amt = swap.fromToken?.isNative ? Math.max(0, b - 0.002) : b; if (amt > 0) swap.setInputAmount(String(floor6(amt))); }}
                             className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
                           >MAX</button>
                         </>

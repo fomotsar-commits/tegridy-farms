@@ -526,12 +526,17 @@ export default function HomePage() {
         {/* Trust Badges */}
         <div className="pb-16">
           <div className="flex flex-wrap justify-center gap-3">
-            {/* HONESTY PASS 2026-06-11: "Contracts Verified" → "Timelocked Admin"
-                (Etherscan source-verify is still rolling out post-relaunch; the
-                24-48h timelock IS live and checkable) and "Bug Bounty Active" →
-                "Responsible Disclosure" (the bounty has no funded pool yet). */}
+            {/* HONESTY PASS 2026-06-11: "Bug Bounty Active" → "Responsible
+                Disclosure" (the bounty has no funded pool yet).
+                UPDATED 2026-07-19: "Contracts Verified" is RESTORED — all 8 core
+                contracts are now Etherscan source-verified, and /contracts proves
+                it with a live per-address badge. It replaces "82 Findings
+                Resolved", which was an aggregate count backed by nothing in the
+                repo and which the Security page deliberately refuses to publish
+                ("We do not publish aggregate 'resolved' counts here"). Every
+                badge here must be checkable in one click. */}
             {[
-              { label: '82 Findings Resolved', to: '/security' },
+              { label: 'Contracts Verified', to: '/contracts' },
               { label: 'Timelocked Admin', to: '/security' },
               { label: 'Responsible Disclosure', to: '/security' },
               { label: 'Open Source', href: 'https://github.com/fomotsar-commits/tegridy-farms' },
