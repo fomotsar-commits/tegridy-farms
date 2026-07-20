@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { getProvider } from "../api";
-import { SEAPORT_ADDRESS, PLATFORM_FEE_BPS } from "../constants";
+import { SEAPORT_ADDRESS, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED } from "../constants";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
@@ -279,18 +279,32 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       // this, bundles were invisible on the canonical "manage my listings" page —
       // and since this is also the only place with a per-row Cancel, a seller
       // could create a bundle they could not then cancel from here.
-      const bundleParams = new URLSearchParams({ ...baseParams, bundles: "true" });
+      // Gated: with the flag off this request can only ever return an empty set, so
+      // firing it doubled the request rate on this page for nothing — and this page is
+      // maker-scoped, which means no-store, which means every one of those goes cold
+      // against the read deadline. Matches OrderBookPanel's gating.
+      const bundleParams = BUNDLE_LISTING_ENABLED
+        ? new URLSearchParams({ ...baseParams, bundles: "true" })
+        : null;
       const [res, bundleRes] = await Promise.all([
         fetch(`/api/orderbook?${params}`),
-        // Non-fatal: while BUNDLE_LISTING_ENABLED is off this returns an empty set,
-        // and a failure here must never blank out the seller's single listings.
-        fetch(`/api/orderbook?${bundleParams}`).catch(() => null),
+        // Non-fatal: a failure here must never blank out the seller's single listings.
+        bundleParams ? fetch(`/api/orderbook?${bundleParams}`).catch(() => null) : null,
       ]);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to fetch listings");
       }
       const data = await res.json();
+      // A degraded read is a 200 with an EMPTY list — the server's soft-fail when it
+      // can't reach the database inside its deadline. Treating it as real data renders
+      // "No active listings", which a seller reads as "my listings were cancelled". This
+      // page is now no-store (it must be, so a cancel isn't served stale), so degraded
+      // reads reach it instead of being absorbed by the edge cache. Keep what's on screen.
+      if (data.degraded) {
+        setFetchError("Listings temporarily unavailable — retrying.");
+        return;
+      }
       const bundleData = bundleRes && bundleRes.ok ? await bundleRes.json().catch(() => ({})) : {};
       const allOrders = [...(data.orders || []), ...(bundleData.orders || [])];
       // Normalize native orderbook orders to the shape the UI expects

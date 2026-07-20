@@ -407,8 +407,13 @@ export async function verifyNftOwnership({ parameters }) {
   }
   const item = parameters.offer?.[0];
   if (!item) return { ok: false, error: "no-offer-item" };
-  // Only ERC721 enforced here. ERC1155 (itemType 3) needs balanceOf+id; punt.
-  if (Number(item.itemType) !== 2) return { ok: true, skipped: true };
+  // FAIL CLOSED at the sink. This used to `return { ok: true, skipped: true }` for any
+  // non-ERC721 item — an ownership check that answers "yes" when it did not check. The
+  // caller could then store a listing for an NFT the poster does not own just by sending
+  // itemType 3. ERC1155 ownership really is a balanceOf+id check we don't implement, so
+  // the honest answer is "unsupported", not "fine". If ERC1155 is ever supported, add the
+  // balanceOf branch here rather than reinstating the skip.
+  if (Number(item.itemType) !== 2) return { ok: false, error: "unsupported-item-type" };
   const tokenId = item.identifierOrCriteria;
   if (tokenId == null) return { ok: false, error: "no-token-id" };
   let owner;

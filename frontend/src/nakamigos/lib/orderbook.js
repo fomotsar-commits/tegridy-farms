@@ -21,6 +21,24 @@ const ORDERBOOK_API = "/api/orderbook";
 // Lowered 50 -> 15 alongside the server; see the rationale on the server constant.
 export const MAX_BUNDLE_ITEMS = 15;
 
+/**
+ * Turn a non-ok Response into a throw that carries the server's structured body and, for
+ * a 4xx, a noRetry tag.
+ *
+ * Shared because the two write paths drifted: the bundle path got the 4xx short-circuit
+ * and the single path — the live one, and the one the new 409 actually lands on — did
+ * not, so every conflict was retried three times, re-running two signature recoveries and
+ * an ownerOf RPC per attempt for a verdict that cannot change.
+ */
+async function throwHttpError(r, fallback) {
+  const body = await r.json().catch(() => ({}));
+  const err = new Error(body.error || fallback);
+  err.status = r.status;
+  err.body = body;
+  if (r.status >= 400 && r.status < 500) err.noRetry = true;
+  throw err;
+}
+
 async function withRetry(fn, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try { return await fn(); } catch (e) {
@@ -438,15 +456,21 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
           }),
         });
         clearTimeout(createTimeout);
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          throw new Error(err.error || "Failed to submit order");
-        }
+        if (!r.ok) await throwHttpError(r, "Failed to submit order");
         return r;
       });
     } catch (fetchErr) {
       clearTimeout(createTimeout);
       if (fetchErr.name === "AbortError") return { error: "timeout", message: "Order submission timed out" };
+      // The server refuses (409) when this NFT is already inside a live bundle. Pass the
+      // structured body through so the caller can tell the seller what to cancel.
+      if (fetchErr.status === 409) {
+        return {
+          error: "conflict",
+          message: fetchErr.message,
+          conflictingBundles: fetchErr.body?.conflictingBundles || [],
+        };
+      }
       throw fetchErr;
     }
 
@@ -631,18 +655,7 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
           }),
         });
         clearTimeout(createTimeout);
-        if (!r.ok) {
-          const body = await r.json().catch(() => ({}));
-          const err = new Error(body.error || "Failed to submit bundle");
-          err.status = r.status;
-          err.body = body;
-          // A 4xx is a verdict, not a blip. Retrying one re-runs the server's whole
-          // per-item on-chain ownership fan-out for an answer that cannot change —
-          // three times the RPC load on every conflict, and three times the latency
-          // before the seller sees a message they could have acted on immediately.
-          if (r.status >= 400 && r.status < 500) err.noRetry = true;
-          throw err;
-        }
+        if (!r.ok) await throwHttpError(r, "Failed to submit bundle");
         return r;
       });
     } catch (fetchErr) {

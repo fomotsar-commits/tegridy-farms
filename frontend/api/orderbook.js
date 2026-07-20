@@ -60,6 +60,15 @@ const MAX_BUNDLE_ITEMS = 15;
  * a bundle collision is reported to the seller rather than silently discarding a
  * package they deliberately assembled.
  */
+// Max listing/bundle lifetime. Also bounds how many rows one maker can accumulate, which
+// is what keeps OVERLAP_SCAN_CAP sufficient. Same 30 days the P2P-trades path uses.
+const MAX_LISTING_DURATION_SEC = 30 * 24 * 3600;
+
+// Max active listings one maker can have on one collection and still get an exhaustive
+// overlap scan. Bounded by MAX_LISTING_DURATION_SEC + the 20/hour rate limit, so a real
+// seller cannot reach it; if one does, the guard refuses rather than guessing.
+const OVERLAP_SCAN_CAP = 500;
+
 async function findOverlappingListings(supabase, { contract, maker, keys }) {
   const wanted = new Set(keys);
   const { data: rows, error } = await supabase
@@ -76,9 +85,13 @@ async function findOverlappingListings(supabase, { contract, maker, keys }) {
     // aged out, with no UI affordance to clear it. A guard that can never be satisfied is
     // worse than no guard.
     .gt("end_time", new Date().toISOString())
-    // Bound the scan so PostgREST's default max-rows cap can never silently truncate the
-    // dedupe (a truncated scan reads as "no overlap" — the unsafe direction).
-    .limit(500);
+    // DETECT truncation, don't just set where it happens. An earlier `.limit(500)` here
+    // claimed to prevent silent truncation but did the opposite: it imposed a cap, with
+    // no ordering, and nothing checked whether the scan had saturated — so a maker with
+    // 500+ active listings on one collection got an arbitrary subset and the guard read
+    // it as "no overlap". Ask for one more than the cap: if we get it, the scan was not
+    // exhaustive and we must refuse rather than guess.
+    .limit(OVERLAP_SCAN_CAP + 1);
 
   // FAIL CLOSED. This used to destructure `data` only: on a paused or rate-limited
   // Supabase, `rows` was null, `rows || []` became empty, and both callers read that as
@@ -86,6 +99,12 @@ async function findOverlappingListings(supabase, { contract, maker, keys }) {
   // path — it must not fail silently in the permissive direction.
   if (error) {
     const err = new Error(`overlap-check-failed: ${error.message}`);
+    err.code = "OVERLAP_CHECK_FAILED";
+    throw err;
+  }
+  // Saturated => the scan was not exhaustive => "no overlap" would be a guess.
+  if ((rows || []).length > OVERLAP_SCAN_CAP) {
+    const err = new Error("overlap-check-failed: scan saturated");
     err.code = "OVERLAP_CHECK_FAILED";
     throw err;
   }
@@ -179,14 +198,27 @@ function validateOrderShape(params, label) {
   return null;
 }
 
-/** Mark orders cancelled. Guarded on status so a concurrent fill isn't overwritten. */
+/**
+ * Mark orders cancelled. Guarded on status so a concurrent fill isn't overwritten.
+ *
+ * FAILS CLOSED. This used to ignore the update result entirely: if the overlap SCAN
+ * succeeded but the cancel UPDATE failed, the caller carried on and inserted, producing
+ * exactly the double-listing the overlap guard exists to prevent — silently. The read
+ * half of the guard was made fail-closed first; this is the write half, and the guard is
+ * only as good as whichever half is weaker.
+ */
 async function cancelOrderHashes(supabase, orderHashes) {
   for (const hash of orderHashes) {
-    await supabase
+    const { error } = await supabase
       .from("native_orders")
       .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
       .eq("order_hash", hash)
       .eq("status", "active");
+    if (error) {
+      const err = new Error(`cancel-failed: ${error.message}`);
+      err.code = "CANCEL_FAILED";
+      throw err;
+    }
   }
 }
 
@@ -555,6 +587,14 @@ export default async function handler(req, res) {
       if (endSec * 1000 < Date.now()) {
         return res.status(400).json({ error: "Order already expired" });
       }
+      // Cap the duration. endTime was otherwise unbounded: endSec = 9e12 passes both
+      // checks above, then `new Date(endSec * 1000).toISOString()` throws an uncaught
+      // RangeError at the insert — after the superseding cancel would have run. It also
+      // bounds how many rows a maker can accumulate, which is what keeps the overlap
+      // scan exhaustive. Matches the cap the P2P-trades path already enforces.
+      if (endSec - startSec > MAX_LISTING_DURATION_SEC) {
+        return res.status(400).json({ error: "Listing duration too long (max 30 days)" });
+      }
 
       // AUDIT ORDERBOOK-SEC-REPLAY: bind the create signature to a recent
       // wall-clock time by enforcing that startTime is close to now. The
@@ -592,6 +632,19 @@ export default async function handler(req, res) {
 
       // Determine order type: listing (offering NFT) vs offer (offering ERC20)
       const isListing = offerItem?.itemType >= 2; // ERC721 or ERC1155
+
+      // SECURITY 2026-07-20: pin listings to ERC721. `>= 2` above also admits itemType 3
+      // (ERC1155), and verifyNftOwnership deliberately SKIPS the ownership check for
+      // anything that isn't ERC721 ("needs balanceOf+id; punt") — returning ok:true. So
+      // flipping one integer from 2 to 3 stored a listing for an NFT the poster does not
+      // own, which then rendered in the public book and the collection floor stat with a
+      // live Buy button. Every supported collection is ERC721 and the client only ever
+      // signs itemType 2, so an ERC1155 offer here has never been a real listing.
+      // create-bundle already pinned this; the single path — the one serving production —
+      // did not. Ownership is also now enforced at the sink (seaport-verify.js).
+      if (isListing && Number(offerItem.itemType) !== 2) {
+        return res.status(400).json({ error: "Listings must offer an ERC721 (itemType 2)" });
+      }
       const orderType = isListing ? "listing" : "offer";
 
       // Extract total price: for listings, sum ALL consideration items (seller receives + fees = total price)
@@ -721,9 +774,10 @@ export default async function handler(req, res) {
         return res.status(status).json({ error: `Seaport signature verification failed: ${sigCheck.error}` });
       }
 
-      // AUDIT FIX H-1: enforce on-chain ownership for ERC721 listings so an
-      // attacker cannot list NFTs they don't actually own. Skipped for offers
-      // (itemType < 2) and for ERC1155 (handled inside verifyNftOwnership).
+      // AUDIT FIX H-1: enforce on-chain ownership for ERC721 listings so an attacker
+      // cannot list NFTs they don't actually own. Skipped for offers (itemType < 2).
+      // ERC1155 is no longer a hole here: listings are pinned to itemType 2 above, and
+      // verifyNftOwnership now refuses non-ERC721 instead of reporting ok:true.
       if (isListing) {
         const ownerCheck = await verifyNftOwnership({ parameters: params });
         if (!ownerCheck.ok) {
@@ -751,6 +805,10 @@ export default async function handler(req, res) {
         }
       }
 
+      // Orders this request supersedes. Collected during the overlap check, but not
+      // cancelled until immediately before the insert — see the note at the assignment.
+      let supersededOrderHashes = [];
+
       // Prevent duplicate active listings for the same token by the same maker.
       // Auto-cancel any existing SINGLE listing so the new one replaces it (relist flow).
       //
@@ -773,11 +831,6 @@ export default async function handler(req, res) {
           console.error("[orderbook] overlap check failed:", e.message);
           return res.status(503).json({ error: "Listing checks temporarily unavailable — please retry" });
         }
-        // ORDER MATTERS: refuse BEFORE mutating. This cancel used to run first, so a
-        // request that was then refused with a 409 had already destroyed the seller's
-        // prior listing — a 4xx must not leave side effects. create-bundle already
-        // ordered these correctly; this makes the two paths symmetric.
-        //
         // A bundle is a package the seller deliberately assembled — silently deleting it
         // to relist one NFT would destroy more than it fixes. Refuse instead and name the
         // conflict so they can choose.
@@ -787,7 +840,13 @@ export default async function handler(req, res) {
             conflictingBundles: overlap.bundles.map((b) => b.order_hash),
           });
         }
-        await cancelOrderHashes(supabase, overlap.singles);
+        // DEFERRED, not performed here. Moving the cancel above the 409 fixed one
+        // rejection path and left eight (a 429, seven 400s and a 500) still downstream —
+        // so a seller at the hourly cap relisting an NFT lost their existing listing and
+        // was THEN refused. Rather than hoisting those blocks one at a time and hoping
+        // none is ever added below, the cancel now runs immediately before the insert,
+        // which is structurally the last thing that can happen.
+        supersededOrderHashes = overlap.singles;
       }
 
       // Rate limit: max 20 orders per maker per hour (persists across cold starts)
@@ -893,6 +952,14 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Unsupported protocol address" });
       }
 
+      // Every rejection path is now behind us — safe to supersede the prior listing.
+      try {
+        await cancelOrderHashes(supabase, supersededOrderHashes);
+      } catch (e) {
+        console.error("[orderbook] superseding cancel failed:", e.message);
+        return res.status(503).json({ error: "Could not replace your existing listing — please retry" });
+      }
+
       const { error } = await supabase.from("native_orders").insert({
         order_hash: orderHash,
         order_type: orderType,
@@ -956,6 +1023,14 @@ export default async function handler(req, res) {
       }
       if (endSec * 1000 < Date.now()) {
         return res.status(400).json({ error: "Order already expired" });
+      }
+      // Cap the duration. endTime was otherwise unbounded: endSec = 9e12 passes both
+      // checks above, then `new Date(endSec * 1000).toISOString()` throws an uncaught
+      // RangeError at the insert — after the superseding cancel would have run. It also
+      // bounds how many rows a maker can accumulate, which is what keeps the overlap
+      // scan exhaustive. Matches the cap the P2P-trades path already enforces.
+      if (endSec - startSec > MAX_LISTING_DURATION_SEC) {
+        return res.status(400).json({ error: "Listing duration too long (max 30 days)" });
       }
       // Replay window — identical to `create` (startTime IS the sign timestamp).
       const MAX_SIGNATURE_AGE_SEC = 300;
@@ -1186,7 +1261,9 @@ export default async function handler(req, res) {
           conflictingBundles: bundleOverlap.bundles.map((b) => b.order_hash),
         });
       }
-      await cancelOrderHashes(supabase, bundleOverlap.singles);
+      // Deferred to just before the insert, same as `create` — a 400 (protocol address)
+      // and a 500 still sit between here and the write.
+      const bundleSuperseded = bundleOverlap.singles;
 
       // Store: token_id NULL (a bundle spans many); is_bundle true; token_ids = the full
       // set (migration 012 columns). contract_address is the first item's collection as a
@@ -1195,6 +1272,14 @@ export default async function handler(req, res) {
       const bundleProtocolAddress = validatedProtocolAddress(order.protocol_address);
       if (!bundleProtocolAddress) {
         return res.status(400).json({ error: "Unsupported protocol address" });
+      }
+
+      // Every rejection path is behind us — safe to supersede.
+      try {
+        await cancelOrderHashes(supabase, bundleSuperseded);
+      } catch (e) {
+        console.error("[orderbook] bundle superseding cancel failed:", e.message);
+        return res.status(503).json({ error: "Could not replace your existing listings — please retry" });
       }
 
       const { error: insertErr } = await supabase.from("native_orders").insert({

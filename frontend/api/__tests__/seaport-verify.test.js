@@ -149,7 +149,13 @@ describe("seaport-verify helpers", () => {
       else process.env.ALCHEMY_API_KEY = originalAlchemyKey;
     });
 
-    it("skips ERC1155 (itemType 3) — ownership semantic differs", async () => {
+    // WAS: "skips ERC1155 (itemType 3) — ownership semantic differs", asserting
+    // { ok: true, skipped: true }. That pinned a vulnerability as intended behavior: an
+    // ownership check that answers "yes" without checking. Callers used ok:true to decide
+    // a listing was legitimate, so sending itemType 3 stored a listing for an NFT the
+    // poster did not own. ERC1155 ownership genuinely is a balanceOf+id check we don't
+    // implement — the honest answer is "unsupported", not "fine". (Round-3 audit, HIGH.)
+    it("REFUSES ERC1155 (itemType 3) rather than reporting ok without checking", async () => {
       process.env.NODE_ENV = "test";
       process.env.ALCHEMY_API_KEY = "valid-key";
       vi.resetModules();
@@ -157,8 +163,8 @@ describe("seaport-verify helpers", () => {
       const result = await verifyNftOwnership({
         parameters: { offer: [{ itemType: 3, token: "0xabc", identifierOrCriteria: "1" }], offerer: OFFERER },
       });
-      expect(result.ok).toBe(true);
-      expect(result.skipped).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("unsupported-item-type");
     });
 
     it("rejects when offer array is empty", async () => {
