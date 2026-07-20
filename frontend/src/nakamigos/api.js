@@ -737,6 +737,14 @@ function mapNativeListings(nativeResult) {
       // (Bundle re-audit 2026-07-18 wf_ed656ebf — findings 1-4.) Defense-in-depth: the
       // server listings query also filters is_bundle=false.
       .filter(order => !order.is_bundle)
+      // SECURITY 2026-07-19: ETH-ONLY. Every field below treats the price as ETH
+      // (`price_eth`, no currency shown), and fulfillNativeOrder pays the
+      // consideration sum as native msg.value. A row denominated in USDC/DAI
+      // would render "0.5" as if it were 0.5 ETH and then try to send ERC-20 base
+      // units as wei. The server now rejects non-ETH on create; this filter is the
+      // defence-in-depth for any row that predates that guard — drop it rather
+      // than display a price in the wrong unit.
+      .filter(order => !order.currency || order.currency === "0x0000000000000000000000000000000000000000")
       .map(order => ({
         tokenId: order.token_id ? String(order.token_id) : null,
         price: order.price_eth != null ? Number(order.price_eth) : null,

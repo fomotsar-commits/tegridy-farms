@@ -265,6 +265,30 @@ describe("orderbook R053 — signature + ownership + price overflow", () => {
     expect(insertedRows).toHaveLength(0);
   });
 
+  // 2026-07-19: LISTINGS are ETH-only. The client only ever signs native-ETH
+  // consideration, the listings mapper renders every price as ETH, and
+  // fulfillNativeOrder pays the consideration sum as msg.value — so a stored
+  // ERC-20 listing would display in the wrong unit and try to send token base
+  // units as wei. OFFERS are deliberately NOT restricted: bidding WETH/USDC for
+  // an NFT is the standard flow and has its own handling (see the test below).
+  it("rejects an ERC-20 denominated LISTING (ETH-only)", async () => {
+    const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+    const order = buildOrder(); // offer = NFT  => isListing
+    // Ask to be paid in USDC instead of ETH.
+    order.parameters.consideration = [{
+      itemType: 1, // ERC20
+      token: USDC,
+      identifierOrCriteria: "0",
+      startAmount: "1000000000",
+      endAmount: "1000000000",
+      recipient: OFFERER,
+    }];
+    const { req, res, statusSpy } = makeReqRes({ action: "create", order });
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+    expect(insertedRows).toHaveLength(0);
+  });
+
   it("happy path on USDC offer (different decimals) — price scales to 6 dp", async () => {
     const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
     // ERC20 offer (USDC) for an NFT (consideration)

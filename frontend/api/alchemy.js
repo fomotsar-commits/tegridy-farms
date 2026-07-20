@@ -259,6 +259,16 @@ export default async function handler(req, res) {
     const raw = params["contractAddresses[]"] || params["contractAddresses%5B%5D"] || "";
     // Normalize to array — query params may be a single string or an array of strings
     const addrs = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    // SECURITY 2026-07-19: this allowlist loop is a no-op when the caller simply
+    // OMITS contractAddresses[] — `addrs` is empty, nothing is checked, and the
+    // request becomes an unscoped getNFTsForOwner that enumerates a wallet's
+    // ENTIRE NFT holdings on our paid Alchemy key. Default the scope to the
+    // allowlist instead of trusting the caller to send it, so the endpoint can
+    // only ever answer "which of OUR collections does this wallet hold".
+    if (addrs.length === 0) {
+      params["contractAddresses[]"] = [...ALLOWED_CONTRACTS];
+      delete params["contractAddresses%5B%5D"];
+    }
     for (const a of addrs) {
       if (!ALLOWED_CONTRACTS.has(a.toLowerCase())) {
         return res.status(403).json({ error: "Contract not supported" });

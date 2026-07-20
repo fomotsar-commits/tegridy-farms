@@ -452,6 +452,18 @@ export default async function handler(req, res) {
       }
       priceWei = priceWeiBig.toString();
 
+      // SECURITY 2026-07-19: the native orderbook is ETH-ONLY end to end. The
+      // client only ever signs NATIVE-ETH consideration (itemType 0, token 0x0 —
+      // lib/orderbook.js), the listings mapper renders every price as ETH, and
+      // fulfillNativeOrder sends the consideration sum as msg.value. A stored
+      // USDC/DAI listing would therefore DISPLAY as ETH and try to pay ERC-20
+      // base units as wei. Accepting those currencies was an unused, untested
+      // surface, so refuse them at the door rather than carrying the ambiguity.
+      // (Re-open deliberately, with matching display + fulfillment, if ERC-20
+      // denominated listings are ever a real feature.)
+      if (isListing && currencyAddr !== "0x0000000000000000000000000000000000000000") {
+        return res.status(400).json({ error: "Only native-ETH listings are supported" });
+      }
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
         return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });
@@ -788,6 +800,18 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "priceWei out of range (exceeds MAX_PRICE_WEI cap)" });
       }
       const currencyAddr = baseToken || "0x0000000000000000000000000000000000000000";
+      // SECURITY 2026-07-19: the native orderbook is ETH-ONLY end to end. The
+      // client only ever signs NATIVE-ETH consideration (itemType 0, token 0x0 —
+      // lib/orderbook.js), the listings mapper renders every price as ETH, and
+      // fulfillNativeOrder sends the consideration sum as msg.value. A stored
+      // USDC/DAI listing would therefore DISPLAY as ETH and try to pay ERC-20
+      // base units as wei. Accepting those currencies was an unused, untested
+      // surface, so refuse them at the door rather than carrying the ambiguity.
+      // (Re-open deliberately, with matching display + fulfillment, if ERC-20
+      // denominated listings are ever a real feature.)
+      if (currencyAddr !== "0x0000000000000000000000000000000000000000") {
+        return res.status(400).json({ error: "Only native-ETH listings are supported" });
+      }
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
         return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });

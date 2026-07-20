@@ -118,11 +118,12 @@ async function buildLaunchSummaries(baselines, fetcher) {
 const GECKO_BASE = "https://api.geckoterminal.com/api/v2";
 const GECKO_NETWORK = "eth";
 
-// Etherscan: mirror api/etherscan.js — v2 multichain + Bearer when a key is set,
-// v1 querystring fallback for keyless dev. The key is SERVER-SIDE ONLY.
+// Etherscan: mirror api/etherscan.js — v2 multichain when a key is set, else the
+// (now-deprecated) v1 base. Auth ALWAYS travels in the querystring: v2 rejects
+// `Authorization: Bearer` outright. The key is SERVER-SIDE ONLY.
 const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY || "";
-const ETHERSCAN_USE_HEADER = !!ETHERSCAN_KEY;
-const ETHERSCAN_BASE = ETHERSCAN_USE_HEADER
+const ETHERSCAN_USE_V2 = !!ETHERSCAN_KEY;
+const ETHERSCAN_BASE = ETHERSCAN_USE_V2
   ? "https://api.etherscan.io/v2/api"
   : "https://api.etherscan.io/api";
 
@@ -277,7 +278,7 @@ async function etherscanCall(params) {
   // FIX 2026-07-19: mirrors api/etherscan.js — v2 REJECTS `Authorization: Bearer`
   // ("Missing/Invalid API Key", verified live). The key belongs in the
   // querystring for both versions; v2 additionally needs chainid.
-  if (ETHERSCAN_USE_HEADER) qs.set("chainid", "1");
+  if (ETHERSCAN_USE_V2) qs.set("chainid", "1");
   if (ETHERSCAN_KEY) qs.set("apikey", ETHERSCAN_KEY);
   const headers = { Accept: "application/json" };
   const resp = await fetch(`${ETHERSCAN_BASE}?${qs}`, { headers });

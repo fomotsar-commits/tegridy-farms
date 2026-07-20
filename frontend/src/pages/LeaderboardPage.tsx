@@ -77,7 +77,15 @@ export default function LeaderboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
+            {/* REMOVED 2026-07-19: the "Streak" and "Multiplier" tiles. Both were
+                permanently frozen at 0d / 1x for every user — recordDailyVisit()
+                was deprecated into a no-op (pointsEngine.ts) and nothing anywhere
+                increments streak.current, so getStreakMultiplier() always returns
+                1. Two of four headline stats on the reputation page were dead
+                zeros that could never move, which reads as broken. Points and
+                Tier are real (derived from on-chain activity). Re-add a streak
+                only if something actually records visits. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Points</p>
                 <AnimatedCounter value={points.data?.points ?? 0} decimals={0} className="stat-value text-xl text-white" />
@@ -85,14 +93,6 @@ export default function LeaderboardPage() {
               <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Tier</p>
                 <p className="stat-value text-lg" style={{ color: points.tier?.color }}>{points.tier?.name}</p>
-              </div>
-              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                <p className="text-white text-[10px] mb-1">Streak</p>
-                <p className="stat-value text-lg text-white">{points.data?.streak?.current ?? 0}d 🔥</p>
-              </div>
-              <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                <p className="text-white text-[10px] mb-1">Multiplier</p>
-                <p className="stat-value text-lg text-success">{points.streakMultiplier}x</p>
               </div>
             </div>
 
