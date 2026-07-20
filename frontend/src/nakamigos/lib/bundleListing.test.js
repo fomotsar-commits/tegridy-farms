@@ -66,8 +66,26 @@ describe("bundleAuthItemsString", () => {
 });
 
 describe("MAX_BUNDLE_ITEMS", () => {
-  it("is 50, aligned with the server cap so the client fails fast", () => {
-    expect(MAX_BUNDLE_ITEMS).toBe(50);
+  // This used to assert the literal 50, which pins the WRONG thing: the invariant that
+  // matters is client === server, so the client fails fast instead of letting a seller
+  // pay approval gas and sign twice for an order the server rejects at 400/413. Pinning
+  // the number meant lowering the cap (50 -> 15, for the serverless deadline) failed the
+  // test even though both sides moved together. Read the server's value and compare.
+  it("matches the server cap so the client fails fast", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    // vitest runs with cwd = frontend/
+    const serverSrc = fs.readFileSync(path.resolve(process.cwd(), "api/orderbook.js"), "utf8");
+    const m = serverSrc.match(/const MAX_BUNDLE_ITEMS = (\d+);/);
+    expect(m, "server MAX_BUNDLE_ITEMS declaration not found").toBeTruthy();
+    expect(MAX_BUNDLE_ITEMS).toBe(Number(m[1]));
+  });
+
+  // Independent of parity: the cap has to stay inside what one serverless invocation can
+  // actually verify (one ownerOf per item) before Vercel's deadline.
+  it("stays small enough for the per-item ownership fan-out", () => {
+    expect(MAX_BUNDLE_ITEMS).toBeGreaterThan(1);
+    expect(MAX_BUNDLE_ITEMS).toBeLessThanOrEqual(20);
   });
 });
 

@@ -444,25 +444,39 @@ export async function verifyBundleOwnership({ parameters }) {
   }
   const offer = parameters.offer;
   if (!Array.isArray(offer) || offer.length === 0) return { ok: false, error: "no-offer-item" };
-  for (const item of offer) {
-    // Only ERC721 enforced (matches verifyNftOwnership). ERC1155 ownership is a
-    // balance check, out of scope; the create-bundle handler rejects non-ERC721 anyway.
-    if (Number(item.itemType) !== 2) continue;
-    const tokenId = item.identifierOrCriteria;
-    if (tokenId == null) return { ok: false, error: "no-token-id" };
-    let owner;
-    try {
-      owner = await fetchNftOwner(item.token, tokenId);
-    } catch (err) {
+
+  // PERF 2026-07-19: these ownerOf calls used to run SEQUENTIALLY. Each one can burn up
+  // to its own 2.5s abort across a multi-URL failover chain, so a large bundle could
+  // exceed the serverless deadline — and it would do so AFTER the seller had already
+  // paid approval gas and signed twice, which is exactly the state that produces a
+  // duplicate bundle on retry. Fanning out turns worst-case latency from N×2.5s into
+  // ~2.5s. Bounded by MAX_BUNDLE_ITEMS (15) on the caller, so the fan-out is small.
+  const checks = await Promise.allSettled(
+    offer.map((item) => {
+      // Only ERC721 enforced (matches verifyNftOwnership). ERC1155 ownership is a
+      // balance check, out of scope; the create-bundle handler rejects non-ERC721 anyway.
+      if (Number(item.itemType) !== 2) return Promise.resolve(null); // skipped
+      const tokenId = item.identifierOrCriteria;
+      if (tokenId == null) return Promise.reject(Object.assign(new Error("no-token-id"), { code: "NO_TOKEN_ID" }));
+      return fetchNftOwner(item.token, tokenId);
+    }),
+  );
+
+  // Evaluate in ORIGINAL ORDER so error precedence stays deterministic — same first
+  // error the sequential loop would have returned.
+  const offerer = String(parameters.offerer).toLowerCase();
+  for (const result of checks) {
+    if (result.status === "rejected") {
+      const err = result.reason || {};
+      if (err.code === "NO_TOKEN_ID") return { ok: false, error: "no-token-id" };
       if (err.code === "OWNER_OF_REVERT" || err.code === "OWNER_OF_EMPTY") {
         return { ok: false, error: "token-not-found" };
       }
       console.error("[seaport-verify] bundle ownerOf failed:", err.message);
       return { ok: false, error: "rpc-unavailable" };
     }
-    if (owner !== String(parameters.offerer).toLowerCase()) {
-      return { ok: false, error: "not-owner" };
-    }
+    if (result.value === null) continue; // non-ERC721, skipped
+    if (result.value !== offerer) return { ok: false, error: "not-owner" };
   }
   return { ok: true };
 }

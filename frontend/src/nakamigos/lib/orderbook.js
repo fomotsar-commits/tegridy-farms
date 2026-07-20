@@ -18,7 +18,8 @@ const ORDERBOOK_API = "/api/orderbook";
 // Max NFTs in one bundle. MUST equal the server's MAX_BUNDLE_ITEMS (api/orderbook.js) so
 // the client fails fast instead of signing twice + paying approval gas for an order the
 // server would reject at 400/413. Exported so the seller UI caps selection at the same value.
-export const MAX_BUNDLE_ITEMS = 50;
+// Lowered 50 -> 15 alongside the server; see the rationale on the server constant.
+export const MAX_BUNDLE_ITEMS = 15;
 
 async function withRetry(fn, retries = 2) {
   for (let i = 0; i <= retries; i++) {

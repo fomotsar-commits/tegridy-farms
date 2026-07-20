@@ -167,6 +167,19 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         addToast(`Bundle listed — ${items.length} NFTs for ${priceEth} ETH.`, "success");
         onListingCreated?.();
         onClose();
+      } else if (result?.error === "timeout") {
+        // A timeout is INDETERMINATE, not a failure — the abort fires client-side and
+        // the server may well have stored the row. Telling the seller it failed invites
+        // a retry, and a retry signs a fresh salt, which produces a DIFFERENT order hash
+        // and so slips past the duplicate-hash guard: two live bundles over the same
+        // NFTs. Send them to their listings to check instead of inviting the retry.
+        // (Bundle go-live re-audit, must-fix 4.)
+        addToast(
+          "Timed out waiting for confirmation. Your bundle may still have been created — check My Listings before trying again.",
+          "info",
+        );
+        onListingCreated?.();
+        onClose();
       } else {
         addToast(result?.message || "Failed to create bundle listing", "error");
       }

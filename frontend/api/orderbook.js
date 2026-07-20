@@ -29,8 +29,75 @@ const ALLOWED_CONTRACTS = new Set([
 ]);
 
 // Max NFTs in one bundle listing. Bounds the per-item ownership RPC fan-out (one
-// ownerOf call each) and the signed-message size. 50 is generous vs any real bundle.
-const MAX_BUNDLE_ITEMS = 50;
+// ownerOf call each) and the signed-message size.
+//
+// 2026-07-19: lowered 50 -> 15. verifyBundleOwnership does one ownerOf per item and
+// the whole handler runs inside Vercel's 10s default. At 50 items a slow RPC could
+// blow the deadline AFTER the seller had already paid approval gas and signed twice
+// — and a timeout on this path is the precondition for a duplicate bundle (the
+// client retries with a fresh salt, which defeats the unique-hash idempotency
+// branch). 15 is well above any realistic bundle and leaves ample deadline margin.
+// Client MAX_BUNDLE_ITEMS (src/nakamigos/lib/orderbook.js) MUST match.
+const MAX_BUNDLE_ITEMS = 15;
+
+/**
+ * Cancel/detect other ACTIVE listings by the same maker that contain any of these NFTs.
+ *
+ * The same NFT can legally sit in two signed Seaport orders — nothing on-chain forbids
+ * it — but they are mutually exclusive at fill time: whichever executes first moves the
+ * NFT, and the other becomes a guaranteed revert that still renders with a live Buy
+ * button. The victim is an innocent BUYER, so the reconciliation has to happen here.
+ *
+ * The old guard was `.eq("token_id", tokenId)`, which migration 012's CHECK constraint
+ * makes structurally incapable of matching a bundle row (bundles store token_id NULL and
+ * the set in token_ids). So it covered exactly one of the four direction pairs. This
+ * reads the maker's active rows and overlaps them in JS instead — no fragile jsonb
+ * filter syntax, and it covers single-vs-single, single-vs-bundle, bundle-vs-single and
+ * bundle-vs-bundle uniformly. The row set is small: 20 orders/maker/hour, one collection.
+ *
+ * Returns { singles: [order_hash], bundles: [{order_hash, shared:[key]}] }.
+ * Callers decide policy: singles are auto-cancelled (the established relist flow),
+ * a bundle collision is reported to the seller rather than silently discarding a
+ * package they deliberately assembled.
+ */
+async function findOverlappingListings(supabase, { contract, maker, keys }) {
+  const wanted = new Set(keys);
+  const { data: rows } = await supabase
+    .from("native_orders")
+    .select("order_hash, token_id, is_bundle, token_ids")
+    .eq("contract_address", contract)
+    .eq("maker", maker)
+    .eq("order_type", "listing")
+    .eq("status", "active");
+
+  const singles = [];
+  const bundles = [];
+  for (const row of rows || []) {
+    if (row.is_bundle) {
+      // token_ids is jsonb [{contract, token_id}] — tolerate a malformed row rather
+      // than throwing on a money path.
+      const items = Array.isArray(row.token_ids) ? row.token_ids : [];
+      const shared = items
+        .map((i) => (i && typeof i === "object" ? `${String(i.contract).toLowerCase()}:${String(i.token_id)}` : null))
+        .filter((k) => k && wanted.has(k));
+      if (shared.length) bundles.push({ order_hash: row.order_hash, shared });
+    } else if (row.token_id != null && wanted.has(`${contract}:${String(row.token_id)}`)) {
+      singles.push(row.order_hash);
+    }
+  }
+  return { singles, bundles };
+}
+
+/** Mark orders cancelled. Guarded on status so a concurrent fill isn't overwritten. */
+async function cancelOrderHashes(supabase, orderHashes) {
+  for (const hash of orderHashes) {
+    await supabase
+      .from("native_orders")
+      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+      .eq("order_hash", hash)
+      .eq("status", "active");
+  }
+}
 
 // SECURITY: the only fulfillment contracts a stored order may name. Every other
 // field on this write path is validated (currency, price cap, signature recovery,
@@ -333,7 +400,18 @@ export default async function handler(req, res) {
     // shared cache + 60s stale-while-revalidate serves instant stale data and
     // revalidates in the background, collapsing the Supabase round-trip out of
     // perceived latency for the vast majority of reads.
-    res.setHeader("Cache-Control", "s-maxage=20, stale-while-revalidate=60");
+    //
+    // EXCEPT for a maker-scoped query. That is the seller's own management view, where
+    // the shared cache is actively harmful: a stale hit can show an order the seller
+    // just cancelled, and the Cancel button on it sends a second on-chain cancel that
+    // burns gas for nothing. It is also a per-seller response, so caching it in a
+    // SHARED cache has no hit-ratio upside anyway.
+    // (Bundle go-live re-audit, must-fix 5.)
+    if (req.query.maker) {
+      res.setHeader("Cache-Control", "no-store");
+    } else {
+      res.setHeader("Cache-Control", "s-maxage=20, stale-while-revalidate=60");
+    }
     return res.json({ orders: data || [], count: (data || []).length });
   }
 
@@ -568,24 +646,28 @@ export default async function handler(req, res) {
       }
 
       // Prevent duplicate active listings for the same token by the same maker.
-      // If one already exists, auto-cancel it so the new listing replaces it (relist flow).
+      // Auto-cancel any existing SINGLE listing so the new one replaces it (relist flow).
+      //
+      // This used to be a bare `.eq("token_id", ...)`, which cannot match a bundle row —
+      // migration 012 forces token_id NULL on bundles — so relisting an NFT that was
+      // already inside a live bundle left BOTH orders active and stranded the bundle's
+      // eventual buyer with a guaranteed revert. findOverlappingListings covers both.
+      // (Bundle go-live re-audit, must-fix 2.)
       if (isListing && tokenId) {
-        const { data: existingListings } = await supabase
-          .from("native_orders")
-          .select("order_hash")
-          .eq("contract_address", contract)
-          .eq("token_id", String(tokenId))
-          .eq("maker", recoveredCreator)
-          .eq("status", "active");
-
-        if (existingListings && existingListings.length > 0) {
-          for (const existing of existingListings) {
-            await supabase
-              .from("native_orders")
-              .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-              .eq("order_hash", existing.order_hash)
-              .eq("status", "active");
-          }
+        const overlap = await findOverlappingListings(supabase, {
+          contract,
+          maker: recoveredCreator,
+          keys: [`${contract}:${String(tokenId)}`],
+        });
+        await cancelOrderHashes(supabase, overlap.singles);
+        // A bundle is a package the seller deliberately assembled — silently deleting it
+        // to relist one NFT would destroy more than it fixes. Refuse instead and name the
+        // conflict so they can choose.
+        if (overlap.bundles.length > 0) {
+          return res.status(409).json({
+            error: `#${tokenId} is already part of an active bundle listing. Cancel the bundle first, then list it on its own.`,
+            conflictingBundles: overlap.bundles.map((b) => b.order_hash),
+          });
         }
       }
 
@@ -764,6 +846,30 @@ export default async function handler(req, res) {
       }
       if (startSec > nowSec + MAX_SIGNATURE_AGE_SEC) {
         return res.status(400).json({ error: "Order startTime is too far in the future" });
+      }
+
+      // Pin the protocol shape: FULL_OPEN + zero zone + zero zoneHash + canonical
+      // conduit. Copied verbatim from the audited P2P-trades guard below. Without it a
+      // seller can post a RESTRICTED order with a zone they control: it renders in the
+      // public book as an ordinary listing, but only fills when their zone says so, so
+      // every other buyer's transaction reverts. `zone` is persisted and honored by the
+      // buyer client, so this has to be refused at the door. The honest client already
+      // signs all four of these correctly, so no legitimate bundle is affected.
+      // (Bundle go-live re-audit, must-fix 3.)
+      const CANONICAL_CONDUIT_KEY = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
+      const ZERO32 = "0x" + "0".repeat(64);
+      const ZERO_ADDR = "0x" + "0".repeat(40);
+      if (Number(params.orderType) !== 0) {
+        return res.status(400).json({ error: "Bundles must use orderType 0 (FULL_OPEN)" });
+      }
+      if ((params.zone || "").toLowerCase() !== ZERO_ADDR) {
+        return res.status(400).json({ error: "Bundles must use the zero zone" });
+      }
+      if ((params.zoneHash || ZERO32).toLowerCase() !== ZERO32) {
+        return res.status(400).json({ error: "Bundles must use a zero zoneHash" });
+      }
+      if ((params.conduitKey || "").toLowerCase() !== CANONICAL_CONDUIT_KEY) {
+        return res.status(400).json({ error: "Bundles must use the canonical conduit" });
       }
 
       // Every offer item must be a distinct ERC721 from an allowed collection.
@@ -946,6 +1052,28 @@ export default async function handler(req, res) {
       if (derivedHash !== clientSeaportHash.toLowerCase()) {
         return res.status(400).json({ error: "seaportOrderHash mismatch — client hash does not match server-derived hash" });
       }
+
+      // Refuse a bundle that overlaps anything else this maker already has live. Two
+      // orders over the same NFT are mutually exclusive at fill time and the loser is a
+      // buyer paying gas for a guaranteed revert. There was NO dedupe on this path at
+      // all. Overlapping singles are auto-cancelled (same relist semantics as `create`);
+      // an overlapping bundle is refused, since silently discarding an assembled package
+      // is worse than making the seller choose. (Bundle go-live re-audit, must-fix 1.)
+      const bundleContract = bundleItems[0].contract;
+      const bundleOverlap = await findOverlappingListings(supabase, {
+        contract: bundleContract,
+        maker: recoveredCreator,
+        keys: bundleItems.map((i) => `${i.contract}:${i.token_id}`),
+      });
+      if (bundleOverlap.bundles.length > 0) {
+        const shared = [...new Set(bundleOverlap.bundles.flatMap((b) => b.shared))]
+          .map((k) => `#${k.split(":")[1]}`);
+        return res.status(409).json({
+          error: `Already in another active bundle: ${shared.join(", ")}. Cancel that bundle first.`,
+          conflictingBundles: bundleOverlap.bundles.map((b) => b.order_hash),
+        });
+      }
+      await cancelOrderHashes(supabase, bundleOverlap.singles);
 
       // Store: token_id NULL (a bundle spans many); is_bundle true; token_ids = the full
       // set (migration 012 columns). contract_address is the first item's collection as a

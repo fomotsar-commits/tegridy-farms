@@ -286,7 +286,10 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
             : "Native listings are temporarily unavailable — try again shortly."}
         </div>
       )}
-      {!loading && !error && activeOrders.length === 0 && (
+      {/* Bundles must count here too. "Zero singles plus one live bundle" is precisely
+          the go-live state, and without this the panel says "No native listings" directly
+          above a rendered, buyable bundle. */}
+      {!loading && !error && activeOrders.length === 0 && activeBundles.length === 0 && (
         <div style={{
           textAlign: "center", padding: "20px 0",
           fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
