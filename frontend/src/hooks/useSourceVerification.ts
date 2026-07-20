@@ -28,8 +28,16 @@ export type VerificationState = 'verified' | 'unverified' | 'unchecked';
 
 const CACHE_KEY = 'tegridy_source_verified'; // 'tegridy_' => evictable, see lib/storage.ts:18
 const CACHE_VERSION = 1;
+// Verification is one-directional in practice: once a contract is verified it
+// never reverts, so a hit can be cached for a week. A NEGATIVE is the result
+// that actually changes — it flips the moment we verify something — so it gets a
+// much shorter TTL. Observed live 2026-07-19: after verifying TegridyTWAP the
+// page kept showing "source unverified" from a 6-minute-old cached negative,
+// i.e. the badge lagged reality by up to the full negative TTL. Only a couple of
+// addresses are ever genuinely unverified, so re-checking them every 15 minutes
+// is a trivial number of requests.
 const VERIFIED_TTL_MS = 7 * 24 * 60 * 60_000;
-const UNVERIFIED_TTL_MS = 60 * 60_000;
+const UNVERIFIED_TTL_MS = 15 * 60_000;
 const REQUEST_SPACING_MS = 250;
 
 type CacheEntry = { state: VerificationState; at: number };
