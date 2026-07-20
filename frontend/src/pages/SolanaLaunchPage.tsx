@@ -202,10 +202,14 @@ function SolanaLaunchInner() {
           </p>
 
           <Field label="Token name">
-            <input className={inputCls} style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Tegridy Meme" spellCheck={false} maxLength={64} />
+            {/* Neutral placeholders: this rail launches OTHER people's tokens.
+                Tegridy-branded examples read as "Tegridy is launching its own
+                Solana coin", which is exactly the impression the fee-capture-only
+                doctrine exists to avoid (no TOWELI on Solana, ever). */}
+            <input className={inputCls} style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your token name" spellCheck={false} maxLength={64} />
           </Field>
           <Field label="Symbol">
-            <input className={inputCls} style={inputStyle} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="TMEME" spellCheck={false} maxLength={12} />
+            <input className={inputCls} style={inputStyle} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="TICKER" spellCheck={false} maxLength={12} />
           </Field>
           <Field label="Metadata URI" hint="ipfs:// or https:// pointing at the token metadata JSON.">
             <input className={inputCls} style={inputStyle} value={uri} onChange={(e) => setUri(e.target.value)} placeholder="ipfs://…" spellCheck={false} />

@@ -168,13 +168,24 @@ export default function HomePage() {
               style={{ background: 'radial-gradient(115% 115% at 12% 42%, rgba(6,12,26,0.88) 0%, rgba(6,12,26,0.6) 42%, rgba(6,12,26,0.2) 68%, transparent 84%)' }} />
             <div className="badge badge-primary mb-5 text-[10px]">LIVE ON ETHEREUM</div>
 
+            {/* H1 2026-07-19: "Yield with Tegridy Farms" was generic — it could have
+                headlined any farm. It deliberately does NOT lead with the ETH
+                fee-share: that mechanic is wired on-chain but has distributed 0 ETH
+                until the native pool opens, so a present-tense yield claim would
+                overclaim (and "100% of fees to stakers" is flat wrong — AUDIT R073:
+                swap fees split 5/6 to LPs, 1/6 to the protocol). What IS true, and
+                became materially truer today, is verifiability: every core contract
+                is now Etherscan source-verified and /contracts proves it with live
+                per-address badges. So the headline leads with the one differentiator
+                a skeptic can check in a single click. */}
             <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-              Yield with<br /><span className="text-white">Tegridy Farms</span>
+              Farm TOWELI.<br /><span className="text-white">Check our work.</span>
             </h1>
 
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
               Stake TOWELI. Every protocol fee flows on-chain &mdash; to stakers, the liquidity
-              engine, and operations. Verifiable on Etherscan. Real farm. Earned with tegridy.
+              engine, and operations. Every core contract is source-verified on Etherscan, so you
+              can read the code that holds your stake. Real farm. Earned with tegridy.
             </p>
 
             <div className="flex flex-wrap gap-3">
