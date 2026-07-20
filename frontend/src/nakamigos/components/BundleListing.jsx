@@ -70,6 +70,35 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
     };
   }, [onClose]);
 
+  // ═══ ALREADY-LISTED DETECTION ═══
+  // A token can legally sit in an active SINGLE listing and inside a bundle at the
+  // same time — Seaport happily holds both signatures. But they are mutually
+  // exclusive at fill time: whichever executes first moves the NFT, and the other
+  // order then reverts on the BUYER, who pays gas for nothing and reads it as the
+  // marketplace being broken. Nothing on-chain can prevent this, so the seller has
+  // to be told before they sign.
+  const [alreadyListed, setAlreadyListed] = useState(() => new Set());
+  useEffect(() => {
+    if (!wallet || !collection?.contract) return;
+    let cancelled = false;
+    const params = new URLSearchParams({
+      action: "query",
+      contract: collection.contract,
+      maker: wallet,
+      status: "active",
+      limit: "200",
+    });
+    // Advisory only: if this fails the seller simply doesn't get the warning.
+    fetch(`/api/orderbook?${params}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d?.orders) return;
+        setAlreadyListed(new Set(d.orders.map((o) => String(o.token_id)).filter((t) => t !== "null")));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [wallet, collection?.contract]);
+
   // Toggle NFT selection
   const toggle = useCallback((id) => {
     if (isSubmitting) return;
@@ -104,6 +133,12 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
     if (selected.size === 0 || priceEth === 0) return 0;
     return priceEth / selected.size;
   }, [priceEth, selected.size]);
+
+  // Selected tokens that ALSO have an active single listing (see alreadyListed above).
+  const conflicting = useMemo(
+    () => [...selected].filter((id) => alreadyListed.has(String(id))),
+    [selected, alreadyListed],
+  );
 
   // Validation
   const canSubmit = selected.size >= MIN_BUNDLE_SIZE && selected.size <= MAX_BUNDLE_ITEMS && priceEth > 0 && !isSubmitting;
@@ -209,17 +244,31 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
             }}>
               {allNfts.map((nft) => {
                 const sel = selected.has(nft.id);
+                const listedAlone = alreadyListed.has(String(nft.id));
                 return (
                   <div
                     key={nft.id}
                     onClick={() => toggle(nft.id)}
+                    title={listedAlone ? `#${nft.id} already has an active single listing` : undefined}
                     style={{
                       position: "relative", cursor: isSubmitting ? "wait" : "pointer",
                       borderRadius: 8, overflow: "hidden",
-                      border: sel ? "2px solid var(--naka-blue)" : "2px solid transparent",
+                      border: sel
+                        ? `2px solid ${listedAlone ? "var(--gold)" : "var(--naka-blue)"}`
+                        : "2px solid transparent",
                       opacity: isSubmitting ? 0.6 : 1, transition: "border-color 0.15s",
                     }}
                   >
+                    {listedAlone && (
+                      <div style={{
+                        position: "absolute", top: 4, left: 4, zIndex: 1,
+                        background: "var(--gold)", color: "#000", borderRadius: 3,
+                        fontFamily: "var(--mono)", fontSize: 8, fontWeight: 700,
+                        padding: "1px 3px", letterSpacing: "0.04em",
+                      }}>
+                        LISTED
+                      </div>
+                    )}
                     <NftImage nft={nft} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
                     <div style={{
                       position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: 4,
@@ -362,6 +411,21 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
             textAlign: "center", marginBottom: 10,
           }}>
             Select at least {MIN_BUNDLE_SIZE} NFTs to create a bundle.
+          </div>
+        )}
+
+        {conflicting.length > 0 && (
+          <div style={{
+            fontFamily: "var(--mono)", fontSize: 10, color: "var(--gold, #c8a850)",
+            marginBottom: 10, padding: "8px 10px", borderRadius: 8, lineHeight: 1.5,
+            background: "rgba(200,168,80,0.08)", border: "1px solid rgba(200,168,80,0.25)",
+          }}>
+            {conflicting.length === 1
+              ? `#${conflicting[0]} is already listed on its own.`
+              : `${conflicting.length} of these are already listed on their own (${conflicting.slice(0, 4).map((t) => `#${t}`).join(", ")}${conflicting.length > 4 ? "…" : ""}).`}
+            {" "}Both orders stay valid, so whichever sells first cancels the other — the
+            second buyer's transaction will fail. Cancel the single listings first if you
+            only want the bundle to be fillable.
           </div>
         )}
 

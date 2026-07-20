@@ -75,11 +75,16 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
       // Update backend
       // AUDIT FIX D-FE-M2: chainId + 5-minute timestamp binding to defeat
       // captured-signature replay (see api/orderbook.js cancel handler).
-      const _cancelTs = Math.floor(Date.now() / 1000);
-      const _cancelChainId = 1;
-      const cancelMessage = `Cancel order ${order.order_hash} | Chain: ${_cancelChainId} | Time: ${_cancelTs}`;
-      const cancelSignature = await signer.signMessage(cancelMessage);
+      // The on-chain cancel has ALREADY succeeded by this point; everything below
+      // is a best-effort backend notification. signMessage used to sit OUTSIDE this
+      // try, so a user rejecting the *notify* signature threw to the outer catch and
+      // was reported as "Cancellation declined in wallet" — while the order was in
+      // fact cancelled on-chain — leaving the row rendered as still active.
       try {
+        const _cancelTs = Math.floor(Date.now() / 1000);
+        const _cancelChainId = 1;
+        const cancelMessage = `Cancel order ${order.order_hash} | Chain: ${_cancelChainId} | Time: ${_cancelTs}`;
+        const cancelSignature = await signer.signMessage(cancelMessage);
         await fetch("/api/orderbook", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -92,11 +97,15 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
           }),
         });
       } catch {
-        console.warn("Backend cancel failed (on-chain cancel succeeded)");
+        console.warn("Backend cancel notify failed (on-chain cancel succeeded)");
       }
 
       addToast?.("Listing cancelled!", "success");
+      // Prune BOTH lists: bundles live in their own state, so cancelling a bundle
+      // used to leave it on screen with a live Cancel button until the 60s poll —
+      // inviting a second, redundant on-chain cancel the seller pays gas for.
       setOrders((prev) => prev.filter((o) => o.order_hash !== order.order_hash));
+      setBundles((prev) => prev.filter((o) => o.order_hash !== order.order_hash));
     } catch (err) {
       if (err.code === 4001 || err.code === "ACTION_REJECTED") {
         addToast?.("Cancellation declined in wallet.", "info");

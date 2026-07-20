@@ -265,26 +265,43 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     setLoading(true);
     setFetchError(null);
     try {
-      const params = new URLSearchParams({
+      const baseParams = {
         action: "query",
         contract: collection.contract,
         maker: wallet,
         status: "active",
         limit: "200",
         sort: "created_at",
-      });
-      const res = await fetch(`/api/orderbook?${params}`);
+      };
+      const params = new URLSearchParams(baseParams);
+      // The query endpoint returns EITHER singles or bundles (is_bundle is an
+      // equality filter), so a seller's bundles need their own request. Without
+      // this, bundles were invisible on the canonical "manage my listings" page —
+      // and since this is also the only place with a per-row Cancel, a seller
+      // could create a bundle they could not then cancel from here.
+      const bundleParams = new URLSearchParams({ ...baseParams, bundles: "true" });
+      const [res, bundleRes] = await Promise.all([
+        fetch(`/api/orderbook?${params}`),
+        // Non-fatal: while BUNDLE_LISTING_ENABLED is off this returns an empty set,
+        // and a failure here must never blank out the seller's single listings.
+        fetch(`/api/orderbook?${bundleParams}`).catch(() => null),
+      ]);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to fetch listings");
       }
       const data = await res.json();
+      const bundleData = bundleRes && bundleRes.ok ? await bundleRes.json().catch(() => ({})) : {};
+      const allOrders = [...(data.orders || []), ...(bundleData.orders || [])];
       // Normalize native orderbook orders to the shape the UI expects
-      const normalized = (data.orders || []).map((o) => {
+      const normalized = allOrders.map((o) => {
         const endSec = o.end_time ? Math.floor(new Date(o.end_time).getTime() / 1000) : null;
         return {
           orderHash: o.order_hash,
           tokenId: o.token_id,
+          // Bundles store token_id NULL and the full set in token_ids (migration 012).
+          isBundle: !!o.is_bundle,
+          tokenIds: Array.isArray(o.token_ids) ? o.token_ids : null,
           price: o.price_eth || 0,
           expiry: endSec ? new Date(endSec * 1000) : null,
           protocolAddress: o.protocol_address || SEAPORT_ADDRESS,
@@ -581,12 +598,30 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       ) : (
         activeListings.map((listing) => {
           const token = resolveToken(listing.tokenId);
-          const name = token?.name || (listing.tokenId ? `${collection.name} #${listing.tokenId}` : "Listing");
+          // A bundle has no single token: token_id is NULL and the set lives in
+          // token_ids. Without this it fell through to the bare label "Listing"
+          // with no thumbnail, so a seller couldn't tell their bundles apart.
+          const bundleIds = listing.isBundle && Array.isArray(listing.tokenIds) ? listing.tokenIds : null;
+          // token_ids is jsonb `[{ contract, token_id }]` (migration 012). Tolerate a
+          // bare id too so a malformed row degrades to "Bundle · N NFTs" instead of
+          // rendering "#undefined".
+          const bundlePreview = bundleIds
+            ? bundleIds.slice(0, 3).map((t) => (t && typeof t === "object" ? t.token_id : t)).filter((t) => t != null)
+            : [];
+          const bundleName = bundleIds
+            ? `Bundle · ${bundleIds.length} NFTs${bundlePreview.length ? ` (${bundlePreview.map((t) => `#${t}`).join(", ")}${bundleIds.length > bundlePreview.length ? ` +${bundleIds.length - bundlePreview.length}` : ""})` : ""}`
+            : null;
+          const name = bundleName || token?.name || (listing.tokenId ? `${collection.name} #${listing.tokenId}` : "Listing");
           const image = token?.image || (listing.tokenId && collection.metadataBase ? `${collection.metadataBase}/${listing.tokenId}.png` : null)
             || (listing.tokenId ? alchemyCdnUrl(listing.tokenId, collection.contract) : null);
           const nftForImage = token || { id: listing.tokenId, image, name };
-          const health = getHealthBadge(listing.price, floorPrice);
-          const distFromFloor = floorPrice > 0 && listing.price
+          // Same reason as distFromFloor below: a package total vs a per-token
+          // floor is not a comparison, so no health verdict for bundles.
+          const health = listing.isBundle ? null : getHealthBadge(listing.price, floorPrice);
+          // A bundle's price is a PACKAGE TOTAL for N NFTs — comparing it to a
+          // per-token floor is meaningless, so suppress the floor-delta for bundles
+          // (same rule the order-book row chips follow).
+          const distFromFloor = !listing.isBundle && floorPrice > 0 && listing.price
             ? (((listing.price - floorPrice) / floorPrice) * 100).toFixed(1)
             : null;
 
@@ -614,7 +649,9 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
                 </div>
                 <div style={{ display: "flex", gap: 8, fontSize: 8, fontFamily: "var(--mono)", color: "var(--text-muted)", marginTop: 4 }}>
                   {listing.createdAt && <span>Listed {timeAgo(listing.createdAt)}</span>}
-                  {floorPrice > 0 && listing.price && (
+                  {/* Suppressed for bundles for the same reason as distFromFloor above:
+                      a package total is not comparable to a per-token floor. */}
+                  {!listing.isBundle && floorPrice > 0 && listing.price && (
                     <span style={{ color: listing.price <= floorPrice ? "var(--green)" : listing.price <= floorPrice * 1.1 ? "var(--gold)" : "var(--text-dim)" }}>
                       {listing.price <= floorPrice ? "At floor" : `${Math.round(((listing.price / floorPrice) - 1) * 100)}% above floor`}
                     </span>
