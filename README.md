@@ -22,6 +22,7 @@
 3. Fees from live surfaces route to TOWELI stakers, in ETH.
 4. The longer you lock (up to 4y), the more ETH you earn and the louder you'll vote once governance is live.
 5. A Solana surface earns fees too (swap fee-capture live; a Tegridy-owned Solana AMM is in devnet groundwork).
+6. The app ships **trust tooling** — a token scanner, wallet-exposure check, deployer-reputation graph, and launch fact-sheets/afterlife tracking — that self-gates to "no data" instead of faking signal.
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Uniswap / Gondi primitives, copied from battle-tested sources on purpose.
 
@@ -37,6 +38,7 @@ Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there —
 - [Live deployment status](#live-deployment-status) — what's on-chain vs gated
 - [How it all fits together](#how-it-all-fits-together) — flywheel diagrams
 - [How to use it (for users)](#how-to-use-it-for-users)
+- [Trust tooling](#trust-tooling) — scanner, exposure, deployer graph, market integrity
 - [Solana surface](#solana-surface)
 - [Tokenomics in one minute](#tokenomics-in-one-minute)
 - [For developers](#for-developers)
@@ -85,6 +87,7 @@ Honest snapshot as of the latest commit:
 - ✅ **Gated-feature batch deployed on-chain 2026-07-16** (11 contracts, all Etherscan-verified): GaugeController, VoteIncentives (+Admin), PremiumAccess, TegridyNFTPoolFactory, TegridyNFTLending (+Admin), MemeBountyBoard, CommunityGrants, and TegridyLaunchpadV2 (+ its DropV2 template). Each cleared a fresh pre-deploy adversarial audit wave.
 - ✅ **Capital-free surfaces un-gated in the app 2026-07-21/22** (operator-authorized): P2P NFT lending, the NFT AMM, the launchpad, Premium, and the EVM token launcher are **live at [tegridyfarms.vercel.app](https://tegridyfarms.vercel.app)** — verified against the deployed bytecode (every frontend ABI selector checked on-chain) before the flip. Their fees accrue to the **treasury Safe** (`0x7D26…Bd7d`). GaugeController, VoteIncentives, CommunityGrants, and MemeBountyBoard stay app-gated: they *spend* (emissions/grants/bounties), so they wait for a revenue line to fund them.
 - ✅ **Legacy exit surface (2026-07-22):** two retired pre-relaunch staking contracts still held user funds; the Farm page now shows an **exit-only card** (withdraw/early-withdraw, no deposit path) to any wallet with a legacy position, and the contracts are listed as *retired — withdraw only* on [/contracts](https://tegridyfarms.vercel.app/contracts).
+- ✅ **Trust tooling + limit orders live (2026-07-22):** token scanner, wallet exposure, deployer reputation, launch simulator/afterlife, and NFT market-integrity surfaces shipped (see [Trust tooling](#trust-tooling)), and **gasless limit orders via CoW Protocol** are live on the Trade page.
 - ⏳ **Ownership is not yet decentralized.** All live contracts are still owned by the deployer EOA. A 2-step Safe multisig handoff is in progress; the first attempt's 14-day window lapsed and is being re-initiated ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). **This single-key window is the biggest current risk — bigger than any specific code finding.**
 - ⏳ **The protocol-owned TOWELI/WETH pool is seeded but shallow.** It holds live liquidity at market price, but the TWAP oracle bootstrap is still gated on deepening it past the oracle's reserve floor; until then the smart front-door routes swaps to the deepest venue (the Uniswap V2 pool). Deepen + bootstrap are scripted go-live steps ([`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)).
 - 🟡 **A few surfaces remain not-yet-deployed:** token lending (`TegridyLending` — pre-deploy-audited but oracle-gated), restaking (EIP-170 split / Phase 7), the Pro Pass (a launchpad operation), and the Uniswap V4 module (next-wave, unaudited).
@@ -250,6 +253,23 @@ Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336
 - **Vote on gauges** — the governance contracts (`GaugeController` + `VoteIncentives`) are **deployed on-chain**; voting un-gates in the app once ownership hands off to the Safe.
 
 New to DeFi? See [QUICKSTART.md](QUICKSTART.md) or [FAQ.md](FAQ.md).
+
+---
+
+## Trust tooling
+
+Shipped 2026-07-22: a set of app-side analysis surfaces built on one shared detection core ([`frontend/src/lib/detection/`](frontend/src/lib/detection)) — holder-distribution math (effective holder count, clustered supply, bundled supply, sniper share) behind a weakest-link risk gate (mint/freeze authority, LP lock, dominant clusters). The design rule everywhere: **unmeasured signals drop out of the score instead of flattering it, and every surface self-gates to "no data" rather than fabricating a track record.**
+
+| Surface | Where | What it tells you |
+|---|---|---|
+| **Token scanner** | [/scan](https://tegridyfarms.vercel.app/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
+| **Wallet exposure** | [/exposure](https://tegridyfarms.vercel.app/exposure) | The scanner pointed inward — how much of your own bag sits in concentrated or risky distributions. |
+| **Deployer reputation** | [/deployer](https://tegridyfarms.vercel.app/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
+| **Launch simulator** | [/launch-simulator](https://tegridyfarms.vercel.app/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
+| **Launch afterlife** | [/launch](https://tegridyfarms.vercel.app/launch) | What actually happened to tokens launched through the launcher — outcome tracking above the launch explorer. |
+| **NFT market integrity** | Tradermigos → Integrity tab | Wash-trade, coordinated-cluster, and fake-floor detection over OpenSea + on-chain data (recent-window scoped; gaps disclosed). |
+
+The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](https://tegridyfarms.vercel.app/swap)): gasless, MEV-protected orders placed through **CoW Protocol** solvers — no keeper infrastructure, orders fill at your price or better.
 
 ---
 
@@ -449,7 +469,7 @@ Full roadmap in [`ROADMAP.md`](ROADMAP.md) · shipping cadence in [`CHANGELOG.md
 3. ✅ ~~Un-gate the revenue-side batch in the app~~ **done 2026-07-21/22** (NFT lending, NFT AMM, launchpad, Premium, token launcher). Remaining app-gated: governance + community programs (revenue-funded emissions first, per gate 2) — then a **professional firm audit** before scaling TVL.
 
 **Medium-term:**
-- Keeper infrastructure for DCA / limit orders
+- ✅ ~~Limit orders~~ **live via CoW Protocol solvers** (Trade page, 2026-07-22 — no keeper needed); CoW market-swap + TWAP/DCA execution panels are built but held for live-wallet QA
 - Wire leaderboard/history pages to the Ponder indexer + a Dune dashboard
 - Solana CP-AMM: devnet dry-run → diff-audit → mainnet → Jupiter integration
 - V4 module audit + protocol-owned-liquidity growth
