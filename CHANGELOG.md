@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Ongoing investor-polish and audit-closure work. Lands on `main` as it ships;
 a tagged release will cut from here once Wave 0 redeploys are complete.
 
+### Changed — ABI-supplement generator consolidated, 9 dead exports pruned (2026-07-22)
+
+- Consolidated the two divergent copies of the abi-supplement generator into
+  one canonical script: [`frontend/scripts/extract-missing-abis.mjs`](frontend/scripts/extract-missing-abis.mjs).
+  The stale root copy `scripts/extract-missing-abis.mjs` is deleted — its
+  `MISSING` list predated the 2026-04-26 admin-split additions, so running
+  root `npm run extract-abis` would have silently regenerated
+  `frontend/src/lib/abi-supplement.ts` without `TEGRIDY_STAKING_ADMIN_ABI` /
+  `SWAP_FEE_ROUTER_ADMIN_ABI` (and resurrected the dropped
+  `TEGRIDY_STAKING_ABI_FULL`). Root `npm run extract-abis` now runs the
+  canonical script.
+- Per the minimal-surface mandate, pruned `abi-supplement.ts` from 10 exports
+  / 12,181 lines to the single export the dApp actually imports:
+  `TEGRIDY_TWAP_ABI` (`frontend/src/hooks/useToweliPrice.ts`). The other 9
+  were dead — no named import anywhere in frontend code, two of their sources
+  (`TegridyDropV2.sol`, `TegridyFeeHook.sol`) no longer exist in
+  `contracts/src/`, and admin timelock propose/execute/cancel is operated via
+  direct contract interaction (see `AdminPage.tsx`), not from the dApp. The
+  generator's `MISSING` list now documents the rule: an entry requires a live
+  named import.
+
 ### Security — Monster Audit + adversarial sweep (2026-05-09 → 2026-05-10)
 
 7-cluster fresh-eyes adversarial audit on the post-scan6 codebase plus a
