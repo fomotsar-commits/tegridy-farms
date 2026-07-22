@@ -18,12 +18,19 @@
  *   export * from './abi-supplement';
  * so every entry below ships to the client surface. Keep the list to ABIs
  * with a live named import somewhere in frontend code. The 2026-07-22 prune
- * deleted 9 dead exports (~11k lines): POLAccumulator, DropV2 + FeeHook
- * (sources no longer in contracts/src/), LPFarming, NFTPool `_FULL`, Pair,
- * TokenURIReader, and the TegridyStakingAdmin / SwapFeeRouterAdmin pair —
- * admin timelock propose/execute/cancel is operated via direct contract
- * interaction, not from the dApp (see AdminPage.tsx). Grep for a named
- * import of the export before adding an entry back.
+ * (PRs #96 + #97) deleted the dead exports (~11k lines): POLAccumulator,
+ * DropV2 `_FULL` + FeeHook (sources no longer in contracts/src/), LPFarming,
+ * NFTPool `_FULL`, Pair, TokenURIReader, and the TegridyStakingAdmin /
+ * SwapFeeRouterAdmin pair — admin timelock propose/execute/cancel is
+ * operated via direct contract interaction, not from the dApp (see
+ * AdminPage.tsx). Grep for a named import of the export before adding an
+ * entry back.
+ *
+ * TegridyDropV2 in particular must NOT return as a generated entry: the dApp
+ * talks to the deployed DropV2 template via the hand-maintained
+ * TEGRIDY_DROP_V2_ABI in contracts.ts, and with the source gone a regenerated
+ * `_FULL` could only come from a stale artifact — the last one had drifted
+ * from the deployed mint/executeMerkleRoot.
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
