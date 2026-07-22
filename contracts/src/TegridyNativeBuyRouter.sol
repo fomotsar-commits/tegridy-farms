@@ -137,6 +137,7 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
     error ValueMismatch(); // msg.value != the order's exact native total (overpay/underpay guard)
     error FulfillFailed();
     error NothingToSweep();
+    error PartialFillNotSupported(); // numerator != denominator — see GUARD 0 in buy()
 
     constructor(address _seaport, address _referralSplitter, address _treasury, address _weth)
         OwnableNoRenounce(msg.sender)
@@ -166,6 +167,15 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
     /// @param  orderHash  The canonical order hash, for the event only (not trusted
     ///                    for any value decision — purely off-chain attribution).
     function buy(AdvancedOrder calldata order, bytes32 orderHash) external payable nonReentrant {
+        // GUARD 0 — full fills only. _nativeTotal (and thus GUARD 1) sums the order's
+        // FULL startAmounts with no numerator/denominator scaling, so it is only correct
+        // for a 1/1 fill. A partial fill (numerator < denominator, legal for a
+        // PARTIAL_OPEN ERC1155 order) would have the buyer pass the full msg.value while
+        // Seaport consumes only the fraction and REFUNDS the remainder to this router,
+        // where it is then mis-booked as platform fee. The docstring already assumes 1/1;
+        // enforce it so the assumption can't be violated by a hand-crafted order.
+        if (order.numerator != order.denominator) revert PartialFillNotSupported();
+
         // GUARD 1 — exact payment. Sum every NATIVE consideration item; the buyer
         // must send exactly that. This blocks the overpay vector where Seaport would
         // refund the excess to THIS router and the excess would then be mis-counted
