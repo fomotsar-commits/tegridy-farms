@@ -3,7 +3,7 @@
 // Flow (CoW's documented order lifecycle):
 //   1. Approve the GPv2VaultRelayer to pull the SELL token (one-time per token).
 //   2. Build the canonical GPv2 Order and sign it EIP-712 (one signature, no gas).
-//   3. POST it to CoW's orderbook (through the hardened /api/aggregator/cow proxy).
+//   3. POST it to CoW's orderbook (through the hardened /api/cow proxy alias).
 //   4. CoW solvers settle it on-chain when the limit price is met — it survives
 //      tab close and needs no per-fill signature (vs. the browser-keeper path).
 //

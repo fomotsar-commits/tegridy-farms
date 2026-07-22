@@ -152,10 +152,20 @@ export function toOrderSubmission(
   };
 }
 
-// URL for the CoW mainnet orderbook, routed through the hardened aggregator proxy
-// (`/api/aggregator/cow/...`). `path` is e.g. "orders" or "orders/<uid>".
+// URL for the CoW mainnet orderbook, routed through the hardened aggregator proxy.
+// `path` is e.g. "orders" or "orders/<uid>".
+//
+// MUST be the `/api/cow/...` alias, NOT `/api/aggregator/cow/...`. The proxy is a
+// FLAT function (api/aggregator.js) that only serves `/api/aggregator` exactly —
+// nested `/api/aggregator/<provider>/...` never routed reliably, which is why
+// frontend/vercel.json rewrites `/api/cow/:path*` → `/api/aggregator?provider=cow&p=:path*`
+// (and the vite dev proxy likewise only knows `/api/cow`). Until 2026-07-22 this
+// returned the nested form and silently 404/405'd in prod; the alias is the same
+// base the live price-comparison quote (lib/aggregator.ts getCowSwapQuote) uses,
+// so it is confirmed to route from the browser. Both hit the identical
+// per-provider allowlist in api/_lib/aggregator-proxy.js once routed.
 export function cowOrderbookUrl(path: string): string {
-  return `/api/aggregator/cow/mainnet/api/v1/${path}`;
+  return `/api/cow/mainnet/api/v1/${path}`;
 }
 
 // Order status as returned by GET /orders/{uid}.status.
