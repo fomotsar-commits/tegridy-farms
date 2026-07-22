@@ -37,9 +37,11 @@ const OUTPUT_FILE = join(REPO_ROOT, 'frontend', 'src', 'lib', 'abi-supplement.ts
 // because those functions moved off the parent contracts.
 const MISSING = [
   { sol: 'POLAccumulator.sol',        name: 'POL_ACCUMULATOR_ABI' },
-  // TegridyDrop.sol (v1) was deleted in the V1 cleanup; only V2 ships now.
-  // The full V2 ABI is generated from TegridyDropV2.sol below.
-  { sol: 'TegridyDropV2.sol',         name: 'TEGRIDY_DROP_V2_ABI_FULL' },
+  // 2026-07-22: TegridyDrop v1 AND TegridyDropV2 sources are both gone from
+  // src/ (V1 cleanup / MVP cut). The dApp talks to the deployed DropV2
+  // template via the hand-maintained TEGRIDY_DROP_V2_ABI in contracts.ts —
+  // don't re-add a generated _FULL entry; it could only come from a stale
+  // artifact (the last one drifted from the deployed mint/executeMerkleRoot).
   { sol: 'TegridyFeeHook.sol',        name: 'TEGRIDY_FEE_HOOK_ABI' },
   { sol: 'TegridyLPFarming.sol',      name: 'TEGRIDY_LP_FARMING_ABI' },
   { sol: 'TegridyNFTPool.sol',        name: 'TEGRIDY_NFT_POOL_ABI_FULL' },
