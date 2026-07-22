@@ -38,6 +38,10 @@ const ArtStudioPage = import.meta.env.DEV
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
+// Public token scanner (concentration/bundle/holder-quality read; self-gates when
+// holder data is unavailable) + wallet exposure view (the scanner pointed inward).
+const ScannerPage = lazy(() => import('./pages/ScannerPage'));
+const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
@@ -47,6 +51,9 @@ const SolanaLaunchPage = lazy(() => import('./pages/SolanaLaunchPage'));
 // Token launch rail (Doppler V4 integration). Gated in-page (isLauncherEnabled)
 // until go-live -> re-homing -> TOWELI-liveness; renders the SOON placeholder meanwhile.
 const LaunchPage = lazy(() => import('./pages/LaunchPage'));
+// Launch simulator — preview a token's distribution band + Fact-Sheet tier before
+// launching. Pure client-side, always usable (deliberately live before the launch rail).
+const LaunchSimulatorPage = lazy(() => import('./pages/LaunchSimulatorPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -203,6 +210,7 @@ function AnimatedRoutes() {
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
         <Route path="solana-launch" element={<Suspense fallback={<PageSkeleton />}><SolanaLaunchPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
+        <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
@@ -232,6 +240,8 @@ function AnimatedRoutes() {
         <Route path="changelog" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="contracts" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
         <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
+        <Route path="exposure" element={<Suspense fallback={<PageSkeleton />}><WalletExposurePage /></Suspense>} />
+        <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

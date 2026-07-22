@@ -114,6 +114,8 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // the entry is honest, not a dead link. The pill clears itself when
       // isLauncherEnabled() flips.
       { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
+      // Pure client-side — always usable, deliberately live before the launch rail opens.
+      { to: '/launch-simulator', label: 'Launch Simulator' },
     ],
   },
   {
@@ -121,6 +123,8 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/tokenomics', label: 'Tokenomics' },
       { to: '/treasury',   label: 'Treasury' },
+      { to: '/scan',       label: 'Token Scanner' },
+      { to: '/exposure',   label: 'Wallet Exposure' },
     ],
   },
 ];

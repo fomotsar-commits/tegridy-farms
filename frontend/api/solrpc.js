@@ -38,7 +38,7 @@ const ALLOWED_SOL_METHODS = new Set([
   // balances / accounts
   "getBalance", "getAccountInfo", "getMultipleAccounts", "getMinimumBalanceForRentExemption",
   // tokens (client getParsed* map to these base RPC methods)
-  "getTokenAccountsByOwner", "getTokenAccountBalance", "getTokenSupply",
+  "getTokenAccountsByOwner", "getTokenAccountBalance", "getTokenSupply", "getTokenLargestAccounts",
   // fees / priority
   "getFeeForMessage", "getRecentPrioritizationFees",
   // transaction send / confirm / inspect

@@ -537,6 +537,12 @@ function LauncherExplainer() {
         </p>
       </ExplainerCard>
 
+      {/* Detection-as-design-tool: the simulator is LIVE now (pure client-side), so unlike
+          the gated rail below this is a real CTA — preview your distribution before launching. */}
+      <p className="text-white/50 text-xs leading-relaxed">
+        Planning a launch? Preview your distribution band and Fact-Sheet tier and fix concentration first with the{' '}
+        <Link to="/launch-simulator" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Launch Simulator</Link>.
+      </p>
       {/* Cross-link to the Solana sub-brand rail. Secondary by design: the destination is
           gated too (SOLANA_LAUNCHER_ENABLED = false in lib/launcher/solana/dbc.ts), so this
           is wayfinding, not a call to action. Fee capture only — no TOWELI on Solana. */}

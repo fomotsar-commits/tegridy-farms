@@ -120,12 +120,62 @@ export default async function handler(req, res) {
   const contract = rawContract?.toLowerCase() || (slug && SLUG_TO_CONTRACT[slug]) || null;
 
   if (!route) return res.status(400).json({ error: "Missing route parameter" });
-  if (contract && !ALLOWED_CONTRACTS.has(contract)) {
+  // The token scanner reads ANY ERC-20, not just the NFT collection allowlist. The
+  // address FORMAT is still validated above (line 105); this only skips the collection
+  // membership check for that one read-only route.
+  if (contract && route !== "erc20scan" && !ALLOWED_CONTRACTS.has(contract)) {
     return res.status(403).json({ error: "Contract not supported" });
   }
 
   try {
     switch (route) {
+      // Public token scanner — ANY ERC-20 (not the NFT allowlist). Proxies a holder-data
+      // source server-side and normalizes to the scanner's shape. OPERATOR: Ethplorer
+      // getTopTokenHolders usually needs a PAID key (public "freekey" may 403); set
+      // ETHPLORER_API_KEY, or swap the upstream for Moralis/Covalent/Etherscan-Pro/the
+      // Ponder index. The client self-gates until this returns data — never fabricates.
+      case "erc20scan": {
+        if (!contract) return res.status(400).json({ error: "Missing contract" });
+        const EP_KEY = process.env.ETHPLORER_API_KEY || "freekey";
+        const EP_BASE = "https://api.ethplorer.io";
+        const holderLimit = Math.min(Math.max(1, parseInt(limit, 10) || 100), 100);
+        const [infoRes, topRes] = await Promise.all([
+          fetch(`${EP_BASE}/getTokenInfo/${contract}?apiKey=${EP_KEY}`, { headers: { Accept: "application/json" } }),
+          fetch(`${EP_BASE}/getTopTokenHolders/${contract}?apiKey=${EP_KEY}&limit=${holderLimit}`, { headers: { Accept: "application/json" } }),
+        ]);
+        const { text: infoText, truncated: it } = await readBoundedText(infoRes, MAX_RESPONSE_BYTES);
+        const { text: topText, truncated: tt } = await readBoundedText(topRes, MAX_RESPONSE_BYTES);
+        if (it || tt) throw new Error("upstream-too-large");
+        let info = {}, top = {};
+        try { info = JSON.parse(infoText); } catch { info = {}; }
+        try { top = JSON.parse(topText); } catch { top = {}; }
+        const totalSupply = info && info.totalSupply != null ? String(info.totalSupply) : null;
+        let totalBig = 0n;
+        try { totalBig = totalSupply ? BigInt(totalSupply) : 0n; } catch { totalBig = 0n; }
+        const decimals = parseInt(info && info.decimals, 10);
+        const holders = ((top && top.holders) || []).map((h) => {
+          const address = String(h.address || "").toLowerCase();
+          let balance = null;
+          if (typeof h.share === "number" && totalBig > 0n) {
+            balance = String((totalBig * BigInt(Math.round(h.share * 1e4))) / 1000000n);
+          } else if (h.balance != null && Number.isFinite(Number(h.balance))) {
+            balance = String(BigInt(Math.trunc(Number(h.balance))));
+          }
+          return { address, balance, isContract: !!h.isContract };
+        }).filter((h) => /^0x[0-9a-f]{40}$/.test(h.address) && h.balance);
+        res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=300");
+        return res.json({
+          chain: "ethereum",
+          contract,
+          name: (info && info.name) || null,
+          symbol: (info && info.symbol) || null,
+          decimals: Number.isFinite(decimals) ? decimals : null,
+          totalSupply,
+          holdersCount: info && typeof info.holdersCount === "number" ? info.holdersCount : null,
+          source: "ethplorer",
+          holders,
+        });
+      }
       // ── Collection Stats ──
       case "collections": {
         if (!contract) return res.status(400).json({ error: "Missing slug or contract" });
