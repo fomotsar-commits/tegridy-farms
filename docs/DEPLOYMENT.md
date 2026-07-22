@@ -31,7 +31,7 @@ New chain, or emergency wipe-and-redeploy. Not the common path.
 11. Update `frontend/src/lib/constants.ts` with every new address
 12. Update README.md "Deployed contracts" tables
 13. Update [MIGRATION_HISTORY.md](MIGRATION_HISTORY.md) with the old→new mapping
-14. Run `node scripts/extract-missing-abis.mjs`
+14. Run `node frontend/scripts/extract-missing-abis.mjs` (repo-root `npm run extract-abis`)
 15. `cd frontend && pnpm install && pnpm build` — confirm type-check green
 16. Commit: `chore(deploy): full-fresh deployment — addresses in constants.ts`
 

@@ -1,8 +1,8 @@
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS } from './constants';
 
-// Re-export the 8 ABIs extracted from forge build artifacts (AUDIT_FINDINGS H1).
-// See scripts/extract-missing-abis.mjs — regenerate abi-supplement.ts whenever
-// the underlying Solidity contracts change.
+// Re-export the ABIs extracted from forge build artifacts.
+// See frontend/scripts/extract-missing-abis.mjs — regenerate abi-supplement.ts
+// whenever the underlying Solidity contracts change.
 export * from './abi-supplement';
 
 // ─── TegridyStaking (Unified Lock + Stake + Boost + Governance + NFT Positions) ───

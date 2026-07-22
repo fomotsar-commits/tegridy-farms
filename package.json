@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "render-og-png": "node scripts/render-og-png.mjs",
-    "extract-abis": "node scripts/extract-missing-abis.mjs",
+    "extract-abis": "node frontend/scripts/extract-missing-abis.mjs",
     "diff-addresses": "npx tsx scripts/diff-addresses.ts"
   },
   "devDependencies": {

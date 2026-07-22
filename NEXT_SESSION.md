@@ -183,7 +183,7 @@ enhancements in the order listed.
 ### Operational scripts
 - ~~[`scripts/redeploy-patched-3.sh`](scripts/redeploy-patched-3.sh)~~ — deleted 2026-04-19 with V1 `TegridyDrop` source. Use per-contract `forge script` runs for `TegridyLPFarming` + `TegridyNFTLending`; V2 drop template auto-deploys with the V2 factory.
 - [`scripts/diff-addresses.ts`](scripts/diff-addresses.ts) — print the constants.ts patch after redeploy
-- [`scripts/extract-missing-abis.mjs`](scripts/extract-missing-abis.mjs) — pull ABIs from forge artifacts into `frontend/src/lib/abi-supplement.ts`
+- [`frontend/scripts/extract-missing-abis.mjs`](frontend/scripts/extract-missing-abis.mjs) — pull ABIs from forge artifacts into `frontend/src/lib/abi-supplement.ts` (root copy deleted 2026-07-22; this is the only generator)
 - [`scripts/render-og-png.mjs`](scripts/render-og-png.mjs) — SVG → PNG (requires `@resvg/resvg-js`, already devDep'd)
 
 ---
