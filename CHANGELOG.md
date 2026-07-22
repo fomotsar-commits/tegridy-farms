@@ -24,7 +24,9 @@ a tagged release will cut from here once Wave 0 redeploys are complete.
 - Per the minimal-surface mandate, pruned `abi-supplement.ts` from 10 exports
   / 12,181 lines to the single export the dApp actually imports:
   `TEGRIDY_TWAP_ABI` (`frontend/src/hooks/useToweliPrice.ts`). The other 9
-  were dead — no named import anywhere in frontend code, two of their sources
+  were dead (`TEGRIDY_DROP_V2_ABI_FULL` was independently removed on `main`
+  by #96; this change deletes the remaining 8) — no named import anywhere in
+  frontend code, two of their sources
   (`TegridyDropV2.sol`, `TegridyFeeHook.sol`) no longer exist in
   `contracts/src/`, and admin timelock propose/execute/cancel is operated via
   direct contract interaction (see `AdminPage.tsx`), not from the dApp. The
