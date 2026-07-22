@@ -10,15 +10,25 @@ import type { FeeConstitutionLine } from './factSheet';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
-/** Master gate. Flip to true only when all §6 gates pass. */
-export const LAUNCHER_ENABLED = false;
+/**
+ * Master gate. GO-LIVE 2026-07-22 (operator-authorized "do it all"): flipped true after
+ * the §5 fork rehearsal passed in-session — real createDynamicAuction mined green
+ * (status 1), token deployed as the whitelisted DopplerERC20V1 Solady clone (0xdb7b…),
+ * 266 launcher tests green, integrator address verified on-chain. The §1 TOWELI-liveness
+ * / pool-depth gates were explicitly WAIVED by the operator after the dormancy trade-off
+ * was surfaced. Reversible: set back to false + redeploy to re-gate at any time.
+ */
+export const LAUNCHER_ENABLED = true;
 
 /**
- * Multisig that captures Doppler integrator fees (withIntegrator).
- * PLACEHOLDER until a re-homed Safe exists — must NOT be the flagged deployer
- * or the old 0xA360 Safe (see pending operator tasks). Zero keeps the gate shut.
+ * Address that captures Doppler integrator fees (withIntegrator) — ~80-95% of trade
+ * fees, routed per DEFAULT_FEE_CONSTITUTION.
+ * OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55
+ * checksum, no code, nonce 0). The runbook recommended a re-homed multisig Safe here;
+ * the operator explicitly elected this hot wallet after that trade-off was surfaced.
+ * If the key is ever compromised, re-point this and redeploy — fees only, no admin power.
  */
-export const LAUNCHER_INTEGRATOR_ADDRESS: Address = ZERO;
+export const LAUNCHER_INTEGRATOR_ADDRESS: Address = '0xD355A072d6bBbA275DBD83A3149f6347b06d1051';
 
 /** The launcher is usable only when enabled AND a real integrator is configured. */
 export function isLauncherEnabled(): boolean {

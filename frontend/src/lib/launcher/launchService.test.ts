@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseEther, type Address } from 'viem';
+
+// GO-LIVE 2026-07-22: LAUNCHER_ENABLED is now true in production. The gate-guard test
+// below must still verify the INVARIANT (a disabled launcher refuses to launch), so it
+// forces the gate shut here rather than depending on the production flag value. The real
+// config values (integrator, fee tier) are preserved via the actual module.
+vi.mock('./config', async (importActual) => {
+  const actual = await importActual<typeof import('./config')>();
+  return { ...actual, isLauncherEnabled: () => false };
+});
 import {
   wizardConfigToLaunchConfig,
   launchToken,
@@ -259,8 +268,9 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
 });
 
 describe('launchToken — gate guard (no chain access)', () => {
-  it('refuses to launch while the launcher is gated (LAUNCHER_ENABLED=false)', async () => {
-    // isLauncherEnabled() is false by default -> throws before ever touching the clients.
+  it('refuses to launch when the launcher is gated (isLauncherEnabled() false)', async () => {
+    // isLauncherEnabled is mocked false above -> throws before ever touching the clients,
+    // regardless of the production LAUNCHER_ENABLED value (now true post go-live).
     const cfg = wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: KOL, shareBps: 1000 }] }));
     // Dummy clients: they must never be used because the guard fires first.
     const dummy = {} as never;
