@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import type { Address } from 'viem';
 import { mapNewPoolsToBaselines, type GeckoPoolEntry } from './discovery';
 
 // A token / pool address pair in GeckoTerminal's network-prefixed form.
