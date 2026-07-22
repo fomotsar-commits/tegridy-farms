@@ -9,6 +9,7 @@ import { ArtImg } from '../components/ArtImg';
 import {
   TOWELI_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
+  LEGACY_STAKING_ADDRESSES,
   TEGRIDY_RESTAKING_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
   TEGRIDY_ROUTER_ADDRESS,
@@ -77,6 +78,21 @@ const GROUPS: ContractGroup[] = [
       { label: 'Tegridy Staking', address: TEGRIDY_STAKING_ADDRESS, source: 'contracts/src/TegridyStaking.sol' },
       { label: 'Tegridy Restaking', address: TEGRIDY_RESTAKING_ADDRESS, source: 'contracts/src/TegridyRestaking.sol' },
       { label: 'Treasury', address: TREASURY_ADDRESS, source: 'external (Safe multisig)' },
+      // Retired pre-relaunch staking deployments that still hold positions.
+      // Withdraw-only: the Farm page shows an exit card to affected wallets,
+      // and both are Etherscan-verified for direct withdraw(tokenId) calls.
+      {
+        label: 'Tegridy Staking (retired — withdraw only)',
+        address: LEGACY_STAKING_ADDRESSES[0],
+        source: 'external (retired deployment)',
+        status: 'deprecated',
+      },
+      {
+        label: 'Tegridy Staking (retired — withdraw only)',
+        address: LEGACY_STAKING_ADDRESSES[1],
+        source: 'external (retired deployment)',
+        status: 'deprecated',
+      },
     ],
   },
   {

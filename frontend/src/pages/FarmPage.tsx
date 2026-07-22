@@ -31,6 +31,7 @@ import { RealYieldProof } from '../components/RealYieldProof';
 import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
+import { LegacyStakingExit } from '../components/farm/LegacyStakingExit';
 import { BoostScheduleTable } from '../components/farm/BoostScheduleTable';
 import { UPCOMING_POOLS } from '../components/farm/poolConfig';
 import { LivePoolCard } from '../components/farm/LivePoolCard';
@@ -454,6 +455,10 @@ export default function FarmPage() {
             </div>
           </m.div>
         )}
+
+        {/* Exit-only surface for retired pre-relaunch staking contracts; renders
+            nothing unless the connected wallet holds a legacy position. */}
+        <LegacyStakingExit />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
           {/* Staking Card */}

@@ -10,6 +10,16 @@ export const TOWELI_ADDRESS = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as co
 // for safety; no relaunch event can predate the contract's own deploy.
 export const RELAUNCH_DEPLOY_BLOCK = 25263000n;
 export const TEGRIDY_STAKING_ADDRESS = '0xcaDc93E96De58EA554c71ca609974625615E046D' as const;
+// Retired pre-relaunch TegridyStaking deployments that STILL HOLD user positions.
+// WITHDRAW-ONLY: never route stake/approve traffic here. Verified on-chain
+// 2026-07-22: 0x044A… holds a 1,000 TOWELI position (tokenId 2, owner 0xC530…d4b9,
+// +25 TOWELI funded rewards) and 0x6266… holds 100 TOWELI (tokenId 1, owner
+// 0xd0d8…b18e); both unpaused, locks expired, withdraw(tokenId) simulates OK.
+// Surfaced by <LegacyStakingExit /> on the Farm page for affected wallets only.
+export const LEGACY_STAKING_ADDRESSES = [
+  '0x044A925839ac3CEC0bccC93d00230f39FFbeEe44',
+  '0x626644523d34B84818df602c991B4a06789C4819',
+] as const;
 // Restaking DEFERRED to Phase 7 (EIP-170 split). Zeroed until deployed; UI gates on isDeployed().
 export const TEGRIDY_RESTAKING_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
