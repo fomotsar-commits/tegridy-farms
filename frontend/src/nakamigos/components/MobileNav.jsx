@@ -24,6 +24,7 @@ export const MORE_TABS = [
   { key: "portfolio", label: "P&L" },
   { key: "history", label: "History" },
   { key: "whales", label: "Whales" },
+  { key: "integrity", label: "Integrity" },
   { key: "my-listings", label: "My Listings" },
   { key: "about", label: "About" },
 ];

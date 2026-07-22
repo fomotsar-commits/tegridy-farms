@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
+import type { PulseItem, PulseKind } from '../lib/protocolEvents/types';
 
 // A live "what's moving in TOWELI" feed — the research-backed on-chain-intelligence
 // hook. Sourced from GeckoTerminal's public trades API (free, keyless, CORS-OK)
@@ -12,15 +13,11 @@ import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
 // box (that's the "advertises its own emptiness" trap). It lights up automatically
 // the moment real trading exists (post-liquidity-seed / go-live).
 
-export interface PulseItem {
-  id: string;
-  kind: 'buy' | 'sell';
-  usd: number;
-  actor: string; // trader address
-  txHash: string;
-  ts: number; // unix seconds
-  whale: boolean;
-}
+// PulseItem is the UNIFIED proof-of-life render model, now owned by the pure
+// protocol-events lib (src/lib/protocolEvents/types.ts) so the on-chain + launch
+// event adapters share ONE shape with this trades hook. Trades populate only the
+// base fields; protocol-level events add title/detail/href.
+export type { PulseItem, PulseKind };
 
 export interface ProtocolActivity {
   items: PulseItem[];

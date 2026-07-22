@@ -1,5 +1,6 @@
 import { m } from 'framer-motion';
-import { useProtocolActivity, type PulseItem } from '../hooks/useProtocolActivity';
+import { useProtocolEvents } from '../hooks/useProtocolEvents';
+import type { PulseItem } from '../lib/protocolEvents';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { shortenAddress } from '../lib/formatting';
 import { PulseDot } from './PulseDot';
@@ -31,7 +32,57 @@ function compact(n: number): string {
   return n.toFixed(0);
 }
 
+const KIND_STYLE: Record<'fee' | 'pol' | 'gauge' | 'launch', { color: string; glyph: string }> = {
+  fee: { color: '#22c55e', glyph: 'Ξ' },   // Ξ — ETH to stakers
+  pol: { color: '#d4a843', glyph: '◈' },    // ◈ — protocol-owned liquidity
+  gauge: { color: '#d4a843', glyph: '⚖' },  // ⚖ — gauge weight (dormant)
+  launch: { color: '#d4a843', glyph: '★' }, // ★ — graded launch
+};
+
+// Protocol-level events (fee/pol/gauge/launch): a headline + detail row, not tied to
+// a trader address. Links the tx when there is one, else a contract/token verify path.
+function EventRow({ item }: { item: PulseItem }) {
+  const style = KIND_STYLE[item.kind as 'fee' | 'pol' | 'gauge' | 'launch'] ?? KIND_STYLE.fee;
+  const link = item.txHash ? `https://etherscan.io/tx/${item.txHash}` : item.href || undefined;
+  const cls = 'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors hover:bg-white/5';
+  const ring = item.whale ? { boxShadow: 'inset 0 0 0 1px rgba(212,168,67,0.25)' } : undefined;
+  const inner = (
+    <>
+      <span
+        className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[13px]"
+        style={{ background: 'rgba(0,0,0,0.5)', color: style.color, border: `1px solid ${style.color}` }}
+        aria-hidden="true"
+      >
+        {style.glyph}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] text-white truncate">
+          {item.whale && <span title="Notable event">{'\u{1F40B}'} </span>}
+          <span style={{ color: style.color, fontWeight: 600 }}>{item.title}</span>
+        </p>
+        <p className="text-[11px] text-text-secondary truncate">
+          {item.detail}{item.detail ? ' · ' : ''}{relTime(item.ts)}
+        </p>
+      </div>
+      <span className="text-[10px] uppercase tracking-wider text-text-secondary flex-shrink-0">
+        {item.kind === 'launch' ? 'launch' : 'protocol'}
+      </span>
+    </>
+  );
+  return (
+    <m.li variants={staggerItem} className="list-none">
+      {link ? (
+        <a href={link} target="_blank" rel="noopener noreferrer" className={cls} style={ring}>{inner}</a>
+      ) : (
+        <div className={cls} style={ring}>{inner}</div>
+      )}
+    </m.li>
+  );
+}
+
 function Row({ item, price }: { item: PulseItem; price: number }) {
+  // Protocol-level events render via EventRow; the trade path continues below.
+  if (item.kind !== 'buy' && item.kind !== 'sell') return <EventRow item={item} />;
   const isBuy = item.kind === 'buy';
   const color = isBuy ? '#22c55e' : 'var(--color-danger)';
   const toweli = price > 0 ? item.usd / price : 0;
@@ -70,7 +121,7 @@ function Row({ item, price }: { item: PulseItem; price: number }) {
 }
 
 export function ProtocolPulse({ limit = 8 }: { limit?: number }) {
-  const { items, loading, error } = useProtocolActivity();
+  const { items, loading, error } = useProtocolEvents();
   const { priceInUsd } = useTOWELIPrice();
 
   // Self-gate: show nothing unless there is real activity to surface.
@@ -85,7 +136,7 @@ export function ProtocolPulse({ limit = 8 }: { limit?: number }) {
           What&rsquo;s Moving
         </h2>
         <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          Real TOWELI buys &amp; sells &mdash; live from the chain.
+          Real protocol activity &mdash; TOWELI trades, fee distributions &amp; liquidity, live from the chain.
         </p>
       </div>
       <div className="glass-card rounded-xl p-4 md:p-5">

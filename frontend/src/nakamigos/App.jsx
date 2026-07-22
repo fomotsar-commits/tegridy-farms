@@ -71,6 +71,7 @@ const PortfolioTracker = lazy(() => import("./components/PortfolioTracker"));
 const EditProfile = lazy(() => import("./components/EditProfile"));
 const Deals = lazy(() => import("./components/Deals"));
 const ProMembership = lazy(() => import("./components/ProMembership"));
+const MarketIntegrity = lazy(() => import("./components/MarketIntegrity"));
 
 // LazyFallback uses the shared GallerySkeleton from SkeletonFallback.jsx
 const LazyFallback = GallerySkeleton;
@@ -98,6 +99,7 @@ const TAB_PREFETCH = {
   sniper: () => import("./components/RaritySniper"),
   portfolio: () => import("./components/PortfolioTracker"),
   deals: () => import("./components/Deals"),
+  integrity: () => import("./components/MarketIntegrity"),
 };
 function prefetchTab(tabKey) {
   TAB_PREFETCH[tabKey]?.().catch(() => { /* prefetch is best-effort */ });
@@ -782,6 +784,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         );
       case "portfolio":
         return <PortfolioTracker wallet={wallet} onConnect={handleConnect} onPick={setSelected} addToast={addToast} />;
+      case "integrity":
+        return <MarketIntegrity stats={stats} addToast={addToast} onViewProfile={setProfileAddress} />;
       default:
         return <NotFound onGoHome={() => handleTabChange("gallery")} />;
     }

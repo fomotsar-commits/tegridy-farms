@@ -91,7 +91,7 @@ export const VALID_TABS = [
   "gallery", "deals", "whales", "about", "analytics", "collection",
   "listings", "traits", "activity", "favorites", "trade", "trades",
   "watchlist", "bids", "my-listings", "alerts", "chat", "history",
-  "sniper", "portfolio", "pro",
+  "sniper", "portfolio", "pro", "integrity",
 ];
 
 // Legacy single-collection exports (used as defaults / backwards compat)

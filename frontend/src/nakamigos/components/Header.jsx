@@ -149,6 +149,7 @@ export const MORE_NAV = [
   ["chat", "Chat"],
   ["history", "History"],
   ["whales", "Whales"],
+  ["integrity", "Integrity"],
   ["about", "About"],
 ];
 
