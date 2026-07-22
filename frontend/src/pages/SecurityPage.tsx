@@ -132,7 +132,7 @@ export default function SecurityPage() {
         {/* Hero */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl font-bold mb-4 text-white" style={{ fontFamily: 'Playfair Display, serif', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Security &amp; Transparency</h1>
-          <p className="text-white/85 max-w-2xl mx-auto text-lg" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Our commitment to protecting your assets through rigorous testing, transparent practices, and battle-tested smart contract design.</p>
+          <p className="text-white/85 max-w-2xl mx-auto text-lg" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Every claim on this page is one you can verify yourself — source-verified contracts on Etherscan, a public audit trail, and code that stays immutable after deployment. Here is the full record, including what we haven't done yet.</p>
         </m.div>
 
         {/* Honest audit-status banner: leads the page. No paid outside-firm
@@ -274,7 +274,7 @@ export default function SecurityPage() {
                       {deployed ? (
                         <div className="text-xs text-[#22c55e] font-mono break-all" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{c.address}</div>
                       ) : (
-                        <div className="text-xs text-amber-300/80 font-mono" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Not deployed — deferred from the relaunch</div>
+                        <div className="text-xs text-amber-300 font-mono" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Not deployed — deferred from the relaunch</div>
                       )}
                     </div>
                     {deployed ? (
@@ -319,7 +319,7 @@ export default function SecurityPage() {
           <h2 className="text-2xl font-bold mb-6">Bug Bounty</h2>
           <ArtCard art={pageArt('security', 16)}>
             <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Bug bounties are paid case-by-case as the treasury allows — we don&rsquo;t run a third-party platform program. Report vulnerabilities directly via Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200">@junglebayac</a> or the disclosure channel in our community footer.</p>
-            <p className="text-[#22c55e]/80 text-sm mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Indicative severity bands below — actual payouts are negotiated per report and paid as treasury funds allow:</p>
+            <p className="text-[#22c55e] text-sm mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Indicative severity bands below — actual payouts are negotiated per report and paid as treasury funds allow:</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {BOUNTY_TIERS.map((t, i) => {
                 const artPiece = pageArt('security', 17 + i);
@@ -359,12 +359,12 @@ export default function SecurityPage() {
                 next operational milestone (see the Risks page). */}
             <div className="mt-4 pt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               <a href={`https://etherscan.io/address/${TREASURY_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200 transition-colors">Treasury Safe ↗</a>
-              <span className="text-white/70">Transitioning to multisig control · as of July 2026</span>
+              <span className="text-white/85">Transitioning to multisig control · as of July 2026</span>
             </div>
           </ArtCard>
         </m.section>
 
-        <p className="text-center text-white/70 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+        <p className="text-center text-white/85 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
           Last reviewed: July 2026
         </p>
 

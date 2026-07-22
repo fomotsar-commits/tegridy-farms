@@ -210,7 +210,11 @@ export default function LendingPage() {
                       <div>
                         <h3 className="text-[13px] font-semibold text-white mb-1 flex items-center gap-1.5">
                           {card.title}
-                          {!SECTION_DEPLOYED[card.key] && (
+                          {SECTION_DEPLOYED[card.key] ? (
+                            <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                              Live
+                            </span>
+                          ) : (
                             <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
                               Soon
                             </span>
@@ -279,7 +283,11 @@ export default function LendingPage() {
               <span className="relative z-10 flex flex-col items-center leading-tight">
                 <span className="inline-flex items-center gap-1.5">
                   {label}
-                  {!SECTION_DEPLOYED[key] && (
+                  {SECTION_DEPLOYED[key] ? (
+                    <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                      Live
+                    </span>
+                  ) : (
                     <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
                       Soon
                     </span>
