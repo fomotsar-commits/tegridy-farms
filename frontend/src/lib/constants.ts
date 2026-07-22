@@ -49,8 +49,8 @@ export const COMMUNITY_GRANTS_ADDRESS = '0x0000000000000000000000000000000000000
 // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9
 export const MEME_BOUNTY_BOARD_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 export const REFERRAL_SPLITTER_ADDRESS = '0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c' as const; // RELAUNCH 2026-06-06 (DeployMVP)
-// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0xaA16dF3dC66c7A6aD7db153711329955519422Ad
-export const PREMIUM_ACCESS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// RELAUNCH 2026-07-16 gated batch (DeployPremiumAccess; Etherscan-verified; fee 10,000 TOWELI/mo). Prev V1: 0xaA16dF3dC66c7A6aD7db153711329955519422Ad
+export const PREMIUM_ACCESS_ADDRESS = '0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5' as const;
 // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A
 export const VOTE_INCENTIVES_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 // Tegridy Pro Pass — an ETH-priced access-pass NFT (deploy a TegridyDropV2 clone
@@ -63,11 +63,11 @@ export const TEGRIDY_PRO_PASS_ADDRESS = '0x0000000000000000000000000000000000000
 export const TEGRIDY_LENDING_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0xd471e5675EaDbD8C192A5dA2fF44372D5713367f
 // V1 TegridyLaunchpad (0x5d5976...FF3C2) deleted from source 2026-04-19; existing
 // V1 clones remain browseable on Etherscan. Use TEGRIDY_LAUNCHPAD_V2_ADDRESS.
-export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0
+export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B' as const; // RELAUNCH 2026-07-16 gated batch (fee 50bps → treasury; pool template 0x98553C2a…ff481A). Prev V1: 0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0
 // RELAUNCH 2026-06-06 (DeployMVP)
 export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0x5cfEe751eAf274F68b05267012b85a867dfCd326' as const;
-// Wave 0 2026-04-18: C-02 grace period redeploy
-export const TEGRIDY_NFT_LENDING_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x05409880aDFEa888F2c93568B8D88c7b4aAdB139
+// RELAUNCH 2026-07-16 gated batch (DeployNFTLending; Admin sister 0x69378783…580a9C; fee 500bps)
+export const TEGRIDY_NFT_LENDING_ADDRESS = '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F' as const; // Prev V1: 0x05409880aDFEa888F2c93568B8D88c7b4aAdB139
 // RELAUNCH 2026-06-06 (DeployMVP) — needs 4x update() bootstrap after LP seed (audit H-18)
 export const TEGRIDY_TWAP_ADDRESS = '0xdFdd6D72539A425dC917F49FB834901105cA98c9' as const;
 // Wave 0 2026-04-18: Uniswap V4 fee hook (B7). Address ends in 0x0044 for
@@ -78,9 +78,9 @@ export const TEGRIDY_TWAP_ADDRESS = '0xdFdd6D72539A425dC917F49FB834901105cA98c9'
 export const TEGRIDY_FEE_HOOK_ADDRESS = '0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044' as const;
 
 // Launchpad V2 — click-deploy flow with single-tx createCollection + contractURI.
-// Placeholder until DeployLaunchpadV2.s.sol broadcasts. Frontend can still list v1
-// collections and fall through to the legacy form while this is zero.
-export const TEGRIDY_LAUNCHPAD_V2_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// RELAUNCH 2026-07-16 gated batch (DeployLaunchpadV2; DropV2 template 0xA35ec3e2…873e872;
+// fee 500bps → treasury 0x7D26…Bd7d baked into every clone).
+export const TEGRIDY_LAUNCHPAD_V2_ADDRESS = '0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7' as const;
 
 // Uniswap V2 (external routing fallback)
 export const UNISWAP_V2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D' as const;

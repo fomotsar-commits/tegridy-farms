@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react';
 import type { Dispatch } from 'react';
 import { parseEther } from 'viem';
 import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
-import { TEGRIDY_LAUNCHPAD_V2_ADDRESS, CHAIN_ID } from '../../../lib/constants';
+import { TEGRIDY_LAUNCHPAD_V2_ADDRESS, CHAIN_ID, isDeployed } from '../../../lib/constants';
 import { TEGRIDY_LAUNCHPAD_V2_ABI } from '../../../lib/contracts';
 import { getAddressUrl } from '../../../lib/explorer';
 import { arweaveUri } from '../../../lib/irysClient';
 import type { WizardState, WizardAction } from './wizardReducer';
 import { BTN_EMERALD, LABEL } from '../launchpadConstants';
-
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 export function Step5_Deploy({
   state,
@@ -26,7 +24,7 @@ export function Step5_Deploy({
   const [localErr, setLocalErr] = useState<string | null>(null);
   const chainId = useChainId();
 
-  const factoryDeployed = TEGRIDY_LAUNCHPAD_V2_ADDRESS !== ZERO_ADDRESS;
+  const factoryDeployed = isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS);
 
   const handleDeploy = () => {
     // AUDIT FIX M-8: refuse on wrong chain so the user doesn't burn ETH
