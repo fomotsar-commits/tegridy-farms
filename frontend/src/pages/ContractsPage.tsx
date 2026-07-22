@@ -86,13 +86,7 @@ const GROUPS: ContractGroup[] = [
       { label: 'Tegridy Factory', address: TEGRIDY_FACTORY_ADDRESS, source: 'contracts/src/TegridyFactory.sol' },
       { label: 'Tegridy Router', address: TEGRIDY_ROUTER_ADDRESS, source: 'contracts/src/TegridyRouter.sol' },
       { label: 'Tegridy LP (TOWELI/WETH)', address: TEGRIDY_LP_ADDRESS, source: 'contracts/src/TegridyPair.sol' },
-      {
-        label: 'LP Farming',
-        address: LP_FARMING_ADDRESS,
-        source: 'contracts/src/TegridyLPFarming.sol',
-        status: 'multisig',
-        note: 'Relaunch redeploy live. Awaiting protocol Safe acceptOwnership() before admin functions work.',
-      },
+      { label: 'LP Farming', address: LP_FARMING_ADDRESS, source: 'contracts/src/TegridyLPFarming.sol' },
       { label: 'Tegridy TWAP Oracle', address: TEGRIDY_TWAP_ADDRESS, source: 'contracts/src/TegridyTWAP.sol' },
       {
         label: 'Tegridy Fee Hook (V4)',
@@ -116,20 +110,8 @@ const GROUPS: ContractGroup[] = [
     title: 'Governance',
     description: 'Gauge voting, incentives, and community programs.',
     entries: [
-      {
-        label: 'Gauge Controller',
-        address: GAUGE_CONTROLLER_ADDRESS,
-        source: 'contracts/src/GaugeController.sol',
-        status: 'multisig',
-        note: 'Relaunch redeploy live (H-2 commit-reveal). Awaiting protocol Safe acceptOwnership().',
-      },
-      {
-        label: 'Vote Incentives',
-        address: VOTE_INCENTIVES_ADDRESS,
-        source: 'contracts/src/VoteIncentives.sol',
-        status: 'redeploy',
-        note: 'Redeploy queued to partner the new commit-reveal GaugeController.',
-      },
+      { label: 'Gauge Controller', address: GAUGE_CONTROLLER_ADDRESS, source: 'contracts/src/GaugeController.sol' },
+      { label: 'Vote Incentives', address: VOTE_INCENTIVES_ADDRESS, source: 'contracts/src/VoteIncentives.sol' },
       { label: 'Community Grants', address: COMMUNITY_GRANTS_ADDRESS, source: 'contracts/src/CommunityGrants.sol' },
       { label: 'Meme Bounty Board', address: MEME_BOUNTY_BOARD_ADDRESS, source: 'contracts/src/MemeBountyBoard.sol' },
       { label: 'Referral Splitter', address: REFERRAL_SPLITTER_ADDRESS, source: 'contracts/src/ReferralSplitter.sol' },
@@ -140,13 +122,7 @@ const GROUPS: ContractGroup[] = [
     title: 'NFT Finance',
     description: 'NFT-collateralized lending, bonding-curve pools, and launchpad.',
     entries: [
-      {
-        label: 'Tegridy Lending',
-        address: TEGRIDY_LENDING_ADDRESS,
-        source: 'contracts/src/TegridyLending.sol',
-        status: 'redeploy',
-        note: 'Part of the V3Features bundle redeploy (DeployV3Features.s.sol) queued before activation.',
-      },
+      { label: 'Tegridy Lending', address: TEGRIDY_LENDING_ADDRESS, source: 'contracts/src/TegridyLending.sol' },
       {
         label: 'Tegridy Launchpad',
         address: TEGRIDY_LAUNCHPAD_V2_ADDRESS,
@@ -157,15 +133,11 @@ const GROUPS: ContractGroup[] = [
         label: 'NFT Pool Factory',
         address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
         source: 'contracts/src/TegridyNFTPoolFactory.sol',
-        status: 'redeploy',
-        note: 'Part of the V3Features bundle redeploy queued before activation.',
       },
       {
         label: 'NFT Lending',
         address: TEGRIDY_NFT_LENDING_ADDRESS,
         source: 'contracts/src/TegridyNFTLending.sol',
-        status: 'multisig',
-        note: 'Relaunch redeploy live (C-02 grace period). Awaiting protocol Safe acceptOwnership().',
       },
       { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TokenURIReader.sol' },
       { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay Apes)' },
