@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { keccak256, stringToHex, getAddress } from 'viem';
 import {
   COW_SETTLEMENT_ADDRESS,
@@ -101,8 +103,39 @@ describe('cowProtocol', () => {
   });
 
   it('cowOrderbookUrl routes through the hardened aggregator proxy', () => {
-    expect(cowOrderbookUrl('orders')).toBe('/api/aggregator/cow/mainnet/api/v1/orders');
-    expect(cowOrderbookUrl('orders/0xdeadbeef')).toBe('/api/aggregator/cow/mainnet/api/v1/orders/0xdeadbeef');
+    expect(cowOrderbookUrl('orders')).toBe('/api/cow/mainnet/api/v1/orders');
+    expect(cowOrderbookUrl('orders/0xdeadbeef')).toBe('/api/cow/mainnet/api/v1/orders/0xdeadbeef');
+  });
+
+  // The invariant behind the literal above: whatever base cowOrderbookUrl emits,
+  // frontend/vercel.json must actually rewrite it to the aggregator function. The
+  // proxy is a FLAT function serving `/api/aggregator` exactly, so an unrewritten
+  // base (e.g. the old `/api/aggregator/cow/...`) 404/405s in prod with no local
+  // signal. This reads the real deploy config so the two can't drift apart.
+  it('cowOrderbookUrl emits a base that vercel.json actually rewrites', () => {
+    // jsdom's import.meta.url isn't a file: URL, so anchor on cwd instead
+    // (vitest runs from frontend/; tolerate a repo-root invocation too).
+    const candidates = [
+      resolve(process.cwd(), 'vercel.json'),
+      resolve(process.cwd(), 'frontend/vercel.json'),
+    ];
+    const configPath = candidates.find((p) => existsSync(p));
+    expect(configPath, `vercel.json not found in ${candidates.join(' or ')}`).toBeTruthy();
+
+    const vercelConfig = JSON.parse(readFileSync(configPath!, 'utf8')) as {
+      rewrites: { source: string; destination: string }[];
+    };
+
+    const url = cowOrderbookUrl('orders');
+    // Turn each rewrite source ("/api/cow/:path*") into a matcher.
+    const matched = vercelConfig.rewrites.filter((r) =>
+      new RegExp(`^${r.source.replace(/:path\*/, '.+').replace(/\*/g, '')}$`).test(url),
+    );
+
+    expect(matched.length).toBeGreaterThan(0);
+    // It must land on the aggregator function with provider=cow — not the SPA fallback.
+    expect(matched[0].destination).toContain('/api/aggregator');
+    expect(matched[0].destination).toContain('provider=cow');
   });
 
   it('isTerminalStatus identifies settled/cancelled/expired orders', () => {

@@ -20,6 +20,7 @@
 import type { Address } from 'viem';
 import {
   COW_APP_DATA_HASH,
+  cowOrderbookUrl,
   type CowOrder,
 } from './cowProtocol';
 
@@ -31,17 +32,13 @@ export const COW_SWAP_DEFAULT_TTL_SECONDS = 20 * 60;
 /**
  * Orderbook URL via the PROVEN, explicitly-rewritten proxy alias.
  *
- * frontend/vercel.json rewrites `/api/cow/:path*` → the hardened aggregator
- * function; this is the same base the live price-comparison quote
- * (lib/aggregator.ts getCowSwapQuote) uses, so it's confirmed to route from the
- * browser. We deliberately DON'T use cowProtocol.ts's cowOrderbookUrl here — it
- * points at `/api/aggregator/cow/...`, which has no matching rewrite in that
- * config (the flat function only serves `/api/aggregator` exactly). Both hit the
- * same per-provider allowlist once routed, so behaviour is identical.
+ * Thin re-export of cowProtocol.ts's `cowOrderbookUrl` — ONE source of truth for
+ * the proxy base. This used to be a second copy of the literal, which is exactly
+ * how the limit-order path drifted onto the unrouted `/api/aggregator/cow/...`
+ * form while the swap path stayed correct. See cowOrderbookUrl for why the
+ * `/api/cow/...` alias is the only base that actually routes.
  */
-export function cowApiUrl(path: string): string {
-  return `/api/cow/mainnet/api/v1/${path}`;
-}
+export const cowApiUrl = cowOrderbookUrl;
 
 // Clamp mirrors useSwap's own 0–20% envelope so the CoW floor can never be laxer
 // than the on-chain swap path the user could otherwise take.
