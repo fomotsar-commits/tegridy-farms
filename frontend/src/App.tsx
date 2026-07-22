@@ -42,6 +42,8 @@ const InfoPage = lazy(() => import('./pages/InfoPage'));
 // holder data is unavailable) + wallet exposure view (the scanner pointed inward).
 const ScannerPage = lazy(() => import('./pages/ScannerPage'));
 const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
+// Deployer reputation graph — a deployer's past launches + what happened to each.
+const DeployerPage = lazy(() => import('./pages/DeployerPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
@@ -242,6 +244,7 @@ function AnimatedRoutes() {
         <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
         <Route path="exposure" element={<Suspense fallback={<PageSkeleton />}><WalletExposurePage /></Suspense>} />
         <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
+        <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

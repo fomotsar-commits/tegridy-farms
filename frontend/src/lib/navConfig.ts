@@ -125,6 +125,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/treasury',   label: 'Treasury' },
       { to: '/scan',       label: 'Token Scanner' },
       { to: '/exposure',   label: 'Wallet Exposure' },
+      { to: '/deployer',   label: 'Deployer Graph' },
     ],
   },
 ];

@@ -6,6 +6,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { LaunchExplorer } from '../components/launcher/LaunchExplorer';
+import { LaunchAfterlife } from '../components/launcher/LaunchAfterlife';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_TIERS,
@@ -304,8 +305,11 @@ export default function LaunchPage() {
 
       {/* Discovery / outcomes surface. Enriched via the aggregator-catchall adapter
           (GeckoTerminal + Etherscan) once a discovery feed populates baselines;
-          degrades to "No launches yet" until then. */}
-      <div className="mt-12">
+          degrades to honest empty states until then. */}
+      <div className="mt-12 space-y-8">
+        {/* Launch Afterlife — honest cohort ledger over the SAME outcomes the
+            explorer lists below. Self-gates to an honest empty statement. */}
+        <LaunchAfterlife outcomes={Object.values(explorer.outcomes)} />
         <LaunchExplorer launches={explorer.launches} outcomes={explorer.outcomes} />
       </div>
     </div>
