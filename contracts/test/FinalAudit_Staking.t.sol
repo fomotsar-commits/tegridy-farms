@@ -403,7 +403,7 @@ contract FinalAuditStaking is Test {
 
     function test_FA09_uint16BoostBpsSafeFromTruncation() public {
         // Max possible boost = MAX_BOOST_BPS + JBAC_BONUS_BPS = 45000
-        uint256 maxBoost = staking.MAX_BOOST_BPS() + staking.JBAC_BONUS_BPS();
+        uint256 maxBoost = monitor.MAX_BOOST_BPS() + monitor.JBAC_BONUS_BPS();
         assertEq(maxBoost, 45000, "Max boost is 45000");
         assertTrue(maxBoost <= type(uint16).max, "45000 fits in uint16 (max 65535)");
 
@@ -430,7 +430,7 @@ contract FinalAuditStaking is Test {
     // ═══════════════════════════════════════════════════════════════════
 
     function test_FA10_uint32LockDurationSafe() public {
-        uint256 maxLock = staking.MAX_LOCK_DURATION();
+        uint256 maxLock = monitor.MAX_LOCK_DURATION();
         assertTrue(maxLock <= type(uint32).max, "MAX_LOCK_DURATION fits in uint32");
 
         // Verify the value is preserved correctly
@@ -553,7 +553,7 @@ contract FinalAuditStaking is Test {
         staking.toggleAutoMaxLock(bobTokenId);
 
         (,uint256 boostAfterToggle,,,,) = monitor.getPosition(bobTokenId);
-        assertEq(boostAfterToggle, staking.MAX_BOOST_BPS(), "Boost should be max after toggle");
+        assertEq(boostAfterToggle, monitor.MAX_BOOST_BPS(), "Boost should be max after toggle");
 
         // Wait and claim - lockEnd extends but boost stays the same
         vm.warp(block.timestamp + 7 days);
@@ -565,7 +565,7 @@ contract FinalAuditStaking is Test {
         assertEq(boostAfterClaim, boostAfterToggle, "Boost unchanged after claim with autoMaxLock");
         // lockEnd should have been extended
         (,,uint256 lockEnd,,,) = monitor.getPosition(bobTokenId);
-        assertEq(lockEnd, block.timestamp + staking.MAX_LOCK_DURATION(), "Lock end extended to max");
+        assertEq(lockEnd, block.timestamp + monitor.MAX_LOCK_DURATION(), "Lock end extended to max");
     }
 
     // ═══════════════════════════════════════════════════════════════════

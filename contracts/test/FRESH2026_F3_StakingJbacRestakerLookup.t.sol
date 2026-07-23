@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 
 /// @title FRESH-2026 F3 — TegridyStaking.getReward autoMaxLock JBAC restaker-aware lookup
 /// @notice POST-FIX REGRESSION (commit ad0042e).
@@ -126,6 +127,8 @@ contract FRESH2026_F3_StakingJbacRestakerLookupTest is Test {
     F3_Toweli toweli;
     F3_JBAC jbac;
     TegridyStaking staking;
+    // EIP-170 golf (2026-07-23): lock/boost bounds re-exposed on the sibling.
+    StakingMonitorView monitor;
     TegridyStakingAdmin admin;
     TegridyStakingJbacVault vault;
     MockRestaker_F3 mockRestaker;
@@ -155,6 +158,7 @@ contract FRESH2026_F3_StakingJbacRestakerLookupTest is Test {
         toweli = new F3_Toweli();
         jbac = new F3_JBAC();
         staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e14);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
@@ -295,7 +299,7 @@ contract FRESH2026_F3_StakingJbacRestakerLookupTest is Test {
         // 3) lockEnd extended to MAX (autoMaxLock fired).
         assertApproxEqAbs(
             lockEndAfter,
-            block.timestamp + staking.MAX_LOCK_DURATION(),
+            block.timestamp + monitor.MAX_LOCK_DURATION(),
             2,
             "autoMaxLock extended lockEnd to now+MAX"
         );

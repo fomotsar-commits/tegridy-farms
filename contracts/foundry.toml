@@ -10,33 +10,55 @@ optimizer = true
 # dropping runs (dropping runs to 1 only saved ~1.2KB and never brought
 # TegridyStaking under 24,576 — confirmed during the 2026-05-24 re-audit).
 #
-# MVP-path EIP-170 status (2026-05-30 re-split — the May 26-28 fix waves
-# re-inflated all three of TegridyStaking / TegridyFactory / SwapFeeRouter past the
-# 24,576-byte ceiling). Battle-tested approach: ZERO new custom marshalling code;
-# only (1) DRY refactors that DELETE duplicated patterns, (2) verbatim Solady
-# primitive swaps from billion-dollar protocols, (3) read-only sister contracts.
+# MVP-path EIP-170 status. ALL FIGURES BELOW MEASURED 2026-07-23 — re-measure with
+# `forge build --skip test --skip script` then read deployedBytecode.object length
+# from out/<Name>.sol/<Name>.json before trusting them. Battle-tested approach: ZERO
+# new custom marshalling code; only (1) DRY refactors that DELETE duplicated patterns,
+# (2) verbatim Solady primitive swaps from billion-dollar protocols, (3) read-only
+# sister contracts, (4) dropping dead external selectors to `internal`.
 #
-# TegridyStaking: 24,537 B (~39 B headroom — RAZOR-THIN, FROZEN for launch).
-#   ANY further growth must extract more to a lib or sister; do NOT consume buffer.
+# TegridyStaking: 23,996 B (580 B headroom).
+#   HISTORY: the 2026-05-30 note here read "24,537 B / ~39 B headroom, FROZEN for
+#   launch". That figure went stale — the contract had silently drifted to 24,569 B,
+#   i.e. SEVEN bytes of headroom, and CI did not catch it because TegridyStaking sat
+#   on the contracts-ci.yml size-budget allowlist, which warned instead of erroring.
+#   The 2026-07-23 golf reclaimed 573 B and took it back under the 24,000 CI floor;
+#   it is now OFF that allowlist and held by a hard gate. See the two-tier allowlist
+#   note in .github/workflows/contracts-ci.yml.
 #   - src/lib/StakingViewLib.sol: read-only views (votingPowerOf / aggregateActive
 #     BoostBps / earned / earnedFromMem) + resolveJbac JBAC-revalidation helper
-#     (2026-05-30 DRY split: was inline in 3 callsites). All `internal` so they
-#     inline rather than paying the per-callsite delegatecall wrapper.
+#     (2026-05-30 DRY split: was inline in 3 callsites). `resolveJbac` is `internal`
+#     so it inlines rather than paying the per-callsite delegatecall wrapper —
+#     RE-CONFIRMED 2026-07-23: flipping it to `public` COSTS +107 B (3 wrappers beat
+#     3 inlined bodies only for cheaply-bodied functions). Do not re-try this.
 #   - src/lib/StakingRewardLib.sol: live reward-accounting cluster (May-24 C1).
 #   - src/StakingMonitorView.sol: read-only SISTER contract exposing the heaviest
-#     off-chain views (earned, getPosition, totalLocked, stakeCapUtilizationBps,
-#     stakeCapHeadroom). Forta / Defender / dashboards / indexers point at the
+#     off-chain views (earned, getPosition) plus, since 2026-07-23,
+#     stakeCapUtilizationBps / stakeCapHeadroom and the five lock/boost bounds
+#     (MIN/MAX_LOCK_DURATION, MIN/MAX_BOOST_BPS, JBAC_BONUS_BPS) that dropped to
+#     `internal` on the host. Forta / Defender / dashboards / indexers point at the
 #     sister address — zero off-chain breakage, zero protocol state.
+#     NOTE: the sister's copies of those five bounds are hand-mirrored (the host's are
+#     `internal`, so the compiler cannot link them). test/StakingMonitorViewConstants.t.sol
+#     pins them to the host's live `calculateBoost` curve so drift fails the build.
 #   - Verbatim Solady swaps: SafeTransferLib (was OZ SafeERC20), EnumerableSetLib
 #     (was OZ EnumerableSet), SafeCastLib (was OZ SafeCast). All assembly-tight
 #     drop-ins used in production by Aerodrome, Uniswap V4 hooks, many others.
-# TegridyFactory: 12,133 B (~12,443 B headroom).
+#   WHAT DID NOT WORK (measured 2026-07-23 — do not repeat):
+#     - Collapsing the near-identical stake() / stakeWithBoost() prefixes into one
+#       shared `_openPosition` helper: +148 B. via_ir already merges those blocks,
+#       so the explicit helper only ADDS branch + call overhead. Source-level DRY is
+#       NOT bytecode DRY under via_ir.
+# TegridyFactory: 12,133 B (12,443 B headroom).
 #   - src/lib/TegridyFactoryLib.sol: ERC-777 detection + CREATE2 pair deployment
 #     (carries the ~11 KB type(TegridyPair).creationCode blob into the lib).
-# SwapFeeRouter: 21,392 B (~3,184 B headroom).
+# SwapFeeRouter: 21,531 B (3,045 B headroom).
 #   - src/lib/SwapFeeRouterConvertLib.sol: TWAP-floor conversion cluster.
+# VoteIncentives: 24,197 B (379 B headroom) — now the TIGHTEST deploy-path contract
+#   in the repo, having inherited that title from TegridyStaking. Watch this one next;
+#   the VoteIncentivesAdmin split is the planned fix.
 #
-# TegridyRestaking: still ~31.3 KB — DEFERRED to Phase 7 (removed from the MVP
+# TegridyRestaking: 31,399 B — DEFERRED to Phase 7 (removed from the MVP
 #   DeployMVP/VerifyMVP path). MUST be split + deployed + wired before restaking
 #   opens; it is the only LIVE-on-mainnet candidate currently over EIP-170.
 #
