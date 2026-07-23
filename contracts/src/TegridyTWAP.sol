@@ -897,6 +897,19 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // Pattern of record: Uniswap V3's observation.tick is sourced from
         // the last accepted swap in the block — symmetric here for the honest
         // and dormancy-recovery paths.
+        //
+        // KNOWN-DEFERRED (Spartan audit 2026-07-22, MEDIUM — liveness-only, fix at
+        // next redeploy, fold into the TWAP-deepen redeploy): this baseline is
+        // written from raw INSTANTANEOUS spot with no too-fresh guard. A keeper who
+        // is the SOLE successful updater across consecutive windows can ratchet the
+        // baseline via same-block manipulate->update(19.9% < MAX_DEVIATION_BPS)->unwind,
+        // eventually opening a >20% gap that reverts honest update() (PriceDeviationTooLarge)
+        // and ages consult() to StaleOracle. Fail-closed (no funds at risk; cumulative
+        // stays honest), self-healing on ANY honest update at true spot, and owner-
+        // recoverable via the 24h proposeAdminResetPair or 1 day of dormancy. FIX:
+        // skip this write when the pair was touched in the same block as this obs
+        // (elapsed-since-pair-touch == 0), or seed lastSpot from the cumulative-TWAP
+        // delta rather than instantaneous spot (preferred — matches consult()).
         if (!forcedBypass && count > 2) {
             lastSpot0[pair] = spotPrice0;
             lastSpot1[pair] = spotPrice1;

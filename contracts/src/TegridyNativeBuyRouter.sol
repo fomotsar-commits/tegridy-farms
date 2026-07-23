@@ -17,6 +17,18 @@ import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 /// listing through it and asserts the referral credit + NFT delivery, and (3) a
 /// full external audit — before any mainnet deploy. The reference design +
 /// attacker-pass live in docs/NATIVE_BUY_ROUTER_DESIGN.md.
+///
+/// KNOWN PRE-DEPLOY ITEM (Spartan audit 2026-07-22, MEDIUM): the platform fee is
+/// inferred from a whole-contract balance delta (`address(this).balance -
+/// priorBalance`) around the Seaport fill. That assumes Seaport consumes exactly
+/// msg.value; on any fulfillment where Seaport REFUNDS unused ETH to the caller,
+/// the refund is indistinguishable from an intended fee under the delta accounting
+/// and would be mis-booked (swept to treasury) instead of returned to the buyer.
+/// GUARD 1 (msg.value == exact native total) makes a refund unlikely on the standard
+/// full-fill path, but the fork suite in (2) MUST include an order that refunds ETH
+/// and assert the buyer gets the change + treasury gets only the intended fee. Prefer
+/// pinning fee to an explicit precomputed amount and refunding the residual to
+/// msg.sender rather than delta-inferring it. Resolve before un-gating.
 /// ─────────────────────────────────────────────────────────────────────────────
 
 // ── Minimal Seaport 1.6 types (only what fulfillAdvancedOrder needs) ──
