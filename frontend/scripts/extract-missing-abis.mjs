@@ -96,14 +96,25 @@ for (const { sol, name } of MISSING) {
   extracted++;
 }
 
+// FAIL CLOSED — do NOT write a partial file (hardened 2026-07-23).
+// Pre-fix this only `console.warn`ed and wrote whatever it had, so running the
+// generator against an incomplete `out/` silently GUTTED abi-supplement.ts and
+// left it looking like a legitimate regeneration. That is a live-breaking edit
+// (contracts.ts does `export *`, so lost exports become dangling imports) and
+// it is easy to do by accident: forge skips artifacts it did not create, and a
+// fresh worktree starts with an empty out/. Bail before the write instead.
+if (missingArtifacts.length) {
+  console.error(`\nRefusing to write ${OUTPUT_FILE} — missing artifacts for:`);
+  missingArtifacts.forEach((s) => console.error(`  - ${s}`));
+  console.error('\nWriting now would drop those exports and silently truncate the file.');
+  console.error('Build them first:  cd contracts && forge build');
+  console.error('(If a contract was deleted on purpose, remove its MISSING entry too.)');
+  process.exit(1);
+}
+
 writeFileSync(OUTPUT_FILE, lines.join('\n'), 'utf8');
 
 console.log(`\nWrote ${extracted}/${MISSING.length} ABIs to ${OUTPUT_FILE}`);
-if (missingArtifacts.length) {
-  console.warn('\nArtifacts not found for:');
-  missingArtifacts.forEach((s) => console.warn(`  - ${s}`));
-  console.warn('\nIf these contracts exist, they may not have been compiled by forge build.');
-}
 
 console.log('\nfrontend/src/lib/contracts.ts must keep re-exporting the output:');
 console.log('  export * from \'./abi-supplement\';');
