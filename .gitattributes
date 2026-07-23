@@ -43,7 +43,7 @@ frontend/src/lib/abi-supplement.ts text eol=lf linguist-generated
 frontend/public/art/**            linguist-vendored
 frontend/public/nakamigos/**      linguist-vendored
 frontend/public/collections/**    linguist-vendored
-frontend/src/generated.ts         linguist-generated
+frontend/src/lib/abi-supplement.ts linguist-generated
 contracts/out/**                  linguist-generated
 contracts/cache/**                linguist-generated
 contracts/broadcast/**            linguist-generated

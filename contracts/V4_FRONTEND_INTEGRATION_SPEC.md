@@ -1,8 +1,9 @@
 # V4 Frontend Integration Spec
 
 > For the V4-live-at-relaunch dual-AMM. Expands §4 of `V4_DEPLOY_AND_MIGRATION_RUNBOOK.md`.
-> Frontend stack: Vite + React + wagmi/viem + RainbowKit; ABIs generated via
-> `frontend/wagmi.config.ts` → `src/generated.ts`. **Spec only — wiring happens
+> Frontend stack: Vite + React + wagmi/viem + RainbowKit; ABIs live in
+> `frontend/src/lib/contracts.ts`, whose generated half (`./abi-supplement`) comes
+> from `npm run extract-abis`. **Spec only — wiring happens
 > post-deploy (post-audit).** The point of this doc: make the #2 discount and #3
 > boosted-LP actually reach users, and handle the dual-pool transition.
 
@@ -16,9 +17,10 @@ A V4 hook sees the **router** as `sender`, not the user. So:
   (not from merely holding a V4 position) — the staker attributes to the depositor.
 
 ## 1. Codegen / config
-- Add to `wagmi.config.ts` + addresses map (per chain): `TegridyV4Hook`,
-  `TegridyV4SwapRouter`, `TegridyBoostedLPStaker`, canonical `PoolManager`,
-  `PositionManager`, `StateView`/`StateLibrary`. Regenerate `src/generated.ts`.
+- Add to `src/lib/contracts.ts` + the addresses map in `src/lib/constants.ts`
+  (per chain): `TegridyV4Hook`, `TegridyV4SwapRouter`, `TegridyBoostedLPStaker`,
+  canonical `PoolManager`, `PositionManager`, `StateView`/`StateLibrary`. Run
+  `npm run extract-abis` from the repo root to refresh `abi-supplement.ts`.
 - Store the `PoolKey` (currency0=ETH/native or WETH, currency1=TOWELI, fee=DYNAMIC_FEE_FLAG,
   tickSpacing=60, hooks=TegridyV4Hook) as a constant; derive `poolId = keccak256(abi.encode(key))`.
 

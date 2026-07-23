@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { decodeFunctionResult, encodeAbiParameters, type AbiFunction } from 'viem';
-import { memeBountyBoardAbi } from '../generated';
 import { MEME_BOUNTY_BOARD_ABI } from './contracts';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -13,13 +12,16 @@ import { MEME_BOUNTY_BOARD_ABI } from './contracts';
 //
 // History: a phantom 8th `dummy` output was introduced in the hand-written
 // MEME_BOUNTY_BOARD_ABI (28e0348, 2026-03-24) and removed there in fe60a2d
-// (2026-05-31, "over-declare is the decode-breaking direction") — but
-// src/generated.ts was never re-run through `wagmi generate`, so the stale
-// 8-value copy survived. Over-declaring makes viem demand 32 extra bytes that
-// the contract never returns, so every decode throws.
+// (2026-05-31, "over-declare is the decode-breaking direction") — but the
+// second, redundant copy in the wagmi-generated src/generated.ts was never
+// re-run through codegen, so the stale 8-value entry survived until the dead
+// generated.ts / wagmi.config.ts pair was deleted outright. src/lib/contracts.ts
+// (+ its generated ./abi-supplement half) is now the single ABI source of truth.
 //
-// The bug hid because bountyCount() == 0 on the live board: the read reverts
-// with Panic(0x32) on the array access before decoding is ever reached.
+// The stale copy hid for two months because bountyCount() == 0 on the live
+// board: the read reverts with Panic(0x32) on the array access before decoding
+// is ever reached. See also the final two tests — over-declaring here could not
+// have thrown even with a populated board.
 //
 // NOTE: the Solidity return widths are deliberately uint256 even though the
 // storage struct is repacked to uint96/uint48 — the packing is intentionally
@@ -62,18 +64,19 @@ const getBountyOf = (abi: readonly unknown[]) =>
   (abi as AbiFunction[]).find((e) => e.type === 'function' && e.name === 'getBounty')!;
 
 describe('MemeBountyBoard getBounty ABI — arity matches deployed bytecode', () => {
-  it('generated.ts declares exactly the 7 outputs the contract returns', () => {
-    const entry = getBountyOf(memeBountyBoardAbi);
+  it('declares exactly the 7 outputs the deployed contract returns', () => {
+    const entry = getBountyOf(MEME_BOUNTY_BOARD_ABI);
     expect(entry).toBeDefined();
-    // Pins the invariant, not a literal count: generated must equal ground truth.
+    // Pins the invariant, not a literal count: the shipped ABI must equal the
+    // deployed tuple field-for-field.
     expect(entry.outputs.map((o) => ({ name: o.name, type: o.type }))).toEqual(
       DEPLOYED_GET_BOUNTY_OUTPUTS.map((o) => ({ name: o.name, type: o.type })),
     );
   });
 
-  it('decodes a real bounty payload via generated.ts without throwing', () => {
+  it('decodes a real bounty payload without throwing', () => {
     const decoded = decodeFunctionResult({
-      abi: memeBountyBoardAbi,
+      abi: MEME_BOUNTY_BOARD_ABI,
       functionName: 'getBounty',
       data: REAL_RETURN_DATA,
     }) as readonly [string, string, bigint, bigint, string, bigint, number];
@@ -86,27 +89,6 @@ describe('MemeBountyBoard getBounty ABI — arity matches deployed bytecode', ()
     expect(decoded[4]).toBe(BOUNTY.winner);
     expect(decoded[5]).toBe(BOUNTY.submCount);
     expect(decoded[6]).toBe(BOUNTY.status);
-  });
-
-  it('decodes the same payload via the hand-written lib/contracts ABI', () => {
-    const decoded = decodeFunctionResult({
-      abi: MEME_BOUNTY_BOARD_ABI,
-      functionName: 'getBounty',
-      data: REAL_RETURN_DATA,
-    }) as readonly [string, string, bigint, bigint, string, bigint, number];
-
-    expect(decoded).toHaveLength(7);
-    expect(decoded[2]).toBe(BOUNTY.reward);
-    expect(decoded[6]).toBe(BOUNTY.status);
-  });
-
-  it('generated.ts and lib/contracts.ts do not drift apart', () => {
-    // wagmi.config.ts generates src/generated.ts *from* MEME_BOUNTY_BOARD_ABI,
-    // so the two must stay identical. This is the guard that would have caught
-    // the 2026-05-31 fix landing in one file but not the other.
-    expect(getBountyOf(memeBountyBoardAbi).outputs).toEqual(
-      getBountyOf(MEME_BOUNTY_BOARD_ABI).outputs,
-    );
   });
 
   // Why the stale ABI survived two months unnoticed. The obvious guess — "an
