@@ -58,6 +58,8 @@ export const communityGrantsAbi = [
       { name: 'votesAgainst', type: 'uint256' },
       { name: 'deadline', type: 'uint256' },
       { name: 'status', type: 'uint8' },
+      { name: 'snapshotTimestamp', type: 'uint256' },
+      { name: 'snapshotTotalStake', type: 'uint256' },
     ],
     stateMutability: 'view',
   },
@@ -102,7 +104,7 @@ export const communityGrantsAbi = [
 ] as const
 
 export const communityGrantsAddress =
-  '0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const communityGrantsConfig = {
   address: communityGrantsAddress,
@@ -307,10 +309,32 @@ export const gaugeControllerAbi = [
     ],
     name: 'VoteRevealed',
   },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [{ name: 'gauge', type: 'address', indexed: true }],
+    name: 'GaugeAdded',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [{ name: 'gauge', type: 'address', indexed: true }],
+    name: 'GaugeRemoved',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'voter', type: 'address', indexed: true },
+      { name: 'tokenId', type: 'uint256', indexed: true },
+      { name: 'epoch', type: 'uint256', indexed: true },
+    ],
+    name: 'Voted',
+  },
 ] as const
 
 export const gaugeControllerAddress =
-  '0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const gaugeControllerConfig = {
   address: gaugeControllerAddress,
@@ -381,7 +405,7 @@ export const lpFarmingAbi = [
   {
     type: 'function',
     inputs: [],
-    name: 'totalSupply',
+    name: 'totalRawSupply',
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -434,10 +458,31 @@ export const lpFarmingAbi = [
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    inputs: [{ name: '', type: 'address' }],
+    name: 'rawBalanceOf',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '', type: 'address' }],
+    name: 'effectiveBalanceOf',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'account', type: 'address' }],
+    name: 'refreshBoost',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
 ] as const
 
 export const lpFarmingAddress =
-  '0xa7EF711Be3662B9557634502032F98944eC69ec1' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const lpFarmingConfig = {
   address: lpFarmingAddress,
@@ -512,7 +557,6 @@ export const memeBountyBoardAbi = [
       { name: 'winner', type: 'address' },
       { name: 'submCount', type: 'uint256' },
       { name: 'status', type: 'uint8' },
-      { name: 'dummy', type: 'uint256' },
     ],
     stateMutability: 'view',
   },
@@ -599,7 +643,7 @@ export const memeBountyBoardAbi = [
 ] as const
 
 export const memeBountyBoardAddress =
-  '0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const memeBountyBoardConfig = {
   address: memeBountyBoardAddress,
@@ -677,7 +721,7 @@ export const premiumAccessAbi = [
 ] as const
 
 export const premiumAccessAddress =
-  '0xaA16dF3dC66c7A6aD7db153711329955519422Ad' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const premiumAccessConfig = {
   address: premiumAccessAddress,
@@ -927,6 +971,20 @@ export const swapFeeRouterAbi = [
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'paused',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'treasury',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
 ] as const
 
 export const swapFeeRouterAddress =
@@ -946,6 +1004,7 @@ export const tegridyDropV2Abi = [
     type: 'function',
     inputs: [
       { name: 'quantity', type: 'uint256' },
+      { name: 'allowedAmount', type: 'uint256' },
       { name: 'proof', type: 'bytes32[]' },
     ],
     name: 'mint',
@@ -1456,7 +1515,7 @@ export const tegridyLendingAbi = [
 ] as const
 
 export const tegridyLendingAddress =
-  '0xd471e5675EaDbD8C192A5dA2fF44372D5713367f' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const tegridyLendingConfig = {
   address: tegridyLendingAddress,
@@ -1476,6 +1535,7 @@ export const tegridyNftLendingAbi = [
       { name: '_duration', type: 'uint256' },
       { name: '_collateralContract', type: 'address' },
       { name: '_tokenId', type: 'uint256' },
+      { name: '_expiry', type: 'uint64' },
     ],
     name: 'createOffer',
     outputs: [{ name: 'offerId', type: 'uint256' }],
@@ -1581,7 +1641,7 @@ export const tegridyNftLendingAbi = [
 ] as const
 
 export const tegridyNftLendingAddress =
-  '0x05409880aDFEa888F2c93568B8D88c7b4aAdB139' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const tegridyNftLendingConfig = {
   address: tegridyNftLendingAddress,
@@ -1664,7 +1724,7 @@ export const tegridyNftPoolFactoryAbi = [
 ] as const
 
 export const tegridyNftPoolFactoryAddress =
-  '0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const tegridyNftPoolFactoryConfig = {
   address: tegridyNftPoolFactoryAddress,
@@ -2091,13 +2151,6 @@ export const tegridyStakingAbi = [
     type: 'function',
     inputs: [],
     name: 'totalPenaltiesCollected',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    inputs: [],
-    name: 'totalPenaltiesRedistributed',
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
@@ -2554,6 +2607,7 @@ export const voteIncentivesAbi = [
     inputs: [
       { name: 'epoch', type: 'uint256' },
       { name: 'commitHash', type: 'bytes32' },
+      { name: 'power', type: 'uint256' },
     ],
     name: 'commitVote',
     outputs: [{ name: 'commitIndex', type: 'uint256' }],
@@ -2598,10 +2652,63 @@ export const voteIncentivesAbi = [
     ],
     stateMutability: 'view',
   },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'depositor', type: 'address', indexed: true },
+      { name: 'pair', type: 'address', indexed: true },
+      { name: 'token', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'epoch', type: 'uint256', indexed: false },
+    ],
+    name: 'BribeDeposited',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'depositor', type: 'address', indexed: true },
+      { name: 'pair', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'epoch', type: 'uint256', indexed: false },
+    ],
+    name: 'BribeDepositedETH',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'pair', type: 'address', indexed: true },
+      { name: 'epoch', type: 'uint256', indexed: false },
+    ],
+    name: 'BribeClaimed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'epoch', type: 'uint256', indexed: true },
+      { name: 'pair', type: 'address', indexed: true },
+      { name: 'power', type: 'uint256', indexed: false },
+    ],
+    name: 'GaugeVoted',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      { name: 'epoch', type: 'uint256', indexed: true },
+      { name: 'totalPower', type: 'uint256', indexed: false },
+    ],
+    name: 'EpochAdvanced',
+  },
 ] as const
 
 export const voteIncentivesAddress =
-  '0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A' as const
+  '0x0000000000000000000000000000000000000000' as const
 
 export const voteIncentivesConfig = {
   address: voteIncentivesAddress,
@@ -3083,6 +3190,36 @@ export const useWatchGaugeControllerVoteRevealedEvent =
   })
 
 /**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link gaugeControllerAbi}__ and `eventName` set to `"GaugeAdded"`
+ */
+export const useWatchGaugeControllerGaugeAddedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    eventName: 'GaugeAdded',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link gaugeControllerAbi}__ and `eventName` set to `"GaugeRemoved"`
+ */
+export const useWatchGaugeControllerGaugeRemovedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    eventName: 'GaugeRemoved',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link gaugeControllerAbi}__ and `eventName` set to `"Voted"`
+ */
+export const useWatchGaugeControllerVotedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: gaugeControllerAbi,
+    address: gaugeControllerAddress,
+    eventName: 'Voted',
+  })
+
+/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link lpFarmingAbi}__
  */
 export const useReadLpFarming = /*#__PURE__*/ createUseReadContract({
@@ -3109,13 +3246,14 @@ export const useReadLpFarmingBalanceOf = /*#__PURE__*/ createUseReadContract({
 })
 
 /**
- * Wraps __{@link useReadContract}__ with `abi` set to __{@link lpFarmingAbi}__ and `functionName` set to `"totalSupply"`
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link lpFarmingAbi}__ and `functionName` set to `"totalRawSupply"`
  */
-export const useReadLpFarmingTotalSupply = /*#__PURE__*/ createUseReadContract({
-  abi: lpFarmingAbi,
-  address: lpFarmingAddress,
-  functionName: 'totalSupply',
-})
+export const useReadLpFarmingTotalRawSupply =
+  /*#__PURE__*/ createUseReadContract({
+    abi: lpFarmingAbi,
+    address: lpFarmingAddress,
+    functionName: 'totalRawSupply',
+  })
 
 /**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link lpFarmingAbi}__ and `functionName` set to `"rewardRate"`
@@ -3188,6 +3326,27 @@ export const useReadLpFarmingLastTimeRewardApplicable =
   })
 
 /**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link lpFarmingAbi}__ and `functionName` set to `"rawBalanceOf"`
+ */
+export const useReadLpFarmingRawBalanceOf = /*#__PURE__*/ createUseReadContract(
+  {
+    abi: lpFarmingAbi,
+    address: lpFarmingAddress,
+    functionName: 'rawBalanceOf',
+  },
+)
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link lpFarmingAbi}__ and `functionName` set to `"effectiveBalanceOf"`
+ */
+export const useReadLpFarmingEffectiveBalanceOf =
+  /*#__PURE__*/ createUseReadContract({
+    abi: lpFarmingAbi,
+    address: lpFarmingAddress,
+    functionName: 'effectiveBalanceOf',
+  })
+
+/**
  * Wraps __{@link useWriteContract}__ with `abi` set to __{@link lpFarmingAbi}__
  */
 export const useWriteLpFarming = /*#__PURE__*/ createUseWriteContract({
@@ -3249,6 +3408,16 @@ export const useWriteLpFarmingNotifyRewardAmount =
     abi: lpFarmingAbi,
     address: lpFarmingAddress,
     functionName: 'notifyRewardAmount',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link lpFarmingAbi}__ and `functionName` set to `"refreshBoost"`
+ */
+export const useWriteLpFarmingRefreshBoost =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: lpFarmingAbi,
+    address: lpFarmingAddress,
+    functionName: 'refreshBoost',
   })
 
 /**
@@ -3314,6 +3483,16 @@ export const useSimulateLpFarmingNotifyRewardAmount =
     abi: lpFarmingAbi,
     address: lpFarmingAddress,
     functionName: 'notifyRewardAmount',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link lpFarmingAbi}__ and `functionName` set to `"refreshBoost"`
+ */
+export const useSimulateLpFarmingRefreshBoost =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: lpFarmingAbi,
+    address: lpFarmingAddress,
+    functionName: 'refreshBoost',
   })
 
 /**
@@ -3990,6 +4169,26 @@ export const useReadSwapFeeRouterPremiumDiscountBps =
     address: swapFeeRouterAddress,
     functionName: 'premiumDiscountBps',
   })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"paused"`
+ */
+export const useReadSwapFeeRouterPaused = /*#__PURE__*/ createUseReadContract({
+  abi: swapFeeRouterAbi,
+  address: swapFeeRouterAddress,
+  functionName: 'paused',
+})
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link swapFeeRouterAbi}__ and `functionName` set to `"treasury"`
+ */
+export const useReadSwapFeeRouterTreasury = /*#__PURE__*/ createUseReadContract(
+  {
+    abi: swapFeeRouterAbi,
+    address: swapFeeRouterAddress,
+    functionName: 'treasury',
+  },
+)
 
 /**
  * Wraps __{@link useWriteContract}__ with `abi` set to __{@link swapFeeRouterAbi}__
@@ -5755,16 +5954,6 @@ export const useReadTegridyStakingTotalPenaltiesCollected =
   })
 
 /**
- * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyStakingAbi}__ and `functionName` set to `"totalPenaltiesRedistributed"`
- */
-export const useReadTegridyStakingTotalPenaltiesRedistributed =
-  /*#__PURE__*/ createUseReadContract({
-    abi: tegridyStakingAbi,
-    address: tegridyStakingAddress,
-    functionName: 'totalPenaltiesRedistributed',
-  })
-
-/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link tegridyStakingAbi}__ and `functionName` set to `"unsettledRewards"`
  */
 export const useReadTegridyStakingUnsettledRewards =
@@ -6658,4 +6847,63 @@ export const useSimulateVoteIncentivesSweepForfeitedBond =
     abi: voteIncentivesAbi,
     address: voteIncentivesAddress,
     functionName: 'sweepForfeitedBond',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link voteIncentivesAbi}__
+ */
+export const useWatchVoteIncentivesEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link voteIncentivesAbi}__ and `eventName` set to `"BribeDeposited"`
+ */
+export const useWatchVoteIncentivesBribeDepositedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    eventName: 'BribeDeposited',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link voteIncentivesAbi}__ and `eventName` set to `"BribeDepositedETH"`
+ */
+export const useWatchVoteIncentivesBribeDepositedEthEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    eventName: 'BribeDepositedETH',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link voteIncentivesAbi}__ and `eventName` set to `"BribeClaimed"`
+ */
+export const useWatchVoteIncentivesBribeClaimedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    eventName: 'BribeClaimed',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link voteIncentivesAbi}__ and `eventName` set to `"GaugeVoted"`
+ */
+export const useWatchVoteIncentivesGaugeVotedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    eventName: 'GaugeVoted',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link voteIncentivesAbi}__ and `eventName` set to `"EpochAdvanced"`
+ */
+export const useWatchVoteIncentivesEpochAdvancedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: voteIncentivesAbi,
+    address: voteIncentivesAddress,
+    eventName: 'EpochAdvanced',
   })
