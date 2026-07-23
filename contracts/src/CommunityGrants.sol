@@ -10,19 +10,38 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
+/// @dev EVERY member declared here MUST exist on the deployed `votingEscrow`
+///      (TegridyStaking — see script/DeployCommunityGrants.s.sol, which wires
+///      `votingEscrow = vm.envAddress("STAKING")`). A declaration whose selector
+///      is absent from the callee's compiled ABI does NOT fail to compile: the
+///      call reverts at runtime with empty returndata, because there is no
+///      matching selector and TegridyStaking has no `fallback()`.
+///
+///      That is not hypothetical. `userPositionCount` was lowered
+///      `external -> internal` on TegridyStaking during the 2026-05-29 EIP-170
+///      golf, which silently bricked `createProposal` for every proposer.
+///      `votingPowerAt(address,uint256)` and `totalLocked()` were likewise
+///      declared here but absent from TegridyStaking (`totalLocked` was removed
+///      in the 2026-05-30 golf as a redundant alias for `totalStaked`); both are
+///      deleted rather than left as loaded guns for the next caller.
+///
+///      Guarded by
+///      test/CommunityGrants_RealStakingIntegration.t.sol
+///      ::test_stakingExposesEveryDeclaredVotingEscrowSelector — keep in sync.
 interface IVotingEscrowGrants {
     function votingPowerOf(address user) external view returns (uint256);
-    function votingPowerAt(address user, uint256 blockNumber) external view returns (uint256);
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
-    function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     /// AUDIT FIX (BATCH-A C3): historical denominator for OZ-Governor-style snapshot quorum.
     function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256);
     function userTokenId(address user) external view returns (uint256); // SECURITY FIX C1: Track proposer's NFT
     // AUDIT M13: per-owner set membership check used to detect multi-NFT self-vote bypass.
     function holdsToken(address user, uint256 tokenId) external view returns (bool);
-    /// AUDIT FIX (BATCH-E H11): position count for the proposer-must-have-single-position rule.
-    function userPositionCount(address user) external view returns (uint256);
+    /// AUDIT FIX (BATCH-E H11): position count for the proposer-must-have-single-position
+    /// rule. Sourced from the standard ERC721 `balanceOf` rather than TegridyStaking's
+    /// bespoke `userPositionCount`, which is `internal` and therefore not callable.
+    /// The two are equivalent by construction — see the callsite for the proof.
+    function balanceOf(address user) external view returns (uint256);
 }
 
 /// @title CommunityGrants
@@ -332,7 +351,29 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // consolidate before they can propose. Pattern matches Compound /
         // OZ Governor's `proposalThreshold` philosophy: a proposer must
         // present a single auditable position rather than a fragmented set.
-        if (votingEscrow.userPositionCount(msg.sender) != 1) {
+        // Sourced from the ERC721 `balanceOf` surface. TegridyStaking's own
+        // `userPositionCount` is `internal` (2026-05-29 EIP-170 golf) and so is
+        // absent from its ABI; calling it reverted with empty returndata and
+        // bricked this function entirely.
+        //
+        // EQUIVALENCE PROOF — `balanceOf(u) == _positionsByOwner[u].length()`:
+        // `_positionsByOwner` is mutated in exactly one place,
+        // `StakingRewardLib.afterTokenTransfer`: `remove(id)` when `from != 0`,
+        // `add(id)` when `to != 0`. Solady's ERC721 invokes
+        // `_afterTokenTransfer` on all five balance-mutating paths
+        // (`transferFrom`, `_mint`, `_safeMint`, `_transfer`, `_burn`) and
+        // adjusts `_balanceOf` under identical `from`/`to` guards. Both counters
+        // are therefore driven by the same hook under the same conditions, and
+        // TegridyStaking does not override `balanceOf`. Pinned behaviourally by
+        // test_balanceOfTracksPositionCardinality.
+        //
+        // Using the ERC721 standard surface also costs TegridyStaking ZERO
+        // bytecode. Re-exporting `userPositionCount` would have spent ~87 B to
+        // restate a value `balanceOf` already returns, against a contract that
+        // has repeatedly needed EIP-170 golf to fit at all (measured 24,569 /
+        // 24,576 B on this branch — 7 B of headroom, i.e. the re-export would
+        // not even have fit).
+        if (votingEscrow.balanceOf(msg.sender) != 1) {
             revert ProposerMustHaveSinglePosition();
         }
 

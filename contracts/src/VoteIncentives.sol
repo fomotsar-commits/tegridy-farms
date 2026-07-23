@@ -13,10 +13,18 @@ import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
 /// @dev Interface for TegridyStaking (voting escrow) — Curve-style checkpoint queries.
 ///      Same interface as RevenueDistributor uses.
+/// @dev Every member here MUST exist on the deployed `votingEscrow`
+///      (TegridyStaking). A declared-but-absent selector compiles fine and then
+///      reverts at runtime with empty returndata — the failure mode that bricked
+///      `CommunityGrants.createProposal` when `userPositionCount` was lowered
+///      external->internal in the 2026-05-29 EIP-170 golf.
+///      `totalLocked()` was such a declaration: removed from TegridyStaking in
+///      the 2026-05-30 golf as a redundant alias for `totalStaked`, but left
+///      declared here. Unused, so deleted rather than left as a loaded gun for
+///      the next caller added to this file.
 interface IVotingEscrow {
     function votingPowerOf(address user) external view returns (uint256);
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
-    function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     function userTokenId(address user) external view returns (uint256);
     // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order

@@ -65,7 +65,13 @@ contract MockVEGrants {
     }
 
     /// @dev BATCH-E H11: proposer-must-have-single-position rule — mock returns 1.
-    function userPositionCount(address) external pure returns (uint256) {
+    ///      NOTE: this mock declares the whole IVotingEscrowGrants surface as
+    ///      `external`, so it CANNOT catch a selector going missing on the real
+    ///      TegridyStaking (which is exactly how the `userPositionCount`
+    ///      external->internal demotion slipped through). That bug class is
+    ///      covered by test/CommunityGrants_RealStakingIntegration.t.sol, which
+    ///      binds CommunityGrants to a real TegridyStaking.
+    function balanceOf(address) external pure returns (uint256) {
         return 1;
     }
 }

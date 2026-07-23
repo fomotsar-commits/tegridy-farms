@@ -6,7 +6,8 @@
   "scripts": {
     "render-og-png": "node scripts/render-og-png.mjs",
     "extract-abis": "node frontend/scripts/extract-missing-abis.mjs",
-    "diff-addresses": "npx tsx scripts/diff-addresses.ts"
+    "diff-addresses": "npx tsx scripts/diff-addresses.ts",
+    "check-selectors": "node scripts/check-interface-selectors.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2"
