@@ -48,6 +48,12 @@ const OUTPUT_FILE = join(REPO_ROOT, 'frontend', 'src', 'lib', 'abi-supplement.ts
 // Every entry requires a live named import in frontend code (see header).
 const MISSING = [
   { sol: 'TegridyTWAP.sol', name: 'TEGRIDY_TWAP_ABI' }, // hooks/useToweliPrice.ts
+  // BRANCH DELTA vs #97 (2026-07-23). #97 pruned POL_ACCUMULATOR_ABI as dead —
+  // true on `main`, but NOT here: hooks/useProtocolEvents.ts imports it for the
+  // totalLPCreated / totalAccumulations / totalETHUsed reads. Dropping it leaves
+  // a dangling import and breaks the build, so mvp-launch keeps the entry.
+  // Re-check before reconciling the two branches.
+  { sol: 'POLAccumulator.sol', name: 'POL_ACCUMULATOR_ABI' }, // hooks/useProtocolEvents.ts
 ];
 
 if (!existsSync(ARTIFACT_DIR)) {
