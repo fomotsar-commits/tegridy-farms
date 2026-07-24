@@ -205,9 +205,26 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// @notice Stores each tokenId's vote allocations for the epoch they voted in
     mapping(uint256 => VoteAllocation[]) internal _tokenVotes;
 
+    /// @dev GAS (1000-agent audit 2026-07-22, HIGH): packed 2 storage slots → 1.
+    ///      `_tokenVotes` is a STORAGE array and both vote paths `push` one entry per
+    ///      gauge, so the second slot cost a full 20,000-gas cold SSTORE per gauge —
+    ///      ~160,000 gas on a maximum 8-gauge vote.
+    ///
+    ///      `weight` is a BPS share, hard-capped at `MAX_WEIGHT_PER_GAUGE_BPS` (5000)
+    ///      and required to sum to `BPS` (10000). Both writers — `vote()` (:447) and
+    ///      `revealVote()` (:733) — enforce that cap on every element BEFORE the push,
+    ///      so the `uint96` narrowing cannot truncate: the domain is [1, 5000] and
+    ///      `uint96` holds ~7.9e28. `uint96` (12 bytes) is chosen over a tighter
+    ///      `uint16` because it exactly fills the 12 bytes left by `address`, giving
+    ///      free headroom without costing a second slot.
+    ///
+    ///      STORAGE-LAYOUT CHANGE — fresh deploy only; a live instance cannot be
+    ///      repacked in place. Also narrows the `getTokenVotes` return tuple from
+    ///      `(address,uint256)` to `(address,uint96)`; that view has no in-repo
+    ///      consumers, but regenerate the frontend ABI on deploy.
     struct VoteAllocation {
         address gauge;
-        uint256 weight;
+        uint96 weight;
     }
 
     // ─── Commit-Reveal Voting State ─────────────────────────────────
@@ -473,7 +490,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             uint256 allocatedPower = (votingPower * weights[i]) / BPS;
             gaugeWeightByEpoch[epoch][gauges[i]] += allocatedPower;
             totalWeightByEpoch[epoch] += allocatedPower;
-            _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: weights[i]}));
+            _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: uint96(weights[i])}));
             // AUDIT FIX FRESH-2026: F-17-4 — `_updateEpochTop` removed (write-only
             // dead state; not read anywhere after V3-GOV-03 + V3-GOV-06 rewrote
             // `_getRelativeWeightAt` to use only `totalWeightByEpoch`).
@@ -764,7 +781,7 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             uint256 allocatedPower = (votingPower * weights[i]) / BPS;
             gaugeWeightByEpoch[epoch][gauges[i]] += allocatedPower;
             totalWeightByEpoch[epoch] += allocatedPower;
-            _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: weights[i]}));
+            _tokenVotes[tokenId].push(VoteAllocation({gauge: gauges[i], weight: uint96(weights[i])}));
             // AUDIT FIX FRESH-2026: F-17-4 — `_updateEpochTop` removed (dead state).
         }
 

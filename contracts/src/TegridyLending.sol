@@ -471,13 +471,19 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 aprBps;
         uint256 duration;
         address collateralContract;
+        /// @dev GAS (1000-agent audit 2026-07-22): `active` hoisted to sit directly
+        ///      after `collateralContract` so the 1-byte bool shares that address's
+        ///      slot rather than occupying one alone — 1 slot (~20,000 gas) saved per
+        ///      offer created. PURE REORDERING: no narrowing, no call-site change.
+        ///      STORAGE-LAYOUT CHANGE — fresh deploy only (this contract is not yet
+        ///      deployed, so it costs nothing here).
+        bool active;
         uint256 minPositionValue;
         /// @notice AUDIT critique 5.4: Optional ETH-denominated collateral floor. When
         ///         non-zero, `acceptOffer` additionally requires that the position's TOWELI
         ///         amount valued at the current TegridyPair spot reserves >= this threshold.
         ///         Zero = disabled (backward-compatible default — no ETH-floor check applied).
         uint256 minPositionETHValue;
-        bool active;
         /// @dev AUDIT FIX: DEEP-LD-M8 — origination fee held in escrow on the offer
         ///      until acceptance. cancelOffer refunds principal + this; acceptOffer
         ///      forwards this to treasury. Closes silent-tax-on-cancel vector.
@@ -2004,6 +2010,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // AUDIT FIX (M-25 / F-33-1): floor enforcement on the apply path.
         if (newCap < MAX_PRINCIPAL_FLOOR) revert InvalidCapValue();
         if (newCap > MAX_PRINCIPAL_CEILING) revert InvalidCapValue();
+        // AUDIT FIX 2026-07-23 [L-2]: apply-time window cross-check — see
+        // `applyMinPrincipalChange` for the stale-proposal rationale.
+        if (newCap < minPrincipal) revert InvalidCapValue();
         uint256 old = maxPrincipal;
         maxPrincipal = newCap;
         emit MaxPrincipalChanged(old, newCap);
@@ -2372,9 +2381,17 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit SweepDonatedToweliExecuted(amount, to);
     }
 
+    /// @dev AUDIT FIX 2026-07-23 [L-2]: apply-time re-check of the principal window,
+    ///      matching `applyMaxAprBpsChange` (:2015) and `applyMinDurationChange` (:2023).
+    ///      The propose-time guard alone is not sufficient: `maxPrincipal` can move
+    ///      inside the 48h window via its own parallel timelock, so a proposal that was
+    ///      valid when queued can invert the window by the time it executes. Ordering
+    ///      note for operators — as with APR and duration, WIDEN the outer bound first,
+    ///      then move the inner one, or the second apply reverts `InvalidCapValue`.
     function applyMinPrincipalChange(uint256 newValue) external onlyAdmin {
         if (newValue == 0) revert ZeroAmount();
         if (newValue > MAX_MIN_PRINCIPAL) revert InvalidCapValue();
+        if (newValue > maxPrincipal) revert InvalidCapValue();
         uint256 old = minPrincipal;
         minPrincipal = newValue;
         emit MinPrincipalChanged(old, newValue);

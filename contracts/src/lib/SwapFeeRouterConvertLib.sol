@@ -43,6 +43,15 @@ interface IUniswapV2Router02 {
     function factory() external view returns (address);
 }
 
+/// @dev AUDIT FIX 2026-07-23 [M-1]: minimal `decimals()` surface used to scale the
+///      per-token minimum-conversion floor into the token's own units. Declared here
+///      (rather than importing OZ's IERC20Metadata) because only the selector is
+///      needed — the value is fetched by low-level staticcall so that non-standard
+///      tokens degrade to the 18-decimal fallback instead of reverting.
+interface IERC20Decimals {
+    function decimals() external view returns (uint8);
+}
+
 /// @dev AUDIT SFR-H-01: minimal Uniswap V2 factory surface — just `getPair`.
 ///      Lets us look up the token/WETH pair address at conversion time without
 ///      requiring the caller to supply it (and risk being lied to).
@@ -120,6 +129,22 @@ library SwapFeeRouterConvertLib {
     uint256 internal constant TWAP_SAFETY_BPS = 150;
     uint256 internal constant MIN_MULTIHOP_ETH_OUT_WEI = 1e14;
     uint256 internal constant Q112_SFR = 2 ** 112;
+    /// @dev AUDIT FIX 2026-07-23 [M-1]: fallback decimals when a token's `decimals()`
+    ///      is absent / non-standard / absurd. 18 reproduces the pre-fix flat-1e18
+    ///      floor exactly, so unknown tokens keep today's (conservative) behaviour.
+    uint8 internal constant FALLBACK_DECIMALS = 18;
+    /// @dev AUDIT FIX 2026-07-23 [M-1]: upper clamp on a token's self-reported
+    ///      `decimals()`. `10 ** 36` is comfortably inside uint256; anything above
+    ///      is garbage/hostile and falls back to `FALLBACK_DECIMALS`.
+    uint8 internal constant MAX_SANE_DECIMALS = 36;
+    /// @dev AUDIT FIX 2026-07-23 [L-3]: maximum fee-on-transfer haircut the FoT
+    ///      conversion will honour when it rescales the TWAP floor from gross input
+    ///      to the amount actually delivered to the pair. Bounds how far a hostile
+    ///      token can shrink its own slippage floor by under-delivering: at 30% the
+    ///      floor can never collapse below 70% of the TWAP-derived value. Real FoT
+    ///      tokens sit at 1-10%; above 30% the conversion reverts rather than
+    ///      executing against an unbounded floor.
+    uint256 internal constant MAX_FOT_TAX_BPS = 3000;
 
     // ─── Errors (selectors identical to SwapFeeRouter's) ────────────────
     error ZeroAddress();
@@ -132,6 +157,11 @@ library SwapFeeRouterConvertLib {
     error MultiHopOwnerOnly();
     error TokenFeesBelowMinimum();
     error ZeroMinOut();
+    /// @notice AUDIT FIX 2026-07-23 [L-3]: the fee-on-transfer conversion delivered less
+    ///         than `BPS - MAX_FOT_TAX_BPS` of the gross input to the first-hop pair.
+    ///         Rescaling the TWAP floor by that ratio would leave effectively no slippage
+    ///         floor at all, so the conversion is refused instead.
+    error FoTHaircutTooLarge();
 
     // ─── Events (topics identical to SwapFeeRouter's) ───────────────────
     event TokenFeesConverted(address indexed token, uint256 tokenAmount, uint256 ethReceived);
@@ -177,7 +207,10 @@ library SwapFeeRouterConvertLib {
         // discovery needed), no cooldown (no MEV/sandwich vector on a fixed 1:1).
         if (token == cfg.weth) {
             uint256 wethAmount = accumulatedTokenFees[cfg.weth];
-            if (wethAmount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
+            // AUDIT FIX 2026-07-23 [M-1]: decimal-aware floor. WETH is 18-decimal so this
+            // resolves to the same 1e18 as the pre-fix constant — routed through the shared
+            // helper so there is exactly one definition of the floor.
+            if (wethAmount < minTokenFeeForConversion(cfg.weth)) revert TokenFeesBelowMinimum();
             // CEI: zero accounting BEFORE the external withdraw call (which triggers
             // our `receive()` via the WETH contract's `address(this).call`). The
             // outer `nonReentrant` blocks re-entry, but CEI is belt-and-suspenders.
@@ -198,7 +231,8 @@ library SwapFeeRouterConvertLib {
         // AUDIT SFR-M-02: refuse conversions on dust accumulation BEFORE the cooldown
         // stamp is updated, so a 1-wei trigger cannot brick the keeper's conversion.
         uint256 amount = accumulatedTokenFees[token];
-        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
+        // AUDIT FIX 2026-07-23 [M-1]: floor is denominated in the token's own decimals.
+        if (amount < minTokenFeeForConversion(token)) revert TokenFeesBelowMinimum();
         // AUDIT NEW-A5 (HIGH): rate-limit per-token conversions so a sandwich attacker
         // cannot repeatedly manipulate the pool and unwind for free.
         _enforceConversionCooldown(lastConvertedAt, token);
@@ -230,9 +264,9 @@ library SwapFeeRouterConvertLib {
             uint256 effectiveFloor = MIN_MULTIHOP_ETH_OUT_WEI;
             bool directPairExists = cfg.uniFactory.getPair(token, cfg.weth) != address(0);
             if (directPairExists) {
-                (uint256 twapMin, uint256 hopCurCum, uint32 hopCurTs) =
+                (uint256 hopEffMin,, uint256 hopCurCum, uint32 hopCurTs) =
                     _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, amount, minETHOut);
-                if (twapMin > effectiveFloor) effectiveFloor = twapMin;
+                if (hopEffMin > effectiveFloor) effectiveFloor = hopEffMin;
                 // Capture the snapshot data — invalidation logic at end of fn still applies
                 currentCum = hopCurCum;
                 currentTs = hopCurTs;
@@ -247,7 +281,7 @@ library SwapFeeRouterConvertLib {
         } else {
             // AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut and pick the tighter of
             // (callerMinETHOut, twapMinETHOut). Bootstrap path is owner-only (see helper).
-            (effectiveMin, currentCum, currentTs) =
+            (effectiveMin,, currentCum, currentTs) =
                 _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, amount, minETHOut);
         }
 
@@ -309,7 +343,8 @@ library SwapFeeRouterConvertLib {
         // AUDIT SFR-M-02: gate against accumulated bookkeeping rather than balanceOf so a
         // dust-laden balance from a malicious direct transfer cannot enter the cooldown.
         uint256 amount = accumulatedTokenFees[token];
-        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
+        // AUDIT FIX 2026-07-23 [M-1]: floor is denominated in the token's own decimals.
+        if (amount < minTokenFeeForConversion(token)) revert TokenFeesBelowMinimum();
         // AUDIT NEW-A5 (HIGH): shared cooldown across both variants so switching
         // between them doesn't bypass the rate limit.
         _enforceConversionCooldown(lastConvertedAt, token);
@@ -332,22 +367,32 @@ library SwapFeeRouterConvertLib {
         // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
         // slither-disable-next-line uninitialized-local
         uint32 currentTs;
+        // AUDIT FIX 2026-07-23 [L-3]: `grossTwapMin` is the price-derived floor sized on the
+        // GROSS input. It is deliberately NOT enforced pre-swap here (that was the bug: an
+        // FoT token delivers only `gross * (1 - tax)` to the pair, so a gross-sized floor is
+        // unreachable for any tax above ~1.2% and the dedicated FoT variant rejected exactly
+        // the token class it exists to serve). It is rescaled to the measured net delivery
+        // and enforced AFTER the swap by `_enforceFoTNetFloor`. `effectiveMin` below is the
+        // never-rescaled part — the caller's own floor plus the absolute anti-drain floor —
+        // and is what the inner router receives as `amountOutMin`.
+        uint256 grossTwapMin;
         if (path.length > 2) {
             // AUDIT FIX 2026-05-26 [H-03 / FoT]: sequencer gate parity with non-FoT variant.
             SequencerCheck.checkSequencerUp(cfg.sequencerFeed, SEQUENCER_GRACE_PERIOD);
 
-            // AUDIT FIX DEEP-R2-M01 / DEEP-R3-M01 / H-02 [FoT]: same floors as non-FoT.
-            uint256 effectiveFloor = MIN_MULTIHOP_ETH_OUT_WEI;
+            // AUDIT FIX DEEP-R2-M01 / DEEP-R3-M01 [FoT]: the absolute anti-drain floor is
+            // NOT price-derived, so it stays un-rescaled and keeps its pre-swap gate.
             bool directPairExists = cfg.uniFactory.getPair(token, cfg.weth) != address(0);
             if (directPairExists) {
-                (uint256 twapMin, uint256 hopCurCum, uint32 hopCurTs) =
+                // AUDIT FIX 2026-07-23 [L-3 / H-02]: take the raw TWAP component only.
+                (, uint256 hopTwapMin, uint256 hopCurCum, uint32 hopCurTs) =
                     _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, swapAmount, minETHOut);
-                if (twapMin > effectiveFloor) effectiveFloor = twapMin;
+                grossTwapMin = hopTwapMin;
                 currentCum = hopCurCum;
                 currentTs = hopCurTs;
             }
-            if (minETHOut < effectiveFloor) revert ZeroMinOut();
-            effectiveMin = minETHOut > effectiveFloor ? minETHOut : effectiveFloor;
+            if (minETHOut < MIN_MULTIHOP_ETH_OUT_WEI) revert ZeroMinOut();
+            effectiveMin = minETHOut;
             // SELF-AUDIT FIX 2026-05-26 [H-02 NEW-1 / FoT]: single-emit parity.
             if (!directPairExists) {
                 emit ConversionTWAPFloor(token, effectiveMin, minETHOut, false);
@@ -355,9 +400,18 @@ library SwapFeeRouterConvertLib {
         } else {
             // AUDIT SFR-H-01: TWAP-floor minETHOut sized against the actual swap input. Caller
             // can only TIGHTEN the floor; bootstrap is owner-only (see helper).
-            (effectiveMin, currentCum, currentTs) =
+            // AUDIT FIX 2026-07-23 [L-3]: the emitted `ConversionTWAPFloor` still reports the
+            // GROSS anchor (unchanged topic/shape for indexers); the binding floor for this
+            // variant is the rescaled one applied below.
+            (, grossTwapMin, currentCum, currentTs) =
                 _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, swapAmount, minETHOut);
+            effectiveMin = minETHOut;
         }
+
+        // AUDIT FIX 2026-07-23 [L-3]: snapshot the first-hop pair's balance of `token` so the
+        // post-swap check can measure how much actually survived the transfer tax.
+        address firstHopPair = cfg.uniFactory.getPair(path[0], path[1]);
+        uint256 pairBalBefore = firstHopPair == address(0) ? 0 : IERC20(token).balanceOf(firstHopPair);
 
         IERC20(token).forceApprove(address(cfg.router), swapAmount);
 
@@ -368,7 +422,11 @@ library SwapFeeRouterConvertLib {
             swapAmount, effectiveMin, path, address(this), deadline
         );
         uint256 ethReceived = address(this).balance - ethBefore;
-        if (ethReceived < effectiveMin) revert InsufficientOutput();
+        // AUDIT FIX 2026-07-23 [L-3]: enforce (caller floor | absolute floor) un-rescaled, and
+        // the price floor rescaled to the net delivered amount. Reverts atomically, so moving
+        // the price gate after the swap costs gas on a bad trade but concedes nothing: the
+        // sandwich protection is identical because the whole transaction unwinds.
+        _enforceFoTNetFloor(token, firstHopPair, pairBalBefore, swapAmount, grossTwapMin, effectiveMin, ethReceived);
 
         IERC20(token).forceApprove(address(cfg.router), 0);
 
@@ -384,6 +442,100 @@ library SwapFeeRouterConvertLib {
 
         newAccumulatedETHFees += ethReceived;
         emit TokenFeesConverted(token, swapAmount, ethReceived);
+    }
+
+    /// @dev AUDIT FIX 2026-07-23 [L-3]: post-swap slippage gate for the fee-on-transfer
+    ///      conversion variant.
+    ///
+    ///      Pre-fix, `convertTokenFeesToETHFoT` sized its floor as
+    ///      `twapMin = gross * price * (1 - 1.5%)` and handed that to the inner router, but a
+    ///      fee-on-transfer token only delivers `gross * (1 - tax)` to the pair, so the swap
+    ///      returns `≈ gross * (1 - tax) * price * 0.997`. For any tax above ~1.2% the result
+    ///      is structurally below the floor and every attempt reverts `InsufficientOutput` —
+    ///      and with the M-1 withdraw/sweep block in place those fees had no other exit.
+    ///
+    ///      The floor now separates into two parts:
+    ///        * `baseFloor` — the caller's own `minETHOut` and (multi-hop) the absolute
+    ///          `MIN_MULTIHOP_ETH_OUT_WEI` anti-drain floor. NEVER rescaled: a caller may
+    ///          always tighten, and the anti-drain floor is not price-derived.
+    ///        * `grossTwapMin` — the price-derived component, rescaled by the ratio of what
+    ///          the pair ACTUALLY received to the gross input. That ratio is measured from
+    ///          the pair's own `balanceOf` delta, so it reflects the real transfer tax rather
+    ///          than a value the token self-reports.
+    ///
+    ///      `MAX_FOT_TAX_BPS` bounds how far a hostile token can shrink its own floor by
+    ///      under-delivering: below that delivery ratio the conversion reverts outright
+    ///      instead of executing against a floor approaching zero.
+    /// @param token           the FoT token being converted (`path[0]`)
+    /// @param firstHopPair    pair for `path[0]/path[1]`; `address(0)` if unresolvable
+    /// @param pairBalBefore   `token.balanceOf(firstHopPair)` sampled before the swap
+    /// @param swapAmount      gross input handed to the router
+    /// @param grossTwapMin    price-derived floor sized on `swapAmount`; 0 when no anchor exists
+    /// @param baseFloor       never-rescaled floor (caller min, and absolute floor on multi-hop)
+    /// @param ethReceived     measured ETH delta produced by the swap
+    function _enforceFoTNetFloor(
+        address token,
+        address firstHopPair,
+        uint256 pairBalBefore,
+        uint256 swapAmount,
+        uint256 grossTwapMin,
+        uint256 baseFloor,
+        uint256 ethReceived
+    ) internal view {
+        // Un-rescaled floors first — these bind regardless of any FoT behaviour.
+        if (ethReceived < baseFloor) revert InsufficientOutput();
+        // No price anchor (bootstrap branch, or multi-hop with no direct token/WETH pair):
+        // `baseFloor` is the whole floor, exactly as before this fix.
+        // SLITHER: sentinel comparison (zero/uninitialized check)
+        // slither-disable-next-line incorrect-equality
+        if (grossTwapMin == 0) return;
+        if (firstHopPair == address(0)) {
+            // Delivery is unmeasurable — fail CLOSED to the strict gross floor rather than
+            // silently dropping the price gate.
+            if (ethReceived < grossTwapMin) revert InsufficientOutput();
+            return;
+        }
+        uint256 balAfter = IERC20(token).balanceOf(firstHopPair);
+        // Rebasing/negative-delta tokens land at 0 and trip the haircut bound below.
+        uint256 delivered = balAfter > pairBalBefore ? balAfter - pairBalBefore : 0;
+        // A non-FoT (or zero-tax) token delivers the full gross amount; never let a
+        // measurement artefact scale the floor UP above the gross value.
+        if (delivered > swapAmount) delivered = swapAmount;
+        if (delivered < Math.mulDiv(swapAmount, BPS - MAX_FOT_TAX_BPS, BPS)) revert FoTHaircutTooLarge();
+        // Rescale the price floor to what the pair actually got to trade against.
+        uint256 netTwapMin = Math.mulDiv(grossTwapMin, delivered, swapAmount);
+        if (ethReceived < netTwapMin) revert InsufficientOutput();
+    }
+
+    /// @notice AUDIT FIX 2026-07-23 [M-1]: minimum accumulated fee balance that unlocks
+    ///         `convertTokenFeesToETH{,FoT}` for `token`, denominated in THAT TOKEN's own
+    ///         decimals (one whole token unit).
+    /// @dev    Pre-fix this gate was the flat `MIN_TOKEN_FEE_FOR_CONVERSION = 1e18` raw-units
+    ///         constant. The stated intent (SwapFeeRouter NatSpec) was always "one full
+    ///         token" — true only at 18 decimals. For USDC/USDT (6dp) the flat constant
+    ///         demanded 1e12 whole tokens (~$1T) and for WBTC (8dp) 1e10 BTC, i.e. the gate
+    ///         was unreachable, and because `withdrawTokenFees`/`sweepTokens` both refuse any
+    ///         token with a WETH pair, those fees had NO exit at all. Scaling the floor to the
+    ///         token's decimals restores the documented intent and is a no-op at 18 decimals
+    ///         (`10 ** 18 == 1e18`), so existing 18-decimal behaviour is byte-identical.
+    /// @dev    `decimals()` is OPTIONAL in ERC-20, so it is read with a low-level staticcall
+    ///         rather than `try/catch`: a token that returns malformed data would make a
+    ///         typed `try` revert *uncatchably* during return-data decoding. Missing,
+    ///         reverting, short, or absurd (>36) values fall back to 18 — i.e. exactly the
+    ///         pre-fix floor, never something looser.
+    /// @dev    Anti-grief property preserved: the floor is still one whole token, so the
+    ///         SFR-M-02 vector (1-wei dust trigger burning the 1h per-token cooldown) stays
+    ///         closed at every decimal width.
+    function minTokenFeeForConversion(address token) public view returns (uint256) {
+        uint8 d = FALLBACK_DECIMALS;
+        // SLITHER: low-level call is deliberate — see the decoding rationale above.
+        // slither-disable-next-line low-level-calls
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSelector(IERC20Decimals.decimals.selector));
+        if (ok && data.length >= 32) {
+            uint256 reported = abi.decode(data, (uint256));
+            if (reported <= MAX_SANE_DECIMALS) d = uint8(reported);
+        }
+        return 10 ** uint256(d);
     }
 
     /// @dev AUDIT SFR-M-01: validate the caller-supplied conversion path. Rules:
@@ -468,6 +620,12 @@ library SwapFeeRouterConvertLib {
     ///      taken at the previous successful conversion, apply a 1.5% safety margin, then
     ///      pick `effectiveMin = max(callerMinETHOut, twapMin)`. Bootstrap path (no prior
     ///      snapshot OR snapshot too recent) is owner-only.
+    /// @dev AUDIT FIX 2026-07-23 [L-3]: also returns the RAW `twapMin` (pre-max, before the
+    ///      caller's own floor is folded in). `convertTokenFeesToETHFoT` needs that component
+    ///      in isolation because it must rescale the price-derived part — and ONLY the
+    ///      price-derived part — from the gross input to the amount actually delivered to the
+    ///      pair after the fee-on-transfer haircut. The caller's floor is never rescaled.
+    ///      `twapMin` is 0 on both bootstrap branches (no price anchor exists yet).
     function _enforceTWAPMinETHOut(
         mapping(address => PriceSnapshot) storage lastConversionSnapshot,
         Cfg memory cfg,
@@ -476,7 +634,7 @@ library SwapFeeRouterConvertLib {
         uint256 callerMinETHOut
     )
         internal
-        returns (uint256 effectiveMin, uint256 currentCum, uint32 currentTs)
+        returns (uint256 effectiveMin, uint256 twapMin, uint256 currentCum, uint32 currentTs)
     {
         // PASS7-SFR-05 FIX: refuse to compute a TWAP floor while an L2 sequencer outage is
         // in progress OR within the post-resume grace window. address(0) feed (mainnet) = no-op.
@@ -507,7 +665,8 @@ library SwapFeeRouterConvertLib {
             // First call still respects the caller's floor.
             effectiveMin = callerMinETHOut;
             emit ConversionTWAPFloor(token, effectiveMin, callerMinETHOut, true);
-            return (effectiveMin, currentCum, currentTs);
+            // [L-3] twapMin stays 0 — no price anchor exists on the bootstrap branch.
+            return (effectiveMin, 0, currentCum, currentTs);
         }
 
         // Compute elapsed using uint32 modular subtraction (Uniswap V2 wrap-safe).
@@ -521,7 +680,8 @@ library SwapFeeRouterConvertLib {
             if (msg.sender != cfg.owner) revert TWAPBootstrapRequired();
             effectiveMin = callerMinETHOut;
             emit ConversionTWAPFloor(token, effectiveMin, callerMinETHOut, true);
-            return (effectiveMin, currentCum, currentTs);
+            // [L-3] twapMin stays 0 — the integral is too short to be a price anchor.
+            return (effectiveMin, 0, currentCum, currentTs);
         }
 
         // TWAP price = (currentCum - prev.cum) / elapsed, in UQ112x112 (token→WETH).
@@ -542,7 +702,8 @@ library SwapFeeRouterConvertLib {
         // consumers (FullMath.mulDiv) use this exact 512-bit pattern.
         uint256 twapEthOut = Math.mulDiv(amountIn, priceDiff, uint256(elapsed) * Q112_SFR);
         // Apply 1.5% safety margin — caller cannot relax below this floor.
-        uint256 twapMin = (twapEthOut * (BPS - TWAP_SAFETY_BPS)) / BPS;
+        // [L-3] returned to the caller as the isolated price-derived component.
+        twapMin = (twapEthOut * (BPS - TWAP_SAFETY_BPS)) / BPS;
 
         // Caller can only TIGHTEN the floor (raise it).
         effectiveMin = callerMinETHOut > twapMin ? callerMinETHOut : twapMin;

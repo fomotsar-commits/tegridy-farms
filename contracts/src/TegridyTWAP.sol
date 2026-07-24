@@ -596,6 +596,39 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         bool bypassed = false;
         uint256 count = observationCount[pair];
 
+        // AUDIT FIX 2026-07-23 [L-4] — deviation-baseline ratchet (Spartan M1 /
+        // 1000-agent L-4). `lastSpot{0,1}` is the baseline the deviation gate measures
+        // the NEXT observation against. It used to be written from the raw instantaneous
+        // `spotPrice`, which made the baseline a free-running ratchet: every accepted
+        // observation may move up to MAX_DEVIATION_BPS (20%), and because the write took
+        // the instantaneous reserve ratio, a single-block move — a flash-loan swing, or
+        // simply a large honest trade landing in the same block as the keeper's update —
+        // latched as the anchor for the next comparison. Repeated at the 15-min
+        // MIN_UPDATE_INTERVAL cadence that walks the baseline arbitrarily far from real
+        // price, after which honest observations trip `PriceDeviationTooLarge` and the
+        // buffer stalls until the 1-day dormancy bypass or the 24h `proposeAdminResetPair`
+        // heals it. Liveness DoS only — the served TWAP is computed from the pair-native
+        // cumulative and was never affected.
+        //
+        // Fix: seed the baseline from the cumulative-derived TWAP over the interval since
+        // the previous observation instead of from the instantaneous spot. Moving the
+        // baseline now costs holding the price for the whole interval rather than for one
+        // block, which is exactly the manipulation-cost property the accumulator exists to
+        // provide. Falls back to spot when no interval is available (`elapsed == 0`) or the
+        // integral degenerates to zero — never leaving the baseline unseeded, which would
+        // re-open the H-TWAP-OBS4-UNGATED skip at the `prev0 > 0` checks below.
+        //
+        // Note for operators: the gate now compares the current spot against the previous
+        // interval's TIME-AVERAGE, so a fast trending market reads slightly wider than the
+        // old spot-vs-spot comparison. A real ~20% move inside one 15-min interval tripped
+        // the old gate too; the gate remains defense-in-depth over the accumulator, with
+        // the documented dormancy/admin-reset recovery paths unchanged.
+        // Pattern of record: Uniswap V2's oracle deliberately ignores intra-block price
+        // (the accumulator only advances on the first touch of each block) for the same
+        // reason this baseline now does.
+        uint256 baseline0 = spotPrice0;
+        uint256 baseline1 = spotPrice1;
+
         // AUDIT FIX F-24-1 (2026-05) — post-resume / long-idle reserve
         // poisoning. If the pair's last touch is more than MAX_BRIDGING_GAP
         // behind the current block, the bridging math integrates
@@ -679,6 +712,23 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
             uint32 elapsed;
             unchecked {
                 elapsed = blockTs - last.timestamp;
+            }
+
+            // AUDIT FIX 2026-07-23 [L-4]: derive the next deviation baseline from the
+            // interval TWAP `(currentCum - lastCum) / elapsed`. Subtraction is unchecked
+            // to match Uniswap V2's wrapping-accumulator semantics (same convention as
+            // the bridged cumulative above). See the rationale block at the `baseline0`
+            // declaration. Zero-elapsed or degenerate integrals keep the spot fallback.
+            if (elapsed > 0) {
+                unchecked {
+                    baseline0 = (price0Cumulative - last.price0Cumulative) / uint256(elapsed);
+                    baseline1 = (price1Cumulative - last.price1Cumulative) / uint256(elapsed);
+                }
+                // SLITHER: sentinel comparison (zero/uninitialized check)
+                // slither-disable-next-line incorrect-equality
+                if (baseline0 == 0) baseline0 = spotPrice0;
+                // slither-disable-next-line incorrect-equality
+                if (baseline1 == 0) baseline1 = spotPrice1;
             }
 
             // M-2 (audit 013): dormancy-bypass — if the pair has been dormant for longer
@@ -883,9 +933,11 @@ contract TegridyTWAP is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         // Pattern of record: Uniswap V3's observation.tick is sourced from
         // the last accepted swap in the block — symmetric here for the honest
         // and dormancy-recovery paths.
+        // AUDIT FIX 2026-07-23 [L-4]: write the interval-TWAP-derived baseline rather than
+        // the raw spot. Branch conditions are unchanged — only the VALUE written differs.
         if (!forcedBypass && count > 2) {
-            lastSpot0[pair] = spotPrice0;
-            lastSpot1[pair] = spotPrice1;
+            lastSpot0[pair] = baseline0;
+            lastSpot1[pair] = baseline1;
         }
 
         uint8 idx = observationIndex[pair];

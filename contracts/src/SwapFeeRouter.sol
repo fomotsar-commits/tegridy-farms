@@ -13,6 +13,7 @@ import {
     PriceSnapshot,
     IUniswapV2Router02,
     ISwapFeeRouterUniFactory,
+    ISwapFeeRouterUniPair,
     SwapFeeRouterConvertLib
 } from "./lib/SwapFeeRouterConvertLib.sol";
 
@@ -160,16 +161,24 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         accumulated fees, bricking the keeper bot's legitimately-sized conversion
     ///         until the cooldown lapses.
     ///
-    ///         1e18 picks a generous floor: for 18-decimal tokens (~$0.50 to $5,000 per
-    ///         token-unit) this is one full token — meaningful but not gas-prohibitive
-    ///         to accumulate. For 6-decimal tokens like USDC/USDT, 1e18 corresponds to
-    ///         ~$1 trillion, which is intentionally restrictive — operators should set a
-    ///         per-token policy (e.g., separate convertTokenFeesToETHFor6Decimal() helper
-    ///         in a future patch) for stablecoin fee conversions, or simply withdraw via
-    ///         the owner-only `withdrawTokenFees` path (which routes 100% to treasury).
+    ///         The floor is ONE WHOLE TOKEN — meaningful but not gas-prohibitive to
+    ///         accumulate. This constant is the 18-decimal reference value.
     ///
-    ///         Storage layout: this is a `constant` (no slot consumed). If we need a
-    ///         per-token override later, that lands as a new mapping APPENDED to state.
+    /// @dev    AUDIT FIX 2026-07-23 [M-1]: the live gate is no longer this flat constant.
+    ///         `SwapFeeRouterConvertLib.minTokenFeeForConversion(token)` scales it into the
+    ///         token's OWN decimals (`10 ** decimals()`), which is what "one whole token"
+    ///         always meant. Applied flat, the constant demanded 1e12 whole USDC/USDT (6dp,
+    ///         ~$1T) and 1e10 WBTC (8dp) — unreachable — while `withdrawTokenFees` and
+    ///         `sweepTokens` both refuse any token holding a convertible WETH pair. The three
+    ///         exits therefore all rejected sub-18-decimal fees and the protocol's own revenue
+    ///         in USDC/USDT/WBTC was permanently unextractable. (The superseded note here used
+    ///         to direct operators to `withdrawTokenFees` — precisely the path that reverts.)
+    ///
+    ///         At 18 decimals `10 ** 18 == 1e18`, so this is a strict no-op for every
+    ///         18-decimal token; only the previously-stranded widths change behaviour.
+    ///
+    ///         Storage layout: this is a `constant` (no slot consumed) and the scaling is
+    ///         derived, not stored, so the fix adds no state.
     uint256 public constant MIN_TOKEN_FEE_FOR_CONVERSION = 1e18;
 
     /// @notice AUDIT SFR-M-01 (MEDIUM, 2026-04-28): hard cap on caller-supplied
@@ -453,6 +462,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     error AdminAlreadySet();
     /// @notice [L5] Non-zero splitter address has no deployed code (EOA or EIP-7702 delegated EOA).
     error SplitterNotAContract();
+    /// @notice AUDIT FIX 2026-07-23 [L-1]: `setSequencerFeed` was called on Ethereum L1,
+    ///         where the feed must stay `address(0)` permanently. See the setter NatSpec.
+    error SequencerFeedNotOnMainnet();
 
     /// @dev AUDIT FIX 2026-05-26 [DEPLOY-H1]: `_revenueDistributor` added to the
     ///      constructor so the SFR ships wired from block 1. Pre-fix the only
@@ -509,7 +521,20 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     /// @dev    Pattern of record: Aave V3 L2-deploy ACLManager grant pattern —
     ///         a one-shot post-deploy setter is the standard alternative to a
     ///         constructor arg when constructor-signature stability is desired.
+    /// @dev    AUDIT FIX 2026-07-23 [L-1]: hard-disabled on Ethereum L1. Ethereum has
+    ///         no sequencer, so mainnet must keep `sequencerFeed == address(0)` forever
+    ///         — that is what makes every `SequencerCheck.*` helper no-op. Pre-fix the
+    ///         setter only refused to overwrite a NON-ZERO feed, and on mainnet the slot
+    ///         is zero by design, so the one shot was permanently available to a captured
+    ///         owner key: a single call installing a feed contract whose `latestRoundData()`
+    ///         reports "sequencer down" makes `convertTokenFeesToETH{,FoT}` revert forever,
+    ///         with no reset path and (per M-1) no withdraw/sweep fallback. Failing closed
+    ///         on `block.chainid == 1` removes the shot entirely on the only chain where
+    ///         it can never be legitimate. Mirrors the `block.chainid == 1` carve-outs at
+    ///         `TegridyLending.sol:840`, `TegridyNFTLending.sol:556` and
+    ///         `SequencerCheck.sol:163`.
     function setSequencerFeed(address _feed) external onlyOwner {
+        if (block.chainid == 1) revert SequencerFeedNotOnMainnet();
         if (sequencerFeed != address(0)) revert ZeroAddress(); // already set, can't change
         if (_feed == address(0)) revert ZeroAddress();
         // AUDIT FIX FRESH-2026 (post-fix scan2 S-5): EOA / EIP-7702 reject. Mirrors
@@ -1564,6 +1589,34 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         revert("Use proposeSweepETH()");
     }
 
+    /// @notice AUDIT FIX 2026-07-23 [M-1]: true iff `token` has a Uniswap V2 pair against WETH
+    ///         that `convertTokenFeesToETH` can actually trade through — i.e. the pair exists
+    ///         AND holds non-zero reserves on both sides.
+    /// @dev    `withdrawTokenFees` / `sweepTokens` are escape hatches for tokens that cannot be
+    ///         converted, and they must stay closed for every token that CAN be converted (else
+    ///         a captured owner routes swappable fees to treasury at 100%, bypassing the
+    ///         50/30/20 staker/POL/treasury split — the original M3/M4 finding).
+    ///
+    ///         The pre-fix test was mere pair EXISTENCE, which over-shot: `getPair` returns a
+    ///         non-zero address for any pair anyone has ever called `createPair` on, including
+    ///         one that was never funded. `convertTokenFeesToETH` reverts `NoPairForToken` on a
+    ///         zero-reserve pair (`SwapFeeRouterConvertLib._readCurrentCumulative`), so such a
+    ///         token had NO exit at all: convert reverts, withdraw reverts, sweep reverts.
+    ///
+    ///         Checking reserves closes that trap without reopening the M3/M4 hole. The split
+    ///         cannot be bypassed for a liquid token because draining a funded pair to zero
+    ///         reserves requires burning that pair's LP — which the owner does not hold for
+    ///         third-party pairs, and which for TOWELI/WETH is locked externally. A pair with
+    ///         genuinely zero reserves is, by definition, one no swap can route through.
+    /// @dev    Reads `getReserves()` directly: the address came from the canonical factory, so
+    ///         it is always a real pair implementing the V2 interface.
+    function _hasConvertibleWethPair(address token) internal view returns (bool) {
+        address pair = uniFactory.getPair(token, WETH);
+        if (pair == address(0)) return false;
+        (uint112 reserve0, uint112 reserve1,) = ISwapFeeRouterUniPair(pair).getReserves();
+        return reserve0 != 0 && reserve1 != 0;
+    }
+
     /// @notice Withdraw accumulated token fees to treasury (pull-pattern, escape hatch only).
     /// @dev    AUDIT FIX M-04: Zero out accounting before transfer to prevent phantom balance
     ///         with fee-on-transfer tokens. Previous approach left permanent non-zero dust
@@ -1593,9 +1646,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         // unwraps into `accumulatedETHFees`. Discovered by the defensive scan of
         // PR #28 (same pass that caught M10 over-credit).
         if (token == WETH) revert UseConvertTokenFeesToETH();
-        // AUDIT FIX 2026-05-16 M4: refuse if token has a Uniswap V2 pair against WETH.
-        // Operator must use convertTokenFeesToETH for swappable tokens.
-        if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
+        // AUDIT FIX 2026-05-16 M4: refuse if token has a CONVERTIBLE Uniswap V2 pair against
+        // WETH. Operator must use convertTokenFeesToETH for swappable tokens.
+        // AUDIT FIX 2026-07-23 [M-1]: "pair exists" relaxed to "pair is actually usable" —
+        // see `_hasConvertibleWethPair`. A pair address with zero reserves makes
+        // `convertTokenFeesToETH` revert `NoPairForToken`, so the pre-fix existence test
+        // closed the escape hatch while the path it points at was itself impassable.
+        if (_hasConvertibleWethPair(token)) revert UseConvertTokenFeesToETH();
         uint256 amount = accumulatedTokenFees[token];
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
         // slither-disable-next-line incorrect-equality
@@ -1742,8 +1799,9 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         // case — without this gate, captured-owner could drain donated/fallback WETH past
         // the staker/POL split. Mirrors the line-1581 reject in `withdrawTokenFees`.
         if (token == WETH) revert UseConvertTokenFeesToETH();
-        // AUDIT FIX 2026-05-16 M3: refuse if token has a Uniswap V2 pair against WETH.
-        if (uniFactory.getPair(token, WETH) != address(0)) revert UseConvertTokenFeesToETH();
+        // AUDIT FIX 2026-05-16 M3 / 2026-07-23 [M-1]: refuse if token has a CONVERTIBLE
+        // Uniswap V2 pair against WETH. See `withdrawTokenFees` for the M-1 rationale.
+        if (_hasConvertibleWethPair(token)) revert UseConvertTokenFeesToETH();
         uint256 balance = IERC20(token).balanceOf(address(this));
         uint256 reserved = accumulatedTokenFees[token];
         uint256 sweepable = balance > reserved ? balance - reserved : 0;

@@ -115,22 +115,50 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
 
     enum BountyStatus { Open, Completed, Cancelled }
 
+    /// @dev GAS (1000-agent audit 2026-07-22, HIGH): repacked 9 storage slots → 4
+    ///      (3 packed + the unavoidable `string` slot). `bounties` is a STORAGE array
+    ///      and `createBounty` writes every field, so each removed slot is a full
+    ///      cold SSTORE (~20,000 gas) saved per bounty — ~100,000 gas per creation.
+    ///      Field ORDER below is load-bearing: Solidity packs sequentially, so
+    ///      reordering these declarations silently un-packs them.
+    ///
+    ///        slot 0 │ creator(20) + deadline(6)  + createdAt(6)          = 32 B
+    ///        slot 1 │ winner(20)  + snapshotTimestamp(6) + submissionCount(4)
+    ///                 + status(1)                                       = 31 B
+    ///        slot 2 │ originalCreator(20) + reward(12)                   = 32 B
+    ///        slot 3 │ description (dynamic — always its own slot)
+    ///
+    ///      Width safety:
+    ///        * `uint48` timestamps overflow in year ~8,921,556. Standard practice
+    ///          (OpenZeppelin Governor, Aave V3 use the same width).
+    ///        * `uint96` reward holds 7.9e28 wei ≈ 7.9e10 ETH, ~650x the entire ETH
+    ///          supply (~1.2e8 ETH), so `msg.value` cannot truncate — a bounty large
+    ///          enough to overflow cannot be funded because the ether does not exist.
+    ///        * `uint32` submissionCount allows ~4.29e9 submissions per bounty; the
+    ///          per-bounty cap `MAX_SUBMISSIONS_PER_BOUNTY` is orders of magnitude
+    ///          below it.
+    ///
+    ///      STORAGE-LAYOUT CHANGE — fresh deploy only; a live instance cannot be
+    ///      repacked in place. The `getBounty` view deliberately keeps its original
+    ///      `uint256` return widths so the external ABI is UNCHANGED; only the
+    ///      auto-generated `bounties(uint256)` getter tuple narrows, and that getter
+    ///      has no consumer in this repo or in the frontend's generated ABI.
     struct Bounty {
         address creator;
-        string description;
-        uint256 reward;       // ETH locked
-        uint256 deadline;
+        uint48 deadline;
+        uint48 createdAt;     // FIX 3: timestamp of creation for cancel delay
         address winner;
+        uint48 snapshotTimestamp; // Timestamp snapshot for voting power (L2-safe)
+        uint32 submissionCount;
         BountyStatus status;
-        uint256 submissionCount;
-        uint256 snapshotTimestamp; // Timestamp snapshot for voting power (L2-safe)
-        uint256 createdAt;    // FIX 3: timestamp of creation for cancel delay
         // AUDIT R014 (MEDIUM, creator voting suppression): snapshot the bounty
         // creator at creation time and reject any vote where the voter matches
         // the snapshot. Mirrors `creator` today, but having an immutable
         // snapshot field guarantees the suppression check survives any future
         // creator-mutation logic and gives auditors an explicit invariant.
         address originalCreator;
+        uint96 reward;        // ETH locked
+        string description;
     }
 
     struct Submission {
@@ -382,11 +410,16 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // AUDIT FIX: Prevent indefinite ETH locking with unreasonable deadlines
         if (_deadline > block.timestamp + MAX_DEADLINE_DURATION) revert DeadlineTooFar();
 
+        // GAS (2026-07-22 repack): narrowing casts into the packed `Bounty`. Each is
+        // provably lossless at this call site — `msg.value` is bounded by the ETH
+        // supply (≪ uint96), and `_deadline` was just bounded to
+        // `block.timestamp + MAX_DEADLINE_DURATION` (≪ uint48, which runs to year
+        // ~8.9 million). See the struct NatSpec for the full width analysis.
         bounties.push(Bounty({
             creator: msg.sender,
             description: _description,
-            reward: msg.value,
-            deadline: _deadline,
+            reward: uint96(msg.value),
+            deadline: uint48(_deadline),
             winner: address(0),
             status: BountyStatus.Open,
             submissionCount: 0,
@@ -394,10 +427,10 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
             // SNAPSHOT_LOOKBACK hasn't elapsed, to avoid the 0-timestamp
             // checkpoint-default trap on test/fork environments. The dead
             // `block.timestamp > 0` guard was removed — always ≥1 in real blocks.
-            snapshotTimestamp: block.timestamp >= SNAPSHOT_LOOKBACK
-                ? block.timestamp - SNAPSHOT_LOOKBACK
-                : block.timestamp - 1,
-            createdAt: block.timestamp,
+            snapshotTimestamp: uint48(
+                block.timestamp >= SNAPSHOT_LOOKBACK ? block.timestamp - SNAPSHOT_LOOKBACK : block.timestamp - 1
+            ),
+            createdAt: uint48(block.timestamp),
             // AUDIT R014: snapshot creator identity at creation time.
             originalCreator: msg.sender
         }));

@@ -219,14 +219,21 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     // ─── Structs ─────────────────────────────────────────────────────
 
+    /// @dev GAS (1000-agent audit 2026-07-22): `active` moved to sit immediately
+    ///      after `collateralContract` so the 1-byte bool shares that address's
+    ///      slot instead of consuming a whole one of its own — 1 slot saved per
+    ///      offer (~20,000 gas per `createOffer`). PURE REORDERING: no field is
+    ///      narrowed, no call site changes, and named-field construction means
+    ///      nothing depends on declaration order except the packing itself.
+    ///      STORAGE-LAYOUT CHANGE — fresh deploy only.
     struct Offer {
         address lender;
         uint256 principal;
         uint256 aprBps;
         uint256 duration;
         address collateralContract;
-        uint256 tokenId;
         bool active;
+        uint256 tokenId;
         /// @dev AUDIT FIX: DEEP-LD-M8 — origination fee held in escrow on the
         ///      offer until acceptance. cancelOffer refunds the lender (gross
         ///      principal), acceptOffer forwards to treasury.
@@ -586,6 +593,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     event SequencerFeedSet(address indexed feed);
     error SequencerFeedAlreadySet();
     error SequencerFeedNotContract();
+    /// @notice AUDIT FIX 2026-07-23 [L-1]: `setSequencerFeed` was called on Ethereum L1,
+    ///         where the feed must stay `address(0)` permanently. See the setter NatSpec.
+    error SequencerFeedNotOnMainnet();
 
     /// @notice AUDIT FIX (BATCH-D H13, Aave V3 PriceOracleSentinel pattern):
     ///         One-shot post-deploy wire of the L2 Chainlink Sequencer Uptime feed.
@@ -602,8 +612,18 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         rather than a real Chainlink feed implementation). Mainnet deploys
     ///         simply skip this call → field stays address(0) → SequencerCheck
     ///         no-ops (which is the documented mainnet path).
+    /// @dev    AUDIT FIX 2026-07-23 [L-1]: hard-disabled on Ethereum L1. The constructor
+    ///         (:556) already permits `address(0)` only on chainid 1, so on mainnet this
+    ///         slot is zero by design and the one-shot setter stayed permanently available
+    ///         to a captured owner key — one call installing a hostile feed that reports
+    ///         "sequencer down" would freeze every `SequencerCheck`-gated path with no
+    ///         reset. Ethereum has no sequencer, so refusing the call outright on chainid 1
+    ///         removes the shot without costing any legitimate deployment. Mirrors the
+    ///         `block.chainid == 1` carve-outs at `TegridyLending.sol:840` and
+    ///         `SequencerCheck.sol:163`, and the sibling fix in `SwapFeeRouter`.
     /// @param  _sequencerFeed  Chainlink L2 Sequencer Uptime feed address.
     function setSequencerFeed(address _sequencerFeed) external onlyOwner {
+        if (block.chainid == 1) revert SequencerFeedNotOnMainnet();
         if (sequencerFeed != address(0)) revert SequencerFeedAlreadySet();
         if (_sequencerFeed == address(0)) revert ZeroAddress();
         // AUDIT FIX FRESH-2026: F-60-2 — reject EIP-7702 delegated EOAs.

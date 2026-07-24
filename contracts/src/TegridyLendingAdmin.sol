@@ -203,10 +203,13 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
     ///      range and brick offer creation. Symmetric to MIN_DURATION_FLOOR
     ///      enforcement on proposeMinDuration / applyMinDurationChange. The apply
     ///      path on the lending side re-checks the floor as defense in depth.
+    /// @dev AUDIT FIX 2026-07-23 [L-2]: cross-parameter brick-guard — the `max` side of
+    ///      the same window. See `proposeMinPrincipal` for the full rationale.
     function proposeMaxPrincipal(uint256 _new) external onlyOwner {
         if (_new == 0) revert ZeroAmount();
         if (_new < MAX_PRINCIPAL_FLOOR) revert InvalidCapValue();
         if (_new > lending.MAX_PRINCIPAL_CEILING()) revert InvalidCapValue();
+        if (_new < lending.minPrincipal()) revert InvalidCapValue();
         pendingMaxPrincipal = _new;
         _propose(MAX_PRINCIPAL_CHANGE, CAP_CHANGE_TIMELOCK);
         emit MaxPrincipalProposed(_new, _executeAfter[MAX_PRINCIPAL_CHANGE]);
@@ -380,9 +383,20 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
     }
 
     // ─── Min principal ────────────────────────────────────────────────
+    /// @dev AUDIT FIX 2026-07-23 [L-2]: cross-parameter brick-guard, mirroring the
+    ///      DEEP-LD-L4 check on `proposeMaxAprBps` (:234) and the duration pair
+    ///      (:256 / :278). The principal window was the only min/max pair validated
+    ///      solely against its own individual bound, and the two bounds do not
+    ///      overlap-protect each other: `MAX_MIN_PRINCIPAL` (1 ether) is far above
+    ///      `MAX_PRINCIPAL_FLOOR` (0.01 ether), so `min = 1 ether` and
+    ///      `max = 0.01 ether` each pass in isolation while making the window empty.
+    ///      After the 48h timelock that renders `createLoanOffer` unsatisfiable for
+    ///      every principal — a captured-admin brick with no funds at risk but no
+    ///      recovery short of a guardian owner-rotation.
     function proposeMinPrincipal(uint256 _new) external onlyOwner {
         if (_new == 0) revert ZeroAmount();
         if (_new > lending.MAX_MIN_PRINCIPAL()) revert InvalidCapValue();
+        if (_new > lending.maxPrincipal()) revert InvalidCapValue();
         pendingMinPrincipal = _new;
         _propose(MIN_PRINCIPAL_CHANGE, CAP_CHANGE_TIMELOCK);
         emit MinPrincipalProposed(_new, _executeAfter[MIN_PRINCIPAL_CHANGE]);
