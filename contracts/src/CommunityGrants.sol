@@ -12,9 +12,7 @@ import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
 interface IVotingEscrowGrants {
     function votingPowerOf(address user) external view returns (uint256);
-    function votingPowerAt(address user, uint256 blockNumber) external view returns (uint256);
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
-    function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     /// AUDIT FIX (BATCH-A C3): historical denominator for OZ-Governor-style snapshot quorum.
     function totalBoostedStakeAtTimestamp(uint256 ts) external view returns (uint256);

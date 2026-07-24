@@ -16,7 +16,6 @@ import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 interface IVotingEscrow {
     function votingPowerOf(address user) external view returns (uint256);
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
-    function totalLocked() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     function userTokenId(address user) external view returns (uint256);
     // H-01 FIX: Aligned to actual TegridyStaking.Position struct ABI order

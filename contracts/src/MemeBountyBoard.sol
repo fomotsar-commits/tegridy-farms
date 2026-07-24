@@ -14,7 +14,6 @@ import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
 interface IStakingVote {
     function votingPowerOf(address user) external view returns (uint256);
-    function votingPowerAt(address user, uint256 blockNumber) external view returns (uint256);
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
 }
 
