@@ -5,11 +5,15 @@ on:
     branches: [main, mvp-launch]
     paths:
       - "contracts/**"
+      - "scripts/check-interface-selectors.mjs"
+      - "frontend/scripts/extract-missing-abis.mjs"
       - ".github/workflows/contracts-ci.yml"
   pull_request:
     branches: [main, mvp-launch]
     paths:
       - "contracts/**"
+      - "scripts/check-interface-selectors.mjs"
+      - "frontend/scripts/extract-missing-abis.mjs"
       - ".github/workflows/contracts-ci.yml"
 
 # Least-privilege default — contracts CI only reads source and caches.
@@ -75,26 +79,40 @@ jobs:
         run: |
           set -e
           BUDGET=24000
+          # The actual EVM ceiling. Nothing not explicitly deferred may cross this.
+          EIP170=24576
           FAIL=0
-          # Allowlist semantics: these contracts are over the conservative 24,000
-          # BUDGET floor but the distinction below matters —
           #
-          # TegridyStaking — C1 SPLIT DONE (2026-05-24 re-audit). Now 24,505 B,
-          #   UNDER the EIP-170 24,576 limit (deploys to mainnet fine) with ~71 B
-          #   headroom, so it is over the 24,000 floor ONLY (same status as
-          #   VoteIncentives). The view + reward clusters were extracted to
-          #   src/lib/StakingViewLib.sol + src/lib/StakingRewardLib.sol. Kept on
-          #   the allowlist as a FLOOR WARNING (not a split-pending item); the tight
-          #   headroom means any further growth should extract more to the libraries.
-          # TegridyRestaking — still ~29.5 KB, genuinely OVER EIP-170. DEFERRED to
-          #   Phase 7 (removed from DeployMVP/VerifyMVP), so it cannot be deployed on
-          #   the MVP path. Stays allowlisted until its Phase-7 library split.
-          # VoteIncentives — 24,013 B: 563 B UNDER EIP-170, over the 24,000 floor
-          #   only (fresh-2026 forfeitCommitOnInvalidPair fix). Admin-function split
-          #   into VoteIncentivesAdmin is the eventual fix.
+          # TWO-TIER ALLOWLIST (ported from main #99, 2026-07-24; sizes re-measured
+          # against THIS branch's artifacts — mvp-launch did NOT take #99's
+          # TegridyStaking bytecode reclaim, so its allowlist differs from main's).
+          #
+          # A single flat EXCEPTIONS list softens the check at BOTH thresholds: an
+          # allowlisted contract that grows past the real 24,576-byte EIP-170 limit
+          # still only warns, so it can become UNDEPLOYABLE without failing CI. That
+          # is exactly how TegridyStaking drifted to 24,569 B on main (7 B headroom)
+          # while CI stayed green. Split in two so the allowlist can only ever soften
+          # the conservative FLOOR, never the EVM limit.
+          #
+          # FLOOR_EXCEPTIONS — between BUDGET and EIP170. Deployable today; over the
+          #   conservative floor only. Warning.
+          #   TegridyStaking — 24,337 B (measured 2026-07-24): 239 B under EIP-170.
+          #     On main #99 reclaimed 573 B and took it off the list; that ABI-surface
+          #     golf is NOT on mvp-launch, so here it stays a floor-exception. Tightest
+          #     path after VoteIncentives — extract to StakingViewLib on further growth.
+          #   VoteIncentives — 24,274 B (measured 2026-07-24): 302 B under EIP-170.
+          #     Admin-function split into VoteIncentivesAdmin is the eventual fix.
+          #
+          # OVER_EIP170_DEFERRED — genuinely OVER EIP-170 and therefore undeployable
+          #   by construction. Every entry MUST also be absent from every deploy path
+          #   (DeployMVP / VerifyMVP). Adding a name here defers a contract nobody can
+          #   ship — it is NOT a way to silence a launch blocker on a deploy-path one.
+          #   TegridyRestaking — 26,760 B (measured 2026-07-24). Removed from
+          #     DeployMVP/VerifyMVP; stays until its Phase-7 library split.
           #
           # The VerifyMVP.s.sol deploy-gate is the real pre-launch EIP-170 enforcement.
-          EXCEPTIONS="TegridyStaking TegridyRestaking VoteIncentives"
+          FLOOR_EXCEPTIONS="TegridyStaking VoteIncentives"
+          OVER_EIP170_DEFERRED="TegridyRestaking"
           for f in out/*.sol/*.json; do
             name=$(basename "$f" .json)
             case "$name" in
@@ -102,11 +120,19 @@ jobs:
             esac
             size=$(jq -r '.deployedBytecode.object // empty' "$f" | sed 's/0x//' | wc -c)
             size=$((size / 2))
-            if [ "$size" -gt "$BUDGET" ]; then
-              if echo " $EXCEPTIONS " | grep -q " $name "; then
-                echo "::warning file=contracts/src/${name}.sol::Bytecode ${size}B > budget ${BUDGET}B (Phase 0 split pending)"
+            if [ "$size" -gt "$EIP170" ]; then
+              # HARD GATE: over the EVM limit. Only an explicit deferral may warn.
+              if echo " $OVER_EIP170_DEFERRED " | grep -q " $name "; then
+                echo "::warning file=contracts/src/${name}.sol::Bytecode ${size}B EXCEEDS EIP-170 (${EIP170}B) — deferred/undeployable, must stay off every deploy path"
               else
-                echo "::error file=contracts/src/${name}.sol::Bytecode ${size}B > budget ${BUDGET}B (EIP-170 limit 24576)"
+                echo "::error file=contracts/src/${name}.sol::Bytecode ${size}B EXCEEDS EIP-170 (${EIP170}B) — UNDEPLOYABLE. Extract to a library or a read-only sister contract."
+                FAIL=1
+              fi
+            elif [ "$size" -gt "$BUDGET" ]; then
+              if echo " $FLOOR_EXCEPTIONS $OVER_EIP170_DEFERRED " | grep -q " $name "; then
+                echo "::warning file=contracts/src/${name}.sol::Bytecode ${size}B > floor ${BUDGET}B (under EIP-170; split pending)"
+              else
+                echo "::error file=contracts/src/${name}.sol::Bytecode ${size}B > budget ${BUDGET}B (EIP-170 limit ${EIP170})"
                 FAIL=1
               fi
             fi
@@ -115,7 +141,32 @@ jobs:
             echo "❌ One or more contracts exceed the bytecode size budget."
             exit 1
           fi
-          echo "✅ All contracts within size budget (${BUDGET}B floor, 576B headroom)."
+          echo "✅ All contracts within size budget (${BUDGET}B floor, ${EIP170}B EIP-170 ceiling)."
+
+      # ─────────────────────────────────────────────────────────────────
+      # Interface selector guard (ported from main #100/#102, 2026-07-24).
+      # A Solidity `interface` is NEVER checked against the contract it is
+      # pointed at: if the deployed callee lacks a declared selector, the
+      # code COMPILES CLEANLY and then reverts at runtime with EMPTY
+      # RETURNDATA (no matching selector, no fallback) — a bare
+      # `EvmError: Revert` easily misread as gas or arithmetic.
+      #
+      # This is the standing hazard of the EIP-170 golf above: lowering a
+      # function `external -> internal` to reclaim bytecode silently drops
+      # it from the ABI. On main it bricked `CommunityGrants.createProposal`
+      # when `userPositionCount` was demoted (fixed in #100). Its first run
+      # on THIS branch (2026-07-24) also found four dead interface
+      # declarations mvp-launch still carried that main had already pruned
+      # (IVotingEscrow.totalLocked, IVotingEscrowGrants.{totalLocked,
+      # votingPowerAt}, IStakingVote.votingPowerAt) — never called, so no
+      # live brick, but exactly the latent footgun this guard removes; they
+      # were deleted in this commit.
+      #
+      # Runs off the artifacts the Build step just produced — Node is
+      # preinstalled on ubuntu-latest and the script has zero npm deps. cwd
+      # is `contracts` (the job default), so the script lives one level up.
+      - name: Interface selector guard
+        run: node ../scripts/check-interface-selectors.mjs
 
       # ABI drift gate — closes the MEDIUM at
       # .audit_101/legacy/audit_findings.md:138 ("no CI guard that the generated
