@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
 import "../src/TegridyStaking.sol";
 import "../src/TegridyStakingAdmin.sol";
+import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 
 /// @title FRESH-2026 F4 — TegridyStaking.increaseAmount autoMaxLock ordering
 /// @notice POST-FIX REGRESSION (commit ad0042e).
@@ -65,6 +66,8 @@ contract FRESH2026_F4_StakingIncreaseAutoMaxLockOrderTest is Test {
     F4_Toweli toweli;
     F4_JBAC jbac;
     TegridyStaking staking;
+    // EIP-170 golf (2026-07-23): lock/boost bounds re-exposed on the sibling.
+    StakingMonitorView monitor;
     TegridyStakingAdmin admin;
 
     address treasury = makeAddr("treasury");
@@ -79,6 +82,7 @@ contract FRESH2026_F4_StakingIncreaseAutoMaxLockOrderTest is Test {
         jbac = new F4_JBAC();
 
         staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -97,7 +101,7 @@ contract FRESH2026_F4_StakingIncreaseAutoMaxLockOrderTest is Test {
         // ── PHASE 1: Alice stakes 10k TOWELI for MAX_LOCK_DURATION (4y). ──
         vm.startPrank(alice);
         toweli.approve(address(staking), type(uint256).max);
-        staking.stake(10_000 ether, staking.MAX_LOCK_DURATION());
+        staking.stake(10_000 ether, monitor.MAX_LOCK_DURATION());
         aliceTokenId = staking.userTokenId(alice);
         staking.toggleAutoMaxLock(aliceTokenId);
         vm.stopPrank();
@@ -108,7 +112,7 @@ contract FRESH2026_F4_StakingIncreaseAutoMaxLockOrderTest is Test {
             uint16 boostBps0, , bool autoMaxLock0, ,
             , ,
         ) = staking.positions(aliceTokenId);
-        assertEq(boostBps0, staking.MAX_BOOST_BPS(), "phase 1: MAX_BOOST_BPS at fresh max-lock");
+        assertEq(boostBps0, monitor.MAX_BOOST_BPS(), "phase 1: MAX_BOOST_BPS at fresh max-lock");
         assertTrue(autoMaxLock0, "phase 1: autoMaxLock enabled");
         emit log_named_uint("phase 1 boostBps", boostBps0);
         emit log_named_uint("phase 1 lockEnd", lockEnd0);
@@ -146,14 +150,14 @@ contract FRESH2026_F4_StakingIncreaseAutoMaxLockOrderTest is Test {
         // The headline assertion: boost is still MAX, not silently downgraded.
         assertEq(
             boostBpsAfter,
-            staking.MAX_BOOST_BPS(),
+            monitor.MAX_BOOST_BPS(),
             "FIX: boostBps preserved at MAX_BOOST_BPS (pre-fix would be ~22000)"
         );
 
         // The lockEnd was extended to MAX in the same call.
         assertApproxEqAbs(
             lockEndAfter,
-            block.timestamp + staking.MAX_LOCK_DURATION(),
+            block.timestamp + monitor.MAX_LOCK_DURATION(),
             5, // tolerance for 1-block drift between extends
             "lockEnd extended to now + MAX_LOCK_DURATION"
         );
@@ -161,7 +165,7 @@ contract FRESH2026_F4_StakingIncreaseAutoMaxLockOrderTest is Test {
         // The lockDuration is kept in lockstep with lockEnd.
         assertEq(
             lockDurationAfter,
-            uint32(staking.MAX_LOCK_DURATION()),
+            uint32(monitor.MAX_LOCK_DURATION()),
             "lockDuration == MAX_LOCK_DURATION"
         );
 

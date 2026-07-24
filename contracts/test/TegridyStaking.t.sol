@@ -200,7 +200,7 @@ contract TegridyStakingTest is Test {
         staking.stake(1000 ether, 7 days);
         uint256 tokenId = staking.userTokenId(bob);
         (,uint256 boost,,,,) = monitor.getPosition(tokenId);
-        assertEq(boost, staking.MIN_BOOST_BPS()); // 0.4x at min lock
+        assertEq(boost, monitor.MIN_BOOST_BPS()); // 0.4x at min lock
     }
 
     function test_stake_exactMaxLock() public {
@@ -208,7 +208,7 @@ contract TegridyStakingTest is Test {
         staking.stake(1000 ether, 4 * 365 days);
         uint256 tokenId = staking.userTokenId(bob);
         (,uint256 boost,,,,) = monitor.getPosition(tokenId);
-        assertEq(boost, staking.MAX_BOOST_BPS()); // 4.0x at max lock
+        assertEq(boost, monitor.MAX_BOOST_BPS()); // 4.0x at max lock
     }
 
     function test_revert_stake_alreadyStaked() public {
@@ -879,7 +879,7 @@ contract TegridyStakingTest is Test {
         (, uint256 boostBefore, uint256 lockEndBefore,, bool autoMax,) = monitor.getPosition(tokenId);
         assertEq(boostBefore, 40000, "should be 4.0x max boost");
         assertTrue(autoMax, "autoMaxLock should be on");
-        uint256 max = staking.MAX_LOCK_DURATION();
+        uint256 max = monitor.MAX_LOCK_DURATION();
         assertApproxEqAbs(lockEndBefore, block.timestamp + max, 5, "lockEnd should be ~now + MAX");
 
         // 2. Bob goes silent past his own MAX_LOCK_DURATION (the "set and

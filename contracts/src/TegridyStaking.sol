@@ -104,16 +104,36 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     // ─── Constants ────────────────────────────────────────────────────
 
-    uint256 public constant MIN_LOCK_DURATION = 7 days;
-    uint256 public constant MAX_LOCK_DURATION = 4 * 365 days;
-    uint256 public constant MIN_BOOST_BPS = 4000;   // 0.4x
-    uint256 public constant MAX_BOOST_BPS = 40000;  // 4.0x
+    /// @dev EIP-170 golf (2026-07-23): the four lock/boost bounds and JBAC_BONUS_BPS
+    ///      below dropped public → internal. Verified repo-wide 2026-07-23: nothing
+    ///      called their auto-getters — no other contract (TegridyLPFarming and
+    ///      src/v4/TegridyBoostedLPStaker declare their OWN identically-named
+    ///      constants), no script, and no frontend hook (the UI hardcodes these in
+    ///      `frontend/src/lib/constants.ts`). Same de-getter pattern already applied
+    ///      to BOOST_PRECISION / BPS / MIN_STAKE / MAX_POSITIONS_PER_HOLDER /
+    ///      TRANSFER_COOLDOWN / USER_INACTIVITY_GATE / EMERGENCY_EXIT_DELAY /
+    ///      MIN_NOTIFY_AMOUNT.
+    ///      On-chain readability is PRESERVED: StakingMonitorView re-exposes all five
+    ///      with byte-identical ABI signatures. Values here remain the source of truth
+    ///      — see the lockstep note on the sibling.
+    uint256 internal constant MIN_LOCK_DURATION = 7 days;
+    uint256 internal constant MAX_LOCK_DURATION = 4 * 365 days;
+    uint256 internal constant MIN_BOOST_BPS = 4000;   // 0.4x
+    uint256 internal constant MAX_BOOST_BPS = 40000;  // 4.0x
     /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal` to
     ///      claw back ~30B of auto-getter bytecode. Equal to BPS; no external
     ///      reader exists.
     uint256 internal constant BOOST_PRECISION = 10000;
-    uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
-    uint256 public constant JBAC_BONUS_BPS = 5000; // +0.5x
+    /// @dev EIP-170 golf (2026-07-23): visibility lowered public → internal. Zero
+    ///      readers repo-wide — no other contract, script, test, or frontend hook
+    ///      calls the auto-getter (the frontend hardcodes 2500 in
+    ///      `frontend/src/lib/constants.ts`). Value is unchanged and remains
+    ///      readable from verified source; the 25% penalty is also observable
+    ///      on-chain via the `PenaltySentToTreasury` event.
+    uint256 internal constant EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
+    /// @dev EIP-170 golf (2026-07-23): public → internal — see the note on
+    ///      MIN_LOCK_DURATION above. Re-exposed by StakingMonitorView.
+    uint256 internal constant JBAC_BONUS_BPS = 5000; // +0.5x
     /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. The
     ///      one external reader (TegridyStakingAdmin's BPS check) now hardcodes
     ///      `10_000` directly — it's a universal Ethereum-DeFi constant.
@@ -553,29 +573,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit MaxTotalStakedChanged(old, _newCap);
     }
 
-    /// @notice Current global-stake-cap utilization in basis points.
-    /// @dev    mvp-launch Phase 0.7 monitoring helper. Forta + Defender
-    ///         alert at 8000 bps (80%) to trigger Phase 7 cap-raise review.
-    ///         Returns 10000 (100%) if the cap is fully consumed; 0 if no
-    ///         stakes yet; saturates at 10000 (cannot exceed because
-    ///         stake() reverts above cap).
-    function stakeCapUtilizationBps() external view returns (uint256) {
-        uint256 cap = maxTotalStaked;
-        if (cap == 0 || cap == type(uint256).max) return 0;
-        uint256 staked = totalStaked;
-        if (staked >= cap) return 10000;
-        return (staked * 10000) / cap;
-    }
-
-    /// @notice Remaining headroom under the global stake cap, in TOWELI wei.
-    /// @dev    Front-end consumes this to gate the "stake max" affordance.
-    ///         Returns 0 if cap is reached or unset-as-max sentinel.
-    function stakeCapHeadroom() external view returns (uint256) {
-        uint256 cap = maxTotalStaked;
-        if (cap == type(uint256).max) return type(uint256).max;
-        uint256 staked = totalStaked;
-        return staked >= cap ? 0 : cap - staked;
-    }
+    // EIP-170 sibling (2026-07-23): `stakeCapUtilizationBps()` and `stakeCapHeadroom()`
+    // moved verbatim to src/StakingMonitorView.sol. Both are pure monitoring helpers
+    // derived from the already-public `maxTotalStaked` / `totalStaked` getters, so the
+    // sibling reconstructs them with zero new accessors on this contract. Verified
+    // repo-wide 2026-07-23: no other contract, script, or frontend hook called either
+    // one — the only callers were tests, now repointed at the sibling. ABI signatures
+    // are byte-identical, so Forta / Defender / dashboards migrate by pointing at the
+    // StakingMonitorView address (the same migration `earned` / `getPosition` took).
 
     /// @notice One-shot wire of the JBAC vault sister contract.
     /// @dev    AUDIT FIX (pass-8 batch-14). Mirrors the `setStakingAdmin` /
@@ -2069,8 +2074,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     // ─── AUDIT R014 H-2: Admin contract replaceability ───────────────────
-    /// @notice Timelock key for the admin replacement flow.
-    bytes32 public constant ADMIN_REPLACEMENT = keccak256("STAKING_ADMIN_REPLACEMENT");
+    // EIP-170 golf (2026-07-23): `bytes32 public constant ADMIN_REPLACEMENT` DELETED.
+    // It was a vestigial timelock key — this contract's admin-replacement flow is held
+    // inline (propose/execute/cancel below) and keys nothing, so the constant was never
+    // read by ANY code path: not by TegridyStaking itself, not by TegridyStakingAdmin,
+    // not by any script, test, or frontend hook (verified repo-wide 2026-07-23). The
+    // identically-named constant on SwapFeeRouter is that contract's own and is
+    // unaffected. Removing it drops a dead external selector + its dispatch entry.
     /// @notice Mandatory delay between propose and execute for an admin swap.
     /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. Tests
     ///      hardcode the value (48 hours) directly.
