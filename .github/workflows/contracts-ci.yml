@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "contracts/**"
+      - "scripts/check-interface-selectors.mjs"
       - ".github/workflows/contracts-ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "contracts/**"
+      - "scripts/check-interface-selectors.mjs"
       - ".github/workflows/contracts-ci.yml"
 
 # Least-privilege default — contracts CI only reads source and caches.
@@ -141,6 +143,27 @@ jobs:
             exit 1
           fi
           echo "✅ All contracts within size budget (${BUDGET}B floor, 576B headroom)."
+
+      # ─────────────────────────────────────────────────────────────────
+      # Interface selector guard. A Solidity `interface` is NEVER checked
+      # against the contract it is pointed at: if the deployed callee lacks
+      # a declared selector, the code COMPILES CLEANLY and then reverts at
+      # runtime with EMPTY RETURNDATA (no matching selector, no fallback) —
+      # a bare `EvmError: Revert` easily misread as gas or arithmetic.
+      #
+      # This is the standing hazard of the EIP-170 golf above: lowering a
+      # function `external -> internal` to reclaim bytecode silently drops
+      # it from the ABI. It bricked `CommunityGrants.createProposal` when
+      # `userPositionCount` was demoted (fixed in #100); the golf commit had
+      # claimed "verified zero callers via grep" and the grep missed it.
+      #
+      # The guard compares every in-src interface's solc-canonical selectors
+      # against its best-match callee's compiled ABI and fails on any gap.
+      # It runs off the artifacts the Build step just produced — Node is
+      # preinstalled on ubuntu-latest and the script has zero npm deps. cwd
+      # is `contracts` (the job default), so the script lives one level up.
+      - name: Interface selector guard
+        run: node ../scripts/check-interface-selectors.mjs
 
   # ─────────────────────────────────────────────────────────────────────
   # Test matrix — splits the ~118 test files across 6 balanced slices so
