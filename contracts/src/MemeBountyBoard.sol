@@ -12,9 +12,16 @@ import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 import {SequencerCheck} from "./lib/SequencerCheck.sol";
 import {VotePowerOracle} from "./lib/VotePowerOracle.sol";
 
+/// @dev Every member here MUST exist on the deployed `stakingContract`
+///      (TegridyStaking). A declared-but-absent selector compiles fine and then
+///      reverts at runtime with empty returndata — the failure mode that bricked
+///      `CommunityGrants.createProposal` when `userPositionCount` was lowered
+///      external->internal in the 2026-05-29 EIP-170 golf.
+///      `votingPowerAt(address,uint256)` was such a declaration — unused here,
+///      and absent from TegridyStaking — so it is deleted rather than left as a
+///      loaded gun for the next caller added to this file.
 interface IStakingVote {
     function votingPowerOf(address user) external view returns (uint256);
-    function votingPowerAt(address user, uint256 blockNumber) external view returns (uint256);
     function votingPowerAtTimestamp(address user, uint256 ts) external view returns (uint256);
 }
 
