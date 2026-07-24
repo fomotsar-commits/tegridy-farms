@@ -117,6 +117,43 @@ jobs:
           fi
           echo "✅ All contracts within size budget (${BUDGET}B floor, 576B headroom)."
 
+      # ABI drift gate — closes the MEDIUM at
+      # .audit_101/legacy/audit_findings.md:138 ("no CI guard that the generated
+      # ABI matches the committed one"). frontend/src/lib/contracts.ts does
+      # `export * from './abi-supplement'`, so a stale abi-supplement.ts ships
+      # straight to the client surface with no compile error to catch it.
+      #
+      # Added 2026-07-23 after this gate, run for the first time, found the
+      # committed file carrying only 53 of 147 TegridyTWAP entries plus a
+      # phantom `NotOwner` error that OZ Ownable2Step had already replaced with
+      # `OwnableUnauthorizedAccount`. Nothing was user-visibly broken — the sole
+      # consumer, useToweliPrice.ts, calls `consult`, whose signature was
+      # unchanged — but that is luck, not a guarantee.
+      #
+      # Runs here because `out/` is already built by the Build step above. The
+      # generator uses only Node builtins, so no `npm ci` is needed. It now
+      # fail-closes on a missing artifact rather than writing a truncated file,
+      # so a partial build shows up as a hard error, not a silent gutting.
+      # Deliberately NOT auto-committing: a diff means a human should look at
+      # which ABI changed and why.
+      - name: Set up Node
+        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        with:
+          node-version: 20
+
+      - name: ABI supplement drift guard
+        working-directory: .
+        run: |
+          set -e
+          node frontend/scripts/extract-missing-abis.mjs
+          if ! git diff --quiet -- frontend/src/lib/abi-supplement.ts; then
+            echo "::error file=frontend/src/lib/abi-supplement.ts::abi-supplement.ts is stale vs contracts/src. Regenerate: (cd contracts && forge build) && npm run extract-abis"
+            echo "── drift ──"
+            git diff -- frontend/src/lib/abi-supplement.ts
+            exit 1
+          fi
+          echo "✅ abi-supplement.ts matches the compiled contract artifacts."
+
   # ─────────────────────────────────────────────────────────────────────
   # Test matrix — splits the ~118 test files across 6 balanced slices so
   # each fits comfortably under the ubuntu-latest 15-minute SIGTERM

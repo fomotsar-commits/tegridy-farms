@@ -90,7 +90,7 @@ Key conventions:
 
 - All Solidity in `contracts/src/*.sol`; base contracts in `contracts/src/base/`; libraries in `contracts/src/lib/`.
 - All contract addresses in the frontend live in [`frontend/src/lib/constants.ts`](../frontend/src/lib/constants.ts) — nowhere else. If you need a new address, add it there.
-- All contract ABIs in the frontend live in [`frontend/src/lib/contracts.ts`](../frontend/src/lib/contracts.ts) or [`frontend/src/lib/abi-supplement.ts`](../frontend/src/lib/abi-supplement.ts) (auto-generated from `forge build` artifacts via [`scripts/extract-missing-abis.mjs`](../scripts/extract-missing-abis.mjs)).
+- All contract ABIs in the frontend live in [`frontend/src/lib/contracts.ts`](../frontend/src/lib/contracts.ts) or [`frontend/src/lib/abi-supplement.ts`](../frontend/src/lib/abi-supplement.ts) (auto-generated from `forge build` artifacts via [`frontend/scripts/extract-missing-abis.mjs`](../frontend/scripts/extract-missing-abis.mjs)).
 - In-app product copy with Randy/Tegridy voice is centralised in [`frontend/src/lib/copy.ts`](../frontend/src/lib/copy.ts) so brand changes are one-file diffs.
 
 ## Developing a new feature
@@ -125,7 +125,7 @@ forge test --fork-url http://localhost:8545
 3. Run `forge build` to confirm it compiles.
 4. Deploy to Sepolia first via `forge script ... --rpc-url $SEPOLIA_RPC --broadcast --verify`.
 5. After mainnet deploy, add the address to [`constants.ts`](../frontend/src/lib/constants.ts) and [`README.md` Deployed contracts](../README.md#deployed-contracts-ethereum-mainnet).
-6. Re-run [`scripts/extract-missing-abis.mjs`](../scripts/extract-missing-abis.mjs) to pull the ABI into the frontend.
+6. If the dApp needs the full generated ABI (rather than a hand-rolled subset in `contracts.ts`), add the contract to the `MISSING` list in [`frontend/scripts/extract-missing-abis.mjs`](../frontend/scripts/extract-missing-abis.mjs) and re-run it — entries require a live named import in frontend code.
 
 ## Common gotchas
 
