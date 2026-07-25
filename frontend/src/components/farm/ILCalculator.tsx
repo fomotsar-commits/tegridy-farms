@@ -15,7 +15,11 @@ export function ILCalculator() {
   // Example with $1000 deposit
   const deposit = 1000;
   const holdValue = deposit * (1 + (rPositive - 1) / 2); // 50% in each token, one changed
-  const lpValue = deposit * (1 + il);
+  // IL is defined RELATIVE TO HOLDING, so it must be applied to holdValue — not to
+  // the deposit. Applying it to the deposit understated LP downside on a price drop
+  // (it could even show LPing beating HODL on a 50% dump). Equivalent to
+  // deposit * Math.sqrt(rPositive); kept in this form so the relationship is explicit.
+  const lpValue = holdValue * (1 + il);
 
   return (
     <div className="mt-4">

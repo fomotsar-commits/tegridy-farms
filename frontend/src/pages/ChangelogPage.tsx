@@ -93,7 +93,7 @@ const CHANGELOG: ChangelogEntry[] = [
     date: 'April 14, 2026',
     title: 'NFT Lending & AMM Deployment',
     items: [
-      'Note: this was a superseded deployment — these NFT-finance contracts were NOT redeployed in the June 2026 relaunch and are not live today. Their pages un-gate when the contracts ship.',
+      'Note: this V1 deployment was superseded — these contracts were not carried through the June 2026 relaunch. They were rebuilt in the audited 2026-07-16 batch and NFT lending + the NFT pool factory went live on 2026-07-21.',
       'Deployed TegridyNFTLending contract (generic NFT collateral)',
       'Deployed TegridyNFTPool & TegridyNFTPoolFactory (bonding curve AMM)',
       'Whitelisted JBAC, Nakamigos, GNSS collections for lending',

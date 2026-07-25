@@ -29,7 +29,7 @@ const FAQ_DATA: FAQSection[] = [
     items: [
       { q: 'How does staking work?', a: 'Deposit TOWELI tokens into the staking contract to earn rewards. Choose a lock duration to receive a boost multiplier — longer locks earn higher yields. Rewards are currently paid in TOWELI emissions; ETH fee-share rewards activate once the native pool is live.' },
       { q: 'What is the lock duration?', a: 'You can lock your TOWELI from 7 days up to 4 years. Contract bounds are MIN_LOCK_DURATION = 7 days and MAX_LOCK_DURATION = 4 years. Longer lock durations give you a higher boost multiplier, which means more rewards.' },
-      { q: 'Can I withdraw early?', a: 'Yes, but with a 25% early withdrawal penalty. The penalty amount is distributed proportionally to all remaining stakers as a bonus.' },
+      { q: 'Can I withdraw early?', a: 'Yes, but with a 25% early withdrawal penalty. The penalty is sent to the protocol treasury — it is not redistributed to other stakers.' },
       { q: 'What is a boost multiplier?', a: 'Your lock duration determines your yield boost on a linear scale: 0.4x at 7 days up to 4.0x at the full 4-year lock. With the JBAC NFT bonus stacked on top, the contract enforces a 4.5x ceiling (MAX_BOOST_BPS_CEILING = 45000). Higher multipliers mean a larger share of the reward pool.' },
       { q: 'Do I get an NFT for staking?', a: 'Yes. Your staking position is represented as an ERC-721 NFT. This NFT tracks your deposit amount, lock duration, and boost. It can also be used as collateral for peer-to-peer lending.' },
       { q: 'What are NFT boosts?', a: 'Holders of a JBAC NFT receive a flat +0.5x bonus on top of their lock multiplier (capped at 4.5x by MAX_BOOST_BPS_CEILING). Simply hold the NFT in your connected wallet to activate the bonus.' },
@@ -46,9 +46,9 @@ const FAQ_DATA: FAQSection[] = [
   {
     category: 'NFT Finance',
     items: [
-      { q: 'What is NFT Lending?', a: 'Borrow ETH by locking your NFTs (JBAC, Nakamigos, GNSS) as collateral. It is fully peer-to-peer with no oracles and no liquidation auctions. The lending contracts have been extensively internally reviewed (not yet third-party audited) and are not yet redeployed after the June 2026 relaunch — the page un-gates automatically when they go live.' },
+      { q: 'What is NFT Lending?', a: 'Borrow ETH by locking your NFTs (JBAC, Nakamigos, GNSS) as collateral. It is fully peer-to-peer with no oracles and no liquidation auctions. NFT Lending is live — the contracts have been extensively internally reviewed, but not third-party audited, so treat it accordingly.' },
       { q: 'What happens if I default on a loan?', a: 'The lender claims your NFT permanently. There is no liquidation auction — the NFT simply transfers to the lender after the loan expires unpaid.' },
-      { q: 'What is the NFT AMM?', a: 'Bonding curve pools for instant NFT trading. Provide liquidity by depositing NFTs and ETH into a pool to earn fees on every trade that occurs in that pool. Not yet redeployed post-relaunch — it un-gates when the contracts go live.' },
+      { q: 'What is the NFT AMM?', a: 'Bonding curve pools for instant NFT trading. Provide liquidity by depositing NFTs and ETH into a pool to earn fees on every trade that occurs in that pool. The AMM is live — internally reviewed, not third-party audited.' },
       { q: 'What is pro-rata interest?', a: 'Interest is calculated based on the actual time borrowed, not the full loan term. If you repay early, you pay proportionally less interest than the maximum.' },
     ],
   },
@@ -63,8 +63,8 @@ const FAQ_DATA: FAQSection[] = [
   {
     category: 'Premium',
     items: [
-      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium tier that grants 3x points multiplier, priority access to new features, and exclusive benefits, paid monthly in ETH. The premium contract is built and internally reviewed (not yet third-party audited) but not yet deployed — the page un-gates when it goes live.' },
-      { q: 'Do JBAC holders get free access?', a: 'Yes — once premium is live, JBAC NFT holders receive lifetime Gold Card access at no cost. Simply hold a JBAC in your connected wallet to activate premium benefits.' },
+      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium membership, live now on the Premium page. You pay in TOWELI — the monthly fee is read straight from the PremiumAccess contract and shown on that page — and you can prepay 1, 3, 6 or 12 months at the same flat rate. Like every staker, holders earn ETH from protocol swap fees. The contract is internally reviewed, not third-party audited.' },
+      { q: 'Do JBAC holders get free access?', a: 'Yes. JBAC NFT holders have lifetime Gold Card access at no cost — simply hold a JBAC in your connected wallet and premium unlocks automatically.' },
     ],
   },
 ];

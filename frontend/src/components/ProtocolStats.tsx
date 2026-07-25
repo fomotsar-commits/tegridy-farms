@@ -33,7 +33,10 @@ export function ProtocolStats() {
   const s = useProtocolStats();
   const live: StatItem[] = [];
   if (s.volumeUsd > 0) live.push({ l: 'Total Volume', v: fmtUsd(s.volumeUsd), sub: 'all-time, on native DEX', icon: '🔄' });
-  if (s.feesUsd > 0) live.push({ l: 'Real Yield Generated', v: fmtUsd(s.feesUsd), sub: 'distributed to stakers, in ETH', icon: '💸' });
+  // HONESTY 2026-07-24: this reads collected router fees, NOT RevenueDistributor
+  // .totalDistributed — labelling it "distributed to stakers" would overstate the
+  // moment the first fee lands. Name what the number actually measures.
+  if (s.feesUsd > 0) live.push({ l: 'Protocol Fees Collected', v: fmtUsd(s.feesUsd), sub: 'in ETH — routed to stakers, liquidity & ops', icon: '💸' });
   if (s.rewardPoolToweli > 0) live.push({ l: 'Reward Pool', v: fmtToken(s.rewardPoolToweli), sub: 'TOWELI staking rewards', icon: '💰' });
   if (s.dailyEmissionToweli > 0) live.push({ l: 'Daily Emissions', v: `${fmtToken(s.dailyEmissionToweli)}/day`, sub: 'to stakers', icon: '⚡' });
   // Below ~$1k the USD figure undersells the position — show the token count.
@@ -48,7 +51,10 @@ export function ProtocolStats() {
     { l: 'Fee Routing', v: 'On-chain', sub: 'fees → stakers, liquidity & ops, in ETH', icon: '💸' },
     { l: 'LP Locked', v: '~69 yrs', sub: 'Uniswap LP in UNCX until 2093', icon: '🔐' },
     { l: 'Fixed Supply', v: '1B', sub: 'TOWELI — no mint function, ever', icon: '🧱' },
-    { l: 'Security', v: '82+', sub: 'findings resolved · responsible disclosure', icon: '🛡️' },
+    // F-2026-07-24: "82+ findings resolved" is unverifiable by a visitor and the
+    // Security page deliberately declines to publish a finding count. Claim only
+    // what one click can check.
+    { l: 'Security', v: 'Verified', sub: 'source-verified on Etherscan · responsible disclosure', icon: '🛡️' },
   ];
 
   const items = [...live, ...evergreen].slice(0, 6);

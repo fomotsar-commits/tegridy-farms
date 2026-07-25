@@ -224,7 +224,7 @@ export default function WalletExposurePage() {
         <ConnectPrompt
           surface="dashboard"
           title="Connect to scan your wallet"
-          description="Read every ERC-20 position in your wallet and score each for concentration and rug exposure. Read-only — no signing, no approvals, no funds moved."
+          description="Check your balances across a tracked token set — plus any token address you paste. Read-only: no signing, no approvals, no funds moved."
         />
       ) : (
         <>

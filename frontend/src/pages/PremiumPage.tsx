@@ -58,7 +58,7 @@ function TxLink({ hash }: { hash: string }) {
 }
 
 export default function PremiumPage() {
-  usePageTitle('Gold Card', 'Premium membership with enhanced yields and exclusive features.');
+  usePageTitle('Gold Card', 'Premium membership paid in TOWELI. JBAC holders get lifetime access free.');
   const { address } = useAccount();
   const premium = usePremiumAccess();
   const revenue = useRevenueStats();
@@ -142,7 +142,7 @@ export default function PremiumPage() {
             Gold <span style={{ color: '#d4a017' }}>Card</span>
           </h1>
           <p className="text-white text-base md:text-lg max-w-lg mx-auto">
-            Unlock premium features and earn 3x points across the protocol.
+            Back the protocol in TOWELI — and earn real ETH from swap fees, like every staker.
           </p>
         </m.div>
 
@@ -251,7 +251,7 @@ export default function PremiumPage() {
         {!premium.hasPremium && (
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Choose Your Plan</h2>
-            <p className="text-white text-[12px] mb-5">Pay in TOWELI. Longer plans save more.</p>
+            <p className="text-white text-[12px] mb-5">Pay in TOWELI. One flat monthly rate — pick how long you prepay.</p>
 
             {/* Plan Cards — Fix #1: BigInt-derived display values */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
