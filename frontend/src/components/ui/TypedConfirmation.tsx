@@ -21,6 +21,7 @@
 // works, but otherwise demand an exact match.
 
 import { useState } from 'react';
+import { ART } from '../../lib/artConfig';
 
 interface TypedConfirmationProps {
   /** Phrase the operator must type to enable the execute button. */
@@ -106,7 +107,18 @@ export function TypedConfirmation({
           Cancel
         </button>
       </div>
-      <div className="p-4 rounded-xl" style={{ background: v.box, border: `1px solid ${variant === 'danger' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
+      {/* Art-first: a Tegridy piece sits beneath a LIGHT dark scrim (so it's
+          actually visible), with the variant tint (v.box) kept on the top layer —
+          the red/amber danger identity (border, heading, button) fully survives,
+          and the type-to-confirm copy stays high-contrast via its text-shadow. */}
+      <div
+        className="p-4 rounded-xl"
+        style={{
+          background: `${v.box}, linear-gradient(180deg, rgba(10,12,22,0.55) 0%, rgba(10,12,22,0.6) 100%), url(${ART.card07.src}) center / cover no-repeat`,
+          border: `1px solid ${variant === 'danger' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
+          textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)',
+        }}
+      >
         <p className={`text-[13px] ${v.text} font-semibold mb-2`}>Confirm action</p>
         <p className="text-[12px] text-white/70 mb-3">
           {description} Type <span className="font-mono text-white">{phrase}</span> to confirm.

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getConsent, setConsent } from '../../lib/consent';
+import { ART } from '../../lib/artConfig';
 
 /**
  * R046 / H-1: GDPR/ePrivacy consent banner.
@@ -47,13 +48,20 @@ export function ConsentBanner() {
       }}
     >
       <div
-        className="mx-auto max-w-3xl rounded-2xl border p-4 md:p-5 shadow-2xl backdrop-blur-md flex flex-col md:flex-row md:items-center gap-3 md:gap-4"
+        className="relative overflow-hidden mx-auto max-w-3xl rounded-2xl border p-4 md:p-5 shadow-2xl backdrop-blur-md flex flex-col md:flex-row md:items-center gap-3 md:gap-4"
         style={{
           background: 'rgba(13, 21, 48, 0.95)',
           borderColor: 'var(--color-purple-20)',
         }}
       >
-        <div className="text-sm text-gray-200 leading-relaxed flex-1">
+        {/* Art-first background: LIGHT scrim + soft blur so the piece is visible,
+            with the copy kept legible by its text-shadow (below) rather than a
+            heavy near-black scrim. */}
+        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+          <img src={ART.card05.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(11, 18, 42, 0.5)' }} />
+        </div>
+        <div className="relative z-10 text-sm text-gray-200 leading-relaxed flex-1" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
           <p className="font-semibold text-white mb-1">Privacy &amp; telemetry</p>
           <p className="text-gray-300">
             We use anonymous analytics and error reports to keep Tegridy Farms healthy.
@@ -61,7 +69,7 @@ export function ConsentBanner() {
             (<code className="text-xs px-1 py-0.5 rounded bg-black/40 text-purple-200">tegridy_telemetry_consent</code>).
           </p>
         </div>
-        <div className="flex gap-2 shrink-0 justify-end">
+        <div className="relative z-10 flex gap-2 shrink-0 justify-end">
           <button
             type="button"
             onClick={decline}

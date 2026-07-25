@@ -13,6 +13,7 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
+import { ART } from '../../lib/artConfig';
 
 type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic';
 
@@ -74,7 +75,7 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="max-w-[560px] mx-auto my-12 md:my-16 px-6 py-12 md:py-16 text-center rounded-2xl"
+      className="relative overflow-hidden max-w-[560px] mx-auto my-12 md:my-16 px-6 py-12 md:py-16 text-center rounded-2xl"
       style={{
         // AUDIT 2026-05-30 (mobile + iPad re-pass + original "dead page" finding): the
         // wallet-gate previously sat directly on each page's full-bleed background art on
@@ -91,6 +92,15 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
       role="region"
       aria-label="Wallet connection required"
     >
+      {/* Art-first background: LIGHT scrim + soft blur so the piece is visible,
+          with the copy kept WCAG-legible by its text-shadow rather than a heavy
+          near-black scrim. */}
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+        <img src={ART.card09.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+        <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.5)' }} />
+      </div>
+
+      <div className="relative z-10" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
       <div
         className="mx-auto mb-6 flex items-center justify-center rounded-full"
         style={{
@@ -143,6 +153,7 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
         <Link to="/security" className="underline hover:text-white/70">security disclosures</Link>
         {' '}and understand DeFi risk. Not financial advice.
       </p>
+      </div>
     </m.div>
   );
 }

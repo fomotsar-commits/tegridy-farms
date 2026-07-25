@@ -16,6 +16,7 @@ import {
 import { METHOD_VERSION, type Band, type ConfidenceLevel } from '../lib/detection';
 import { formatBalance, formatPercent, shortenAddress } from '../lib/formatting';
 import { validateAddress } from '../lib/tokenList';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
 // WalletExposurePage — connect a wallet, see every ERC-20 position, and read each
 // one's concentration / bundle / rug exposure from the shared detection core.
@@ -219,7 +220,9 @@ export default function WalletExposurePage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 md:py-14">
+    <>
+      <PageArtBackdrop pageId="wallet-exposure" />
+      <div className="relative z-10 max-w-3xl mx-auto px-4 sm:px-6 py-10 md:py-14">
       <header className="mb-6">
         <h1 className="heading-luxury text-3xl md:text-4xl text-white mb-2">Wallet Exposure</h1>
         <p className="text-white/70 text-[14px] leading-relaxed max-w-2xl">
@@ -335,6 +338,7 @@ export default function WalletExposurePage() {
           </footer>
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 }
