@@ -19,6 +19,7 @@ import { DOPPLER_MAINNET } from '../lib/launcher/doppler.constants';
 import {
   launchToken,
   wizardConfigToLaunchConfig,
+  resolveFeeConstitution,
   LaunchError,
   MAX_PREMINE_BPS,
   type LaunchResult,
@@ -111,6 +112,23 @@ export function parseAttentionSplits(rows: WizardState['attentionSplits']): Atte
  * gets attested. Doppler-template powers are known-false by construction.
  */
 function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
+  // Show the RESOLVED split this config produces (creator remainder + directed
+  // carve-outs + fixed lines), not the static 70/10 template — otherwise the
+  // preview advertises a split the deployed StreamableFeesLocker never pays (by
+  // default the creator+attention pool resolves to 80/0, not 70/10). Only valid
+  // rows feed the resolver, and it still throws if they over-allocate the 80%
+  // pool; in that (already-flagged) state fall back to the template so the
+  // preview never crashes mid-edit — the StepFees over-allocation warning and
+  // the launch-time throw both catch it.
+  let feeConstitution: RawTokenFacts['feeConstitution'];
+  try {
+    feeConstitution = resolveFeeConstitution(
+      '0x0000000000000000000000000000000000000000',
+      w.attentionSplits.filter((r) => splitRowStatus(r).valid).map((r) => ({ address: r.address.trim() as Address, shareBps: r.shareBps })),
+    );
+  } catch {
+    feeConstitution = [...DEFAULT_FEE_CONSTITUTION];
+  }
   const facts: RawTokenFacts = {
     token: '0x0000000000000000000000000000000000000000',
     chainId: DOPPLER_MAINNET.chainId,
@@ -127,7 +145,7 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
     ownerRenounced: w.tier !== 'flagship',
     ownerIsTimelock: w.tier === 'flagship',
     liquidity: { locked: true, locker: DOPPLER_MAINNET.support.streamableFeesLocker, unlockAt: Math.round(nowSeconds + w.lpLockMonths * MONTH) },
-    feeConstitution: [...DEFAULT_FEE_CONSTITUTION],
+    feeConstitution,
     vesting: [],
     teamAllocationBps: w.premineBps,
     teamAllocationVestedBps: w.premineBps, // wizard only offers on-chain-vested premine
@@ -135,6 +153,24 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
   };
   return buildFactSheet(facts);
 }
+
+/**
+ * Honest static display of the fee constitution. DEFAULT_FEE_CONSTITUTION splits
+ * the creator+attention pool into an ASPIRATIONAL 70/10, but resolveFeeConstitution
+ * treats it as ONE creator-directed pool (attention defaults to 0% and is carved
+ * at the creator's discretion). Showing a fixed "Attention 10%" therefore advertises
+ * a split the locker doesn't pay by default. Collapse the two into the real 80%
+ * pool line for any display that isn't tied to a specific launch's resolved split.
+ */
+const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION
+  .filter((l) => l.role === 'creator' || l.role === 'attention-beneficiary')
+  .reduce((n, l) => n + l.shareBps, 0);
+const FEE_POOL_DISPLAY: { recipient: string; shareBps: number }[] = [
+  { recipient: 'Creator (directs the attention carve)', shareBps: CREATOR_ATTENTION_POOL_BPS },
+  ...DEFAULT_FEE_CONSTITUTION
+    .filter((l) => l.role === 'protocol-stakers' || l.role === 'doppler')
+    .map((l) => ({ recipient: l.recipient, shareBps: l.shareBps })),
+];
 
 const STEPS = ['Details', 'Tier & curve', 'Fees & disclosure', 'Review'] as const;
 
@@ -280,7 +316,11 @@ export default function LaunchPage() {
       const raw = await collectTokenFacts(viemChainReader(publicClient), launch.result.tokenAddress as Address, {
         chainId: DOPPLER_MAINNET.chainId,
         now: observedAt,
-        feeConstitution: [...DEFAULT_FEE_CONSTITUTION],
+        // Attest the RESOLVED split captured at launch (immutable) — not the
+        // static 70/10 template, which never matches what the locker pays. This
+        // is captured from the deployed config in launch.result, so it cannot be
+        // forged by editing the still-mutable wizard after launch.
+        feeConstitution: launch.result.feeConstitution,
       });
       const sheetForToken = buildFactSheet(raw);
       const { uid, txHash } = await attestFactSheet(walletClient, publicClient, sheetForToken);
@@ -565,10 +605,10 @@ function LauncherExplainer() {
       <ExplainerCard title="The fee split is fixed at launch">
         <p>
           A 1% total trade fee, published in the Fact Sheet and never a marketing dial. These are the shares the rail
-          will launch with:
+          will launch with — the creator directs their pool (optionally carving a share to attention beneficiaries):
         </p>
         <div className="rounded-xl border border-white/12 overflow-hidden mt-1">
-          {DEFAULT_FEE_CONSTITUTION.map((l, i) => (
+          {FEE_POOL_DISPLAY.map((l, i) => (
             <div
               key={l.recipient}
               className={`flex items-center justify-between px-3 py-2 ${i % 2 ? 'bg-white/[0.02]' : ''}`}
@@ -836,9 +876,9 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
   return (
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">Constitutional fee split</h3>
-      <p className="text-white/50 text-xs mb-3">Fixed at launch and published in the Fact Sheet — never a marketing dial. 1% total trade fee.</p>
+      <p className="text-white/50 text-xs mb-3">Fixed at launch and published in the Fact Sheet — never a marketing dial. 1% total trade fee. You direct your pool below.</p>
       <div className="rounded-xl border border-white/12 overflow-hidden mb-6">
-        {DEFAULT_FEE_CONSTITUTION.map((l, i) => (
+        {FEE_POOL_DISPLAY.map((l, i) => (
           <div key={l.recipient} className={`flex items-center justify-between px-4 py-2.5 text-sm ${i % 2 ? 'bg-white/[0.02]' : ''}`}>
             <span className="text-white/80">{l.recipient}</span>
             <span className="text-white/60 tabular-nums">{(l.shareBps / 100).toFixed(0)}%</span>
