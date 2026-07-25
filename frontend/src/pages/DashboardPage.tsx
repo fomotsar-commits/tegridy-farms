@@ -4,7 +4,7 @@ import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, 
 import { formatEther } from 'viem';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
+import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { useLpPosition } from '../hooks/useLpPosition';
@@ -575,9 +575,13 @@ export default function DashboardPage() {
                     {nft.boostLabel && (
                       <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
                     )}
-                    <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
-                      Restake for bonus yield &#8594;
-                    </Link>
+                    {/* Restaking is DEFERRED to Phase 7 (TEGRIDY_RESTAKING_ADDRESS
+                        zeroed). Same dead-CTA fix as StakingCard.tsx. */}
+                    {isDeployed(TEGRIDY_RESTAKING_ADDRESS) && (
+                      <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                        Restake for bonus yield &#8594;
+                      </Link>
+                    )}
                   </div>
                 </div>
               </m.div>

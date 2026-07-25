@@ -1,7 +1,22 @@
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
-import { SWAP_FEE_BPS } from '../lib/constants';
+import {
+  SWAP_FEE_BPS,
+  isDeployed,
+  TEGRIDY_LENDING_ADDRESS,
+  TEGRIDY_NFT_LENDING_ADDRESS,
+  TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+} from '../lib/constants';
+
+/**
+ * HONESTY 2026-07-24: these statuses were hardcoded 'Not yet deployed' and went
+ * stale the moment the 2026-07-16 batch was un-gated (2026-07-21) — the table
+ * then contradicted the sibling Contracts tab, which listed the same features as
+ * live. Derive from the address map so the row can never drift again.
+ */
+const deployStatus = (addr: string): 'Live' | 'Not yet deployed' =>
+  isDeployed(addr) ? 'Live' : 'Not yet deployed';
 
 // Protocol-specific risks that reflect the actual current state of Tegridy Farms
 // (as of the last RisksPage refresh). Distinct from the generic DeFi risks
@@ -19,7 +34,7 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'Patched contracts not yet redeployed on-chain',
     status: 'Mitigated',
-    body: 'Resolved by the June 6, 2026 relaunch: the live protocol was redeployed from scratch from a new deployer, so every contract running on mainnet today carries fresh bytecode that includes the previously-merged fixes (including the autoMaxLock/getReward stuck-state fix and the Pass-7 remediations). The contracts that have not been redeployed — gauge voting, vote incentives, grants, premium, lending, NFT pools, launchpad — are not running old bytecode either: they are not deployed at all. Their addresses are zeroed in the app and each feature un-gates only after its contract clears a pre-deploy audit wave and goes live.',
+    body: 'Resolved by the June 6, 2026 relaunch: the live protocol was redeployed from scratch from a new deployer, so every contract running on mainnet today carries fresh bytecode that includes the previously-merged fixes (including the autoMaxLock/getReward stuck-state fix and the Pass-7 remediations). Since then, four more went live from the audited 2026-07-16 batch and were un-gated on 2026-07-21: premium (Gold Card), NFT lending, the NFT pool factory, and the launchpad. The contracts that remain unredeployed — gauge voting, vote incentives, grants, meme bounties, and ETH lending — are not running old bytecode either: they are not deployed at all. Their addresses are zeroed in the app and each feature un-gates only after its contract clears a pre-deploy audit wave and goes live.',
   },
   {
     title: 'Treasury is an EOA / multisig, not a smart contract',
@@ -76,7 +91,7 @@ const PROTOCOL_LIMITS: Array<{
       { label: 'Protocol-wide cap', value: '5,000,000 TOWELI', why: 'Testing-phase safety ceiling' },
       { label: 'Lock duration', value: '7 days – 4 years', why: 'Longer lock = higher boost' },
       { label: 'Boost range', value: '0.4× – 4.0× (4.5× with JBAC NFT)', why: 'Rewards long-term locking' },
-      { label: 'Early-exit penalty', value: '25%', why: 'Redistributed to remaining stakers' },
+      { label: 'Early-exit penalty', value: '25%', why: 'Sent to the protocol treasury' },
     ],
   },
   {
@@ -98,14 +113,14 @@ const PROTOCOL_LIMITS: Array<{
   },
   {
     feature: 'Lending (ETH)',
-    status: 'Not yet deployed',
+    status: deployStatus(TEGRIDY_LENDING_ADDRESS),
     items: [
       { label: 'Loan principal', value: '0.001 – 1,000 ETH', why: 'Dust floor + whale cap' },
     ],
   },
   {
     feature: 'NFT Lending',
-    status: 'Not yet deployed',
+    status: deployStatus(TEGRIDY_NFT_LENDING_ADDRESS),
     items: [
       { label: 'Loan duration', value: '1 – 365 days', why: 'Sane loan-term bounds' },
       { label: 'Minimum offer', value: '~0.001 ETH', why: 'Blocks dust offers' },
@@ -113,7 +128,7 @@ const PROTOCOL_LIMITS: Array<{
   },
   {
     feature: 'NFT Launchpad / Drops',
-    status: 'Not yet deployed',
+    status: deployStatus(TEGRIDY_LAUNCHPAD_V2_ADDRESS),
     items: [
       { label: 'Max collection supply', value: '100,000', why: 'Sanity bound at creation' },
       { label: 'Max mint price', value: '100 ETH', why: 'Sanity bound at creation' },

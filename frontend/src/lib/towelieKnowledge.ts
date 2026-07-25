@@ -74,7 +74,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // distance from unlock". Actual on-chain constant is a flat 25% on the
     // staked principal regardless of how much lock time is left.
     keywords: ['unstake', 'withdraw', 'exit'],
-    answer: "Withdraw early = flat 25% penalty on your stake, no matter how close you are to unlock. The penalty is redistributed to remaining stakers. Wait it out for the full payout.",
+    answer: "Withdraw early = flat 25% penalty on your stake, no matter how close you are to unlock. The penalty goes to the protocol treasury — not to other stakers. Wait it out for the full payout.",
   },
   {
     keywords: ['extend', 'top', 'increase', 'add', 'position'],
@@ -279,16 +279,18 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Smart-contract risk, market risk, IL risk for LPs. /risks has the honest version. Read it.",
   },
   {
-    // HONESTY PASS 2026-06-11: PremiumAccess is not deployed (zeroed address).
+    // HONESTY PASS 2026-07-24: PremiumAccess went live 2026-07-21. Fee is in
+    // TOWELI (read from the contract — never hardcode it here, it is timelock-
+    // mutable), and there is no points multiplier or fee discount.
     keywords: ['premium', 'gold', 'card', 'subscription'],
-    answer: "Randy's Gold Card — bonus rewards + perks, paid in ETH. Built and internally reviewed (no third-party audit yet), not deployed yet. /premium lights up the day it ships.",
+    answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page — and holders earn ETH from swap fees like every staker. JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
   },
   {
     // AUDIT R073: prior copy said "no refund mid-period" — wrong. PremiumAccess
     // implements pull-payment pro-rata refunds: cancel mid-window and the
     // unspent fraction is credited as a pull-pattern claim you withdraw.
     keywords: ['cancel', 'unsubscribe', 'refund'],
-    answer: "Once premium's live: cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
+    answer: "Cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
   },
   {
     keywords: ['leaderboard', 'points', 'rank', 'ranking'],

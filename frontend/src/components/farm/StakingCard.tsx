@@ -12,7 +12,7 @@ import { ArtImg } from '../ArtImg';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS } from '../../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
 
 // Derive from the canonical constant so the penalty label + math track one source.
 const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
@@ -332,9 +332,19 @@ export function StakingCard({
                   </div>
                 )}
               </div>
-              <Link to="/farm" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
-                Restake for bonus yield &#8594;
-              </Link>
+              {/* Restaking is DEFERRED to Phase 7 — TEGRIDY_RESTAKING_ADDRESS is
+                  zeroed, so FarmPage's restaking section never renders. Advertising
+                  "bonus yield" with a link back to this same page was a live CTA for
+                  a dead feature; show an honest status label until it deploys. */}
+              {isDeployed(TEGRIDY_RESTAKING_ADDRESS) ? (
+                <Link to="/farm" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
+                  Restake for bonus yield &#8594;
+                </Link>
+              ) : (
+                <span className="text-center text-white/40 text-[12px] mt-1">
+                  Restaking &mdash; coming in Phase 7
+                </span>
+              )}
             </div>
           </div>
         ) : !isConnected ? (
