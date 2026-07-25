@@ -75,11 +75,33 @@ const INITIAL: WizardState = {
   attentionSplits: [],
 };
 
-/** Parse the wizard's KOL rows into valid AttentionSplits (drop blank/invalid rows). */
-function parseAttentionSplits(rows: WizardState['attentionSplits']): AttentionSplit[] {
+/**
+ * Classify one attention-split row. Shared by the fee remainder, the Launch
+ * gate, the per-row UI, and parseAttentionSplits so they can never disagree
+ * again — the silent-drop bug was those sites computing validity over different
+ * sets. A row is `blank` (ignored), `valid` (submitted), or `invalid` (blocks).
+ */
+export function splitRowStatus(r: { address: string; shareBps: number }): { blank: boolean; valid: boolean; invalid: boolean } {
+  const addr = r.address.trim();
+  const blank = addr.length === 0 && !r.shareBps;
+  const valid = isAddress(addr) && Number.isInteger(r.shareBps) && r.shareBps > 0;
+  return { blank, valid, invalid: !blank && !valid };
+}
+
+export function parseAttentionSplits(rows: WizardState['attentionSplits']): AttentionSplit[] {
+  // Belt-and-braces: a non-blank row that is not valid must FAIL LOUDLY, never be
+  // silently dropped. Silently dropping shipped a launch whose perpetual fee
+  // stream differed from what the wizard displayed (a mistyped beneficiary got
+  // nothing, forever, while the displayed remainder still counted them). The UI
+  // blocks Launch while any row is invalid; this stops any future caller from
+  // reintroducing the drop.
+  const bad = rows.find((r) => splitRowStatus(r).invalid);
+  if (bad) {
+    throw new Error(`Invalid attention beneficiary "${bad.address || '(blank)'}": needs a valid 0x address and a positive whole-percent share.`);
+  }
   return rows
-    .filter((r) => isAddress(r.address) && Number.isInteger(r.shareBps) && r.shareBps > 0)
-    .map((r) => ({ address: r.address as Address, shareBps: r.shareBps }));
+    .filter((r) => !splitRowStatus(r).blank)
+    .map((r) => ({ address: r.address.trim() as Address, shareBps: r.shareBps }));
 }
 
 /**
@@ -288,6 +310,10 @@ export default function LaunchPage() {
 
   const set = <K extends keyof WizardState>(k: K, v: WizardState[K]) => setW((s) => ({ ...s, [k]: v }));
   const canNext = step === 0 ? w.name.trim().length > 0 && w.symbol.trim().length > 0 : true;
+  // Any non-blank attention-split row that isn't a valid (address, positive %)
+  // blocks the launch — the fee stream is perpetual and immutable, so a mistyped
+  // beneficiary must never be silently dropped at submit.
+  const hasInvalidSplit = w.attentionSplits.some((r) => splitRowStatus(r).invalid);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
@@ -327,12 +353,14 @@ export default function LaunchPage() {
         ) : (
           <button
             onClick={onLaunch}
-            disabled={launch.phase === 'pending' || !isConnected}
+            disabled={launch.phase === 'pending' || !isConnected || hasInvalidSplit}
             className="px-5 py-2 rounded-lg text-sm font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
             title={
-              isConnected
-                ? 'Submits the Doppler create() transaction on Ethereum mainnet.'
-                : 'Connect a wallet to launch.'
+              hasInvalidSplit
+                ? 'Fix or remove the invalid attention beneficiary row(s) first.'
+                : isConnected
+                  ? 'Submits the Doppler create() transaction on Ethereum mainnet.'
+                  : 'Connect a wallet to launch.'
             }
           >
             {launch.phase === 'pending' ? 'Launching…' : isConnected ? 'Review & launch' : 'Connect wallet to launch'}
@@ -675,13 +703,20 @@ function AttentionSplitRow({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.shareBps]);
+  // A non-blank address that doesn't parse is flagged inline (and blocks Launch
+  // upstream) instead of being silently dropped at submit. Trim at the boundary:
+  // pasted surrounding whitespace is the likeliest real-world cause of a bad row.
+  const trimmedAddr = row.address.trim();
+  const addrInvalid = trimmedAddr.length > 0 && !isAddress(trimmedAddr);
   return (
+    <div>
     <div className="flex items-center gap-2">
       <input
         placeholder="0x… beneficiary"
         value={row.address}
-        onChange={(e) => onAddress(e.target.value)}
-        className={`${inputCls} flex-1 mt-0 font-mono text-xs`}
+        onChange={(e) => onAddress(e.target.value.trim())}
+        aria-invalid={addrInvalid}
+        className={`${inputCls} flex-1 mt-0 font-mono text-xs ${addrInvalid ? 'border-rose-400/60' : ''}`}
       />
       <input
         inputMode="decimal"
@@ -695,6 +730,8 @@ function AttentionSplitRow({
         className={`${inputCls} w-16 mt-0`}
       />
       <button onClick={onRemove} className="text-white/40 hover:text-rose-300 text-sm px-1" aria-label="remove">✕</button>
+    </div>
+      {addrInvalid && <p className="text-rose-300/80 text-[10px] mt-1 ml-1">Enter a valid 0x address, or remove this row.</p>}
     </div>
   );
 }
@@ -791,7 +828,10 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
 }
 
 function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof WizardState>(k: K, v: WizardState[K]) => void; sheet: LaunchFactSheet }) {
-  const totalSplitBps = w.attentionSplits.reduce((n, s) => n + (s.shareBps || 0), 0);
+  // Count ONLY valid rows toward the carve — the "you keep X%" figure must
+  // describe what will actually be submitted, not what an invalid (dropped) row
+  // appeared to allocate. Mirrors parseAttentionSplits so the two agree.
+  const totalSplitBps = w.attentionSplits.reduce((n, s) => splitRowStatus(s).valid ? n + s.shareBps : n, 0);
   const creatorKeepsBps = 8000 - totalSplitBps; // creator+attention pool = 80%
   return (
     <div>
@@ -864,6 +904,32 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
           </div>
         ))}
       </div>
+      {(() => {
+        // Show exactly who will receive the creator's fee carve on the final
+        // pre-signature screen — the fee stream is perpetual and immutable, so
+        // the irreversible action must disclose its beneficiaries. Only valid
+        // rows are listed (invalid rows block Launch upstream).
+        const validSplits = w.attentionSplits.filter((r) => splitRowStatus(r).valid);
+        if (validSplits.length === 0) return null;
+        const carvedBps = validSplits.reduce((n, r) => n + r.shareBps, 0);
+        return (
+          <div className="rounded-xl border border-white/12 overflow-hidden mb-5">
+            <div className="px-4 py-2 text-[11px] uppercase tracking-wide text-white/40 bg-white/[0.02]">
+              Attention beneficiaries (from the creator&rsquo;s 80% pool)
+            </div>
+            {validSplits.map((r, i) => (
+              <div key={`${r.address}-${i}`} className="flex items-center justify-between px-4 py-2 text-xs">
+                <span className="text-white/70 font-mono">{r.address.slice(0, 6)}…{r.address.slice(-4)}</span>
+                <span className="text-white/85 tabular-nums">{(r.shareBps / 100).toFixed(1)}%</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-4 py-2 text-xs bg-white/[0.02]">
+              <span className="text-white/50">Creator keeps</span>
+              <span className="text-white/85 tabular-nums">{((8000 - carvedBps) / 100).toFixed(1)}%</span>
+            </div>
+          </div>
+        );
+      })()}
       <FactSheetCard sheet={sheet} />
       <p className="text-white/40 text-xs mt-4">
         Launching submits a single Doppler <code className="text-white/60">create()</code> transaction on Ethereum
