@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
+import { resolveLimitFill } from '../lib/limitOrderMath';
 
 export interface LimitOrder {
   id: string;
@@ -48,13 +49,10 @@ const SLIPPAGE_BPS = 100n;
 const MAX_FEE_BPS = 100n; // 1% max fee tolerance for SwapFeeRouter
 const MAX_ORDERS = 50;
 const MAX_AMOUNT = 1e15; // sanity cap for amount string parsing
-// AUDIT FIX FE-HIGH-5: stale-target gate. If the user's expectedOut from
-// targetPrice is more than 2× what the AMM actually returns at execute-time,
-// the target is so far above current price that minOut would be unsatisfiable
-// — abort cleanly with a refresh prompt instead of letting writeContract
-// burn gas on a guaranteed revert. 2× = 100% drift; well outside any
-// legitimate price scenario the trigger condition would emit.
-const STALE_TARGET_RATIO = 2n;
+// AUDIT FIX FE-HIGH-5 (superseded 2026-07-24): the coarse "abort if target > 2×
+// the native quote" gate is folded into resolveLimitFill, which now aborts
+// whenever the native pool can't deliver the user's target floor at all — a
+// strictly tighter, fill-safe condition than the old 100%-drift threshold.
 
 // Multi-tab mutex: prevent duplicate limit order execution across browser tabs.
 function claimTabLock(orderId: string): boolean {
@@ -309,7 +307,6 @@ export function useLimitOrders() {
     const targetPriceScaled = BigInt(Math.round(targetPriceNum * 1e12));
     const amountScaled = BigInt(Math.round(amountNum * 1e12));
     const targetExpectedOut = (targetPriceScaled * amountScaled * (10n ** BigInt(order.toToken.decimals))) / (PRECISION * PRECISION);
-    const targetDerivedMinOut = targetExpectedOut - (targetExpectedOut * SLIPPAGE_BPS / 10000n);
 
     // AUDIT FIX FE-HIGH-5: re-quote on-chain immediately before execute so we
     // sign against the price the AMM actually has, not the price we hoped it
@@ -343,25 +340,18 @@ export function useLimitOrders() {
       revertOrderStatus(order.id);
       return;
     }
-    // Stale-target gate: if the user-derived minOut is more than 2× the live
-    // AMM output, the target is so far above current that the swap would
-    // revert on InsufficientOutput. Abort and surface a refresh prompt so
-    // the user knows their target is no longer achievable.
-    if (targetDerivedMinOut > onChainOut * STALE_TARGET_RATIO) {
-      toast.error('Limit order: stale target — refresh price and re-create the order.');
+    // FILL SAFETY (2026-07-24, resolveLimitFill): this order triggered on the
+    // Uniswap/market price but executes on the thin native pool. Floor minOut at
+    // the user's TARGET (haircut by the same fee + slippage the native pool
+    // imposes) and ABORT rather than underfill when the native pool can't honor
+    // that floor right now. Replaces the old min(target, nativeQuote) that
+    // silently filled below target, and the coarse 2× stale-target gate.
+    const { minOut, abort } = resolveLimitFill(targetExpectedOut, onChainOut, MAX_FEE_BPS, SLIPPAGE_BPS);
+    if (abort) {
+      toast.error('Limit order: the execution pool is below your target right now — refresh and re-create the order.');
       revertOrderStatus(order.id);
       return;
     }
-    // Take the lesser of (a) target-derived floor and (b) on-chain price minus
-    // slippage. This guarantees we never sign for less than the user wanted
-    // AND never sign for more than the AMM can actually deliver.
-    // F188: SFR deducts its fee from the input before swapping on the native
-    // pool, so haircut the native quote by the fee cap (MAX_FEE_BPS) before
-    // deriving minOut — otherwise the fee pushes real output below minOut and the
-    // swap reverts. Conservative linear haircut (never under-shoots, by concavity).
-    const onChainAfterFee = (onChainOut * (10000n - MAX_FEE_BPS)) / 10000n;
-    const onChainMinOut = onChainAfterFee - (onChainAfterFee * SLIPPAGE_BPS / 10000n);
-    const minOut = targetDerivedMinOut < onChainMinOut ? targetDerivedMinOut : onChainMinOut;
 
     sendNotification(
       'Limit Order Triggered',
