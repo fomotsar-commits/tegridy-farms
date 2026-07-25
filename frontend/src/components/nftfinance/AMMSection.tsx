@@ -707,7 +707,9 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             value: maxTotalCost,
           },
           {
-            onSuccess: () => toast.success('NFTs purchased successfully!'),
+            // writeContract onSuccess = SUBMITTED (hash in hand), not confirmed.
+            // The real success toast fires on the receipt (isSuccess effect below).
+            onSuccess: () => toast.info('Purchase submitted — confirming on-chain…'),
             onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Transaction failed'),
           }
         );
@@ -723,7 +725,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             args: [parsedSellIds, minOutput, deadline],
           },
           {
-            onSuccess: () => toast.success('NFTs sold successfully!'),
+            onSuccess: () => toast.info('Sale submitted — confirming on-chain…'),
             onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Transaction failed'),
           }
         );
@@ -735,6 +737,9 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
   useEffect(() => {
     if (isSuccess) {
+      // The tx is now CONFIRMED (receipt mined) — this is the honest success
+      // signal, not the submission callback above.
+      toast.success('Transaction confirmed');
       setBuyQty(1);
       setSellIds('');
       // Refetch pool data after successful transaction

@@ -54,7 +54,7 @@ export function useMyLoans() {
   const tokenDeployed = isDeployed(TEGRIDY_LENDING_ADDRESS);
   const nftDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
 
-  const { data: tokenLoanCount } = useReadContract({
+  const { data: tokenLoanCount, isError: tokenCountError } = useReadContract({
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'loanCount',
@@ -62,7 +62,7 @@ export function useMyLoans() {
     query: { enabled: tokenDeployed && onMainnet, refetchInterval: REFETCH_MS },
   });
 
-  const { data: nftLoanCount } = useReadContract({
+  const { data: nftLoanCount, isError: nftCountError } = useReadContract({
     address: TEGRIDY_NFT_LENDING_ADDRESS as Address,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'loanCount',
@@ -241,9 +241,16 @@ export function useMyLoans() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- statusTick is the intentional time dep
   }, [tokenResults, nftResults, address, statusTick]);
 
+  // Distinguish "no loans" from "couldn't read": the count read failing, or every
+  // per-loan detail read failing (RPC down), previously rendered as an empty list
+  // that looked like the user had no loans. Surface it so the UI can say so.
+  const tokenReadFailed = tokenCountError || (tokenResults.length > 0 && tokenResults.every((r) => r.status === 'failure'));
+  const nftReadFailed = nftCountError || (nftResults.length > 0 && nftResults.every((r) => r.status === 'failure'));
+
   return {
     loans: outstanding,
     isLoading: tokenLoading || nftLoading,
+    isError: Boolean(tokenReadFailed || nftReadFailed),
     deployed: tokenDeployed || nftDeployed,
   };
 }
