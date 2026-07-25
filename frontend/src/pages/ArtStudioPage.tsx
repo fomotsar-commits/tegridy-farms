@@ -24,6 +24,17 @@ const PAGE_ROUTES: Record<string, string> = {
   'connect-prompt': '/farm',
   'token-select': '/trade',
   'typed-confirm': '/admin',
+  // Page surfaces that rendered art but weren't registered in the studio (audit
+  // 2026-07-25): trust tools, the launch rail, contracts + treasury + solana swap.
+  contracts: '/contracts',
+  scanner: '/scan',
+  deployer: '/deployer',
+  'wallet-exposure': '/exposure',
+  launch: '/launch',
+  'launch-simulator': '/launch-simulator',
+  'solana-launch': '/solana-launch',
+  swap: '/solana',
+  treasury: '/treasury',
   dashboard: '/dashboard',
   farm: '/farm',
   'farm-stats': '/farm',
@@ -263,6 +274,21 @@ const SURFACES: Surface[] = [
   { group: 'Pop-ups / Modals', pageId: 'connect-prompt', idx: 0, label: 'PU7 — Connect-wallet gate' },
   { group: 'Pop-ups / Modals', pageId: 'token-select',   idx: 0, label: 'PU8 — Token-select modal' },
   { group: 'Pop-ups / Modals', pageId: 'typed-confirm',  idx: 0, label: 'PU9 — Type-to-confirm (admin)' },
+
+  // Page surfaces found rendering art but NOT registered in the studio (coverage
+  // audit 2026-07-25: pageIds used by ArtImg/PageArtBackdrop vs the SURFACES list).
+  { group: 'Trust tools',   pageId: 'scanner',          idx: 0, label: 'TT1 — Token Scanner backdrop' },
+  { group: 'Trust tools',   pageId: 'deployer',         idx: 0, label: 'TT2 — Deployer Graph backdrop' },
+  { group: 'Trust tools',   pageId: 'wallet-exposure',  idx: 0, label: 'TT3 — Wallet Exposure backdrop' },
+  { group: 'Launch & Solana', pageId: 'launch',           idx: 0, label: 'LS1 — Launch rail backdrop' },
+  { group: 'Launch & Solana', pageId: 'launch-simulator', idx: 0, label: 'LS2 — Launch Simulator backdrop' },
+  { group: 'Launch & Solana', pageId: 'solana-launch',    idx: 0, label: 'LS3 — Solana Launch backdrop' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 2, label: 'LS4 — Solana Swap surface' },
+  { group: 'Contracts',     pageId: 'contracts',        idx: 0, label: 'CO1 — Contracts page bg' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 0, label: 'TR1 — Treasury page bg' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 5, label: 'TR2 — Treasury surface 5' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 6, label: 'TR3 — Treasury surface 6' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 7, label: 'TR4 — Treasury surface 7' },
 ];
 
 const ART_LIST: ArtPiece[] = Object.values(ART);
