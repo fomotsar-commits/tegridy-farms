@@ -35,6 +35,13 @@ const PAGE_ROUTES: Record<string, string> = {
   'solana-launch': '/solana-launch',
   swap: '/solana',
   treasury: '/treasury',
+  // ArtCard section backgrounds (NFT-Finance/AMM + launchpad flows).
+  amm: '/nft-finance',
+  'launchpad-collection': '/nft-finance',
+  'launchpad-shared': '/nft-finance',
+  'launchpad-owner': '/nft-finance',
+  'launchpad-wizard': '/nft-finance',
+  'launchpad-traits': '/nft-finance',
   dashboard: '/dashboard',
   farm: '/farm',
   'farm-stats': '/farm',
@@ -289,6 +296,36 @@ const SURFACES: Surface[] = [
   { group: 'Treasury',      pageId: 'treasury',         idx: 5, label: 'TR2 — Treasury surface 5' },
   { group: 'Treasury',      pageId: 'treasury',         idx: 6, label: 'TR3 — Treasury surface 6' },
   { group: 'Treasury',      pageId: 'treasury',         idx: 7, label: 'TR4 — Treasury surface 7' },
+
+  // ArtCard section backgrounds — moved from fixed ART.<piece> onto pageArt so the
+  // studio can tune them too (coverage audit 2026-07-25).
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 0,  label: 'AMM art 1' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 1,  label: 'AMM art 2' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 2,  label: 'AMM art 3' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 3,  label: 'AMM art 4' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 4,  label: 'AMM art 5' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 5,  label: 'AMM art 6' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 6,  label: 'AMM art 7' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 7,  label: 'AMM art 8' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 8,  label: 'AMM art 9' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 9,  label: 'AMM art 10' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 10, label: 'AMM art 11' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 11, label: 'AMM art 12' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 12, label: 'AMM art 13' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 13, label: 'AMM art 14' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 14, label: 'AMM art 15' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 15, label: 'AMM art 16' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 16, label: 'AMM art 17' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 17, label: 'AMM art 18' },
+  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 18, label: 'AMM art 19 (pool owner-view)' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-collection', idx: 0, label: 'Collection detail 1' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-collection', idx: 1, label: 'Collection detail 2' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-collection', idx: 2, label: 'Collection detail 3' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-shared', idx: 0, label: 'Launchpad shared 1' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-shared', idx: 1, label: 'Launchpad shared 2' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-owner', idx: 0, label: 'Owner admin panel' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-wizard', idx: 0, label: 'Create wizard' },
+  { group: 'ArtCard: Launchpad', pageId: 'launchpad-traits', idx: 0, label: 'Trait editor' },
 ];
 
 const ART_LIST: ArtPiece[] = Object.values(ART);
@@ -479,9 +516,15 @@ export default function ArtStudioPage() {
             <select
               value={filterGroup}
               onChange={(e) => setFilterGroup(e.target.value)}
-              className="w-full text-xs bg-white/5 border border-white/10 rounded px-2 py-1.5"
+              // colorScheme:dark makes the browser render the native option popup
+              // dark (was light text on the default white popup = unreadable); the
+              // per-option colors are an explicit fallback for browsers that ignore it.
+              style={{ colorScheme: 'dark' }}
+              className="w-full text-xs bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white"
             >
-              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+              {groups.map((g) => (
+                <option key={g} value={g} style={{ backgroundColor: '#0f1524', color: '#e5e7eb' }}>{g}</option>
+              ))}
             </select>
           </div>
           {Object.entries(groupBy(visibleSurfaces, (s) => s.group)).map(([group, surfaces]) => (

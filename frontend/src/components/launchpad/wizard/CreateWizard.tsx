@@ -1,6 +1,6 @@
 import { useReducer, useState } from 'react';
 import { m } from 'framer-motion';
-import { ART } from '../../../lib/artConfig';
+import { pageArt } from '../../../lib/artConfig';
 import { ArtCard } from '../launchpadShared';
 import { wizardReducer, initialState } from './wizardReducer';
 import type { Step, WizardState } from './wizardReducer';
@@ -80,7 +80,7 @@ export function CreateWizard({ onCreated }: { onCreated?: () => void }) {
       animate={{ opacity: 1, y: 0 }}
       className="mb-8"
     >
-      <ArtCard art={ART.chaosScene} opacity={1} overlay="none" className="rounded-2xl">
+      <ArtCard art={pageArt('launchpad-wizard', 0)} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-1 sm:p-3">
           <div className="mb-5">
             <h2 className="heading-luxury text-xl text-white mb-1">Create Collection</h2>

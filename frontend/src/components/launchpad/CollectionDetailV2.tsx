@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
 import { INPUT, LABEL, BTN_EMERALD } from './launchpadConstants';
 import { ArtCard, PhaseIndicator, useExplorerAddressUrl, CreatorRevenueDashboard, LiveMintFeed } from './launchpadShared';
@@ -159,7 +159,7 @@ export function CollectionDetailV2({
       )}
 
       {/* Main panel */}
-      <ArtCard art={ART.beachVibes} opacity={1} overlay="none" className="rounded-2xl mb-0">
+      <ArtCard art={pageArt('launchpad-collection', 0)} opacity={1} overlay="none" className="rounded-2xl mb-0">
         <div className="p-1 sm:p-3">
           <div className="flex items-start justify-between mb-6">
             <div>
@@ -358,7 +358,7 @@ export function CollectionDetailV2({
 
           {/* Closed empty state (phase=0) \u2014 F261: distinct from a paused contract */}
           {drop.currentPhase === 0 && (
-            <ArtCard art={ART.towelieWindow} opacity={1} overlay="none" className="mb-6">
+            <ArtCard art={pageArt('launchpad-collection', 1)} opacity={1} overlay="none" className="mb-6">
               <div className="text-center py-4">
                 <div className="text-white/15 text-4xl mb-3">{'\u23F8'}</div>
                 <p className="text-white text-sm">Minting closed \u2014 the creator hasn't opened the sale yet.</p>
@@ -367,7 +367,7 @@ export function CollectionDetailV2({
           )}
 
           {/* Mint Interface */}
-          <ArtCard art={ART.danceNight} opacity={1} overlay="none">
+          <ArtCard art={pageArt('launchpad-collection', 2)} opacity={1} overlay="none">
             <div className="space-y-4">
               {/* Allowlist inputs — both required when phase=ALLOWLIST */}
               <AnimatePresence>
