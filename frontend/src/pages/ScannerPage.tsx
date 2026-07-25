@@ -180,7 +180,7 @@ function IdleHint() {
       <h2 className="text-[14px] font-semibold text-text-primary mb-2">What you'll get</h2>
       <ul className="space-y-1.5 text-[12.5px] text-text-secondary">
         <li>• A plain-English effective-holder count (how many equally-sized holders this concentration is worth).</li>
-        <li>• Top-holder shares, HHI, and a Nakamoto coefficient — with pools, exchanges, bridges and burns excluded first.</li>
+        <li>• Top-holder shares, HHI, and a Nakamoto coefficient — with burns, contracts and program accounts excluded; large unlabeled wallets lower the confidence flag.</li>
         <li>• A three-band read (Well distributed / Mixed / Concentrated) plus a separate data-confidence flag.</li>
         <li>• Every exclusion shown, a timestamp, the method, and a way to dispute a label.</li>
       </ul>

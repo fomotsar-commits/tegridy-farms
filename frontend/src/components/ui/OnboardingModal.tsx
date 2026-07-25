@@ -18,7 +18,7 @@ const steps = [
   },
   {
     title: 'How It Works',
-    body: '1. Buy TOWELI on our DEX or Uniswap\n2. Stake & lock for 7 days to 4 years\n3. Earn ETH from protocol fees\n4. Longer locks = higher boost (up to 4.5x with NFT)',
+    body: '1. Buy TOWELI on our DEX or Uniswap\n2. Stake & lock for 7 days to 4 years\n3. Earn TOWELI rewards now — plus ETH from protocol fees as the fee rail fills\n4. Longer locks = higher boost (up to 4.5x with NFT)',
   },
   {
     title: 'Stay Safe',

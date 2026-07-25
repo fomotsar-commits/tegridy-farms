@@ -1,7 +1,6 @@
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { usePoints } from '../hooks/usePoints';
-import { useNFTBoost } from '../hooks/useNFTBoost';
 import { TIER_THRESHOLDS, BADGES } from '../lib/pointsEngine';
 import { CopyButton } from '../components/ui/CopyButton';
 import { CURRENT_SEASON } from '../lib/constants';
@@ -24,7 +23,6 @@ export default function LeaderboardPage() {
   );
   const { isConnected } = useAccount();
   const points = usePoints();
-  const nft = useNFTBoost();
 
   if (isConnected && !points.data) {
     return <PageSkeleton />;
@@ -72,9 +70,11 @@ export default function LeaderboardPage() {
             <div className="relative z-10 p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-white text-[15px] font-semibold">Your Stats</h2>
-              {nft.boostLabel && (
-                <span className="badge badge-warning text-[10px]">{nft.boostLabel} Boost</span>
-              )}
+              {/* The NFT yield-boost badge was removed here: this "Your Stats"
+                  block shows Points + Tier, which are derived from on-chain
+                  activity and are NOT affected by the staking-yield multiplier —
+                  the badge implied otherwise. It stays on Farm/Dashboard, where
+                  the boost actually applies. */}
             </div>
 
             {/* REMOVED 2026-07-19: the "Streak" and "Multiplier" tiles. Both were

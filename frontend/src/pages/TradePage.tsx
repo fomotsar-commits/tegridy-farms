@@ -592,10 +592,12 @@ export default function TradePage() {
                     <span className="text-white/70 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</span>
                   </div>
                 ) : swap.needsApproval ? (
-                  <button onClick={swap.approve} disabled={swap.isPending}
+                  // Mirror the Swap button's state machine: stay busy through the
+                  // approval's CONFIRMING phase too, not just the submit (isPending).
+                  <button onClick={swap.approve} disabled={swap.isPending || swap.isConfirming}
                     className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl"
                   >
-                    {swap.isPending ? 'Approving...' : `Approve ${swap.fromToken?.symbol}`}
+                    {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Approving...' : `Approve ${swap.fromToken?.symbol}`}
                   </button>
                 ) : (
                   <button onClick={swap.executeSwap}

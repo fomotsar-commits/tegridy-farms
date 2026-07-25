@@ -688,6 +688,18 @@ export default function DashboardPage() {
               </m.div>
             ) : myLoans.loans.length > 0 ? (
               <OutstandingLoans loans={myLoans.loans} />
+            ) : myLoans.isError ? (
+              // Don't render "no loans" when the reads actually FAILED — that
+              // showed the borrow CTAs as if the user had none. Say so honestly.
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="relative z-10 p-8 py-12 text-center">
+                  <p className="text-white text-[15px] mb-2">Couldn’t load your loans</p>
+                  <p className="text-white/70 text-[12px] max-w-sm mx-auto">
+                    A network read failed, so we can’t confirm your positions right now. This refreshes automatically — check back in a moment.
+                  </p>
+                </div>
+              </m.div>
             ) : (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>

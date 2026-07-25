@@ -12,6 +12,7 @@ import {
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
   VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, isDeployed,
+  TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_NFT_POOL_FACTORY_ADDRESS, TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 } from './constants';
 
 // F382: the set of protocol contracts the history feed tracks. Live contracts
@@ -24,6 +25,10 @@ export const HISTORY_CONTRACTS: string[] = [
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
   VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS, TEGRIDY_LP_ADDRESS,
   TOWELI_ADDRESS,
+  // Un-gated 2026-07-21 — must be in the feed for the "all protocol contracts"
+  // claim to hold (they were omitted while dark). .filter(isDeployed) keeps this
+  // safe if any is ever re-zeroed.
+  TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_NFT_POOL_FACTORY_ADDRESS, TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 ].filter(isDeployed).map((a) => a.toLowerCase());
 
 const HEX_HASH = /^0x[a-fA-F0-9]{64}$/;
