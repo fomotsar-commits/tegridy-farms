@@ -222,7 +222,7 @@ export default function WalletExposurePage() {
   return (
     <>
       <PageArtBackdrop pageId="wallet-exposure" />
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 md:py-14">
+      <div className="relative z-10 max-w-3xl mx-auto px-4 sm:px-6 py-10 md:py-14">
       <header className="mb-6">
         <h1 className="heading-luxury text-3xl md:text-4xl text-white mb-2">Wallet Exposure</h1>
         <p className="text-white/70 text-[14px] leading-relaxed max-w-2xl">

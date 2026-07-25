@@ -359,7 +359,7 @@ export default function LaunchPage() {
   return (
     <>
       <PageArtBackdrop pageId="launch" />
-      <div className="max-w-3xl mx-auto px-4 py-10">
+      <div className="relative z-10 max-w-3xl mx-auto px-4 py-10">
       <LaunchHeader />
       <Stepper step={step} />
 

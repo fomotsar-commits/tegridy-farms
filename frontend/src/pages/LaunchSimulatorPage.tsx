@@ -24,7 +24,7 @@ export default function LaunchSimulatorPage() {
   return (
     <>
       <PageArtBackdrop pageId="launch-simulator" />
-      <div className="max-w-5xl mx-auto px-4 py-10">
+      <div className="relative z-10 max-w-5xl mx-auto px-4 py-10">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">Launch Simulator</h1>
         <p className="text-white/60 text-sm mt-1 max-w-2xl leading-relaxed">

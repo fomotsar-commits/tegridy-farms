@@ -245,7 +245,7 @@ export default function DeployerPage() {
   return (
     <>
       <PageArtBackdrop pageId="deployer" />
-      <div className="max-w-[860px] mx-auto px-4 md:px-6 pt-8 pb-28 md:pb-16">
+      <div className="relative z-10 max-w-[860px] mx-auto px-4 md:px-6 pt-8 pb-28 md:pb-16">
       {/* Intro */}
       <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">

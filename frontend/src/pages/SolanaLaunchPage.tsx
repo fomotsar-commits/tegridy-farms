@@ -10,6 +10,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SOL_MINT, USDC_MINT } from '../lib/solana';
@@ -176,7 +177,9 @@ function SolanaLaunchInner() {
   );
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8">
+    <>
+      <PageArtBackdrop pageId="solana-launch" />
+      <div className="relative z-10 max-w-md mx-auto px-4 py-8">
       <m.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -185,11 +188,11 @@ function SolanaLaunchInner() {
         style={{ border: '1px solid rgba(255,255,255,0.12)' }}
       >
         <div className="absolute inset-0">
-          <ArtImg pageId="launch" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.88)' }} />
+          <ArtImg pageId="launch" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.5)' }} />
         </div>
 
-        <div className="relative z-10">
+        <div className="relative z-10" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
           <div className="flex items-center justify-between mb-1">
             <h1 className="heading-luxury text-[18px] text-white">Solana Launch</h1>
             <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
@@ -269,7 +272,8 @@ function SolanaLaunchInner() {
           </p>
         </div>
       </m.div>
-    </div>
+      </div>
+    </>
   );
 }
 

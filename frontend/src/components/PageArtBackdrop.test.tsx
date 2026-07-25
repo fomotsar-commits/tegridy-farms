@@ -17,14 +17,18 @@ describe('PageArtBackdrop', () => {
     expect(img!.getAttribute('alt')).toBe('');
   });
 
-  it('is a non-interactive layer stacked behind content (absolute, -z-10, no pointer events)', () => {
+  it('is a non-interactive layer that fills the page (absolute inset-0, z-0, no pointer events)', () => {
     const { container } = render(<PageArtBackdrop pageId="launch" />);
     const layer = container.firstElementChild as HTMLElement;
     expect(layer).toBeTruthy();
     expect(layer.getAttribute('aria-hidden')).toBe('true');
     expect(layer.className).toContain('absolute');
     expect(layer.className).toContain('inset-0');
-    expect(layer.className).toContain('-z-10');
+    // z-0 (NOT a negative z): a negative z would drop the art behind the app's
+    // solid #060c1a Background and hide it. Consumers lift their content to
+    // relative z-10 so it still paints above this layer.
+    expect(layer.className).toContain('z-0');
+    expect(layer.className).not.toContain('-z-10');
     expect(layer.className).toContain('pointer-events-none');
   });
 
