@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { LaunchSimulator } from '../components/launchSim/LaunchSimulator';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
 /**
  * Launch Simulator — a pre-launch DESIGN tool.
@@ -21,7 +22,9 @@ export default function LaunchSimulatorPage() {
   }, []);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-10">
+    <>
+      <PageArtBackdrop pageId="launch-simulator" />
+      <div className="max-w-5xl mx-auto px-4 py-10">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">Launch Simulator</h1>
         <p className="text-white/60 text-sm mt-1 max-w-2xl leading-relaxed">
@@ -61,6 +64,7 @@ export default function LaunchSimulatorPage() {
           </li>
         </ul>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

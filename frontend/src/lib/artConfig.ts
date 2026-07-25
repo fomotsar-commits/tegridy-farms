@@ -156,6 +156,33 @@ export const ART = {
   iph_1066: { id: 'iph_1066', src: '/art/iphone/IMG_1066.jpg', title: 'IMG #1066', description: 'Behind the scenes' },
   iph_1067: { id: 'iph_1067', src: '/art/iphone/IMG_1067.jpg', title: 'IMG #1067', description: 'Behind the scenes' },
   iph_1068: { id: 'iph_1068', src: '/art/iphone/IMG_1068.jpg', title: 'IMG #1068', description: 'Behind the scenes' },
+  // Card drop 2026-07-25 — new art for the artless modals/cards + app-wide rotation
+  card01: { id: 'card01', src: '/art/new/G1bssH3bEAA-oaQ.jpg', title: 'Tegridy Art #01', description: 'Fresh drop for the cards' },
+  card02: { id: 'card02', src: '/art/new/G72tTUZaYAAw6k2.jpg', title: 'Tegridy Art #02', description: 'Fresh drop for the cards' },
+  card03: { id: 'card03', src: '/art/new/GUj0hx3bgAAC9mT.jpg', title: 'Tegridy Art #03', description: 'Fresh drop for the cards' },
+  card04: { id: 'card04', src: '/art/new/GYaqVixbQAAGVQO.jpg', title: 'Tegridy Art #04', description: 'Fresh drop for the cards' },
+  card05: { id: 'card05', src: '/art/new/GbMURmKWwAAkK0J.jpg', title: 'Tegridy Art #05', description: 'Fresh drop for the cards' },
+  card06: { id: 'card06', src: '/art/new/Gh07bQtacAA_iu8.jpg', title: 'Tegridy Art #06', description: 'Fresh drop for the cards' },
+  card07: { id: 'card07', src: '/art/new/GhD4TNeXwAAzS6k.jpg', title: 'Tegridy Art #07', description: 'Fresh drop for the cards' },
+  card08: { id: 'card08', src: '/art/new/GhL34WubIAAEO83.jpg', title: 'Tegridy Art #08', description: 'Fresh drop for the cards' },
+  card09: { id: 'card09', src: '/art/new/GjKSLtSW4AAzyc1.jpg', title: 'Tegridy Art #09', description: 'Fresh drop for the cards' },
+  card10: { id: 'card10', src: '/art/new/Gw0FQCxakAArz_-.jpg', title: 'Tegridy Art #10', description: 'Fresh drop for the cards' },
+  card11: { id: 'card11', src: '/art/new/Gxn5T7DawAAaQHH.jpg', title: 'Tegridy Art #11', description: 'Fresh drop for the cards' },
+  card12: { id: 'card12', src: '/art/new/HI0in14XUAAZN1A.jpg', title: 'Tegridy Art #12', description: 'Fresh drop for the cards' },
+  card13: { id: 'card13', src: '/art/new/HIIZWP_aYAEiqOT.jpg', title: 'Tegridy Art #13', description: 'Fresh drop for the cards' },
+  card14: { id: 'card14', src: '/art/new/HIywbbyXMAAA0nz.jpg', title: 'Tegridy Art #14', description: 'Fresh drop for the cards' },
+  card15: { id: 'card15', src: '/art/new/HJc-bSLaEAApun5.jpg', title: 'Tegridy Art #15', description: 'Fresh drop for the cards' },
+  card16: { id: 'card16', src: '/art/new/HMtD8ANbgAAVNv3.jpg', title: 'Tegridy Art #16', description: 'Fresh drop for the cards' },
+  card17: { id: 'card17', src: '/art/new/HNajJH8aoAAquGw.jpg', title: 'Tegridy Art #17', description: 'Fresh drop for the cards' },
+  card18: { id: 'card18', src: '/art/new/IMG_2754.jpg', title: 'Tegridy Art #18', description: 'Fresh drop for the cards' },
+  card19: { id: 'card19', src: '/art/new/IMG_2755.jpg', title: 'Tegridy Art #19', description: 'Fresh drop for the cards' },
+  card20: { id: 'card20', src: '/art/new/IMG_2760.jpg', title: 'Tegridy Art #20', description: 'Fresh drop for the cards' },
+  card21: { id: 'card21', src: '/art/new/IMG_2761.jpg', title: 'Tegridy Art #21', description: 'Fresh drop for the cards' },
+  card22: { id: 'card22', src: '/art/new/IMG_2763.jpg', title: 'Tegridy Art #22', description: 'Fresh drop for the cards' },
+  card23: { id: 'card23', src: '/art/new/IMG_2764.jpg', title: 'Tegridy Art #23', description: 'Fresh drop for the cards' },
+  card24: { id: 'card24', src: '/art/new/IMG_2765.jpg', title: 'Tegridy Art #24', description: 'Fresh drop for the cards' },
+  card25: { id: 'card25', src: '/art/new/IMG_2766.jpg', title: 'Tegridy Art #25', description: 'Fresh drop for the cards' },
+  card26: { id: 'card26', src: '/art/new/IMG_2767.jpg', title: 'Tegridy Art #26', description: 'Fresh drop for the cards' },
 };
 
 /**
@@ -202,6 +229,8 @@ export const ART_POOL_ALL: ArtPiece[] = [
   ART.naka19, ART.naka20, ART.naka21, ART.naka22, ART.naka23, ART.naka24,
   ART.naka25, ART.naka26, ART.naka27, ART.naka28, ART.naka29, ART.naka30,
   ART.naka31,
+  // Card drop 2026-07-25
+  ART.card01, ART.card02, ART.card03, ART.card04, ART.card05, ART.card06, ART.card07, ART.card08, ART.card09, ART.card10, ART.card11, ART.card12, ART.card13, ART.card14, ART.card15, ART.card16, ART.card17, ART.card18, ART.card19, ART.card20, ART.card21, ART.card22, ART.card23, ART.card24, ART.card25, ART.card26,
 ];
 
 /**
@@ -299,6 +328,8 @@ export const GALLERY_ORDER: ArtPiece[] = [
   ART.galleryCollage, ART.naka23,
   ART.naka24, ART.naka25, ART.naka26, ART.naka27,
   ART.naka28, ART.naka29, ART.naka30, ART.naka31,
+  // Card drop 2026-07-25
+  ART.card01, ART.card02, ART.card03, ART.card04, ART.card05, ART.card06, ART.card07, ART.card08, ART.card09, ART.card10, ART.card11, ART.card12, ART.card13, ART.card14, ART.card15, ART.card16, ART.card17, ART.card18, ART.card19, ART.card20, ART.card21, ART.card22, ART.card23, ART.card24, ART.card25, ART.card26,
 ];
 
 /**

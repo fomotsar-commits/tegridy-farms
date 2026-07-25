@@ -6,6 +6,7 @@ import { useTokenScan } from '../hooks/useTokenScan';
 import { detectChain } from '../lib/scanner';
 import { ScanReport } from '../components/scanner/ScanReport';
 import { TOWELI_ADDRESS } from '../lib/constants';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
 // PUBLIC TOKEN SCANNER — a free, shareable, standalone magnet tool.
 //
@@ -64,7 +65,9 @@ export default function ScannerPage() {
   }
 
   return (
-    <div className="max-w-[860px] mx-auto px-4 md:px-6 pt-8 pb-28 md:pb-16">
+    <>
+      <PageArtBackdrop pageId="scanner" />
+      <div className="max-w-[860px] mx-auto px-4 md:px-6 pt-8 pb-28 md:pb-16">
       {/* ── Intro ──────────────────────────────────────────────────── */}
       <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">Token Scanner</h1>
@@ -170,7 +173,8 @@ export default function ScannerPage() {
           <ScanReport outcome={scan.outcome} />
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

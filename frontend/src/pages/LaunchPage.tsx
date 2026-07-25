@@ -38,6 +38,7 @@ import type { OutcomeRecord } from '../lib/launcher/outcomes';
 import type { LaunchBaseline } from '../lib/launcher/outcomesReader';
 import { isAddress, type Address } from 'viem';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
 const DAY = 86_400;
 // 365/12 days per month, so a 12-month lock is exactly 365 days and meets the
@@ -356,7 +357,9 @@ export default function LaunchPage() {
   const hasInvalidSplit = w.attentionSplits.some((r) => splitRowStatus(r).invalid);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10">
+    <>
+      <PageArtBackdrop pageId="launch" />
+      <div className="max-w-3xl mx-auto px-4 py-10">
       <LaunchHeader />
       <Stepper step={step} />
 
@@ -421,7 +424,8 @@ export default function LaunchPage() {
         <LaunchAfterlife outcomes={Object.values(explorer.outcomes)} />
         <LaunchExplorer launches={explorer.launches} outcomes={explorer.outcomes} />
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

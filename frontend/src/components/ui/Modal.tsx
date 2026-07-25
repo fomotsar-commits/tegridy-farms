@@ -14,6 +14,13 @@ interface ModalProps {
    * onboarding / blocking dialogs that must be acknowledged. Default true.
    */
   dismissOnBackdrop?: boolean;
+  /**
+   * Optional decorative art src (e.g. ART.card01.src). When set, the dialog
+   * renders it as a full-bleed background behind a readability scrim, so plain
+   * confirmation/onboarding dialogs carry the same art-first feel as the rest of
+   * the app. Purely cosmetic — content stays fully legible over the scrim.
+   */
+  art?: string;
 }
 
 // R039: discover focusable descendants for the Tab/Shift+Tab cycle. A simple
@@ -47,6 +54,7 @@ export function Modal({
   title,
   maxWidth = 'max-w-md',
   dismissOnBackdrop = true,
+  art,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   // R039: remember the element that had focus when the modal opened so we
@@ -140,7 +148,7 @@ export function Modal({
               aria-modal="true"
               {...(title ? { 'aria-labelledby': titleId } : { 'aria-label': 'Dialog' })}
               tabIndex={-1}
-              className={`relative w-full ${maxWidth} rounded-2xl border p-6 shadow-2xl pointer-events-auto outline-none`}
+              className={`relative w-full ${maxWidth} rounded-2xl border p-6 shadow-2xl pointer-events-auto outline-none ${art ? 'overflow-hidden' : ''}`}
               style={{
                 // AUDIT THEME: was hardcoded rgba(13, 21, 48, 0.95) — light-mode
                 // users saw a dark modal on a light page. Now branches off isDark
@@ -156,10 +164,22 @@ export function Modal({
               transition={{ duration: 0.2 }}
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Optional decorative art background — behind a readability scrim so
+                  the dialog carries the app's art-first feel without hurting legibility. */}
+              {art && (
+                <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                  <img src={art} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  <div
+                    className="absolute inset-0"
+                    style={{ background: isDark ? 'rgba(11, 18, 42, 0.88)' : 'rgba(255, 250, 244, 0.90)' }}
+                  />
+                </div>
+              )}
+
               {/* Close button */}
               <button
                 onClick={onClose}
-                className={`absolute top-3 right-3 transition-colors text-xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                className={`absolute top-3 right-3 z-10 transition-colors text-xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center ${
                   isDark
                     ? 'text-gray-400 hover:text-white'
                     : 'text-black/55 hover:text-black'
@@ -169,12 +189,14 @@ export function Modal({
                 &times;
               </button>
 
-              {/* Title */}
-              {title && (
-                <h2 id={titleId} className={`heading-luxury text-xl mb-4 pr-8 ${isDark ? 'text-white' : 'text-black'}`}>{title}</h2>
-              )}
+              <div className="relative z-10">
+                {/* Title */}
+                {title && (
+                  <h2 id={titleId} className={`heading-luxury text-xl mb-4 pr-8 ${isDark ? 'text-white' : 'text-black'}`}>{title}</h2>
+                )}
 
-              {children}
+                {children}
+              </div>
             </m.div>
           </div>
         </>

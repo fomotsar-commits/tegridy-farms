@@ -9,6 +9,7 @@ import {
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
 import { getTxUrl, getChainLabel } from '../lib/explorer';
+import { ART } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
 
@@ -309,16 +310,23 @@ function TransactionReceiptOverlay({
         exit={{ opacity: 0, y: 20, scale: 0.97 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
       >
+        {/* Art-first background behind a scrim — the receipt gets the app's look
+            without hurting the legibility of amounts/hashes below. */}
+        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+          <img src={ART.card06.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <div className="absolute inset-0" style={{ background: 'rgba(8, 14, 32, 0.90)' }} />
+        </div>
+
         {/* Gradient top border accent */}
         <div
-          className="absolute top-0 left-0 right-0 h-[2px]"
+          className="absolute top-0 left-0 right-0 h-[2px] z-10"
           style={{
             background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-60) 30%, var(--color-purple-80) 50%, var(--color-purple-60) 70%, transparent 100%)',
           }}
         />
 
         {/* Content */}
-        <div className="p-6">
+        <div className="relative z-10 p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
