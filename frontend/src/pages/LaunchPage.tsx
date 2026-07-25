@@ -24,7 +24,12 @@ import {
   type LaunchResult,
   type AttentionSplit,
 } from '../lib/launcher/launchService';
-import { attestFactSheet } from '../lib/launcher/attestation';
+import {
+  attestFactSheet,
+  factSheetSchemaUid,
+  EAS_SCHEMA_REGISTRY_MAINNET,
+  EAS_SCHEMA_REGISTRY_ABI,
+} from '../lib/launcher/attestation';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
@@ -139,6 +144,13 @@ export default function LaunchPage() {
   const price = useTOWELIPriceOptional();
   const [launch, setLaunch] = useState<LaunchStatus>({ phase: 'idle' });
   const [attest, setAttest] = useState<AttestStatus>({ phase: 'idle' });
+  // EAS honesty gate (2026-07-24): the Fact Sheet schema must be registered on
+  // the SchemaRegistry before any attestation can succeed. It was NOT registered
+  // on mainnet (verified on-chain: getSchema(uid).uid == 0), so "Attest
+  // disclosures on-chain" reverted with an opaque error every time. Probe the
+  // registry when a launch succeeds and only offer the button once the schema is
+  // live; otherwise say so plainly. null = still checking / unknown.
+  const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
   const [explorer, setExplorer] = useState<{ launches: LaunchSummary[]; outcomes: Record<string, OutcomeRecord> }>({
     launches: [],
     outcomes: {},
@@ -202,9 +214,38 @@ export default function LaunchPage() {
 
   // Post-launch: write the Fact Sheet on-chain as an EAS attestation (the disclosure
   // becomes verifiable + composable). Non-fatal to the launch — the token is already live.
+  // Probe whether the disclosure schema is registered once a launch lands.
+  useEffect(() => {
+    if (launch.phase !== 'success' || !publicClient) { setSchemaReady(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rec = await publicClient.readContract({
+          address: EAS_SCHEMA_REGISTRY_MAINNET,
+          abi: EAS_SCHEMA_REGISTRY_ABI,
+          functionName: 'getSchema',
+          args: [factSheetSchemaUid()],
+        }) as { uid?: `0x${string}` };
+        // A registered schema has a non-zero uid; the empty record returns 0x0…0.
+        // Conservative: any unexpected decode (missing uid) reads as NOT ready, so
+        // the button hides rather than offering an attestation that would revert.
+        const registered = typeof rec?.uid === 'string' && !/^0x0*$/.test(rec.uid);
+        if (!cancelled) setSchemaReady(registered);
+      } catch {
+        if (!cancelled) setSchemaReady(null); // unknown — leave the button, guard in onAttest
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [launch.phase, publicClient]);
+
   const onAttest = async () => {
     if (attest.phase === 'pending' || launch.phase !== 'success') return;
     if (!isLauncherEnabled() || !isConnected || !walletClient || !publicClient) return;
+    // Belt-and-suspenders: never send an attestation the schema can't accept.
+    if (schemaReady === false) {
+      setAttest({ phase: 'error', message: 'Fact Sheet attestation isn’t live yet — the disclosure schema has not been registered on-chain. Your launch is unaffected.' });
+      return;
+    }
     setAttest({ phase: 'pending' });
     try {
       // Attest FACTS RE-COLLECTED FROM THE DEPLOYED TOKEN — never the mutable wizard
@@ -300,7 +341,7 @@ export default function LaunchPage() {
       </div>
 
       {step === STEPS.length - 1 && launch.phase !== 'idle' && (
-        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} />
+        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} />
       )}
 
       {/* Discovery / outcomes surface. Enriched via the aggregator-catchall adapter
@@ -316,7 +357,7 @@ export default function LaunchPage() {
   );
 }
 
-function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void }) {
+function LaunchStatusBanner({ status, attest, onAttest, schemaReady }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null }) {
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
@@ -371,11 +412,15 @@ function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus
           <div className="flex items-center gap-3">
             <button
               onClick={onAttest}
-              disabled={attest.phase === 'pending'}
+              disabled={attest.phase === 'pending' || schemaReady === false}
+              title={schemaReady === false ? 'The disclosure schema is not registered on-chain yet.' : undefined}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
             >
               {attest.phase === 'pending' ? 'Attesting…' : 'Attest disclosures on-chain'}
             </button>
+            {schemaReady === false && attest.phase !== 'error' && (
+              <span className="text-white/50 text-xs break-words">Attestation isn’t live yet — the disclosure schema hasn’t been registered on-chain. Your launch is unaffected.</span>
+            )}
             {attest.phase === 'error' && <span className="text-rose-300 text-xs break-words">{attest.message}</span>}
           </div>
         )}
@@ -384,8 +429,8 @@ function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus
       {/* Afterlife — a day-2 economy that few other launchers offer. */}
       <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
         After the auction graduates into a V4 pool, this token can plug into the Tegridy
-        economy — boosted LP farming and a gauge-emissions application. Few launchers
-        give a launch a day-2 economy.
+        economy — boosted LP farming today, with a gauge-emissions program as governance
+        deploys. Few launchers give a launch any day-2 economy at all.
       </p>
     </div>
   );
@@ -567,8 +612,8 @@ function LaunchHeader() {
       <h1 className="text-2xl font-bold text-white">Launch a token</h1>
       <p className="text-white/60 text-sm mt-1 max-w-xl">
         The verifiable, V4-native rail. Every launch uses Doppler's audited non-upgradeable template, publishes a
-        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy (farming, gauges)
-        that few other launchers offer.
+        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy (LP farming today;
+        a gauge program as governance deploys) that few other launchers offer.
       </p>
     </div>
   );
