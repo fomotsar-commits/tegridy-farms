@@ -92,14 +92,15 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
       role="region"
       aria-label="Wallet connection required"
     >
-      {/* Art-first background behind a scrim — anchors the wallet gate with the
-          app's look while keeping WCAG-passing contrast on the copy. */}
+      {/* Art-first background: LIGHT scrim + soft blur so the piece is visible,
+          with the copy kept WCAG-legible by its text-shadow rather than a heavy
+          near-black scrim. */}
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-        <img src={ART.card09.src} alt="" loading="lazy" className="w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.86)' }} />
+        <img src={ART.card09.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+        <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.5)' }} />
       </div>
 
-      <div className="relative z-10">
+      <div className="relative z-10" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
       <div
         className="mx-auto mb-6 flex items-center justify-center rounded-full"
         style={{

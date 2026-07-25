@@ -25,7 +25,11 @@ import { ArtImg } from './ArtImg';
 export function PageArtBackdrop({
   pageId,
   idx = 0,
-  scrim = 'rgba(6, 10, 22, 0.86)',
+  // A TOP-WEIGHTED gradient: darker where a page's heading/intro float directly on
+  // the backdrop (so they stay readable over any rotated-in piece), lighter through
+  // the body where content sits in its own cards and the art can show. This keeps the
+  // art visible instead of burying it in a flat near-black scrim.
+  scrim = 'linear-gradient(180deg, rgba(6,10,22,0.86) 0%, rgba(6,10,22,0.62) 18%, rgba(6,10,22,0.56) 100%)',
 }: {
   pageId: string;
   idx?: number;
@@ -33,7 +37,16 @@ export function PageArtBackdrop({
 }) {
   return (
     <div className="absolute inset-0 -z-10 pointer-events-none" aria-hidden="true">
-      <ArtImg pageId={pageId} idx={idx} alt="" loading="lazy" className="w-full h-full object-cover" />
+      {/* Dim + soften the art itself so bright spots in a rotated-in piece can't wash
+          out floating page text — lets the scrim stay light and the art stay visible. */}
+      <ArtImg
+        pageId={pageId}
+        idx={idx}
+        alt=""
+        loading="lazy"
+        className="w-full h-full object-cover"
+        style={{ filter: 'blur(2px) brightness(0.6) saturate(1.05)' }}
+      />
       <div className="absolute inset-0" style={{ background: scrim }} />
     </div>
   );

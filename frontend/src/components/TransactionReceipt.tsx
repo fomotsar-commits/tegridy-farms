@@ -310,11 +310,12 @@ function TransactionReceiptOverlay({
         exit={{ opacity: 0, y: 20, scale: 0.97 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
       >
-        {/* Art-first background behind a scrim — the receipt gets the app's look
-            without hurting the legibility of amounts/hashes below. */}
+        {/* Art-first background: LIGHT scrim + soft blur so the piece shows, with
+            legibility of amounts/hashes carried by the text-shadow on the content
+            below rather than a near-opaque scrim. */}
         <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <img src={ART.card06.src} alt="" loading="lazy" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'rgba(8, 14, 32, 0.90)' }} />
+          <img src={ART.card06.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(8, 14, 32, 0.55)' }} />
         </div>
 
         {/* Gradient top border accent */}
@@ -325,8 +326,8 @@ function TransactionReceiptOverlay({
           }}
         />
 
-        {/* Content */}
-        <div className="relative z-10 p-6">
+        {/* Content — text-shadow (inherited) keeps amounts/hashes crisp over art */}
+        <div className="relative z-10 p-6" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">

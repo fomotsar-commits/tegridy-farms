@@ -164,14 +164,22 @@ export function Modal({
               transition={{ duration: 0.2 }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Optional decorative art background — behind a readability scrim so
-                  the dialog carries the app's art-first feel without hurting legibility. */}
+              {/* Optional decorative art background. A LIGHT scrim (so the art is
+                  actually visible, not buried in a near-black box) plus a soft blur;
+                  legibility is carried by the text-shadow on the content below, which
+                  keeps copy crisp over even a bright piece. */}
               {art && (
                 <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                  <img src={art} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  <img
+                    src={art}
+                    alt=""
+                    loading="lazy"
+                    className="w-full h-full object-cover"
+                    style={{ filter: 'blur(1.5px) saturate(1.05)' }}
+                  />
                   <div
                     className="absolute inset-0"
-                    style={{ background: isDark ? 'rgba(11, 18, 42, 0.88)' : 'rgba(255, 250, 244, 0.90)' }}
+                    style={{ background: isDark ? 'rgba(11, 18, 42, 0.5)' : 'rgba(255, 250, 244, 0.62)' }}
                   />
                 </div>
               )}
@@ -189,7 +197,21 @@ export function Modal({
                 &times;
               </button>
 
-              <div className="relative z-10">
+              <div
+                className="relative z-10"
+                // text-shadow (inherited) carries legibility over the now-visible art,
+                // so the scrim can stay light. Theme-aware: dark halo in dark mode,
+                // light halo in light mode.
+                style={
+                  art
+                    ? {
+                        textShadow: isDark
+                          ? '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)'
+                          : '0 1px 8px rgba(255,255,255,0.92), 0 0 3px rgba(255,255,255,0.85)',
+                      }
+                    : undefined
+                }
+              >
                 {/* Title */}
                 {title && (
                   <h2 id={titleId} className={`heading-luxury text-xl mb-4 pr-8 ${isDark ? 'text-white' : 'text-black'}`}>{title}</h2>

@@ -107,15 +107,16 @@ export function TypedConfirmation({
           Cancel
         </button>
       </div>
-      {/* Art-first: a Tegridy piece sits beneath a near-opaque dark scrim, with
-          the faint variant tint (v.box) kept on the top layer — so the red/amber
-          danger identity (border, heading, button) fully survives and the
-          type-to-confirm copy stays high-contrast. */}
+      {/* Art-first: a Tegridy piece sits beneath a LIGHT dark scrim (so it's
+          actually visible), with the variant tint (v.box) kept on the top layer —
+          the red/amber danger identity (border, heading, button) fully survives,
+          and the type-to-confirm copy stays high-contrast via its text-shadow. */}
       <div
         className="p-4 rounded-xl"
         style={{
-          background: `${v.box}, linear-gradient(180deg, rgba(10,12,22,0.90) 0%, rgba(10,12,22,0.93) 100%), url(${ART.card07.src}) center / cover no-repeat`,
+          background: `${v.box}, linear-gradient(180deg, rgba(10,12,22,0.55) 0%, rgba(10,12,22,0.6) 100%), url(${ART.card07.src}) center / cover no-repeat`,
           border: `1px solid ${variant === 'danger' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
+          textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)',
         }}
       >
         <p className={`text-[13px] ${v.text} font-semibold mb-2`}>Confirm action</p>

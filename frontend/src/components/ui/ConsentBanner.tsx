@@ -54,12 +54,14 @@ export function ConsentBanner() {
           borderColor: 'var(--color-purple-20)',
         }}
       >
-        {/* Art-first background behind a scrim so the consent copy stays legible. */}
+        {/* Art-first background: LIGHT scrim + soft blur so the piece is visible,
+            with the copy kept legible by its text-shadow (below) rather than a
+            heavy near-black scrim. */}
         <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <img src={ART.card05.src} alt="" loading="lazy" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'rgba(11, 18, 42, 0.88)' }} />
+          <img src={ART.card05.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+          <div className="absolute inset-0" style={{ background: 'rgba(11, 18, 42, 0.5)' }} />
         </div>
-        <div className="relative z-10 text-sm text-gray-200 leading-relaxed flex-1">
+        <div className="relative z-10 text-sm text-gray-200 leading-relaxed flex-1" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
           <p className="font-semibold text-white mb-1">Privacy &amp; telemetry</p>
           <p className="text-gray-300">
             We use anonymous analytics and error reports to keep Tegridy Farms healthy.
