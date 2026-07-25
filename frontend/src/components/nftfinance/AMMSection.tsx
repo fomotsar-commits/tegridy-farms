@@ -25,7 +25,7 @@ import {
   TEGRIDY_NFT_POOL_ABI,
 } from '../../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../../lib/formatting';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
 import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
@@ -437,7 +437,7 @@ function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.08 }}
         >
-          <ArtCard art={ART.boxingRing} opacity={1} overlay="none">
+          <ArtCard art={pageArt('amm', 0)} opacity={1} overlay="none">
             <div className="p-4 text-center">
               <p className={`${labelClass} inline-flex items-center gap-1`}>
                 {s.label}
@@ -750,7 +750,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   }, [isSuccess, refetchBuyQuote, refetchSellQuote, refetchHeldIds]);
 
   return (
-    <ArtCard art={ART.poolParty} opacity={1} overlay="none" className="rounded-2xl">
+    <ArtCard art={pageArt('amm', 1)} opacity={1} overlay="none" className="rounded-2xl">
       <div className="p-6">
         <h3 className="text-lg font-semibold text-white mb-5">
           Instant {mode === 'buy' ? 'Buy' : 'Sell'}
@@ -903,7 +903,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             transition={{ delay: 0.1 }}
             className="mb-5"
           >
-            <ArtCard art={ART.beachSunset} opacity={1} overlay="none" border="rgba(16,185,129,0.08)">
+            <ArtCard art={pageArt('amm', 2)} opacity={1} overlay="none" border="rgba(16,185,129,0.08)">
               <div className="p-4">
                 <p className={`${labelClass} mb-2`}>Bonding Curve</p>
                 {!isLinearCurve && (
@@ -1010,7 +1010,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
 
 function TradeHistory({ deployed }: { deployed: boolean }) {
   return (
-    <ArtCard art={ART.chaosScene} opacity={1} overlay="none" border="var(--color-purple-75)">
+    <ArtCard art={pageArt('amm', 3)} opacity={1} overlay="none" border="var(--color-purple-75)">
       <div className="p-6 text-center">
         <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-4">
           <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -1625,7 +1625,7 @@ function PoolCard({
       transition={{ delay: index * 0.06 }}
     >
       <ArtCard
-        art={showOwnerControls ? ART.wrestler : ART.jungleDark}
+        art={showOwnerControls ? pageArt('amm', 4) : pageArt('amm', 18)}
         opacity={1}
         overlay="none"
         border={poolType === 0 ? 'rgba(96,165,250,0.15)' : poolType === 1 ? 'rgba(251,146,60,0.15)' : 'rgba(16,185,129,0.15)'}
@@ -1894,7 +1894,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
   const poolList = (pools as Address[] | undefined) ?? [];
 
   return (
-    <ArtCard art={ART.jungleDark} opacity={1} overlay="none" className="rounded-2xl">
+    <ArtCard art={pageArt('amm', 5)} opacity={1} overlay="none" className="rounded-2xl">
       <div className="p-6">
         <h3 className="text-lg font-semibold text-white mb-5">Pool Explorer</h3>
 
@@ -1910,7 +1910,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
         </div>
 
         {!validSearch && (
-          <ArtCard art={ART.jungleDark} opacity={1} overlay="none" border="rgba(255,255,255,0.04)">
+          <ArtCard art={pageArt('amm', 6)} opacity={1} overlay="none" border="rgba(255,255,255,0.04)">
             <div className="text-center py-12 px-4">
               <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-4">
                 <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -2175,7 +2175,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={1} overlay="none" className="rounded-2xl">
+            <ArtCard art={pageArt('amm', 7)} opacity={1} overlay="none" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Choose Collection & Pool Type</h3>
 
@@ -2248,7 +2248,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={1} overlay="none" className="rounded-2xl">
+            <ArtCard art={pageArt('amm', 8)} opacity={1} overlay="none" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Configure Pricing</h3>
 
@@ -2286,7 +2286,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 {/* Bonding Curve Visualization */}
                 <div className="mb-6">
                   <label className={`${labelClass} mb-3 block`}>Bonding Curve Preview</label>
-                  <ArtCard art={ART.beachSunset} opacity={1} overlay="none" border="rgba(16,185,129,0.08)">
+                  <ArtCard art={pageArt('amm', 9)} opacity={1} overlay="none" border="rgba(16,185,129,0.08)">
                     <div className="p-4">
                       <BondingCurveChart spotPrice={spotNum} delta={deltaNum} numSteps={10} height={220} />
                       <div className="flex justify-between text-[10px] text-white mt-2 px-1 font-mono">
@@ -2321,7 +2321,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <ArtCard art={ART.mumuBull} opacity={1} overlay="none" className="rounded-2xl">
+            <ArtCard art={pageArt('amm', 10)} opacity={1} overlay="none" className="rounded-2xl">
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-6">Add Initial Liquidity</h3>
 
@@ -2379,7 +2379,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                 </div>
 
                 {/* Summary Card */}
-                <ArtCard art={ART.busCrew} opacity={1} overlay="none" border="rgba(16,185,129,0.10)">
+                <ArtCard art={pageArt('amm', 11)} opacity={1} overlay="none" border="rgba(16,185,129,0.10)">
                   <div className="p-5">
                     <h4 className={`${labelClass} text-white/60 mb-4`}>Pool Summary</h4>
                     <div className="space-y-2.5">
@@ -2546,7 +2546,7 @@ function MyPoolsTab() {
 
   if (!address) {
     return (
-      <ArtCard art={ART.wrestler} opacity={1} overlay="none" className="rounded-2xl max-w-md mx-auto">
+      <ArtCard art={pageArt('amm', 12)} opacity={1} overlay="none" className="rounded-2xl max-w-md mx-auto">
         <div className="p-10 text-center">
           <div className="w-14 h-14 rounded-2xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-5">
             <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -2563,7 +2563,7 @@ function MyPoolsTab() {
   return (
     <div className="space-y-6">
       {/* Earnings Summary */}
-      <ArtCard art={ART.wrestler} opacity={1} overlay="none" className="rounded-2xl">
+      <ArtCard art={pageArt('amm', 13)} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-5">
           {/* HONESTY 2026-07-24: the "Your Pool Earnings" tile rendered a hardcoded
               em-dash captioned "Cumulative LP fees earned" \u2014 no code path ever
@@ -2580,7 +2580,7 @@ function MyPoolsTab() {
       </ArtCard>
 
       {/* Add Pool Input */}
-      <ArtCard art={ART.busCrew} opacity={1} overlay="none" className="rounded-2xl">
+      <ArtCard art={pageArt('amm', 14)} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-5">
           <h4 className="text-sm font-semibold text-white mb-3">Track a Pool</h4>
           <p className="text-xs text-white mb-4">
@@ -2608,7 +2608,7 @@ function MyPoolsTab() {
 
       {/* Pool List */}
       {trackedPools.length === 0 ? (
-        <ArtCard art={ART.wrestler} opacity={1} overlay="none" border="rgba(255,255,255,0.04)" className="rounded-2xl">
+        <ArtCard art={pageArt('amm', 15)} opacity={1} overlay="none" border="rgba(255,255,255,0.04)" className="rounded-2xl">
           <div className="py-12 px-6 text-center">
             <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/20 flex items-center justify-center mx-auto mb-4">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -2657,7 +2657,7 @@ export function ComingSoon() {
 
   return (
     <div className="max-w-xl mx-auto">
-      <ArtCard art={ART.poolParty} opacity={1} overlay="none" border="rgba(16,185,129,0.10)" className="rounded-2xl">
+      <ArtCard art={pageArt('amm', 16)} opacity={1} overlay="none" border="rgba(16,185,129,0.10)" className="rounded-2xl">
         <div className="p-8 sm:p-10">
           {/* Glow */}
           <div className="absolute -top-20 -right-20 w-60 h-60 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -2676,7 +2676,7 @@ export function ComingSoon() {
             </p>
 
             {/* Blurred Preview */}
-            <ArtCard art={ART.beachSunset} opacity={1} overlay="none" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
+            <ArtCard art={pageArt('amm', 17)} opacity={1} overlay="none" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
               <div className="p-5 relative">
                 <div className="blur-[2px] opacity-60 pointer-events-none select-none">
                   <BondingCurveChart spotPrice={0.1} delta={0.005} numSteps={10} height={160} />

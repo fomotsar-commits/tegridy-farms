@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAccount, useChains, usePublicClient, useWatchContractEvent } from 'wagmi';
 import { formatEther, parseAbiItem, type Address } from 'viem';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { PHASE_LABELS, LABEL } from './launchpadConstants';
 import { shortenAddress } from '../../lib/formatting';
 
@@ -281,7 +281,7 @@ export function CreatorRevenueDashboard({
   const { uniqueMinters, loading } = useDropMints(dropAddress);
 
   return (
-    <ArtCard art={ART.roseApe} opacity={1} overlay="none" className="mb-6">
+    <ArtCard art={pageArt('launchpad-shared', 0)} opacity={1} overlay="none" className="mb-6">
       <h3 className="text-black font-semibold tracking-wide uppercase text-[11px] mb-4">
         Creator Revenue Dashboard
       </h3>
@@ -316,7 +316,7 @@ export function LiveMintFeed({ dropAddress }: { dropAddress?: string }) {
   const showSkeleton = deployed && mints === null && loading;
 
   return (
-    <ArtCard art={ART.danceNight} opacity={1} overlay="none" className="mb-6">
+    <ArtCard art={pageArt('launchpad-shared', 1)} opacity={1} overlay="none" className="mb-6">
       <h3 className="text-black font-semibold tracking-wide uppercase text-[11px] mb-4">
         Live Mint Feed
       </h3>

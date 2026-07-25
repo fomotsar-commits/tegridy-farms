@@ -5,7 +5,7 @@ import { parseEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../../lib/contracts';
 import { CHAIN_ID } from '../../lib/constants';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
 import { ArtCard } from './launchpadShared';
 
@@ -141,7 +141,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   }, [contractAddr, writeContract, deployed, chainId]);
 
   return (
-    <ArtCard art={ART.roseApe} opacity={1} overlay="none" className="mt-6">
+    <ArtCard art={pageArt('launchpad-owner', 0)} opacity={1} overlay="none" className="mt-6">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between text-sm"

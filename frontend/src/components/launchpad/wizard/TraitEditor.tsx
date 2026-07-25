@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import type { CsvRow, TokenAttribute } from '../../../lib/nftMetadata';
 import { ArtCard } from '../launchpadShared';
-import { ART } from '../../../lib/artConfig';
+import { pageArt } from '../../../lib/artConfig';
 import { BTN_EMERALD, INPUT, LABEL } from '../launchpadConstants';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 
@@ -88,7 +88,7 @@ export function TraitEditor({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.2 }}
       >
-        <ArtCard art={ART.chaosScene} opacity={0.35} overlay="rgba(0,0,0,0.55)" className="rounded-2xl">
+        <ArtCard art={pageArt('launchpad-traits', 0)} opacity={0.35} overlay="rgba(0,0,0,0.55)" className="rounded-2xl">
           <div className="max-h-[80vh] overflow-y-auto -m-1 p-1">
             <div className="flex items-start gap-4 mb-4">
               {url && (
