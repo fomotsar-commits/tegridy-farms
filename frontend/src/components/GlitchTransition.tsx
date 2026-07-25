@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { pageArt } from '../lib/artConfig';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    GLITCH TRANSITION v4
@@ -7,23 +8,45 @@ import { useEffect, useState, useRef, useCallback } from 'react';
    ────────────────────────────────────────────────────────────────────────── */
 
 const ART_IMAGES = [
-  '/art/mfers-heaven.jpg', '/art/mumu-bull.jpg', '/art/bobowelie.jpg',
-  '/art/jungle-bus.jpg', '/art/pool-party.jpg', '/art/boxing-ring.jpg',
-  '/art/bus-crew.jpg', '/art/forest-scene.jpg', '/art/sword-of-love.jpg',
-  '/art/towelie-window.jpg', '/art/chaos-scene.jpg', '/art/ape-hug.jpg',
-  '/art/beach-vibes.jpg', '/art/dance-night.jpg', '/art/wrestler.jpg',
-  '/art/jungle-dark.jpg', '/art/smoking-duo.jpg', '/art/jb-christmas.jpg',
-  '/art/beach-sunset.jpg', '/art/porch-chill.jpg', '/art/rose-ape.jpg',
-  // Nakamigos drop — extra slice variety in glitch transitions
-  '/splash/new/61.avif', '/splash/new/58.avif', '/splash/new/53.avif',
-  '/splash/new/28.avif', '/splash/new/1.avif', '/splash/new/3.avif',
-  '/splash/new/2.jpg', '/splash/new/50.jpg', '/splash/new/48.jpg',
-  // F31: #28 was listed twice (28.avif above + 28.jpg) — same artwork double-
-  // weighted in the slice pool. Keep the .avif entry only.
-  '/splash/new/41.jpg', '/splash/new/29.jpg',
-  '/splash/new/17.jpg', '/splash/new/46.jpg', '/splash/new/18.jpg',
-  '/splash/new/14.jpg', '/splash/new/20.jpg', '/splash/new/5.jpg',
-  '/splash/new/39.jpg',
+  pageArt('transition', 0).src,
+  pageArt('transition', 1).src,
+  pageArt('transition', 2).src,
+  pageArt('transition', 3).src,
+  pageArt('transition', 4).src,
+  pageArt('transition', 5).src,
+  pageArt('transition', 6).src,
+  pageArt('transition', 7).src,
+  pageArt('transition', 8).src,
+  pageArt('transition', 9).src,
+  pageArt('transition', 10).src,
+  pageArt('transition', 11).src,
+  pageArt('transition', 12).src,
+  pageArt('transition', 13).src,
+  pageArt('transition', 14).src,
+  pageArt('transition', 15).src,
+  pageArt('transition', 16).src,
+  pageArt('transition', 17).src,
+  pageArt('transition', 18).src,
+  pageArt('transition', 19).src,
+  pageArt('transition', 20).src,
+  pageArt('transition', 21).src,
+  pageArt('transition', 22).src,
+  pageArt('transition', 23).src,
+  pageArt('transition', 24).src,
+  pageArt('transition', 25).src,
+  pageArt('transition', 26).src,
+  pageArt('transition', 27).src,
+  pageArt('transition', 28).src,
+  pageArt('transition', 29).src,
+  pageArt('transition', 30).src,
+  pageArt('transition', 31).src,
+  pageArt('transition', 32).src,
+  pageArt('transition', 33).src,
+  pageArt('transition', 34).src,
+  pageArt('transition', 35).src,
+  pageArt('transition', 36).src,
+  pageArt('transition', 37).src,
+  pageArt('transition', 38).src,
 ];
 
 const SUBLIMINAL_PHRASES = [

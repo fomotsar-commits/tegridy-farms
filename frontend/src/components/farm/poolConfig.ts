@@ -1,4 +1,4 @@
-import { type ArtPiece } from '../../lib/artConfig';
+import { pageArt, type ArtPiece } from '../../lib/artConfig';
 
 /* ── Native LP Pool Types & Config ──────────────────────────────────── */
 
@@ -18,7 +18,7 @@ export interface LPPool {
 
 /** Token logo URLs (self-hosted) */
 export const TOKEN_LOGOS: Record<string, string> = {
-  TOWELI: '/art/bobowelie.jpg',
+  TOWELI: pageArt('token-icon', 0).src,
   ETH: '/tokens/eth.png',
   WETH: '/tokens/weth.png',
   USDT: '/tokens/usdt.png',
