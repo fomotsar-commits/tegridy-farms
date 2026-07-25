@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import NftImage from "./NftImage";
 import { Eth } from "./Icons";
 import { formatPrice } from "../lib/formatPrice";
@@ -309,7 +309,7 @@ const VirtualCard = memo(function VirtualCard({
   );
 
   return (
-    <motion.div
+    <m.div
       className={`nft-card ${isGallery ? "gallery" : "compact"}`}
       data-token-id={nft.id}
       whileHover={CARD_HOVER}
@@ -528,6 +528,6 @@ const VirtualCard = memo(function VirtualCard({
           </div>
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 });

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import Card from "./Card";
 import { springs } from "../lib/interactions";
 
@@ -24,7 +24,7 @@ const AnimatedCard = memo(function AnimatedCard({
   const delay = Math.min(index * staggerStep, maxDelay);
 
   return (
-    <motion.div
+    <m.div
       initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={prefersReducedMotion ? { duration: 0 } : { delay, ...springs.gentle }}
@@ -40,7 +40,7 @@ const AnimatedCard = memo(function AnimatedCard({
       style={{ borderRadius: "inherit" }}
     >
       <Card {...cardProps} idx={index} skipReveal />
-    </motion.div>
+    </m.div>
   );
 });
 

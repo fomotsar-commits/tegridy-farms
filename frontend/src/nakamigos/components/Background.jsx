@@ -1,6 +1,6 @@
 import { useRef, useMemo, memo, useState, useEffect, useCallback } from "react";
 import React from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion";
 
 // Touch devices (phones + iPads) report a coarse pointer. On those, the full
@@ -138,7 +138,7 @@ function GhostArt({ art, opacity, reduced }) {
           })
     : { opacity: 0 };
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0 }}
       animate={animateTo}
       transition={reduced ? { opacity: { duration: 0.4 } } : {
@@ -162,7 +162,7 @@ function GhostArt({ art, opacity, reduced }) {
           WebkitMaskImage: "radial-gradient(ellipse 70% 70% at center, black 20%, transparent 75%)",
         }}
       />
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -185,7 +185,7 @@ function StaticMesh({ colors }) {
 function MeshGradient({ colors }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" }}>
-      <motion.div
+      <m.div
         animate={{ opacity: [0.6, 1, 0.6], scale: [1, 1.05, 1] }}
         transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
         style={{
@@ -195,7 +195,7 @@ function MeshGradient({ colors }) {
         }}
       />
       {/* Slowly rotating accent glow */}
-      <motion.div
+      <m.div
         animate={{ rotate: [0, 360] }}
         transition={{ duration: 120, repeat: Infinity, ease: "linear" }}
         style={{
@@ -206,7 +206,7 @@ function MeshGradient({ colors }) {
           transformOrigin: "60% 50%",
         }}
       />
-      <motion.div
+      <m.div
         animate={{ rotate: [360, 0] }}
         transition={{ duration: 90, repeat: Infinity, ease: "linear" }}
         style={{
@@ -238,7 +238,7 @@ function GlassOrbs({ color }) {
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
       {orbs.map((o, i) => (
-        <motion.div
+        <m.div
           key={i}
           animate={{
             x: [0, o.driftX, o.driftX * -0.6, 0],
@@ -272,7 +272,7 @@ function GlassOrbs({ color }) {
 function LightRays({ color }) {
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
-      <motion.div
+      <m.div
         animate={{ opacity: [0.3, 0.8, 0.3], rotate: [-2, 2, -2] }}
         transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
         style={{
@@ -284,7 +284,7 @@ function LightRays({ color }) {
           transformOrigin: "top center",
         }}
       />
-      <motion.div
+      <m.div
         animate={{ opacity: [0.2, 0.6, 0.2], rotate: [3, -1, 3] }}
         transition={{ duration: 25, repeat: Infinity, ease: "easeInOut", delay: 5 }}
         style={{
@@ -317,7 +317,7 @@ function DustMotes({ color }) {
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 1, overflow: "hidden" }}>
       {motes.map((m, i) => (
-        <motion.div
+        <m.div
           key={i}
           animate={{
             y: [0, m.driftY],
@@ -583,7 +583,7 @@ function Starfield() {
 function Aurora() {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", overflow: "hidden" }}>
-      <motion.div
+      <m.div
         animate={{
           x: [0, 30, -20, 10, 0],
           scaleX: [1, 1.2, 0.9, 1.1, 1],
@@ -601,7 +601,7 @@ function Aurora() {
           transformOrigin: "center top",
         }}
       />
-      <motion.div
+      <m.div
         animate={{
           x: [-15, 20, -30, 15, -15],
           scaleX: [1, 0.85, 1.15, 0.95, 1],
@@ -626,7 +626,7 @@ function Aurora() {
 // ═══ Crescent Moon — midnight atmosphere ═══
 function CrescentMoon() {
   return (
-    <motion.div
+    <m.div
       animate={{ y: [0, -5, 0], opacity: [0.6, 0.75, 0.6] }}
       transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
       style={{

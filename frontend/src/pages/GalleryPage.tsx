@@ -103,7 +103,13 @@ export default function GalleryPage() {
             // Fix #3: outer element is a div (not button) to avoid nested buttons
             <m.div key={piece.id} onClick={() => setSelectedIndex(i)}
               role="button" tabIndex={0} aria-label={`View artwork: ${piece.title}`}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedIndex(i); } }}
+              onKeyDown={(e) => {
+                // Only act on keys aimed at the card itself. Without this guard,
+                // Enter/Space bubbling up from the inner vote button opened the
+                // lightbox instead of voting — keyboard users could never vote.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedIndex(i); }
+              }}
               className="w-full block relative group cursor-pointer break-inside-avoid rounded-xl overflow-hidden glass-card-animated card-hover"
               style={{ border: '1px solid var(--color-purple-75)' }}
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
