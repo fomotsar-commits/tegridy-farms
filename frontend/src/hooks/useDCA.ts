@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
-import { SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
-import { SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_ABI } from '../lib/contracts';
+import { SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { selectOnChainVenue } from '../lib/venueSelect';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 
 const DCA_CHANNEL = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('tegridy_dca_sync') : null;
@@ -429,31 +430,54 @@ export function useDCA() {
     // see clampSlippageBps. Pre-fix used a single hard-coded 5% for every
     // scheduled swap with no UI to tighten it.
     let minOut = 0n;
+    let venue: 'tegridy' | 'uniswap' = 'tegridy';
     const slippageBps = BigInt(clampSlippageBps(schedule.slippageBps));
+    // isFromNative gates both the approval path below AND whether we may shop
+    // venues. An ETH-input swap needs NO ERC-20 approval, so it can route to the
+    // better of the native pool / Uniswap freely (best-venue, 2026-07-24). A
+    // token-input swap stays on the native pool, where the user's approval
+    // already points (see the SwapFeeRouter allowance check below) — routing it
+    // to Uniswap would need a second, separate approval this keeper can't assume.
+    const isFromNative = schedule.fromToken.isNative || schedule.fromToken.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     try {
-      // F188: the swap EXECUTES through SwapFeeRouter on the native Tegridy pool,
-      // so the quote MUST come from the native router (TegridyRouter) — NOT
-      // Uniswap. A Uniswap-priced minOut sent to the native pool is mispriced and
-      // reverts. SFR deducts its fee from the input before swapping, so haircut
-      // the quoted output by the fee cap (MAX_FEE_BPS) — the same conservative
-      // linear haircut useSwapQuote uses (never under-shoots, by AMM concavity).
-      const result = await publicClient.readContract({
-        address: TEGRIDY_ROUTER_ADDRESS,
-        abi: TEGRIDY_ROUTER_ABI,
-        functionName: 'getAmountsOut',
-        args: [parsedAmount, path],
-      });
-      const amountsOut = result as bigint[];
-      const expectedOut = amountsOut[amountsOut.length - 1] ?? 0n;
-      if (expectedOut <= 0n) {
-        // Native pool can't price this swap yet (e.g. unseeded/empty). Skip
-        // rather than submit a minOut=0 swap with no slippage protection.
-        executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
-        toast.error(`DCA: No native liquidity to price ${schedule.fromToken.symbol} → ${schedule.toToken.symbol} yet. Swap skipped.`);
-        return;
+      // Native (TegridyRouter) quote — always taken. SwapFeeRouter deducts its
+      // fee from the input, so downstream comparison/haircut nets it out by
+      // MAX_FEE_BPS (conservative linear haircut — never under-shoots by AMM
+      // concavity, the same basis useSwapQuote uses).
+      const tegridyRes = await publicClient.readContract({
+        address: TEGRIDY_ROUTER_ADDRESS, abi: TEGRIDY_ROUTER_ABI,
+        functionName: 'getAmountsOut', args: [parsedAmount, path],
+      }).catch(() => null);
+      const tegridyOut = tegridyRes ? ((tegridyRes as bigint[]).at(-1) ?? 0n) : 0n;
+
+      if (isFromNative) {
+        // BEST-VENUE (ETH input only): also quote Uniswap and pick the winner
+        // net of the native protocol fee — mirrors the Swap tab's route
+        // selection so a scheduled buy is never worse than going direct to
+        // Uniswap, and isn't stranded when the thin native pool is empty.
+        const uniRes = await publicClient.readContract({
+          address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI,
+          functionName: 'getAmountsOut', args: [parsedAmount, path],
+        }).catch(() => null);
+        const uniOut = uniRes ? ((uniRes as bigint[]).at(-1) ?? 0n) : 0n;
+        if (tegridyOut <= 0n && uniOut <= 0n) {
+          executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
+          toast.error(`DCA: No liquidity to price ${schedule.fromToken.symbol} → ${schedule.toToken.symbol} yet. Swap skipped.`);
+          return;
+        }
+        const choice = selectOnChainVenue(tegridyOut, uniOut, MAX_FEE_BPS, slippageBps);
+        venue = choice.source;
+        minOut = choice.minOut;
+      } else {
+        // Token input: native pool only (approval points at SwapFeeRouter).
+        if (tegridyOut <= 0n) {
+          executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
+          toast.error(`DCA: No native liquidity to price ${schedule.fromToken.symbol} → ${schedule.toToken.symbol} yet. Swap skipped.`);
+          return;
+        }
+        const expectedAfterFee = (tegridyOut * (10000n - MAX_FEE_BPS)) / 10000n;
+        minOut = expectedAfterFee - (expectedAfterFee * slippageBps / 10000n);
       }
-      const expectedAfterFee = (expectedOut * (10000n - MAX_FEE_BPS)) / 10000n;
-      minOut = expectedAfterFee - (expectedAfterFee * slippageBps / 10000n);
     } catch {
       // If quote fails, do not proceed with 0 slippage -- abort
       executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
@@ -468,8 +492,6 @@ export function useDCA() {
     toast.info(`DCA: Swapping ${schedule.amountPerSwap} ${schedule.fromToken.symbol} → ${schedule.toToken.symbol}`, {
       description: 'Please approve the transaction in your wallet.',
     });
-
-    const isFromNative = schedule.fromToken.isNative || schedule.fromToken.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
     // Check ERC-20 allowance before attempting swap (non-native tokens only)
     if (!isFromNative) {
@@ -507,7 +529,22 @@ export function useDCA() {
     };
 
     try {
-      if (isFromNative) {
+      if (isFromNative && venue === 'uniswap') {
+        // Best-venue routing chose Uniswap: no protocol fee, no fee arg, and no
+        // ERC-20 approval needed (ETH input). Uniswap's swapExactETHForTokens
+        // signature has no maxFeeBps parameter.
+        writeContract({
+          chainId: CHAIN_ID,
+          address: UNISWAP_V2_ROUTER,
+          abi: UNISWAP_V2_ROUTER_ABI,
+          functionName: 'swapExactETHForTokens',
+          args: [minOut, path, address, deadlineTs],
+          value: parsedAmount,
+        }, {
+          onSuccess: onTxSubmitted,
+          onError: onTxError,
+        });
+      } else if (isFromNative) {
         writeContract({
           chainId: CHAIN_ID,
           address: SWAP_FEE_ROUTER_ADDRESS,
