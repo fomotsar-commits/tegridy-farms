@@ -164,10 +164,13 @@ export function Modal({
               transition={{ duration: 0.2 }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Optional decorative art background. A LIGHT scrim (so the art is
-                  actually visible, not buried in a near-black box) plus a soft blur;
-                  legibility is carried by the text-shadow on the content below, which
-                  keeps copy crisp over even a bright piece. */}
+              {/* Optional decorative art background. The scrim is a MIDDLE-DARK
+                  vertical gradient — light at top/bottom so the piece is clearly
+                  visible, darker through the middle band where the title/body sit so
+                  copy stays readable over even a BRIGHT piece (a flat light scrim
+                  washed the text out; a flat dark one buried dark pieces). A small
+                  brightness lift keeps muted pieces from blending into the panel, and
+                  the text-shadow on the content below carries final legibility. */}
               {art && (
                 <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
                   <img
@@ -175,11 +178,15 @@ export function Modal({
                     alt=""
                     loading="lazy"
                     className="w-full h-full object-cover"
-                    style={{ filter: 'blur(1.5px) saturate(1.05)' }}
+                    style={{ filter: 'blur(1px) brightness(1.06) saturate(1.08)' }}
                   />
                   <div
                     className="absolute inset-0"
-                    style={{ background: isDark ? 'rgba(11, 18, 42, 0.5)' : 'rgba(255, 250, 244, 0.62)' }}
+                    style={{
+                      background: isDark
+                        ? 'linear-gradient(180deg, rgba(11,18,42,0.34) 0%, rgba(11,18,42,0.62) 34%, rgba(11,18,42,0.62) 72%, rgba(11,18,42,0.34) 100%)'
+                        : 'linear-gradient(180deg, rgba(255,250,244,0.5) 0%, rgba(255,250,244,0.72) 34%, rgba(255,250,244,0.72) 72%, rgba(255,250,244,0.5) 100%)',
+                    }}
                   />
                 </div>
               )}
