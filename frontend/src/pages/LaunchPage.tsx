@@ -19,12 +19,18 @@ import { DOPPLER_MAINNET } from '../lib/launcher/doppler.constants';
 import {
   launchToken,
   wizardConfigToLaunchConfig,
+  resolveFeeConstitution,
   LaunchError,
   MAX_PREMINE_BPS,
   type LaunchResult,
   type AttentionSplit,
 } from '../lib/launcher/launchService';
-import { attestFactSheet } from '../lib/launcher/attestation';
+import {
+  attestFactSheet,
+  factSheetSchemaUid,
+  EAS_SCHEMA_REGISTRY_MAINNET,
+  EAS_SCHEMA_REGISTRY_ABI,
+} from '../lib/launcher/attestation';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
@@ -70,11 +76,33 @@ const INITIAL: WizardState = {
   attentionSplits: [],
 };
 
-/** Parse the wizard's KOL rows into valid AttentionSplits (drop blank/invalid rows). */
-function parseAttentionSplits(rows: WizardState['attentionSplits']): AttentionSplit[] {
+/**
+ * Classify one attention-split row. Shared by the fee remainder, the Launch
+ * gate, the per-row UI, and parseAttentionSplits so they can never disagree
+ * again — the silent-drop bug was those sites computing validity over different
+ * sets. A row is `blank` (ignored), `valid` (submitted), or `invalid` (blocks).
+ */
+export function splitRowStatus(r: { address: string; shareBps: number }): { blank: boolean; valid: boolean; invalid: boolean } {
+  const addr = r.address.trim();
+  const blank = addr.length === 0 && !r.shareBps;
+  const valid = isAddress(addr) && Number.isInteger(r.shareBps) && r.shareBps > 0;
+  return { blank, valid, invalid: !blank && !valid };
+}
+
+export function parseAttentionSplits(rows: WizardState['attentionSplits']): AttentionSplit[] {
+  // Belt-and-braces: a non-blank row that is not valid must FAIL LOUDLY, never be
+  // silently dropped. Silently dropping shipped a launch whose perpetual fee
+  // stream differed from what the wizard displayed (a mistyped beneficiary got
+  // nothing, forever, while the displayed remainder still counted them). The UI
+  // blocks Launch while any row is invalid; this stops any future caller from
+  // reintroducing the drop.
+  const bad = rows.find((r) => splitRowStatus(r).invalid);
+  if (bad) {
+    throw new Error(`Invalid attention beneficiary "${bad.address || '(blank)'}": needs a valid 0x address and a positive whole-percent share.`);
+  }
   return rows
-    .filter((r) => isAddress(r.address) && Number.isInteger(r.shareBps) && r.shareBps > 0)
-    .map((r) => ({ address: r.address as Address, shareBps: r.shareBps }));
+    .filter((r) => !splitRowStatus(r).blank)
+    .map((r) => ({ address: r.address.trim() as Address, shareBps: r.shareBps }));
 }
 
 /**
@@ -84,6 +112,23 @@ function parseAttentionSplits(rows: WizardState['attentionSplits']): AttentionSp
  * gets attested. Doppler-template powers are known-false by construction.
  */
 function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
+  // Show the RESOLVED split this config produces (creator remainder + directed
+  // carve-outs + fixed lines), not the static 70/10 template — otherwise the
+  // preview advertises a split the deployed StreamableFeesLocker never pays (by
+  // default the creator+attention pool resolves to 80/0, not 70/10). Only valid
+  // rows feed the resolver, and it still throws if they over-allocate the 80%
+  // pool; in that (already-flagged) state fall back to the template so the
+  // preview never crashes mid-edit — the StepFees over-allocation warning and
+  // the launch-time throw both catch it.
+  let feeConstitution: RawTokenFacts['feeConstitution'];
+  try {
+    feeConstitution = resolveFeeConstitution(
+      '0x0000000000000000000000000000000000000000',
+      w.attentionSplits.filter((r) => splitRowStatus(r).valid).map((r) => ({ address: r.address.trim() as Address, shareBps: r.shareBps })),
+    );
+  } catch {
+    feeConstitution = [...DEFAULT_FEE_CONSTITUTION];
+  }
   const facts: RawTokenFacts = {
     token: '0x0000000000000000000000000000000000000000',
     chainId: DOPPLER_MAINNET.chainId,
@@ -100,7 +145,7 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
     ownerRenounced: w.tier !== 'flagship',
     ownerIsTimelock: w.tier === 'flagship',
     liquidity: { locked: true, locker: DOPPLER_MAINNET.support.streamableFeesLocker, unlockAt: Math.round(nowSeconds + w.lpLockMonths * MONTH) },
-    feeConstitution: [...DEFAULT_FEE_CONSTITUTION],
+    feeConstitution,
     vesting: [],
     teamAllocationBps: w.premineBps,
     teamAllocationVestedBps: w.premineBps, // wizard only offers on-chain-vested premine
@@ -108,6 +153,24 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
   };
   return buildFactSheet(facts);
 }
+
+/**
+ * Honest static display of the fee constitution. DEFAULT_FEE_CONSTITUTION splits
+ * the creator+attention pool into an ASPIRATIONAL 70/10, but resolveFeeConstitution
+ * treats it as ONE creator-directed pool (attention defaults to 0% and is carved
+ * at the creator's discretion). Showing a fixed "Attention 10%" therefore advertises
+ * a split the locker doesn't pay by default. Collapse the two into the real 80%
+ * pool line for any display that isn't tied to a specific launch's resolved split.
+ */
+const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION
+  .filter((l) => l.role === 'creator' || l.role === 'attention-beneficiary')
+  .reduce((n, l) => n + l.shareBps, 0);
+const FEE_POOL_DISPLAY: { recipient: string; shareBps: number }[] = [
+  { recipient: 'Creator (directs the attention carve)', shareBps: CREATOR_ATTENTION_POOL_BPS },
+  ...DEFAULT_FEE_CONSTITUTION
+    .filter((l) => l.role === 'protocol-stakers' || l.role === 'doppler')
+    .map((l) => ({ recipient: l.recipient, shareBps: l.shareBps })),
+];
 
 const STEPS = ['Details', 'Tier & curve', 'Fees & disclosure', 'Review'] as const;
 
@@ -139,6 +202,13 @@ export default function LaunchPage() {
   const price = useTOWELIPriceOptional();
   const [launch, setLaunch] = useState<LaunchStatus>({ phase: 'idle' });
   const [attest, setAttest] = useState<AttestStatus>({ phase: 'idle' });
+  // EAS honesty gate (2026-07-24): the Fact Sheet schema must be registered on
+  // the SchemaRegistry before any attestation can succeed. It was NOT registered
+  // on mainnet (verified on-chain: getSchema(uid).uid == 0), so "Attest
+  // disclosures on-chain" reverted with an opaque error every time. Probe the
+  // registry when a launch succeeds and only offer the button once the schema is
+  // live; otherwise say so plainly. null = still checking / unknown.
+  const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
   const [explorer, setExplorer] = useState<{ launches: LaunchSummary[]; outcomes: Record<string, OutcomeRecord> }>({
     launches: [],
     outcomes: {},
@@ -202,9 +272,38 @@ export default function LaunchPage() {
 
   // Post-launch: write the Fact Sheet on-chain as an EAS attestation (the disclosure
   // becomes verifiable + composable). Non-fatal to the launch — the token is already live.
+  // Probe whether the disclosure schema is registered once a launch lands.
+  useEffect(() => {
+    if (launch.phase !== 'success' || !publicClient) { setSchemaReady(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rec = await publicClient.readContract({
+          address: EAS_SCHEMA_REGISTRY_MAINNET,
+          abi: EAS_SCHEMA_REGISTRY_ABI,
+          functionName: 'getSchema',
+          args: [factSheetSchemaUid()],
+        }) as { uid?: `0x${string}` };
+        // A registered schema has a non-zero uid; the empty record returns 0x0…0.
+        // Conservative: any unexpected decode (missing uid) reads as NOT ready, so
+        // the button hides rather than offering an attestation that would revert.
+        const registered = typeof rec?.uid === 'string' && !/^0x0*$/.test(rec.uid);
+        if (!cancelled) setSchemaReady(registered);
+      } catch {
+        if (!cancelled) setSchemaReady(null); // unknown — leave the button, guard in onAttest
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [launch.phase, publicClient]);
+
   const onAttest = async () => {
     if (attest.phase === 'pending' || launch.phase !== 'success') return;
     if (!isLauncherEnabled() || !isConnected || !walletClient || !publicClient) return;
+    // Belt-and-suspenders: never send an attestation the schema can't accept.
+    if (schemaReady === false) {
+      setAttest({ phase: 'error', message: 'Fact Sheet attestation isn’t live yet — the disclosure schema has not been registered on-chain. Your launch is unaffected.' });
+      return;
+    }
     setAttest({ phase: 'pending' });
     try {
       // Attest FACTS RE-COLLECTED FROM THE DEPLOYED TOKEN — never the mutable wizard
@@ -217,7 +316,11 @@ export default function LaunchPage() {
       const raw = await collectTokenFacts(viemChainReader(publicClient), launch.result.tokenAddress as Address, {
         chainId: DOPPLER_MAINNET.chainId,
         now: observedAt,
-        feeConstitution: [...DEFAULT_FEE_CONSTITUTION],
+        // Attest the RESOLVED split captured at launch (immutable) — not the
+        // static 70/10 template, which never matches what the locker pays. This
+        // is captured from the deployed config in launch.result, so it cannot be
+        // forged by editing the still-mutable wizard after launch.
+        feeConstitution: launch.result.feeConstitution,
       });
       const sheetForToken = buildFactSheet(raw);
       const { uid, txHash } = await attestFactSheet(walletClient, publicClient, sheetForToken);
@@ -247,6 +350,10 @@ export default function LaunchPage() {
 
   const set = <K extends keyof WizardState>(k: K, v: WizardState[K]) => setW((s) => ({ ...s, [k]: v }));
   const canNext = step === 0 ? w.name.trim().length > 0 && w.symbol.trim().length > 0 : true;
+  // Any non-blank attention-split row that isn't a valid (address, positive %)
+  // blocks the launch — the fee stream is perpetual and immutable, so a mistyped
+  // beneficiary must never be silently dropped at submit.
+  const hasInvalidSplit = w.attentionSplits.some((r) => splitRowStatus(r).invalid);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
@@ -286,12 +393,14 @@ export default function LaunchPage() {
         ) : (
           <button
             onClick={onLaunch}
-            disabled={launch.phase === 'pending' || !isConnected}
+            disabled={launch.phase === 'pending' || !isConnected || hasInvalidSplit}
             className="px-5 py-2 rounded-lg text-sm font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
             title={
-              isConnected
-                ? 'Submits the Doppler create() transaction on Ethereum mainnet.'
-                : 'Connect a wallet to launch.'
+              hasInvalidSplit
+                ? 'Fix or remove the invalid attention beneficiary row(s) first.'
+                : isConnected
+                  ? 'Submits the Doppler create() transaction on Ethereum mainnet.'
+                  : 'Connect a wallet to launch.'
             }
           >
             {launch.phase === 'pending' ? 'Launching…' : isConnected ? 'Review & launch' : 'Connect wallet to launch'}
@@ -300,7 +409,7 @@ export default function LaunchPage() {
       </div>
 
       {step === STEPS.length - 1 && launch.phase !== 'idle' && (
-        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} />
+        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} />
       )}
 
       {/* Discovery / outcomes surface. Enriched via the aggregator-catchall adapter
@@ -316,7 +425,7 @@ export default function LaunchPage() {
   );
 }
 
-function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void }) {
+function LaunchStatusBanner({ status, attest, onAttest, schemaReady }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null }) {
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
@@ -371,11 +480,15 @@ function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus
           <div className="flex items-center gap-3">
             <button
               onClick={onAttest}
-              disabled={attest.phase === 'pending'}
+              disabled={attest.phase === 'pending' || schemaReady === false}
+              title={schemaReady === false ? 'The disclosure schema is not registered on-chain yet.' : undefined}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
             >
               {attest.phase === 'pending' ? 'Attesting…' : 'Attest disclosures on-chain'}
             </button>
+            {schemaReady === false && attest.phase !== 'error' && (
+              <span className="text-white/50 text-xs break-words">Attestation isn’t live yet — the disclosure schema hasn’t been registered on-chain. Your launch is unaffected.</span>
+            )}
             {attest.phase === 'error' && <span className="text-rose-300 text-xs break-words">{attest.message}</span>}
           </div>
         )}
@@ -384,8 +497,8 @@ function LaunchStatusBanner({ status, attest, onAttest }: { status: LaunchStatus
       {/* Afterlife — a day-2 economy that few other launchers offer. */}
       <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
         After the auction graduates into a V4 pool, this token can plug into the Tegridy
-        economy — boosted LP farming and a gauge-emissions application. Few launchers
-        give a launch a day-2 economy.
+        economy — boosted LP farming today, with a gauge-emissions program as governance
+        deploys. Few launchers give a launch any day-2 economy at all.
       </p>
     </div>
   );
@@ -492,10 +605,10 @@ function LauncherExplainer() {
       <ExplainerCard title="The fee split is fixed at launch">
         <p>
           A 1% total trade fee, published in the Fact Sheet and never a marketing dial. These are the shares the rail
-          will launch with:
+          will launch with — the creator directs their pool (optionally carving a share to attention beneficiaries):
         </p>
         <div className="rounded-xl border border-white/12 overflow-hidden mt-1">
-          {DEFAULT_FEE_CONSTITUTION.map((l, i) => (
+          {FEE_POOL_DISPLAY.map((l, i) => (
             <div
               key={l.recipient}
               className={`flex items-center justify-between px-3 py-2 ${i % 2 ? 'bg-white/[0.02]' : ''}`}
@@ -567,8 +680,8 @@ function LaunchHeader() {
       <h1 className="text-2xl font-bold text-white">Launch a token</h1>
       <p className="text-white/60 text-sm mt-1 max-w-xl">
         The verifiable, V4-native rail. Every launch uses Doppler's audited non-upgradeable template, publishes a
-        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy (farming, gauges)
-        that few other launchers offer.
+        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy (LP farming today;
+        a gauge program as governance deploys) that few other launchers offer.
       </p>
     </div>
   );
@@ -630,13 +743,20 @@ function AttentionSplitRow({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.shareBps]);
+  // A non-blank address that doesn't parse is flagged inline (and blocks Launch
+  // upstream) instead of being silently dropped at submit. Trim at the boundary:
+  // pasted surrounding whitespace is the likeliest real-world cause of a bad row.
+  const trimmedAddr = row.address.trim();
+  const addrInvalid = trimmedAddr.length > 0 && !isAddress(trimmedAddr);
   return (
+    <div>
     <div className="flex items-center gap-2">
       <input
         placeholder="0x… beneficiary"
         value={row.address}
-        onChange={(e) => onAddress(e.target.value)}
-        className={`${inputCls} flex-1 mt-0 font-mono text-xs`}
+        onChange={(e) => onAddress(e.target.value.trim())}
+        aria-invalid={addrInvalid}
+        className={`${inputCls} flex-1 mt-0 font-mono text-xs ${addrInvalid ? 'border-rose-400/60' : ''}`}
       />
       <input
         inputMode="decimal"
@@ -650,6 +770,8 @@ function AttentionSplitRow({
         className={`${inputCls} w-16 mt-0`}
       />
       <button onClick={onRemove} className="text-white/40 hover:text-rose-300 text-sm px-1" aria-label="remove">✕</button>
+    </div>
+      {addrInvalid && <p className="text-rose-300/80 text-[10px] mt-1 ml-1">Enter a valid 0x address, or remove this row.</p>}
     </div>
   );
 }
@@ -746,14 +868,17 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
 }
 
 function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof WizardState>(k: K, v: WizardState[K]) => void; sheet: LaunchFactSheet }) {
-  const totalSplitBps = w.attentionSplits.reduce((n, s) => n + (s.shareBps || 0), 0);
+  // Count ONLY valid rows toward the carve — the "you keep X%" figure must
+  // describe what will actually be submitted, not what an invalid (dropped) row
+  // appeared to allocate. Mirrors parseAttentionSplits so the two agree.
+  const totalSplitBps = w.attentionSplits.reduce((n, s) => splitRowStatus(s).valid ? n + s.shareBps : n, 0);
   const creatorKeepsBps = 8000 - totalSplitBps; // creator+attention pool = 80%
   return (
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">Constitutional fee split</h3>
-      <p className="text-white/50 text-xs mb-3">Fixed at launch and published in the Fact Sheet — never a marketing dial. 1% total trade fee.</p>
+      <p className="text-white/50 text-xs mb-3">Fixed at launch and published in the Fact Sheet — never a marketing dial. 1% total trade fee. You direct your pool below.</p>
       <div className="rounded-xl border border-white/12 overflow-hidden mb-6">
-        {DEFAULT_FEE_CONSTITUTION.map((l, i) => (
+        {FEE_POOL_DISPLAY.map((l, i) => (
           <div key={l.recipient} className={`flex items-center justify-between px-4 py-2.5 text-sm ${i % 2 ? 'bg-white/[0.02]' : ''}`}>
             <span className="text-white/80">{l.recipient}</span>
             <span className="text-white/60 tabular-nums">{(l.shareBps / 100).toFixed(0)}%</span>
@@ -819,6 +944,32 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
           </div>
         ))}
       </div>
+      {(() => {
+        // Show exactly who will receive the creator's fee carve on the final
+        // pre-signature screen — the fee stream is perpetual and immutable, so
+        // the irreversible action must disclose its beneficiaries. Only valid
+        // rows are listed (invalid rows block Launch upstream).
+        const validSplits = w.attentionSplits.filter((r) => splitRowStatus(r).valid);
+        if (validSplits.length === 0) return null;
+        const carvedBps = validSplits.reduce((n, r) => n + r.shareBps, 0);
+        return (
+          <div className="rounded-xl border border-white/12 overflow-hidden mb-5">
+            <div className="px-4 py-2 text-[11px] uppercase tracking-wide text-white/40 bg-white/[0.02]">
+              Attention beneficiaries (from the creator&rsquo;s 80% pool)
+            </div>
+            {validSplits.map((r, i) => (
+              <div key={`${r.address}-${i}`} className="flex items-center justify-between px-4 py-2 text-xs">
+                <span className="text-white/70 font-mono">{r.address.slice(0, 6)}…{r.address.slice(-4)}</span>
+                <span className="text-white/85 tabular-nums">{(r.shareBps / 100).toFixed(1)}%</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-4 py-2 text-xs bg-white/[0.02]">
+              <span className="text-white/50">Creator keeps</span>
+              <span className="text-white/85 tabular-nums">{((8000 - carvedBps) / 100).toFixed(1)}%</span>
+            </div>
+          </div>
+        );
+      })()}
       <FactSheetCard sheet={sheet} />
       <p className="text-white/40 text-xs mt-4">
         Launching submits a single Doppler <code className="text-white/60">create()</code> transaction on Ethereum

@@ -56,6 +56,14 @@ export interface LaunchResult {
   hookAddress: Address;
   poolId: string;
   transactionHash: string;
+  /**
+   * The RESOLVED fee constitution actually deployed with this launch (creator
+   * remainder + directed attention carve-outs + fixed protocol/Doppler lines) —
+   * captured at launch time from the immutable config, NOT the aspirational
+   * static DEFAULT_FEE_CONSTITUTION and NOT the still-mutable wizard state. This
+   * is the truthful split to display post-launch and to attest.
+   */
+  feeConstitution: TegridyLaunchConfig['feeConstitution'];
 }
 
 /** Discriminated failure reasons, so the UI can render a specific message. */
@@ -154,7 +162,7 @@ const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION.filter(
  * beneficiaries, so coalescing keeps the set unique (a KOL == creator merges)
  * while preserving the 10000-bps total and the >=500-bps Doppler floor.
  */
-function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly AttentionSplit[] = []): ResolvedLine[] {
+export function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly AttentionSplit[] = []): ResolvedLine[] {
   // Validate the creator's carve-out: non-negative whole bps that don't over-allocate.
   let splitSum = 0;
   for (const s of attentionSplits) {
@@ -352,6 +360,8 @@ export async function launchToken(
       hookAddress: r.hookAddress,
       poolId: r.poolId,
       transactionHash: r.transactionHash,
+      // The split that was actually deployed (cfg is immutable at this point).
+      feeConstitution: cfg.feeConstitution,
     };
   } catch (e) {
     throw new LaunchError('submit-failed', `Launch transaction failed: ${errText(e)}`, e);

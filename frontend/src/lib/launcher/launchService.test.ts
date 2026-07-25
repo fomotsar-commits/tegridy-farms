@@ -12,6 +12,7 @@ vi.mock('./config', async (importActual) => {
 import {
   wizardConfigToLaunchConfig,
   launchToken,
+  resolveFeeConstitution,
   LaunchError,
   type LaunchWizardInput,
   type LaunchMapOptions,
@@ -19,7 +20,43 @@ import {
 import { feeConstitutionToBeneficiaries } from './airlock';
 import { DOPPLER_MAINNET } from './doppler.constants';
 import { REVENUE_DISTRIBUTOR_ADDRESS } from '../constants';
-import { LAUNCHER_INTEGRATOR_ADDRESS, LAUNCH_FEE_TIER } from './config';
+import { LAUNCHER_INTEGRATOR_ADDRESS, LAUNCH_FEE_TIER, DEFAULT_FEE_CONSTITUTION } from './config';
+
+// The wizard used to DISPLAY and ATTEST the static DEFAULT_FEE_CONSTITUTION
+// (Creator 70% / Attention 10%), but resolveFeeConstitution treats creator+attention
+// as ONE 80% creator-directed pool. These pin the real resolved split so the two
+// can't silently diverge again (the displayed/attested Fact Sheet must match what
+// the StreamableFeesLocker actually pays).
+describe('resolveFeeConstitution — the deployed split, not the 70/10 template', () => {
+  const CREATOR = '0x1489a1B0dF0e5F7B2C4d3E6a7b8c9D0e1F2A3456' as Address;
+  const KOL = '0x00000000000000000000000000000000000000AA' as Address;
+  const sum = (lines: { shareBps: number }[]) => lines.reduce((n, l) => n + l.shareBps, 0);
+  const share = (lines: { role: string; shareBps: number }[], role: string) =>
+    lines.filter((l) => l.role === role).reduce((n, l) => n + l.shareBps, 0);
+
+  it('with NO carve, the creator keeps the whole 80% pool (not 70%), attention 0 (not 10%)', () => {
+    const r = resolveFeeConstitution(CREATOR, []);
+    expect(share(r, 'creator')).toBe(8000);
+    expect(share(r, 'attention-beneficiary')).toBe(0);
+    // This is exactly the mismatch: the static template claims 70/10.
+    expect(share([...DEFAULT_FEE_CONSTITUTION], 'creator')).toBe(7000);
+    expect(share([...DEFAULT_FEE_CONSTITUTION], 'attention-beneficiary')).toBe(1000);
+    expect(sum(r)).toBe(10000);
+  });
+
+  it('a carve comes OUT of the creator pool (creator + carve == 8000), fixed lines untouched', () => {
+    const r = resolveFeeConstitution(CREATOR, [{ address: KOL, shareBps: 1500 }]);
+    expect(share(r, 'attention-beneficiary')).toBe(1500);
+    expect(share(r, 'creator')).toBe(6500); // 8000 - 1500
+    expect(share(r, 'protocol-stakers')).toBe(1500);
+    expect(share(r, 'doppler')).toBe(500);
+    expect(sum(r)).toBe(10000);
+  });
+
+  it('throws if carves over-allocate the 80% pool', () => {
+    expect(() => resolveFeeConstitution(CREATOR, [{ address: KOL, shareBps: 8500 }])).toThrow();
+  });
+});
 
 const USER = '0x1111111111111111111111111111111111111111' as Address;
 const KOL = '0x2222222222222222222222222222222222222222' as Address;
