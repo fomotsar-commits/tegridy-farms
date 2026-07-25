@@ -1478,11 +1478,9 @@ function PoolTradeHistory({ poolAddress }: { poolAddress: Address }) {
 
 function PoolCard({
   poolAddress,
-  isOwner,
   index = 0,
 }: {
   poolAddress: Address;
-  isOwner?: boolean;
   index?: number;
 }) {
   const { address } = useAccount();
@@ -1554,8 +1552,12 @@ function PoolCard({
   const [nftCollection, poolType, spotPrice, delta, feeBps, _protocolFeeBps, owner, numNFTs, ethBalance] =
     poolInfo as [Address, number, bigint, bigint, bigint, bigint, Address, bigint, bigint];
 
-  const poolOwnerIsUser = address && owner.toLowerCase() === address.toLowerCase();
-  const showOwnerControls = isOwner || poolOwnerIsUser;
+  // Ownership is decided ONLY by the on-chain owner vs the connected wallet.
+  // The old `isOwner` prop was hard-passed true for every "tracked" pool, so
+  // owner controls showed for pools the user doesn't own — contradicting the
+  // "verified on-chain" copy. (2026-07-24)
+  const poolOwnerIsUser = Boolean(address && owner.toLowerCase() === address.toLowerCase());
+  const showOwnerControls = poolOwnerIsUser;
 
   const handleAddLiquidity = () => {
     // AUDIT FIX M-8: refuse on wrong chain so the LP add doesn't burn ETH
@@ -1623,7 +1625,7 @@ function PoolCard({
       transition={{ delay: index * 0.06 }}
     >
       <ArtCard
-        art={isOwner ? ART.wrestler : ART.jungleDark}
+        art={showOwnerControls ? ART.wrestler : ART.jungleDark}
         opacity={1}
         overlay="none"
         border={poolType === 0 ? 'rgba(96,165,250,0.15)' : poolType === 1 ? 'rgba(251,146,60,0.15)' : 'rgba(16,185,129,0.15)'}
@@ -2530,7 +2532,7 @@ function useTrackedPools() {
   return { pools, addPool, removePool };
 }
 
-function MyPoolsTab({ deployed }: { deployed: boolean }) {
+function MyPoolsTab() {
   const { address } = useAccount();
   const { pools: trackedPools, addPool, removePool } = useTrackedPools();
   const [newPoolAddr, setNewPoolAddr] = useState('');
@@ -2563,13 +2565,13 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
       {/* Earnings Summary */}
       <ArtCard art={ART.wrestler} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-5">
+          {/* HONESTY 2026-07-24: the "Your Pool Earnings" tile rendered a hardcoded
+              em-dash captioned "Cumulative LP fees earned" \u2014 no code path ever
+              computes LP fees, so it advertised a metric that doesn't exist. Removed
+              (never render an empty stat, per ProtocolStats). Per-pool fee data, when
+              wired, belongs on the individual PoolCards below. */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <p className={labelClass}>Your Pool Earnings</p>
-              <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">{'\u2014'}</p>
-              <p className="text-[10px] text-white mt-0.5">{deployed ? 'Cumulative LP fees earned' : 'Cumulative LP fees (available after launch)'}</p>
-            </div>
-            <div className="text-left sm:text-right">
               <p className={labelClass}>Tracked Pools</p>
               <p className="text-2xl font-mono tabular-nums text-white font-semibold mt-1">{trackedPools.length}</p>
             </div>
@@ -2621,7 +2623,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
         <div className="space-y-3">
           {trackedPools.map((addr, i) => (
             <div key={addr} className="relative">
-              <PoolCard poolAddress={addr as Address} isOwner index={i} />
+              <PoolCard poolAddress={addr as Address} index={i} />
               <button
                 onClick={() => {
                   removePool(addr);
@@ -2758,7 +2760,7 @@ export function AMMSection() {
         >
           {activeTab === 'trade' && <TradeTab deployed={deployed} />}
           {activeTab === 'create' && <CreatePoolTab deployed={deployed} />}
-          {activeTab === 'pools' && <MyPoolsTab deployed={deployed} />}
+          {activeTab === 'pools' && <MyPoolsTab />}
         </m.div>
       </AnimatePresence>
     </div>
