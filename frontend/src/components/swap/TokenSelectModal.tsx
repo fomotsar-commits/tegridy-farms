@@ -5,7 +5,7 @@ import { useReadContract, useChainId } from 'wagmi';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
 import { CHAIN_ID } from '../../lib/constants';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
 import { getTokenUrl } from '../../lib/explorer';
 
@@ -265,7 +265,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
             // art is actually visible), layered as a pure CSS background so the
             // virtualized token list's layout is untouched. Row legibility is carried
             // by the inherited text-shadow below, not by a near-opaque scrim.
-            background: `linear-gradient(180deg, rgba(15,26,46,0.58) 0%, rgba(10,16,32,0.62) 100%), url(${ART.card08.src}) center / cover no-repeat`,
+            background: `linear-gradient(180deg, rgba(15,26,46,0.58) 0%, rgba(10,16,32,0.62) 100%), url(${pageArt('token-select', 0).src}) center / cover no-repeat`,
             border: '1px solid var(--color-purple-20)',
             boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 0 1px var(--color-purple-30)',
             textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)',

@@ -8,13 +8,13 @@ import { Link } from 'react-router-dom';
 // hero immediately. It's a friendly intro, not a TOS gate — forcing a 4-step click-through
 // before the value prop is usable was pure funnel leakage on mobile.
 import { Modal } from './Modal';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 const STORAGE_KEY = 'tegridy-onboarding-seen';
 
 // A fresh Tegridy piece behind each onboarding slide — art-first from the very
-// first screen. Cycled by step so the four slides feel distinct.
-const SLIDE_ART = [ART.card01.src, ART.card02.src, ART.card03.src, ART.card04.src];
+// first screen, cycled by step. Resolved through pageArt('onboarding', idx) so
+// each slide is an art-studio surface (seeded to card01–04 in artOverrides).
 
 const steps = [
   {
@@ -65,7 +65,7 @@ export function OnboardingModal() {
       onClose={close}
       dismissOnBackdrop={true}
       title={steps[step]!.title}
-      art={SLIDE_ART[step % SLIDE_ART.length]}
+      art={pageArt('onboarding', step % steps.length).src}
     >
       {/* Step content — Modal renders the title via aria-labelledby, so the
           step body lives below it. The visible heading inside the slide
