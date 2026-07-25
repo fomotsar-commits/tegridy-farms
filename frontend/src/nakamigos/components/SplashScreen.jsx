@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { COLLECTIONS, DEFAULT_COLLECTION, LOADING_MESSAGES } from "../constants";
 
 const IS_MOBILE = typeof window !== "undefined" && window.innerWidth < 768;
@@ -422,7 +422,7 @@ function PixelDust({ count = IS_MOBILE ? 20 : 60 }) {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 8 }}>
       {particles.map((p, i) => (
-        <motion.div key={i}
+        <m.div key={i}
           initial={{ opacity: 0, x: 0, y: 0 }}
           animate={{ opacity: [0, p.peakOpacity, 0], x: p.driftX, y: p.driftY, scale: [0, p.peakScale, 0] }}
           transition={{ duration: p.duration, delay: p.delay, repeat: Infinity, ease: "easeOut" }}
@@ -584,7 +584,7 @@ function BokehOrbs({ count = 12 }) {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 1 }}>
       {orbs.map((o, i) => (
-        <motion.div key={i}
+        <m.div key={i}
           animate={{ x: [0, o.driftX, -o.driftX * 0.5, 0], y: [0, o.driftY, -o.driftY * 0.7, 0], opacity: [0.3, 0.7, 0.3] }}
           transition={{ duration: o.duration, delay: o.delay, repeat: Infinity, ease: "easeInOut" }}
           style={{
@@ -615,7 +615,7 @@ function FilmGrain() {
 function PixelOverlay() {
   return (
     <>
-      <motion.div
+      <m.div
         animate={{ opacity: [0.03, 0.07, 0.03] }}
         transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
         style={{
@@ -637,7 +637,7 @@ function PixelOverlay() {
 function ShockwaveEffect({ shockwave }) {
   if (!shockwave) return null;
   return (
-    <motion.div key={shockwave.id}
+    <m.div key={shockwave.id}
       initial={{ scale: 0, opacity: 0.8 }}
       animate={{ scale: 8, opacity: 0 }}
       transition={{ duration: 0.7, ease: "easeOut" }}
@@ -1348,7 +1348,7 @@ export default function SplashScreen({ onComplete }) {
               const palette = ["#c8a850", "#e8c080", "#ff8fa0", "#c8a850", "#7eb8e0", "#a088d0", "#e0a0c0", "#c8a850", "#7eb8e0"];
               const colors = palette;
               return (
-                <motion.span key={i}
+                <m.span key={i}
                   initial={{ opacity: 0, y: 80, scale: 0.3, rotateX: 90 }}
                   animate={showContent ? { opacity: 1, y: 0, scale: 1, rotateX: 0 } : undefined}
                   transition={{ type: "spring", stiffness: 180, damping: 15, delay: 0.3 + i * 0.08 }}
@@ -1358,10 +1358,10 @@ export default function SplashScreen({ onComplete }) {
                     textShadow: `0 0 30px ${colors[i % colors.length]}aa, 0 0 60px ${colors[i % colors.length]}55, 0 0 100px ${colors[i % colors.length]}33, 0 4px 8px rgba(0,0,0,0.95)`,
                     willChange: "transform, opacity", imageRendering: "pixelated",
                   }}
-                >{letter}</motion.span>
+                >{letter}</m.span>
               );
             })}
-            <motion.div
+            <m.div
               initial={{ x: "-140%" }}
               animate={showContent ? { x: "280%" } : undefined}
               transition={{ delay: 1.5, duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
@@ -1376,7 +1376,7 @@ export default function SplashScreen({ onComplete }) {
         </div>
 
         {/* Tagline */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, letterSpacing: "1em" }}
           animate={showContent ? { opacity: isMobile ? 0.92 : 0.7, letterSpacing: isMobile ? "0.25em" : "0.4em" } : undefined}
           transition={{ type: "spring", stiffness: 100, damping: 18, delay: 1.2 }}
@@ -1387,10 +1387,10 @@ export default function SplashScreen({ onComplete }) {
             color: "#e0c068", textShadow: "0 0 20px rgba(200,168,80,0.5), 0 0 40px rgba(200,168,80,0.2)",
             marginBottom: 48, imageRendering: "pixelated",
           }}
-        >THE DIGITAL ART GALLERY</motion.div>
+        >THE DIGITAL ART GALLERY</m.div>
 
         {/* Progress bar */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, scaleX: 0.5 }}
           animate={showContent ? { opacity: 1, scaleX: 1 } : undefined}
           transition={{ type: "spring", stiffness: 120, damping: 16, delay: 1.5 }}
@@ -1401,7 +1401,7 @@ export default function SplashScreen({ onComplete }) {
             background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
             position: "relative", overflow: "hidden", imageRendering: "pixelated",
           }}>
-            <motion.div
+            <m.div
               style={{
                 width: `${progress}%`, height: "100%",
                 background: "linear-gradient(90deg, #c8a850, #e8c080, #ff8fa0, #a088d0, #7eb8e0, #c8a850)",
@@ -1417,10 +1417,10 @@ export default function SplashScreen({ onComplete }) {
               opacity: 0.6, transform: "translateX(50%)", imageRendering: "pixelated",
             }} />
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Status text */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0 }}
           animate={showContent ? { opacity: 1 } : undefined}
           transition={{ delay: 1.8 }}
@@ -1431,7 +1431,7 @@ export default function SplashScreen({ onComplete }) {
         >
           {phase === "ready" ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-              <motion.span
+              <m.span
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: [0.5, 1, 0.5], y: 0 }}
                 transition={{ opacity: { duration: 2, repeat: Infinity, ease: "easeInOut" }, y: { duration: 0.4 } }}
@@ -1440,7 +1440,7 @@ export default function SplashScreen({ onComplete }) {
                   textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
                   fontSize: 12, letterSpacing: "0.3em", cursor: "pointer", pointerEvents: "auto",
                 }}
-              >{isMobile ? "TAP TO ENTER" : "CLICK TO ENTER"}</motion.span>
+              >{isMobile ? "TAP TO ENTER" : "CLICK TO ENTER"}</m.span>
               {/* Keyboard skip affordance — repeat visitors and AT users get an
                   explicit fast path that pairs with the Enter/Space handler (F559). */}
               {!isMobile && (
@@ -1451,7 +1451,7 @@ export default function SplashScreen({ onComplete }) {
               )}
             </div>
           ) : (
-            <motion.span
+            <m.span
               animate={{ color: ["#ff2244", "#ffdd00", "#44ddff", "#ff44ff", "#00ff66", "#ff2244"] }}
               transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
             >
@@ -1463,12 +1463,12 @@ export default function SplashScreen({ onComplete }) {
                 if (msgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
                 return msgs[Math.floor((progress / 100) * (msgs.length - 1))].toUpperCase();
               })()}
-            </motion.span>
+            </m.span>
           )}
-        </motion.div>
+        </m.div>
 
         {/* Stats plaque */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={showContent ? { opacity: 1, y: 0 } : undefined}
           transition={{ type: "spring", stiffness: 100, damping: 16, delay: 2.0 }}
@@ -1487,7 +1487,7 @@ export default function SplashScreen({ onComplete }) {
               { val: (col.tags?.[1]) || "ETHEREUM", label: "CHAIN", color: "#44ddff" },
             ];
           })().map((s, i) => (
-            <motion.div key={i}
+            <m.div key={i}
               initial={{ opacity: 0 }}
               animate={showContent ? { opacity: 1 } : undefined}
               transition={{ delay: 2.1 + i * 0.1 }}
@@ -1501,9 +1501,9 @@ export default function SplashScreen({ onComplete }) {
                 fontFamily: "var(--pixel)", fontSize: 7,
                 color: "rgba(255,255,255,0.25)", letterSpacing: "0.15em",
               }}>{s.label}</div>
-            </motion.div>
+            </m.div>
           ))}
-        </motion.div>
+        </m.div>
       </div>
     </div>
   );

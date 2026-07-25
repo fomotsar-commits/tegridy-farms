@@ -11,7 +11,7 @@ import { TEGRIDY_STAKING_ABI, ERC20_ABI, REFERRAL_SPLITTER_ABI } from '../lib/co
 import {
   TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TEGRIDY_LP_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID, RELAUNCH_DEPLOY_BLOCK,
-  isDeployed as checkDeployed,
+  isDeployed as checkDeployed, SITE_URL,
 } from '../lib/constants';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -132,7 +132,10 @@ export function usePoints() {
     [data, onChainMetrics]
   );
 
-  const referralLink = address ? `${window.location.origin}/swap?ref=${address}` : '';
+  // Must match ReferralWidget.tsx exactly: the ?ref= stash is captured only on
+  // the home route ('/'), and SITE_URL (not window.location.origin) avoids the
+  // origin-drift class where a link copied on a preview deploy points off-site.
+  const referralLink = address ? `${SITE_URL}/?ref=${encodeURIComponent(address)}` : '';
 
   return {
     data,

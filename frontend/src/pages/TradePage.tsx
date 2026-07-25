@@ -112,7 +112,12 @@ export default function TradePage() {
     // is shareable. When the path is /liquidity (legacy deep-link), still
     // write ?tab= so the canonical query knob stays authoritative and
     // Back/Forward + sharing continues to work intuitively.
-    if (next === 'swap') params.delete('tab');
+    // On /swap the bare URL means "swap", so drop the param for a clean link.
+    // But on the /liquidity deep-link the PATH resolves to 'liquidity', so
+    // deleting ?tab here made the sync effect bounce Swap straight back to
+    // Liquidity (Swap was unreachable from /liquidity). Since ?tab wins over the
+    // path in resolveInitialTab, writing ?tab=swap makes the switch stick.
+    if (next === 'swap' && !location.pathname.startsWith('/liquidity')) params.delete('tab');
     // F242: write the canonical `?tab=alerts` for the Alerts (internal 'limit') tab.
     else params.set('tab', next === 'limit' ? 'alerts' : next);
     setSearchParams(params, { replace: true });
