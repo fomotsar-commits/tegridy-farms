@@ -153,8 +153,12 @@ function getTips(breakdown: TegridyScoreBreakdown): string[] {
     { key: 'stakingScore', tip: 'Tip: Stake more TOWELI to boost your score' },
     { key: 'lockScore', tip: 'Tip: Lock for longer to increase your Tegridy Score' },
     { key: 'activityScore', tip: 'Tip: Swap and stake to build on-chain activity' },
-    { key: 'governanceScore', tip: 'Tip: Vote on grant proposals to improve your score' },
-    { key: 'communityScore', tip: 'Tip: Post a bounty or refer friends' },
+    // Governance (grants/gauges) and bounties are not yet redeployed, so "vote on
+    // proposals" / "post a bounty" instruct actions no one can take today. Keep the
+    // tips honest and achievable: on-chain voting is forward-looking, community is
+    // the live referral path. (2026-07-24)
+    { key: 'governanceScore', tip: 'Tip: On-chain voting unlocks with the governance relaunch' },
+    { key: 'communityScore', tip: 'Tip: Refer friends to grow your community score' },
   ];
 
   const lowScoring = tipMap

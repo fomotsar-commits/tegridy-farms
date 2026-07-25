@@ -4,6 +4,7 @@ import { useAccount } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 import { useWalletExposure } from '../hooks/useWalletExposure';
+import { scanTokenLive } from '../lib/scanner';
 import {
   BAND_LABEL,
   deriveHoldingExposure,
@@ -181,10 +182,18 @@ export default function WalletExposurePage() {
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState<string | null>(null);
 
-  // No scanToken is injected yet: a token-distribution scanner adapter (holder
-  // list source) is not deployed, so every holding self-gates to `unmeasured`.
-  // Inject one here to light up the bands with real data.
-  const { isWrongNetwork, isLoading, error, holdings, exposures, scanning } = useWalletExposure({ extraTokens });
+  // Inject the LIVE scanner adapter (2026-07-24). Previously omitted, so every
+  // holding self-gated to `unmeasured` and the page's headline concentration
+  // scoring never rendered — even though /scan already had the wired holder
+  // source. Each held token now runs through the same scanTokenLive path the
+  // Scanner page uses; a failed scan falls back to null (still `unmeasured`).
+  const { isWrongNetwork, isLoading, error, holdings, exposures, scanning } = useWalletExposure({
+    extraTokens,
+    scanToken: (t, signal) =>
+      scanTokenLive(t.address, { signal, chainOverride: t.chain })
+        .then((o) => o.analysis)
+        .catch(() => null),
+  });
 
   const summary = useMemo(() => summarizeExposures(Object.values(exposures)), [exposures]);
   const observedAt = useMemo(() => {

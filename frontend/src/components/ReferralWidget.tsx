@@ -174,6 +174,13 @@ export function ReferralWidget({
           </div>
         </div>
 
+        {/* HONESTY 2026-07-24: ReferralSplitter only credits a referrer whose own
+            stake qualifies — surface the requirement instead of implying anyone
+            who shares a link earns. */}
+        <p className="text-white/50 text-[11px] mb-4">
+          You earn a share of your referrals&rsquo; swap fees while you hold at least 1,000 TOWELI of staking power (boost counts).
+        </p>
+
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           <div className="bg-black/40 hover:bg-black/60 rounded-lg p-3 text-center transition-colors">

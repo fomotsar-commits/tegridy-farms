@@ -170,7 +170,7 @@ export default function TokenomicsPage() {
                 { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
                 { l: 'Rewards / Second', v: pool.isDeployed ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
                 { l: 'Funded (lifetime)', v: pool.isDeployed ? `${formatNumber(totalFunded, 1)} TOWELI` : '–' },
-                { l: 'Emissions End In', v: pool.isDeployed && daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : pool.isDeployed ? 'Period ended' : '–' },
+                { l: 'Emissions End In', v: !pool.isDeployed ? '–' : pool.isLoading ? '…' : daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : 'Period ended' },
               ].map((r) => (
                 <div key={r.l} className="flex items-center justify-between">
                   <span className="text-white text-[13px]">{r.l}</span>

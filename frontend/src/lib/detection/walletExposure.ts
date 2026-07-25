@@ -91,7 +91,7 @@ export type ScanTokenFn = (
 ) => Promise<DistributionAnalysis | null>;
 
 export const UNMEASURED_REASON =
-  'Concentration, bundle and sniper scoring needs this token’s holder distribution, which is not available from the data sources wired today (no holder-list index is deployed). Your position size below is exact; the distribution read is pending a holder-distribution source.';
+  'Concentration, bundle and sniper scoring needs this token’s holder distribution, which could not be read right now (the holder source was unavailable, rate-limited, or does not cover this token). Your position size below is exact; the distribution read will retry.';
 
 const NO_HOLDERS_REASON =
   'No holders remained to measure after structural exclusions (pools, CEX, bridges, burns, contracts) — not enough real-holder data for a distribution read.';
