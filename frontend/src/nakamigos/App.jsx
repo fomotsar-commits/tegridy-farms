@@ -162,6 +162,28 @@ const TAB_KEYS = {
 // Service worker disabled when embedded in Tegriddy Farms
 // (Tegriddy has its own SW at a different scope)
 
+// Merge the native-orderbook listing fields onto an NFT so the detail Modal's
+// buy branch (keys on orderHash + price → native vs Seaport fulfillment) works
+// regardless of how the NFT was opened. The Gallery/Floor grids pre-merge these,
+// but Hero, marquee, favorites, and the ?token= deep link set `selected` from a
+// raw token — without this they lost the price/buy button and the buyer (and the
+// 1% treasury fee) got redirected to OpenSea. Doing it at render time covers
+// every entry path in one place. (2026-07-24)
+function enrichWithListing(nft, listings) {
+  if (!nft) return null;
+  const listing = listings.find((l) => String(l.tokenId) === String(nft.id));
+  if (!listing) return nft;
+  return {
+    ...nft,
+    price: nft.price ?? listing.price,
+    orderHash: nft.orderHash || listing.orderHash || null,
+    orderData: nft.orderData || listing.orderData || null,
+    protocolAddress: nft.protocolAddress || listing.protocolAddress || null,
+    isNative: nft.isNative || listing.isNative || false,
+    nativeOrder: nft.nativeOrder || listing.nativeOrder || null,
+  };
+}
+
 function AppInner() {
   const { theme: themeName, cycleTheme } = useTheme();
   const { address: wallet, disconnect, walletName } = useWallet();
@@ -368,6 +390,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
     }
   }, [nfts.allTokens, collection.contract, collection.metadataBase]);
   const { listings, listingsLoading, listingsError, listingsSource, refreshListings, lastRefresh } = useListings();
+  // Enrich the open NFT with its listing at render time, so the detail Modal has
+  // the buy route no matter which entry path set `selected` (see enrichWithListing).
+  const selectedEnriched = useMemo(() => enrichWithListing(selected, listings), [selected, listings]);
   const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
   // Onboarding is keyed once per marketplace ("tradermigos_onboarded") rather
   // than per collection (F767); the legacy per-collection key is still honored
@@ -477,19 +502,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 
   const addToCart = useCallback((nft) => {
     if (cart.find(n => String(n.id) === String(nft.id))) return;
-    const listing = listings.find(l => String(l.tokenId) === String(nft.id));
-    const enriched = listing
-      ? {
-          ...nft,
-          price: nft.price ?? listing.price,
-          orderHash: nft.orderHash || listing.orderHash || null,
-          orderData: nft.orderData || listing.orderData || null,
-          protocolAddress: nft.protocolAddress || listing.protocolAddress || null,
-          isNative: nft.isNative || listing.isNative || false,
-          nativeOrder: nft.nativeOrder || listing.nativeOrder || null,
-        }
-      : nft;
-    ctxAddToCart(enriched);
+    ctxAddToCart(enrichWithListing(nft, listings));
     addToast(`Added #${nft.id} to cart`, "success");
     play("cart");
   }, [ctxAddToCart, cart, addToast, listings, play]);
@@ -872,7 +885,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
       <ErrorBoundary title="Modal error" onReset={() => setSelected(null)}>
       <Suspense fallback={null}>
       <Modal
-        nft={selected}
+        nft={selectedEnriched}
         onClose={() => {
           setSelected(null);
           // Clear deep link URL when closing modal — land back on the gallery
