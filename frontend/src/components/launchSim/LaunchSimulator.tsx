@@ -105,15 +105,18 @@ function AllocationRow({
   return (
     <div className="rounded-lg border border-white/10 bg-black/20 p-2 space-y-1.5">
       <div className="flex items-center gap-1.5">
+        {/* min-w-0 lets these inputs shrink below their intrinsic content width so
+            the row fits at 390px — without it flex-1 never shrinks and the remove
+            button clips off-screen (w-32 alone is a no-op for the same reason). */}
         <input
-          className={`${inputCls} flex-1`}
+          className={`${inputCls} flex-1 min-w-0`}
           placeholder="Label (e.g. Team)"
           value={row.label}
           onChange={(e) => onChange({ label: e.target.value })}
           maxLength={40}
         />
         <input
-          className={`${inputCls} w-32 tabular-nums`}
+          className={`${inputCls} w-24 sm:w-32 min-w-0 tabular-nums`}
           inputMode="numeric"
           placeholder="tokens"
           value={row.amount}
