@@ -5,6 +5,7 @@ import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
+import { pageArt } from '../../lib/artConfig';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -155,7 +156,7 @@ export const TopNav = React.memo(function TopNav() {
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
             >
-              <img src="/art/bobowelie.jpg" alt="" className="w-full h-full object-cover" />
+              <img src={pageArt('nav-logo', 0).src} alt="" className="w-full h-full object-cover" />
               <span
                 aria-hidden="true"
                 className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
