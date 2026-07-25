@@ -21,7 +21,7 @@
 // works, but otherwise demand an exact match.
 
 import { useState } from 'react';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 interface TypedConfirmationProps {
   /** Phrase the operator must type to enable the execute button. */
@@ -114,7 +114,7 @@ export function TypedConfirmation({
       <div
         className="p-4 rounded-xl"
         style={{
-          background: `${v.box}, linear-gradient(180deg, rgba(10,12,22,0.55) 0%, rgba(10,12,22,0.6) 100%), url(${ART.card07.src}) center / cover no-repeat`,
+          background: `${v.box}, linear-gradient(180deg, rgba(10,12,22,0.55) 0%, rgba(10,12,22,0.6) 100%), url(${pageArt('typed-confirm', 0).src}) center / cover no-repeat`,
           border: `1px solid ${variant === 'danger' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
           textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)',
         }}

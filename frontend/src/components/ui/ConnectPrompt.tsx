@@ -13,7 +13,7 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
-import { ART } from '../../lib/artConfig';
+import { pageArt } from '../../lib/artConfig';
 
 type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic';
 
@@ -96,7 +96,7 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
           with the copy kept WCAG-legible by its text-shadow rather than a heavy
           near-black scrim. */}
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-        <img src={ART.card09.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+        <img src={pageArt('connect-prompt', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
         <div className="absolute inset-0" style={{ background: 'rgba(6, 12, 26, 0.5)' }} />
       </div>
 

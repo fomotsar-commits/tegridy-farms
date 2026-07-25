@@ -16,6 +16,19 @@ export type ArtOverride = {
 };
 
 export const ART_OVERRIDES: Record<string, ArtOverride> = {
+  // Pop-up / modal surfaces — registered in the art-studio so every card that
+  // pops up (onboarding, consent, receipt, token picker, wallet gate, admin
+  // confirm) is identifiable AND adjustable there. Seeded to the pieces they
+  // already ship with so this is a no-op visually; change them in /art-studio.
+  "onboarding:0": { artId: "card01" },
+  "onboarding:1": { artId: "card02" },
+  "onboarding:2": { artId: "card03" },
+  "onboarding:3": { artId: "card04" },
+  "consent-banner:0": { artId: "card05" },
+  "tx-receipt:0": { artId: "card06" },
+  "connect-prompt:0": { artId: "card09" },
+  "token-select:0": { artId: "card08" },
+  "typed-confirm:0": { artId: "card07" },
   "admin-dashboard:0": { artId: "naka09", objectPosition: "50% 90%" },
   "admin:0": { artId: "naka04", objectPosition: "50% 93%" },
   "boost-schedule:0": { artId: "splash13", objectPosition: "50% 17%" },

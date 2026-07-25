@@ -16,6 +16,14 @@ type Surface = { group: string; pageId: string; idx: number; label: string };
 // embeds it.
 const PAGE_ROUTES: Record<string, string> = {
   home: '/',
+  // Pop-up / modal surfaces — route where each card appears (the modal itself
+  // pops up on interaction, so the live-preview iframe shows the host page).
+  onboarding: '/',
+  'consent-banner': '/',
+  'tx-receipt': '/dashboard',
+  'connect-prompt': '/farm',
+  'token-select': '/trade',
+  'typed-confirm': '/admin',
   dashboard: '/dashboard',
   farm: '/farm',
   'farm-stats': '/farm',
@@ -243,6 +251,18 @@ const SURFACES: Surface[] = [
   // Misc widgets
   { group: 'Misc widgets', pageId: 'tegridy-score', idx: 0, label: 'TS1 — TegridyScore widget' },
   { group: 'Misc widgets', pageId: 'referral-widget', idx: 0, label: 'RW1 — Referral widget' },
+
+  // Pop-up / modal cards — the surfaces that appear over other pages. Registered
+  // here so every pop-up card is identifiable and adjustable in the studio.
+  { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 0, label: 'PU1 — Onboarding slide 1 (Welcome)' },
+  { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 1, label: 'PU2 — Onboarding slide 2 (How It Works)' },
+  { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 2, label: 'PU3 — Onboarding slide 3 (Stay Safe)' },
+  { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 3, label: 'PU4 — Onboarding slide 4 (First Move)' },
+  { group: 'Pop-ups / Modals', pageId: 'consent-banner', idx: 0, label: 'PU5 — Privacy & telemetry banner' },
+  { group: 'Pop-ups / Modals', pageId: 'tx-receipt',     idx: 0, label: 'PU6 — Transaction receipt' },
+  { group: 'Pop-ups / Modals', pageId: 'connect-prompt', idx: 0, label: 'PU7 — Connect-wallet gate' },
+  { group: 'Pop-ups / Modals', pageId: 'token-select',   idx: 0, label: 'PU8 — Token-select modal' },
+  { group: 'Pop-ups / Modals', pageId: 'typed-confirm',  idx: 0, label: 'PU9 — Type-to-confirm (admin)' },
 ];
 
 const ART_LIST: ArtPiece[] = Object.values(ART);

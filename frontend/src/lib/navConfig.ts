@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { isSolanaConfigured } from './solana';
 import { isLauncherEnabled } from './launcher/config';
+import { isSolanaLauncherEnabled } from './launcher/solana/dbc';
 
 export interface NavItem {
   to: string;
@@ -114,6 +115,12 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // the entry is honest, not a dead link. The pill clears itself when
       // isLauncherEnabled() flips.
       { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
+      // The Solana leg (fee-capture sub-brand over Meteora DBC). Previously only
+      // reachable via a cross-link buried in /launch's GATED explainer, so an
+      // operator (who sees the live wizard, not the explainer) had no path to it.
+      // Surfaced here for parity with Solana Swap; "Soon" pill until the launcher
+      // flag flips (SOLANA_LAUNCHER_ENABLED, launcher/solana/dbc.ts).
+      { to: '/solana-launch', label: 'Solana Launch', soon: !isSolanaLauncherEnabled() },
       // Pure client-side — always usable, deliberately live before the launch rail opens.
       { to: '/launch-simulator', label: 'Launch Simulator' },
     ],
