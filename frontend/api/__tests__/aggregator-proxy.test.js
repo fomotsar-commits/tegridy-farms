@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Rate-limiter is pass-through unless a test overrides it. Each test gets a
 // fresh import via vi.resetModules() so module-init env reads are honored.
-vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
+vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
 
 function makeReq({ method = "GET", query = {}, body = null, headers = {} } = {}) {
   return {
@@ -190,6 +190,26 @@ describe.each(MATRIX)("aggregator proxy — $id", ({ id, mod, okPath, badPath, o
     // Body roundtrip: upstream returned `{ source: id }`.
     const sentBody = sendSpy.mock.calls[0]?.[0];
     expect(sentBody).toContain(`"${id}"`);
+  });
+
+  it("(e) global circuit-breaker gates the upstream fetch", async () => {
+    // Grab the SAME mocked ratelimit instance the freshly-imported handler
+    // holds (beforeEach already reset modules), force the breaker to shed, and
+    // assert the handler never reaches upstream — proving checkGlobalLimit sits
+    // in the request path, keyed by this provider's identifier.
+    const { checkGlobalLimit } = await import("../_lib/ratelimit.js");
+    checkGlobalLimit.mockResolvedValueOnce(false);
+    const req = makeReq({
+      method: okMethod,
+      query: { ...okQuery, path: okPath },
+      body: okBody,
+    });
+    const { res } = makeRes();
+    await handler(req, res);
+    expect(checkGlobalLimit).toHaveBeenCalledWith(
+      res, expect.objectContaining({ identifier: id }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("(a) rejects wrong HTTP method with 405", async () => {

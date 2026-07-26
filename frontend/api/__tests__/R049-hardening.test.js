@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const rateLimitMock = vi.fn(async () => true);
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: (...args) => rateLimitMock(...args),
+  checkGlobalLimit: vi.fn(async () => true),
 }));
 
 // fetch mock — each test wires up the response shape it cares about.

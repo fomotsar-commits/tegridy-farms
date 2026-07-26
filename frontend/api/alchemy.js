@@ -1,5 +1,5 @@
 // Vercel Serverless Function — proxies Alchemy requests to hide API key
-import { checkRateLimit } from "./_lib/ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
 import { fetchAlchemyWithFailover } from "./_lib/alchemy-failover.js";
@@ -135,6 +135,21 @@ export default async function handler(req, res) {
     limit: 60, windowSec: 60, identifier: "alchemy",
   });
   if (!allowed) return;
+
+  // AUDIT 2026-07-25: global circuit-breaker. The per-IP cap above stops one
+  // abusive source but NOT a distributed flood — many IPs each under 60/min
+  // still burn Alchemy compute units (metered $). Cap TOTAL alchemy traffic
+  // across all callers and shed load with 503 past the aggregate ceiling.
+  // Default is generous so it never trips on organic load; raise
+  // ALCHEMY_GLOBAL_RPM instantly (env, no redeploy) if a real spike hits it.
+  const underGlobalCap = await checkGlobalLimit(res, {
+    // ~40 req/s aggregate: far above any realistic organic peak for this app,
+    // far below what an unchecked flood would bill in Alchemy compute units.
+    limit: Number(process.env.ALCHEMY_GLOBAL_RPM) || 2400,
+    windowSec: 60,
+    identifier: "alchemy",
+  });
+  if (!underGlobalCap) return;
 
   // Body size guard (POST only)
   if (req.method === "POST") {
