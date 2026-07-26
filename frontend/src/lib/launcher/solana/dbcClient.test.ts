@@ -36,7 +36,7 @@ import {
   isSolanaLauncherEnabled,
   U64_MAX,
 } from './dbc';
-import { SQUADS_V4_PROGRAM_ID, deriveSquadsVaultPda, verifySquadsVault } from './squads';
+import { SQUADS_V4_PROGRAM_ID, deriveSquadsVaultPda, verifySquadsVault, readMultisigThreshold } from './squads';
 import { createPartnerConfig, launchToken, claimPartnerFees, type WalletSigner, type VaultProvenanceMap } from './dbcClient';
 
 const gateMock = isSolanaLauncherEnabled as unknown as Mock;
@@ -85,6 +85,17 @@ afterEach(() => {
 const BLOCKHASH = '11111111111111111111111111111111';
 const LAST_VALID_BLOCK_HEIGHT = 987_654;
 
+// Raw account data for a Squads v4 `Multisig`: 8-byte Anchor discriminator +
+// create_key(32) + config_authority(32) + threshold(u16 LE @72), zero-padded to 80.
+const MULTISIG_DISC = [224, 116, 121, 186, 68, 161, 79, 236];
+function multisigData(threshold = 2): Uint8Array {
+  const d = new Uint8Array(80);
+  d.set(MULTISIG_DISC, 0);
+  d[72] = threshold & 0xff;
+  d[73] = (threshold >> 8) & 0xff;
+  return d;
+}
+
 // A mock DBC client. `owner` decides what getAccountInfo reports for the MULTISIG
 // account verifySquadsVault fetches: the Squads program (real multisig), the System
 // program (a look-alike), or null (missing).
@@ -92,6 +103,9 @@ const LAST_VALID_BLOCK_HEIGHT = 987_654;
 // `mkTx` builds what the SDK returns. `calls` records the ORDER of RPC methods so a test
 // can pin that the blockhash is fetched LAST (after the vault verification), keeping the
 // operator's share of the ~150-slot validity window as large as possible.
+//
+// `threshold` is the u16 written into the mock `Multisig` account data — the default 2
+// satisfies the threshold>=2 gate, so every pre-existing call site stays green.
 function makeClient(
   owner: PublicKey | null | 'throw' = SQUADS_PROGRAM,
   mkTx: () => Transaction = () => ({ __tx: true, partialSign: vi.fn() }) as unknown as Transaction,
@@ -99,12 +113,13 @@ function makeClient(
     blockhash: BLOCKHASH,
     lastValidBlockHeight: LAST_VALID_BLOCK_HEIGHT,
   },
+  threshold = 2,
 ) {
   const calls: string[] = [];
   const getAccountInfo = vi.fn(async () => {
     calls.push('getAccountInfo');
     if (owner === 'throw') throw new Error('RPC down');
-    return owner === null ? null : { owner };
+    return owner === null ? null : { owner, data: multisigData(threshold) };
   });
   const getLatestBlockhash = vi.fn(async (_c?: unknown) => {
     calls.push('getLatestBlockhash');
@@ -479,20 +494,46 @@ describe('Squads-vault assertion (on-chain vault-PDA check)', () => {
 });
 
 describe('verifySquadsVault (correct vault-PDA model)', () => {
-  const conn = (owner: PublicKey | null | 'throw') =>
+  const conn = (owner: PublicKey | null | 'throw', data: Uint8Array | undefined = multisigData(2)) =>
     ({
       getAccountInfo: vi.fn(async () => {
         if (owner === 'throw') throw new Error('RPC down');
-        return owner === null ? null : { owner };
+        return owner === null ? null : { owner, data };
       }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }) as any;
   const ms = () => Keypair.generate().publicKey.toBase58();
 
-  it('returns true when the address is the derived vault PDA and the multisig is Squads-owned', async () => {
+  it('returns true when the address is the derived vault PDA and the multisig is a >=2 threshold Squads Multisig', async () => {
     const multisig = ms();
     const address = deriveSquadsVaultPda(multisig, 0);
     await expect(verifySquadsVault(conn(SQUADS_PROGRAM), { address, multisig, vaultIndex: 0 })).resolves.toBe(true);
+  });
+
+  it('returns false when the multisig threshold is 1 (single-key drain)', async () => {
+    const multisig = ms();
+    const address = deriveSquadsVaultPda(multisig, 0);
+    await expect(
+      verifySquadsVault(conn(SQUADS_PROGRAM, multisigData(1)), { address, multisig, vaultIndex: 0 }),
+    ).resolves.toBe(false);
+  });
+
+  it('returns false when the account is Squads-owned but not a Multisig (wrong discriminator)', async () => {
+    const multisig = ms();
+    const address = deriveSquadsVaultPda(multisig, 0);
+    const notMultisig = multisigData(2);
+    notMultisig[0] ^= 0xff; // corrupt the discriminator → not a `Multisig` account
+    await expect(
+      verifySquadsVault(conn(SQUADS_PROGRAM, notMultisig), { address, multisig, vaultIndex: 0 }),
+    ).resolves.toBe(false);
+  });
+
+  it('returns false when the multisig account data is too short to hold a threshold', async () => {
+    const multisig = ms();
+    const address = deriveSquadsVaultPda(multisig, 0);
+    await expect(
+      verifySquadsVault(conn(SQUADS_PROGRAM, new Uint8Array(40)), { address, multisig, vaultIndex: 0 }),
+    ).resolves.toBe(false);
   });
 
   it('returns false (without fetching) when the address is not the multisig vault PDA', async () => {
@@ -553,5 +594,26 @@ describe('deriveSquadsVaultPda', () => {
     const multisig = Keypair.generate().publicKey.toBase58();
     expect(() => deriveSquadsVaultPda(multisig, 256)).toThrow(/u8/);
     expect(() => deriveSquadsVaultPda(multisig, -1)).toThrow(/u8/);
+  });
+});
+
+describe('readMultisigThreshold', () => {
+  it('reads the u16 LE threshold from a valid Multisig account', () => {
+    expect(readMultisigThreshold(multisigData(2))).toBe(2);
+    expect(readMultisigThreshold(multisigData(5))).toBe(5);
+    expect(readMultisigThreshold(multisigData(1))).toBe(1); // parses; the >=2 gate lives in verifySquadsVault
+  });
+
+  it('returns null for a non-Multisig discriminator (fail-closed)', () => {
+    const d = multisigData(2);
+    d[7] ^= 0xff; // break the discriminator
+    expect(readMultisigThreshold(d)).toBeNull();
+  });
+
+  it('returns null for data too short, null, or undefined', () => {
+    expect(readMultisigThreshold(new Uint8Array(40))).toBeNull();
+    expect(readMultisigThreshold(new Uint8Array(73))).toBeNull(); // one byte short of offset 72 + 2
+    expect(readMultisigThreshold(null)).toBeNull();
+    expect(readMultisigThreshold(undefined)).toBeNull();
   });
 });

@@ -26,26 +26,24 @@
 // parent multisig account is owned by the Squads v4 program — proving the parent is a
 // genuine Squads multisig, not a look-alike. Fail-closed: any mismatch returns false.
 //
-// ⚠️⚠️  THRESHOLD IS NOT ENFORCED — HARD GO-LIVE REQUIREMENT  ⚠️⚠️
+// THRESHOLD IS ENFORCED (2026-07-26 — previously an out-of-band manual check).
 // -----------------------------------------------------------------------------
-// `verifySquadsVault` proves ONLY (1) owner: the parent is a Squads-v4-owned account,
-// and (2) PDA binding: the fee address is that parent's canonical vault PDA. It does
-// NOT deserialize the multisig config, so it CANNOT and DOES NOT check the multisig
-// THRESHOLD or member set. Consequences the current runtime check will happily pass:
-//   • a 1-of-1 Squads multisig (threshold = 1) — functionally a SINGLE-KEY drain of
-//     ALL accrued Solana fees, defeating the entire "multisig custody" invariant; and
-//   • any OTHER Squads-program-owned account type (a Proposal / VaultTransaction /
-//     ProgramConfig), since only the program-owner is checked, not the 8-byte anchor
-//     discriminator that distinguishes a `Multisig` account.
-// Closing this in-code needs the `@sqds/multisig` SDK (accounts.Multisig.fromAccountInfo
-// → assert discriminator + threshold >= 2 over >= 2 distinct members). That dep is NOT
-// installed and no new deps are permitted on this branch, so hand-rolled byte-offset
-// parsing is deliberately AVOIDED — a wrong offset could ACCEPT a 1-of-1 (not fail
-// closed), which is strictly worse than the honest gap documented here.
-// THEREFORE, before the Solana launcher flag flips at go-live, the operator MUST
-// verify with Squads tooling (Squads app / SDK) that the configured feeClaimer's parent
-// is a genuine `Multisig` account with threshold >= 2. The `derive-vault` command in
-// scripts/solana-dbc-operator.mjs prints this same warning at operate time.
+// `verifySquadsVault` now proves THREE things: (1) owner — the parent is a Squads-v4-owned
+// account, (2) PDA binding — the fee address is that parent's canonical vault PDA, and
+// (3) custody — the parent is a genuine `Multisig` account (verified by its 8-byte Anchor
+// discriminator) whose threshold is >= 2. This closes two holes the owner-only check left
+// open; both now FAIL CLOSED:
+//   • a 1-of-1 Squads multisig (threshold = 1) — a SINGLE-KEY drain of ALL accrued Solana
+//     fees — is rejected; and
+//   • any OTHER Squads-program-owned account type (Proposal / VaultTransaction /
+//     ProgramConfig) is rejected, because its discriminator is not the `Multisig` one.
+// Done WITHOUT the `@sqds/multisig` SDK (no new dep) via a discriminator-GUARDED byte read
+// (see `readMultisigThreshold`). The guard is what makes the hand-rolled offset safe — the
+// earlier concern was that a wrong offset could ACCEPT a 1-of-1; here we only ever read the
+// threshold offset of a real `Multisig` account, so a wrong account type returns null and
+// is rejected, never accepted. Offset triple-confirmed (Anchor layout math, Squads v4
+// state.rs, and the operator's on-chain read of the production vault). An independent
+// Squads-tooling cross-check at go-live remains good practice.
 // -----------------------------------------------------------------------------
 //
 // Program id verified 2026-07-17 against the Squads Protocol v4 deployment
@@ -66,6 +64,20 @@ const SQUADS_V4_PROGRAM_PUBKEY = new PublicKey(SQUADS_V4_PROGRAM_ID);
 // Squads v4 vault PDA seeds (SDK getVaultPda): ["multisig", <multisig>, "vault", u8].
 const SEED_PREFIX = Buffer.from('multisig');
 const SEED_VAULT = Buffer.from('vault');
+
+// ── Squads v4 `Multisig` account layout (for the threshold check) ────────────
+// Anchor account discriminator = sha256("account:Multisig")[0..8]. Computed and
+// pinned 2026-07-26 (standard Anchor derivation for the v4 `Multisig` struct).
+// Guards the threshold read below: without it, a DIFFERENT Squads-program account
+// (Proposal / VaultTransaction / ProgramConfig) would be byte-parsed as a Multisig
+// and yield a garbage "threshold".
+const MULTISIG_DISCRIMINATOR = Uint8Array.from([224, 116, 121, 186, 68, 161, 79, 236]);
+// Layout after the 8-byte discriminator (github.com/Squads-Protocol/v4 state.rs):
+//   create_key: Pubkey(32) @8 · config_authority: Pubkey(32) @40 · threshold: u16 @72.
+const THRESHOLD_OFFSET = 72;
+// A threshold of 1 is a single-key drain of all accrued fees — the exact thing the
+// vault gate exists to prevent. Genuine multisig custody requires >= 2 signers.
+const MIN_MULTISIG_THRESHOLD = 2;
 
 /**
  * The fee address the operator will set on-chain, WITH the provenance needed to
@@ -100,6 +112,29 @@ export function deriveSquadsVaultPda(multisig: string, vaultIndex: number): stri
 }
 
 /**
+ * Parse the multisig threshold from raw Squads account data, but ONLY if the data is a
+ * genuine Squads v4 `Multisig` account (proven by its 8-byte Anchor discriminator).
+ * Returns the threshold, or `null` when the data is not a Multisig account / is too
+ * short. A `null` result means "cannot prove multisig custody" and the caller MUST treat
+ * it as fail-closed (reject).
+ *
+ * FAIL-CLOSED BY CONSTRUCTION — this is what makes the hand-rolled offset safe (the
+ * concern the module header used to raise). The discriminator check guarantees we only
+ * ever read offset 72 of an actual `Multisig` account, whose fixed layout puts the
+ * threshold there; any other account type, or short data, returns `null` (reject) rather
+ * than a spuriously-high threshold that would ACCEPT a bad vault. Never throws; pure.
+ * Exported for unit testing.
+ */
+export function readMultisigThreshold(data: Uint8Array | null | undefined): number | null {
+  if (!data || data.length < THRESHOLD_OFFSET + 2) return null;
+  for (let i = 0; i < MULTISIG_DISCRIMINATOR.length; i++) {
+    if (data[i] !== MULTISIG_DISCRIMINATOR[i]) return null; // not a `Multisig` account
+  }
+  // threshold: u16, little-endian, at offset 72.
+  return data[THRESHOLD_OFFSET]! | (data[THRESHOLD_OFFSET + 1]! << 8);
+}
+
+/**
  * Verify on-chain that `ref.address` is genuinely the Squads v4 vault PDA of a real
  * Squads multisig — the multisig-custodied account that can actually sign the Meteora
  * fee claim. Both checks are required:
@@ -109,11 +144,10 @@ export function deriveSquadsVaultPda(multisig: string, vaultIndex: number): stri
  *   2. the parent `ref.multisig` account exists and is owned by the Squads v4 program
  *      — proving the parent is a genuine Squads multisig config, not a look-alike.
  *
- * ⚠️ DOES NOT CHECK THRESHOLD: this proves owner + PDA binding ONLY. A 1-of-1 multisig
- * (threshold = 1) — a single-key drain — passes, as would a non-`Multisig` Squads
- * account type. Enforcing threshold >= 2 needs the `@sqds/multisig` SDK (not installed;
- * no new deps) and is a HARD go-live requirement verified out-of-band. See the module
- * header block for the full rationale.
+ * CHECKS THRESHOLD (2026-07-26): also requires the parent to be a genuine `Multisig`
+ * account (8-byte discriminator) whose threshold is >= 2, so a 1-of-1 (single-key drain)
+ * or a non-`Multisig` Squads account is rejected fail-closed. See `readMultisigThreshold`
+ * and the module header block for the discriminator-guarded rationale.
  *
  * Returns:
  *   • `true`  — both checks pass.
@@ -150,5 +184,14 @@ export async function verifySquadsVault(connection: Connection, ref: SquadsVault
   if (!info) {
     return false; // multisig account not found — cannot be a Squads multisig
   }
-  return info.owner.equals(SQUADS_V4_PROGRAM_PUBKEY);
+  if (!info.owner.equals(SQUADS_V4_PROGRAM_PUBKEY)) {
+    return false; // not Squads-owned — a look-alike
+  }
+
+  // (3) It must be a genuine `Multisig` account (discriminator) with threshold >= 2.
+  //     A 1-of-1 multisig is a single-key drain of all accrued fees; a non-`Multisig`
+  //     Squads account (Proposal / VaultTransaction) can never sign a claim. Both are
+  //     fail-closed here: readMultisigThreshold returns null → reject.
+  const threshold = readMultisigThreshold(info.data);
+  return threshold !== null && threshold >= MIN_MULTISIG_THRESHOLD;
 }
