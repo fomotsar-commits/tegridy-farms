@@ -1,6 +1,6 @@
 import { useAccount, useChainId, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt, useWatchContractEvent } from 'wagmi';
 import { formatEther, type Address, type Hex } from 'viem';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
 import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
@@ -26,6 +26,11 @@ export function useBribes() {
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  // 2026-07-26: an approval is a prerequisite, not the deposit. Track when the
+  // in-flight tx is an approve so the toast says "approved — now confirm your
+  // deposit" instead of a generic "confirmed". Reset to 'action' in both toast
+  // terminal paths so a stale 'approve' can't mislabel a later deposit/vote/claim.
+  const lastActionRef = useRef<'approve' | 'action'>('action');
 
   // Global stats + whitelist addresses + pending-fee + bond size + min-bribe floor.
   const { data: globalData, refetch } = useReadContracts({
@@ -255,6 +260,7 @@ export function useBribes() {
 
   function approveToken(token: string, amount: bigint) {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    lastActionRef.current = 'approve';
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -267,6 +273,7 @@ export function useBribes() {
 
   function approveToweliForBond(amount: bigint) {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    lastActionRef.current = 'approve';
     // AUDIT FIX M-8: pin chainId so wagmi rejects when wallet is on wrong chain.
     writeContract({
       chainId: CHAIN_ID,
@@ -337,7 +344,14 @@ export function useBribes() {
   // Toast feedback — defer reset() to next tick so isSuccess is readable by consumers this render
   useEffect(() => {
     if (isSuccess) {
-      toast.success('Transaction confirmed!');
+      if (lastActionRef.current === 'approve') {
+        toast.success('Token approved — now confirm your deposit', {
+          description: 'That was just the approval — confirm the deposit transaction to finish.',
+        });
+      } else {
+        toast.success('Transaction confirmed!');
+      }
+      lastActionRef.current = 'action';
       refetchAll();
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
@@ -347,6 +361,7 @@ export function useBribes() {
       // generic message for a bare on-chain revert.
       if (writeError) surfaceTxError(writeError, toast, { component: 'useBribes' });
       else toast.error('Transaction failed');
+      lastActionRef.current = 'action';
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }

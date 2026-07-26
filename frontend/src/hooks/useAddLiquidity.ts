@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
@@ -18,6 +18,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  // 2026-07-26: an approval is a prerequisite, not the liquidity op. Track which
+  // is in flight (set in every write fn below) so the toast can say "approved —
+  // one more step" instead of "Liquidity operation confirmed!" after a mere approval.
+  const lastActionRef = useRef<'approve' | 'liquidity'>('liquidity');
 
   // Resolve addresses (substitute WETH for native ETH)
   const addrA = useMemo(() => {
@@ -150,10 +154,18 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // unmount mid-window doesn't leak a pending timer (mirrors useSwap's pattern).
   useEffect(() => {
     if (isSuccess && hash) {
-      toast.success('Liquidity operation confirmed!', {
-        id: hash,
-        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
-      });
+      if (lastActionRef.current === 'approve') {
+        toast.success('Token approved — one more step', {
+          id: hash,
+          description: 'That was just the approval — confirm the liquidity transaction to finish.',
+          action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
+        });
+      } else {
+        toast.success('Liquidity operation confirmed!', {
+          id: hash,
+          action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
+        });
+      }
       refetch();
       const t = setTimeout(() => reset(), 4000);
       return () => clearTimeout(t);
@@ -190,6 +202,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   function approveTokenA(amount: string) {
     if (!_ensureChain()) return;
     if (!tokenA || tokenA.isNative) return;
+    lastActionRef.current = 'approve';
     try {
       writeContract({
         chainId: CHAIN_ID,
@@ -206,6 +219,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   function approveTokenB(amount: string) {
     if (!_ensureChain()) return;
     if (!tokenB || tokenB.isNative) return;
+    lastActionRef.current = 'approve';
     try {
       writeContract({
         chainId: CHAIN_ID,
@@ -222,6 +236,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   function approveLP(amount: string) {
     if (!_ensureChain()) return;
     if (!pairExists) return;
+    lastActionRef.current = 'approve';
     try {
       writeContract({
         chainId: CHAIN_ID,
@@ -239,6 +254,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   function addLiquidity(amountAStr: string, amountBStr: string, slippageBps = 50) {
     if (!_ensureChain()) return;
     if (!address || !tokenA || !tokenB) return;
+    lastActionRef.current = 'liquidity';
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800); // 30min
     const slippageFactor = BigInt(10000 - slippageBps);
 
@@ -284,6 +300,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   function removeLiquidity(lpAmount: string, slippageBps = 50) {
     if (!_ensureChain()) return;
     if (!address || !tokenA || !tokenB || !pairExists) return;
+    lastActionRef.current = 'liquidity';
     try {
       const lpWei = parseUnits(lpAmount, 18);
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);

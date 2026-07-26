@@ -25,6 +25,12 @@ export function useFarmActions() {
   const pendingEth = (pendingEthRaw as bigint | undefined) ?? 0n;
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const pendingStakeRef = useRef<{ amount: string; lockDuration: string } | null>(null);
+  // 2026-07-26: track whether the in-flight tx is the ERC20 approval, so the
+  // success toast can say "approved — now stake" instead of a generic
+  // "confirmed" that reads like the stake already happened. Reset to 'action'
+  // in every terminal path (success / tx-error / write-error / account switch)
+  // so a stale 'approve' can never mislabel a later stake or claim.
+  const lastActionRef = useRef<'approve' | 'action'>('action');
   // R034 H1: snapshot of the wallet that submitted the current tx so the
   // receipt effect doesn't fire trackStake for a different wallet that
   // reconnected mid-flight.
@@ -35,6 +41,7 @@ export function useFarmActions() {
   useEffect(() => {
     pendingStakeRef.current = null;
     txAddressRef.current = undefined;
+    lastActionRef.current = 'action';
   }, [address]);
 
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({
@@ -51,31 +58,50 @@ export function useFarmActions() {
         txAddressRef.current = undefined;
         return;
       }
-      toast.success('Transaction confirmed', {
-        id: hash,
-        action: {
-          label: 'Explorer',
-          onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
-        },
-      });
+      if (lastActionRef.current === 'approve') {
+        // An approval only grants the farm permission to move your TOWELI — the
+        // stake still needs a second transaction. Say so, so this doesn't read
+        // like the stake is done.
+        toast.success('TOWELI approved — now confirm your stake', {
+          id: hash,
+          description: 'That was just the approval. Tap “Stake & Lock” and confirm the second transaction to actually stake.',
+          action: {
+            label: 'Explorer',
+            onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
+          },
+        });
+      } else {
+        toast.success('Transaction confirmed', {
+          id: hash,
+          action: {
+            label: 'Explorer',
+            onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
+          },
+        });
+      }
       if (pendingStakeRef.current) {
         trackStake(pendingStakeRef.current.amount, Number(pendingStakeRef.current.lockDuration));
         pendingStakeRef.current = null;
       }
       txAddressRef.current = undefined;
+      lastActionRef.current = 'action';
     }
   }, [isSuccess, hash, address, chainId]);
 
   useEffect(() => {
     if (isTxError && hash) {
       toast.error('Transaction failed', { id: `err-${hash}` });
+      lastActionRef.current = 'action';
     }
   }, [isTxError, hash]);
 
   useEffect(() => {
     // F474: classify wallet cancellations as a soft "Cancelled" info toast
     // instead of a scary raw error string.
-    if (writeError) surfaceTxError(writeError, toast, { component: 'useFarmActions' });
+    if (writeError) {
+      surfaceTxError(writeError, toast, { component: 'useFarmActions' });
+      lastActionRef.current = 'action';
+    }
   }, [writeError]);
 
   const approve = (amount: string) => {
@@ -84,6 +110,7 @@ export function useFarmActions() {
     const approveAmount = safeParseEtherPositive(amount);
     if (approveAmount === null) return;
     txAddressRef.current = address;
+    lastActionRef.current = 'approve';
     writeContract({
       chainId: CHAIN_ID,
       address: TOWELI_ADDRESS,

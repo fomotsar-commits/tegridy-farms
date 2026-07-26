@@ -95,10 +95,21 @@ export function useLPFarming() {
       return;
     }
     lastHandledHashRef.current = hash;
-    toast.success('Transaction confirmed!', {
-      id: hash,
-      action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
-    });
+    // An approval only lets the farm move your LP tokens — the stake is a second
+    // transaction. `lastActionRef` is set in every write fn, so branch on it
+    // rather than firing a generic "confirmed" that reads like the stake is done.
+    if (lastActionRef.current === 'approve') {
+      toast.success('LP token approved — now confirm your stake', {
+        id: hash,
+        description: 'That was just the approval — confirm the Stake transaction to actually stake your LP.',
+        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
+      });
+    } else {
+      toast.success('Transaction confirmed!', {
+        id: hash,
+        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
+      });
+    }
     // F102 (T5): a single targeted refetch on confirmation, gated once-per-hash by
     // the lastHandledHashRef guard above. The 60s poll is the *background* refresh;
     // relying on it alone leaves the approve CTA, balances, and pending rewards
