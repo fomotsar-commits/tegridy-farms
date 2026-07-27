@@ -13,13 +13,15 @@ import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
 import { DCATab } from '../components/swap/DCATab';
 import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
+import { CowSwapPanel } from '../components/swap/CowSwapPanel';
+import { TwapOrderPanel } from '../components/swap/TwapOrderPanel';
 import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
-type Tab = 'swap' | 'liquidity' | 'dca' | 'limit';
+type Tab = 'swap' | 'liquidity' | 'dca' | 'limit' | 'twap';
 
 /**
  * Truncate to 6dp, never round up. The 50%/MAX quick-fills previously used
@@ -43,9 +45,10 @@ const TAB_LABELS: Record<Tab, string> = {
   liquidity: 'Liquidity',
   dca: 'DCA',
   limit: 'Alerts',
+  twap: 'TWAP',
 };
 
-const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit'];
+const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit', 'twap'];
 
 // F242: the Alerts feature is named three ways (tab label "Alerts", heading
 // "Price Alert", internal tab 'limit'). `?tab=alerts` is the canonical,
@@ -84,6 +87,7 @@ export default function TradePage() {
     // closing the tab. "Price Alert / keep this tab open" described the
     // browser-only watcher, which is now the demoted secondary option.
     limit:     { title: 'Limit Order', desc: 'Set a price target. Places a real on-chain order via CoW Protocol that fills when the market reaches it — no need to keep this tab open.' },
+    twap:      { title: 'TWAP', desc: 'Split a buy into equal slices over time via CoW Protocol — one signature, MEV-resistant. Requires a Safe smart-account wallet.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
@@ -207,7 +211,7 @@ export default function TradePage() {
         {/* Tab Toggle */}
         <div
           role="tablist"
-          aria-label="Trade view — swap, liquidity, DCA, or limit order"
+          aria-label="Trade view — swap, liquidity, DCA, limit order, or TWAP"
           onKeyDown={tabKeys.onKeyDown}
           className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
           // F521: bumped the bar background 0.4 -> 0.85 (matches the NFT-finance
@@ -215,7 +219,7 @@ export default function TradePage() {
           // washing out white-on-light-art.
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
         >
-          {(['swap', 'liquidity', 'dca', 'limit'] as Tab[]).map((t) => (
+          {(['swap', 'liquidity', 'dca', 'limit', 'twap'] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
@@ -495,6 +499,18 @@ export default function TradePage() {
                     protected RPC. Additive; does not touch the audited swap path. */}
                 <MevProtectionPanel />
 
+                {/* Swap via CoW — opt-in alternative route through CoW's batch auction
+                    (gasless signature, no sandwich surface). Self-gates: renders only
+                    when eligible (connected, right chain, ERC-20 sell, positive amount),
+                    and shows the live CoW quote beside the on-chain one — never fabricated. */}
+                <CowSwapPanel
+                  fromToken={swap.fromToken}
+                  toToken={swap.toToken}
+                  inputAmount={swap.inputAmount}
+                  slippage={swap.slippage}
+                  onChainOutputFormatted={swap.outputFormatted}
+                />
+
                 {/* Route Info — dark panel with Stan blue edge for trading-trust signal.
                     Always renders; shows placeholder text when no amount entered so the
                     card never feels empty mid-swap. */}
@@ -645,6 +661,19 @@ export default function TradePage() {
             </div>
             <div className="relative">
               <LimitOrderTab />
+            </div>
+          </m.div>
+        )}
+
+        {/* TWAP Tab — CoW time-weighted order (self-contained). Self-gates to Safe
+            smart-account wallets; shows an EOA the exact ComposableCoW calldata instead. */}
+        {tab === 'twap' && (
+          <m.div role="tabpanel" id="trade-panel-twap" aria-labelledby="trade-tab-twap" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
+            <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+              <ArtImg pageId="trade" idx={2} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
+            </div>
+            <div className="relative">
+              <TwapOrderPanel />
             </div>
           </m.div>
         )}

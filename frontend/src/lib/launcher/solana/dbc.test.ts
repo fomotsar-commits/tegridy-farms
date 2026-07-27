@@ -13,6 +13,7 @@ import {
   isLikelyBase58Pubkey,
   splitTradingFee,
   buildDbcPartnerConfig,
+  isKnownQuoteMint,
   buildLaunchParams,
   claimPartnerFeesParams,
   type SquadsVault,
@@ -117,7 +118,7 @@ describe('buildDbcPartnerConfig — Squads-vault requirement', () => {
   });
 });
 
-describe('buildDbcPartnerConfig — quote mint choice', () => {
+describe('buildDbcPartnerConfig — quote mint (SOL/USDC curated, any SPL exotic)', () => {
   it('defaults to SOL with 9 quote decimals', () => {
     const { curve, accounts } = buildDbcPartnerConfig(partnerOpts());
     expect(accounts.quoteMint).toBe(SOL_MINT);
@@ -130,8 +131,28 @@ describe('buildDbcPartnerConfig — quote mint choice', () => {
     expect(curve.token.tokenQuoteDecimal).toBe(6);
   });
 
-  it('rejects a quote mint that is neither SOL nor USDC', () => {
-    expect(() => buildDbcPartnerConfig(partnerOpts({ quoteMint: BASE_MINT as never }))).toThrow(/SOL .* or USDC/);
+  it('accepts a CUSTOM SPL mint (exotic) when its decimals are supplied', () => {
+    const { curve, accounts } = buildDbcPartnerConfig(partnerOpts({ quoteMint: BASE_MINT, quoteDecimals: 6 }));
+    expect(accounts.quoteMint).toBe(BASE_MINT);
+    expect(curve.token.tokenQuoteDecimal).toBe(6);
+    // SOL/USDC are curated; a custom mint is not (the UI warns on it).
+    expect(isKnownQuoteMint(SOL_MINT)).toBe(true);
+    expect(isKnownQuoteMint(USDC_MINT)).toBe(true);
+    expect(isKnownQuoteMint(BASE_MINT)).toBe(false);
+  });
+
+  it('rejects a custom mint with NO decimals (a wrong scale would corrupt the curve)', () => {
+    expect(() => buildDbcPartnerConfig(partnerOpts({ quoteMint: BASE_MINT }))).toThrow(/requires its on-chain decimals/);
+  });
+
+  it('rejects custom quote decimals outside the DBC-supported 6–9 range', () => {
+    expect(() => buildDbcPartnerConfig(partnerOpts({ quoteMint: BASE_MINT, quoteDecimals: 5 }))).toThrow(/6–9/);
+    expect(() => buildDbcPartnerConfig(partnerOpts({ quoteMint: BASE_MINT, quoteDecimals: 10 }))).toThrow(/6–9/);
+  });
+
+  it('rejects an invalid / system quote mint', () => {
+    expect(() => buildDbcPartnerConfig(partnerOpts({ quoteMint: SYSTEM, quoteDecimals: 6 }))).toThrow(/valid base58 SPL mint/);
+    expect(() => buildDbcPartnerConfig(partnerOpts({ quoteMint: 'not base58 !!!', quoteDecimals: 6 }))).toThrow(/valid base58 SPL mint/);
   });
 });
 

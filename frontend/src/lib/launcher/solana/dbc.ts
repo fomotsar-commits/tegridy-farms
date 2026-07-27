@@ -152,17 +152,50 @@ export function asSquadsVault(addr: string): SquadsVault {
 
 // ── Quote mint ────────────────────────────────────────────────────────────────
 
-/** The only quote mints we launch against: native SOL or USDC. */
-export type QuoteMint = typeof SOL_MINT | typeof USDC_MINT;
+/**
+ * A quote mint to launch against — ANY valid SPL mint (an "exotic pair"). SOL and
+ * USDC are the curated, known-liquid defaults; any other mint is permitted but is
+ * exotic (illiquidity / dead-market risk) and MUST supply its on-chain decimals.
+ * NOTE: there is deliberately NO TOWELI here — TOWELI is EVM-only, never bridged to
+ * Solana ([[project_2026_06_18_solana_fee_capture]]); Solana is fee-capture only.
+ */
+export type QuoteMint = string;
 
-/** Quote-token decimals: SOL = 9, USDC = 6. */
-function quoteDecimals(quoteMint: QuoteMint): 6 | 9 {
-  return quoteMint === USDC_MINT ? 6 : 9;
+/** Curated quote mints and their decimals. A mint in this table needs no override. */
+export const KNOWN_QUOTE_MINTS: Readonly<Record<string, 6 | 9>> = {
+  [SOL_MINT]: 9,
+  [USDC_MINT]: 6,
+};
+
+/** True for SOL/USDC — the vetted, deep-liquidity quote mints. The UI warns on the rest. */
+export function isKnownQuoteMint(mint: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KNOWN_QUOTE_MINTS, mint);
 }
 
+/**
+ * Resolve the quote-token decimals. Curated mints come from KNOWN_QUOTE_MINTS; a
+ * CUSTOM (exotic) mint must pass its real on-chain decimals, which — like the base
+ * token — must be 6–9 (the DBC DECIMAL map's supported range; every real quote token
+ * fits). A wrong decimal count silently mis-scales the entire bonding curve, so this
+ * is required, not guessed.
+ */
+function resolveQuoteDecimals(quoteMint: QuoteMint, override?: number): 6 | 7 | 8 | 9 {
+  const known = KNOWN_QUOTE_MINTS[quoteMint];
+  if (known !== undefined) return known;
+  if (override === undefined) {
+    throw new Error(`a custom (non-SOL/USDC) quote mint requires its on-chain decimals (6–9) — none supplied for "${quoteMint}"`);
+  }
+  if (!Number.isInteger(override) || override < 6 || override > 9) {
+    throw new Error(`custom quote-mint decimals must be an integer 6–9 (DBC-supported range), got ${override}`);
+  }
+  return override as 6 | 7 | 8 | 9;
+}
+
+/** Validate a quote mint is a real base58 SPL mint (not the system/default pubkey). */
 function assertQuoteMint(quoteMint: string): asserts quoteMint is QuoteMint {
-  if (quoteMint !== SOL_MINT && quoteMint !== USDC_MINT) {
-    throw new Error(`quoteMint must be SOL (${SOL_MINT}) or USDC (${USDC_MINT}) — got "${quoteMint}"`);
+  const m = (quoteMint ?? '').trim();
+  if (m.length === 0 || m === DEFAULT_PUBKEY || !BASE58_RE.test(m)) {
+    throw new Error(`quoteMint must be a valid base58 SPL mint address — got "${quoteMint}"`);
   }
 }
 
@@ -274,7 +307,7 @@ export interface DbcConfigAccounts {
   feeClaimer: SquadsVault;
   /** Receives leftover base tokens post-migration. Vault by default. */
   leftoverReceiver: SquadsVault;
-  /** SOL or USDC. */
+  /** Quote mint (SOL/USDC or a custom SPL mint). */
   quoteMint: QuoteMint;
   /** Fee-payer for the createConfig tx. */
   payer: string;
@@ -289,8 +322,11 @@ export interface BuildDbcPartnerConfigOpts {
   payer: string;
   /** Leftover-base receiver post-migration. Defaults to feeClaimer (the vault). */
   leftoverReceiver?: SquadsVault;
-  /** SOL (default) or USDC. */
+  /** Quote mint. SOL (default) or USDC are curated; any other valid SPL mint is an
+   *  exotic pair and additionally requires `quoteDecimals`. */
   quoteMint?: QuoteMint;
+  /** On-chain decimals (6–9) of a CUSTOM quote mint. Ignored for SOL/USDC (known). */
+  quoteDecimals?: number;
   /**
    * Creator's share of the non-protocol 80% of trading fees, in percent [0,100].
    * Default 60 → creator-majority (60% of 80% = 48% of total; partner 32%).
@@ -353,8 +389,8 @@ const NO_LOCKED_VESTING = {
  * `buildCurveWithMarketCap(curve)` then `client.partner.createConfig({ ...accounts→PublicKey, ...configParams })`.
  *
  * Refuses to build unless `feeClaimer` (and `leftoverReceiver`) are affirmed
- * Squads vaults, the quote mint is SOL/USDC, the anti-snipe schedule decays, and
- * the LP distribution sums to 100.
+ * Squads vaults, the quote mint is a valid SPL mint (SOL/USDC, or a custom exotic
+ * mint WITH its decimals), the anti-snipe schedule decays, and the LP sums to 100.
  */
 export function buildDbcPartnerConfig(opts: BuildDbcPartnerConfigOpts): DbcPartnerConfig {
   // The type system already forces SquadsVault; re-affirm at runtime so a value
@@ -364,6 +400,7 @@ export function buildDbcPartnerConfig(opts: BuildDbcPartnerConfigOpts): DbcPartn
 
   const quoteMint = opts.quoteMint ?? SOL_MINT;
   assertQuoteMint(quoteMint);
+  const quoteDec = resolveQuoteDecimals(quoteMint, opts.quoteDecimals);
 
   if (!opts.config || !isLikelyBase58Pubkey(opts.config.trim())) {
     throw new Error('config must be a fresh base58 keypair pubkey');
@@ -421,7 +458,7 @@ export function buildDbcPartnerConfig(opts: BuildDbcPartnerConfigOpts): DbcPartn
     token: {
       tokenType: SPL_TOKEN,
       tokenBaseDecimal: DECIMAL[baseDecimals],
-      tokenQuoteDecimal: DECIMAL[quoteDecimals(quoteMint)],
+      tokenQuoteDecimal: DECIMAL[quoteDec],
       tokenAuthorityOption: AUTHORITY_IMMUTABLE, // no mint / no update authority
       totalTokenSupply,
       leftover,

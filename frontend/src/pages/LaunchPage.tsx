@@ -12,6 +12,9 @@ import {
   LAUNCH_TIERS,
   type LaunchTierId,
   isLauncherEnabled,
+  allowedNumeraires,
+  ETH_NUMERAIRE,
+  TOWELI_NUMERAIRE,
 } from '../lib/launcher/config';
 import { buildFactSheet, defaultGateConfig, type RawTokenFacts } from '../lib/launcher/gate';
 import type { LaunchFactSheet } from '../lib/launcher/factSheet';
@@ -20,6 +23,7 @@ import {
   launchToken,
   wizardConfigToLaunchConfig,
   resolveFeeConstitution,
+  beneficiariesToFeeConstitution,
   LaunchError,
   MAX_PREMINE_BPS,
   type LaunchResult,
@@ -28,15 +32,19 @@ import {
 import {
   attestFactSheet,
   factSheetSchemaUid,
+  factSheetSchemaRegistered,
   EAS_SCHEMA_REGISTRY_MAINNET,
   EAS_SCHEMA_REGISTRY_ABI,
 } from '../lib/launcher/attestation';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
+import { readMigrationStream, lockResolverFor, type MigrationStream } from '../lib/launcher/lockerStream';
+import { REVENUE_DISTRIBUTOR_ADDRESS } from '../lib/constants';
+import type { FeeConstitutionLine } from '../lib/launcher/factSheet';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
 import type { OutcomeRecord } from '../lib/launcher/outcomes';
 import type { LaunchBaseline } from '../lib/launcher/outcomesReader';
-import { isAddress, type Address } from 'viem';
+import { isAddress, getAddress, type Address } from 'viem';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
@@ -58,6 +66,8 @@ type WizardState = {
   mcapStartK: number; // Dutch-auction START (high) market cap, $ thousands
   mcapFloorK: number; // descends toward this FLOOR, $ thousands
   lpLockMonths: number;
+  /** Base pair to settle in: native ETH (default) or TOWELI (exotic; only when enabled). */
+  numeraire: 'eth' | 'toweli';
   /** Creator-directed KOL/community fee beneficiaries — carved from the creator's 80% pool. */
   attentionSplits: { address: string; shareBps: number }[];
 };
@@ -74,6 +84,7 @@ const INITIAL: WizardState = {
   mcapStartK: 300, // Dutch auction starts high…
   mcapFloorK: 30, // …and descends to the floor
   lpLockMonths: 12,
+  numeraire: 'eth',
   attentionSplits: [],
 };
 
@@ -250,17 +261,30 @@ export default function LaunchPage() {
       setLaunch({ phase: 'error', message: 'Switch your wallet to Ethereum mainnet to launch.' });
       return;
     }
-    // ethUsd from the shared price context; a launch cannot proceed without it.
-    const ethUsd = price?.ethUsd ?? 0;
-    if (!ethUsd || ethUsd <= 0) {
-      setLaunch({ phase: 'error', message: 'ETH price unavailable right now — try again shortly.' });
-      return;
+    // Numeraire + its USD price. ETH launches use ETH/USD; a TOWELI (exotic) launch MUST
+    // use TOWELI/USD and REFUSE a stale/unavailable price — the numeraire price sets the
+    // entire auction curve, and TOWELI's thin market makes a bad price the real risk.
+    const numeraireAddr = w.numeraire === 'toweli' ? TOWELI_NUMERAIRE : ETH_NUMERAIRE;
+    let numerairePriceUsd: number;
+    if (w.numeraire === 'toweli') {
+      if (!price || price.priceUnavailable || !price.priceSafeForSwaps || !(price.priceInUsd > 0)) {
+        setLaunch({ phase: 'error', message: 'TOWELI price is unavailable or stale right now. A TOWELI-pegged launch needs a fresh price to set the auction curve — try again shortly.' });
+        return;
+      }
+      numerairePriceUsd = price.priceInUsd;
+    } else {
+      numerairePriceUsd = price?.ethUsd ?? 0;
+      if (!(numerairePriceUsd > 0)) {
+        setLaunch({ phase: 'error', message: 'ETH price unavailable right now — try again shortly.' });
+        return;
+      }
     }
     setLaunch({ phase: 'pending' });
     try {
       const cfg = wizardConfigToLaunchConfig(w, {
         userAddress: address,
-        numerairePriceUsd: ethUsd,
+        numerairePriceUsd,
+        numeraire: numeraireAddr,
         attentionSplits: parseAttentionSplits(w.attentionSplits),
       });
       const result = await launchToken(walletClient, publicClient, cfg);
@@ -415,6 +439,20 @@ export default function LaunchPage() {
         <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} />
       )}
 
+      {/* Post-graduation re-attestation — the fully-verifiable fee disclosure, read
+          from the graduated pool's StreamableFeesLocker. Distinct from the pre-launch
+          attest above (which snapshots the launch config): this reads the REAL on-chain
+          beneficiaries once the token has migrated to its V4 pool. Prefills the token a
+          launch just produced, but also works for any earlier launch that has graduated. */}
+      <div className="mt-12">
+        {/* key remounts the panel with a fresh prefill when a launch lands, so the token
+            input syncs without a state-syncing effect. */}
+        <PostGraduationReattest
+          key={launch.phase === 'success' ? launch.result.tokenAddress : 'none'}
+          prefillToken={launch.phase === 'success' ? launch.result.tokenAddress : undefined}
+        />
+      </div>
+
       {/* Discovery / outcomes surface. Enriched via the aggregator-catchall adapter
           (GeckoTerminal + Etherscan) once a discovery feed populates baselines;
           degrades to honest empty states until then. */}
@@ -504,6 +542,187 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady }: { status:
         economy — boosted LP farming today, with a gauge-emissions program as governance
         deploys. Few launchers give a launch any day-2 economy at all.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Post-graduation re-attestation. The pre-launch attest (above) snapshots the fee
+ * constitution the launch was CONFIGURED with — correct at that moment, but the
+ * StreamableFeesLocker stream that actually pays those fees only exists AFTER the token
+ * graduates into its V4 pool. This panel reads that stream's REAL beneficiaries, reverses
+ * them to a labelled fee split, and attests the fully-verifiable disclosure — with the
+ * lock status read from the same locker (not the pre-graduation default).
+ *
+ * The `creator` line resolves to the CONNECTED wallet, mirroring the launch-time resolver
+ * (creator == the launching wallet). Re-attest from that wallet for the creator line to
+ * label; from any other wallet, the creator's share still shows — as its own address —
+ * with exact bps, because the shares/addresses come straight off-chain.
+ */
+type ReattestPhase =
+  | { phase: 'idle' }
+  | { phase: 'reading' }
+  | { phase: 'not-graduated' }
+  | { phase: 'ready'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
+  | { phase: 'attesting'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
+  | { phase: 'done'; uid: string; txHash: string }
+  | { phase: 'error'; message: string };
+
+function feeLineLabel(l: FeeConstitutionLine): string {
+  if (l.role === 'attention-beneficiary' && l.recipient.startsWith('0x') && l.recipient.length >= 10) {
+    return `${l.recipient.slice(0, 6)}…${l.recipient.slice(-4)}`;
+  }
+  return l.recipient;
+}
+
+function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const [tokenInput, setTokenInput] = useState(prefillToken ?? '');
+  const [state, setState] = useState<ReattestPhase>({ phase: 'idle' });
+  const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
+  // Prefill sync is handled by a `key` on the parent (remounts on a fresh launch), so
+  // there is no state-syncing effect here — the initial value above is the whole story.
+
+  const onCheck = async () => {
+    if (!publicClient) return setState({ phase: 'error', message: 'No RPC client available right now — try again shortly.' });
+    const token = tokenInput.trim();
+    if (!isAddress(token)) return setState({ phase: 'error', message: 'Enter a valid token address (0x…).' });
+    if (!isConnected || !address) return setState({ phase: 'error', message: 'Connect the creator wallet to re-attest.' });
+    if (chainId !== DOPPLER_MAINNET.chainId) return setState({ phase: 'error', message: 'Switch your wallet to Ethereum mainnet.' });
+    setState({ phase: 'reading' });
+    try {
+      const tokenAddr = getAddress(token) as Address;
+      const ready = await factSheetSchemaRegistered(publicClient);
+      setSchemaReady(ready);
+      // Auto-detect the base pair: read the locker for each allowed numeraire; the one it
+      // actually graduated against has a stream (streams() reverts for the others). ETH-only
+      // while exotic is gated off, so this is a single read in the common case.
+      let stream: MigrationStream | null = null;
+      for (const numeraire of allowedNumeraires()) {
+        const s = await readMigrationStream(publicClient, tokenAddr, numeraire);
+        if (s.graduated) { stream = s; break; }
+      }
+      if (!stream) return setState({ phase: 'not-graduated' });
+      if (stream.beneficiaries.length === 0) {
+        return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries — nothing to attest.' });
+      }
+      const lines = beneficiariesToFeeConstitution(stream.beneficiaries, {
+        creator: address,
+        protocolStakers: REVENUE_DISTRIBUTOR_ADDRESS,
+        doppler: DOPPLER_MAINNET.airlockOwner,
+      });
+      // Re-collect the token's own facts, but with the REAL fee constitution + a REAL
+      // LockResolver built from this same stream (fixing the hardcoded lock default).
+      const raw = await collectTokenFacts(viemChainReader(publicClient), tokenAddr, {
+        chainId: DOPPLER_MAINNET.chainId,
+        now: Math.floor(Date.now() / 1000),
+        feeConstitution: lines,
+        lockResolver: lockResolverFor(stream),
+      });
+      const pair = stream.numeraire.toLowerCase() === TOWELI_NUMERAIRE.toLowerCase() ? 'token / TOWELI' : 'token / ETH';
+      setState({ phase: 'ready', sheet: buildFactSheet(raw), lines, poolId: stream.poolId, locker: stream.locker ?? '', pair });
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : 'Failed to read the graduated pool.' });
+    }
+  };
+
+  const onReattest = async () => {
+    if (state.phase !== 'ready') return;
+    if (!walletClient || !publicClient) return setState({ phase: 'error', message: 'Connect a wallet to attest.' });
+    if (schemaReady === false) {
+      return setState({ phase: 'error', message: 'The disclosure schema isn’t registered on-chain yet — the on-chain attestation can’t be written. The read above is still accurate.' });
+    }
+    const { sheet, lines, poolId, locker, pair } = state;
+    setState({ phase: 'attesting', sheet, lines, poolId, locker, pair });
+    try {
+      const { uid, txHash } = await attestFactSheet(walletClient, publicClient, sheet);
+      setState({ phase: 'done', uid, txHash });
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : 'Attestation failed.' });
+    }
+  };
+
+  const busy = state.phase === 'reading' || state.phase === 'attesting';
+
+  return (
+    <div className="rounded-2xl p-5 sm:p-6" style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}>
+      <h2 className="text-white font-semibold text-sm mb-1">Re-attest the real fees (post-graduation)</h2>
+      <p className="text-white/55 text-xs leading-relaxed mb-3">
+        Once a launch graduates into its Uniswap V4 pool, its fee split becomes a live on-chain
+        stream. This reads the actual beneficiaries from Doppler&rsquo;s StreamableFeesLocker and
+        attests them — the fully-verifiable version of the launch-time disclosure.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          className={`${inputCls} flex-1 mt-0 font-mono text-xs`}
+          placeholder="0x… graduated token address"
+          value={tokenInput}
+          onChange={(e) => setTokenInput(e.target.value)}
+          spellCheck={false}
+        />
+        <button
+          onClick={onCheck}
+          disabled={busy}
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition shrink-0"
+        >
+          {state.phase === 'reading' ? 'Reading…' : 'Check graduation'}
+        </button>
+      </div>
+
+      {state.phase === 'not-graduated' && (
+        <p className="mt-3 text-white/60 text-xs leading-relaxed break-words">
+          No fee stream for this token in Doppler&rsquo;s StreamableFeesLocker — it either hasn&rsquo;t graduated yet
+          (price discovery still running), or it wasn&rsquo;t launched through this rail. Re-attestation reads the
+          real split once the auction migrates to its V4 pool.
+        </p>
+      )}
+
+      {state.phase === 'error' && (
+        <p className="mt-3 text-rose-300 text-xs leading-relaxed break-words">{state.message}</p>
+      )}
+
+      {(state.phase === 'ready' || state.phase === 'attesting') && (
+        <div className="mt-4">
+          <div className="text-[11px] uppercase tracking-wide text-white/40 mb-1">On-chain fee constitution</div>
+          <div className="rounded-xl border border-white/12 overflow-hidden mb-3">
+            {state.lines.map((l, i) => (
+              <div key={`${l.recipient}-${i}`} className={`flex items-center justify-between px-4 py-2 text-sm ${i % 2 ? 'bg-white/[0.02]' : ''}`}>
+                <span className="text-white/75 break-all">{feeLineLabel(l)}</span>
+                <span className="text-white/60 tabular-nums shrink-0 ml-3">{(l.shareBps / 100).toFixed(2)}%</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-white/40 text-[11px] break-all mb-3">
+            {state.pair} · read from locker {state.locker.slice(0, 8)}… · migration pool {state.poolId.slice(0, 10)}…
+          </p>
+          <FactSheetCard sheet={state.sheet} />
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              onClick={onReattest}
+              disabled={state.phase === 'attesting' || schemaReady === false}
+              title={schemaReady === false ? 'The disclosure schema is not registered on-chain yet.' : undefined}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
+            >
+              {state.phase === 'attesting' ? 'Attesting…' : 'Attest on-chain fees'}
+            </button>
+            {schemaReady === false && (
+              <span className="text-white/50 text-xs break-words">Schema not registered on-chain yet — the read above is accurate, but it can&rsquo;t be attested until then.</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {state.phase === 'done' && (
+        <div className="mt-3 text-emerald-200/90 text-xs break-all">
+          Real fees attested on-chain (EAS).{' '}
+          <a href={`https://easscan.org/attestation/view/${state.uid}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+            View attestation
+          </a>
+        </div>
+      )}
     </div>
   );
 }
@@ -639,8 +858,9 @@ function LauncherExplainer() {
           <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>
           <li>A gauge is an <em>application</em> through the standard timelocked process — not a promise of emissions.</li>
           <li>
-            Boosted-LP farming for launched pools still needs the V4 PositionManager wired. Until it is, the code
-            reports that feature as pending deployment rather than available.
+            The Uniswap V4 PositionManager is wired, so a graduated launch reports boosted-LP farming as
+            <em> eligible</em> — but that means the infrastructure is in place, not that farming is running: the
+            per-pool staker is deployed for each launch by a re-homed-Safe owner, never automatically.
           </li>
         </ul>
       </ExplainerCard>
@@ -800,8 +1020,43 @@ function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardS
 }
 
 function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardState>(k: K, v: WizardState[K]) => void }) {
+  // Base-pair selector — only when exotic (TOWELI) launches are enabled. Gated OFF today,
+  // so this whole block is dormant and ETH is the only pair until the fork rehearsal flips
+  // EXOTIC_LAUNCHES_ENABLED. allowedNumeraires() encodes that gate.
+  const exotic = allowedNumeraires().length > 1;
   return (
     <div>
+      {exotic && (
+        <div className="mb-5">
+          <div className="text-white/80 text-sm">Base pair</div>
+          <div className="text-white/40 text-xs mb-2">
+            Settle the auction in ETH (standard) or TOWELI (exotic). The graduated pool and its fee stream are denominated in the base pair.
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {([['eth', 'token / ETH', 'Standard base pair — deepest liquidity, no extra price risk.'],
+               ['toweli', 'token / TOWELI', 'Exotic — pegged to TOWELI, inheriting its price and liquidity.']] as const).map(
+              ([id, label, blurb]) => (
+                <button
+                  key={id}
+                  onClick={() => set('numeraire', id)}
+                  className={`text-left rounded-xl p-3 border transition ${
+                    w.numeraire === id ? 'border-emerald-500/70 bg-emerald-500/10' : 'border-white/12 hover:border-white/25'
+                  }`}
+                >
+                  <div className="text-white font-semibold text-sm">{label}</div>
+                  <p className="text-white/55 text-xs mt-1 leading-relaxed">{blurb}</p>
+                </button>
+              ),
+            )}
+          </div>
+          {w.numeraire === 'toweli' && (
+            <p className="text-amber-300/80 text-xs mt-2 leading-relaxed">
+              Exotic launch: proceeds and the graduated pool are TOWELI-denominated, buyers must hold TOWELI, and the launch is only as
+              stable as TOWELI&rsquo;s own price. Market cap is still set in USD; the curve is priced off the live TOWELI/USD rate.
+            </p>
+          )}
+        </div>
+      )}
       <div className="grid gap-3">
         {LAUNCH_TIERS.map((t) => (
           <button
@@ -929,6 +1184,9 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
     ['Tier', LAUNCH_TIERS.find((t) => t.id === w.tier)?.label ?? w.tier],
     ['Curve', LAUNCH_TIERS.find((t) => t.id === w.tier)?.curve ?? '—'],
     ['Market cap (Dutch)', `$${w.mcapStartK}k → $${w.mcapFloorK}k (descends)`],
+    // The descending Dutch price IS the anti-snipe: a block-0 sniper buys at the top of
+    // the curve and pays the most, so front-running the open is structurally unprofitable.
+    ['Anti-sniper', 'Descending Dutch price — block-0 buys pay the most'],
     ['LP lock', `${w.lpLockMonths} months`],
     [
       'Team allocation',

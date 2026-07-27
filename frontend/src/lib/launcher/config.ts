@@ -7,6 +7,7 @@
 
 import type { Address } from 'viem';
 import type { FeeConstitutionLine } from './factSheet';
+import { TOWELI_ADDRESS } from '../constants';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
@@ -36,6 +37,41 @@ export function isLauncherEnabled(): boolean {
 }
 
 /**
+ * EXOTIC (non-ETH) numeraire launches — token/TOWELI pools instead of token/ETH.
+ * GATED OFF and shipped dormant. The ERC20-numeraire dynamic-auction path is
+ * source-verified (Doppler mines the token's CREATE2 address to sort against ANY
+ * numeraire; TOWELI's low address `0x42…` takes native ETH's EXACT code path and
+ * currency arrangement — numeraire = currency0 — so it is the one ERC20 that behaves
+ * like ETH, unlike WETH `0xC0…` which sorts to the opposite side). Because a wrong
+ * numeraire price mis-prices the whole auction curve, this only flips true AFTER a
+ * mainnet-fork rehearsal of the full create → graduate → locker lifecycle. Reversible:
+ * set false + redeploy to re-gate.
+ */
+export const EXOTIC_LAUNCHES_ENABLED = false;
+
+/** Native ETH numeraire (address(0)) — always available, the default base pair. */
+export const ETH_NUMERAIRE: Address = ZERO;
+
+/** TOWELI as an EVM launch numeraire (token/TOWELI pools). The ONLY exotic base pair
+ *  on EVM — arbitrary ERC20 numeraires are deliberately not offered here. */
+export const TOWELI_NUMERAIRE: Address = TOWELI_ADDRESS as Address;
+
+/** The numeraires the EVM launcher may pair against. TOWELI is only usable when exotic
+ *  launches are enabled; ETH is always allowed. */
+export function allowedNumeraires(): readonly Address[] {
+  return EXOTIC_LAUNCHES_ENABLED ? [ETH_NUMERAIRE, TOWELI_NUMERAIRE] : [ETH_NUMERAIRE];
+}
+
+/** True iff `numeraire` is a currently-permitted launch base pair (case-insensitive). */
+export function isAllowedNumeraire(numeraire: Address): boolean {
+  return allowedNumeraires().some((a) => a.toLowerCase() === numeraire.toLowerCase());
+}
+
+export function isExoticLaunchEnabled(): boolean {
+  return isLauncherEnabled() && EXOTIC_LAUNCHES_ENABLED;
+}
+
+/**
  * Fee constitution — bps of the 1% total trade fee (fee tier 10000; sums to 10000).
  * "Constitutional" = fixed at launch and published in the Fact Sheet, never a
  * marketing dial.
@@ -48,7 +84,9 @@ export function isLauncherEnabled(): boolean {
  *   - Tegridy 15% — BELOW Clanker's observed 20% survivor ceiling on purpose: our
  *     draw is the day-2 Afterlife economy, not the cheapest fee, so we can be visibly
  *     more creator-friendly than the incumbent. Routes to RevenueDistributor, which
- *     sub-splits stakers (real yield) / POL internally.
+ *     streams it as REAL YIELD to veTOWELI stakers. NOT split to POL: RevenueDistributor
+ *     is stakers-only (verified — it distributes ETH to veTOWELI holders); POL is a
+ *     SEPARATE protocol fee stream (POLAccumulator/SwapFeeRouter), not funded by this 15%.
  *   - Creator + attention 80% — creator-directed. Creators keep the majority (what
  *     actually attracts launches) and can carve part to attention-holders/KOLs at
  *     launch (the Bags-style perpetual-split lever — the one proven cheap distribution
@@ -58,7 +96,7 @@ export function isLauncherEnabled(): boolean {
 export const DEFAULT_FEE_CONSTITUTION: readonly FeeConstitutionLine[] = [
   { recipient: 'Creator', role: 'creator', shareBps: 7000 },
   { recipient: 'Attention beneficiaries', role: 'attention-beneficiary', shareBps: 1000 },
-  { recipient: 'Tegridy stakers + POL', role: 'protocol-stakers', shareBps: 1500 },
+  { recipient: 'Tegridy stakers', role: 'protocol-stakers', shareBps: 1500 },
   { recipient: 'Doppler', role: 'doppler', shareBps: 500 },
 ] as const;
 
