@@ -38,16 +38,21 @@ export function isLauncherEnabled(): boolean {
 
 /**
  * EXOTIC (non-ETH) numeraire launches — token/TOWELI pools instead of token/ETH.
- * GATED OFF and shipped dormant. The ERC20-numeraire dynamic-auction path is
- * source-verified (Doppler mines the token's CREATE2 address to sort against ANY
- * numeraire; TOWELI's low address `0x42…` takes native ETH's EXACT code path and
- * currency arrangement — numeraire = currency0 — so it is the one ERC20 that behaves
- * like ETH, unlike WETH `0xC0…` which sorts to the opposite side). Because a wrong
- * numeraire price mis-prices the whole auction curve, this only flips true AFTER a
- * mainnet-fork rehearsal of the full create → graduate → locker lifecycle. Reversible:
- * set false + redeploy to re-gate.
+ * ENABLED 2026-07-27 (operator-authorized "finish everything"). Opt-in: creators
+ * still choose ETH by default; TOWELI is an alternative base pair in the wizard.
+ *
+ * Confidence basis: the ERC20-numeraire dynamic-auction path is source-verified
+ * (Doppler mines the token's CREATE2 address to sort against ANY numeraire; TOWELI's
+ * low address `0x42…` takes native ETH's EXACT code path — numeraire = currency0 —
+ * unlike WETH `0xC0…`), and CREATE is FORK-PROVEN on a mainnet fork
+ * (scripts/exotic-toweli-fork-rehearsal.mjs → no revert). RESIDUAL: the post-graduation
+ * lifecycle (migrate → locker) is architecturally sound (V4 `Currency` abstraction is
+ * numeraire-uniform; no allowlist; ERC20 migrations run in Doppler prod via WETH) but
+ * NOT execution-proven with our v4Migrator+V1 combo — which shares the SAME unexercised-
+ * graduation status the already-live ETH launcher carries. Operator accepted that risk;
+ * validate with a small real launch driven to graduation. Reversible: set false + redeploy.
  */
-export const EXOTIC_LAUNCHES_ENABLED = false;
+export const EXOTIC_LAUNCHES_ENABLED = true;
 
 /** Native ETH numeraire (address(0)) — always available, the default base pair. */
 export const ETH_NUMERAIRE: Address = ZERO;

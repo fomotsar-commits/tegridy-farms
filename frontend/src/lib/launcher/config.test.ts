@@ -18,12 +18,13 @@ describe('exotic numeraire gate', () => {
     expect(TOWELI_NUMERAIRE.toLowerCase()).toBe(TOWELI_ADDRESS.toLowerCase());
   });
 
-  it('ships GATED OFF today (deliberate tripwire)', () => {
-    // TRIPWIRE, not an invariant: this pins the CURRENT source state. When the mainnet-
-    // fork rehearsal passes and you consciously flip EXOTIC_LAUNCHES_ENABLED true, update
-    // THIS test — its failure is the forcing function that a flip was intentional.
-    expect(EXOTIC_LAUNCHES_ENABLED).toBe(false);
-    expect(isExoticLaunchEnabled()).toBe(false);
+  it('exotic launches are ENABLED (flipped 2026-07-27, operator-authorized)', () => {
+    // TRIPWIRE, not an invariant: this pins the CURRENT source state. The flip is a
+    // deliberate, informed decision (create fork-proven; graduation architecturally sound
+    // but not execution-proven — same unexercised-graduation status the live ETH launcher
+    // carries). If exotic is ever re-gated (set false + redeploy), flip this back too.
+    expect(EXOTIC_LAUNCHES_ENABLED).toBe(true);
+    expect(isExoticLaunchEnabled()).toBe(true); // launcher enabled AND exotic on
   });
 
   it('isAllowedNumeraire tracks the flag: ETH always; TOWELI iff exotic is on', () => {
