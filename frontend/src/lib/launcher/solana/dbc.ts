@@ -59,9 +59,17 @@ import { SOL_MINT, USDC_MINT } from '../../solana';
 //
 // Local gate (we do NOT own config.ts). The pure builders below are always safe
 // to call (tests exercise them); the *operator submit path* — and any wired UI —
-// must guard on isSolanaLauncherEnabled(). Flip to true only once a Squads vault
-// exists and the sub-brand is cleared to launch.
-export const SOLANA_LAUNCHER_ENABLED = false;
+// must guard on isSolanaLauncherEnabled().
+//
+// ENABLED 2026-07-27 (operator confirmed the Squads v4 vault is set up). This makes the
+// /solana-launch PREVIEW page live — a config preview only; there is NO in-app submit or
+// signer (verified: SolanaLaunchPage has no sendTransaction/createConfig path). Real
+// launches still go through the operator's out-of-band CLI wrapper (dbcClient.ts / README),
+// which verifies the feeClaimer IS the derived Squads vault PDA on-chain (squads.ts
+// verifySquadsVault) and enforces multisig threshold >= 2 before the first real create.
+// Doctrine intact: fee-capture only, zero custom program, TOWELI never on Solana.
+// Reversible: set false + redeploy.
+export const SOLANA_LAUNCHER_ENABLED = true;
 
 /** The Solana launcher submit path is reachable only when this is true. */
 export function isSolanaLauncherEnabled(): boolean {

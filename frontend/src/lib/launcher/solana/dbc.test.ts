@@ -41,9 +41,12 @@ function partnerOpts(overrides = {}) {
 }
 
 describe('gate', () => {
-  it('is disabled by default (unreachable submit path)', () => {
-    expect(SOLANA_LAUNCHER_ENABLED).toBe(false);
-    expect(isSolanaLauncherEnabled()).toBe(false);
+  it('is ENABLED (Squads vault set up 2026-07-27) — preview live; submit stays operator-CLI', () => {
+    // Enabling this makes the /solana-launch config PREVIEW reachable; it does NOT add an
+    // in-app submit/signer (there is none). Real launches remain operator-CLI, which
+    // verifies the vault on-chain + threshold >= 2. If ever re-gated, flip this back.
+    expect(SOLANA_LAUNCHER_ENABLED).toBe(true);
+    expect(isSolanaLauncherEnabled()).toBe(true);
   });
 });
 
