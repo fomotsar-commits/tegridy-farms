@@ -8,10 +8,13 @@ vi.mock('@whetstone-research/doppler-sdk/evm', () => ({ streamableFeesLockerAbi:
 
 import { poolKeyToId, migrationPoolId, readMigrationStream, lockResolverFor, type MigrationStream } from './lockerStream';
 import { DOPPLER_MAINNET } from './doppler.constants';
+import { ETH_NUMERAIRE, TOWELI_NUMERAIRE } from './config';
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const HOOK = DOPPLER_MAINNET.support.uniswapV4MigratorHook;
-const TOKEN = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as Address;
+const TOKEN = '0x1111111111111111111111111111111111111111' as Address;
+// A token mined ABOVE TOWELI (0x42…), so a TOWELI pool sorts currency0=TOWELI, currency1=token.
+const TOKEN_ABOVE_TOWELI = '0x9999999999999999999999999999999999999999' as Address;
 
 describe('poolKeyToId — canonical UniV4 PoolId', () => {
   it('matches a REAL on-chain PoolManager Initialize id (encoding pinned to mainnet)', () => {
@@ -37,7 +40,7 @@ describe('migrationPoolId — the graduated pool key for a native-ETH launch', (
   });
 
   it('regression pin — a change to fee/tickSpacing/hook would move the key off the real stream', () => {
-    expect(migrationPoolId(TOKEN)).toBe('0x87063522a2526720953810050237c1b7e117c49939ae6a69ab67e4209f376bf0');
+    expect(migrationPoolId(TOKEN)).toBe('0x532936d8e9d38be3535f09a81f69ba659a54f3c1e47d76cec47e8b9023783a82');
   });
 
   it('is per-token (different token -> different key)', () => {
@@ -48,13 +51,27 @@ describe('migrationPoolId — the graduated pool key for a native-ETH launch', (
   it('is case-insensitive on the token (checksummed vs lowercase -> same key)', () => {
     expect(migrationPoolId(TOKEN)).toBe(migrationPoolId(TOKEN.toLowerCase() as Address));
   });
+
+  it('is numeraire-aware: token/TOWELI is a DIFFERENT pool than token/ETH', () => {
+    expect(migrationPoolId(TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE)).not.toBe(migrationPoolId(TOKEN_ABOVE_TOWELI));
+    // sorts {TOWELI, token} -> currency0=TOWELI (lower), currency1=token
+    expect(migrationPoolId(TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE)).toBe(
+      poolKeyToId({
+        currency0: TOWELI_NUMERAIRE.toLowerCase() as Address,
+        currency1: TOKEN_ABOVE_TOWELI.toLowerCase() as Address,
+        fee: 3000,
+        tickSpacing: 60,
+        hooks: HOOK,
+      }),
+    );
+  });
 });
 
 // A synthetic streams() return in viem's tuple form:
 // [poolKey, recipient, startDate, lockDuration, isUnlocked, beneficiaries, positions]
-function streamTuple(opts: { currency1?: Address; isUnlocked?: boolean; beneficiaries?: { beneficiary: Address; shares: bigint }[] } = {}) {
+function streamTuple(opts: { currency0?: Address; currency1?: Address; isUnlocked?: boolean; beneficiaries?: { beneficiary: Address; shares: bigint }[] } = {}) {
   return [
-    { currency0: ZERO, currency1: opts.currency1 ?? TOKEN, fee: 3000, tickSpacing: 60, hooks: HOOK },
+    { currency0: opts.currency0 ?? ZERO, currency1: opts.currency1 ?? TOKEN, fee: 3000, tickSpacing: 60, hooks: HOOK },
     '0x000000000000000000000000000000000000dEaD',
     1_700_000_000, // startDate
     31_536_000, // lockDuration = 365d
@@ -113,12 +130,30 @@ describe('readMigrationStream — the on-chain graduation + fee read', () => {
     expect(s.graduated).toBe(false);
     expect(s.beneficiaries).toEqual([]);
   });
+
+  it('TOWELI numeraire: reads the token/TOWELI pool (currency0=TOWELI, currency1=token)', async () => {
+    const tuple = streamTuple({ currency0: TOWELI_NUMERAIRE, currency1: TOKEN_ABOVE_TOWELI });
+    const s = await readMigrationStream(mockClient(tuple), TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE);
+    expect(s.graduated).toBe(true);
+    expect(s.numeraire).toBe(TOWELI_NUMERAIRE);
+    expect(s.poolId).toBe(migrationPoolId(TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE));
+    expect(s.beneficiaries.length).toBe(3);
+  });
+
+  it('DEFENSE: a TOWELI-pool stream is NOT accepted when reading against ETH (currency0 mismatch)', async () => {
+    // Even if the locker somehow returned a TOWELI-pool struct for an ETH-pool query,
+    // the two-currency match rejects it — an ETH read can never be mistaken for a TOWELI read.
+    const toweliTuple = streamTuple({ currency0: TOWELI_NUMERAIRE, currency1: TOKEN_ABOVE_TOWELI });
+    const s = await readMigrationStream(mockClient(toweliTuple), TOKEN_ABOVE_TOWELI, ETH_NUMERAIRE);
+    expect(s.graduated).toBe(false);
+  });
 });
 
 describe('lockResolverFor — real LockResolver from an already-read stream', () => {
   it('maps a graduated stream to {locked, locker, unlockAt}', async () => {
     const stream: MigrationStream = {
       graduated: true,
+      numeraire: ETH_NUMERAIRE,
       poolId: migrationPoolId(TOKEN),
       locker: DOPPLER_MAINNET.support.streamableFeesLocker,
       locked: true,
@@ -133,7 +168,7 @@ describe('lockResolverFor — real LockResolver from an already-read stream', ()
   });
 
   it('maps a not-graduated stream to an unlocked/null lock', async () => {
-    const stream: MigrationStream = { graduated: false, poolId: migrationPoolId(TOKEN), locker: null, locked: false, unlockAt: null, beneficiaries: [] };
+    const stream: MigrationStream = { graduated: false, numeraire: ETH_NUMERAIRE, poolId: migrationPoolId(TOKEN), locker: null, locked: false, unlockAt: null, beneficiaries: [] };
     await expect(lockResolverFor(stream)(TOKEN)).resolves.toEqual({ locked: false, locker: null, unlockAt: null });
   });
 });

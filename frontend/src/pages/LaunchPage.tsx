@@ -12,6 +12,9 @@ import {
   LAUNCH_TIERS,
   type LaunchTierId,
   isLauncherEnabled,
+  allowedNumeraires,
+  ETH_NUMERAIRE,
+  TOWELI_NUMERAIRE,
 } from '../lib/launcher/config';
 import { buildFactSheet, defaultGateConfig, type RawTokenFacts } from '../lib/launcher/gate';
 import type { LaunchFactSheet } from '../lib/launcher/factSheet';
@@ -34,7 +37,7 @@ import {
   EAS_SCHEMA_REGISTRY_ABI,
 } from '../lib/launcher/attestation';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
-import { readMigrationStream, lockResolverFor } from '../lib/launcher/lockerStream';
+import { readMigrationStream, lockResolverFor, type MigrationStream } from '../lib/launcher/lockerStream';
 import { REVENUE_DISTRIBUTOR_ADDRESS } from '../lib/constants';
 import type { FeeConstitutionLine } from '../lib/launcher/factSheet';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
@@ -63,6 +66,8 @@ type WizardState = {
   mcapStartK: number; // Dutch-auction START (high) market cap, $ thousands
   mcapFloorK: number; // descends toward this FLOOR, $ thousands
   lpLockMonths: number;
+  /** Base pair to settle in: native ETH (default) or TOWELI (exotic; only when enabled). */
+  numeraire: 'eth' | 'toweli';
   /** Creator-directed KOL/community fee beneficiaries — carved from the creator's 80% pool. */
   attentionSplits: { address: string; shareBps: number }[];
 };
@@ -79,6 +84,7 @@ const INITIAL: WizardState = {
   mcapStartK: 300, // Dutch auction starts high…
   mcapFloorK: 30, // …and descends to the floor
   lpLockMonths: 12,
+  numeraire: 'eth',
   attentionSplits: [],
 };
 
@@ -255,17 +261,30 @@ export default function LaunchPage() {
       setLaunch({ phase: 'error', message: 'Switch your wallet to Ethereum mainnet to launch.' });
       return;
     }
-    // ethUsd from the shared price context; a launch cannot proceed without it.
-    const ethUsd = price?.ethUsd ?? 0;
-    if (!ethUsd || ethUsd <= 0) {
-      setLaunch({ phase: 'error', message: 'ETH price unavailable right now — try again shortly.' });
-      return;
+    // Numeraire + its USD price. ETH launches use ETH/USD; a TOWELI (exotic) launch MUST
+    // use TOWELI/USD and REFUSE a stale/unavailable price — the numeraire price sets the
+    // entire auction curve, and TOWELI's thin market makes a bad price the real risk.
+    const numeraireAddr = w.numeraire === 'toweli' ? TOWELI_NUMERAIRE : ETH_NUMERAIRE;
+    let numerairePriceUsd: number;
+    if (w.numeraire === 'toweli') {
+      if (!price || price.priceUnavailable || !price.priceSafeForSwaps || !(price.priceInUsd > 0)) {
+        setLaunch({ phase: 'error', message: 'TOWELI price is unavailable or stale right now. A TOWELI-pegged launch needs a fresh price to set the auction curve — try again shortly.' });
+        return;
+      }
+      numerairePriceUsd = price.priceInUsd;
+    } else {
+      numerairePriceUsd = price?.ethUsd ?? 0;
+      if (!(numerairePriceUsd > 0)) {
+        setLaunch({ phase: 'error', message: 'ETH price unavailable right now — try again shortly.' });
+        return;
+      }
     }
     setLaunch({ phase: 'pending' });
     try {
       const cfg = wizardConfigToLaunchConfig(w, {
         userAddress: address,
-        numerairePriceUsd: ethUsd,
+        numerairePriceUsd,
+        numeraire: numeraireAddr,
         attentionSplits: parseAttentionSplits(w.attentionSplits),
       });
       const result = await launchToken(walletClient, publicClient, cfg);
@@ -544,8 +563,8 @@ type ReattestPhase =
   | { phase: 'idle' }
   | { phase: 'reading' }
   | { phase: 'not-graduated' }
-  | { phase: 'ready'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string }
-  | { phase: 'attesting'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string }
+  | { phase: 'ready'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
+  | { phase: 'attesting'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
   | { phase: 'done'; uid: string; txHash: string }
   | { phase: 'error'; message: string };
 
@@ -576,13 +595,17 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
     setState({ phase: 'reading' });
     try {
       const tokenAddr = getAddress(token) as Address;
-      // One locker read (graduation + beneficiaries + lock) plus a schema probe.
-      const [stream, ready] = await Promise.all([
-        readMigrationStream(publicClient, tokenAddr),
-        factSheetSchemaRegistered(publicClient),
-      ]);
+      const ready = await factSheetSchemaRegistered(publicClient);
       setSchemaReady(ready);
-      if (!stream.graduated) return setState({ phase: 'not-graduated' });
+      // Auto-detect the base pair: read the locker for each allowed numeraire; the one it
+      // actually graduated against has a stream (streams() reverts for the others). ETH-only
+      // while exotic is gated off, so this is a single read in the common case.
+      let stream: MigrationStream | null = null;
+      for (const numeraire of allowedNumeraires()) {
+        const s = await readMigrationStream(publicClient, tokenAddr, numeraire);
+        if (s.graduated) { stream = s; break; }
+      }
+      if (!stream) return setState({ phase: 'not-graduated' });
       if (stream.beneficiaries.length === 0) {
         return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries — nothing to attest.' });
       }
@@ -599,7 +622,8 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
         feeConstitution: lines,
         lockResolver: lockResolverFor(stream),
       });
-      setState({ phase: 'ready', sheet: buildFactSheet(raw), lines, poolId: stream.poolId, locker: stream.locker ?? '' });
+      const pair = stream.numeraire.toLowerCase() === TOWELI_NUMERAIRE.toLowerCase() ? 'token / TOWELI' : 'token / ETH';
+      setState({ phase: 'ready', sheet: buildFactSheet(raw), lines, poolId: stream.poolId, locker: stream.locker ?? '', pair });
     } catch (e) {
       setState({ phase: 'error', message: e instanceof Error ? e.message : 'Failed to read the graduated pool.' });
     }
@@ -611,8 +635,8 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
     if (schemaReady === false) {
       return setState({ phase: 'error', message: 'The disclosure schema isn’t registered on-chain yet — the on-chain attestation can’t be written. The read above is still accurate.' });
     }
-    const { sheet, lines, poolId, locker } = state;
-    setState({ phase: 'attesting', sheet, lines, poolId, locker });
+    const { sheet, lines, poolId, locker, pair } = state;
+    setState({ phase: 'attesting', sheet, lines, poolId, locker, pair });
     try {
       const { uid, txHash } = await attestFactSheet(walletClient, publicClient, sheet);
       setState({ phase: 'done', uid, txHash });
@@ -672,7 +696,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
             ))}
           </div>
           <p className="text-white/40 text-[11px] break-all mb-3">
-            Read from locker {state.locker.slice(0, 8)}… · migration pool {state.poolId.slice(0, 10)}…
+            {state.pair} · read from locker {state.locker.slice(0, 8)}… · migration pool {state.poolId.slice(0, 10)}…
           </p>
           <FactSheetCard sheet={state.sheet} />
           <div className="mt-3 flex items-center gap-3">
@@ -995,8 +1019,43 @@ function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardS
 }
 
 function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardState>(k: K, v: WizardState[K]) => void }) {
+  // Base-pair selector — only when exotic (TOWELI) launches are enabled. Gated OFF today,
+  // so this whole block is dormant and ETH is the only pair until the fork rehearsal flips
+  // EXOTIC_LAUNCHES_ENABLED. allowedNumeraires() encodes that gate.
+  const exotic = allowedNumeraires().length > 1;
   return (
     <div>
+      {exotic && (
+        <div className="mb-5">
+          <div className="text-white/80 text-sm">Base pair</div>
+          <div className="text-white/40 text-xs mb-2">
+            Settle the auction in ETH (standard) or TOWELI (exotic). The graduated pool and its fee stream are denominated in the base pair.
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {([['eth', 'token / ETH', 'Standard base pair — deepest liquidity, no extra price risk.'],
+               ['toweli', 'token / TOWELI', 'Exotic — pegged to TOWELI, inheriting its price and liquidity.']] as const).map(
+              ([id, label, blurb]) => (
+                <button
+                  key={id}
+                  onClick={() => set('numeraire', id)}
+                  className={`text-left rounded-xl p-3 border transition ${
+                    w.numeraire === id ? 'border-emerald-500/70 bg-emerald-500/10' : 'border-white/12 hover:border-white/25'
+                  }`}
+                >
+                  <div className="text-white font-semibold text-sm">{label}</div>
+                  <p className="text-white/55 text-xs mt-1 leading-relaxed">{blurb}</p>
+                </button>
+              ),
+            )}
+          </div>
+          {w.numeraire === 'toweli' && (
+            <p className="text-amber-300/80 text-xs mt-2 leading-relaxed">
+              Exotic launch: proceeds and the graduated pool are TOWELI-denominated, buyers must hold TOWELI, and the launch is only as
+              stable as TOWELI&rsquo;s own price. Market cap is still set in USD; the curve is priced off the live TOWELI/USD rate.
+            </p>
+          )}
+        </div>
+      )}
       <div className="grid gap-3">
         {LAUNCH_TIERS.map((t) => (
           <button

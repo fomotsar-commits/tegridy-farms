@@ -56,21 +56,36 @@ export function poolKeyToId(k: V4PoolKey): Hex {
 }
 
 /**
- * The migration (graduated) pool's PoolId for a native-ETH Tegridy launch of `token`.
- * Uses the SAME fee/tickSpacing this launcher commits at create time (airlock.ts
- * MIGRATION_POOL) and the migrator's own hook, so the derived key is exactly the one
- * the locker stores the stream under. NOT the auction poolId createDynamicAuction returns.
+ * The migration (graduated) pool's PoolKey for a Tegridy launch of `token` paired
+ * against `numeraire` (default native ETH; TOWELI for an exotic launch). V4 sorts the
+ * pair numerically, so currency0 = min(numeraire, token) and currency1 = max. For both
+ * supported numeraires the numeraire sorts BELOW the token — ETH is 0x0, and the SDK
+ * mines the token ABOVE a low-address numeraire like TOWELI (isToken0Expected=false) —
+ * so in practice currency0 = numeraire, currency1 = token; the explicit sort keeps it
+ * correct regardless. Uses the SAME fee/tickSpacing the launcher commits at create time
+ * (MIGRATION_POOL) and the migrator's own hook.
  */
-export function migrationPoolId(token: Address): Hex {
-  return poolKeyToId({
-    currency0: NATIVE_ETH, // 0x0
-    // Lowercase so any-case token input encodes cleanly (viem rejects a mixed-case
-    // non-EIP-55 address). The bytes — and thus the PoolId — are identical either way.
-    currency1: token.toLowerCase() as Address,
+export function migrationPoolKey(token: Address, numeraire: Address = NATIVE_ETH): V4PoolKey {
+  // Lowercase so any-case input encodes cleanly (viem rejects a mixed-case non-EIP-55
+  // address); the bytes — and thus the PoolId — are identical either way.
+  const t = token.toLowerCase() as Address;
+  const n = numeraire.toLowerCase() as Address;
+  const [currency0, currency1] = BigInt(n) < BigInt(t) ? [n, t] : [t, n];
+  return {
+    currency0,
+    currency1,
     fee: MIGRATION_POOL.fee, // 3000
     tickSpacing: MIGRATION_POOL.tickSpacing, // 60
     hooks: DOPPLER_MAINNET.support.uniswapV4MigratorHook, // v4Migrator.migratorHook() (on-chain verified)
-  });
+  };
+}
+
+/**
+ * The migration PoolId for `token` paired against `numeraire` (default native ETH).
+ * NOT the auction poolId createDynamicAuction returns.
+ */
+export function migrationPoolId(token: Address, numeraire: Address = NATIVE_ETH): Hex {
+  return poolKeyToId(migrationPoolKey(token, numeraire));
 }
 
 /** One on-chain locker beneficiary — address + WAD share (uint96). */
@@ -83,6 +98,8 @@ export interface StreamBeneficiaryRaw {
 export interface MigrationStream {
   /** true iff the locker holds a stream for this token's migration pool (i.e. it graduated). */
   graduated: boolean;
+  /** The base pair the read was performed against (native ETH or TOWELI). */
+  numeraire: Address;
   /** The derived migration PoolId (returned even when not graduated, for diagnostics). */
   poolId: Hex;
   /** The StreamableFeesLocker holding the stream (null when not graduated). */
@@ -110,11 +127,17 @@ export interface LockerReadClient {
  * The locker ABI comes from the SDK (`streamableFeesLockerAbi`) via a dynamic import
  * so the ~heavy SDK stays a lazy chunk — this is a deliberate, user-triggered read.
  */
-export async function readMigrationStream(client: LockerReadClient, token: Address): Promise<MigrationStream> {
-  const poolId = migrationPoolId(token);
+export async function readMigrationStream(
+  client: LockerReadClient,
+  token: Address,
+  numeraire: Address = NATIVE_ETH,
+): Promise<MigrationStream> {
+  const expectedKey = migrationPoolKey(token, numeraire);
+  const poolId = poolKeyToId(expectedKey);
   const locker = DOPPLER_MAINNET.support.streamableFeesLocker;
   const notGraduated: MigrationStream = {
     graduated: false,
+    numeraire,
     poolId,
     locker: null,
     locked: false,
@@ -133,14 +156,22 @@ export async function readMigrationStream(client: LockerReadClient, token: Addre
 
   const decoded = decodeStream(raw);
   if (!decoded) return notGraduated;
-  // Defense in depth: the only stream at this exact PoolId is this token's (keccak256 —
+  // Defense in depth: the only stream at this exact PoolId is this pool's (keccak256 —
   // a mis-derived key reverts, never collides). Refuse a read whose poolKey does not
-  // name our token, so a false disclosure is structurally impossible even if the SDK
-  // ABI shape or the derivation ever changed underneath us.
-  if (decoded.currency1.toLowerCase() !== token.toLowerCase()) return notGraduated;
+  // match BOTH derived currencies (token AND the numeraire we asked for), so a false
+  // disclosure is structurally impossible even if the SDK ABI shape or the derivation
+  // ever changed underneath us — and so an ETH-pool read can never be mistaken for a
+  // TOWELI-pool read (or vice-versa).
+  if (
+    decoded.currency0.toLowerCase() !== expectedKey.currency0.toLowerCase() ||
+    decoded.currency1.toLowerCase() !== expectedKey.currency1.toLowerCase()
+  ) {
+    return notGraduated;
+  }
 
   return {
     graduated: true,
+    numeraire,
     poolId,
     locker,
     locked: !decoded.isUnlocked,
@@ -165,7 +196,7 @@ export function lockResolverFor(stream: MigrationStream): LockResolver {
  */
 function decodeStream(
   raw: unknown,
-): { currency1: Address; isUnlocked: boolean; startDate: number; lockDuration: number; beneficiaries: StreamBeneficiaryRaw[] } | null {
+): { currency0: Address; currency1: Address; isUnlocked: boolean; startDate: number; lockDuration: number; beneficiaries: StreamBeneficiaryRaw[] } | null {
   if (raw == null || typeof raw !== 'object') return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const r = raw as any;
@@ -176,9 +207,12 @@ function decodeStream(
   const isUnlocked = arr ? r[4] : r.isUnlocked;
   const beneficiaries = arr ? r[5] : r.beneficiaries;
   if (poolKey == null || !Array.isArray(beneficiaries)) return null;
-  const currency1 = (Array.isArray(poolKey) ? poolKey[1] : poolKey.currency1) as Address | undefined;
-  if (!currency1) return null;
+  const pkArr = Array.isArray(poolKey);
+  const currency0 = (pkArr ? poolKey[0] : poolKey.currency0) as Address | undefined;
+  const currency1 = (pkArr ? poolKey[1] : poolKey.currency1) as Address | undefined;
+  if (!currency0 || !currency1) return null;
   return {
+    currency0,
     currency1,
     isUnlocked: Boolean(isUnlocked),
     startDate: Number(startDate),

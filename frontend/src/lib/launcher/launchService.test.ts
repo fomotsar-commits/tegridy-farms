@@ -5,9 +5,18 @@ import { parseEther, type Address } from 'viem';
 // below must still verify the INVARIANT (a disabled launcher refuses to launch), so it
 // forces the gate shut here rather than depending on the production flag value. The real
 // config values (integrator, fee tier) are preserved via the actual module.
+// A controllable exotic gate so we can exercise BOTH the gated-off path (TOWELI
+// rejected) and the enabled path (TOWELI threading) without touching the real flag.
+const numeraireGate = vi.hoisted(() => ({ exoticOn: false }));
 vi.mock('./config', async (importActual) => {
   const actual = await importActual<typeof import('./config')>();
-  return { ...actual, isLauncherEnabled: () => false };
+  return {
+    ...actual,
+    isLauncherEnabled: () => false,
+    isAllowedNumeraire: (n: `0x${string}`) =>
+      n.toLowerCase() === actual.ETH_NUMERAIRE.toLowerCase() ||
+      (numeraireGate.exoticOn && n.toLowerCase() === actual.TOWELI_NUMERAIRE.toLowerCase()),
+  };
 });
 import {
   wizardConfigToLaunchConfig,
@@ -22,7 +31,7 @@ import {
 import { feeConstitutionToBeneficiaries } from './airlock';
 import { DOPPLER_MAINNET } from './doppler.constants';
 import { REVENUE_DISTRIBUTOR_ADDRESS } from '../constants';
-import { LAUNCHER_INTEGRATOR_ADDRESS, LAUNCH_FEE_TIER, DEFAULT_FEE_CONSTITUTION } from './config';
+import { LAUNCHER_INTEGRATOR_ADDRESS, LAUNCH_FEE_TIER, DEFAULT_FEE_CONSTITUTION, ETH_NUMERAIRE, TOWELI_NUMERAIRE } from './config';
 
 // The wizard used to DISPLAY and ATTEST the static DEFAULT_FEE_CONSTITUTION
 // (Creator 70% / Attention 10%), but resolveFeeConstitution treats creator+attention
@@ -205,10 +214,10 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     ).toThrow(/protocol or Doppler/);
   });
 
-  it('rejects invalid wizard state (zero supply, non-descending mcap, bad ETH price)', () => {
+  it('rejects invalid wizard state (zero supply, non-descending mcap, bad numeraire price)', () => {
     expect(() => wizardConfigToLaunchConfig(wizard({ totalSupply: '0' }), opts())).toThrow(/positive/);
     expect(() => wizardConfigToLaunchConfig(wizard({ mcapStartK: 30, mcapFloorK: 300 }), opts())).toThrow(/descend/);
-    expect(() => wizardConfigToLaunchConfig(wizard(), { ...opts(), numerairePriceUsd: 0 })).toThrow(/ETH price/);
+    expect(() => wizardConfigToLaunchConfig(wizard(), { ...opts(), numerairePriceUsd: 0 })).toThrow(/numeraire price/);
   });
 
   it('builds a descending market-cap band (start > min) in USD', () => {
@@ -381,6 +390,50 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     const custom = wizardConfigToLaunchConfig(wizard(), opts({ minProceeds: parseEther('5'), maxProceeds: parseEther('50') }));
     expect(custom.minProceeds).toBe(parseEther('5'));
     expect(custom.maxProceeds).toBe(parseEther('50'));
+  });
+});
+
+// Exotic base pair: token/TOWELI instead of token/ETH. The numeraire threads through
+// to the config, and the proceeds band re-denominates into the numeraire.
+describe('wizardConfigToLaunchConfig — numeraire (ETH default, TOWELI exotic)', () => {
+  it('defaults to native ETH', () => {
+    expect(wizardConfigToLaunchConfig(wizard(), opts()).numeraire).toBe(ETH_NUMERAIRE);
+  });
+
+  it('rejects TOWELI while exotic launches are gated off', () => {
+    numeraireGate.exoticOn = false;
+    expect(() => wizardConfigToLaunchConfig(wizard(), opts({ numeraire: TOWELI_NUMERAIRE }))).toThrow(/base pair/i);
+  });
+
+  it('when exotic is enabled, sets numeraire=TOWELI and a TOWELI-denominated proceeds band', () => {
+    numeraireGate.exoticOn = true;
+    try {
+      const toweliUsd = 0.00003; // numerairePriceUsd is now TOWELI/USD, not ETH/USD
+      const cfg = wizardConfigToLaunchConfig(wizard(), opts({ numeraire: TOWELI_NUMERAIRE, numerairePriceUsd: toweliUsd }));
+      expect(cfg.numeraire).toBe(TOWELI_NUMERAIRE);
+      // Proceeds are in TOWELI base units now — the $1k–$50k exotic band / TOWELI price,
+      // orders of magnitude above the 1–1000 ETH default, and derived from the price.
+      expect(cfg.minProceeds).toBe(BigInt(Math.floor((1_000 / toweliUsd) * 1e18)));
+      expect(cfg.maxProceeds).toBe(BigInt(Math.floor((50_000 / toweliUsd) * 1e18)));
+      expect(cfg.minProceeds).toBeGreaterThan(parseEther('1000')); // dwarfs the ETH cap
+      expect(cfg.maxProceeds).toBeGreaterThan(cfg.minProceeds);
+    } finally {
+      numeraireGate.exoticOn = false;
+    }
+  });
+
+  it('an explicit proceeds override still wins for a TOWELI launch', () => {
+    numeraireGate.exoticOn = true;
+    try {
+      const cfg = wizardConfigToLaunchConfig(
+        wizard(),
+        opts({ numeraire: TOWELI_NUMERAIRE, numerairePriceUsd: 0.00003, minProceeds: parseEther('123'), maxProceeds: parseEther('456') }),
+      );
+      expect(cfg.minProceeds).toBe(parseEther('123'));
+      expect(cfg.maxProceeds).toBe(parseEther('456'));
+    } finally {
+      numeraireGate.exoticOn = false;
+    }
   });
 });
 

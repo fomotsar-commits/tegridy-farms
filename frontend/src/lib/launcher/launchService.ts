@@ -24,7 +24,9 @@ import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCHER_INTEGRATOR_ADDRESS,
   LAUNCH_FEE_TIER,
+  ETH_NUMERAIRE,
   isLauncherEnabled,
+  isAllowedNumeraire,
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
 import { REVENUE_DISTRIBUTOR_ADDRESS } from '../constants';
@@ -50,6 +52,25 @@ const START_TIME_OFFSET_SECONDS = 600;
 const DEFAULT_MIN_PROCEEDS = parseEther('1'); // 1 ETH raise floor
 const DEFAULT_MAX_PROCEEDS = parseEther('1000'); // 1000 ETH raise cap
 
+/**
+ * Exotic-numeraire (TOWELI) raise band, in USD. The proceeds band is denominated in
+ * the NUMERAIRE, so an ERC20 numeraire can't reuse the 1–1000 ETH defaults. TOWELI's
+ * thin market (~$25k liquidity) makes a multi-$M raise impossible and a graduation
+ * target that can never fill; this band is deliberately modest and USD-anchored, then
+ * converted to TOWELI base units via the live TOWELI/USD price. Tunable.
+ */
+const EXOTIC_RAISE_USD = { min: 1_000, max: 50_000 } as const;
+
+/**
+ * USD → numeraire base units (18-dec). Both supported numeraires are 18-decimal
+ * (native ETH; TOWELI verified 18 on-chain), so 1e18 base units == 1 whole numeraire.
+ * Float math is fine for a proceeds BOUND — precision beyond ~15 digits is irrelevant
+ * to a raise floor/cap.
+ */
+function usdToNumeraireWei(usd: number, numerairePriceUsd: number): bigint {
+  return BigInt(Math.floor((usd / numerairePriceUsd) * 1e18));
+}
+
 /** The successful create() result the SDK returns. */
 export interface LaunchResult {
   tokenAddress: Address;
@@ -64,6 +85,12 @@ export interface LaunchResult {
    * is the truthful split to display post-launch and to attest.
    */
   feeConstitution: TegridyLaunchConfig['feeConstitution'];
+  /**
+   * The base pair this launch settled in (native ETH, or TOWELI for an exotic launch).
+   * Determines the migration PoolId the post-graduation re-attestation reads, and lets
+   * the UI show "token/ETH" vs "token/TOWELI".
+   */
+  numeraire: Address;
 }
 
 /** Discriminated failure reasons, so the UI can render a specific message. */
@@ -130,8 +157,18 @@ export interface AttentionSplit {
 export interface LaunchMapOptions {
   /** Creator / launcher (connected wallet). Receives the creator fee line. */
   userAddress: Address;
-  /** Current ETH/USD price — the numeraire price the market-cap curve is derived from. */
+  /**
+   * USD price of the SELECTED numeraire — the price the market-cap curve is derived
+   * from. For an ETH launch this is ETH/USD; for a TOWELI launch it MUST be TOWELI/USD.
+   * A mismatched numeraire price silently mis-prices the entire auction curve, so the
+   * caller must pass the price for `numeraire` below (not always ETH/USD).
+   */
   numerairePriceUsd: number;
+  /**
+   * Base pair to launch against. Defaults to native ETH. Only ETH or, when exotic
+   * launches are enabled, TOWELI are accepted (validated against isAllowedNumeraire).
+   */
+  numeraire?: Address;
   /**
    * Creator-directed KOL/community beneficiaries. Each shareBps is carved out of
    * the combined creator+attention pool (8000 bps); the creator keeps the
@@ -322,8 +359,21 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     throw new Error('Market cap must descend from a positive start to a lower positive floor.');
   }
   if (!Number.isFinite(opts.numerairePriceUsd) || opts.numerairePriceUsd <= 0) {
-    throw new Error('A valid ETH price is required to build the launch.');
+    throw new Error('A valid numeraire price is required to build the launch.');
   }
+
+  // Resolve + validate the base pair. Defaults to native ETH; TOWELI only passes when
+  // exotic launches are enabled (isAllowedNumeraire encodes the gate), so a disabled
+  // flag can never ship a TOWELI launch even if a caller forces the address.
+  const numeraire = opts.numeraire ?? ETH_NUMERAIRE;
+  if (!isAllowedNumeraire(numeraire)) {
+    throw new Error('That base pair is not available. Launches settle in ETH (or TOWELI when exotic launches are enabled).');
+  }
+  // Proceeds band is denominated in the NUMERAIRE. ETH keeps its 1–1000 ETH defaults;
+  // a non-ETH numeraire (TOWELI) derives a modest USD-anchored band from its own price.
+  const isEth = numeraire.toLowerCase() === ETH_NUMERAIRE.toLowerCase();
+  const defaultMinProceeds = isEth ? DEFAULT_MIN_PROCEEDS : usdToNumeraireWei(EXOTIC_RAISE_USD.min, opts.numerairePriceUsd);
+  const defaultMaxProceeds = isEth ? DEFAULT_MAX_PROCEEDS : usdToNumeraireWei(EXOTIC_RAISE_USD.max, opts.numerairePriceUsd);
 
   // Enforce the per-tier LP-lock floor at build time, so a launch can never ship
   // with lockDuration below its tier minimum relying only on gate.ts's post-hoc
@@ -350,8 +400,9 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     numTokensToSell,
     marketCap,
     numerairePriceUsd: opts.numerairePriceUsd,
-    minProceeds: opts.minProceeds ?? DEFAULT_MIN_PROCEEDS,
-    maxProceeds: opts.maxProceeds ?? DEFAULT_MAX_PROCEEDS,
+    numeraire,
+    minProceeds: opts.minProceeds ?? defaultMinProceeds,
+    maxProceeds: opts.maxProceeds ?? defaultMaxProceeds,
     feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits),
     integrator: LAUNCHER_INTEGRATOR_ADDRESS,
     lockDurationSeconds: Math.round(w.lpLockMonths * MONTH_SECONDS),
@@ -416,6 +467,8 @@ export async function launchToken(
       transactionHash: r.transactionHash,
       // The split that was actually deployed (cfg is immutable at this point).
       feeConstitution: cfg.feeConstitution,
+      // The base pair actually used (ETH default, or TOWELI for an exotic launch).
+      numeraire: cfg.numeraire ?? ETH_NUMERAIRE,
     };
   } catch (e) {
     throw new LaunchError('submit-failed', `Launch transaction failed: ${errText(e)}`, e);

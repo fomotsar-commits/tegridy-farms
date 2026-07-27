@@ -39,7 +39,11 @@ interface PreviewInputs {
   name: string;
   symbol: string;
   uri: string;
-  quote: 'SOL' | 'USDC';
+  quote: 'SOL' | 'USDC' | 'custom';
+  /** Base58 SPL mint, when quote === 'custom' (an exotic pair). Never TOWELI — TOWELI is EVM-only. */
+  customQuoteMint: string;
+  /** On-chain decimals (6–9) of the custom quote mint. */
+  customQuoteDecimals: string;
   initialMarketCap: string;
   migrationMarketCap: string;
   vaultAddress: string;
@@ -52,13 +56,18 @@ type PreviewResult =
 
 function buildPreview(input: PreviewInputs, configPubkey: string, baseMintPubkey: string): PreviewResult {
   try {
-    const quoteMint = input.quote === 'USDC' ? USDC_MINT : SOL_MINT;
+    // SOL/USDC are curated; a custom mint is an exotic pair and must carry its decimals.
+    // buildDbcPartnerConfig validates the mint (base58) + decimals (6–9), so a bad custom
+    // entry surfaces as a preview error rather than a silently mis-scaled curve.
+    const quoteMint = input.quote === 'custom' ? input.customQuoteMint.trim() : input.quote === 'USDC' ? USDC_MINT : SOL_MINT;
+    const quoteDecimals = input.quote === 'custom' ? Number(input.customQuoteDecimals) : undefined;
     const vault = asSquadsVault(input.vaultAddress);
     const config = buildDbcPartnerConfig({
       feeClaimer: vault,
       config: configPubkey,
       payer: input.payer,
       quoteMint,
+      quoteDecimals,
       initialMarketCap: Number(input.initialMarketCap),
       migrationMarketCap: Number(input.migrationMarketCap),
     });
@@ -159,21 +168,24 @@ function SolanaLaunchInner() {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [uri, setUri] = useState('');
-  const [quote, setQuote] = useState<'SOL' | 'USDC'>('SOL');
+  const [quote, setQuote] = useState<'SOL' | 'USDC' | 'custom'>('SOL');
+  const [customQuoteMint, setCustomQuoteMint] = useState('');
+  const [customQuoteDecimals, setCustomQuoteDecimals] = useState('6');
   const [initialMarketCap, setInitialMarketCap] = useState('5000');
   const [migrationMarketCap, setMigrationMarketCap] = useState('50000');
   const [vaultAddress, setVaultAddress] = useState('');
 
   const payer = publicKey?.toBase58() ?? previewPayer;
+  const quoteLabel = quote === 'custom' ? 'quote' : quote;
 
   const preview = useMemo(
     () =>
       buildPreview(
-        { name, symbol, uri, quote, initialMarketCap, migrationMarketCap, vaultAddress, payer },
+        { name, symbol, uri, quote, customQuoteMint, customQuoteDecimals, initialMarketCap, migrationMarketCap, vaultAddress, payer },
         configPubkey,
         baseMintPubkey,
       ),
-    [name, symbol, uri, quote, initialMarketCap, migrationMarketCap, vaultAddress, payer, configPubkey, baseMintPubkey],
+    [name, symbol, uri, quote, customQuoteMint, customQuoteDecimals, initialMarketCap, migrationMarketCap, vaultAddress, payer, configPubkey, baseMintPubkey],
   );
 
   return (
@@ -218,9 +230,9 @@ function SolanaLaunchInner() {
             <input className={inputCls} style={inputStyle} value={uri} onChange={(e) => setUri(e.target.value)} placeholder="ipfs://…" spellCheck={false} />
           </Field>
 
-          <Field label="Quote token">
+          <Field label="Quote token" hint="SOL/USDC are the vetted, deep-liquidity pairs. A custom mint is an exotic pair.">
             <div className="flex gap-1.5">
-              {(['SOL', 'USDC'] as const).map((q) => (
+              {(['SOL', 'USDC', 'custom'] as const).map((q) => (
                 <button
                   key={q}
                   type="button"
@@ -232,17 +244,32 @@ function SolanaLaunchInner() {
                     border: quote === q ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
                   }}
                 >
-                  {q}
+                  {q === 'custom' ? 'Custom' : q}
                 </button>
               ))}
             </div>
           </Field>
 
+          {quote === 'custom' && (
+            <>
+              <Field label="Custom quote mint" hint="Any SPL mint address. Never TOWELI — TOWELI is EVM-only, never on Solana.">
+                <input className={inputCls} style={inputStyle} value={customQuoteMint} onChange={(e) => setCustomQuoteMint(e.target.value)} placeholder="Base58 mint address" spellCheck={false} />
+              </Field>
+              <Field label="Quote decimals (6–9)" hint="The mint's on-chain decimals. Wrong decimals mis-scale the whole curve.">
+                <input className={inputCls} style={inputStyle} type="number" inputMode="numeric" value={customQuoteDecimals} onChange={(e) => setCustomQuoteDecimals(e.target.value)} min={6} max={9} />
+              </Field>
+              <p className="text-amber-300/80 text-[10px] mb-3 leading-relaxed">
+                Exotic pair: a custom quote token can be illiquid, letting the pool graduate into a dead market. Prefer SOL or USDC
+                unless there is a real reason to pair against this mint.
+              </p>
+            </>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            <Field label={`Initial market cap (${quote})`}>
+            <Field label={`Initial market cap (${quoteLabel})`}>
               <input className={inputCls} style={inputStyle} type="number" inputMode="decimal" value={initialMarketCap} onChange={(e) => setInitialMarketCap(e.target.value)} min={0} />
             </Field>
-            <Field label={`Migration market cap (${quote})`}>
+            <Field label={`Migration market cap (${quoteLabel})`}>
               <input className={inputCls} style={inputStyle} type="number" inputMode="decimal" value={migrationMarketCap} onChange={(e) => setMigrationMarketCap(e.target.value)} min={0} />
             </Field>
           </div>

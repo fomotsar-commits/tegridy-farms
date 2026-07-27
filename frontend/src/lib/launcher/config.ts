@@ -7,6 +7,7 @@
 
 import type { Address } from 'viem';
 import type { FeeConstitutionLine } from './factSheet';
+import { TOWELI_ADDRESS } from '../constants';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
@@ -33,6 +34,41 @@ export const LAUNCHER_INTEGRATOR_ADDRESS: Address = '0xD355A072d6bBbA275DBD83A31
 /** The launcher is usable only when enabled AND a real integrator is configured. */
 export function isLauncherEnabled(): boolean {
   return LAUNCHER_ENABLED && LAUNCHER_INTEGRATOR_ADDRESS !== ZERO;
+}
+
+/**
+ * EXOTIC (non-ETH) numeraire launches — token/TOWELI pools instead of token/ETH.
+ * GATED OFF and shipped dormant. The ERC20-numeraire dynamic-auction path is
+ * source-verified (Doppler mines the token's CREATE2 address to sort against ANY
+ * numeraire; TOWELI's low address `0x42…` takes native ETH's EXACT code path and
+ * currency arrangement — numeraire = currency0 — so it is the one ERC20 that behaves
+ * like ETH, unlike WETH `0xC0…` which sorts to the opposite side). Because a wrong
+ * numeraire price mis-prices the whole auction curve, this only flips true AFTER a
+ * mainnet-fork rehearsal of the full create → graduate → locker lifecycle. Reversible:
+ * set false + redeploy to re-gate.
+ */
+export const EXOTIC_LAUNCHES_ENABLED = false;
+
+/** Native ETH numeraire (address(0)) — always available, the default base pair. */
+export const ETH_NUMERAIRE: Address = ZERO;
+
+/** TOWELI as an EVM launch numeraire (token/TOWELI pools). The ONLY exotic base pair
+ *  on EVM — arbitrary ERC20 numeraires are deliberately not offered here. */
+export const TOWELI_NUMERAIRE: Address = TOWELI_ADDRESS as Address;
+
+/** The numeraires the EVM launcher may pair against. TOWELI is only usable when exotic
+ *  launches are enabled; ETH is always allowed. */
+export function allowedNumeraires(): readonly Address[] {
+  return EXOTIC_LAUNCHES_ENABLED ? [ETH_NUMERAIRE, TOWELI_NUMERAIRE] : [ETH_NUMERAIRE];
+}
+
+/** True iff `numeraire` is a currently-permitted launch base pair (case-insensitive). */
+export function isAllowedNumeraire(numeraire: Address): boolean {
+  return allowedNumeraires().some((a) => a.toLowerCase() === numeraire.toLowerCase());
+}
+
+export function isExoticLaunchEnabled(): boolean {
+  return isLauncherEnabled() && EXOTIC_LAUNCHES_ENABLED;
 }
 
 /**

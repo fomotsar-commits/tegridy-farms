@@ -25,13 +25,25 @@ import type { Address } from 'viem';
 import type { FeeConstitutionLine, LaunchTier } from './factSheet';
 import { DOPPLER_MAINNET } from './doppler.constants';
 
-/** Canonical WETH on Ethereum mainnet (numeraire for our launches). */
+/** Canonical WETH on Ethereum mainnet. */
 export const WETH_MAINNET: Address = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 /**
- * Native ETH — the DEFAULT numeraire for Doppler dynamic auctions. Verified on a
- * mainnet fork (2026-07-17): pairing against WETH reverts `InvalidTokenOrder()`
- * (V4 currency ordering / CREATE2 token-address mining). address(0) is always
- * currency0, so the launched token sorts deterministically. Use native ETH.
+ * Native ETH — the DEFAULT numeraire for Doppler dynamic auctions.
+ *
+ * The numeraire is NOT restricted to ETH. Doppler's dynamic-auction create flow mines
+ * the token's CREATE2 address (`mineHookAddress`) to sort correctly against ANY
+ * numeraire, and `UniswapV4Initializer` enforces only a SYMMETRIC ordering check
+ * (`isToken0 && asset > numeraire || !isToken0 && asset < numeraire` reverts) — no
+ * allowlist, no `require(numeraire == address(0))`. Verified against SDK v1.0.29 +
+ * the deployed initializer, 2026-07-26.
+ *
+ * The earlier "pairing against WETH reverts InvalidTokenOrder()" note was a
+ * MISDIAGNOSIS: WETH's high address (`0xC0…`, above 2^159) forces the token to the
+ * opposite pool side (token = currency0), and the historical revert was that ordering
+ * assumption breaking — NOT ERC20-ness. A LOW-address numeraire like TOWELI (`0x42…`)
+ * takes ETH's exact path (numeraire = currency0, token = currency1), so an ERC20
+ * numeraire is supported for our TOWELI-pegged exotic launches. See config.ts
+ * TOWELI_NUMERAIRE / EXOTIC_LAUNCHES_ENABLED.
  */
 export const NATIVE_ETH: Address = '0x0000000000000000000000000000000000000000';
 
@@ -96,7 +108,12 @@ export interface TegridyLaunchConfig {
   lockDurationSeconds: number;
   /** Creator / launcher user address. */
   userAddress: Address;
-  /** Numeraire to pair against. Default native ETH (address(0)); WETH reverts InvalidTokenOrder. */
+  /**
+   * Numeraire to pair against. Default native ETH (address(0)). A LOW-address ERC20
+   * (e.g. TOWELI) is supported and sorts like ETH; the SDK mines the token to satisfy
+   * the initializer's ordering check. (Avoid a HIGH-address numeraire like WETH unless
+   * you have re-verified the flipped ordering path.)
+   */
   numeraire?: Address;
   /** Trade-fee tier (hundredths of a bip). Default 10000 = 1%, auto-derives a valid tickSpacing. */
   feeTier?: number;

@@ -108,3 +108,42 @@ Low-severity items from the code review, safe to leave until touched: viem `zero
 reuse in `afterlife.ts`; a shared `evaluateFeature()` helper for the two eligibility
 blocks; `holderCount` nullable through `OutcomeRecord`; per-line disclosure severity in
 `LaunchExplorer`. None affect gated runtime.
+
+## 9. Exotic (token/TOWELI) launches — separate gate
+
+A second, independent gate for pairing launches against **TOWELI** instead of ETH
+(`EXOTIC_LAUNCHES_ENABLED` in `frontend/src/lib/launcher/config.ts`, ships **false**).
+Everything is built and unit-tested behind that flag; ETH launches are unaffected.
+
+**Why it's safe by construction:** Doppler's dynamic auction mines the token's CREATE2
+address to sort against ANY numeraire (`mineHookAddress`), and the initializer's ordering
+check is symmetric with no numeraire allowlist. TOWELI's low address (`0x42…`) takes native
+ETH's exact path (numeraire = currency0), unlike WETH (`0xC0…`) — so §4's blanket "WETH
+reverts `InvalidTokenOrder()`" is a misdiagnosis (it's WETH's HIGH address, not ERC20-ness).
+The re-attestation reader (`lockerStream.ts`) derives the migration PoolId per-numeraire; a
+mis-derived key can only revert (fail-safe), never surface a wrong split.
+
+**Pre-flip gate (run before setting the flag true):**
+1. `node scripts/exotic-toweli-fork-rehearsal.mjs` — spawns an anvil mainnet fork and
+   simulates `createDynamicAuction(numeraire=TOWELI)`. Must print `✅ PASS`.
+   - Needs an ARCHIVE fork RPC. Keyless `https://eth-mainnet.public.blastapi.io` worked
+     2026-07-26; publicnode 403s and drpc-free times out on archive state. Prefer a paid
+     endpoint (`ANVIL_FORK_URL=…`) for a stable run.
+   - **Result 2026-07-26:** PASS — fork block 25,621,617; no revert; mined token
+     `0x65cC…b665` sorted above TOWELI → migration pool `(currency0=TOWELI, currency1=token)`,
+     matching the reader's assumption.
+2. **Extended lifecycle (do once before prod):** on the same fork, buy the auction through
+   to `maxProceeds`, trigger `migrate`, and assert the `StreamableFeesLocker` holds a
+   TOWELI/token V4 position with fees streaming. This closes the only source-unverifiable
+   residual (the post-graduation path with an ERC20 numeraire). The create step is already
+   proven three ways (source, fork simulation, mining).
+3. Confirm the live **TOWELI/USD** price feed is fresh (`priceInUsd`, `priceSafeForSwaps`);
+   the launch UI already refuses a TOWELI launch on a stale/unavailable price.
+
+**Flip:** set `EXOTIC_LAUNCHES_ENABLED = true`, update the `config.test.ts` "ships GATED
+OFF today" tripwire, redeploy. The wizard's base-pair selector and the exotic proceeds band
+(`EXOTIC_RAISE_USD`, USD-anchored → TOWELI units) activate automatically. Reversible.
+
+**Solana exotic pairs:** `dbc.ts` accepts any SPL quote mint (SOL/USDC curated, custom with
+decimals) — but the Solana rail stays behind its own `SOLANA_LAUNCHER_ENABLED` gate and is
+preview-only. **Never TOWELI on Solana.**
