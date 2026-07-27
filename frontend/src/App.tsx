@@ -50,8 +50,9 @@ const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
 // Solana launch sub-brand (Meteora DBC). Gated in-page (isSolanaLauncherEnabled)
 // — renders the SOON placeholder until an operator enables it + a verified vault.
 const SolanaLaunchPage = lazy(() => import('./pages/SolanaLaunchPage'));
-// Token launch rail (Doppler V4 integration). Gated in-page (isLauncherEnabled)
-// until go-live -> re-homing -> TOWELI-liveness; renders the SOON placeholder meanwhile.
+// Token launch rail (Doppler V4 integration). LIVE since 2026-07-22
+// (LAUNCHER_ENABLED = true); renders the create wizard. Still in-page-gated by
+// isLauncherEnabled() so it can be re-gated by flipping the flag + redeploying.
 const LaunchPage = lazy(() => import('./pages/LaunchPage'));
 // Launch simulator — preview a token's distribution band + Fact-Sheet tier before
 // launching. Pure client-side, always usable (deliberately live before the launch rail).
