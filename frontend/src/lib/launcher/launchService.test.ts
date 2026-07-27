@@ -97,7 +97,7 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
     expect(byRole(recovered, 'doppler')).toBe(500);
     // labels mirror the forward path exactly
     expect(recovered.find((l) => l.role === 'creator')?.recipient).toBe('Creator');
-    expect(recovered.find((l) => l.role === 'protocol-stakers')?.recipient).toBe('Tegridy stakers + POL');
+    expect(recovered.find((l) => l.role === 'protocol-stakers')?.recipient).toBe('Tegridy stakers');
     expect(recovered.find((l) => l.role === 'doppler')?.recipient).toBe('Doppler');
     // the attention line's recipient is the KOL's own address
     expect(recovered.find((l) => l.role === 'attention-beneficiary')?.recipient?.toLowerCase()).toBe(KOL.toLowerCase());

@@ -84,7 +84,9 @@ export function isExoticLaunchEnabled(): boolean {
  *   - Tegridy 15% — BELOW Clanker's observed 20% survivor ceiling on purpose: our
  *     draw is the day-2 Afterlife economy, not the cheapest fee, so we can be visibly
  *     more creator-friendly than the incumbent. Routes to RevenueDistributor, which
- *     sub-splits stakers (real yield) / POL internally.
+ *     streams it as REAL YIELD to veTOWELI stakers. NOT split to POL: RevenueDistributor
+ *     is stakers-only (verified — it distributes ETH to veTOWELI holders); POL is a
+ *     SEPARATE protocol fee stream (POLAccumulator/SwapFeeRouter), not funded by this 15%.
  *   - Creator + attention 80% — creator-directed. Creators keep the majority (what
  *     actually attracts launches) and can carve part to attention-holders/KOLs at
  *     launch (the Bags-style perpetual-split lever — the one proven cheap distribution
@@ -94,7 +96,7 @@ export function isExoticLaunchEnabled(): boolean {
 export const DEFAULT_FEE_CONSTITUTION: readonly FeeConstitutionLine[] = [
   { recipient: 'Creator', role: 'creator', shareBps: 7000 },
   { recipient: 'Attention beneficiaries', role: 'attention-beneficiary', shareBps: 1000 },
-  { recipient: 'Tegridy stakers + POL', role: 'protocol-stakers', shareBps: 1500 },
+  { recipient: 'Tegridy stakers', role: 'protocol-stakers', shareBps: 1500 },
   { recipient: 'Doppler', role: 'doppler', shareBps: 500 },
 ] as const;
 

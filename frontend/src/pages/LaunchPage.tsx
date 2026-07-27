@@ -1183,6 +1183,9 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
     ['Tier', LAUNCH_TIERS.find((t) => t.id === w.tier)?.label ?? w.tier],
     ['Curve', LAUNCH_TIERS.find((t) => t.id === w.tier)?.curve ?? '—'],
     ['Market cap (Dutch)', `$${w.mcapStartK}k → $${w.mcapFloorK}k (descends)`],
+    // The descending Dutch price IS the anti-snipe: a block-0 sniper buys at the top of
+    // the curve and pays the most, so front-running the open is structurally unprofitable.
+    ['Anti-sniper', 'Descending Dutch price — block-0 buys pay the most'],
     ['LP lock', `${w.lpLockMonths} months`],
     [
       'Team allocation',

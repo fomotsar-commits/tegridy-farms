@@ -273,7 +273,7 @@ export function resolveFeeConstitution(userAddress: Address, attentionSplits: re
 export interface FeeRoleAddresses {
   /** The launching wallet — the creator line resolves here (mirrors resolveFeeConstitution). */
   creator: Address;
-  /** RevenueDistributor (stakers + POL) — the 'protocol-stakers' line. */
+  /** RevenueDistributor (veTOWELI stakers — real yield, not POL) — the 'protocol-stakers' line. */
   protocolStakers: Address;
   /** Doppler / Airlock owner — the 'doppler' line. */
   doppler: Address;
@@ -299,7 +299,7 @@ const WAD_NUMBER = 1e18;
  * intended bps, whereas truncation would drop a whole basis point.
  *
  * Labelling mirrors the forward resolver EXACTLY (case-insensitive address match):
- *   protocolStakers -> 'Tegridy stakers + POL' / protocol-stakers
+ *   protocolStakers -> 'Tegridy stakers' / protocol-stakers
  *   doppler         -> 'Doppler' / doppler
  *   creator         -> 'Creator' / creator
  *   anything else   -> the address itself / attention-beneficiary
@@ -316,7 +316,7 @@ export function beneficiariesToFeeConstitution(
   return beneficiaries.map(({ beneficiary, shares }) => {
     const shareBps = Math.round((Number(shares) * 10_000) / WAD_NUMBER);
     const key = beneficiary.toLowerCase();
-    if (key === protocolStakers) return { recipient: 'Tegridy stakers + POL', role: 'protocol-stakers', shareBps };
+    if (key === protocolStakers) return { recipient: 'Tegridy stakers', role: 'protocol-stakers', shareBps };
     if (key === doppler) return { recipient: 'Doppler', role: 'doppler', shareBps };
     if (key === creator) return { recipient: 'Creator', role: 'creator', shareBps };
     return { recipient: beneficiary, role: 'attention-beneficiary', shareBps };
