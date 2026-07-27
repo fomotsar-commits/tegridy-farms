@@ -232,6 +232,60 @@ export function resolveFeeConstitution(userAddress: Address, attentionSplits: re
   return [...byAddress.values()].filter((l) => l.shareBps > 0);
 }
 
+/** The three FIXED-role addresses needed to label locker beneficiaries back to roles. */
+export interface FeeRoleAddresses {
+  /** The launching wallet — the creator line resolves here (mirrors resolveFeeConstitution). */
+  creator: Address;
+  /** RevenueDistributor (stakers + POL) — the 'protocol-stakers' line. */
+  protocolStakers: Address;
+  /** Doppler / Airlock owner — the 'doppler' line. */
+  doppler: Address;
+}
+
+/** WAD (1e18) — the locker stores beneficiary shares as this-denominated fractions. */
+const WAD_NUMBER = 1e18;
+
+/**
+ * REVERSE of {@link resolveFeeConstitution} + airlock's feeConstitutionToBeneficiaries:
+ * turn the REAL on-chain StreamableFeesLocker beneficiary set (address + WAD share)
+ * back into a labelled FeeConstitutionLine[]. This is the fully-verifiable fee
+ * disclosure — read from the graduated pool's locker, not a launch-time snapshot.
+ *
+ * Pure: (locker beneficiaries + the three fixed role addresses) -> lines. No chain
+ * access, so it is unit-tested in isolation; the chain read lives in lockerStream.ts.
+ *
+ * WAD -> bps: `Math.round(Number(shares) * 10000 / 1e18)`. The forward map is
+ * `shares = bps * 1e14` (airlock.ts), so every honest share is `bps * 1e14`, whose
+ * Number() is EXACT (it factors as bps·5^14·2^14 with bps·5^14 < 2^53) and round-trips
+ * to `bps` precisely. Math.round (not floor/trunc) is deliberate insurance: if a future
+ * SDK normalise path leaves a few-wei remainder on a share, rounding still recovers the
+ * intended bps, whereas truncation would drop a whole basis point.
+ *
+ * Labelling mirrors the forward resolver EXACTLY (case-insensitive address match):
+ *   protocolStakers -> 'Tegridy stakers + POL' / protocol-stakers
+ *   doppler         -> 'Doppler' / doppler
+ *   creator         -> 'Creator' / creator
+ *   anything else   -> the address itself / attention-beneficiary
+ * Order is preserved from the locker (which stores beneficiaries address-sorted), so
+ * the resulting disclosure — and its attestation digest — is deterministic.
+ */
+export function beneficiariesToFeeConstitution(
+  beneficiaries: readonly { beneficiary: Address; shares: bigint }[],
+  roles: FeeRoleAddresses,
+): FeeConstitutionLine[] {
+  const creator = roles.creator.toLowerCase();
+  const protocolStakers = roles.protocolStakers.toLowerCase();
+  const doppler = roles.doppler.toLowerCase();
+  return beneficiaries.map(({ beneficiary, shares }) => {
+    const shareBps = Math.round((Number(shares) * 10_000) / WAD_NUMBER);
+    const key = beneficiary.toLowerCase();
+    if (key === protocolStakers) return { recipient: 'Tegridy stakers + POL', role: 'protocol-stakers', shareBps };
+    if (key === doppler) return { recipient: 'Doppler', role: 'doppler', shareBps };
+    if (key === creator) return { recipient: 'Creator', role: 'creator', shareBps };
+    return { recipient: beneficiary, role: 'attention-beneficiary', shareBps };
+  });
+}
+
 /**
  * Turn wizard state into a fully-resolved TegridyLaunchConfig. Pure — no chain
  * access. The resulting config is what buildTegridyLaunchParams consumes.

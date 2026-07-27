@@ -118,8 +118,14 @@ export interface TegridyLaunchConfig {
   vesting?: { amount: bigint; durationSeconds: number; cliffSeconds?: number };
 }
 
-/** Migration (graduated) V4 pool params. Unlike the auction pool, this has no <=30 constraint. */
-const MIGRATION_POOL = { fee: 3000, tickSpacing: 60 } as const;
+/**
+ * Migration (graduated) V4 pool params. Unlike the auction pool, this has no <=30
+ * constraint. Exported so the post-graduation locker read derives the migration
+ * PoolId from the SAME fee/tickSpacing this launch config commits — the two can
+ * never drift (a mismatch would compute a PoolId with no stream and silently read
+ * nothing). Verified on-chain 2026-07-26: fee 3000 / tickSpacing 60.
+ */
+export const MIGRATION_POOL = { fee: 3000, tickSpacing: 60 } as const;
 
 /**
  * Doppler `BuilderVestingInput` (simple recipients/amounts form), mirrored from

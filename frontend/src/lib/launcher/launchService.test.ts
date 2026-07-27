@@ -13,9 +13,11 @@ import {
   wizardConfigToLaunchConfig,
   launchToken,
   resolveFeeConstitution,
+  beneficiariesToFeeConstitution,
   LaunchError,
   type LaunchWizardInput,
   type LaunchMapOptions,
+  type FeeRoleAddresses,
 } from './launchService';
 import { feeConstitutionToBeneficiaries } from './airlock';
 import { DOPPLER_MAINNET } from './doppler.constants';
@@ -55,6 +57,84 @@ describe('resolveFeeConstitution — the deployed split, not the 70/10 template'
 
   it('throws if carves over-allocate the 80% pool', () => {
     expect(() => resolveFeeConstitution(CREATOR, [{ address: KOL, shareBps: 8500 }])).toThrow();
+  });
+});
+
+// The POST-GRADUATION fully-verifiable disclosure: reverse the REAL on-chain locker
+// beneficiary set back into labelled fee lines. These pin the exact WAD->bps math and
+// role labelling so a mutated map (floor instead of round, a swapped/dropped role, a
+// mislabelled address) fails loudly.
+describe('beneficiariesToFeeConstitution — reverse of the on-chain locker split', () => {
+  const CREATOR = '0x1489a1B0dF0e5F7B2C4d3E6a7b8c9D0e1F2A3456' as Address;
+  const KOL = '0x00000000000000000000000000000000000000AA' as Address;
+  const roles: FeeRoleAddresses = {
+    creator: CREATOR,
+    protocolStakers: REVENUE_DISTRIBUTOR_ADDRESS,
+    doppler: DOPPLER_MAINNET.airlockOwner,
+  };
+  const WAD = 10n ** 18n;
+  const bpsToShares = (bps: number) => (BigInt(bps) * WAD) / 10_000n; // forward: bps * 1e14
+  const byRole = (lines: { role: string; shareBps: number }[], role: string) =>
+    lines.filter((l) => l.role === role).reduce((n, l) => n + l.shareBps, 0);
+
+  it('ROUND-TRIP: resolve -> feeConstitutionToBeneficiaries -> reverse recovers roles + bps (sums 10000)', () => {
+    const resolved = resolveFeeConstitution(CREATOR, [{ address: KOL, shareBps: 1500 }]);
+    const bens = feeConstitutionToBeneficiaries(resolved); // {beneficiary, shares}[], address-sorted
+    const recovered = beneficiariesToFeeConstitution(bens, roles);
+    expect(recovered.reduce((n, l) => n + l.shareBps, 0)).toBe(10000);
+    expect(byRole(recovered, 'creator')).toBe(6500); // 8000 - 1500 carve
+    expect(byRole(recovered, 'attention-beneficiary')).toBe(1500);
+    expect(byRole(recovered, 'protocol-stakers')).toBe(1500);
+    expect(byRole(recovered, 'doppler')).toBe(500);
+    // labels mirror the forward path exactly
+    expect(recovered.find((l) => l.role === 'creator')?.recipient).toBe('Creator');
+    expect(recovered.find((l) => l.role === 'protocol-stakers')?.recipient).toBe('Tegridy stakers + POL');
+    expect(recovered.find((l) => l.role === 'doppler')?.recipient).toBe('Doppler');
+    // the attention line's recipient is the KOL's own address
+    expect(recovered.find((l) => l.role === 'attention-beneficiary')?.recipient?.toLowerCase()).toBe(KOL.toLowerCase());
+  });
+
+  it('exact WAD shares (bps * 1e14) round-trip to exact bps', () => {
+    const bens = [
+      { beneficiary: CREATOR, shares: bpsToShares(7000) },
+      { beneficiary: REVENUE_DISTRIBUTOR_ADDRESS, shares: bpsToShares(1500) },
+      { beneficiary: DOPPLER_MAINNET.airlockOwner, shares: bpsToShares(500) },
+      { beneficiary: KOL, shares: bpsToShares(1000) },
+    ];
+    const lines = beneficiariesToFeeConstitution(bens, roles);
+    expect(lines.map((l) => l.shareBps)).toEqual([7000, 1500, 500, 1000]);
+    expect(lines.reduce((n, l) => n + l.shareBps, 0)).toBe(10000);
+  });
+
+  it('uses Math.round, NOT floor/trunc: a share just under a bps boundary rounds UP', () => {
+    // 149_997e12 wei = 1499.97 bps. Math.round -> 1500; floor/trunc -> 1499. The wei
+    // deficit (3e12) is far larger than a double''s spacing near 1.5e17, so it survives
+    // Number() and genuinely exercises the rounding direction (a real normalise remainder
+    // of a few wei would be erased by Number and round/floor would agree — this pins round).
+    const [line] = beneficiariesToFeeConstitution([{ beneficiary: KOL, shares: 149_997_000_000_000_000n }], roles);
+    expect(line.shareBps).toBe(1500);
+  });
+
+  it('labels each fixed role by address (case-insensitive) and everything else as attention', () => {
+    const OTHER = '0x00000000000000000000000000000000000000bb' as Address;
+    const bens = [
+      { beneficiary: CREATOR.toLowerCase() as Address, shares: bpsToShares(6000) }, // creator given lowercased
+      { beneficiary: REVENUE_DISTRIBUTOR_ADDRESS, shares: bpsToShares(1500) },
+      { beneficiary: DOPPLER_MAINNET.airlockOwner, shares: bpsToShares(500) },
+      { beneficiary: KOL, shares: bpsToShares(1000) },
+      { beneficiary: OTHER, shares: bpsToShares(1000) },
+    ];
+    const lines = beneficiariesToFeeConstitution(bens, roles);
+    expect(lines.map((l) => l.role)).toEqual([
+      'creator',
+      'protocol-stakers',
+      'doppler',
+      'attention-beneficiary',
+      'attention-beneficiary',
+    ]);
+    // order is preserved from the locker input
+    expect(lines[3].recipient?.toLowerCase()).toBe(KOL.toLowerCase());
+    expect(lines[4].recipient?.toLowerCase()).toBe(OTHER.toLowerCase());
   });
 });
 

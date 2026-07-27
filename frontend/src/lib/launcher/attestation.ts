@@ -253,6 +253,28 @@ export interface AttestFactSheetOptions {
 }
 
 /**
+ * Probe whether the Fact Sheet disclosure schema is registered on the mainnet
+ * SchemaRegistry. Returns true (registered), false (not registered — a getSchema
+ * that returns the empty record with a 0x0…0 uid), or null (unknown: a read/decode
+ * error). Read-only; the same logic the launch-success path uses inline, exposed so
+ * the post-graduation re-attestation panel can gate its button the same way (an
+ * attestation against an unregistered schema reverts).
+ */
+export async function factSheetSchemaRegistered(publicClient: PublicClient): Promise<boolean | null> {
+  try {
+    const rec = (await publicClient.readContract({
+      address: EAS_SCHEMA_REGISTRY_MAINNET,
+      abi: EAS_SCHEMA_REGISTRY_ABI,
+      functionName: 'getSchema',
+      args: [factSheetSchemaUid()],
+    })) as { uid?: `0x${string}` };
+    return typeof rec?.uid === 'string' && !/^0x0*$/.test(rec.uid);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Write a Fact Sheet as an EAS attestation. Simulates first (to read the returned
  * UID and surface reverts cleanly), then sends. The recipient is the launched
  * token — so the attestation is discoverable by token address.
