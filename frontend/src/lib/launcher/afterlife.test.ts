@@ -10,7 +10,7 @@ import {
   type AfterlifeAddressBook,
   type AfterlifeLaunch,
 } from './afterlife';
-import { AFTERLIFE_GAUGE_CONTROLLER_ADDRESS } from './constants';
+import { AFTERLIFE_GAUGE_CONTROLLER_ADDRESS, AFTERLIFE_V4_POSITION_MANAGER_ADDRESS } from './constants';
 
 const TOKEN = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as Address;
 const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as Address;
@@ -187,18 +187,26 @@ describe('afterlifeEligibility', () => {
     expect(r.anyAvailable).toBe(true);
   });
 
-  it('default state: boosted pending (PositionManager zero), gauge eligible (real controller wired)', () => {
-    const r = afterlifeEligibility(graduated); // default book: PositionManager zero, GaugeController = real deployed addr
-    // PositionManager is still unwired -> boosted-LP farming stays honestly gated.
-    expect(feat(r, 'boosted-lp-farming').status).toBe('pending-deployment');
-    // GaugeController is the real deployed mainnet address -> gauge application is eligible.
+  it('default state: BOTH eligible — PositionManager + GaugeController wired', () => {
+    const r = afterlifeEligibility(graduated); // default book: real V4 PositionManager + real GaugeController
+    // The V4 PositionManager is now wired -> boosted-LP farming is eligible (infra in place).
+    expect(feat(r, 'boosted-lp-farming').status).toBe('eligible');
     expect(feat(r, 'gauge-application').status).toBe('eligible');
     expect(r.anyAvailable).toBe(true);
-    // dependency deployed-flags are reported honestly: PositionManager false, GaugeController true.
+    // dependency deployed-flags are reported honestly: both true now.
     const pm = feat(r, 'boosted-lp-farming').requires.find((d) => /PositionManager/.test(d.label))!;
-    expect(pm.deployed).toBe(false);
+    expect(pm.deployed).toBe(true);
     const gc = feat(r, 'gauge-application').requires.find((d) => /GaugeController/.test(d.label))!;
     expect(gc.deployed).toBe(true);
+  });
+
+  it('boosted-LP falls back to pending-deployment when the PositionManager is unset', () => {
+    // Keeps the honest-gating code path covered even though the default is now wired.
+    const book: AfterlifeAddressBook = { ...allDeployed, positionManager: ZERO_ADDRESS };
+    const r = afterlifeEligibility(graduated, book);
+    expect(feat(r, 'boosted-lp-farming').status).toBe('pending-deployment');
+    const pm = feat(r, 'boosted-lp-farming').requires.find((d) => /PositionManager/.test(d.label))!;
+    expect(pm.deployed).toBe(false);
   });
 
   it('gauge pending-deployment while boosted-LP eligible (independent gating)', () => {
@@ -215,10 +223,11 @@ describe('afterlifeEligibility', () => {
     expect(afterlifeEligibility({ ...graduated, tier: 'none' }, allDeployed).fastTrack).toBe(false);
   });
 
-  it('default address book: PositionManager zeroed, GaugeController = real deployed controller', () => {
+  it('default address book: canonical V4 PositionManager + real deployed GaugeController, all non-zero', () => {
     const book = defaultAfterlifeAddressBook();
-    // PositionManager stays zero (not deployed / not configured anywhere in repo).
-    expect(book.positionManager).toBe(ZERO_ADDRESS);
+    // PositionManager = the canonical Uniswap V4 posm (verified on-chain 0xbD21…ee9e).
+    expect(book.positionManager).toBe(AFTERLIFE_V4_POSITION_MANAGER_ADDRESS);
+    expect(book.positionManager).not.toBe(ZERO_ADDRESS);
     // GaugeController is the real deployed mainnet address (launcher-local, not the
     // app-global gauge gate) — verified from the DeployGaugeController broadcast.
     expect(book.gaugeController).toBe(AFTERLIFE_GAUGE_CONTROLLER_ADDRESS);

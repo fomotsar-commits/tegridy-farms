@@ -858,8 +858,9 @@ function LauncherExplainer() {
           <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>
           <li>A gauge is an <em>application</em> through the standard timelocked process — not a promise of emissions.</li>
           <li>
-            Boosted-LP farming for launched pools still needs the V4 PositionManager wired. Until it is, the code
-            reports that feature as pending deployment rather than available.
+            The Uniswap V4 PositionManager is wired, so a graduated launch reports boosted-LP farming as
+            <em> eligible</em> — but that means the infrastructure is in place, not that farming is running: the
+            per-pool staker is deployed for each launch by a re-homed-Safe owner, never automatically.
           </li>
         </ul>
       </ExplainerCard>

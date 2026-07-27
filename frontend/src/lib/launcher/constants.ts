@@ -28,3 +28,21 @@ import type { Address } from 'viem';
  */
 export const AFTERLIFE_GAUGE_CONTROLLER_ADDRESS =
   '0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054' as Address;
+
+/**
+ * Canonical Uniswap V4 PositionManager — Ethereum mainnet. The escrowed-NFT issuer a
+ * graduated Doppler pool's LP lives under, so a per-pool boosted-LP staker is built
+ * against it (afterlife.ts buildBoostedStakerDeployParams / eligibility).
+ *
+ * VERIFIED on-chain 2026-07-26: 23,877 bytes of code and `poolManager()` returns the
+ * canonical V4 PoolManager `0x0000…08A90` — the same posm the deployed Doppler
+ * v4Migrator (0x0820…) reports from its own `positionManager()` getter. Wiring this
+ * flips Afterlife boosted-LP farming from 'pending-deployment' to 'eligible' for a
+ * graduated launch. HONEST SCOPE: 'eligible' means the V4 infra is configured — a
+ * per-pool `TegridyBoostedLPStaker` is still deployed per-launch by a re-homed-Safe
+ * owner (buildBoostedStakerDeployParams requires a non-zero owner; there is no
+ * fabricated default). This is app-global infra, not launcher-specific, but kept in
+ * the launcher-local book alongside the gauge address for the same reason.
+ */
+export const AFTERLIFE_V4_POSITION_MANAGER_ADDRESS =
+  '0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e' as Address;
