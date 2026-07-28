@@ -29,7 +29,6 @@ describe('usePoolData', () => {
     expect(result.current.totalStaked).toBe('0');
     expect(result.current.totalStakedRaw).toBe(0n);
     expect(result.current.totalBoostedStake).toBe('0');
-    expect(result.current.totalLocked).toBe('0');
     expect(result.current.rewardRate).toBe('0');
     expect(result.current.totalRewardsFunded).toBe('0');
     expect(result.current.totalPenalties).toBe('0');
@@ -64,13 +63,14 @@ describe('usePoolData', () => {
     expect(result.current.totalStaked).toBe('1234');
   });
 
-  it('propagates totalBoostedStake, totalLocked and rewardRate as formatted ether', () => {
+  it('propagates totalBoostedStake and rewardRate as formatted ether', () => {
+    // totalLocked was dropped from the hook: the deployed staking contract has
+    // no totalLocked() (2026-05-30 EIP-170 golf), so the read always reverted
+    // and the field could only ever be '0'.
     wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: parseEther('500') });
-    wagmiMock.setReadResult({ functionName: 'totalLocked', result: parseEther('250') });
     wagmiMock.setReadResult({ functionName: 'rewardRate', result: parseEther('0.1') });
     const { result } = renderHook(() => usePoolData());
     expect(result.current.totalBoostedStake).toBe('500');
-    expect(result.current.totalLocked).toBe('250');
     expect(result.current.rewardRate).toBe('0.1');
   });
 

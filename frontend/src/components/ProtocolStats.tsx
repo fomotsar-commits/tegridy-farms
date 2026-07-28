@@ -26,7 +26,7 @@ interface StatItem { l: string; v: string; sub: string; icon: string }
  * protocol to exactly the DeFi-native audience the page courts. Live
  * metrics now render only once they're meaningful and are backfilled with
  * evergreen protocol guarantees (fee share, LP lock, fixed supply, audit
- * record) that are true on day zero. As volume/fees/swaps light up
+ * record) that are true on day zero. As volume/fees light up
  * post-seed they displace the evergreen cards automatically.
  */
 export function ProtocolStats() {
@@ -38,7 +38,9 @@ export function ProtocolStats() {
   if (s.dailyEmissionToweli > 0) live.push({ l: 'Daily Emissions', v: `${fmtToken(s.dailyEmissionToweli)}/day`, sub: 'to stakers', icon: '⚡' });
   // Below ~$1k the USD figure undersells the position — show the token count.
   if (s.stakedToweli > 0) live.push({ l: 'Total Staked', v: s.stakedUsd >= 1000 ? fmtUsd(s.stakedUsd) : fmtToken(s.stakedToweli), sub: 'TOWELI locked', icon: '🔒' });
-  if (s.totalSwaps > 0) live.push({ l: 'Total Swaps', v: s.totalSwaps.toLocaleString(), sub: 'lifetime trades', icon: '📊' });
+  // No "Total Swaps" card: the deployed SwapFeeRouter has no totalSwaps() (gas
+  // fix G-23), so the read reverted forever and the card could never light up.
+  // Reintroduce only from indexer data (SwapExecuted event count).
 
   const evergreen: StatItem[] = [
     // F68: don't freeze a governable on-chain split (stakerShareBps) into a fixed

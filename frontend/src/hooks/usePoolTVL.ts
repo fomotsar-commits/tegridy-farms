@@ -27,7 +27,6 @@ export function usePoolTVL() {
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply', chainId: CHAIN_ID } as const,
       ...(hasFeeRouter ? [
         { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees' as const, chainId: CHAIN_ID },
-        { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps' as const, chainId: CHAIN_ID },
         { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' as const, chainId: CHAIN_ID },
         // F109: live staker fee-share so the "100% to stakers" chip derives from
         // chain truth instead of a hardcoded literal that drifts on a re-tune.
@@ -49,9 +48,9 @@ export function usePoolTVL() {
     // F109: live staker fee-share. Loaded-and-zero is meaningful (governance
     // could route 0% to stakers); undefined means the read hasn't landed, so the
     // "Fee Share" chip keeps its honest default copy until then.
-    const stakerShareLoaded = hasFeeRouter && data?.[6]?.status === 'success';
-    const stakerSharePct = (hasFeeRouter && data?.[6]?.status === 'success')
-      ? Number(data[6].result as bigint) / 100
+    const stakerShareLoaded = hasFeeRouter && data?.[5]?.status === 'success';
+    const stakerSharePct = (hasFeeRouter && data?.[5]?.status === 'success')
+      ? Number(data[5].result as bigint) / 100
       : undefined;
 
     if (!reserves || !token0 || price.ethUsd <= 0) {
@@ -82,7 +81,7 @@ export function usePoolTVL() {
     let volIsEstimated = true;
 
     const totalETHFees = hasFeeRouter && data?.[3]?.status === 'success' ? data[3].result as bigint : 0n;
-    const feeBps = hasFeeRouter && data?.[5]?.status === 'success' ? data[5].result as bigint : 0n;
+    const feeBps = hasFeeRouter && data?.[4]?.status === 'success' ? data[4].result as bigint : 0n;
 
     if (totalETHFees > 0n && tvl > 0) {
       const totalFeesUsd = parseFloat(formatEther(totalETHFees)) * price.ethUsd;
