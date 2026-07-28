@@ -29,7 +29,7 @@ import {
   isAllowedNumeraire,
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
-import { REVENUE_DISTRIBUTOR_ADDRESS } from '../constants';
+import { REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS } from '../constants';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
@@ -105,11 +105,31 @@ export type LaunchErrorCode =
 export class LaunchError extends Error {
   readonly code: LaunchErrorCode;
   readonly cause?: unknown;
-  constructor(code: LaunchErrorCode, message: string, cause?: unknown) {
+  /**
+   * True when the failure happened AFTER the launch tx was broadcast (so it may be
+   * mined, or still pending). The UI MUST NOT offer a blind retry in that case — a
+   * second launch would mint a DUPLICATE token, split the liquidity and double the
+   * payment, all while the first token's Fact Sheet is already attested. Pre-broadcast
+   * failures (gate / integrator / config / simulation / a user-rejected signature) are
+   * safe to retry and leave this false. CONSERVATIVE: an unclassified submit failure
+   * (e.g. a receipt-wait timeout, where the tx may well already be mined) defaults to
+   * TRUE — over-warning is harmless, under-warning risks the duplicate.
+   */
+  readonly broadcast: boolean;
+  /** The launch tx hash when the SDK/RPC surfaced it before the failure (a receipt-wait
+   *  timeout carries it), so the UI can link the pending tx to Etherscan. */
+  readonly txHash?: string;
+  constructor(
+    code: LaunchErrorCode,
+    message: string,
+    opts?: { cause?: unknown; broadcast?: boolean; txHash?: string },
+  ) {
     super(message);
     this.name = 'LaunchError';
     this.code = code;
-    this.cause = cause;
+    this.cause = opts?.cause;
+    this.broadcast = opts?.broadcast ?? false;
+    this.txHash = opts?.txHash;
   }
 }
 
@@ -189,6 +209,31 @@ const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION.filter(
 ).reduce((n, l) => n + l.shareBps, 0);
 
 /**
+ * The protocol's 15% fee line is streamed by the locker in the POOL's currencies, so
+ * its sink must be able to actually USE what it receives:
+ *   - ETH launch             -> RevenueDistributor, which distributes ETH as REAL YIELD
+ *                               to veTOWELI stakers. Verified on-chain: it is ETH-only —
+ *                               epochs record `totalETH` and claims pay via `.call{value}`,
+ *                               with no ERC20 distribution path (a non-ETH token sent to
+ *                               it is, at best, an owner sweep-to-treasury, never yield).
+ *   - exotic (TOWELI) launch -> the protocol Treasury (2-of-2 Safe). The cut is
+ *                               TOWELI/token-denominated, which RevenueDistributor cannot
+ *                               turn into staker yield, so routing it straight to Treasury
+ *                               is both HONEST (protocol revenue, not "real yield to
+ *                               stakers") and functional (a Safe can hold/deploy the ERC20;
+ *                               it is where a stray-token sweep would land anyway).
+ * The display label follows the sink so the Fact Sheet never claims staker yield for a
+ * pair that can't pay it. Shared by the forward resolver and the post-graduation
+ * re-attestation labeler so the on-chain split and its disclosure always agree.
+ */
+export function protocolFeeSink(numeraire: Address = ETH_NUMERAIRE): { address: Address; recipient: string } {
+  const isEth = numeraire.toLowerCase() === ETH_NUMERAIRE.toLowerCase();
+  return isEth
+    ? { address: REVENUE_DISTRIBUTOR_ADDRESS, recipient: 'Tegridy stakers' }
+    : { address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' };
+}
+
+/**
  * Resolve DEFAULT_FEE_CONSTITUTION to concrete addresses, carving the creator's
  * attention splits out of the combined creator+attention pool, then COALESCE
  * lines that resolve to the same address (summing bps).
@@ -199,7 +244,11 @@ const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION.filter(
  * beneficiaries, so coalescing keeps the set unique (a KOL == creator merges)
  * while preserving the 10000-bps total and the >=500-bps Doppler floor.
  */
-export function resolveFeeConstitution(userAddress: Address, attentionSplits: readonly AttentionSplit[] = []): ResolvedLine[] {
+export function resolveFeeConstitution(
+  userAddress: Address,
+  attentionSplits: readonly AttentionSplit[] = [],
+  numeraire: Address = ETH_NUMERAIRE,
+): ResolvedLine[] {
   // Validate the creator's carve-out: non-negative whole bps that don't over-allocate.
   let splitSum = 0;
   for (const s of attentionSplits) {
@@ -217,7 +266,11 @@ export function resolveFeeConstitution(userAddress: Address, attentionSplits: re
   // FIXED protocol + Doppler lines (resolved addresses; never touched by the carve-out).
   const fixedLines: ResolvedLine[] = [];
   for (const line of DEFAULT_FEE_CONSTITUTION) {
-    if (line.role === 'protocol-stakers') fixedLines.push({ ...line, address: REVENUE_DISTRIBUTOR_ADDRESS });
+    if (line.role === 'protocol-stakers') {
+      // Numeraire-aware sink + honest label (RevenueDistributor/ETH-yield vs Treasury/exotic).
+      const sink = protocolFeeSink(numeraire);
+      fixedLines.push({ ...line, recipient: sink.recipient, address: sink.address });
+    }
     // Carries the Airlock owner + enforces the >=5% floor.
     else if (line.role === 'doppler') fixedLines.push(dopplerBeneficiaryLine(line.shareBps));
   }
@@ -273,8 +326,13 @@ export function resolveFeeConstitution(userAddress: Address, attentionSplits: re
 export interface FeeRoleAddresses {
   /** The launching wallet — the creator line resolves here (mirrors resolveFeeConstitution). */
   creator: Address;
-  /** RevenueDistributor (veTOWELI stakers — real yield, not POL) — the 'protocol-stakers' line. */
+  /** The protocol fee sink for THIS launch's numeraire — RevenueDistributor for an ETH
+   *  pair, Treasury for an exotic (TOWELI) pair. Get it from {@link protocolFeeSink} so
+   *  the reverse label matches the address that was actually streamed on-chain. */
   protocolStakers: Address;
+  /** Display label for the protocol line, matching the sink. Defaults to the ETH-pair
+   *  "Tegridy stakers"; an exotic launch passes "Tegridy treasury". */
+  protocolRecipient?: string;
   /** Doppler / Airlock owner — the 'doppler' line. */
   doppler: Address;
 }
@@ -316,7 +374,7 @@ export function beneficiariesToFeeConstitution(
   return beneficiaries.map(({ beneficiary, shares }) => {
     const shareBps = Math.round((Number(shares) * 10_000) / WAD_NUMBER);
     const key = beneficiary.toLowerCase();
-    if (key === protocolStakers) return { recipient: 'Tegridy stakers', role: 'protocol-stakers', shareBps };
+    if (key === protocolStakers) return { recipient: roles.protocolRecipient ?? 'Tegridy stakers', role: 'protocol-stakers', shareBps };
     if (key === doppler) return { recipient: 'Doppler', role: 'doppler', shareBps };
     if (key === creator) return { recipient: 'Creator', role: 'creator', shareBps };
     return { recipient: beneficiary, role: 'attention-beneficiary', shareBps };
@@ -403,7 +461,7 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     numeraire,
     minProceeds: opts.minProceeds ?? defaultMinProceeds,
     maxProceeds: opts.maxProceeds ?? defaultMaxProceeds,
-    feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits),
+    feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits, numeraire),
     integrator: LAUNCHER_INTEGRATOR_ADDRESS,
     lockDurationSeconds: Math.round(w.lpLockMonths * MONTH_SECONDS),
     userAddress: opts.userAddress,
@@ -449,13 +507,13 @@ export async function launchToken(
   try {
     params = buildTegridyLaunchParams(sdk as unknown as DopplerEvmSdkLike, cfg) as CreateDynamicAuctionParams;
   } catch (e) {
-    throw new LaunchError('invalid-config', `Could not build launch parameters: ${errText(e)}`, e);
+    throw new LaunchError('invalid-config', `Could not build launch parameters: ${errText(e)}`, { cause: e });
   }
 
   try {
     await sdk.factory.simulateCreateDynamicAuction(params);
   } catch (e) {
-    throw new LaunchError('simulation-failed', `Launch simulation reverted: ${errText(e)}`, e);
+    throw new LaunchError('simulation-failed', `Launch simulation reverted: ${errText(e)}`, { cause: e });
   }
 
   try {
@@ -471,11 +529,54 @@ export async function launchToken(
       numeraire: cfg.numeraire ?? ETH_NUMERAIRE,
     };
   } catch (e) {
-    throw new LaunchError('submit-failed', `Launch transaction failed: ${errText(e)}`, e);
+    // create() broadcasts AND waits for the receipt in one step, so a throw here may
+    // mean the tx is already on-chain (classically: a receipt-wait timeout). Only a
+    // user-rejected signature is provably pre-broadcast; everything else is treated as
+    // possibly-broadcast so the UI refuses to invite a duplicate launch.
+    const broadcast = !isUserRejection(e);
+    throw new LaunchError('submit-failed', `Launch transaction failed: ${errText(e)}`, {
+      cause: e,
+      broadcast,
+      txHash: broadcast ? extractTxHash(e) : undefined,
+    });
   }
 }
 
 function errText(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+/**
+ * A user rejecting the signature in their wallet is the one submit-path failure we can
+ * be SURE never reached the chain (viem's UserRejectedRequestError / EIP-1193 code 4001).
+ * Everything else in the create() catch is treated as possibly-broadcast (see
+ * {@link LaunchError.broadcast}). Walks the cause chain so it survives SDK error-wrapping.
+ */
+export function isUserRejection(e: unknown): boolean {
+  let cur: unknown = e;
+  for (let i = 0; i < 5 && cur != null; i++) {
+    const o = cur as { name?: string; code?: unknown; message?: string; cause?: unknown };
+    if (o.name === 'UserRejectedRequestError') return true;
+    if (o.code === 4001 || o.code === 'ACTION_REJECTED') return true;
+    if (typeof o.message === 'string' && /user rejected|user denied|rejected the request/i.test(o.message)) return true;
+    cur = o.cause;
+  }
+  return false;
+}
+
+/**
+ * Best-effort extraction of the broadcast tx hash from a create()-path error (a
+ * receipt-wait timeout carries it), so the UI can point the user at the pending tx.
+ * Returns undefined unless it finds a well-formed 32-byte hash.
+ */
+export function extractTxHash(e: unknown): string | undefined {
+  let cur: unknown = e;
+  for (let i = 0; i < 5 && cur != null; i++) {
+    const o = cur as { transactionHash?: unknown; hash?: unknown; cause?: unknown };
+    const h = o.transactionHash ?? o.hash;
+    if (typeof h === 'string' && /^0x[0-9a-fA-F]{64}$/.test(h)) return h;
+    cur = o.cause;
+  }
+  return undefined;
 }

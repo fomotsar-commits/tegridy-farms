@@ -23,6 +23,9 @@ import {
   launchToken,
   resolveFeeConstitution,
   beneficiariesToFeeConstitution,
+  protocolFeeSink,
+  isUserRejection,
+  extractTxHash,
   LaunchError,
   type LaunchWizardInput,
   type LaunchMapOptions,
@@ -30,7 +33,7 @@ import {
 } from './launchService';
 import { feeConstitutionToBeneficiaries } from './airlock';
 import { DOPPLER_MAINNET } from './doppler.constants';
-import { REVENUE_DISTRIBUTOR_ADDRESS } from '../constants';
+import { REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS } from '../constants';
 import { LAUNCHER_INTEGRATOR_ADDRESS, LAUNCH_FEE_TIER, DEFAULT_FEE_CONSTITUTION, ETH_NUMERAIRE, TOWELI_NUMERAIRE } from './config';
 
 // The wizard used to DISPLAY and ATTEST the static DEFAULT_FEE_CONSTITUTION
@@ -69,6 +72,73 @@ describe('resolveFeeConstitution — the deployed split, not the 70/10 template'
   });
 });
 
+// Numeraire-aware protocol fee sink: an ETH pair routes the 15% protocol line to the
+// ETH-only RevenueDistributor (real veTOWELI yield); an exotic TOWELI pair CANNOT yield
+// there (RevenueDistributor is ETH-only, verified on-chain), so it must route to the
+// Treasury with an honest label. Pins the forward map so a regression that ignores the
+// numeraire — the pre-fix behaviour — fails loudly.
+describe('resolveFeeConstitution — numeraire-aware protocol sink', () => {
+  const CREATOR = '0x1489a1B0dF0e5F7B2C4d3E6a7b8c9D0e1F2A3456' as Address;
+  const protocolLine = (numeraire?: Address) =>
+    resolveFeeConstitution(CREATOR, [], numeraire).find((l) => l.role === 'protocol-stakers')!;
+
+  it('ETH pair (default and explicit) -> RevenueDistributor, "Tegridy stakers" (unchanged)', () => {
+    for (const line of [protocolLine(), protocolLine(ETH_NUMERAIRE)]) {
+      expect(line.address.toLowerCase()).toBe(REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase());
+      expect(line.recipient).toBe('Tegridy stakers');
+      expect(line.shareBps).toBe(1500);
+    }
+  });
+
+  it('exotic TOWELI pair -> Treasury, "Tegridy treasury", NOT the ETH-only RevenueDistributor', () => {
+    const line = protocolLine(TOWELI_NUMERAIRE);
+    // Mutation-check: pre-fix this resolved to REVENUE_DISTRIBUTOR_ADDRESS for EVERY
+    // numeraire, so a TOWELI-denominated cut landed where it can never become staker yield.
+    expect(line.address.toLowerCase()).toBe(TREASURY_ADDRESS.toLowerCase());
+    expect(line.address.toLowerCase()).not.toBe(REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase());
+    expect(line.recipient).toBe('Tegridy treasury');
+    expect(line.shareBps).toBe(1500); // only the sink + label move — the 15% share is unchanged
+  });
+
+  it('protocolFeeSink is the single source of truth for both sink + label', () => {
+    expect(protocolFeeSink(ETH_NUMERAIRE)).toEqual({ address: REVENUE_DISTRIBUTOR_ADDRESS, recipient: 'Tegridy stakers' });
+    expect(protocolFeeSink(TOWELI_NUMERAIRE)).toEqual({ address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' });
+  });
+});
+
+// The broadcast tag is the anti-double-launch invariant: a submit failure that MAY have
+// already broadcast the tx must NOT be offered a blind retry (that would mint a duplicate
+// token + double payment). Classification lives in isUserRejection — only a user-rejected
+// signature is provably pre-broadcast — so pin it: a regression that treats a receipt
+// timeout as safe-to-retry fails loudly here.
+describe('LaunchError broadcast tagging (anti-double-launch)', () => {
+  const hex64 = (b: string) => ('0x' + b.repeat(32)) as `0x${string}`;
+
+  it('defaults broadcast=false and carries an explicit true + txHash', () => {
+    expect(new LaunchError('invalid-config', 'x').broadcast).toBe(false);
+    const e = new LaunchError('submit-failed', 'x', { broadcast: true, txHash: hex64('ab') });
+    expect(e.broadcast).toBe(true);
+    expect(e.txHash).toBe(hex64('ab'));
+  });
+
+  it('isUserRejection: only a wallet rejection is provably pre-broadcast', () => {
+    expect(isUserRejection({ code: 4001, message: 'User rejected the request' })).toBe(true);
+    expect(isUserRejection({ name: 'UserRejectedRequestError' })).toBe(true);
+    expect(isUserRejection({ code: 'ACTION_REJECTED' })).toBe(true);
+    expect(isUserRejection({ cause: { code: 4001 } })).toBe(true); // walks the cause chain
+    // The dangerous case: a receipt-wait timeout is NOT a rejection -> tagged broadcast=true.
+    expect(isUserRejection(new Error('Timed out while waiting for transaction receipt'))).toBe(false);
+    expect(isUserRejection({ message: 'nonce too low' })).toBe(false);
+  });
+
+  it('extractTxHash: pulls a 32-byte hash from the error or its cause, else undefined', () => {
+    expect(extractTxHash({ transactionHash: hex64('cd') })).toBe(hex64('cd'));
+    expect(extractTxHash({ cause: { hash: hex64('ef') } })).toBe(hex64('ef'));
+    expect(extractTxHash({ transactionHash: '0xdead' })).toBeUndefined(); // malformed
+    expect(extractTxHash(new Error('no hash here'))).toBeUndefined();
+  });
+});
+
 // The POST-GRADUATION fully-verifiable disclosure: reverse the REAL on-chain locker
 // beneficiary set back into labelled fee lines. These pin the exact WAD->bps math and
 // role labelling so a mutated map (floor instead of round, a swapped/dropped role, a
@@ -101,6 +171,21 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
     expect(recovered.find((l) => l.role === 'doppler')?.recipient).toBe('Doppler');
     // the attention line's recipient is the KOL's own address
     expect(recovered.find((l) => l.role === 'attention-beneficiary')?.recipient?.toLowerCase()).toBe(KOL.toLowerCase());
+  });
+
+  it('EXOTIC round-trip: a TOWELI launch routes protocol -> Treasury, labelled "Tegridy treasury"', () => {
+    // Forward-resolve with the TOWELI numeraire, then reverse with the numeraire-appropriate
+    // sink (as the re-attestation does via protocolFeeSink). The disclosure must recover the
+    // Treasury sink + honest label, never the ETH "stakers" line for a pair that can't yield.
+    const resolved = resolveFeeConstitution(CREATOR, [], TOWELI_NUMERAIRE);
+    const bens = feeConstitutionToBeneficiaries(resolved);
+    const sink = protocolFeeSink(TOWELI_NUMERAIRE);
+    const exoticRoles: FeeRoleAddresses = { ...roles, protocolStakers: sink.address, protocolRecipient: sink.recipient };
+    const recovered = beneficiariesToFeeConstitution(bens, exoticRoles);
+    const protocol = recovered.find((l) => l.role === 'protocol-stakers');
+    expect(protocol?.shareBps).toBe(1500);
+    expect(protocol?.recipient).toBe('Tegridy treasury');
+    expect(recovered.reduce((n, l) => n + l.shareBps, 0)).toBe(10000);
   });
 
   it('exact WAD shares (bps * 1e14) round-trip to exact bps', () => {
