@@ -15,7 +15,6 @@ export function usePoolData() {
     contracts: [
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalBoostedStake', chainId: CHAIN_ID },
-      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalLocked', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalPenaltiesCollected', chainId: CHAIN_ID },
@@ -28,12 +27,11 @@ export function usePoolData() {
   // Safely extract results — if contract call fails, use 0n
   const totalStaked = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
   const totalBoostedStake = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
-  const totalLocked = (data?.[2]?.status === 'success' ? data[2].result as bigint : 0n);
-  const rewardRate = (data?.[3]?.status === 'success' ? data[3].result as bigint : 0n);
-  const totalRewardsFunded = (data?.[4]?.status === 'success' ? data[4].result as bigint : 0n);
-  const totalPenalties = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
-  const totalUnsettled = (data?.[6]?.status === 'success' ? data[6].result as bigint : 0n);
-  const stakingBalance = (data?.[7]?.status === 'success' ? data[7].result as bigint : 0n);
+  const rewardRate = (data?.[2]?.status === 'success' ? data[2].result as bigint : 0n);
+  const totalRewardsFunded = (data?.[3]?.status === 'success' ? data[3].result as bigint : 0n);
+  const totalPenalties = (data?.[4]?.status === 'success' ? data[4].result as bigint : 0n);
+  const totalUnsettled = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
+  const stakingBalance = (data?.[6]?.status === 'success' ? data[6].result as bigint : 0n);
 
   // HONESTY PASS 2026-06-11: totalRewardsFunded is CUMULATIVE (never
   // decreases), so it must not be displayed as "rewards remaining".
@@ -71,7 +69,6 @@ export function usePoolData() {
     totalStaked: formatEther(totalStaked),
     totalStakedRaw: totalStaked,
     totalBoostedStake: formatEther(totalBoostedStake),
-    totalLocked: formatEther(totalLocked),
     rewardRate: formatEther(rewardRate),
     totalRewardsFunded: formatEther(totalRewardsFunded),
     totalPenalties: formatEther(totalPenalties),

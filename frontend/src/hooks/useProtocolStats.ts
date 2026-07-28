@@ -11,7 +11,9 @@ import { useTOWELIPrice } from '../contexts/PriceContext';
  * Public protocol-analytics aggregate, read straight from chain (no wallet, no
  * indexer required). Cumulative figures: trading volume (derived from collected
  * fees ÷ fee rate), real-yield/fees generated, staking reward pool + emission,
- * total staked, swap count. All chainId-pinned so it works pre-connect.
+ * total staked. All chainId-pinned so it works pre-connect. Swap count is NOT
+ * read here: the deployed router has no totalSwaps() (removed by gas fix G-23);
+ * it becomes available once the indexer counts SwapExecuted events.
  *
  * NOTE: volume is an on-chain *approximation* (fees ÷ feeRate). Exact historical
  * volume + revenue distributed-per-epoch come from the Ponder indexer / Dune once
@@ -25,7 +27,6 @@ export function useProtocolStats() {
   const { data, isLoading } = useReadContracts({
     contracts: [
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees', chainId: CHAIN_ID },
-      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps', chainId: CHAIN_ID },
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps', chainId: CHAIN_ID },
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
@@ -35,11 +36,10 @@ export function useProtocolStats() {
   });
 
   const totalETHFees = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;
-  const totalSwaps = data?.[1]?.status === 'success' ? data[1].result as bigint : 0n;
-  const feeBps = data?.[2]?.status === 'success' ? data[2].result as bigint : 0n;
-  const totalStaked = data?.[3]?.status === 'success' ? data[3].result as bigint : 0n;
-  const totalRewardsFunded = data?.[4]?.status === 'success' ? data[4].result as bigint : 0n;
-  const rewardRate = data?.[5]?.status === 'success' ? data[5].result as bigint : 0n;
+  const feeBps = data?.[1]?.status === 'success' ? data[1].result as bigint : 0n;
+  const totalStaked = data?.[2]?.status === 'success' ? data[2].result as bigint : 0n;
+  const totalRewardsFunded = data?.[3]?.status === 'success' ? data[3].result as bigint : 0n;
+  const rewardRate = data?.[4]?.status === 'success' ? data[4].result as bigint : 0n;
 
   const ethUsd = price.ethUsd;
   const toweliUsd = price.priceInUsd;
@@ -59,7 +59,6 @@ export function useProtocolStats() {
     volumeUsd,
     feesUsd,
     feesEth,
-    totalSwaps: Number(totalSwaps),
     rewardPoolToweli,
     dailyEmissionToweli,
     stakedToweli,

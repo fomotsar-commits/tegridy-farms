@@ -17,6 +17,9 @@ export const TEGRIDY_STAKING_ABI = [
   { type: 'function', name: 'calculateBoost', inputs: [{ name: '_duration', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'pure' },
   { type: 'function', name: 'votingPowerOf', inputs: [{ name: 'user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'votingPowerAtTimestamp', inputs: [{ name: 'user', type: 'address' }, { name: 'ts', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // earned/getPosition are NOT on the live (EIP-170-golfed) TegridyStaking —
+  // call them at STAKING_MONITOR_VIEW_ADDRESS (or the legacy exit contracts),
+  // never at TEGRIDY_STAKING_ADDRESS, where they revert with empty returndata.
   { type: 'function', name: 'earned', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getPosition', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: 'amount', type: 'uint256' }, { name: 'boostBps', type: 'uint256' }, { name: 'lockEnd', type: 'uint256' }, { name: 'lockDuration', type: 'uint256' }, { name: 'autoMaxLock', type: 'bool' }, { name: 'canWithdraw', type: 'bool' }], stateMutability: 'view' },
   { type: 'function', name: 'positions', inputs: [{ name: '', type: 'uint256' }], outputs: [{ name: 'amount', type: 'uint256' }, { name: 'boostedAmount', type: 'uint256' }, { name: 'rewardDebt', type: 'int256' }, { name: 'lockEnd', type: 'uint64' }, { name: 'boostBps', type: 'uint16' }, { name: 'lockDuration', type: 'uint32' }, { name: 'autoMaxLock', type: 'bool' }, { name: 'hasJbacBoost', type: 'bool' }, { name: 'stakeTimestamp', type: 'uint64' }], stateMutability: 'view' },
@@ -26,7 +29,8 @@ export const TEGRIDY_STAKING_ABI = [
   { type: 'function', name: 'maxStakePerUser', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'maxTotalStaked', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalBoostedStake', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalLocked', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // totalLocked() was removed from the deployed contract (2026-05-30 EIP-170
+  // golf) — the selector reverts on-chain. Do not re-add.
   { type: 'function', name: 'totalRewardsFunded', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalPenaltiesCollected', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   // Public state var auto-getter (TegridyStaking.sol:268) — needed to compute
@@ -163,7 +167,9 @@ export const SWAP_FEE_ROUTER_ABI = [
   { type: 'function', name: 'swapExactTokensForTokensSupportingFeeOnTransferTokens', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }, { name: 'maxFeeBps', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'feeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalETHFees', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalSwaps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // NOTE: totalSwaps() does NOT exist on the deployed router (removed by gas fix
+  // G-23 — swap count is derivable from SwapExecuted events via an indexer).
+  // Do not re-add: the selector reverts with empty returndata on mainnet.
   // F109: governable fee split — read live so the "100% to stakers" copy can't
   // drift if governance retunes the split (TreasuryPage already reads this).
   { type: 'function', name: 'stakerShareBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
@@ -334,7 +340,10 @@ export const LP_FARMING_ABI = [
   { type: 'function', name: 'getReward', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'exit', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'emergencyWithdraw', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'notifyRewardAmount', inputs: [{ name: 'reward', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  // No notifyRewardAmount entry: the deployed farm's signature is
+  // (uint256 amount, uint256 duration), not the 1-arg Synthetix one this file
+  // used to declare — the wrong selector could only revert. Funding is an
+  // operator script action, not a dApp action.
   { type: 'function', name: 'earned', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalRawSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },

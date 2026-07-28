@@ -227,9 +227,9 @@ export default function AdminPage() {
   // Read contract data (only when owner AND on the correct chain)
   const { data: contractReads, error: contractReadsError, refetch: refetchReads } = useReadContracts({
     contracts: [
-      // SwapFeeRouter
+      // SwapFeeRouter — no totalSwaps read: the deployed router dropped that
+      // counter (gas fix G-23), so the call can only revert.
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' },
-      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalSwaps' },
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees' },
       // M2 fix: pending fee/treasury timelock state lives on SwapFeeRouterAdmin, not the main router.
       { address: SWAP_FEE_ROUTER_ADMIN_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingFeeBps' },
@@ -264,15 +264,13 @@ export default function AdminPage() {
   // / `safeString` are recreated every render (compiler-inferred deps include
   // those helpers, while the manual deps only listed `contractReads`).
   const feeBps = safe(0);
-  const totalSwaps = safe(1);
-  const totalETHFees = safeBigInt(2);
-  const pendingFee = safe(3);
-  const pendingTreasury = safeString(4);
+  const totalETHFees = safeBigInt(1);
+  const pendingFee = safe(2);
+  const pendingTreasury = safeString(3);
   const feeRouterItems = [
     { label: 'Current Fee', value: feeBps != null ? `${Number(feeBps)} bps (${(Number(feeBps) / 100).toFixed(2)}%)` : '...' },
     { label: 'Pending Fee', value: pendingFee != null && Number(pendingFee) > 0 ? `${Number(pendingFee)} bps` : 'None' },
     { label: 'Pending Treasury', value: pendingTreasury ? shortenAddress(pendingTreasury) : 'None' },
-    { label: 'Total Swaps', value: totalSwaps != null ? formatNumber(Number(totalSwaps), 0) : '...' },
     { label: 'Total ETH Fees', value: totalETHFees != null ? `${Number(formatEther(totalETHFees)).toFixed(4)} ETH` : '...' },
   ];
 
@@ -280,26 +278,26 @@ export default function AdminPage() {
   // Gate the card on isDeployed() so it renders a clean "pending deploy" state
   // instead of three perpetual "..." rows and an Etherscan link to 0x0.
   const premiumDeployed = isDeployed(PREMIUM_ACCESS_ADDRESS);
-  const monthlyFee = safeBigInt(5);
-  const totalSubs = safe(6);
-  const totalRev = safeBigInt(7);
+  const monthlyFee = safeBigInt(4);
+  const totalSubs = safe(5);
+  const totalRev = safeBigInt(6);
   const premiumItems = [
     { label: 'Monthly Fee', value: monthlyFee != null ? `${formatTokenAmount(Number(formatEther(monthlyFee)))} TOWELI` : '...' },
     { label: 'Total Subscribers', value: totalSubs != null ? formatNumber(Number(totalSubs), 0) : '...' },
     { label: 'Total Revenue', value: totalRev != null ? `${formatTokenAmount(Number(formatEther(totalRev)))} TOWELI` : '...' },
   ];
 
-  const stakingRewardRate = safeBigInt(8);
-  const totalStaked = safeBigInt(9);
-  const paused = safe(10);
+  const stakingRewardRate = safeBigInt(7);
+  const totalStaked = safeBigInt(8);
+  const paused = safe(9);
   const stakingItems = [
     { label: 'Reward Rate', value: stakingRewardRate != null ? `${Number(formatEther(stakingRewardRate)).toFixed(6)}/sec` : '...' },
     { label: 'Total Staked', value: totalStaked != null ? `${formatTokenAmount(Number(formatEther(totalStaked)))} TOWELI` : '...' },
     { label: 'Status', value: paused != null ? (paused ? 'PAUSED' : 'Active') : '...' },
   ];
 
-  const lpRewardRate = safeBigInt(11);
-  const totalSupply = safeBigInt(12);
+  const lpRewardRate = safeBigInt(10);
+  const totalSupply = safeBigInt(11);
   const lpFarmItems = [
     { label: 'Reward Rate', value: lpRewardRate != null ? `${Number(formatEther(lpRewardRate)).toFixed(6)}/sec` : '...' },
     { label: 'Total Staked LP', value: totalSupply != null ? `${formatTokenAmount(Number(formatEther(totalSupply)))}` : '...' },
@@ -456,7 +454,7 @@ export default function AdminPage() {
 
         {/* Pause Controls — R069: refetchOwner threaded through so the write
             forces a fresh owner() read before signing. */}
-        <PauseControls isPaused={safe(10) === true} refetchOwner={refetchOwner} refetchReads={refetchReads} />
+        <PauseControls isPaused={safe(9) === true} refetchOwner={refetchOwner} refetchReads={refetchReads} />
 
         <div className="glass-card p-4 rounded-xl">
           <p className="text-xs text-white text-center">
