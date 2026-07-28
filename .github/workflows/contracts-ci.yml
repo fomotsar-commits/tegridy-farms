@@ -9,6 +9,13 @@ on:
       - "scripts/check-test-slice-coverage.mjs"
       - "frontend/scripts/extract-missing-abis.mjs"
       - ".github/contracts-test-slices.json"
+      # The selector guard reads both of these: contracts.ts holds the
+      # hand-rolled ABIs it checks, constants.ts the address exports that tell
+      # an in-repo target from a third-party one. Without them here a
+      # frontend-only ABI edit — the exact shape of the drift this guard
+      # exists to catch — would never trigger this workflow.
+      - "frontend/src/lib/contracts.ts"
+      - "frontend/src/lib/constants.ts"
       - ".github/workflows/contracts-ci.yml"
   pull_request:
     branches: [main, mvp-launch]
@@ -18,6 +25,13 @@ on:
       - "scripts/check-test-slice-coverage.mjs"
       - "frontend/scripts/extract-missing-abis.mjs"
       - ".github/contracts-test-slices.json"
+      # The selector guard reads both of these: contracts.ts holds the
+      # hand-rolled ABIs it checks, constants.ts the address exports that tell
+      # an in-repo target from a third-party one. Without them here a
+      # frontend-only ABI edit — the exact shape of the drift this guard
+      # exists to catch — would never trigger this workflow.
+      - "frontend/src/lib/contracts.ts"
+      - "frontend/src/lib/constants.ts"
       - ".github/workflows/contracts-ci.yml"
 
 # Least-privilege default — contracts CI only reads source and caches.
@@ -166,10 +180,26 @@ jobs:
       # live brick, but exactly the latent footgun this guard removes; they
       # were deleted in this commit.
       #
+      # Phase 2 (added 2026-07-28) extends the same artifact comparison to the
+      # HAND-ROLLED ABIs in frontend/src/lib/contracts.ts, which had no drift
+      # guard at all: check-interface-selectors covered Solidity interfaces and
+      # the ABI drift gate below covers only the GENERATED abi-supplement.ts.
+      # PR #123 had to remove three selectors that slipped through that gap
+      # (SwapFeeRouter.totalSwaps, TegridyStaking.totalLocked, and
+      # LPFarming.notifyRewardAmount(uint256) — the deployed farm takes
+      # (uint256,uint256)). Phase 2's first run found three more, all now
+      # resolved. A frontend ABI is the worse case: viem encodes the declared
+      # selector without consulting the chain, so drift ships to users as a
+      # dead button rather than failing a build.
+      #
+      # NOTE the paths filter at the top of this file must keep listing
+      # frontend/src/lib/{contracts,constants}.ts, or a frontend-only ABI edit
+      # will not trigger this workflow and the guard will not run.
+      #
       # Runs off the artifacts the Build step just produced — Node is
       # preinstalled on ubuntu-latest and the script has zero npm deps. cwd
       # is `contracts` (the job default), so the script lives one level up.
-      - name: Interface selector guard
+      - name: Interface + frontend ABI selector guard
         run: node ../scripts/check-interface-selectors.mjs
 
       # ABI drift gate — closes the MEDIUM at
