@@ -88,10 +88,13 @@ export function isExoticLaunchEnabled(): boolean {
  *     airlock.ts feeConstitutionToBeneficiaries).
  *   - Tegridy 15% — BELOW Clanker's observed 20% survivor ceiling on purpose: our
  *     draw is the day-2 Afterlife economy, not the cheapest fee, so we can be visibly
- *     more creator-friendly than the incumbent. Routes to RevenueDistributor, which
- *     streams it as REAL YIELD to veTOWELI stakers. NOT split to POL: RevenueDistributor
- *     is stakers-only (verified — it distributes ETH to veTOWELI holders); POL is a
- *     SEPARATE protocol fee stream (POLAccumulator/SwapFeeRouter), not funded by this 15%.
+ *     more creator-friendly than the incumbent. Sink is NUMERAIRE-AWARE (see
+ *     launchService `protocolFeeSink`): an ETH pair routes to RevenueDistributor, which
+ *     streams it as REAL YIELD to veTOWELI stakers (verified ETH-only — it distributes
+ *     ETH to veTOWELI holders, so a TOWELI-denominated cut could never become yield);
+ *     an exotic (TOWELI) pair routes to the protocol Treasury instead, and the Fact
+ *     Sheet labels it "Tegridy treasury" so the disclosure stays truthful. NOT split to
+ *     POL: POL is a SEPARATE fee stream (POLAccumulator/SwapFeeRouter), not this 15%.
  *   - Creator + attention 80% — creator-directed. Creators keep the majority (what
  *     actually attracts launches) and can carve part to attention-holders/KOLs at
  *     launch (the Bags-style perpetual-split lever — the one proven cheap distribution

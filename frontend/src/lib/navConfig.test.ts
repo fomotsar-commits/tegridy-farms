@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PRIMARY_NAV, POINTS_NAV, ALL_NAV, MORE_NAV, NFT_FINANCE_LIVE, COMMUNITY_LIVE } from './navConfig';
+import { PRIMARY_NAV, POINTS_NAV, ALL_NAV, MORE_NAV, MORE_NAV_SECTIONS, NFT_FINANCE_LIVE, COMMUNITY_LIVE } from './navConfig';
 
 // Session 1 consolidated the navigation from 21 routes to a tight primary set.
 // MORE_PATHS was removed; MORE_NAV is the flattened "More" destinations and
@@ -52,6 +52,25 @@ describe('navConfig', () => {
     const allPaths = ALL_NAV.map((n) => n.to);
     for (const item of PRIMARY_NAV) {
       expect(allPaths).toContain(item.to);
+    }
+  });
+
+  // The three detection surfaces are the protocol's one genuine differentiator and work
+  // on ANY token/wallet. Under the old generic "Stats" heading (beside Tokenomics and
+  // Treasury) they read as protocol vanity metrics. Pin the named grouping + the hub so
+  // a future nav edit can't quietly bury them again.
+  it('the trust tools live under their own "Trust & Safety" heading, with the /trust hub', () => {
+    const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
+    expect(trust).toBeDefined();
+    const paths = trust!.items.map((i) => i.to);
+    expect(paths).toContain('/trust');
+    expect(paths).toContain('/scan');
+    expect(paths).toContain('/deployer');
+    expect(paths).toContain('/exposure');
+    // and they are NOT left behind in the generic Stats bucket
+    const stats = MORE_NAV_SECTIONS.find((s) => s.heading === 'Stats');
+    for (const p of ['/scan', '/deployer', '/exposure']) {
+      expect(stats?.items.map((i) => i.to) ?? []).not.toContain(p);
     }
   });
 

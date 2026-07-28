@@ -5,6 +5,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
+import { isLauncherEnabled } from '../lib/launcher/config';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
@@ -215,6 +216,15 @@ export default function HomePage() {
                 className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]"
                 style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}>
                 Buy TOWELI
+              </Link>
+              {/* NO-WALLET entry point. Both CTAs above ask a first-time visitor to
+                  either connect or buy before the app does anything for them. The
+                  scanner is genuinely useful with no wallet, on any token — so give
+                  it a front-door slot as the low-commitment third option. */}
+              <Link to="/scan"
+                className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
+                style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+                Scan a token
               </Link>
             </div>
 
@@ -482,6 +492,55 @@ export default function HomePage() {
               { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Router', art: pageArt('home', 6) },
               { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: pageArt('home', 7) },
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
+            ].map((f, i) => (
+              <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
+                <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
+                  <div className="absolute inset-0">
+                    <img src={f.art.src} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
+                  </div>
+                  <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
+                    <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.title}</h3>
+                    <p className="text-white text-[13px] leading-relaxed mb-auto" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.desc}</p>
+                    <div className="pt-4 flex items-center justify-between mt-4" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
+                      <span className="stat-value text-white text-[16px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.stat}</span>
+                      <span className="text-white text-[11px] uppercase tracking-wider label-pill" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.label}</span>
+                    </div>
+                  </div>
+                </Link>
+              </m.div>
+            ))}
+          </div>
+        </div>
+
+        {/* Launch & Verify — ADDITIVE section (2026-07-27).
+            The two most-built, most-differentiated surfaces — the token launcher
+            and the detection suite — appeared NOWHERE on the highest-traffic page,
+            which funnelled every visitor into farm/swap/dashboard only. These work
+            on any token and need no TOWELI position, so they belong on the front
+            door. Same art-card pattern as Protocol Overview; nothing above or below
+            was moved or removed. */}
+        <div className="pb-16">
+          <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+            <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Launch &amp; Verify</h2>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Ship a token with its disclosure attached — or check someone else&apos;s before you ape.</p>
+          </m.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              // The launch card follows the SAME gate the nav uses, so the front door
+              // can never advertise a rail that is switched off (it reads "Soon" and
+              // /launch renders its explainer instead of a wizard).
+              {
+                to: '/launch',
+                title: 'Launch a token',
+                desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet: fee split, LP lock, and vesting, disclosed at launch.',
+                stat: isLauncherEnabled() ? 'Doppler V4' : 'Soon',
+                label: isLauncherEnabled() ? 'Auction' : 'Not yet live',
+                art: pageArt('home', 12),
+              },
+              { to: '/scan', title: 'Scan a token', desc: 'Holder concentration and distribution for any Ethereum or Solana token — with every exclusion listed and a timestamp. No wallet needed.', stat: 'ETH + SOL', label: 'Any token', art: pageArt('home', 13) },
+              { to: '/deployer', title: 'Check a deployer', desc: 'See what a wallet has shipped before and where each token stands today. Gaps in the data are stated plainly, never papered over.', stat: 'On-chain', label: 'Track record', art: pageArt('home', 14) },
             ].map((f, i) => (
               <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>

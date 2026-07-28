@@ -15,6 +15,7 @@ import {
 } from '../lib/detection/walletExposure';
 import { METHOD_VERSION, type Band, type ConfidenceLevel } from '../lib/detection';
 import { formatBalance, formatPercent, shortenAddress } from '../lib/formatting';
+import { Link } from 'react-router-dom';
 import { validateAddress } from '../lib/tokenList';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
@@ -142,14 +143,21 @@ function HoldingCard({ holding, exposure }: { holding: WalletHolding; exposure: 
             )}
           </div>
           {holding.name && <p className="text-white/45 text-[12px] truncate">{holding.name}</p>}
-          <a
-            href={`https://etherscan.io/token/${holding.address}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-white/35 text-[11px] hover:text-white/60 tabular-nums"
-          >
-            {shortenAddress(holding.address, 5)}
-          </a>
+          <div className="flex items-center gap-2 flex-wrap">
+            <a
+              href={`https://etherscan.io/token/${holding.address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/35 text-[11px] hover:text-white/60 tabular-nums"
+            >
+              {shortenAddress(holding.address, 5)}
+            </a>
+            {/* Same engine, full report: this row summarises one position, /scan gives
+                the token's whole holder distribution with its exclusions + method. */}
+            <Link to={`/scan?token=${holding.address}`} className="text-white/35 text-[11px] hover:text-white/60">
+              full scan →
+            </Link>
+          </div>
         </div>
         <div className="text-right shrink-0">
           <div className="text-white font-semibold text-[15px] tabular-nums">

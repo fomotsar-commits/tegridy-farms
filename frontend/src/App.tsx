@@ -44,6 +44,8 @@ const ScannerPage = lazy(() => import('./pages/ScannerPage'));
 const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
 // Deployer reputation graph — a deployer's past launches + what happened to each.
 const DeployerPage = lazy(() => import('./pages/DeployerPage'));
+// Thin hub that frames the three detection surfaces above as one anti-rug suite.
+const TrustHubPage = lazy(() => import('./pages/TrustHubPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
@@ -246,6 +248,7 @@ function AnimatedRoutes() {
         <Route path="exposure" element={<Suspense fallback={<PageSkeleton />}><WalletExposurePage /></Suspense>} />
         <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
         <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
+        <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

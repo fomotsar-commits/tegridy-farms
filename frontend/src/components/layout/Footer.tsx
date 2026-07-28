@@ -56,6 +56,16 @@ const LEGAL_LINKS: { to: string; label: string }[] = [
   { to: '/privacy', label: 'Privacy' },
 ];
 
+// The detection surfaces. Previously footer-stranded (only /security + /risks were
+// linked), so /scan, /deployer and /exposure were reachable by direct URL only —
+// despite each emitting a shareable deep link designed to be passed around.
+const TRUST_LINKS: { to: string; label: string }[] = [
+  { to: '/trust', label: 'Trust Tools' },
+  { to: '/scan', label: 'Token Scanner' },
+  { to: '/deployer', label: 'Deployer Graph' },
+  { to: '/exposure', label: 'Wallet Exposure' },
+];
+
 export function Footer() {
   // Footer sits on top of whatever fixed art background the current page provides
   // (galleryCollage on Home, apeHug on Trade, etc.). Before this change, links were
@@ -83,7 +93,7 @@ export function Footer() {
         <div className="accent-divider" />
 
         {/* Top section */}
-        <div className="pt-12 pb-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 md:gap-8">
+        <div className="pt-12 pb-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 md:gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
@@ -131,6 +141,18 @@ export function Footer() {
                   className={LINK_CLASS} style={LINK_SHADOW}>
                   {l.label} <span className="text-white/40">↗</span>
                 </a>
+              ))}
+            </div>
+          </div>
+
+          {/* Trust & Safety — the detection suite, previously footer-stranded */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Trust &amp; Safety</h4>
+            <div className="space-y-2">
+              {TRUST_LINKS.map((l) => (
+                <Link key={l.to} to={l.to} className={LINK_CLASS} style={LINK_SHADOW}>
+                  {l.label}
+                </Link>
               ))}
             </div>
           </div>

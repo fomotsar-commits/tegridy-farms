@@ -250,6 +250,14 @@ export default async function handler(req, res) {
     const { handleLauncherOutcomes } = await import("./_lib/launcher-outcomes.js");
     return handleLauncherOutcomes(req, res);
   }
+  // `?resource=launch-radar` forwards GeckoTerminal `new_pools` (keyless) for the
+  // MARKET-WIDE Launch Radar. Deliberately separate from launcher-outcomes: that one
+  // enriches the Tegridy cohort, this one is the whole market and must never be fed
+  // into the cohort ledger (see _lib/launch-radar.js header).
+  if (req.query.resource === "launch-radar") {
+    const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
+    return handleLaunchRadar(req, res);
+  }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both

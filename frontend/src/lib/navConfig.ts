@@ -108,12 +108,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Tegridy Score' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
-      // Routable and worth discovering, but the launch rail is gated shut
-      // (LAUNCHER_ENABLED=false + zero integrator, launcher/config.ts:14,21).
-      // Shown with a "Soon" pill rather than hidden: /launch teaches the rail
-      // (LaunchPage renders the SOON wall + LauncherExplainer while gated), so
-      // the entry is honest, not a dead link. The pill clears itself when
-      // isLauncherEnabled() flips.
+      // The launch rail is LIVE (LAUNCHER_ENABLED=true since 2026-07-22), so the
+      // "Soon" pill self-clears — the flag drives it, so this entry stays honest
+      // either way: while gated, /launch renders the SOON wall + LauncherExplainer
+      // rather than a dead link.
       { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
       // The Solana leg (fee-capture sub-brand over Meteora DBC). Previously only
       // reachable via a cross-link buried in /launch's GATED explainer, so an
@@ -130,9 +128,19 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/tokenomics', label: 'Tokenomics' },
       { to: '/treasury',   label: 'Treasury' },
-      { to: '/scan',       label: 'Token Scanner' },
-      { to: '/exposure',   label: 'Wallet Exposure' },
-      { to: '/deployer',   label: 'Deployer Graph' },
+    ],
+  },
+  // The three detection surfaces are the protocol's one genuine differentiator and
+  // they work on ANY token/wallet, not just TOWELI — so they earn their own named
+  // section instead of sitting under "Stats" beside Tokenomics/Treasury, where they
+  // read as protocol vanity metrics. /trust is the hub that frames them as one suite.
+  {
+    heading: 'Trust & Safety',
+    items: [
+      { to: '/trust',    label: 'Trust Tools' },
+      { to: '/scan',     label: 'Token Scanner' },
+      { to: '/deployer', label: 'Deployer Graph' },
+      { to: '/exposure', label: 'Wallet Exposure' },
     ],
   },
 ];

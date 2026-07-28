@@ -7,6 +7,7 @@ import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { LaunchExplorer } from '../components/launcher/LaunchExplorer';
 import { LaunchAfterlife } from '../components/launcher/LaunchAfterlife';
+import { LaunchRadar } from '../components/launcher/LaunchRadar';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_TIERS,
@@ -24,6 +25,7 @@ import {
   wizardConfigToLaunchConfig,
   resolveFeeConstitution,
   beneficiariesToFeeConstitution,
+  protocolFeeSink,
   LaunchError,
   MAX_PREMINE_BPS,
   type LaunchResult,
@@ -38,7 +40,6 @@ import {
 } from '../lib/launcher/attestation';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
 import { readMigrationStream, lockResolverFor, type MigrationStream } from '../lib/launcher/lockerStream';
-import { REVENUE_DISTRIBUTOR_ADDRESS } from '../lib/constants';
 import type { FeeConstitutionLine } from '../lib/launcher/factSheet';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
@@ -137,6 +138,9 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
     feeConstitution = resolveFeeConstitution(
       '0x0000000000000000000000000000000000000000',
       w.attentionSplits.filter((r) => splitRowStatus(r).valid).map((r) => ({ address: r.address.trim() as Address, shareBps: r.shareBps })),
+      // Preview the numeraire-aware protocol sink so a TOWELI launch's Fact Sheet shows the
+      // real "Tegridy treasury" line, not the ETH-pair "Tegridy stakers" it can't pay.
+      w.numeraire === 'toweli' ? TOWELI_NUMERAIRE : ETH_NUMERAIRE,
     );
   } catch {
     feeConstitution = [...DEFAULT_FEE_CONSTITUTION];
@@ -190,7 +194,9 @@ type LaunchStatus =
   | { phase: 'idle' }
   | { phase: 'pending' }
   | { phase: 'success'; result: LaunchResult }
-  | { phase: 'error'; message: string };
+  // `broadcast` marks a failure that may already be on-chain (see LaunchError.broadcast):
+  // the UI blocks a blind retry and points at the pending tx instead of re-launching.
+  | { phase: 'error'; message: string; broadcast?: boolean; txHash?: string };
 
 type AttestStatus =
   | { phase: 'idle' }
@@ -235,7 +241,13 @@ export default function LaunchPage() {
   // is pending.
   useEffect(() => {
     if (!isLauncherEnabled()) return;
-    const baselines: LaunchBaseline[] = []; // TODO(go-live): populate from new_pools / indexer discovery
+    // DELIBERATELY EMPTY — not a missing feed. These two surfaces claim "launched
+    // and graduated through THIS rail", so they must stay integrator-filtered and
+    // honestly empty until launch #1 graduates. The market-wide new_pools feed is
+    // wired, but it renders in the separately-labelled <LaunchRadar /> below;
+    // pouring it in here would fabricate a track record. Populate this only from an
+    // integrator/factory-filtered source (Airlock Create events for our integrator).
+    const baselines: LaunchBaseline[] = [];
     if (baselines.length === 0) return;
     const ac = new AbortController();
     void (async () => {
@@ -290,8 +302,16 @@ export default function LaunchPage() {
       const result = await launchToken(walletClient, publicClient, cfg);
       setLaunch({ phase: 'success', result });
     } catch (e) {
-      const message = e instanceof LaunchError ? e.message : e instanceof Error ? e.message : 'Launch failed.';
-      setLaunch({ phase: 'error', message });
+      // A broadcast-stage failure (classically an RPC receipt-wait timeout) may mean the
+      // tx is already on-chain. Surface a distinct "may be confirming" state and BLOCK a
+      // blind retry — relaunching would mint a duplicate token, split the liquidity and
+      // double the payment. Pre-broadcast failures fall through to the normal retryable error.
+      if (e instanceof LaunchError && e.broadcast) {
+        setLaunch({ phase: 'error', message: e.message, broadcast: true, txHash: e.txHash });
+      } else {
+        const message = e instanceof LaunchError ? e.message : e instanceof Error ? e.message : 'Launch failed.';
+        setLaunch({ phase: 'error', message });
+      }
     }
   };
 
@@ -420,7 +440,7 @@ export default function LaunchPage() {
         ) : (
           <button
             onClick={onLaunch}
-            disabled={launch.phase === 'pending' || !isConnected || hasInvalidSplit}
+            disabled={launch.phase === 'pending' || !isConnected || hasInvalidSplit || (launch.phase === 'error' && launch.broadcast === true)}
             className="px-5 py-2 rounded-lg text-sm font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
             title={
               hasInvalidSplit
@@ -436,7 +456,7 @@ export default function LaunchPage() {
       </div>
 
       {step === STEPS.length - 1 && launch.phase !== 'idle' && (
-        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} />
+        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} onResetLaunch={() => setLaunch({ phase: 'idle' })} />
       )}
 
       {/* Post-graduation re-attestation — the fully-verifiable fee disclosure, read
@@ -461,13 +481,18 @@ export default function LaunchPage() {
             explorer lists below. Self-gates to an honest empty statement. */}
         <LaunchAfterlife outcomes={Object.values(explorer.outcomes)} />
         <LaunchExplorer launches={explorer.launches} outcomes={explorer.outcomes} />
+        {/* MARKET-WIDE radar — deliberately BELOW and visually distinct from the two
+            cohort surfaces above. Those promise tokens that graduated through THIS
+            rail and stay honestly empty until one does; this is the whole market,
+            labelled as such, and exists to point the detection engine at it. */}
+        <LaunchRadar />
       </div>
       </div>
     </>
   );
 }
 
-function LaunchStatusBanner({ status, attest, onAttest, schemaReady }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null }) {
+function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaunch }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null; onResetLaunch: () => void }) {
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
@@ -477,6 +502,35 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady }: { status:
     );
   }
   if (status.phase === 'error') {
+    // A possibly-broadcast failure: the tx may already be on-chain, so we must NOT invite a
+    // one-click relaunch. Show the pending tx (when known) and gate retry behind an explicit
+    // "it didn't go through" acknowledgement that resets the launcher.
+    if (status.broadcast) {
+      const txUrl = status.txHash ? `https://etherscan.io/tx/${status.txHash}` : undefined;
+      return (
+        <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 break-words">
+          <div className="font-semibold mb-1">Your launch may already be on-chain.</div>
+          <p className="text-amber-200/90 leading-relaxed">
+            The transaction was broadcast but its result didn’t come back (often an RPC timeout). It may still be
+            confirming — or may already have created your token. <strong>Check your wallet or Etherscan before trying
+            again</strong>: launching twice would mint a duplicate token and split your liquidity.
+          </p>
+          {txUrl && (
+            <a href={txUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block underline hover:text-white break-all">
+              View the pending transaction on Etherscan →
+            </a>
+          )}
+          <div className="mt-3">
+            <button
+              onClick={onResetLaunch}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-amber-400/40 text-amber-100 hover:bg-amber-500/10 transition"
+            >
+              It didn’t go through — let me retry
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 break-words">
         {status.message}
@@ -609,9 +663,16 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
       if (stream.beneficiaries.length === 0) {
         return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries — nothing to attest.' });
       }
+      // Label the protocol beneficiary by the pair this token ACTUALLY graduated against:
+      // an ETH pool streamed to RevenueDistributor ("Tegridy stakers"), a TOWELI pool to
+      // Treasury ("Tegridy treasury"). Using the numeraire-aware sink keeps the reverse
+      // (disclosure) map consistent with the forward split — otherwise a TOWELI graduation's
+      // Treasury beneficiary would be mislabelled as an unknown attention address.
+      const sink = protocolFeeSink(stream.numeraire);
       const lines = beneficiariesToFeeConstitution(stream.beneficiaries, {
         creator: address,
-        protocolStakers: REVENUE_DISTRIBUTOR_ADDRESS,
+        protocolStakers: sink.address,
+        protocolRecipient: sink.recipient,
         doppler: DOPPLER_MAINNET.airlockOwner,
       });
       // Re-collect the token's own facts, but with the REAL fee constitution + a REAL
