@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -91,6 +91,12 @@ function TokenCard({ t }: { t: LaunchTrajectory }) {
                 </a>
               </>
             ) : null}
+            {/* Cross-link into the scanner: this page shows a token's MARKET state,
+                the scanner shows WHO HOLDS it — the natural next question. */}
+            {' · '}
+            <Link to={`/scan?token=${t.token}`} className="hover:text-text-secondary underline underline-offset-2">
+              scan holders
+            </Link>
           </p>
         </div>
         <div className="text-right shrink-0">

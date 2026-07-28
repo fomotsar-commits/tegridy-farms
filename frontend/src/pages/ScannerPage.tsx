@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useTokenScan } from '../hooks/useTokenScan';
@@ -171,6 +171,23 @@ export default function ScannerPage() {
             </button>
           </div>
           <ScanReport outcome={scan.outcome} />
+          {/* Next question after "who holds it": "who made it". We do NOT have the
+              token's deployer here (the scan reads holders, not provenance), so this
+              points at the tool rather than pre-filling an address we'd be guessing at.
+              Ethereum-only — the deployer graph reads EVM contract-creations. */}
+          {scan.outcome.chain === 'ethereum' && (
+            <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
+              Want to know who deployed it? Paste the deployer&apos;s wallet into the{' '}
+              <Link to="/deployer" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
+                Deployer Graph
+              </Link>{' '}
+              to see what else that address has shipped — or check your own holdings with{' '}
+              <Link to="/exposure" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
+                Wallet Exposure
+              </Link>
+              .
+            </p>
+          )}
         </>
       )}
       </div>
