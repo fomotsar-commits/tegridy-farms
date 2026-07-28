@@ -7,6 +7,7 @@ import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { LaunchExplorer } from '../components/launcher/LaunchExplorer';
 import { LaunchAfterlife } from '../components/launcher/LaunchAfterlife';
+import { LaunchRadar } from '../components/launcher/LaunchRadar';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_TIERS,
@@ -240,7 +241,13 @@ export default function LaunchPage() {
   // is pending.
   useEffect(() => {
     if (!isLauncherEnabled()) return;
-    const baselines: LaunchBaseline[] = []; // TODO(go-live): populate from new_pools / indexer discovery
+    // DELIBERATELY EMPTY — not a missing feed. These two surfaces claim "launched
+    // and graduated through THIS rail", so they must stay integrator-filtered and
+    // honestly empty until launch #1 graduates. The market-wide new_pools feed is
+    // wired, but it renders in the separately-labelled <LaunchRadar /> below;
+    // pouring it in here would fabricate a track record. Populate this only from an
+    // integrator/factory-filtered source (Airlock Create events for our integrator).
+    const baselines: LaunchBaseline[] = [];
     if (baselines.length === 0) return;
     const ac = new AbortController();
     void (async () => {
@@ -474,6 +481,11 @@ export default function LaunchPage() {
             explorer lists below. Self-gates to an honest empty statement. */}
         <LaunchAfterlife outcomes={Object.values(explorer.outcomes)} />
         <LaunchExplorer launches={explorer.launches} outcomes={explorer.outcomes} />
+        {/* MARKET-WIDE radar — deliberately BELOW and visually distinct from the two
+            cohort surfaces above. Those promise tokens that graduated through THIS
+            rail and stay honestly empty until one does; this is the whole market,
+            labelled as such, and exists to point the detection engine at it. */}
+        <LaunchRadar />
       </div>
       </div>
     </>
