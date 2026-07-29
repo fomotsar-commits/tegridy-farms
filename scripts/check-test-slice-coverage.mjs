@@ -110,6 +110,18 @@ function compile(pattern) {
 
 const matches = (regexps, file) => regexps.some((r) => r.test(file));
 
+/**
+ * The `--no-match-test` regex a slice actually runs under.
+ *
+ * The shared default excludes anything NAMED Invariant/Fuzz, which is right for
+ * the unit slices but would silence a slice whose whole job is invariants — the
+ * `invariants` slice would match its files, run zero tests, and exit 0. A slice
+ * may therefore override it. The non-zero-test assertion in verifySlice() runs
+ * against the EFFECTIVE filter, so an override that silences everything still
+ * fails loudly rather than passing over nothing.
+ */
+const filterFor = (manifest, slice) => slice.noMatchTest ?? manifest.noMatchTest;
+
 // ── inputs ────────────────────────────────────────────────────────────────
 
 /** All `*.t.sol` under contracts/test, as `test/...`-relative POSIX paths. */
@@ -130,6 +142,9 @@ function loadManifest() {
   if (typeof m.noMatchTest !== 'string') throw new Error('manifest has no noMatchTest string');
   for (const s of m.slices) {
     if (!s.slice || !s.pattern) throw new Error(`slice entry needs {slice, pattern}: ${JSON.stringify(s)}`);
+    if (s.noMatchTest !== undefined && typeof s.noMatchTest !== 'string') {
+      throw new Error(`slice "${s.slice}" has a non-string noMatchTest override`);
+    }
   }
   for (const e of m.excluded) {
     if (!e.pattern || !e.reason) throw new Error(`excluded entry needs {pattern, reason}: ${JSON.stringify(e)}`);
@@ -296,12 +311,13 @@ function verifySlice(manifest, files, name) {
     for (const f of extra) console.error(`  ✗ forge matched but NOT predicted:     contracts/${f}`);
   }
 
-  const runnable = countTests(forgeList(s.pattern, ['--no-match-test', manifest.noMatchTest]));
+  const filter = filterFor(manifest, s);
+  const runnable = countTests(forgeList(s.pattern, ['--no-match-test', filter]));
   if (runnable === 0) {
     failed = true;
     console.error(
       `::error::slice '${name}' pattern '${s.pattern}' resolves to ZERO runnable tests after ` +
-        `--no-match-test '${manifest.noMatchTest}'. forge exits 0 on an empty selection, so this slice ` +
+        `--no-match-test '${filter}'. forge exits 0 on an empty selection, so this slice ` +
         `would report success without executing anything.`,
     );
   }
@@ -320,9 +336,16 @@ function main(argv) {
   const files = findTestFiles();
 
   if (argv[0] === '--emit-matrix') {
-    console.log(JSON.stringify({ include: manifest.slices.map(({ slice, pattern }) => ({ slice, pattern })) }));
-  } else if (argv[0] === '--emit-filter') {
-    console.log(manifest.noMatchTest);
+    // Each entry carries its OWN resolved noMatchTest, so the workflow never has
+    // to know about the default-vs-override distinction — it just uses
+    // `matrix.noMatchTest`. Resolving here keeps that logic in one place.
+    console.log(JSON.stringify({
+      include: manifest.slices.map((s) => ({
+        slice: s.slice,
+        pattern: s.pattern,
+        noMatchTest: filterFor(manifest, s),
+      })),
+    }));
   } else if (argv[0] === '--expect') {
     const name = argv[1];
     const s = manifest.slices.find((x) => x.slice === name);

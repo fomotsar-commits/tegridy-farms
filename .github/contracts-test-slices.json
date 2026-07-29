@@ -17,7 +17,13 @@
     "",
     "`noMatchTest` is the shared `--no-match-test` regex applied to every slice.",
     "It filters by TEST NAME, so any test whose name contains Fuzz/Invariant is",
-    "skipped in PR-blocking CI regardless of which slice its file lands in."
+    "skipped in PR-blocking CI regardless of which slice its file lands in.",
+    "",
+    "A slice MAY override it with its own `noMatchTest` — the `invariants` slice",
+    "does, because the shared default would strip every test it exists to run.",
+    "The override is not a loophole: the per-slice guard asserts the slice still",
+    "yields >=1 runnable test UNDER ITS EFFECTIVE FILTER, so an override that",
+    "silences everything fails loudly instead of passing over nothing."
   ],
 
   "noMatchTest": "(Invariant|invariant|Fuzz|fuzz|testFuzz)",
@@ -54,14 +60,15 @@
     {
       "slice": "pass5-pocs",
       "pattern": "test/pass5_pocs/*.t.sol"
+    },
+    {
+      "slice": "invariants",
+      "pattern": "test/invariants/*.t.sol",
+      "noMatchTest": "(Fuzz|fuzz|testFuzz)"
     }
   ],
 
   "excluded": [
-    {
-      "pattern": "test/invariants/*.t.sol",
-      "reason": "Stateful invariant suites: 35 `invariant_*` handlers, plus 2 ordinary unit tests named `test_invariant_*` (both in TegridyLending_RewardAttributionInvariants.t.sol). The shared `noMatchTest` filter strips ALL 37 — the handlers by kind, those 2 purely because their NAMES contain 'invariant' — so a slice pointed here would run ZERO tests and still exit 0, which is the exact failure this manifest exists to prevent. NOT RUN BY ANY WORKFLOW TODAY: older comments in contracts-ci.yml claim a 'nightly cron on a beefier runner' picks these up, but no such workflow was ever created (there is no `schedule:` trigger for contracts anywhere in .github/workflows). Running the handlers needs a dedicated job with a longer timeout and its own --no-match-test, not a matrix slice. The 2 misfiled unit tests are cheap and deterministic and belong at test/ root under a name without 'invariant' in it — tracked separately."
-    },
     {
       "pattern": "test/echidna/*.t.sol",
       "reason": "Echidna property definitions (`echidna_*`). forge's collector only picks up `test*` / `invariant_*`, so `forge test` finds zero runnable tests in this directory no matter what pattern points at it. Requires the `echidna` binary, which is not installed in this workflow."

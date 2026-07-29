@@ -242,7 +242,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.emit.outputs.matrix }}
-      no_match_test: ${{ steps.emit.outputs.no_match_test }}
     steps:
       - name: Checkout
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -262,10 +261,10 @@ jobs:
           # Assign first, THEN echo. `echo "k=$(cmd)"` swallows cmd's exit status
           # even under `set -e`, which would write an empty matrix and hand the
           # test job a `fromJSON('')` failure instead of this job's error.
+          # Each matrix entry carries its own resolved `noMatchTest`, so the test
+          # job never has to know which slices override the shared default.
           MATRIX="$(node scripts/check-test-slice-coverage.mjs --emit-matrix)"
-          FILTER="$(node scripts/check-test-slice-coverage.mjs --emit-filter)"
           echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
-          echo "no_match_test=${FILTER}" >> "$GITHUB_OUTPUT"
           echo "matrix: ${MATRIX}"
 
   # ─────────────────────────────────────────────────────────────────────
@@ -287,11 +286,16 @@ jobs:
   # drifted badly — it claimed pass-r-series carried 28 files when the real
   # figure was 6.)
   #
-  # Each slice still excludes invariant/fuzz tests BY TEST NAME via the
-  # shared `--no-match-test` filter in the manifest. Note that this is a
-  # name filter, not a path filter: a file can be inside a slice and still
-  # contribute zero runnable tests (test/FuzzInvariant.t.sol is exactly
-  # that). The per-slice guard below asserts the slice TOTAL is non-zero.
+  # Slices exclude invariant/fuzz tests BY TEST NAME via the manifest's
+  # shared `--no-match-test`. Note that this is a name filter, not a path
+  # filter: a file can be inside a slice and still contribute zero runnable
+  # tests (test/FuzzInvariant.t.sol is exactly that). The per-slice guard
+  # below asserts the slice TOTAL is non-zero.
+  #
+  # The `invariants` slice OVERRIDES that filter — the shared default would
+  # strip every test it exists to run. Its 37 tests had never been executed
+  # by any pipeline before this; they pass. See the timing note on the Test
+  # step for why they need a tuned invariant budget to fit the runner.
   # ─────────────────────────────────────────────────────────────────────
   test:
     name: forge test — ${{ matrix.slice }}
@@ -359,20 +363,31 @@ jobs:
 
       - name: Test (${{ matrix.slice }})
         # Each slice runs only its own test files (`--match-path` GLOB — not a
-        # regex; see the manifest's _readme). Invariant + fuzz tests are still
-        # excluded BY NAME via `--no-match-test`; nothing runs them today (the
-        # "nightly cron on a beefier runner" referenced by older comments here
-        # was never built — there is no `schedule:` trigger for contracts in
-        # .github/workflows).
+        # regex; see the manifest's _readme) under its OWN `--no-match-test`,
+        # resolved in the manifest and carried on the matrix entry.
+        #
         # FOUNDRY_FUZZ_RUNS: 256 is the Foundry default; matches the locally-
-        # validated config. Each slice is well under the runner's 15-min
-        # watchdog budget (worst case ~4 min per slice).
+        # validated config.
+        #
+        # FOUNDRY_INVARIANT_* are set DELIBERATELY LOW and are load-bearing for
+        # the `invariants` slice. Measured on this suite (37 tests, 13 files):
+        #   forge defaults      632s wall / 7,059s CPU   — 37/37 pass
+        #   32 runs x 64 depth    2.4s wall /    26s CPU  — 37/37 pass
+        # That 7,059s of CPU only finished in 632s on an ~11-core dev box; a
+        # 2-core ubuntu-latest runner would need ~59 min, i.e. four times the
+        # 15-minute SIGTERM budget. Tuned, the same suite still drives 2,048
+        # calls per invariant. This is why these suites were never wired up —
+        # at stock settings they genuinely do not fit, and nothing in
+        # foundry.toml sets an [invariant] profile.
+        # These vars only bite on slices that actually contain invariant tests.
         run: |
           forge test \
             --match-path "${{ matrix.pattern }}" \
-            --no-match-test "${{ needs.slices.outputs.no_match_test }}"
+            --no-match-test "${{ matrix.noMatchTest }}"
         env:
           FOUNDRY_FUZZ_RUNS: 256
+          FOUNDRY_INVARIANT_RUNS: 32
+          FOUNDRY_INVARIANT_DEPTH: 64
 
       - name: Coverage summary (best-effort, disabled in PR-blocking CI)
         # CI fix 2026-05-17: forge coverage on this codebase takes 15-30 min
