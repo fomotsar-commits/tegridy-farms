@@ -25,12 +25,12 @@ anchor-spl = { version = "0.32.1", features = ["memo", "metadata"] }
 
 # No dev-dependencies on purpose. `curve.rs` is dependency-free so its tests run
 # under a bare `rustc --test`, with no cargo, no build scripts, and no validator
-# — which is what lets the math be verified on a box where the SBF toolchain and
-# cargo build scripts are both blocked. Do not add a test crate here without a
-# reason that survives that constraint.
+# — which is what lets the math be verified even when the SBF toolchain is
+# unavailable. Do not add a test crate here without a reason that survives that.
 
-[profile.release]
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-overflow-checks = true
+# NO [profile.release] here. Cargo ignores profiles on non-root workspace members
+# and warns about it; the real settings (lto = "fat", codegen-units = 1,
+# overflow-checks = true) live in the workspace root Cargo.toml and already apply.
+# Restating them here would look authoritative while doing nothing — the exact
+# kind of comment-that-lies this repo has been bitten by before.
+# (cp-swap carries one only because it is a verbatim upstream fork.)
