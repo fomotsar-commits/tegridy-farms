@@ -3,7 +3,10 @@ anchor_version = "0.32.1"
 solana_version = "2.3.0"
 
 [workspace]
-members = ["programs/cp-swap"]
+# Anchor resolves `anchor build -p <name>` against THIS list, not against
+# [programs.Localnet] — listing a program only in the latter yields
+# "not part of the workspace".
+members = ["programs/cp-swap", "programs/tegridy-launch"]
 
 [features]
 seeds = false
