@@ -249,8 +249,11 @@ jobs:
           test -f target/idl/tegridy_launch.json || { echo "::error::no IDL — tests load it at runtime"; exit 1; }
           ls -l target/deploy/tegridy_launch.so target/idl/tegridy_launch.json
 
-      - name: npm install
-        run: npm install --no-audit --no-fund
+      # yarn, not npm — the project ships .yarnrc.yml + yarn.lock, and Anchor.toml's
+      # own test script uses yarn. Running npm here would generate a competing
+      # package-lock.json and resolve a different tree than the committed lockfile.
+      - name: Install JS deps (yarn, matching the committed lockfile)
+        run: yarn install --frozen-lockfile
 
       - name: Run constraint tests against a local validator
         env:
@@ -270,4 +273,4 @@ jobs:
           solana -u http://127.0.0.1:8899 program deploy \
             --program-id target/deploy/tegridy_launch-keypair.json \
             target/deploy/tegridy_launch.so
-          npx ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-constraints.test.ts
+          yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-constraints.test.ts
