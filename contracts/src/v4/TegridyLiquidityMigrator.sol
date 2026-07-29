@@ -192,6 +192,9 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         if (Currency.unwrap(key.currency1) == address(0)) revert PoolNotConfigured();
         if (recipient == address(0)) revert ZeroAddress();
 
+        // SLITHER 2026-07-28: the returned tick is genuinely unused — we mint the
+        // full usable range, so there is no current-tick-relative band to place.
+        // slither-disable-next-line unused-return
         poolManager.initialize(key, sqrtPriceX96);
 
         uint256 amount0 = token0 == address(0) ? address(this).balance : IERC20(token0).balanceOf(address(this));
@@ -288,6 +291,11 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         if (token == address(0)) {
             uint256 bal = address(this).balance;
             if (bal > 0) {
+                // SLITHER 2026-07-28: not arbitrary — `to` is `migrate`'s `recipient`,
+                // which only the Airlock can supply (`onlyAirlock`), and which the
+                // Airlock sets to the launch's own timelock. No caller-chosen path
+                // reaches here. Failure is swallowed on purpose (see below).
+                // slither-disable-next-line arbitrary-send-eth
                 (bool ok,) = to.call{value: bal}("");
                 // Best-effort: a recipient that rejects ETH must not undo a
                 // completed migration. The residue stays recoverable via sweepStuck.
