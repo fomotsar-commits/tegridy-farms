@@ -1,98 +1,91 @@
-# Solana own-venue graduation — scope before we write Rust
+# Solana own-venue graduation — what is actually left
 
-Owner directive 2026-07-28: build a **pump.fun-style bonding curve of our own** on
-Solana, and have launched tokens **graduate into a venue we own**.
+Owner directive 2026-07-28: build a **pump.fun-style bonding curve of our own**, and have
+launched tokens **graduate into a venue we own**.
 
-This document exists so that decision is costed before anyone opens an Anchor project.
-Nothing here is built yet.
+> **Correction (2026-07-28).** An earlier draft of this file estimated the Solana AMM as a
+> ~700–1,000 LoC from-scratch build with a $60–150k audit. **That was wrong.** It was
+> written from memory without checking the repo. `solana/tegridy-amm/` already contains a
+> working Anchor project — a verbatim fork of Raydium's audited CPMM — and the operator
+> already took the own-venue decision there on **2026-07-10**. The AMM half is largely
+> done. Only the curve is missing. Figures below are the corrected ones.
 
-> **Unchanged and still absolute: no TOWELI on Solana.** The operator changed the
-> venue-ownership call, not the token-deployment doctrine. Nothing in this plan puts
-> TOWELI on Solana, and nothing here should be read as loosening that.
+## Ground truth in the repo today
 
-## Why this is a build and not a config change
+**`solana/tegridy-amm/` — Tegridy CP-AMM. EXISTS, 72 tracked files.**
 
-On EVM, Doppler's Airlock accepts a pluggable `LiquidityMigrator` module, so owning the
-graduation venue is one new contract plus a whitelist. **Solana has no equivalent.**
+- Verbatim fork of [`raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap)
+  @ `78f254e`, **Apache-2.0**, audited, billions in production TVL.
+- **The entire delta from upstream is four authority/identity constants across two files.**
+  All swap, curve, and fee math is byte-identical to upstream. `solana-ci.yml` has a
+  `diff-guard` job that enforces this automatically.
+- Protocol fee is **config-driven, not hardcoded** — `amm_config.protocol_fee_rate` set at
+  `create_config`, collected by `protocol_owner`. So the venue economics need no code change.
+- Ships with `AUDIT_RFQ.md`, `MAINNET_RUNBOOK.md`, `SECURITY.md`, and a devnet deploy script.
+- **Status: Phase 0. Devnet. NOT audited. NOT on mainnet. Holds no real funds.**
 
-`frontend/src/lib/launcher/solana/dbc.ts:483` pins `migrationOption: MIGRATE_TO_DAMM_V2`,
-and Meteora's `MigrationOption` enum offers exactly two values — DAMM v1 and DAMM v2.
-There is no custom-migrator hook, no callback, no "graduate to an arbitrary program"
-escape. Meteora's curve graduates into Meteora's AMM, full stop.
+**What does NOT exist: the bonding curve.** `programs/` contains only `cp-swap`. There is no
+launch curve, no graduation instruction, and nothing that mints or bonds a new token.
 
-So owning graduation on Solana means replacing **both** halves:
+## So the remaining work is the curve, not the AMM
 
-1. our own bonding curve (replacing Meteora DBC), and
-2. our own AMM for it to graduate into (replacing DAMM v2).
-
-You cannot do only one. A curve of ours that still graduates into DAMM v2 leaves the
-annuity with Meteora; an AMM of ours with no curve feeding it has nothing to graduate.
-
-## What has to be written
-
-| Component | Est. LoC (Rust/Anchor) | Notes |
+| Piece | State | Remaining |
 | --- | --- | --- |
-| Bonding curve program | 700–1,100 | Virtual constant-product reserves, buy/sell, fee schedule, anti-snipe decay, immutable/no-mint SPL, graduation trigger |
-| AMM program | 700–1,000 | Constant-product pool, LP accounting, swap, fee split, permanent-lock path |
-| Migration instruction | 150–250 | Atomic curve→AMM handoff; the highest-risk surface in the whole design |
-| Fee/treasury routing | 150–250 | Squads-vault-only claim path, mirroring the custody invariant already in `dbc.ts` |
-| **Total** | **~1,700–2,600** | From scratch |
+| AMM to graduate into | **Built** (4-constant fork) | Diff-audit + mainnet deploy per the existing runbook |
+| Bonding curve program | **Does not exist** | ~700–1,100 LoC Anchor, from scratch |
+| Curve → AMM graduation | **Does not exist** | ~150–250 LoC; the highest-risk instruction in the design |
+| Fee/treasury routing | Config-driven in the AMM | Curve-side claim path, Squads-vault-only |
 
-Plus: TypeScript client, an operator harness, and a full test suite (Anchor + a
-localnet/fork integration pass).
+### Corrected cost
 
-## Cost and schedule
+- **AMM audit:** a *diff-audit* of four constants against audited upstream. Fast and cheap
+  relative to a from-scratch AMM review — that is the entire point of the verbatim fork.
+  `AUDIT_RFQ.md` is already written and names OtterSec / Neodyme / Sec3 / Zellic.
+- **Curve audit:** this is where the real money goes. The curve and its graduation
+  instruction are genuinely new, fund-holding code with no audited upstream to diff against.
+- **Engineering:** roughly 3–6 weeks for the curve, not the 2–4 months the from-scratch
+  framing implied.
 
-- **Engineering:** ~2–4 months to audit-ready, assuming Rust/Anchor familiarity.
-- **Audit:** this is new, novel, custody-bearing Rust. Comparable Solana AMM/curve audits
-  land in the **$60k–150k** range; a cheap audit on this surface is worse than none.
-- **Ongoing:** program upgrade-authority custody (must be Squads, never an EOA), plus a
-  standing security contact.
+## The risk that did not change
 
-## The honest risk assessment
+**The curve→AMM graduation instruction is where Solana launchpads get drained.** It moves
+the entire raised balance in one instruction, and unlike the AMM it has no audited
+reference to copy. Whatever else gets trimmed, that instruction deserves the deepest
+review in the whole program.
 
-**This is the highest-risk thing the protocol would have ever shipped.** The existing
-Solana leg is a config-and-frontend integration on top of Meteora's audited program with
-zero custody surface of our own. Replacing it with ~2,000 lines of our own Rust holding
-user funds inverts that posture completely.
+Two other standing constraints, both unchanged:
 
-Three specific hazards worth naming before committing:
+- **Jupiter routing.** Our pools are invisible to retail until the Tegridy CP-AMM is
+  submitted to Jupiter's DEX integration (step 8 of the mainnet runbook). Until then volume
+  comes only from our own swap UI. Owning the venue costs discovery before it earns fees.
+- **Break-even.** The ~$11.7M/mo figure is a property of running our own venue, not of how
+  the AMM got written. Forking cheaply lowers the build cost, not the volume needed.
 
-1. **The migration instruction is where Solana launchpads get drained.** The
-   curve→AMM handoff moves the entire raised balance in one instruction. It is the single
-   most attacked surface in this class of program and it is the part we would be writing
-   from scratch with no audited reference to copy.
-2. **We lose Jupiter routing and the JupPro Launchpad Screener**, both of which only
-   index DBC launchpads. Our own venue starts with no aggregator flow and no discovery —
-   the exact distribution problem that the earlier research named as the *binding*
-   constraint. Owning the venue makes discovery worse before it makes revenue better.
-3. **Break-even is far away.** The earlier assessment put own-pool break-even around
-   **$11.7M/mo volume**. Current launcher throughput is approximately zero. This is a moat
-   and optionality play; it should not be budgeted as revenue.
+## The doctrine question, settled
 
-None of this is an argument not to do it — the operator has weighed it and chosen. It is
-an argument for sequencing it **after** the EVM leg proves the graduation thesis, and for
-not skimping on the audit.
+`project_2026_06_18_solana_fee_capture`'s "no own AMM on Solana" was **superseded on
+2026-07-10**, when the operator chose Model B (own venue) over Model A (be an LP) — recorded
+in `TEGRIDY_FORK.md`. The 2026-07-28 directive continues that line rather than reversing it.
 
-## Recommended sequencing
+**"No TOWELI on Solana" is untouched and still absolute.** Nothing in the AMM fork or the
+proposed curve puts TOWELI on Solana, and the two decisions must not be conflated.
 
-1. **Land the EVM leg first.** `TegridyLiquidityMigrator` + `TegridyV4Hook` are written
-   and tested; they need the Whetstone whitelist and the V4 audit. That leg proves
-   whether own-venue graduation actually attracts launches — for a fraction of the cost,
-   because the hook already existed.
-2. **Watch one real signal.** If graduated EVM launches produce measurable fee flow, the
-   Solana build has an evidence base. If they do not, we have learned that cheaply.
-3. **Then commit the Solana budget** — and budget the audit at the same time as the
-   engineering, not after.
+## Recommended order
 
-If you would rather run both in parallel, the fastest way to de-risk is to commission the
-audit slot early: audit calendars, not engineering, are usually the schedule constraint.
+1. **Curve program** — the one genuinely missing piece. Graduates into a Tegridy CP-AMM pool.
+2. **Send the AMM diff-audit RFQ now**, in parallel. It is written, the scope is tiny, and
+   audit calendars — not engineering — are usually the schedule constraint.
+3. **Curve audit** once the curve is feature-complete.
+4. **Mainnet**, following the existing `MAINNET_RUNBOOK.md`: dedicated program keypair,
+   `admin::ID` → Squads multisig, upgrade authority → multisig or burned, verifiable build,
+   then Jupiter submission.
 
 ## Open decisions for the operator
 
-- Parallel with EVM, or sequenced behind it? (Recommendation: sequenced.)
-- Audit firm and budget ceiling.
-- Program upgrade authority: which Squads multisig, at what threshold? (Must be ≥2 —
-  the existing `squads.ts` threshold requirement is a documented go-live blocker.)
-- Do we keep the Meteora DBC rail alive alongside ours, or replace it? Keeping both
-  doubles the surface to maintain and to describe honestly in the Fact Sheet.
+- Curve shape: constant-product on virtual reserves (pump.fun-like), or a configurable
+  price band? The former is better understood and easier to audit.
+- Does the curve graduate into a **new** Tegridy CP-AMM pool per launch, or into a shared one?
+  (Per-launch is the pump.fun model and keeps launches isolated.)
+- Squads multisig + threshold for `admin::ID` and the program upgrade authority. Threshold
+  must be ≥2 — the existing `squads.ts` threshold requirement is already a documented
+  go-live blocker.
