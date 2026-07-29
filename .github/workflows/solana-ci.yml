@@ -152,3 +152,18 @@ jobs:
             exit 1
           fi
           ls -l "$SO"
+
+      # Published so the .so can be pulled down and exercised against a local
+      # validator. That is the only way to test the ACCOUNT CONSTRAINTS at
+      # runtime — `cargo check` proves they compile and are wired into the right
+      # contexts, not that they actually reject. Devnet feature, because the
+      # default build embeds fail-closed sentinels that cannot initialize.
+      - name: Build SBF program (devnet authorities, for the deployable artifact)
+        run: cargo build-sbf --features devnet
+      - name: Publish compiled .so (DEVNET — never a mainnet artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tegridy-launch-devnet-sbf
+          path: solana/tegridy-amm/target/deploy/tegridy_launch.so
+          if-no-files-found: error
+          retention-days: 14
