@@ -15,6 +15,9 @@ skip-lint = false
 # below — the create-pool tests must set up a WSOL account at that address instead.
 [programs.Localnet]
 raydium_cp_swap = "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL"
+# Our own bonding curve. Placeholder id — replaced with a dedicated keypair
+# before any real deploy, same as the cp-swap fork's.
+tegridy_launch = "8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8"
 
 
 [registry]
