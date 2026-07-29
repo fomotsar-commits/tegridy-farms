@@ -131,5 +131,24 @@ jobs:
 
       # The real compile gate for this program — it cannot be run on the Windows
       # dev box (see the header). If this breaks, the program does not build.
+      #
+      # ⚠️ `cargo build-sbf` CAN EXIT 0 WITHOUT COMPILING ANYTHING. On a runner
+      # where platform-tools is not yet present it installs the toolchain and
+      # returns success, having built nothing — which passed this job vacuously
+      # on 2026-07-28 and made the gate meaningless. So do not trust the exit
+      # code: assert the artifact exists, and if the first invocation only
+      # installed tools, run it again and then insist on the .so.
       - name: Build SBF program
-        run: cargo build-sbf
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/tegridy_launch.so
+          cargo build-sbf
+          if [ ! -f "$SO" ]; then
+            echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
+            cargo build-sbf
+          fi
+          if [ ! -f "$SO" ]; then
+            echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled"
+            exit 1
+          fi
+          ls -l "$SO"
