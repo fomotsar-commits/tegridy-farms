@@ -88,6 +88,13 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         PoolId indexed poolId, address indexed recipient, uint160 sqrtPriceX96, uint256 liquidity, uint256 tokenId
     );
     event StuckSwept(address indexed token, address indexed to, uint256 amount);
+    /// @notice A post-migration residue could not be returned to the launch — the
+    ///         recipient rejected the ETH. The migration itself SUCCEEDED; only the
+    ///         leftover dust is stuck, and `sweepStuck` recovers it. Emitted rather
+    ///         than reverted so a recipient that cannot receive ETH can never undo
+    ///         a completed graduation. Watch for this: it is the only signal that
+    ///         value is sitting in this contract.
+    event RefundFailed(address indexed to, uint256 amount);
 
     // ─── Immutables ───────────────────────────────────────────────────
 
@@ -308,8 +315,10 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
                 // slither-disable-next-line arbitrary-send-eth
                 (bool ok,) = to.call{value: bal}("");
                 // Best-effort: a recipient that rejects ETH must not undo a
-                // completed migration. The residue stays recoverable via sweepStuck.
-                ok;
+                // completed migration. Surface it as an event instead of
+                // swallowing it — the residue stays recoverable via sweepStuck,
+                // but nobody can act on that unless the failure is observable.
+                if (!ok) emit RefundFailed(to, bal);
             }
         } else {
             uint256 bal = IERC20(token).balanceOf(address(this));
