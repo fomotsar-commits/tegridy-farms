@@ -1,11 +1,19 @@
 name: solana-ci
 
-# Tegridy CP-AMM (solana/tegridy-amm) — a verbatim fork of raydium-cp-swap.
-# Two gates:
+# Tegridy CP-AMM (solana/tegridy-amm) — a verbatim fork of raydium-cp-swap,
+# plus tegridy-launch, our own bonding curve that graduates into it.
+# Gates:
 #   1. diff-guard  — proves the fork is byte-identical to the pinned audited
 #      upstream EXCEPT programs/cp-swap/src/lib.rs (the 3 authority constants).
 #      This is the security invariant; it needs no Solana toolchain.
+#      SCOPED TO cp-swap ONLY — tegridy-launch is our own code with no upstream
+#      to diff against, so it is deliberately NOT covered by this job.
 #   2. build       — compiles the SBF program (validates our diff compiles).
+#   3. launch-curve — host-tests tegridy-launch's dependency-free curve math and
+#      SBF-builds the program. This is the ONLY compile gate for that program:
+#      it cannot be built on the Windows dev box (platform-tools install needs
+#      the symlink privilege, os error 1314; cargo build scripts are blocked by
+#      Application Control, os error 4551 — both hit the existing cp-swap too).
 on:
   push:
     paths: ["solana/**", ".github/workflows/solana-ci.yml"]
@@ -90,3 +98,38 @@ jobs:
           path: solana/tegridy-amm/target/deploy/*.so
           if-no-files-found: error
           retention-days: 14
+
+  launch-curve:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana/tegridy-amm/programs/tegridy-launch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: launch-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+
+      # The curve math is deliberately dependency-free so it can be proven
+      # without cargo, a validator, or the SBF toolchain. Run it that way here
+      # too: it is the same command a developer runs locally, and it keeps this
+      # check green even if the Anchor dependency graph is mid-change.
+      - name: Curve math (standalone, no deps)
+        run: |
+          rustc --edition 2021 --test src/curve.rs -o /tmp/curve_test
+          /tmp/curve_test
+
+      - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      # The real compile gate for this program — it cannot be run on the Windows
+      # dev box (see the header). If this breaks, the program does not build.
+      - name: Build SBF program
+        run: cargo build-sbf
