@@ -212,7 +212,13 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         // somewhere to come from. Without this the overshoot reverts `migrate()` —
         // and the Airlock has ALREADY transferred the graduated funds here by then,
         // so the launch strands rather than simply failing.
+        // SLITHER 2026-07-28 (incorrect-equality, ×3 below): the detector targets
+        // balance-equality checks an attacker can break by force-sending tokens.
+        // These are plain zero-guards on locally-derived values — underflow and
+        // zero-liquidity protection — with no adversarially reachable equality.
+        // slither-disable-next-line incorrect-equality
         uint256 sizing0 = amount0 == 0 ? 0 : amount0 - 1;
+        // slither-disable-next-line incorrect-equality
         uint256 sizing1 = amount1 == 0 ? 0 : amount1 - 1;
 
         liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -222,6 +228,7 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
             sizing0,
             sizing1
         );
+        // slither-disable-next-line incorrect-equality
         if (liquidity == 0) revert ZeroLiquidity();
 
         uint256 tokenId = positionManager.nextTokenId();
@@ -279,6 +286,9 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     }
 
     function _approveViaPermit2(address token, uint256 amount) internal {
+        // SLITHER 2026-07-28: zero-guard, not a balance equality. Native ETH has no
+        // ERC20 to approve and a zero amount needs no allowance — both are skips.
+        // slither-disable-next-line incorrect-equality
         if (token == address(0) || amount == 0) return;
         IERC20(token).forceApprove(address(permit2), amount);
         // `type(uint48).max` = never expires. The allowance is consumed inside this
@@ -327,11 +337,19 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         uint256 amount;
         if (token == address(0)) {
             amount = address(this).balance;
+            // SLITHER 2026-07-28 (incorrect-equality, both branches): a
+            // nothing-to-sweep early return. Anyone force-sending value here only
+            // makes the guard pass, and the destination is immutable regardless.
+            // slither-disable-next-line incorrect-equality
             if (amount == 0) return;
+            // SLITHER 2026-07-28: `rescueRecipient` is immutable, set at
+            // construction — not caller-influenced despite the open entrypoint.
+            // slither-disable-next-line arbitrary-send-eth
             (bool ok,) = rescueRecipient.call{value: amount}("");
             if (!ok) revert ZeroAddress();
         } else {
             amount = IERC20(token).balanceOf(address(this));
+            // slither-disable-next-line incorrect-equality
             if (amount == 0) return;
             IERC20(token).safeTransfer(rescueRecipient, amount);
         }
