@@ -61,6 +61,38 @@ describe('coerceRadar — market-wide new-pool normalisation', () => {
     expect(coerceRadar({ data: [] }, 12).observedAt).toBe(0);
   });
 
+  // REGRESSION (observed LIVE on prod 2026-07-27): upstream reports fabricated
+  // pricing for scam deployments. These are the REAL values GeckoTerminal returned
+  // for a 12-minute-old "LCUC / USDT 1%" pool — $1,016,163,865 PER TOKEN and a $1B
+  // reserve — which the (correct) arithmetic rendered as "520607 ETH": the biggest
+  // number on the page, attached to the least trustworthy pool. The maths was never
+  // wrong; the INPUT was fiction. Repeating fiction faithfully still misleads, so an
+  // implausible row must read as UNMEASURED. Mutation-check: pre-fix this asserted
+  // 520607 and would fail.
+  it('does NOT repeat fabricated upstream pricing — an absurd row reads as unmeasured', () => {
+    const scam = entry(TOKEN_A, {
+      base_token_price_native_currency: '525563.59199',
+      base_token_price_usd: '1016163865',
+      reserve_in_usd: '1006580414.7082',
+    });
+    const [e] = coerceRadar({ data: [scam] }, 12).entries;
+    expect(e.token).toBe(TOKEN_A); // the row still exists — the POOL is real
+    expect(e.liquidityEth).toBe(0); // but its numbers are shown as a gap ("—")
+    expect(e.priceEth).toBe(0);
+  });
+
+  it('leaves a legitimately-priced row untouched (the guard is an absurdity filter, not a cap)', () => {
+    // A real high-value token: $60k/unit is far above normal yet plainly legitimate.
+    const pricey = entry(TOKEN_B, {
+      base_token_price_native_currency: '20',
+      base_token_price_usd: '60000',
+      reserve_in_usd: '600000',
+    });
+    const [e] = coerceRadar({ data: [pricey] }, 12).entries;
+    expect(e.priceEth).toBeCloseTo(20);
+    expect(e.liquidityEth).toBeGreaterThan(0);
+  });
+
   // DOCTRINE PIN: the radar is market-wide and must stay structurally separate from
   // the Tegridy cohort ledger. Its entries carry NO tier and NO creator, so they can
   // never be mistaken for (or silently promoted into) a "launched on our rail" record.
