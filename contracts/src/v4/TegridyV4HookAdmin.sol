@@ -12,6 +12,7 @@ interface ITegridyV4HookApply {
     function setPolSkimBps(uint16 newBps) external;
     function setPolRecipient(address newRecipient) external;
     function setPoolAllowed(PoolKey calldata key, bool allowed) external;
+    function setInitializerAllowed(address initializer, bool allowed) external;
     function setPaused(bool p) external;
     function setPauseGuardian(address newGuardian) external;
     function setDiscountConfig(address premiumAccess, address trustedRouter, uint16 discountBps) external;
@@ -50,6 +51,7 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     bytes32 public constant POL_SKIM_CHANGE = keccak256("V4_POL_SKIM_CHANGE");
     bytes32 public constant POL_RECIPIENT_CHANGE = keccak256("V4_POL_RECIPIENT_CHANGE");
     bytes32 public constant POOL_ALLOW_CHANGE = keccak256("V4_POOL_ALLOW_CHANGE");
+    bytes32 public constant INITIALIZER_ALLOW_CHANGE = keccak256("V4_INITIALIZER_ALLOW_CHANGE");
     bytes32 public constant DISCOUNT_CONFIG_CHANGE = keccak256("V4_DISCOUNT_CONFIG_CHANGE");
     bytes32 public constant FEE_SPLIT_CHANGE = keccak256("V4_FEE_SPLIT_CHANGE");
     bytes32 public constant FEE_SINKS_CHANGE = keccak256("V4_FEE_SINKS_CHANGE");
@@ -59,6 +61,9 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public constant POL_SKIM_DELAY = 24 hours;
     uint256 public constant POL_RECIPIENT_DELAY = 48 hours;
     uint256 public constant POOL_ALLOW_DELAY = 48 hours;
+    /// @dev A STANDING grant to open any pool on the hook — strictly broader than a
+    ///      single pool entry, so it gets the same 48h window, never less.
+    uint256 public constant INITIALIZER_ALLOW_DELAY = 48 hours;
     uint256 public constant DISCOUNT_CONFIG_DELAY = 24 hours;
     uint256 public constant FEE_SPLIT_DELAY = 48 hours; // economic routing
     uint256 public constant FEE_SINKS_DELAY = 48 hours; // changes where money flows
@@ -73,6 +78,8 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     address public pendingPolRecipient;
     PoolKey public pendingPoolKey;
     bool public pendingPoolAllowed;
+    address public pendingInitializer;
+    bool public pendingInitializerAllowed;
     address public pendingPremiumAccess;
     address public pendingTrustedRouter;
     uint16 public pendingDiscountBps;
@@ -91,6 +98,8 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
     event PolRecipientChangeCancelled(address indexed cancelledRecipient);
     event PoolAllowChangeProposed(bool allowed, uint256 executeAfter);
     event PoolAllowChangeCancelled();
+    event InitializerAllowChangeProposed(address indexed initializer, bool allowed, uint256 executeAfter);
+    event InitializerAllowChangeCancelled(address indexed initializer);
     event DiscountConfigChangeProposed(address premiumAccess, address trustedRouter, uint16 discountBps, uint256 executeAfter);
     event DiscountConfigChangeCancelled();
     event FeeSplitChangeProposed(uint16 stakerShareBps, uint16 treasuryShareBps, uint256 executeAfter);
@@ -199,6 +208,38 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
         delete pendingPoolKey;
         pendingPoolAllowed = false;
         emit PoolAllowChangeCancelled();
+    }
+
+    // ─── Standing initializer allowlist (launcher graduation) ──────────
+    //
+    // A launched token's migration pool key is not knowable before the token
+    // exists, so it can never be pre-allowlisted. This grants a CONTRACT (the
+    // liquidity migrator) standing permission to open pools on the hook. See
+    // TegridyV4Hook.allowedInitializers for the full scope-of-grant rationale.
+
+    function proposeInitializerAllowed(address initializer, bool allowed) external onlyOwner hookWired {
+        if (initializer == address(0)) revert ZeroAddress();
+        pendingInitializer = initializer;
+        pendingInitializerAllowed = allowed;
+        _propose(INITIALIZER_ALLOW_CHANGE, INITIALIZER_ALLOW_DELAY);
+        emit InitializerAllowChangeProposed(initializer, allowed, _executeAfter[INITIALIZER_ALLOW_CHANGE]);
+    }
+
+    function executeInitializerAllowed() external onlyOwner hookWired {
+        _execute(INITIALIZER_ALLOW_CHANGE);
+        address initializer = pendingInitializer;
+        bool allowed = pendingInitializerAllowed;
+        pendingInitializer = address(0);
+        pendingInitializerAllowed = false;
+        hook.setInitializerAllowed(initializer, allowed);
+    }
+
+    function cancelInitializerAllowed() external onlyOwner {
+        _cancel(INITIALIZER_ALLOW_CHANGE);
+        address initializer = pendingInitializer;
+        pendingInitializer = address(0);
+        pendingInitializerAllowed = false;
+        emit InitializerAllowChangeCancelled(initializer);
     }
 
     // ─── Premium discount config ──────────────────────────────────────

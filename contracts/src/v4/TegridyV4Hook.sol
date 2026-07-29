@@ -79,6 +79,7 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
 
     // ─── Events ───────────────────────────────────────────────────────
     event PoolAllowed(PoolId indexed id, bool allowed);
+    event InitializerAllowed(address indexed initializer, bool allowed);
     event BaseFeeSet(uint24 oldFeePips, uint24 newFeePips);
     event PolSkimSet(uint16 oldBps, uint16 newBps);
     event PolRecipientSet(address indexed recipient);
@@ -117,6 +118,22 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
     address public treasury; // 0 => folds to POL
 
     mapping(PoolId => bool) public allowedPools;
+
+    /// @notice Contracts permitted to open a pool on this hook WITHOUT a per-pool
+    ///         allowlist entry (see `_beforeInitialize`). This exists for the token
+    ///         launcher: every graduating launch mints a brand-new `PoolKey` whose
+    ///         id cannot be known — let alone timelocked — before the token exists,
+    ///         so the per-pool path structurally cannot serve it. `Airlock.migrate`
+    ///         is permissionless, so a pool that is not initializable at migrate
+    ///         time would revert and STRAND the graduated liquidity in the migrator.
+    ///
+    ///         Scope of the grant: an allowlisted initializer may open ANY key on
+    ///         this hook. That is not a new power class — a captured `paramAdmin`
+    ///         can already allowlist arbitrary pools directly — but it IS a
+    ///         standing one, so grant it only to a contract whose own entrypoint is
+    ///         access-controlled (TegridyLiquidityMigrator.migrate is `onlyAirlock`)
+    ///         and route the grant through the admin timelock.
+    mapping(address initializer => bool allowed) public allowedInitializers;
 
     /// @notice AUDIT FIX 2026-07-12 [HIGH]: dedicated per-currency POL accumulator
     ///         (key = `currency.toId()`). The inherited `LiquidityPenaltyHook` parks
@@ -169,8 +186,32 @@ contract TegridyV4Hook is LiquidityPenaltyHook, IUnlockCallback, PauseGuardian {
         emit PoolAllowed(id, allowed);
     }
 
-    function _beforeInitialize(address, PoolKey calldata key, uint160) internal virtual override returns (bytes4) {
-        if (!allowedPools[key.toId()]) revert PoolNotAllowed();
+    /// @notice Grant/revoke a standing initializer (see `allowedInitializers`).
+    /// @dev    `initializer` is never CALLED by the hook — only compared against
+    ///         `_beforeInitialize`'s `sender` — so this needs no try/catch. It does
+    ///         require code: an EOA (or an EIP-7702-delegated EOA, code length 23)
+    ///         holding a standing grant would let a captured paramAdmin open pools
+    ///         from a key it controls directly, with no contract-level guard in
+    ///         between. Mirrors the `setDiscountConfig` check. address(0) is
+    ///         rejected outright rather than treated as a disable, because the
+    ///         disable path here is `allowed == false` on a real address.
+    function setInitializerAllowed(address initializer, bool allowed) external onlyParamAdmin {
+        if (initializer == address(0)) revert ZeroAddress();
+        if (allowed) {
+            uint256 codeLen = initializer.code.length;
+            if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        }
+        allowedInitializers[initializer] = allowed;
+        emit InitializerAllowed(initializer, allowed);
+    }
+
+    function _beforeInitialize(address sender, PoolKey calldata key, uint160)
+        internal
+        virtual
+        override
+        returns (bytes4)
+    {
+        if (!allowedPools[key.toId()] && !allowedInitializers[sender]) revert PoolNotAllowed();
         return this.beforeInitialize.selector;
     }
 
