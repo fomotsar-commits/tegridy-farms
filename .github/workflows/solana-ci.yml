@@ -242,9 +242,11 @@ jobs:
           PROGRAM_ID=$(solana-keygen pubkey target/deploy/tegridy_launch-keypair.json)
           echo "wallet(deployer)=$WALLET program=$PROGRAM_ID"
 
-          # 3. Patch both into the source. lib.rs holds TWO declare_id! sites — the
-          #    top-level program id and the ones inside `mod deployer` — so they are
-          #    handled separately and each patch count is asserted.
+          # 3. Patch both into the source. The program id is the crate's single
+          #    `declare_id!`; the deployer key is a `pubkey!` CONSTANT inside
+          #    `mod deployer` (deliberately not a second declare_id! — see the note
+          #    on that module). Handled separately, each count asserted, so a
+          #    silent mis-patch cannot slip through as a runtime mystery.
           python3 - programs/tegridy-launch/src/lib.rs "$PROGRAM_ID" "$WALLET" <<'PY'
           import re, sys
           path, program_id, wallet = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -254,14 +256,17 @@ jobs:
           head, sep, tail = src.partition(marker)
           assert sep, "could not locate `pub mod deployer` — lib.rs layout changed"
 
-          # Top-level declare_id! lives before the deployer module.
+          # The crate must contain EXACTLY ONE declare_id!, and it must be the
+          # top-level program id. A second one anywhere makes the IDL address
+          # ambiguous, which is the bug this whole arrangement exists to prevent.
+          assert 'declare_id!' not in tail, "declare_id! found inside/after mod deployer — use pubkey! for key constants"
           head, n = re.subn(r'declare_id!\("[^"]+"\)', f'declare_id!("{program_id}")', head)
-          assert n == 1, f"expected 1 top-level declare_id!, patched {n}"
+          assert n == 1, f"expected exactly 1 top-level declare_id!, patched {n}"
 
-          # Only the devnet arm inside the deployer module.
-          pat = r'(#\[cfg\(feature = "devnet"\)\]\s*\n\s*declare_id!\(")[^"]+("\);)'
+          # Only the devnet arm of the deployer constant.
+          pat = r'(#\[cfg\(feature = "devnet"\)\]\s*\n\s*pub const ID: Pubkey = pubkey!\(")[^"]+("\);)'
           tail, n = re.subn(pat, r'\g<1>' + wallet + r'\g<2>', tail, count=1)
-          assert n == 1, f"expected 1 devnet deployer declare_id!, patched {n}"
+          assert n == 1, f"expected 1 devnet deployer pubkey!, patched {n}"
 
           open(path, 'w').write(head + sep + tail)
           PY

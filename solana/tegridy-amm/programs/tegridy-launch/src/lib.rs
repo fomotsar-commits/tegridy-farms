@@ -89,12 +89,22 @@ declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
 /// build embeds the System Program id, which no one can sign for, so a mainnet
 /// binary refuses to initialize until an operator sets a real key here. That is
 /// deliberate — a placeholder that *works* is how this hole gets shipped.
+/// NOTE: `pubkey!`, NOT `declare_id!`. `declare_id!` emits a whole program-identity
+/// surface (`ID`, `id()`, `check_id()`), and a second one in the crate makes the
+/// program's address ambiguous — Anchor's IDL generator picked THIS key as the
+/// program address instead of the real one, which then failed at runtime as an
+/// opaque "failed to sanitize accounts offsets" error. cp-swap's `mod admin` uses
+/// `pubkey!` for exactly this reason; match it.
 pub mod deployer {
-    use anchor_lang::declare_id;
+    // Pulled from the parent scope (lib.rs does `use anchor_lang::prelude::*`),
+    // exactly as cp-swap's `mod admin` does it. Importing
+    // `anchor_lang::solana_program::pubkey` instead brings in the MODULE, not the
+    // macro, and fails with "cannot find macro `pubkey` in this scope".
+    use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
-    declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
+    pub const ID: Pubkey = pubkey!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
     #[cfg(not(feature = "devnet"))]
-    declare_id!("11111111111111111111111111111111");
+    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed)
 }
 
 #[program]
