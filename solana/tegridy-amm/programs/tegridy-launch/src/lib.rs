@@ -66,7 +66,9 @@ pub mod curve;
 pub mod errors;
 pub mod state;
 
-use crate::curve::{lamports_until_target, quote_buy, quote_sell, MAX_FEE_BPS};
+use crate::curve::{
+    lamports_until_target, max_reachable_real_sol, quote_buy, quote_sell, MAX_FEE_BPS,
+};
 use crate::errors::LaunchError;
 use crate::state::*;
 
@@ -117,6 +119,23 @@ pub mod tegridy_launch {
         require!(token_total_supply > 0, LaunchError::InvalidParameter);
         require!(graduation_target_lamports > 0, LaunchError::InvalidParameter);
 
+        // A target above the curve's own reachable ceiling produces launches that
+        // can NEVER graduate: buyers pay in until the token reserve runs down,
+        // `buy` then fails its reserve check, and `graduate` never qualifies. That
+        // is not fund loss (holders can still sell out) but the launch is dead and
+        // can never reach the AMM, which is the whole point. Reject the config
+        // rather than let it be discovered by a launch that silently cannot finish.
+        let ceiling = max_reachable_real_sol(
+            initial_virtual_sol,
+            initial_virtual_token,
+            token_total_supply,
+        )
+        .map_err(LaunchError::from)?;
+        require!(
+            graduation_target_lamports < ceiling,
+            LaunchError::GraduationTargetUnreachable
+        );
+
         let g = &mut ctx.accounts.global;
         g.authority = ctx.accounts.authority.key();
         g.fee_recipient = ctx.accounts.fee_recipient.key();
@@ -151,6 +170,16 @@ pub mod tegridy_launch {
         }
         if let Some(t) = graduation_target_lamports {
             require!(t > 0, LaunchError::InvalidParameter);
+            // Same reachability check as initialize_global — the curve parameters
+            // are immutable, so a later target change can just as easily land
+            // above the ceiling and start minting unfinishable launches.
+            let ceiling = max_reachable_real_sol(
+                g.initial_virtual_sol,
+                g.initial_virtual_token,
+                g.token_total_supply,
+            )
+            .map_err(LaunchError::from)?;
+            require!(t < ceiling, LaunchError::GraduationTargetUnreachable);
             g.graduation_target_lamports = t;
         }
         if let Some(p) = paused {

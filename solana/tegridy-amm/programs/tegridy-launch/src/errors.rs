@@ -31,6 +31,8 @@ pub enum LaunchError {
     MintHasFreezeAuthority,
     #[msg("Program not initialized by the designated deployer")]
     NotDeployAuthority,
+    #[msg("Graduation target exceeds the most SOL this curve could ever hold")]
+    GraduationTargetUnreachable,
 }
 
 /// Lift a pure-curve error into the program's error space.

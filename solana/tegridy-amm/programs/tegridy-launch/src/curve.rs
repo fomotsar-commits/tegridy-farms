@@ -226,6 +226,47 @@ pub fn lamports_until_target(
     Ok(Some(u64::try_from(gross).map_err(|_| CurveError::Overflow)?))
 }
 
+/// The most real SOL a curve can EVER accumulate, given its opening parameters.
+///
+/// This bound exists because the curve prices on `virtual + real` reserves on
+/// **both** legs. Starting from `k = V_s · (V_t + S)`, the token leg bottoms out
+/// at `V_t` once the whole supply `S` has been bought, so the SOL leg tops out at
+/// `k / V_t` — i.e. real SOL is capped at:
+///
+/// ```text
+///     V_s · S / V_t
+/// ```
+///
+/// The true ceiling is strictly BELOW this: `quote_buy` refuses to hand out the
+/// entire token reserve, so the last fraction is unreachable. Treat the returned
+/// value as an exclusive upper bound.
+///
+/// # Why this is a safety check, not a curiosity
+///
+/// A graduation target set above this bound produces a launch that can **never
+/// graduate**. Buyers keep paying in until the token reserve runs down, `buy`
+/// then fails on the reserve check, and `graduate` never qualifies. Holders can
+/// still sell out, so it is not a fund-loss bug — but the launch is permanently
+/// dead and can never reach the AMM, which is the entire point of the product.
+/// Configuration must be rejected up front rather than discovered by a launch
+/// that silently cannot finish.
+pub fn max_reachable_real_sol(
+    virtual_sol: u64,
+    virtual_token: u64,
+    token_supply: u64,
+) -> Result<u64, CurveError> {
+    if virtual_sol == 0 || virtual_token == 0 || token_supply == 0 {
+        return Err(CurveError::ZeroAmount);
+    }
+    let numerator = (virtual_sol as u128)
+        .checked_mul(token_supply as u128)
+        .ok_or(CurveError::Overflow)?;
+    // Round DOWN: this is used as a ceiling to compare a target against, so
+    // understating it keeps the check conservative.
+    let max = numerator / (virtual_token as u128);
+    u64::try_from(max).map_err(|_| CurveError::Overflow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,6 +442,88 @@ mod tests {
     fn target_cap_is_none_once_reached() {
         assert_eq!(lamports_until_target(10 * SOL, 10 * SOL, 100).unwrap(), None);
         assert_eq!(lamports_until_target(11 * SOL, 10 * SOL, 100).unwrap(), None);
+    }
+
+    /// The bound must be real: drive a curve to exhaustion with repeated buys and
+    /// confirm accumulated real SOL never exceeds what `max_reachable_real_sol`
+    /// predicts. This is the property the config check depends on.
+    #[test]
+    fn max_reachable_sol_is_a_true_ceiling() {
+        let supply: u64 = 1_000_000_000_000_000;
+        let predicted = max_reachable_real_sol(V_SOL, V_TOK, supply).unwrap();
+
+        let mut eff_sol = V_SOL;
+        let mut eff_tok = V_TOK + supply;
+        let mut real_sol: u64 = 0;
+        let mut real_tok = supply;
+
+        // Step size matters: a quote is computed against EFFECTIVE (virtual+real)
+        // token reserves but can only be paid out of REAL ones, so an over-large
+        // buy quotes more tokens than exist and is rejected outright. Walk the
+        // curve in small steps instead — which is also how it fills in practice.
+        for _ in 0..5_000 {
+            let spend = SOL / 10;
+            let q = match quote_buy(eff_sol, eff_tok, spend, 0) {
+                Ok(q) => q,
+                Err(_) => break,
+            };
+            if q.tokens_out > real_tok {
+                break;
+            }
+            eff_sol += q.lamports_to_curve;
+            eff_tok -= q.tokens_out;
+            real_sol += q.lamports_to_curve;
+            real_tok -= q.tokens_out;
+        }
+
+        assert!(
+            real_sol <= predicted,
+            "accumulated {} exceeded the predicted ceiling {}",
+            real_sol,
+            predicted
+        );
+        // And the bound should be tight enough to be useful, not vacuous.
+        assert!(
+            real_sol * 2 > predicted,
+            "ceiling {} is far above what is actually reachable ({}) — too loose to be a useful check",
+            predicted,
+            real_sol
+        );
+    }
+
+    #[test]
+    fn max_reachable_sol_scales_as_the_formula_says() {
+        // Use a supply that divides exactly, so the relationship is not obscured
+        // by truncation. (Asserting floor(2x) == 2*floor(x) on arbitrary inputs
+        // is simply false — an earlier version of this test made that mistake and
+        // failed 55 vs 54.)
+        let v_tok: u64 = 1_000_000_000_000;
+        let v_sol: u64 = 10 * SOL;
+        let supply: u64 = 2_000_000_000_000;
+
+        let a = max_reachable_real_sol(v_sol, v_tok, supply).unwrap();
+        assert_eq!(a, v_sol * 2, "V_s * S / V_t with S = 2*V_t must be 2*V_s");
+
+        // Doubling the virtual SOL leg doubles the ceiling.
+        assert_eq!(max_reachable_real_sol(v_sol * 2, v_tok, supply).unwrap(), a * 2);
+        // Doubling the virtual TOKEN leg halves it.
+        assert_eq!(max_reachable_real_sol(v_sol, v_tok * 2, supply).unwrap(), a / 2);
+    }
+
+    #[test]
+    fn max_reachable_sol_rejects_degenerate_input() {
+        assert_eq!(
+            max_reachable_real_sol(0, V_TOK, 1),
+            Err(CurveError::ZeroAmount)
+        );
+        assert_eq!(
+            max_reachable_real_sol(V_SOL, 0, 1),
+            Err(CurveError::ZeroAmount)
+        );
+        assert_eq!(
+            max_reachable_real_sol(V_SOL, V_TOK, 0),
+            Err(CurveError::ZeroAmount)
+        );
     }
 
     #[test]
