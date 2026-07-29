@@ -220,38 +220,57 @@ jobs:
       # the mechanism ("only this key may initialize"), not the specific value —
       # and the reject-path test still uses a different signer, so the check is
       # genuinely exercised in both directions.
-      - name: Generate wallet and pin it as the devnet deployer
+      # Pin BOTH identities before building, so the .so, the IDL, declare_id! and
+      # the deploy keypair are equal by construction rather than by build
+      # ordering. `anchor keys sync` was tried and is NOT sufficient: it aligned
+      # declare_id! and the keypair but left the IDL carrying a third, stale
+      # address, which then failed at runtime as an opaque sanitize error.
+      - name: Pin the program id and the devnet deployer, then build
         run: |
           set -euo pipefail
-          solana-keygen new --no-bip39-passphrase --silent --force -o "$HOME/.config/solana/id.json"
-          PUBKEY=$(solana-keygen pubkey "$HOME/.config/solana/id.json")
-          echo "CI deployer: $PUBKEY"
-          LIB=programs/tegridy-launch/src/lib.rs
-          # Replace only the declare_id inside the `devnet` cfg arm of `mod deployer`.
-          python3 - "$LIB" "$PUBKEY" <<'PY'
-          import re, sys
-          path, pubkey = sys.argv[1], sys.argv[2]
-          src = open(path).read()
-          pat = r'(pub mod deployer \{.*?#\[cfg\(feature = "devnet"\)\]\s*\n\s*declare_id!\(")[^"]+("\);)'
-          new, n = re.subn(pat, r'\g<1>' + pubkey + r'\g<2>', src, flags=re.S)
-          assert n == 1, f"expected exactly one devnet deployer declare_id, patched {n}"
-          open(path, 'w').write(new)
-          PY
-          grep -A4 'pub mod deployer' "$LIB"
 
-      - name: Build (produces the .so AND the IDL the tests load)
-        run: |
-          set -euo pipefail
-          # The FIRST build generates target/deploy/tegridy_launch-keypair.json
-          # with a fresh pubkey that does NOT match declare_id! or Anchor.toml.
-          # Deploying that keypair while the IDL still carries the placeholder
-          # address points the client at an address with no program at it; every
-          # instruction then dies with the deeply unhelpful "Transaction failed to
-          # sanitize accounts offsets correctly". `anchor keys sync` rewrites
-          # declare_id! and Anchor.toml to match the keypair — then rebuild so the
-          # .so and the IDL both carry the synced address.
-          anchor build -p tegridy_launch -- --features devnet
-          anchor keys sync
+          # 1. CI wallet — this becomes the devnet `deployer` key. deployer::ID is
+          #    a compile-time constant, so a generated wallet can never match a
+          #    committed one; patch rather than commit a keypair.
+          solana-keygen new --no-bip39-passphrase --silent --force -o "$HOME/.config/solana/id.json"
+          WALLET=$(solana-keygen pubkey "$HOME/.config/solana/id.json")
+
+          # 2. Program keypair, generated up front so nothing downstream invents one.
+          mkdir -p target/deploy
+          solana-keygen new --no-bip39-passphrase --silent --force \
+            -o target/deploy/tegridy_launch-keypair.json
+          PROGRAM_ID=$(solana-keygen pubkey target/deploy/tegridy_launch-keypair.json)
+          echo "wallet(deployer)=$WALLET program=$PROGRAM_ID"
+
+          # 3. Patch both into the source. lib.rs holds TWO declare_id! sites — the
+          #    top-level program id and the ones inside `mod deployer` — so they are
+          #    handled separately and each patch count is asserted.
+          python3 - programs/tegridy-launch/src/lib.rs "$PROGRAM_ID" "$WALLET" <<'PY'
+          import re, sys
+          path, program_id, wallet = sys.argv[1], sys.argv[2], sys.argv[3]
+          src = open(path).read()
+
+          marker = "pub mod deployer {"
+          head, sep, tail = src.partition(marker)
+          assert sep, "could not locate `pub mod deployer` — lib.rs layout changed"
+
+          # Top-level declare_id! lives before the deployer module.
+          head, n = re.subn(r'declare_id!\("[^"]+"\)', f'declare_id!("{program_id}")', head)
+          assert n == 1, f"expected 1 top-level declare_id!, patched {n}"
+
+          # Only the devnet arm inside the deployer module.
+          pat = r'(#\[cfg\(feature = "devnet"\)\]\s*\n\s*declare_id!\(")[^"]+("\);)'
+          tail, n = re.subn(pat, r'\g<1>' + wallet + r'\g<2>', tail, count=1)
+          assert n == 1, f"expected 1 devnet deployer declare_id!, patched {n}"
+
+          open(path, 'w').write(head + sep + tail)
+          PY
+
+          # 4. Anchor.toml must agree or anchor build rewrites the id back.
+          sed -i "s|^tegridy_launch = \".*\"|tegridy_launch = \"$PROGRAM_ID\"|" Anchor.toml
+          grep -E 'declare_id' programs/tegridy-launch/src/lib.rs
+          grep -E '^tegridy_launch' Anchor.toml
+
           anchor build -p tegridy_launch -- --features devnet
 
       - name: Assert artifacts exist AND their program ids agree
