@@ -12,7 +12,7 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC721} from "forge-std/interfaces/IERC721.sol";
 import {TegridyV4Hook} from "../../src/v4/TegridyV4Hook.sol";
-import {TegridyLiquidityMigrator, IPermit2Approve} from "../../src/v4/TegridyLiquidityMigrator.sol";
+import {TegridyLiquidityMigrator, IPermit2Approve, BeneficiaryData} from "../../src/v4/TegridyLiquidityMigrator.sol";
 
 // PosmTestSetup deploys the PositionManager stack through `vm.getCode(...)`, which
 // resolves against compiled ARTIFACTS rather than the import graph. Our sources only
@@ -183,9 +183,44 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
 
     function test_initialize_rejectsOutOfRangeTickSpacing() public {
         (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory none = new BeneficiaryData[](0);
         vm.prank(airlockMock);
         vm.expectRevert(TegridyLiquidityMigrator.InvalidTickSpacing.selector);
-        migrator.initialize(t0, t1, abi.encode(int24(0)));
+        migrator.initialize(t0, t1, _migratorData(int24(0), 0, none));
+    }
+
+    /// @notice The launch's advertised fee split cannot be paid by this migrator —
+    ///         Doppler streams it from a BUSL locker we have no equivalent for. It
+    ///         must therefore be REJECTED, not silently dropped, or every Fact
+    ///         Sheet publishing that split would be false.
+    function test_initialize_rejectsBeneficiariesItCannotPay() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](1);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(1e18)});
+
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.FeeConstitutionUnsupported.selector);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
+    /// @notice Same reasoning for an LP lock we do not implement.
+    function test_initialize_rejectsLockDurationItCannotHonour() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory none = new BeneficiaryData[](0);
+
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.LockDurationUnsupported.selector);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 30 days, none));
+    }
+
+    /// @notice POSITIVE CONTROL for both rejections: the SDK's exact payload shape
+    ///         with no beneficiaries and no lock is accepted and configures the pool.
+    function test_initialize_acceptsTheSdkPayloadShape() public {
+        (address t0, address t1) = _tokens();
+        _configure(t0, t1);
+        (,, uint24 fee, int24 spacing,) = migrator.getPoolKey(t0, t1);
+        assertTrue(LPFeeLibrary.isDynamicFee(fee), "must force the dynamic-fee flag");
+        assertEq(spacing, TICK_SPACING, "tick spacing must come from the payload");
     }
 
     // ─── Recovery ─────────────────────────────────────────────────────
@@ -216,9 +251,22 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         t1 = Currency.unwrap(currency1);
     }
 
+    /// @dev Encodes EXACTLY what the Doppler SDK emits for a uniswapV4 migration:
+    ///      (uint24 fee, int24 tickSpacing, uint32 lockDuration, BeneficiaryData[]).
+    ///      Hand-rolling a convenient shape here would let the migrator pass tests
+    ///      and revert on the first real launch.
+    function _migratorData(int24 tickSpacing, uint32 lockDuration, BeneficiaryData[] memory bens)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(uint24(3000), tickSpacing, lockDuration, bens);
+    }
+
     function _configure(address t0, address t1) internal {
+        BeneficiaryData[] memory none = new BeneficiaryData[](0);
         vm.prank(airlockMock);
-        migrator.initialize(t0, t1, abi.encode(TICK_SPACING));
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, none));
     }
 
     /// @dev Stands in for `Airlock.migrate`, which transfers both legs to the

@@ -34,6 +34,15 @@ interface IPermit2Approve {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
 }
 
+/// @dev Mirrors Doppler's MIT `src/types/BeneficiaryData.sol`. Restated rather
+///      than imported because Doppler core is not vendored — the type is MIT, so
+///      this is the licensed surface. Field order and widths are load-bearing:
+///      they must match what the SDK's `encodeAbiParameters` produces.
+struct BeneficiaryData {
+    address beneficiary;
+    uint96 shares;
+}
+
 /// @title  TegridyLiquidityMigrator — graduate a Doppler launch into a Tegridy-hooked V4 pool
 ///
 /// @notice Doppler's Airlock lets an integrator supply its own `LiquidityMigrator`
@@ -81,6 +90,11 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     error PoolNotConfigured();
     error ZeroLiquidity();
     error TickOutOfRange();
+    /// @dev The launch declared a fee-beneficiary split this migrator cannot pay.
+    ///      See `initialize` — failing closed beats publishing an unbacked split.
+    error FeeConstitutionUnsupported();
+    /// @dev The launch declared an LP lock duration this migrator does not implement.
+    error LockDurationUnsupported();
 
     // ─── Events ───────────────────────────────────────────────────────
     event MigrationConfigured(address indexed asset, address indexed numeraire, PoolId indexed poolId, int24 tickSpacing);
@@ -157,7 +171,37 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         onlyAirlock
         returns (address)
     {
-        int24 tickSpacing = abi.decode(data, (int24));
+        // MUST match what the Doppler SDK encodes for a `uniswapV4` migration —
+        // (uint24 fee, int24 tickSpacing, uint32 lockDuration, BeneficiaryData[]) —
+        // NOT a shape of our own choosing. The SDK builds this payload from its
+        // own migration config; a migrator that decoded anything else would
+        // revert on every real launch. An earlier version decoded a bare
+        // `int24`, which would have failed the first time it was actually used.
+        (uint24 fee_, int24 tickSpacing, uint32 lockDuration, BeneficiaryData[] memory beneficiaries) =
+            abi.decode(data, (uint24, int24, uint32, BeneficiaryData[]));
+
+        // `fee` is decoded but deliberately NOT used: this pool is dynamic-fee
+        // (TegridyV4Hook reverts otherwise), so the caller's static fee cannot
+        // apply. Silently accepting a fee we do not honour would be worse than
+        // ignoring it loudly, hence this comment rather than a variable rename.
+        fee_;
+
+        // FEE CONSTITUTION — fail closed rather than publish a split we do not pay.
+        //
+        // Those beneficiaries ARE the launch's advertised fee split (creator /
+        // attention / protocol / Doppler). Doppler honours them by locking the LP
+        // in its StreamableFeesLocker and streaming fees out. That locker is
+        // BUSL-1.1 and we do not have an equivalent yet: this migrator mints the
+        // position to the launch's timelock and the hook skims protocol fees, so
+        // there is no mechanism here that would pay a beneficiary list.
+        //
+        // Accepting the list and dropping it would make every Fact Sheet's
+        // published constitution false — precisely the disclosure failure this
+        // product exists to prevent. So a migration that carries beneficiaries is
+        // REJECTED until the locker exists. `lockDuration` is rejected for the
+        // same reason: we cannot honour a lock we do not implement.
+        if (beneficiaries.length > 0) revert FeeConstitutionUnsupported();
+        if (lockDuration > 0) revert LockDurationUnsupported();
         // Mirrors v4-core's own bounds (PoolManager.initialize reverts outside them).
         if (tickSpacing < TickMath.MIN_TICK_SPACING || tickSpacing > TickMath.MAX_TICK_SPACING) {
             revert InvalidTickSpacing();
