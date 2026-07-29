@@ -13,11 +13,15 @@
  *      prints "No tests found in project!" and EXITS 0, so all six jobs went
  *      green while running nothing.
  *
- *   2. 2026-07-28 — every pattern is `test/<prefix>*.t.sol`, and a glob `*`
- *      does not cross `/`. So `test/v4/`, `test/pass5_pocs/` — and ten
- *      top-level files whose prefixes nobody added to a brace list — were
- *      never run. `TegridyV4Hook.t.sol::test_admin_discountConfigTimelockFlow`
- *      had been red since commit 38aaad2 (2026-06-07) and CI never noticed.
+ *   2. 2026-07-28 — every pattern is `test/<prefix>*.t.sol`, which requires
+ *      <prefix> IMMEDIATELY after `test/`. A path like `test/v4/Audit…`
+ *      continues `v4/`, so no subdirectory was reachable: `test/v4/`,
+ *      `test/pass5_pocs/` — and ten top-level files whose prefixes nobody
+ *      added to a brace list — were never run.
+ *      `TegridyV4Hook.t.sol::test_admin_discountConfigTimelockFlow` had been
+ *      red since commit 38aaad2 (2026-06-07) and CI never noticed.
+ *      (The star is NOT the cause — see the glob section below; `*` crosses
+ *      `/` in forge. This file originally said otherwise and was wrong.)
  *
  * Both are the same defect: the pattern list drifts away from the file tree
  * and NOTHING fails. `forge test` exiting 0 on an empty match is the root
@@ -44,7 +48,6 @@
  * USAGE
  *   node scripts/check-test-slice-coverage.mjs                # check (default)
  *   node scripts/check-test-slice-coverage.mjs --emit-matrix  # GH Actions matrix JSON
- *   node scripts/check-test-slice-coverage.mjs --emit-filter  # the --no-match-test regex
  *   node scripts/check-test-slice-coverage.mjs --expect <slice>  # predicted files, one per line
  *   node scripts/check-test-slice-coverage.mjs --verify-slice <slice>  # needs forge on PATH
  */
@@ -59,14 +62,34 @@ const MANIFEST = join(REPO_ROOT, '.github', 'contracts-test-slices.json');
 const TEST_ROOT = join(REPO_ROOT, 'contracts', 'test');
 
 // ── glob → RegExp ─────────────────────────────────────────────────────────
-// Deliberately implements only the subset the manifest is allowed to use, and
-// matches `globset` (the crate behind `forge --match-path`) on that subset:
+// Implements only the subset the manifest is allowed to use, matching `globset`
+// (the crate behind `forge --match-path`) on that subset:
 //   {a,b}   alternation, non-nested; may contain `/`
-//   *       any run of non-separator chars — does NOT cross `/`
-//   ?       exactly one non-separator char
+//   *       ANY run of characters — INCLUDING `/`
+//   ?       exactly one character, including `/`
 //   [...]   character class, passed through (e.g. `[0-9]`)
-// Anything else is literal. A pattern using an unsupported construct (`**`,
-// nested braces) is rejected rather than silently mis-matched.
+//
+// ⚠ CORRECTED 2026-07-29. This originally emitted `[^/]*` for `*`, on the very
+// common assumption that a glob star stops at a path separator. forge does NOT
+// enable globset's `literal_separator`, so its `*` crosses `/`. Verified
+// against forge 1.5.1 rather than reasoned about:
+//
+//   forge test --match-path 'test/*Invariants.t.sol' --list --json
+//     -> 7 files, ALL of them under test/invariants/
+//
+// The old `[^/]*` happened to agree with forge on every pattern in the current
+// manifest — each demands a specific prefix immediately after `test/`, and a
+// subdirectory path starts with the directory name, so neither reading matches.
+// That agreement was real but incidental, and the divergence would have shown
+// up the first time someone wrote a pattern where it mattered.
+//
+// This also corrects the root cause originally recorded for the 13 unrun files:
+// they were NOT unreachable because `*` stops at `/`. They were unreachable
+// because `test/<Prefix>*` requires <Prefix> immediately after `test/`, which a
+// path like `test/v4/...` never satisfies. Same outcome, different mechanism.
+//
+// Anything else is literal. `**` and nested braces are rejected rather than
+// silently mis-matched.
 
 /** Expand non-nested `{a,b,c}` groups into a flat list of brace-free patterns. */
 function expandBraces(pattern) {
@@ -89,9 +112,11 @@ function globToRegExp(pattern) {
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
     if (c === '*') {
-      re += '[^/]*';
+      // Crosses `/` — forge leaves globset's literal_separator off. See the
+      // block comment above; this was `[^/]*` and that was wrong.
+      re += '.*';
     } else if (c === '?') {
-      re += '[^/]';
+      re += '.';
     } else if (c === '[') {
       const close = pattern.indexOf(']', i + 1);
       if (close === -1) throw new Error(`unbalanced '[' in pattern: ${pattern}`);
@@ -135,16 +160,52 @@ function findTestFiles(dir = TEST_ROOT, prefix = 'test') {
   return out;
 }
 
+/**
+ * Every `.sol` under contracts/test that is NOT a `.t.sol`, with the test-ish
+ * functions it declares.
+ *
+ * The blind spot this closes: forge does not require the `.t.sol` suffix — it
+ * collects `test*` / `invariant_*` from any compiled contract. But every slice
+ * pattern here ends in `*.t.sol`, and findTestFiles() only enumerates `.t.sol`,
+ * so a test living in `test/Foo.sol` would be invisible to the coverage check
+ * AND unreachable by every slice. That is the original defect wearing a
+ * different hat: silently never run, with nothing red.
+ *
+ * None exist today. This makes the day one appears a hard error rather than a
+ * discovery seven weeks later.
+ */
+function findStrayTestBearingFiles(dir = TEST_ROOT, prefix = 'test') {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const rel = `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      out.push(...findStrayTestBearingFiles(join(dir, entry.name), rel));
+    } else if (entry.name.endsWith('.sol') && !entry.name.endsWith('.t.sol')) {
+      const src = readFileSync(join(dir, entry.name), 'utf8');
+      const fns = [...src.matchAll(/function\s+((?:test|invariant_)[A-Za-z0-9_]*)\s*\(/g)].map((m) => m[1]);
+      if (fns.length > 0) out.push({ file: rel, fns });
+    }
+  }
+  return out;
+}
+
 function loadManifest() {
   const m = JSON.parse(readFileSync(MANIFEST, 'utf8'));
   if (!Array.isArray(m.slices) || m.slices.length === 0) throw new Error('manifest has no slices');
   if (!Array.isArray(m.excluded)) throw new Error('manifest has no excluded[] (use [] if truly empty)');
   if (typeof m.noMatchTest !== 'string') throw new Error('manifest has no noMatchTest string');
+  const seenNames = new Set();
   for (const s of m.slices) {
     if (!s.slice || !s.pattern) throw new Error(`slice entry needs {slice, pattern}: ${JSON.stringify(s)}`);
     if (s.noMatchTest !== undefined && typeof s.noMatchTest !== 'string') {
       throw new Error(`slice "${s.slice}" has a non-string noMatchTest override`);
     }
+    // Duplicate names are a FALSE-GREEN vector, not a cosmetic clash:
+    // --verify-slice resolves by name with .find(), so a second slice sharing a
+    // name would run in CI while the guard cross-checked the FIRST one's
+    // pattern. Its glob could match nothing and the guard would still pass.
+    if (seenNames.has(s.slice)) throw new Error(`duplicate slice name "${s.slice}" — names must be unique`);
+    seenNames.add(s.slice);
   }
   for (const e of m.excluded) {
     if (!e.pattern || !e.reason) throw new Error(`excluded entry needs {pattern, reason}: ${JSON.stringify(e)}`);
@@ -166,7 +227,8 @@ function check(manifest, files) {
       errors.push(
         `slice "${s.slice}" pattern '${s.pattern}' matches ZERO test files. ` +
           `forge exits 0 on an empty match, so this slice would run nothing and still go green. ` +
-          `Fix the glob (remember: '*' does not cross '/') or delete the slice.`,
+          `Fix the glob (a 'test/<prefix>*' pattern cannot reach a subdirectory — ` +
+          `write 'test/<dir>/*.t.sol') or delete the slice.`,
       );
     }
     for (const f of hit) claimedBy.set(f, [...(claimedBy.get(f) ?? []), s.slice]);
@@ -182,6 +244,17 @@ function check(manifest, files) {
       );
     }
     for (const f of hit) excludedBy.set(f, [...(excludedBy.get(f) ?? []), e.pattern]);
+  }
+
+  const strays = findStrayTestBearingFiles();
+  if (strays.length > 0) {
+    errors.push(
+      `${strays.length} non-.t.sol file(s) under contracts/test/ declare test/invariant functions. ` +
+        `forge does NOT require the .t.sol suffix, but every slice pattern ends in '*.t.sol', so these ` +
+        `are unreachable by the matrix AND invisible to this guard — silently never run:\n` +
+        strays.map((s) => `      contracts/${s.file}  (${s.fns.slice(0, 4).join(', ')}${s.fns.length > 4 ? ', …' : ''})`).join('\n') +
+        `\n    Rename to *.t.sol so a slice can claim it.`,
+    );
   }
 
   const unclaimed = files.filter((f) => !claimedBy.has(f) && !excludedBy.has(f));

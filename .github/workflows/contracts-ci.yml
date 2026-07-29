@@ -221,8 +221,13 @@ jobs:
   # failure. The first (2026-05-23) was regex-vs-glob: every pattern matched
   # zero files, forge exited 0 on "No tests found in project!", and all six
   # jobs went green while running nothing. The second was subtler and lived
-  # for seven weeks: every pattern is `test/<prefix>*.t.sol`, and a glob `*`
-  # does not cross `/`, so no subdirectory of test/ was ever reachable —
+  # for seven weeks: every pattern is `test/<prefix>*.t.sol`, which requires
+  # <prefix> IMMEDIATELY after `test/` — a path like `test/v4/Audit…` continues
+  # `v4/`, so no subdirectory was reachable. (The star is not the culprit:
+  # forge leaves globset's literal_separator off, so `*` DOES cross `/` —
+  # `test/*Invariants.t.sol` matches all 7 files under test/invariants/.
+  # Verified against forge 1.5.1; an earlier version of this comment and of
+  # the guard's matcher both claimed the opposite.) The casualties were
   # test/v4/ (42 tests), test/pass5_pocs/ (4) plus ten top-level files whose
   # prefixes were never added to a brace list (80 tests) simply did not run.
   # TegridyV4Hook.t.sol::test_admin_discountConfigTimelockFlow had been red
@@ -359,7 +364,9 @@ jobs:
       # ─────────────────────────────────────────────────────────────────
       - name: Slice guard (${{ matrix.slice }})
         working-directory: .
-        run: node scripts/check-test-slice-coverage.mjs --verify-slice "${{ matrix.slice }}"
+        run: node scripts/check-test-slice-coverage.mjs --verify-slice "$SLICE_NAME"
+        env:
+          SLICE_NAME: ${{ matrix.slice }}
 
       - name: Test (${{ matrix.slice }})
         # Each slice runs only its own test files (`--match-path` GLOB — not a
@@ -380,11 +387,25 @@ jobs:
         # at stock settings they genuinely do not fit, and nothing in
         # foundry.toml sets an [invariant] profile.
         # These vars only bite on slices that actually contain invariant tests.
+        #
+        # PATTERN and FILTER come through `env:`, NOT `${{ }}` inline in the
+        # script. `${{ }}` is textual substitution performed BEFORE bash parses
+        # the script, so a manifest value is shell source, not data:
+        #   value `(Fuzz|$HOME)`  -> bash expands it; forge receives
+        #                            `(Fuzz|/home/runner)`, while the guard
+        #                            (execFile, no shell) verified the LITERAL.
+        #                            The guard's whole promise — "what I check is
+        #                            what CI runs" — silently stops holding.
+        #   value containing `"`  -> closes the quote and the rest executes.
+        # Via `env:` the value reaches bash as data and `"$VAR"` passes it
+        # verbatim, so guard and run agree by construction.
         run: |
           forge test \
-            --match-path "${{ matrix.pattern }}" \
-            --no-match-test "${{ matrix.noMatchTest }}"
+            --match-path "$SLICE_PATTERN" \
+            --no-match-test "$SLICE_NO_MATCH_TEST"
         env:
+          SLICE_PATTERN: ${{ matrix.pattern }}
+          SLICE_NO_MATCH_TEST: ${{ matrix.noMatchTest }}
           FOUNDRY_FUZZ_RUNS: 256
           FOUNDRY_INVARIANT_RUNS: 32
           FOUNDRY_INVARIANT_DEPTH: 64
