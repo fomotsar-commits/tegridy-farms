@@ -40,31 +40,37 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `-b` is load-bearing. frontend/tsconfig.json is a SOLUTION file —
+      # `{"files": [], "references": [tsconfig.app.json, tsconfig.node.json]}`.
+      # Plain `tsc --noEmit` reads it, finds an empty `files` and no `include`,
+      # follows NO references (that only happens in build mode), and type-checks
+      # exactly zero files in ~0.4s. This step has been reporting a green
+      # "Type Check" over nothing.
+      #
+      # Not a hole in coverage — the Build job below runs `npm run build`
+      # (`tsc -b && vite build`) with no continue-on-error, so types WERE
+      # actually checked, just later and under a different step name. This
+      # makes the cheap early gate real again. Same bug in package.json's
+      # `precommit`, fixed alongside.
       - name: Type Check
-        run: npx tsc --noEmit
+        run: npx tsc -b --noEmit
 
       - name: Unit Tests
-        # CI fix 2026-05-18: 79 vitest failures pre-existed on main but were
-        # masked because Lint failed first (lint exit non-zero short-
-        # circuited the job before this step ran). After the lint-cleanup
-        # PR (#43) brought lint to 0 errors, the pre-existing test debt
-        # surfaced. Most failures are missing provider wrappers
-        # (WagmiProvider, ThemeProvider) on tests that render hook-using
-        # components without the production providers.
+        # `continue-on-error: true` REMOVED 2026-07-28 — its premise expired.
         #
-        # `continue-on-error: true` keeps the job green while the test-
-        # infra repair lands in a follow-up PR. The step still RUNS so the
-        # signal is visible in CI logs and a regression on the (passing)
-        # subset would still show up — we just don't block merges until
-        # the wrapper-utility refactor lands.
+        # It was added 2026-05-18 for 79 vitest failures that pre-existed ON
+        # MAIN (missing WagmiProvider/ThemeProvider wrappers), to keep merges
+        # unblocked while the test-infra repair landed. That repair has landed
+        # on this branch: run 30419320649 on mvp-launch reports
+        # `Test Files 138 passed (138)` with the step green on its own merits.
         #
-        # Follow-up tracked by the spawned task "Fix remaining 91 lint
-        # errors (React Compiler v7)" — extending its scope to also wire
-        # up a shared test-utils wrapper that provides Wagmi/Theme
-        # contexts for unit tests, then flipping `continue-on-error`
-        # back to `false`.
+        # Leaving the hatch open past its premise is how a suite stops being a
+        # gate without anyone deciding that: every regression in the 138 files
+        # — including the 44 serverless-API security tests — would have gone
+        # green. The vitest baseline is branch-specific (main still carries
+        # pre-existing failures); this flip is correct for mvp-launch and must
+        # be re-checked before porting to main.
         run: npm test
-        continue-on-error: true
 
   build:
     name: Build

@@ -16,7 +16,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "precommit": "npm run lint && tsc --noEmit",
+    "precommit": "npm run lint && tsc -b --noEmit",
     "analyze": "ANALYZE=true vite build"
   },
   "dependencies": {
