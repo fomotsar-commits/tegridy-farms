@@ -28,17 +28,26 @@
 //!    rejected.** Rejecting would stall a curve one lamport short of graduating;
 //!    letting it overshoot would let the last buyer size the migrated pool. The
 //!    excess is refunded in the same instruction.
-//! 5. **Graduation is split in two.** [`graduate`] performs only the state
-//!    transition (stop trading, lock in final reserves). The fund-moving CPI into
-//!    cp-swap is a SEPARATE instruction, deliberately not written yet — see below.
+//! 5. **Graduation and migration MUST be atomic.** An earlier version split them
+//!    — a permissionless `graduate` flipped `complete` and moved no funds — on the
+//!    theory that isolating the state change shrank the blast radius of the risky
+//!    part. It did the opposite: `buy` and `sell` both require `!complete`, `sell`
+//!    is the only exit for SOL, and the migration instruction did not exist, so
+//!    flipping the flag stranded every lamport raised, permanently, for anyone who
+//!    cared to call it. That instruction has been REMOVED. Nothing may set
+//!    `complete` until it can move the liquidity in the same breath.
 //!
 //! ## Not yet implemented: `migrate_to_amm`
 //!
-//! The instruction that CPIs into `raydium_cp_swap::initialize` to open the pool
-//! and seed it with the graduated reserves. **It is the highest-risk instruction
-//! in this program**: it moves the entire raised balance in one call and, unlike
-//! the AMM it calls into, has no audited upstream to diff against. It is left out
-//! of this pass on purpose rather than written without a local compiler.
+//! The instruction that CPIs into `raydium_cp_swap::initialize` to open the pool,
+//! seeds it with the curve's reserves, and sets `complete` — **all in one
+//! instruction**, for the reason in point 5. It is the highest-risk code in this
+//! program: it moves the entire raised balance at once and, unlike the AMM it
+//! calls into, has no audited upstream to diff against.
+//!
+//! Until it lands, a curve can be bought and sold but never closed. That is the
+//! correct failure mode: a launch that cannot finish is recoverable, a launch
+//! whose funds are locked is not.
 //!
 //! ## Constraints that are not negotiable
 //!
@@ -476,36 +485,34 @@ pub mod tegridy_launch {
         Ok(())
     }
 
-    /// Close the curve once it has reached its target.
-    ///
-    /// State transition ONLY — no funds move. Permissionless because it has no
-    /// parameters and only one legal outcome, so there is nothing for a caller to
-    /// choose or extract; anyone may push a qualifying curve over the line.
-    /// `migrate_to_amm` (not yet written) is what actually seeds the pool.
-    pub fn graduate(ctx: Context<Graduate>) -> Result<()> {
-        // Honour the pause. `state.rs` documents pause as blocking buys AND
-        // graduation, and graduation is the one IRREVERSIBLE transition here — an
-        // emergency brake that cannot stop it is not a brake. This requires the
-        // Graduate context to carry `global`; it previously did not, so the
-        // documented invariant was unenforceable rather than merely unenforced.
-        require!(!ctx.accounts.global.paused, LaunchError::Paused);
-
-        let curve = &mut ctx.accounts.curve;
-        require!(!curve.complete, LaunchError::AlreadyComplete);
-        require!(
-            curve.real_sol_reserves >= curve.graduation_target_lamports,
-            LaunchError::NotReadyToGraduate
-        );
-
-        curve.complete = true;
-
-        emit!(Graduated {
-            mint: curve.mint,
-            sol_reserves: curve.real_sol_reserves,
-            token_reserves: curve.real_token_reserves,
-        });
-        Ok(())
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // `graduate` REMOVED — it was a permissionless total-loss bug.
+    //
+    // It set `complete = true` and moved no funds, on the reasoning that
+    // splitting the state transition from the fund movement would shrink the
+    // blast radius of the risky part. The split CREATED the risk instead:
+    //
+    //   - `buy` and `sell` both require `!complete`
+    //   - `sell` is the ONLY instruction that moves SOL out of a curve
+    //   - `migrate_to_amm` does not exist yet
+    //
+    // so flipping `complete` stranded 100% of the raised SOL with no exit for
+    // anyone, ever. And it was permissionless — I argued that was safe because
+    // the instruction "takes no parameters and has exactly one legal outcome, so
+    // there is nothing to choose or extract". Wrong: the outcome itself was the
+    // attack. Any passer-by could brick any qualifying launch for the price of a
+    // transaction.
+    //
+    // The lesson generalises: a state transition that CLOSES the only exit is
+    // not made safer by separating it from the fund movement it depends on.
+    // Graduation and migration must land ATOMICALLY, so there is no window in
+    // which a curve is closed but its liquidity has not moved.
+    //
+    // `migrate_to_amm` will therefore do both in one instruction: seed the
+    // cp-swap pool AND set `complete`. Until it exists, no instruction may set
+    // `complete` — the `complete` field and the `Graduated` event are retained
+    // for that future instruction to use.
+    // ─────────────────────────────────────────────────────────────────────────
 }
 
 // ─── Accounts ────────────────────────────────────────────────────────────────
@@ -645,16 +652,3 @@ pub struct Trade<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-pub struct Graduate<'info> {
-    #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
-    pub global: Account<'info, GlobalConfig>,
-    pub mint: Account<'info, Mint>,
-    #[account(
-        mut,
-        seeds = [CURVE_SEED, mint.key().as_ref()],
-        bump = curve.bump,
-        has_one = mint @ LaunchError::InvalidParameter
-    )]
-    pub curve: Account<'info, BondingCurve>,
-}
