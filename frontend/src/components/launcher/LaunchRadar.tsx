@@ -135,7 +135,8 @@ export function LaunchRadar() {
             ))}
           </ol>
           <p className="text-white/30 text-[11px]">
-            Liquidity is the pool reserve as reported upstream; &ldquo;—&rdquo; means it wasn&apos;t reported, not zero.
+            Liquidity is the pool reserve as reported upstream. &ldquo;—&rdquo; means we have no figure we trust — either
+            none was reported, or what was reported isn&apos;t a believable market price — never that it is zero.
             {state.observedAt > 0 && <> Read {formatTimeAgo(state.observedAt)}.</>}
           </p>
         </>
