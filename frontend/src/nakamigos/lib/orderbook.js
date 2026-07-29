@@ -125,7 +125,11 @@ export async function fulfillNativeOrder(order) {
       return { error: "wrong-chain", message: "Please switch to Ethereum Mainnet to buy NFTs" };
     }
     const signer = await provider.getSigner();
-    const buyerAddress = await signer.getAddress();
+    // Address itself is unused (Seaport fulfilment authorises via msg.sender),
+    // but the call is KEPT as an early liveness check: it throws for a locked
+    // or disconnected wallet, and that throw is what turns into the friendly
+    // error below instead of a failure deep in the transaction path.
+    await signer.getAddress();
 
     // Reconstruct the Seaport order from stored parameters + signature
     const params = order.parameters;

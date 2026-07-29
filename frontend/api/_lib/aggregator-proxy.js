@@ -115,7 +115,7 @@ function isPathSafe(p) {
   return true;
 }
 
-function pickQueryParams(query, allowedKeys, pathSegments) {
+function pickQueryParams(query, allowedKeys, _pathSegments) {
   const out = new URLSearchParams();
   for (const k of allowedKeys) {
     if (Object.prototype.hasOwnProperty.call(query, k)) {

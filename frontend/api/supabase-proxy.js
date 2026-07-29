@@ -390,7 +390,7 @@ export default async function handler(req, res) {
     } catch {
       return res.status(status).json({ ok: true });
     }
-  } catch (err) {
+  } catch {
     return res.status(500).json({ error: "Supabase request failed" });
   }
 }

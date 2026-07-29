@@ -34,7 +34,7 @@ describe("exportCSV", () => {
   it("unions keys across heterogeneous rows so no column is dropped", () => {
     exportCSV([{ a: 1 }, { b: 2 }], "hetero");
     const csv = blobSpy[0];
-    const lines = csv.replace(/^﻿/, "").split("\n");
+    const lines = csv.replace(/^\uFEFF/, "").split("\n");
     expect(lines[0]).toBe("a,b");
     expect(lines[1]).toBe("1,"); // row 1 has no b
     expect(lines[2]).toBe(",2"); // row 2 has no a

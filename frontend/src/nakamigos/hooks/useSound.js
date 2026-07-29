@@ -179,7 +179,7 @@ export default function useSound() {
   const toggleMute = useCallback(() => {
     setMuted((prev) => {
       const next = !prev;
-      try { localStorage.setItem('nakamigos_sound_muted', String(next)); } catch {}
+      try { localStorage.setItem('nakamigos_sound_muted', String(next)); } catch { /* private mode / quota — mute still applies in-memory */ }
       return next;
     });
   }, []);
