@@ -240,13 +240,38 @@ jobs:
           grep -A4 'pub mod deployer' "$LIB"
 
       - name: Build (produces the .so AND the IDL the tests load)
-        run: anchor build -p tegridy_launch -- --features devnet
+        run: |
+          set -euo pipefail
+          # The FIRST build generates target/deploy/tegridy_launch-keypair.json
+          # with a fresh pubkey that does NOT match declare_id! or Anchor.toml.
+          # Deploying that keypair while the IDL still carries the placeholder
+          # address points the client at an address with no program at it; every
+          # instruction then dies with the deeply unhelpful "Transaction failed to
+          # sanitize accounts offsets correctly". `anchor keys sync` rewrites
+          # declare_id! and Anchor.toml to match the keypair — then rebuild so the
+          # .so and the IDL both carry the synced address.
+          anchor build -p tegridy_launch -- --features devnet
+          anchor keys sync
+          anchor build -p tegridy_launch -- --features devnet
 
-      - name: Assert the build actually produced artifacts
+      - name: Assert artifacts exist AND their program ids agree
         run: |
           set -euo pipefail
           test -f target/deploy/tegridy_launch.so || { echo "::error::no .so"; exit 1; }
           test -f target/idl/tegridy_launch.json || { echo "::error::no IDL — tests load it at runtime"; exit 1; }
+
+          KEYPAIR_ID=$(solana-keygen pubkey target/deploy/tegridy_launch-keypair.json)
+          IDL_ID=$(python3 -c "import json;print(json.load(open('target/idl/tegridy_launch.json'))['address'])")
+          SRC_ID=$(grep -oP 'declare_id!\("\K[^"]+' programs/tegridy-launch/src/lib.rs | head -1)
+          echo "keypair=$KEYPAIR_ID idl=$IDL_ID src=$SRC_ID"
+
+          # Fail LOUDLY on drift. This mismatch previously surfaced only as an
+          # opaque sanitize error from inside a test, which cost a CI round-trip
+          # to diagnose.
+          if [ "$KEYPAIR_ID" != "$IDL_ID" ] || [ "$KEYPAIR_ID" != "$SRC_ID" ]; then
+            echo "::error::program id mismatch — deploy keypair, IDL and declare_id! must agree"
+            exit 1
+          fi
           ls -l target/deploy/tegridy_launch.so target/idl/tegridy_launch.json
 
       # yarn, not npm — the project ships .yarnrc.yml + yarn.lock, and Anchor.toml's
