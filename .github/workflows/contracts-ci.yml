@@ -6,14 +6,18 @@ on:
     paths:
       - "contracts/**"
       - "scripts/check-interface-selectors.mjs"
+      - "scripts/check-test-slice-coverage.mjs"
       - "frontend/scripts/extract-missing-abis.mjs"
+      - ".github/contracts-test-slices.json"
       - ".github/workflows/contracts-ci.yml"
   pull_request:
     branches: [main, mvp-launch]
     paths:
       - "contracts/**"
       - "scripts/check-interface-selectors.mjs"
+      - "scripts/check-test-slice-coverage.mjs"
       - "frontend/scripts/extract-missing-abis.mjs"
+      - ".github/contracts-test-slices.json"
       - ".github/workflows/contracts-ci.yml"
 
 # Least-privilege default — contracts CI only reads source and caches.
@@ -206,9 +210,69 @@ jobs:
           echo "✅ abi-supplement.ts matches the compiled contract artifacts."
 
   # ─────────────────────────────────────────────────────────────────────
-  # Test matrix — splits the ~118 test files across 6 balanced slices so
-  # each fits comfortably under the ubuntu-latest 15-minute SIGTERM
-  # watchdog. Slices run in PARALLEL, so wall-clock = max(slice times).
+  # Test-slice manifest + coverage guard.
+  #
+  # The matrix below is NOT written inline any more. It is generated from
+  # .github/contracts-test-slices.json, and the same script that generates
+  # it asserts that every contracts/test/**/*.t.sol is claimed by exactly
+  # one slice or by an explicit `excluded` entry.
+  #
+  # Restructured 2026-07-28 after the second occurrence of the same silent
+  # failure. The first (2026-05-23) was regex-vs-glob: every pattern matched
+  # zero files, forge exited 0 on "No tests found in project!", and all six
+  # jobs went green while running nothing. The second was subtler and lived
+  # for seven weeks: every pattern is `test/<prefix>*.t.sol`, and a glob `*`
+  # does not cross `/`, so no subdirectory of test/ was ever reachable —
+  # test/v4/ (42 tests), test/pass5_pocs/ (4) plus ten top-level files whose
+  # prefixes were never added to a brace list (80 tests) simply did not run.
+  # TegridyV4Hook.t.sol::test_admin_discountConfigTimelockFlow had been red
+  # since 38aaad2 (2026-06-07) and nothing reported it.
+  #
+  # The guard has to live outside forge because forge itself cannot signal
+  # this: an empty match is exit 0, not a failure. Keeping the patterns in
+  # the manifest rather than inline here is the point — a guard holding its
+  # own private copy of the pattern list can pass while the matrix that
+  # actually runs is empty.
+  #
+  # This job needs no Foundry and no npm install (Node builtins only), so it
+  # finishes in seconds and gates the matrix that follows.
+  # ─────────────────────────────────────────────────────────────────────
+  slices:
+    name: test-slice coverage guard
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.emit.outputs.matrix }}
+      no_match_test: ${{ steps.emit.outputs.no_match_test }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Set up Node
+        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        with:
+          node-version: 20
+
+      - name: Every test file is sliced or explicitly excluded
+        run: node scripts/check-test-slice-coverage.mjs
+
+      - name: Emit matrix
+        id: emit
+        run: |
+          set -euo pipefail
+          # Assign first, THEN echo. `echo "k=$(cmd)"` swallows cmd's exit status
+          # even under `set -e`, which would write an empty matrix and hand the
+          # test job a `fromJSON('')` failure instead of this job's error.
+          MATRIX="$(node scripts/check-test-slice-coverage.mjs --emit-matrix)"
+          FILTER="$(node scripts/check-test-slice-coverage.mjs --emit-filter)"
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
+          echo "no_match_test=${FILTER}" >> "$GITHUB_OUTPUT"
+          echo "matrix: ${MATRIX}"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test matrix — splits the .t.sol suite across the slices declared in
+  # .github/contracts-test-slices.json so each fits comfortably under the
+  # ubuntu-latest 15-minute SIGTERM watchdog. Slices run in PARALLEL, so
+  # wall-clock = max(slice times).
   #
   # CI fix 2026-05-18: pre-fix, a single Test step ran the entire suite
   # serially and consistently SIGTERM'd at ~15 min (exit 143). Prior
@@ -218,48 +282,27 @@ jobs:
   # jobs refactor, (c) GHE larger-runner entitlement. This change picks
   # (b) — no new infra, no cost.
   #
-  # Slice balance (~118 total .t.sol files):
-  #   audit-early       20  Audit195_*, Audit_*, AuditDemonstration*, AuditFixes_*
-  #   audit-deep        15  AuditMicroscope_*, AuditR014_*, AuditR016_*
-  #   tegridy           19  Tegridy*
-  #   deep-fresh-final  19  Deep_*, FRESH2026_*, FinalAudit_*, FuzzInvariant*
-  #   pass-r-series     28  PASS*, Pass*, R[0-9]*
-  #   misc              17  CommunityGrants, Gauge*, L2*, Meme*, POL*,
-  #                         PremiumAccess, RedTeam_*, Referral*, RevenueDistributor,
-  #                         SwapFeeRouter, Toweli, VoteIncentives
+  # Slice balance is printed by the guard job above on every run, so it is
+  # never stale here. (The table that used to live in this comment had
+  # drifted badly — it claimed pass-r-series carried 28 files when the real
+  # figure was 6.)
   #
-  # Each slice still excludes invariant/fuzz tests (nightly cron runs
-  # those on a larger runner).
+  # Each slice still excludes invariant/fuzz tests BY TEST NAME via the
+  # shared `--no-match-test` filter in the manifest. Note that this is a
+  # name filter, not a path filter: a file can be inside a slice and still
+  # contribute zero runnable tests (test/FuzzInvariant.t.sol is exactly
+  # that). The per-slice guard below asserts the slice TOTAL is non-zero.
   # ─────────────────────────────────────────────────────────────────────
   test:
     name: forge test — ${{ matrix.slice }}
-    needs: build
+    needs: [build, slices]
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: contracts
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # NOTE: `forge test --match-path` takes a GLOB, not a regex. Earlier
-          # patterns here used regex syntax (alternation `|`, anchors `$`, escaped
-          # dots `\.`) which forge interpreted as literal characters — every slice
-          # silently matched zero files and exited 0 ("No tests found in project!"),
-          # so all 6 jobs went green while running nothing. Converted to glob brace
-          # expansion + literal `.` per `forge test --help` (2026-05-23).
-          - slice: audit-early
-            pattern: 'test/{Audit195_,Audit_,AuditDemonstration,AuditFixes_,M19Port}*.t.sol'
-          - slice: audit-deep
-            pattern: 'test/Audit{Microscope_,R014_,R016_}*.t.sol'
-          - slice: tegridy
-            pattern: 'test/Tegridy*.t.sol'
-          - slice: deep-fresh-final
-            pattern: 'test/{Deep_,FRESH2026_,FinalAudit_,FuzzInvariant}*.t.sol'
-          - slice: pass-r-series
-            pattern: 'test/{PASS,Pass,R[0-9]}*.t.sol'
-          - slice: misc
-            pattern: 'test/{CommunityGrants,Gauge,L2,Meme,POLAccumulator,PremiumAccess,RedTeam,Referral,RevenueDistributor,SwapFeeRouter,Toweli,VoteIncentives}*.t.sol'
+      matrix: ${{ fromJSON(needs.slices.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -281,17 +324,53 @@ jobs:
             contracts/out
           key: foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**') }}
 
+      - name: Set up Node
+        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        with:
+          node-version: 20
+
+      # ─────────────────────────────────────────────────────────────────
+      # Non-zero-test guard, plus a fidelity check on the coverage guard.
+      #
+      # `forge test` EXITS 0 when its selection is empty ("No tests found in
+      # project!"). That single behaviour is the root cause of both silent
+      # matrix failures this repo has had, so the slice's test count has to
+      # be asserted separately from the run's exit code.
+      #
+      # Two assertions, from `forge test --list --json` (forge's own answer,
+      # not a reimplementation of its glob):
+      #   1. the FILE SET forge matches equals what the coverage guard
+      #      predicted — this is what keeps the guard's glob subset honest
+      #      against forge's `globset`; a matcher that over-claims would
+      #      otherwise let the coverage job pass over an empty matrix;
+      #   2. the slice yields at least one runnable test after the shared
+      #      `--no-match-test` name filter.
+      #
+      # `--list` compiles, so this warms the same build the run below reuses;
+      # the marginal cost is one extra forge startup.
+      #
+      # `working-directory: .` is workspace-relative and overrides this job's
+      # `contracts` default — same shape as the ABI drift guard in `build`.
+      # The script re-roots itself at contracts/ before invoking forge.
+      # ─────────────────────────────────────────────────────────────────
+      - name: Slice guard (${{ matrix.slice }})
+        working-directory: .
+        run: node scripts/check-test-slice-coverage.mjs --verify-slice "${{ matrix.slice }}"
+
       - name: Test (${{ matrix.slice }})
-        # Each slice runs only its own test files (`--match-path` regex).
-        # Invariant + fuzz tests still excluded (`--no-match-test`) — those
-        # run on the nightly cron workflow on a beefier runner.
+        # Each slice runs only its own test files (`--match-path` GLOB — not a
+        # regex; see the manifest's _readme). Invariant + fuzz tests are still
+        # excluded BY NAME via `--no-match-test`; nothing runs them today (the
+        # "nightly cron on a beefier runner" referenced by older comments here
+        # was never built — there is no `schedule:` trigger for contracts in
+        # .github/workflows).
         # FOUNDRY_FUZZ_RUNS: 256 is the Foundry default; matches the locally-
         # validated config. Each slice is well under the runner's 15-min
         # watchdog budget (worst case ~4 min per slice).
         run: |
           forge test \
             --match-path "${{ matrix.pattern }}" \
-            --no-match-test "(Invariant|invariant|Fuzz|fuzz|testFuzz)"
+            --no-match-test "${{ needs.slices.outputs.no_match_test }}"
         env:
           FOUNDRY_FUZZ_RUNS: 256
 
@@ -312,7 +391,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   all-tests-pass:
     name: all-tests-pass
-    needs: [build, test]
+    needs: [build, slices, test]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -322,8 +401,15 @@ jobs:
             echo "Build job: ${{ needs.build.result }}"
             exit 1
           fi
+          # `slices` gates the matrix. If it fails the `test` job is SKIPPED,
+          # and a skipped matrix must never read as success here — that is the
+          # same "green over nothing" shape the guard exists to prevent.
+          if [ "${{ needs.slices.result }}" != "success" ]; then
+            echo "Test-slice coverage guard: ${{ needs.slices.result }}"
+            exit 1
+          fi
           if [ "${{ needs.test.result }}" != "success" ]; then
-            echo "Test matrix: ${{ needs.test.result }} (any slice failed)"
+            echo "Test matrix: ${{ needs.test.result }} (any slice failed or was skipped)"
             exit 1
           fi
           echo "✅ All matrix slices passed"
