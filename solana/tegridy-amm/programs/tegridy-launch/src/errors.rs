@@ -27,6 +27,10 @@ pub enum LaunchError {
     InvalidParameter,
     #[msg("Curve would drop below rent exemption")]
     InsufficientRentExemptBalance,
+    #[msg("Mint carries a freeze authority — it could freeze the vault or holders")]
+    MintHasFreezeAuthority,
+    #[msg("Program not initialized by the designated deployer")]
+    NotDeployAuthority,
 }
 
 /// Lift a pure-curve error into the program's error space.

@@ -76,6 +76,25 @@ use crate::state::*;
 // deploy (devnet or mainnet), exactly as cp-swap's is. See MAINNET_RUNBOOK.md.
 declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
 
+/// The only key permitted to call [`tegridy_launch::initialize_global`].
+///
+/// Without this, `initialize_global` is a classic unprotected initializer: the
+/// `global` PDA is a singleton at `[GLOBAL_SEED]`, so whoever calls it first owns
+/// the protocol and receives every trade fee, permanently. Anyone watching the
+/// deploy could take it in the block after the program lands.
+///
+/// Fail-closed by default, matching cp-swap's authority pattern: a non-devnet
+/// build embeds the System Program id, which no one can sign for, so a mainnet
+/// binary refuses to initialize until an operator sets a real key here. That is
+/// deliberate — a placeholder that *works* is how this hole gets shipped.
+pub mod deployer {
+    use anchor_lang::declare_id;
+    #[cfg(feature = "devnet")]
+    declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
+    #[cfg(not(feature = "devnet"))]
+    declare_id!("11111111111111111111111111111111");
+}
+
 #[program]
 pub mod tegridy_launch {
     use super::*;
@@ -113,11 +132,17 @@ pub mod tegridy_launch {
 
     /// Update mutable protocol parameters. Never affects a live curve — each
     /// launch snapshots its own terms at creation.
+    /// `new_authority` / `new_fee_recipient` exist so neither is a one-shot
+    /// decision baked in at initialization. Without them a fat-fingered
+    /// `fee_recipient` would send every trade fee to the wrong address forever,
+    /// and authority could never be rotated onto a rebuilt multisig.
     pub fn update_global(
         ctx: Context<UpdateGlobal>,
         trade_fee_bps: Option<u64>,
         graduation_target_lamports: Option<u64>,
         paused: Option<bool>,
+        new_authority: Option<Pubkey>,
+        new_fee_recipient: Option<Pubkey>,
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
@@ -130,6 +155,17 @@ pub mod tegridy_launch {
         }
         if let Some(p) = paused {
             g.paused = p;
+        }
+        // Rotating to the default pubkey would brick the protocol irrecoverably —
+        // no one can sign for the System Program id, so authority would be lost
+        // and fees would burn. Reject rather than trust the caller.
+        if let Some(a) = new_authority {
+            require!(a != Pubkey::default(), LaunchError::InvalidParameter);
+            g.authority = a;
+        }
+        if let Some(r) = new_fee_recipient {
+            require!(r != Pubkey::default(), LaunchError::InvalidParameter);
+            g.fee_recipient = r;
         }
         Ok(())
     }
@@ -408,6 +444,13 @@ pub mod tegridy_launch {
     /// choose or extract; anyone may push a qualifying curve over the line.
     /// `migrate_to_amm` (not yet written) is what actually seeds the pool.
     pub fn graduate(ctx: Context<Graduate>) -> Result<()> {
+        // Honour the pause. `state.rs` documents pause as blocking buys AND
+        // graduation, and graduation is the one IRREVERSIBLE transition here — an
+        // emergency brake that cannot stop it is not a brake. This requires the
+        // Graduate context to carry `global`; it previously did not, so the
+        // documented invariant was unenforceable rather than merely unenforced.
+        require!(!ctx.accounts.global.paused, LaunchError::Paused);
+
         let curve = &mut ctx.accounts.curve;
         require!(!curve.complete, LaunchError::AlreadyComplete);
         require!(
@@ -430,7 +473,9 @@ pub mod tegridy_launch {
 
 #[derive(Accounts)]
 pub struct InitializeGlobal<'info> {
-    #[account(mut)]
+    /// Must be the hardcoded [`deployer`] key — see that module for why an
+    /// unconstrained signer here is a protocol-capture hole.
+    #[account(mut, address = deployer::ID @ LaunchError::NotDeployAuthority)]
     pub authority: Signer<'info>,
     /// CHECK: destination for trade fees; validated only as an address. Mainnet
     /// this is the treasury's Squads vault.
@@ -468,11 +513,31 @@ pub struct CreateLaunch<'info> {
 
     /// The launch token. Must still be mint-authority-held by the creator; this
     /// instruction mints the supply and then revokes that authority forever.
+    ///
+    /// ## The freeze-authority constraint is load-bearing — do not remove it
+    ///
+    /// Revoking the MINT authority alone does NOT make a launch rug-proof. A mint
+    /// may also carry a **freeze authority**, and SPL Token lets its holder freeze
+    /// any token account of that mint. A creator who kept one could:
+    ///   - freeze `curve_vault` (a deterministic PDA at [VAULT_SEED, mint], so its
+    ///     address is public from creation). The vault is the SOURCE of every buy
+    ///     transfer and the DESTINATION of every sell transfer, so freezing it
+    ///     bricks both at once and locks 100% of raised SOL forever — there is no
+    ///     admin withdrawal and `graduate` moves no funds; or
+    ///   - freeze holders' token accounts selectively, leaving their own liquid,
+    ///     then sell into a curve nobody else can exit.
+    ///
+    /// Rejecting a mint that has one is the complete fix: SPL Token can never
+    /// re-add a freeze authority once it is `None`, so a mint that passes here can
+    /// never acquire one later. Revoking it instead would be strictly weaker — it
+    /// only works when the creator IS the freeze authority, and silently fails to
+    /// protect against a mint whose freeze authority is a third party.
     #[account(
         mut,
         constraint = mint.mint_authority == anchor_lang::solana_program::program_option::COption::Some(creator.key())
             @ LaunchError::Unauthorized,
         constraint = mint.supply == 0 @ LaunchError::InvalidParameter,
+        constraint = mint.freeze_authority.is_none() @ LaunchError::MintHasFreezeAuthority,
     )]
     pub mint: Account<'info, Mint>,
 
@@ -543,6 +608,8 @@ pub struct Trade<'info> {
 
 #[derive(Accounts)]
 pub struct Graduate<'info> {
+    #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
+    pub global: Account<'info, GlobalConfig>,
     pub mint: Account<'info, Mint>,
     #[account(
         mut,
