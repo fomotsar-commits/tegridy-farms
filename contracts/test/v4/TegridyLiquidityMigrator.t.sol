@@ -12,7 +12,8 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC721} from "forge-std/interfaces/IERC721.sol";
 import {TegridyV4Hook} from "../../src/v4/TegridyV4Hook.sol";
-import {TegridyLiquidityMigrator, IPermit2Approve, BeneficiaryData} from "../../src/v4/TegridyLiquidityMigrator.sol";
+import {TegridyLiquidityMigrator, IPermit2Approve, BeneficiaryData, ITegridyFeeLocker} from "../../src/v4/TegridyLiquidityMigrator.sol";
+import {TegridyFeeLocker} from "../../src/v4/TegridyFeeLocker.sol";
 
 // PosmTestSetup deploys the PositionManager stack through `vm.getCode(...)`, which
 // resolves against compiled ARTIFACTS rather than the import graph. Our sources only
@@ -38,6 +39,7 @@ import {TransparentUpgradeableProxy} from
 contract TegridyLiquidityMigratorTest is PosmTestSetup {
     TegridyV4Hook internal tegridyHook;
     TegridyLiquidityMigrator internal migrator;
+    TegridyFeeLocker internal feeLocker;
 
     address internal airlockMock = makeAddr("airlock");
     address internal launchTimelock = makeAddr("launchTimelock");
@@ -63,14 +65,20 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         // admin triplet is covered separately in TegridyV4HookAdmin's own tests.
         tegridyHook = _mineAndDeployHook(address(this));
 
+        feeLocker = new TegridyFeeLocker(IPositionManager(address(lpm)), address(this));
         migrator = new TegridyLiquidityMigrator(
             airlockMock,
             manager,
             IPositionManager(address(lpm)),
             IPermit2Approve(address(permit2)),
             IHooks(address(tegridyHook)),
-            rescue
+            rescue,
+            ITegridyFeeLocker(address(feeLocker))
         );
+
+        // Close the circular dependency: the locker learns the migrator's address
+        // only after the migrator has been constructed with the locker's.
+        feeLocker.bindMigrator(address(migrator));
 
         tegridyHook.setInitializerAllowed(address(migrator), true);
     }
@@ -111,7 +119,8 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         (address t0, address t1) = _tokens();
         _configure(t0, t1);
 
-        (,, uint24 fee, int24 tickSpacing, IHooks hooks) = migrator.getPoolKey(t0, t1);
+        PoolKey memory k = migrator.getPoolKey(t0, t1);
+        (uint24 fee, int24 tickSpacing, IHooks hooks) = (k.fee, k.tickSpacing, k.hooks);
         assertEq(address(hooks), address(tegridyHook), "graduated pool is not Tegridy-hooked");
         assertEq(tickSpacing, TICK_SPACING, "tick spacing not carried through");
         assertTrue(LPFeeLibrary.isDynamicFee(fee), "fee must be the dynamic flag");
@@ -149,8 +158,7 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         _fundMigrator(t0, t1);
 
         tegridyHook.setInitializerAllowed(address(migrator), false);
-        (Currency c0, Currency c1, uint24 fee, int24 spacing, IHooks hooks) = migrator.getPoolKey(t0, t1);
-        tegridyHook.setPoolAllowed(PoolKey(c0, c1, fee, spacing, hooks), true);
+        tegridyHook.setPoolAllowed(migrator.getPoolKey(t0, t1), true);
 
         vm.prank(airlockMock);
         uint256 liquidity = migrator.migrate(SQRT_PRICE_1_1, t0, t1, launchTimelock);
@@ -189,18 +197,75 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         migrator.initialize(t0, t1, _migratorData(int24(0), 0, none));
     }
 
-    /// @notice The launch's advertised fee split cannot be paid by this migrator —
-    ///         Doppler streams it from a BUSL locker we have no equivalent for. It
-    ///         must therefore be REJECTED, not silently dropped, or every Fact
-    ///         Sheet publishing that split would be false.
-    function test_initialize_rejectsBeneficiariesItCannotPay() public {
+    /// @notice A fee split is only acceptable if something can actually PAY it.
+    ///         With a locker wired it is recorded; with no locker it must be
+    ///         REJECTED rather than silently dropped, or every Fact Sheet
+    ///         publishing that split would be false.
+    function test_initialize_recordsBeneficiariesWhenALockerCanPayThem() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](1);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(1e18)});
+
+        vm.prank(airlockMock);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+
+        (uint32 lockDuration, BeneficiaryData[] memory stored) = migrator.getFeeConstitution(t0, t1);
+        assertEq(lockDuration, 0, "duration must round-trip");
+        assertEq(stored.length, 1, "the split must be recorded, not dropped");
+        assertEq(uint256(stored[0].shares), 1e18);
+    }
+
+    /// @notice The fail-closed half. A migrator deployed WITHOUT a locker cannot
+    ///         pay anyone, so it must refuse the launch outright.
+    function test_initialize_rejectsBeneficiariesWhenNoLockerIsWired() public {
+        TegridyLiquidityMigrator lockerless = new TegridyLiquidityMigrator(
+            airlockMock,
+            manager,
+            IPositionManager(address(lpm)),
+            IPermit2Approve(address(permit2)),
+            IHooks(address(tegridyHook)),
+            rescue,
+            ITegridyFeeLocker(address(0))
+        );
+
         (address t0, address t1) = _tokens();
         BeneficiaryData[] memory bens = new BeneficiaryData[](1);
         bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(1e18)});
 
         vm.prank(airlockMock);
         vm.expectRevert(TegridyLiquidityMigrator.FeeConstitutionUnsupported.selector);
+        lockerless.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
+    /// @notice With a split declared, the POSITION must go to the locker — that is
+    ///         the only contract that can pay the beneficiaries. Sending it to the
+    ///         launch timelock instead would silently strand the constitution.
+    function test_migrate_routesPositionToLockerWhenSplitDeclared() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](1);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(1e18)});
+
+        vm.prank(airlockMock);
         migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+        _fundMigrator(t0, t1);
+
+        uint256 tokenId = lpm.nextTokenId();
+        vm.prank(airlockMock);
+        migrator.migrate(SQRT_PRICE_1_1, t0, t1, launchTimelock);
+
+        assertEq(
+            IERC721(address(lpm)).ownerOf(tokenId),
+            address(feeLocker),
+            "position must be held by the locker so the split can be paid"
+        );
+
+        // And the lock must be registered in the SAME transaction — a position in
+        // the locker with no recorded split is collectable and releasable by
+        // nobody, i.e. permanently stranded.
+        (, address recipient, uint32 unlockDate, BeneficiaryData[] memory b) = feeLocker.getLock(tokenId);
+        assertEq(recipient, launchTimelock, "release recipient must be the launch");
+        assertEq(unlockDate, 0, "zero duration must stay PERMANENT, not become releasable now");
+        assertEq(b.length, 1);
     }
 
     /// @notice Same reasoning for an LP lock we do not implement.
@@ -218,7 +283,8 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
     function test_initialize_acceptsTheSdkPayloadShape() public {
         (address t0, address t1) = _tokens();
         _configure(t0, t1);
-        (,, uint24 fee, int24 spacing,) = migrator.getPoolKey(t0, t1);
+        PoolKey memory k2 = migrator.getPoolKey(t0, t1);
+        (uint24 fee, int24 spacing) = (k2.fee, k2.tickSpacing);
         assertTrue(LPFeeLibrary.isDynamicFee(fee), "must force the dynamic-fee flag");
         assertEq(spacing, TICK_SPACING, "tick spacing must come from the payload");
     }

@@ -34,6 +34,19 @@ interface IPermit2Approve {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
 }
 
+/// @dev The slice of `TegridyFeeLocker` this migrator calls. Declared here rather
+///      than imported to keep the dependency one-directional — the locker imports
+///      `BeneficiaryData` from this file.
+interface ITegridyFeeLocker {
+    function lockPosition(
+        uint256 tokenId,
+        PoolKey calldata poolKey,
+        address recipient,
+        uint32 unlockDate,
+        BeneficiaryData[] calldata beneficiaries
+    ) external;
+}
+
 /// @dev Mirrors Doppler's MIT `src/types/BeneficiaryData.sol`. Restated rather
 ///      than imported because Doppler core is not vendored — the type is MIT, so
 ///      this is the licensed surface. Field order and widths are load-bearing:
@@ -126,8 +139,34 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     ///         go-live note above). Set once at deploy to the protocol multisig.
     address public immutable rescueRecipient;
 
+    /// @notice Where a launch's LP position goes when it declares a fee split, and
+    ///         what pays that split. See `TegridyFeeLocker`.
+    ITegridyFeeLocker public immutable feeLocker;
+
+    struct MigrationConfig {
+        PoolKey key;
+        /// @dev Duration, not a date — converted to an unlock date at migrate time.
+        uint32 lockDuration;
+        BeneficiaryData[] beneficiaries;
+    }
+
     /// @dev Per-pair migration config, keyed the way `migrate` receives it.
-    mapping(address token0 => mapping(address token1 => PoolKey key)) public getPoolKey;
+    mapping(address token0 => mapping(address token1 => MigrationConfig)) internal _configs;
+
+    /// @notice The pool key a pair will graduate into.
+    function getPoolKey(address token0, address token1) external view returns (PoolKey memory) {
+        return _configs[token0][token1].key;
+    }
+
+    /// @notice The fee constitution recorded for a pair at create time.
+    function getFeeConstitution(address token0, address token1)
+        external
+        view
+        returns (uint32 lockDuration, BeneficiaryData[] memory beneficiaries)
+    {
+        MigrationConfig storage c = _configs[token0][token1];
+        return (c.lockDuration, c.beneficiaries);
+    }
 
     /// @dev The Airlock sends the numeraire leg as native ETH when token0 is the
     ///      zero address, so this contract must be able to receive it.
@@ -144,7 +183,8 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         IPositionManager positionManager_,
         IPermit2Approve permit2_,
         IHooks hook_,
-        address rescueRecipient_
+        address rescueRecipient_,
+        ITegridyFeeLocker feeLocker_
     ) {
         if (
             airlock_ == address(0) || address(poolManager_) == address(0) || address(positionManager_) == address(0)
@@ -156,6 +196,10 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         permit2 = permit2_;
         hook = hook_;
         rescueRecipient = rescueRecipient_;
+        // Intentionally MAY be zero: a deployment with no locker still serves
+        // launches that declare no fee split, and `initialize` fails closed on any
+        // that do. Zero here is a deliberate capability limit, not a misconfig.
+        feeLocker = feeLocker_;
     }
 
     // ─── ILiquidityMigrator ───────────────────────────────────────────
@@ -197,11 +241,14 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         //
         // Accepting the list and dropping it would make every Fact Sheet's
         // published constitution false — precisely the disclosure failure this
-        // product exists to prevent. So a migration that carries beneficiaries is
-        // REJECTED until the locker exists. `lockDuration` is rejected for the
-        // same reason: we cannot honour a lock we do not implement.
-        if (beneficiaries.length > 0) revert FeeConstitutionUnsupported();
-        if (lockDuration > 0) revert LockDurationUnsupported();
+        // product exists to prevent. `TegridyFeeLocker` is what pays it, so a
+        // constitution is only acceptable if we actually have one wired.
+        if (beneficiaries.length > 0 && address(feeLocker) == address(0)) {
+            revert FeeConstitutionUnsupported();
+        }
+        // A lock with nobody to pay is meaningless — and it would silently become
+        // a PERMANENT lock in the locker's semantics, stranding the position.
+        if (lockDuration > 0 && beneficiaries.length == 0) revert LockDurationUnsupported();
         // Mirrors v4-core's own bounds (PoolManager.initialize reverts outside them).
         if (tickSpacing < TickMath.MIN_TICK_SPACING || tickSpacing > TickMath.MAX_TICK_SPACING) {
             revert InvalidTickSpacing();
@@ -219,7 +266,14 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
             hooks: hook
         });
 
-        getPoolKey[Currency.unwrap(key.currency0)][Currency.unwrap(key.currency1)] = key;
+        MigrationConfig storage cfg = _configs[Currency.unwrap(key.currency0)][Currency.unwrap(key.currency1)];
+        cfg.key = key;
+        cfg.lockDuration = lockDuration;
+        delete cfg.beneficiaries;
+        for (uint256 i; i < beneficiaries.length; ++i) {
+            cfg.beneficiaries.push(beneficiaries[i]);
+        }
+
         emit MigrationConfigured(asset, numeraire, key.toId(), tickSpacing);
 
         return address(0);
@@ -237,11 +291,19 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         onlyAirlock
         returns (uint256 liquidity)
     {
-        PoolKey memory key = getPoolKey[token0][token1];
+        MigrationConfig storage cfg = _configs[token0][token1];
+        PoolKey memory key = cfg.key;
         // currency1 is never the zero address in a valid config, so this doubles as
         // an "initialize was never called for this pair" guard.
         if (Currency.unwrap(key.currency1) == address(0)) revert PoolNotConfigured();
         if (recipient == address(0)) revert ZeroAddress();
+
+        // WHERE THE POSITION GOES. With a declared fee split the position must be
+        // held by the locker — that is the only thing that can pay the split the
+        // launch advertised. Without one it goes straight to the launch's timelock.
+        // Either way it never stays here, and we never keep it.
+        bool hasConstitution = cfg.beneficiaries.length > 0;
+        address positionOwner = hasConstitution ? address(feeLocker) : recipient;
 
         // SLITHER 2026-07-28: the returned tick is genuinely unused — we mint the
         // full usable range, so there is no current-tick-relative band to place.
@@ -283,13 +345,32 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         if (liquidity == 0) revert ZeroLiquidity();
 
         uint256 tokenId = positionManager.nextTokenId();
-        _mintFullRange(key, lowerTick, upperTick, liquidity, amount0, amount1, recipient);
+        _mintFullRange(key, lowerTick, upperTick, liquidity, amount0, amount1, positionOwner);
+
+        if (hasConstitution) {
+            // Register the split in the SAME transaction that hands the locker the
+            // position. A gap would leave a position sitting in the locker with no
+            // recorded beneficiaries — collectable by nobody and releasable by
+            // nobody, i.e. permanently stranded.
+            //
+            // lockDuration is a DURATION; the locker stores an unlock DATE. A
+            // declared split with no duration means the position is never
+            // released and fees stream forever, which is exactly the locker's
+            // `unlockDate == 0` permanent case — so pass 0 straight through
+            // rather than turning it into `block.timestamp`, which would make it
+            // instantly releasable.
+            uint32 unlockDate =
+                cfg.lockDuration == 0 ? 0 : uint32(block.timestamp) + cfg.lockDuration;
+            feeLocker.lockPosition(tokenId, key, recipient, unlockDate, cfg.beneficiaries);
+        }
 
         // Whatever the position did not consume belongs to the launch, not to us.
+        // This goes to the launch's timelock even when the POSITION went to the
+        // locker — residual dust is not fee revenue and has no beneficiary claim.
         _refund(token0, recipient);
         _refund(token1, recipient);
 
-        emit Migrated(key.toId(), recipient, sqrtPriceX96, liquidity, tokenId);
+        emit Migrated(key.toId(), positionOwner, sqrtPriceX96, liquidity, tokenId);
     }
 
     // ─── Internals ────────────────────────────────────────────────────

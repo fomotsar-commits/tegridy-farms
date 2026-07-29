@@ -54,6 +54,7 @@ contract TegridyFeeLocker is IERC721Receiver {
 
     // ─── Errors ───────────────────────────────────────────────────────
     error NotAuthorizedLocker();
+    error AlreadyBound();
     error AlreadyLocked();
     error UnknownPosition();
     error NoBeneficiaries();
@@ -65,6 +66,7 @@ contract TegridyFeeLocker is IERC721Receiver {
     error NothingToClaim();
 
     // ─── Events ───────────────────────────────────────────────────────
+    event MigratorBound(address indexed migrator);
     event PositionLocked(uint256 indexed tokenId, address indexed recipient, uint32 unlockDate);
     event FeesCollected(uint256 indexed tokenId, uint256 amount0, uint256 amount1);
     event Credited(address indexed beneficiary, Currency indexed currency, uint256 amount);
@@ -78,8 +80,23 @@ contract TegridyFeeLocker is IERC721Receiver {
 
     /// @notice The only address permitted to register a locked position — the
     ///         migrator. Anyone else could otherwise register a junk position and
-    ///         spam beneficiary state.
-    address public immutable locker;
+    ///         spam beneficiary state, or front-run a real migration to attach
+    ///         their own beneficiaries to it.
+    ///
+    /// @dev    NOT immutable, and not an ongoing admin surface either — it is
+    ///         write-once. The migrator takes the locker's address as a
+    ///         constructor immutable and the locker needs the migrator's, which is
+    ///         circular and unsatisfiable at construction. Address prediction
+    ///         (CREATE2 or nonce arithmetic) would resolve it but is fragile in
+    ///         exactly the place you least want fragility. So: deploy the locker,
+    ///         deploy the migrator pointing at it, then `bindMigrator` once and
+    ///         the binding can never change again.
+    address public locker;
+    bool private _bound;
+
+    /// @notice May call `bindMigrator`, exactly once. Has no other power and no
+    ///         power at all afterwards.
+    address public immutable deployer;
 
     struct Lock {
         PoolKey poolKey;
@@ -98,15 +115,30 @@ contract TegridyFeeLocker is IERC721Receiver {
     receive() external payable {}
 
     modifier onlyLocker() {
-        if (msg.sender != locker) revert NotAuthorizedLocker();
+        // `locker` is address(0) until bound, so an unbound locker rejects
+        // everyone rather than accepting anyone.
+        if (locker == address(0) || msg.sender != locker) revert NotAuthorizedLocker();
         _;
     }
 
-    constructor(IPositionManager positionManager_, address locker_) {
-        if (address(positionManager_) == address(0) || locker_ == address(0)) revert ZeroAddress();
+    constructor(IPositionManager positionManager_, address deployer_) {
+        if (address(positionManager_) == address(0) || deployer_ == address(0)) revert ZeroAddress();
         positionManager = positionManager_;
         positionNft = IPositionNft(address(positionManager_));
-        locker = locker_;
+        deployer = deployer_;
+    }
+
+    /// @notice Bind the migrator that may register locks here. Callable ONCE.
+    /// @dev    Until this is called `lockPosition` reverts for everyone, so a
+    ///         half-deployed locker cannot be used, only abandoned. After it is
+    ///         called nothing — including the deployer — can change the binding.
+    function bindMigrator(address migrator_) external {
+        if (msg.sender != deployer) revert NotAuthorizedLocker();
+        if (_bound) revert AlreadyBound();
+        if (migrator_ == address(0)) revert ZeroAddress();
+        locker = migrator_;
+        _bound = true;
+        emit MigratorBound(migrator_);
     }
 
     /// @inheritdoc IERC721Receiver
