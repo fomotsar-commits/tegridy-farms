@@ -46,6 +46,14 @@ export default defineConfig([
         caughtErrorsIgnorePattern: '^_',
         destructuredArrayIgnorePattern: '^_',
       }],
+
+      // Mirrors the TS block below, which documents `try { ... } catch {}` as
+      // an idiomatic best-effort pattern here (localStorage under quota /
+      // private browsing, JSON parses of untrusted external data, optional
+      // fetch fallbacks). Omitting this would have held JS to a STRICTER
+      // standard than TS for no stated reason — the convention is the
+      // codebase's, and it should apply to both halves identically.
+      'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
   {
