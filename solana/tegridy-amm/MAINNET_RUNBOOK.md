@@ -67,6 +67,66 @@ is no treasury parameter. To hand fee-collection authority to a *distinct* treas
 `update_config` (param 3 = new protocol owner, param 4 = new fund owner) after this. Fees land at
 whatever token account you name at collection time regardless.
 
+## 5b. 🔑 Deploy + configure `tegridy-launch` (the bonding curve)
+
+A **separate program** from cp-swap, deliberately — folding it in would break
+`diff-guard` and turn a cheap four-constant diff-audit into a full AMM audit.
+
+1. Generate its own mainnet keypair, then patch **both** `declare_id!(...)` and
+   `deployer::ID` (the `#[cfg(not(feature = "devnet"))]` arm, which ships a
+   fail-closed System-Program sentinel so a mainnet binary refuses to initialize
+   until you set a real key). Build, deploy, move upgrade authority to the multisig.
+2. Call `initialize_global`. **Three parameters are not free choices — get them
+   wrong and the launcher misbehaves in ways nothing will warn you about later.**
+
+### ⚠️ `migration_reserve_lamports` — minimum **192,156,720** (~0.1922 SOL)
+
+Raised from traders on top of the target, and it pays cp-swap's costs at migration:
+0.15 SOL `create_pool_fee` plus 42,156,720 lamports of rent for the five accounts
+cp-swap creates (`observation_state` alone is 29.25M — 70% of the rent). Derived
+from cp-swap's own `LEN` constants, not estimated. **Recommended: 0.25 SOL** for
+headroom; the surplus is swept back to whoever calls migration, so
+over-provisioning costs nothing but a slightly larger raise.
+
+Too small and migration fails *after* the pool exists — the worst possible moment.
+
+### ⚠️ `graduation_target_lamports` — computed, NOT chosen
+
+The curve prices on virtual+real reserves; the pool is seeded with real reserves
+only. They coincide at exactly one target, and away from it the token **gaps at
+listing** — at one earlier configuration here, the pool opened at 14% of the curve's
+final price. `initialize_global` now REJECTS anything more than ±5% off
+(`GraduationPriceGap`), so a wrong value fails loudly rather than shipping.
+
+A ±5% band on price is only ~±0.7% on the target, so compute it:
+
+```python
+# T = sqrt(Vs*(Vt+S)*(Vs+R)/Vt) - Vs - R      (all in base units)
+from decimal import Decimal as D, getcontext; getcontext().prec=50
+Vs, Vt, S, R = D(30_000_000_000), D('1.073e15'), D('1e15'), D(500_000_000)
+print(int((Vs*(Vt+S)*(Vs+R)/Vt).sqrt() - Vs - R))   # -> 11544610844
+```
+
+`curve::continuity_target` is the same calculation on-chain. Any target you actually
+want stays reachable — scale `initial_virtual_sol` with it (they are proportional),
+and retune both together via `update_global`.
+
+### ⚠️ Clients MUST set a compute limit — the default is not enough
+
+`migrate_to_amm` consumes **~264,000 CU**; Solana's default is **200,000 per
+instruction**. Every caller — frontend, keeper, bot, manual runbook step — must
+prepend `ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })`. Omit it and
+migration fails with `Program failed to complete`, which reads like a program bug
+and has already cost one debugging cycle here.
+
+3. If you passed zeros for `cp_swap_program` / `amm_config` at init (legitimate —
+   the AmmConfig is step 5 and may not exist yet), set them afterwards with
+   `update_global`. Migration refuses to run while either is zero. **There is no
+   other way to set them**, and `global` is a singleton PDA, so this is not optional.
+4. Sanity-check on devnet first: create a launch, buy it out, migrate, confirm LP
+   supply is zero and the pool exists at `[b"launchpool", mint]` — **our** PDA, not
+   cp-swap's canonical derivation, which anyone can occupy to brick a graduation.
+
 ## 6. 🔑💰 Create + seed a pool
 Via `client/` (`initialize` / `initialize_customizable`): pick the Solana-native pair, seed
 with treasury capital. Withdrawable — you keep the LP position (no permanent lock). Keep it
