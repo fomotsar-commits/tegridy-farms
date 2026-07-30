@@ -622,18 +622,41 @@ pub mod tegridy_launch {
         // before and after instruction do not match". The data-less
         // `migration_authority` PDA satisfies both roles.
         //
-        // Move deposit + reserve onto it by DIRECT lamport manipulation: a program
-        // may debit only accounts it owns (the curve) and may credit any account.
-        // A system_program::transfer here would fail for the same ownership reason.
+        // FUNDING ROUTE MATTERS. `migration_authority` does not exist yet — zero
+        // lamports, zero data. Crediting it by direct lamport mutation does NOT
+        // fund it: only the System program's transfer carries account-creation
+        // semantics, and a manual credit to a non-existent account breaks the
+        // runtime's per-instruction conservation check ("sum of account balances
+        // before and after instruction do not match"). That is why `sell`'s manual
+        // credit is fine and this one was not — `sell` credits a trader account
+        // that already exists.
+        //
+        // So: `payer` (a real wallet, System-owned) system-transfers the funding in,
+        // creating the authority properly. The curve then reimburses `payer` by
+        // direct mutation — legal, because we own the curve and `payer` exists.
+        // Net effect is identical (the curve pays) with no illegal credit.
         let auth_ai = ctx.accounts.migration_authority.to_account_info();
         let move_lamports = deposit_lamports
             .checked_add(reserve_lamports)
             .ok_or(LaunchError::Overflow)?;
+
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.payer.to_account_info(),
+                    to: auth_ai.clone(),
+                },
+            ),
+            move_lamports,
+        )?;
+
+        let payer_ai = ctx.accounts.payer.to_account_info();
         **curve_ai.try_borrow_mut_lamports()? = curve_ai
             .lamports()
             .checked_sub(move_lamports)
             .ok_or(LaunchError::Overflow)?;
-        **auth_ai.try_borrow_mut_lamports()? = auth_ai
+        **payer_ai.try_borrow_mut_lamports()? = payer_ai
             .lamports()
             .checked_add(move_lamports)
             .ok_or(LaunchError::Overflow)?;
