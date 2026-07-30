@@ -76,6 +76,8 @@ function buildAllowedOrigins() {
   const set = new Set([
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
+    "https://memetic.fun",
+    "https://www.memetic.fun",
     "https://tegridyfarms.vercel.app",
   ]);
   if (process.env.NODE_ENV === "development") {

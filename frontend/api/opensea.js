@@ -157,6 +157,8 @@ export default async function handler(req, res) {
   const ALLOWED_ORIGINS = new Set([
     "https://nakamigos.gallery",
     "https://www.nakamigos.gallery",
+    "https://memetic.fun",
+    "https://www.memetic.fun",
     "https://tegridyfarms.vercel.app",
   ]);
   // AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
