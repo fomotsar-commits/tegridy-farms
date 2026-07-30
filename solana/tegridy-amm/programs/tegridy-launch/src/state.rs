@@ -20,6 +20,33 @@ pub const VAULT_SEED: &[u8] = b"vault";
 /// allocating data breaks two things at once. The handler asserts it.
 pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
 
+/// Rent floor for `migration_reserve_lamports`, in lamports.
+///
+/// Exactly the rent cp-swap's `initialize` charges the creator, computed from its
+/// own `LEN` constants at `minimum_balance = (128 + size) * 6960` — not estimated:
+///
+/// | account | bytes | lamports |
+/// |---|---|---|
+/// | `observation_state` | 4075 | 29,252,880 |
+/// | `pool_state` | 637 | 5,324,400 |
+/// | `token_0_vault` | 165 | 2,039,280 |
+/// | `token_1_vault` | 165 | 2,039,280 |
+/// | `lp_mint` | 82 | 1,461,600 |
+/// | `creator_lp_token` ATA | 165 | 2,039,280 |
+///
+/// ⚠️ **This is a FLOOR, not a sufficient value.** cp-swap also charges
+/// `create_pool_fee` as native SOL from the creator (0.15 SOL on Raydium mainnet),
+/// and that lives in a MUTABLE `AmmConfig` field, so it cannot be baked in here
+/// without risking a wrongly-rejected config if the fee changes. The practical
+/// minimum is this plus the fee — ~0.1922 SOL today. MAINNET_RUNBOOK.md §5b carries
+/// the arithmetic.
+///
+/// Why a floor at all: the reserve is snapshotted onto every curve at creation, so a
+/// too-small value makes every launch created under it permanently unmigratable —
+/// discovered at the finish line, when the pool is already half-built. This catches
+/// the zero and near-zero cases that no operator would choose deliberately.
+pub const MIN_MIGRATION_RESERVE_LAMPORTS: u64 = 42_156_720;
+
 /// Seed for the cp-swap pool a launch graduates into.
 ///
 /// The pool address is OURS, not cp-swap's canonical derivation, and that is a

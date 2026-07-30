@@ -129,19 +129,30 @@ pub mod deployer {
     pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed)
 }
 
-/// Reject a configuration that would list a launch far from its final curve price.
+/// Every economic sanity check a launch configuration must pass.
 ///
-/// Shared by `initialize_global` and `update_global` deliberately. The last time
-/// these two validations were written separately, `update_global`'s comment claimed
-/// to be "the same reachability check as initialize_global" while silently omitting
-/// the migration reserve — so they are one function now, and cannot drift.
-fn check_price_continuity(
+/// ONE function, called by both `initialize_global` and `update_global`, on purpose.
+/// The last time these validations were written separately, `update_global`'s comment
+/// claimed to be "the same reachability check as initialize_global" while silently
+/// omitting the migration reserve. Anything added here is added to both by
+/// construction.
+fn check_launch_economics(
     virtual_sol: u64,
     virtual_token: u64,
     token_supply: u64,
     graduation_target: u64,
     migration_reserve: u64,
 ) -> Result<()> {
+    // The reserve must at least cover the rent cp-swap charges the creator. It is
+    // snapshotted onto every curve at creation, so setting it too low does not fail
+    // here — it fails at the finish line of every launch created afterwards, with
+    // the pool already half-built and no way back. See MIN_MIGRATION_RESERVE_LAMPORTS
+    // for why this is a floor rather than the full requirement.
+    require!(
+        migration_reserve >= MIN_MIGRATION_RESERVE_LAMPORTS,
+        LaunchError::MigrationReserveTooLow
+    );
+
     let ratio = graduation_price_ratio_bps(
         virtual_sol,
         virtual_token,
@@ -228,7 +239,7 @@ pub mod tegridy_launch {
         // This constrains nothing that matters: the continuity target scales with
         // virtual SOL, so any target stays reachable by scaling the opening book.
         // `curve::continuity_target` computes the exact value.
-        check_price_continuity(
+        check_launch_economics(
             initial_virtual_sol,
             initial_virtual_token,
             token_total_supply,
@@ -321,7 +332,7 @@ pub mod tegridy_launch {
             // Same continuity gate as initialize_global — actually shared this time,
             // via one helper, rather than a comment claiming the checks match while
             // one of them quietly omits a term.
-            check_price_continuity(
+            check_launch_economics(
                 new_vsol,
                 g.initial_virtual_token,
                 g.token_total_supply,
@@ -1153,9 +1164,16 @@ pub mod tegridy_launch {
         // ── 5. Close the curve, atomically with all of the above ─────────────
         let pool = ctx.accounts.pool_state.key();
         let curve = &mut ctx.accounts.curve;
+        // Subtract EVERYTHING that left, not just the deposit. `move_lamports` is
+        // deposit + reserve and all of it went to the migration authority, so
+        // subtracting only the deposit left a migrated curve reporting a balance of
+        // exactly `migration_reserve_lamports` that it does not hold. Harmless
+        // on-chain — nothing reads it once `complete` is set — but every indexer,
+        // Fact Sheet and explorer reading curve state would have shown a number that
+        // is simply false.
         curve.real_sol_reserves = curve
             .real_sol_reserves
-            .checked_sub(deposit_lamports)
+            .checked_sub(move_lamports)
             .ok_or(LaunchError::Overflow)?;
         curve.real_token_reserves = 0;
         curve.complete = true;
