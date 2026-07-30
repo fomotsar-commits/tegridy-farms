@@ -297,6 +297,7 @@ pub mod tegridy_launch {
         c.real_token_reserves = supply;
         c.trade_fee_bps = g.trade_fee_bps;
         c.graduation_target_lamports = g.graduation_target_lamports;
+        c.migration_reserve_lamports = g.migration_reserve_lamports;
         c.complete = false;
         c.bump = ctx.bumps.curve;
 
@@ -323,18 +324,28 @@ pub mod tegridy_launch {
 
         let fee_bps = curve.trade_fee_bps;
 
-        // Cap at the graduation target — see design note 4 in the module docs.
-        let capped_in = match lamports_until_target(
-            curve.real_sol_reserves,
-            curve.graduation_target_lamports,
-            fee_bps,
-        )
-        .map_err(LaunchError::from)?
-        {
-            Some(limit) => core::cmp::min(max_lamports_in, limit),
-            // Already at/over target: the curve should have graduated.
-            None => return Err(LaunchError::AlreadyComplete.into()),
-        };
+        // Cap at target + RESERVE, not the target alone — see design note 4.
+        //
+        // Capping at the target made the migration reserve unraisable: buys stopped
+        // dead on the target and every further one was rejected, so the curve could
+        // never accumulate what migration costs. Migration would then fail for
+        // insufficient lamports — the precise failure the reserve exists to
+        // prevent. Caught by the CI rehearsal, which could not fund the reserve.
+        let raise_ceiling = curve
+            .graduation_target_lamports
+            .checked_add(curve.migration_reserve_lamports)
+            .ok_or(LaunchError::Overflow)?;
+        let capped_in =
+            match lamports_until_target(curve.real_sol_reserves, raise_ceiling, fee_bps)
+                .map_err(LaunchError::from)?
+            {
+                Some(limit) => core::cmp::min(max_lamports_in, limit),
+                // Fully funded and waiting on migration — NOT the same thing as
+                // graduated. Returning AlreadyComplete here (as an earlier version
+                // did) tells a caller the curve has moved to an AMM pool when it
+                // has not, and makes the two states indistinguishable.
+                None => return Err(LaunchError::AwaitingMigration.into()),
+            };
         require!(capped_in > 0, LaunchError::ZeroAmount);
 
         let q = quote_buy(
@@ -591,7 +602,10 @@ pub mod tegridy_launch {
             .checked_sub(rent_floor)
             .ok_or(LaunchError::InsufficientRentExemptBalance)?;
         require!(
-            spendable >= deposit_lamports.checked_add(g.migration_reserve_lamports).ok_or(LaunchError::Overflow)?,
+            spendable
+                >= deposit_lamports
+                    .checked_add(curve.migration_reserve_lamports)
+                    .ok_or(LaunchError::Overflow)?,
             LaunchError::MigrationReserveTooLow
         );
 

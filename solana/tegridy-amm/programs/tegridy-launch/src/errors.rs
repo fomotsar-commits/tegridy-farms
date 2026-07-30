@@ -41,6 +41,8 @@ pub enum LaunchError {
     MigrationReserveTooLow,
     #[msg("LP tokens were not fully burned — liquidity would not be permanently locked")]
     LpNotBurned,
+    #[msg("Curve is fully funded and awaiting migration — it has NOT graduated yet")]
+    AwaitingMigration,
 }
 
 /// Lift a pure-curve error into the program's error space.

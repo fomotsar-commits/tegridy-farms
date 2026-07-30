@@ -75,6 +75,13 @@ pub struct BondingCurve {
     pub trade_fee_bps: u64,
     /// Graduation target, snapshotted for the same reason.
     pub graduation_target_lamports: u64,
+    /// Migration reserve, snapshotted for the same reason.
+    ///
+    /// Buys are capped at `target + reserve`, NOT at the target alone. An earlier
+    /// version capped at the target and then rejected further buys, which made the
+    /// reserve unraisable — so migration could never afford its own costs, the
+    /// exact failure the reserve exists to prevent. Found by the CI rehearsal.
+    pub migration_reserve_lamports: u64,
 
     /// Set once the curve graduates. Terminal: buys and sells both stop, and the
     /// reserves are handed to the AMM pool. Never unset.

@@ -181,9 +181,14 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     // Buy in chunks: a single oversized buy quotes more tokens than the curve holds
     // as REAL reserves (quotes price on virtual+real, pay from real) and is rejected.
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 24; i++) {
       const c: any = await (launch.account as any).bondingCurve.fetch(curve);
       if (c.realSolReserves.gte(GRAD_TARGET.add(MIGRATION_RESERVE))) break;
+      // Once the curve is fully funded (target + reserve) `buy` returns
+      // AwaitingMigration — that is the SUCCESS terminator for this loop, not a
+      // failure. An earlier program version returned AlreadyComplete here, which
+      // made "full" and "graduated" indistinguishable.
+      try {
       await launch.methods
         .buy(new BN(LAMPORTS_PER_SOL).div(new BN(2)), new BN(0))
         .accountsPartial({
@@ -198,6 +203,10 @@ describe("tegridy-launch full migration rehearsal", () => {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
+      } catch (e) {
+        if (!String(e).includes("AwaitingMigration")) throw e;
+        break;
+      }
     }
 
     const preMigrate: any = await (launch.account as any).bondingCurve.fetch(curve);
