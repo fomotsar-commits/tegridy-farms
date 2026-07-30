@@ -230,6 +230,63 @@ The rehearsal prints the measured value on every run and asserts it stays under
 the limit, so an inflating change shows up as a number moving rather than as a
 mainnet failure.
 
+### 10. ⚠️ THE GRADUATION TARGET IS NOT A FREE PARAMETER — OPERATOR DECISION OPEN
+
+The curve prices on **virtual + real** reserves; the pool is seeded with **real**
+reserves only (`graduation_target` SOL against `real_token_reserves`). Those two
+prices agree only for one particular target, given the virtual reserves and supply.
+
+Let `Vs` = initial_virtual_sol, `Vt` = initial_virtual_token, `S` = token_total_supply,
+`T` = graduation_target. With `sold = Vt·T/(Vs+T)`:
+
+- curve price at graduation = `(Vs+T) / (Vt − sold)`
+- pool price at listing = `T / (S − sold)`
+
+They are equal exactly when
+
+> **S·(Vs+T)² = Vt·T·(2·Vs+T)**
+
+pump.fun's canonical parameters satisfy this to 0.002% — that is why its listings do
+not gap. Measured:
+
+| parameters | pool ÷ curve price |
+| --- | --- |
+| pump.fun canonical (Vs=30, Vt=1.073e9, S=1e9, T=85) | 0.9999 ✅ |
+| **this repo's rehearsal (same reserves, T=2 SOL)** | **0.0674 ❌** |
+
+So a launch configured with the rehearsal's target would **list at 6.7% of the price
+its last curve buyer paid** — an instant ~15× drop that is indistinguishable from a
+rug to everyone holding it. The program does NOT currently check this.
+
+Our `V_SOL`/`V_TOK`/`SUPPLY` are pump.fun's numbers scaled for decimals, so solving
+the invariant for them gives **T = 85.0164 SOL**. The rehearsal deliberately uses
+2 SOL so a test can buy the curve out quickly — which means **the rehearsal's
+economics are not representative, and a green run is not an endorsement of its
+parameters.**
+
+**Open decision for the operator**, because it constrains what launches may be
+configured rather than fixing a defect:
+- (a) enforce a price-continuity band in `initialize_global`/`update_global` and
+  reject configurations outside it (safest for buyers, removes operator freedom, and
+  requires the rehearsal to move to an 85 SOL target); or
+- (b) leave it unenforced and treat the invariant as a documented configuration
+  requirement, publishing the resulting listing price on the Fact Sheet so buyers can
+  see the step before they buy.
+
+Do not ship a mainnet configuration without choosing one.
+
+### 11. A dust `sell` can stall migration — accepted
+
+On a fully funded curve the lamport budget check is satisfied at exact equality, so a
+1-lamport `sell` front-run makes `migrate_to_amm` revert with
+`MigrationReserveTooLow`/`NotReadyToGraduate` until someone buys again. `sell` is
+unpausable by design (a halt must never trap holders), so this cannot be switched off.
+
+Accepted, not fixed: it is a stall, not a brick. The griefer pays a trade fee every
+time, any buy restores the balance, and no funds are at risk. Worth knowing about
+because it makes migration a retry-until-it-lands operation for keepers rather than a
+single shot.
+
 ## Still not proven, even with CI green
 
 - **`create_pool_fee` is 0 in CI.** `createAmmConfig(..., new BN(0), ...)` and
