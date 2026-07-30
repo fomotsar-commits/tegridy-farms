@@ -25,8 +25,31 @@ pub struct GlobalConfig {
     pub initial_virtual_token: u64,
     /// Token supply minted onto each curve.
     pub token_total_supply: u64,
-    /// Real lamports a curve must accumulate before it may graduate.
+    /// Real lamports a curve must accumulate before it may graduate. This is the
+    /// amount DEPOSITED as pool liquidity — it excludes the migration reserve.
     pub graduation_target_lamports: u64,
+
+    /// Lamports raised ON TOP of the target, kept back to pay for migration.
+    ///
+    /// Migrating is not free: cp-swap's `initialize` charges `create_pool_fee` as a
+    /// NATIVE SOL transfer from the creator (initialize.rs:318-325) and rent-funds
+    /// five new accounts (pool_state, both vaults, lp_mint, observation_state) —
+    /// and the creator is the curve PDA. A curve that raised exactly the target and
+    /// deposited all of it could not afford to migrate, stranding the launch at the
+    /// finish line.
+    ///
+    /// Raised by traders and fixed before anyone buys, so the Fact Sheet can state
+    /// it. See MIGRATE_DESIGN.md decision 1.
+    pub migration_reserve_lamports: u64,
+
+    /// The cp-swap program this launch graduates into, and the AmmConfig it uses.
+    ///
+    /// Neither is derivable, and neither may be hardcoded: the AmmConfig is created
+    /// by a cp-swap admin action AFTER deploy. `migrate_to_amm` must check the
+    /// accounts it is handed against these, or a caller substitutes a hostile AMM
+    /// and the launch graduates into someone else's pool.
+    pub cp_swap_program: Pubkey,
+    pub amm_config: Pubkey,
     /// Global halt. Blocks buys and graduation; **sells stay open** so a pause can
     /// never trap holders in a position they cannot exit.
     pub paused: bool,
@@ -55,7 +78,20 @@ pub struct BondingCurve {
 
     /// Set once the curve graduates. Terminal: buys and sells both stop, and the
     /// reserves are handed to the AMM pool. Never unset.
+    ///
+    /// ⚠️ ONLY `migrate_to_amm` may write this, in the SAME instruction that moves
+    /// the liquidity. A removed `graduate` instruction set it on its own and
+    /// permanently locked every lamport raised, because `buy` and `sell` both
+    /// require `!complete` and `sell` was the only exit. A flag that closes the
+    /// only exit must be written by the instruction that opens the new one.
     pub complete: bool,
+
+    /// The cp-swap pool this curve graduated into. Zero until migration.
+    ///
+    /// Not cosmetic: without it nothing off-chain can find where a launch went, so
+    /// the Fact Sheet cannot link the pool and the frontend cannot route to it.
+    pub pool: Pubkey,
+
     pub bump: u8,
 }
 

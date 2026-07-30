@@ -121,6 +121,16 @@ pub mod tegridy_launch {
     use super::*;
 
     /// One-time protocol configuration.
+    ///
+    /// `migration_reserve_lamports` is raised on top of the graduation target and
+    /// kept back to pay migration costs — cp-swap's `initialize` charges
+    /// `create_pool_fee` as a native SOL transfer from the creator and rent-funds
+    /// five accounts, and the creator is the curve PDA. See MIGRATE_DESIGN.md.
+    ///
+    /// `cp_swap_program` / `amm_config` may both be zero here: the AmmConfig is
+    /// created by a cp-swap admin action AFTER this program is deployed. They are
+    /// configured rather than hardcoded, and `migrate_to_amm` must refuse to run
+    /// while either is zero.
     pub fn initialize_global(
         ctx: Context<InitializeGlobal>,
         trade_fee_bps: u64,
@@ -128,6 +138,9 @@ pub mod tegridy_launch {
         initial_virtual_token: u64,
         token_total_supply: u64,
         graduation_target_lamports: u64,
+        migration_reserve_lamports: u64,
+        cp_swap_program: Pubkey,
+        amm_config: Pubkey,
     ) -> Result<()> {
         require!(trade_fee_bps <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
         // Zero virtual reserves would make the opening price undefined (division
@@ -140,20 +153,25 @@ pub mod tegridy_launch {
 
         // A target above the curve's own reachable ceiling produces launches that
         // can NEVER graduate: buyers pay in until the token reserve runs down,
-        // `buy` then fails its reserve check, and `graduate` never qualifies. That
+        // `buy` then fails its reserve check, and the curve never qualifies. That
         // is not fund loss (holders can still sell out) but the launch is dead and
         // can never reach the AMM, which is the whole point. Reject the config
         // rather than let it be discovered by a launch that silently cannot finish.
+        //
+        // Checked against target PLUS reserve, not the target alone: the reserve is
+        // also raised by traders, so it counts toward the ceiling. Validating only
+        // the target would let a reserve push the real requirement past what the
+        // curve can ever produce — reintroducing the exact bug this guards.
+        let required = graduation_target_lamports
+            .checked_add(migration_reserve_lamports)
+            .ok_or(LaunchError::Overflow)?;
         let ceiling = max_reachable_real_sol(
             initial_virtual_sol,
             initial_virtual_token,
             token_total_supply,
         )
         .map_err(LaunchError::from)?;
-        require!(
-            graduation_target_lamports < ceiling,
-            LaunchError::GraduationTargetUnreachable
-        );
+        require!(required < ceiling, LaunchError::GraduationTargetUnreachable);
 
         let g = &mut ctx.accounts.global;
         g.authority = ctx.accounts.authority.key();
@@ -163,6 +181,12 @@ pub mod tegridy_launch {
         g.initial_virtual_token = initial_virtual_token;
         g.token_total_supply = token_total_supply;
         g.graduation_target_lamports = graduation_target_lamports;
+        g.migration_reserve_lamports = migration_reserve_lamports;
+        // MAY be zero at init: the AmmConfig is created by a cp-swap admin action
+        // after this program is deployed, so it is set later via update_global.
+        // migrate_to_amm must refuse to run while either is zero.
+        g.cp_swap_program = cp_swap_program;
+        g.amm_config = amm_config;
         g.paused = false;
         g.bump = ctx.bumps.global;
         Ok(())
