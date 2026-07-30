@@ -402,6 +402,23 @@ describe("tegridy-launch security constraints", () => {
       );
     });
 
+    /**
+     * A reserve too small to cover cp-swap's rent does not fail at config time on
+     * its own — it fails at the FINISH LINE of every launch created afterwards,
+     * because the reserve is snapshotted per curve. By then the pool is half-built
+     * and there is no way back. Floor is the exact rent from cp-swap's own LEN
+     * constants (42,156,720); the real requirement adds create_pool_fee on top.
+     */
+    it("rejects a migration reserve below cp-swap's rent floor", async () => {
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "MigrationReserveTooLow"
+      );
+    });
+
     /** POSITIVE CONTROL — a pair that fits is accepted, and BOTH fields land. */
     it("accepts a pair under the ceiling and stores both", async () => {
       // Continuity pair for V_SOL=30 with a 5 SOL reserve — a bigger reserve pulls
