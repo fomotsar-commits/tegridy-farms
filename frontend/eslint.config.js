@@ -54,6 +54,16 @@ export default defineConfig([
       // standard than TS for no stated reason — the convention is the
       // codebase's, and it should apply to both halves identically.
       'no-empty': ['error', { allowEmptyCatch: true }],
+
+      // Same reasoning as the TS block's entry (see the long note there):
+      // ESLint 10's `no-useless-assignment` fires only on the deliberate
+      // "initialise, then assign in try/catch" shape, including on money
+      // paths. Mirrored here for the same reason `no-empty` is — a convention
+      // that applies to the codebase should not stop at the .ts boundary.
+      // Three of the eight live in this block's files:
+      //   api/_lib/__tests__/ratelimit.test.js:191, api/orderbook.js:902,
+      //   src/nakamigos/lib/trades.js:121
+      'no-useless-assignment': 'warn',
     },
   },
   {
@@ -160,6 +170,37 @@ export default defineConfig([
       // default branch. `allowEmptyCatch: true` matches the standard ESLint
       // recipe for this pattern.
       'no-empty': ['error', { allowEmptyCatch: true }],
+
+      // 2026-07-30 (ESLint 10): `no-useless-assignment` is new in v10 and fires
+      // 8 times, every one of them on the same deliberate shape:
+      //
+      //   let stakeWei = 0n;
+      //   try   { stakeWei = parseEther(stakeAmount); }
+      //   catch { stakeWei = 0n; }
+      //
+      // The rule is technically right — both branches overwrite the
+      // initialiser, so it is never read. It is still the wrong thing to
+      // "fix" here. The initialiser is what guarantees a defined value if a
+      // future edit adds a branch that forgets to assign, and every one of
+      // these sits on a money path: stake amounts, DCA `minOut`, limit-order
+      // `onChainOut`, the Seaport order hash. Deleting a safety initialiser
+      // across seven of those files to satisfy a style rule trades real
+      // robustness for a clean report.
+      //
+      // Checked individually before demoting — all 8 are this idiom. None was
+      // a computed value being silently dropped, which is the case that WOULD
+      // have been a bug worth chasing:
+      //   api/_lib/__tests__/ratelimit.test.js:191   res
+      //   api/orderbook.js:902                       seaportOrderHash
+      //   src/components/farm/LPFarmingSection.tsx   stakeWei, withdrawWei
+      //   src/components/farm/StakingCard.tsx:86     stakeWei
+      //   src/hooks/useDCA.ts:432                    minOut
+      //   src/hooks/useLimitOrders.ts:314            onChainOut
+      //   src/nakamigos/lib/trades.js:121            supported
+      //
+      // Left as `warn` so a genuinely dead assignment in NEW code is still
+      // visible in the report rather than silenced outright.
+      'no-useless-assignment': 'warn',
     },
   },
 ])
