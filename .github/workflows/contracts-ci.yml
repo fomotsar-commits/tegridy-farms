@@ -222,7 +222,7 @@ jobs:
       # Deliberately NOT auto-committing: a diff means a human should look at
       # which ABI changed and why.
       - name: Set up Node
-        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
 
@@ -282,7 +282,7 @@ jobs:
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
       - name: Set up Node
-        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
 
@@ -364,7 +364,7 @@ jobs:
           key: foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**') }}
 
       - name: Set up Node
-        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
 
