@@ -71,10 +71,16 @@ test.describe('Connect prompt surfaces', () => {
     await expect(heading).toBeVisible();
   });
 
-  test('Lending page shows ConnectPrompt when disconnected', async ({ page }) => {
-    await page.goto('/lending');
-    const heading = page.getByRole('heading', { name: /Connect to borrow or lend/i });
-    await expect(heading).toBeVisible();
+  test('NFT-finance page shows a per-section connect banner when disconnected', async ({ page }) => {
+    // Rewritten. This asserted a PAGE-LEVEL <ConnectPrompt surface="lend"/>, which
+    // was deliberately removed in a8b985d ("move logged-out gating from page to
+    // action level (T7)") — disconnected visitors now browse the real interface
+    // with a slim per-section banner instead of hitting a connect wall.
+    // `/lending` is also just a redirect to /nft-finance (App.tsx:236).
+    // Copy comes from SECTION_PROMPTS in src/pages/LendingPage.tsx:48.
+    await page.goto('/nft-finance');
+    const banner = page.getByText(/Connect to (lend ETH against|borrow against your NFTs|trade NFTs on)/i);
+    await expect(banner.first()).toBeVisible();
   });
 });
 
@@ -88,7 +94,9 @@ test.describe('HomePage yield calculator (wallet-less)', () => {
 
   test('audit badge links to /security', async ({ page }) => {
     await page.goto('/');
-    const badge = page.getByRole('link', { name: /View security audit details/i });
+    // aria-label is now "View security details: internal audit waves, Slither CI,
+    // and the test suite" (HomePage.tsx:264). The link and its href are unchanged.
+    const badge = page.getByRole('link', { name: /View security details/i });
     await expect(badge).toBeVisible();
     await expect(badge).toHaveAttribute('href', '/security');
   });
