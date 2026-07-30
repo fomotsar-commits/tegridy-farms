@@ -23,7 +23,7 @@
     "@irys/web-upload": "^0.0.15",
     "@irys/web-upload-ethereum": "^0.0.16",
     "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.10",
-    "@rainbow-me/rainbowkit": "^2.2.10",
+    "@rainbow-me/rainbowkit": "^2.2.11",
     "@solana/spl-token": "^0.4.15",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",
@@ -49,7 +49,7 @@
     "react-router-dom": "^7.13.1",
     "siwe": "^3.0.0",
     "sonner": "^2.0.7",
-    "viem": "^2.47.6",
+    "viem": "^2.55.10",
     "wagmi": "^2.19.5",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"
