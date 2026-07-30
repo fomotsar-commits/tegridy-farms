@@ -13,22 +13,44 @@ updates:
     labels:
       - "dependencies"
       - "frontend"
+    ignore:
+      # TypeScript 7.0 is the Go port. typescript-eslint refuses to load against
+      # it outright — `npm run lint` dies with "typescript-eslint does not
+      # support TS 7.0" (exit 2) before linting a single file, so this is not a
+      # warning we can work around. Tracking: typescript-eslint#10940.
+      # LIFT THIS as soon as typescript-eslint ships TS >=7 support. Minor and
+      # patch TS updates still flow normally — only the major is held.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
-      # Batch viem/wagmi/rainbowkit together since they release in lockstep
+      # ── Groups are deliberately restricted to minor+patch ──────────────
+      # A group with no `update-types` sweeps MAJORS in too, and a group is
+      # all-or-nothing: one unmergeable major holds every safe bump in the
+      # batch hostage. That is not hypothetical — it happened on 2026-07-30 to
+      # all three grouped PRs at once:
+      #   #149  wagmi 2->3 (major)      blocked viem minor + rainbowkit patch
+      #   #151  typescript 5.9->7.0     blocked vite, plugin-react, react-hooks
+      #         + eslint 9->10, @types/node 24->26 (three majors in one PR)
+      #   #155  jsdom 29->30 + undici 7->8
+      # Majors now arrive as their own single-package PRs, where the blast
+      # radius is legible and the decision is deliberate. That matters most for
+      # `wagmi`/`viem`: this app signs transactions, and a wallet-layer major
+      # is a migration, not a dependency bump.
       web3-stack:
+        update-types: ["minor", "patch"]
         patterns:
           - "viem"
           - "wagmi"
           - "@wagmi/*"
           - "@rainbow-me/*"
-      # Batch React core together
       react:
+        update-types: ["minor", "patch"]
         patterns:
           - "react"
           - "react-dom"
           - "@types/react*"
-      # Batch dev tooling together — low risk of breaking builds in a single PR
       tooling:
+        update-types: ["minor", "patch"]
         patterns:
           - "@vitejs/*"
           - "vite"
