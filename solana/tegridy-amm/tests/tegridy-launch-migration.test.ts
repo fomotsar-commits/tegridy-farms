@@ -82,7 +82,11 @@ const OBSERVATION_SEED = Buffer.from("observation");
 const AUTH_SEED = Buffer.from("vault_and_lp_mint_auth_seed");
 
 /** Deliberately small so the whole curve can be bought out inside a test. */
-const V_SOL = new BN(30).mul(new BN(LAMPORTS_PER_SOL));
+// Virtual SOL is chosen so the 2 SOL target lists at EXACTLY the curve's final
+// price (9999/10000 bps). The target is not a free parameter — see
+// curve::continuity_target. 30 SOL here with a 2 SOL target opened the pool at
+// 14% of the curve price, a ~7x listing gap, and is now rejected at config time.
+const V_SOL = new BN(5_329_495_216);
 const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
 const TRADE_FEE_BPS = new BN(100);

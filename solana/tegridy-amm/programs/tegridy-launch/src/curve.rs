@@ -35,6 +35,18 @@ pub const BPS_DENOMINATOR: u64 = 10_000;
 /// backstop against a fat-fingered or hostile config, not a target.
 pub const MAX_FEE_BPS: u64 = 1_000;
 
+/// How far a launch's listing price may sit from its final curve price, in bps.
+///
+/// 500 = ±5%. Config-time only, so it costs nothing at runtime. It is not a
+/// restriction worth agonising over: the continuity target is proportional to
+/// virtual SOL, so ANY target remains reachable by scaling the opening book with it
+/// — the band only forbids combinations that are always bad for buyers.
+///
+/// Note the asymmetry in sensitivity: ±5% of price is roughly ±0.7% of the target,
+/// so operators should take the number from [`continuity_target`] rather than
+/// rounding by hand.
+pub const PRICE_CONTINUITY_BAND_BPS: u64 = 500;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveError {
     /// Arithmetic overflowed. Never expected — u128 intermediates make this
@@ -265,6 +277,129 @@ pub fn max_reachable_real_sol(
     // understating it keeps the check conservative.
     let max = numerator / (virtual_token as u128);
     u64::try_from(max).map_err(|_| CurveError::Overflow)
+}
+
+/// Integer square root by Newton's method. No float, no dependencies.
+fn isqrt_u128(n: u128) -> u128 {
+    if n < 2 {
+        return n;
+    }
+    // Seed with n/2 + 1, NOT (n+1)/2: the latter overflows at u128::MAX, which in
+    // release wraps to 0 and then divides by zero on the first iteration. Our inputs
+    // never come close, but a latent panic in a helper is not worth keeping.
+    //
+    // The invariant that makes the loop overflow-free is x >= sqrt(n), so
+    // n/x <= sqrt(n) <= x and therefore x + n/x <= 2x, which cannot exceed the seed.
+    let mut x = n / 2 + 1;
+    let mut y = (x + n / x) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
+}
+
+/// Ratio of the pool's opening price to the curve's final price, in bps.
+///
+/// `10_000` means a launch lists at exactly the price its last curve buyer paid.
+///
+/// # Why this is not a curiosity either
+///
+/// The curve prices on `virtual + real` on both legs, but the pool is seeded with
+/// **real reserves only** — `graduation_target` SOL against every unsold token. Those
+/// two prices coincide for exactly one target, and away from it the token GAPS the
+/// instant it lists. At this repo's original parameters (30 virtual SOL, a 2 SOL
+/// target) the pool opened at 14% of the curve's final price: a ~7x instant drop,
+/// indistinguishable from a rug to everyone holding it, with nothing stolen.
+///
+/// The migration reserve counts. It is raised from traders on top of the target, so
+/// the curve keeps selling tokens while it accrues — but only the target is deposited.
+/// Ignoring it silently misprices every launch that uses one.
+///
+/// Continuity is `(Vs + T + R)² · Vt = Vs · (Vt + S) · (Vs + R)`; see
+/// [`continuity_target`] for the target that satisfies it.
+pub fn graduation_price_ratio_bps(
+    virtual_sol: u64,
+    virtual_token: u64,
+    token_supply: u64,
+    graduation_target: u64,
+    migration_reserve: u64,
+) -> Result<u64, CurveError> {
+    if virtual_sol == 0 || virtual_token == 0 || token_supply == 0 || graduation_target == 0 {
+        return Err(CurveError::ZeroAmount);
+    }
+    let vs = virtual_sol as u128;
+    let vt = virtual_token as u128;
+    let s = token_supply as u128;
+    let t = graduation_target as u128;
+    let r = migration_reserve as u128;
+
+    // k is fixed by the opening book: k = Vs · (Vt + S).
+    let k = vs
+        .checked_mul(vt.checked_add(s).ok_or(CurveError::Overflow)?)
+        .ok_or(CurveError::Overflow)?;
+    // State at migration: the curve has taken in target AND reserve.
+    let x = vs
+        .checked_add(t)
+        .ok_or(CurveError::Overflow)?
+        .checked_add(r)
+        .ok_or(CurveError::Overflow)?;
+    let y = k / x;
+    // Unsold tokens — everything the pool receives. Zero or negative means the
+    // target is past the curve's reach; `max_reachable_real_sol` owns that check.
+    let remaining = y
+        .checked_sub(vt)
+        .ok_or(CurveError::InsufficientLiquidity)?;
+    if remaining == 0 {
+        return Err(CurveError::InsufficientLiquidity);
+    }
+
+    // pool/curve = [T / remaining] / [x / y] = T·y / (remaining·x)
+    let num = t
+        .checked_mul(y)
+        .ok_or(CurveError::Overflow)?
+        .checked_mul(BPS_DENOMINATOR as u128)
+        .ok_or(CurveError::Overflow)?;
+    let den = remaining.checked_mul(x).ok_or(CurveError::Overflow)?;
+    u64::try_from(num / den).map_err(|_| CurveError::Overflow)
+}
+
+/// The graduation target that lists a launch at exactly its final curve price.
+///
+/// Solves `S·Vs² − Vs·(2·Vt·(T+R) − (Vt+S)·R) − Vt·(T+R)² = 0` rearranged for `T`:
+/// `T = sqrt( Vs·(Vt+S)·(Vs+R) / Vt ) − Vs − R`.
+///
+/// Advisory — [`graduation_price_ratio_bps`] is the authoritative check. Operators
+/// need this because the band is unforgiving in the target: a ±5% price tolerance is
+/// only about ±0.7% in `T`, so nobody is going to land it by picking a round number.
+pub fn continuity_target(
+    virtual_sol: u64,
+    virtual_token: u64,
+    token_supply: u64,
+    migration_reserve: u64,
+) -> Result<u64, CurveError> {
+    if virtual_sol == 0 || virtual_token == 0 || token_supply == 0 {
+        return Err(CurveError::ZeroAmount);
+    }
+    let vs = virtual_sol as u128;
+    let vt = virtual_token as u128;
+    let s = token_supply as u128;
+    let r = migration_reserve as u128;
+
+    // Divide before the second multiply so large books do not overflow.
+    let scaled = vs
+        .checked_mul(vt.checked_add(s).ok_or(CurveError::Overflow)?)
+        .ok_or(CurveError::Overflow)?
+        / vt;
+    let inner = scaled
+        .checked_mul(vs.checked_add(r).ok_or(CurveError::Overflow)?)
+        .ok_or(CurveError::Overflow)?;
+    let x = isqrt_u128(inner);
+    let t = x
+        .checked_sub(vs)
+        .and_then(|v| v.checked_sub(r))
+        .ok_or(CurveError::InsufficientLiquidity)?;
+    u64::try_from(t).map_err(|_| CurveError::Overflow)
 }
 
 #[cfg(test)]
@@ -532,5 +667,83 @@ mod tests {
         let a = quote_sell(V_SOL, V_TOK, 1_000_000_000, 0).unwrap();
         let b = quote_sell(V_SOL, V_TOK * 2, 1_000_000_000, 0).unwrap();
         assert!(b.lamports_out < a.lamports_out);
+    }
+
+    // ── graduation price continuity ──────────────────────────────────────────
+
+    const SUPPLY: u64 = 1_000_000_000_000_000;
+
+    /// The defect this check exists to prevent, pinned as a number.
+    ///
+    /// 30 virtual SOL with a 2 SOL target — the parameters this repo's rehearsal
+    /// actually used — opens the pool at ~14% of the curve's final price. Nothing is
+    /// stolen; the pool simply receives every unsold token against 2 SOL. To anyone
+    /// holding it, it is a ~7x drop at listing.
+    #[test]
+    fn the_original_parameters_gapped_badly() {
+        let r = graduation_price_ratio_bps(30 * SOL, V_TOK, SUPPLY, 2 * SOL, SOL / 4).unwrap();
+        assert!(r < 2_000, "expected a severe gap, got {r} bps");
+    }
+
+    #[test]
+    fn continuity_target_lists_at_the_curve_price() {
+        for &(vs, reserve) in &[
+            (30 * SOL, SOL / 2),
+            (5 * SOL, SOL / 4),
+            (100 * SOL, 0),
+            (7 * SOL, 3 * SOL),
+        ] {
+            let t = continuity_target(vs, V_TOK, SUPPLY, reserve).unwrap();
+            let r = graduation_price_ratio_bps(vs, V_TOK, SUPPLY, t, reserve).unwrap();
+            assert!(
+                (9_900..=10_100).contains(&r),
+                "vs={vs} reserve={reserve}: target {t} gave {r} bps"
+            );
+        }
+    }
+
+    /// The reserve is raised from traders too, so the curve keeps selling while it
+    /// accrues — but only the target is deposited. A check that ignored it would
+    /// misprice every launch that uses one.
+    #[test]
+    fn the_migration_reserve_moves_the_continuity_target() {
+        let a = continuity_target(30 * SOL, V_TOK, SUPPLY, 0).unwrap();
+        let b = continuity_target(30 * SOL, V_TOK, SUPPLY, 5 * SOL).unwrap();
+        assert!(b < a, "a larger reserve must lower the target: {a} vs {b}");
+        // And pricing at the reserve-blind target really is outside a 5% band.
+        let r = graduation_price_ratio_bps(30 * SOL, V_TOK, SUPPLY, a, 5 * SOL).unwrap();
+        assert!(!(9_500..=10_500).contains(&r), "expected out of band, got {r}");
+    }
+
+    #[test]
+    fn ratio_rises_monotonically_with_the_target() {
+        let mut prev = 0;
+        for mult in 1..=10u64 {
+            let r =
+                graduation_price_ratio_bps(30 * SOL, V_TOK, SUPPLY, mult * SOL, 0).unwrap();
+            assert!(r > prev, "not monotonic at {mult} SOL: {r} <= {prev}");
+            prev = r;
+        }
+    }
+
+    #[test]
+    fn continuity_target_always_sits_under_the_reachable_ceiling() {
+        // If these could conflict, the two config checks would be jointly
+        // unsatisfiable and no launch could ever be configured.
+        for &vs in &[SOL, 5 * SOL, 30 * SOL, 500 * SOL] {
+            let t = continuity_target(vs, V_TOK, SUPPLY, 0).unwrap();
+            let ceiling = max_reachable_real_sol(vs, V_TOK, SUPPLY).unwrap();
+            assert!(t < ceiling, "vs={vs}: target {t} >= ceiling {ceiling}");
+        }
+    }
+
+    #[test]
+    fn isqrt_is_exact_on_perfect_squares_and_never_overshoots() {
+        for n in [0u128, 1, 2, 3, 4, 99, 100, 101, 1 << 60, u128::MAX] {
+            let r = isqrt_u128(n);
+            assert!(r.saturating_mul(r) <= n, "overshoot at {n}");
+            let next = r + 1;
+            assert!(next.checked_mul(next).map_or(true, |v| v > n), "undershoot at {n}");
+        }
     }
 }
