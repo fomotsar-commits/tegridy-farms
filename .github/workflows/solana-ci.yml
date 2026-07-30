@@ -23,6 +23,13 @@ name: solana-ci
 #      solana-test-validator both hit os error 1314, and solana-program-test and
 #      litesvm both fail building openssl-sys — so this job is the only place
 #      these constraints are ever executed.
+#   5. migration-rehearsal — the ONLY job that EXECUTES migrate_to_amm. Deploys
+#      BOTH programs to a validator, creates an AmmConfig, then drives the full
+#      lifecycle: create -> buy to target -> migrate -> assert the pool exists,
+#      the curve is closed and records it, and LP SUPPLY IS ZERO (the burn).
+#      It patches cp-swap's hardcoded admin + fee-receiver in a throwaway
+#      checkout because we hold neither key; diff-guard runs on its own clean
+#      checkout and independently proves the COMMITTED fork is untouched.
 on:
   push:
     paths: ["solana/**", ".github/workflows/solana-ci.yml"]
@@ -323,3 +330,137 @@ jobs:
             --program-id target/deploy/tegridy_launch-keypair.json \
             target/deploy/tegridy_launch.so
           yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-constraints.test.ts
+
+  # FULL LIFECYCLE REHEARSAL — the only job that actually EXECUTES migrate_to_amm.
+  #
+  # Two runtime-only defects were already found in that instruction by reading
+  # mechanics, both of which `cargo check` accepted silently: an unbudgeted
+  # create_pool_fee, and a system_program::transfer from a program-owned PDA that
+  # would have failed on every migration. There is no reason to assume inspection
+  # caught the last one, so this drives the real thing end to end and asserts the
+  # LP supply is ZERO afterwards.
+  migration-rehearsal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana/tegridy-amm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor ${{ env.ANCHOR_VERSION }}
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          avm install "$ANCHOR_VERSION"
+          avm use "$ANCHOR_VERSION"
+
+      # cp-swap hardcodes `admin::ID` and `create_pool_fee_reveiver::ID`, and we hold
+      # NEITHER key — so a rehearsal cannot create an AmmConfig or pay the pool fee
+      # without repointing them at addresses this runner controls.
+      #
+      # This patches a THROWAWAY CHECKOUT for test purposes only. The `diff-guard`
+      # job runs on its own clean checkout and independently proves the COMMITTED
+      # cp-swap source is byte-identical to audited upstream, so this cannot launder
+      # a real change into the fork.
+      - name: Pin every identity, then build both programs
+        run: |
+          set -euo pipefail
+          solana-keygen new --no-bip39-passphrase --silent --force -o "$HOME/.config/solana/id.json"
+          WALLET=$(solana-keygen pubkey "$HOME/.config/solana/id.json")
+
+          # The pool-fee receiver must be a real on-chain account at a compile-time
+          # address. Derive our WSOL ATA now and patch THAT in; the test creates it
+          # at runtime. (Chicken-and-egg otherwise: the address must exist to be
+          # paid, but must be known to be compiled.)
+          WSOL=So11111111111111111111111111111111111111112
+          FEE_ATA=$(spl-token address --token "$WSOL" --owner "$WALLET" --verbose 2>/dev/null \
+            | awk '/Associated token address/{print $NF}')
+          if [ -z "$FEE_ATA" ]; then echo "::error::could not derive WSOL ATA"; exit 1; fi
+          echo "wallet=$WALLET  fee_ata=$FEE_ATA"
+
+          mkdir -p target/deploy
+          for P in raydium_cp_swap tegridy_launch; do
+            solana-keygen new --no-bip39-passphrase --silent --force -o "target/deploy/${P}-keypair.json"
+          done
+          CP_ID=$(solana-keygen pubkey target/deploy/raydium_cp_swap-keypair.json)
+          TL_ID=$(solana-keygen pubkey target/deploy/tegridy_launch-keypair.json)
+          echo "cp_swap=$CP_ID  tegridy_launch=$TL_ID"
+
+          python3 - "$WALLET" "$FEE_ATA" "$CP_ID" "$TL_ID" <<'PY'
+          import re, sys
+          wallet, fee_ata, cp_id, tl_id = sys.argv[1:5]
+
+          # --- cp-swap: program id + devnet admin + devnet fee receiver ---
+          p = "programs/cp-swap/src/lib.rs"
+          s = open(p).read()
+          s, n = re.subn(r'(#\[cfg\(feature = "devnet"\)\]\s*\ndeclare_id!\(")[^"]+(")',
+                         r'\g<1>' + cp_id + r'\g<2>', s, count=1)
+          assert n == 1, f"cp-swap devnet declare_id: patched {n}"
+          def patch_mod(src, mod, value):
+              head, sep, tail = src.partition(f"pub mod {mod} {{")
+              assert sep, f"no mod {mod}"
+              tail, k = re.subn(r'(#\[cfg\(feature = "devnet"\)\]\s*\n\s*pub const ID: Pubkey = pubkey!\(")[^"]+(")',
+                                r'\g<1>' + value + r'\g<2>', tail, count=1)
+              assert k == 1, f"mod {mod}: patched {k}"
+              return head + sep + tail
+          s = patch_mod(s, "admin", wallet)
+          s = patch_mod(s, "create_pool_fee_reveiver", fee_ata)
+          open(p, "w").write(s)
+
+          # --- tegridy-launch: program id + devnet deployer ---
+          p2 = "programs/tegridy-launch/src/lib.rs"
+          s2 = open(p2).read()
+          head, sep, tail = s2.partition("pub mod deployer {")
+          assert sep
+          head, n = re.subn(r'declare_id!\("[^"]+"\)', f'declare_id!("{tl_id}")', head)
+          assert n == 1, f"tegridy-launch declare_id: patched {n}"
+          tail, n = re.subn(r'(#\[cfg\(feature = "devnet"\)\]\s*\n\s*pub const ID: Pubkey = pubkey!\(")[^"]+(")',
+                            r'\g<1>' + wallet + r'\g<2>', tail, count=1)
+          assert n == 1, f"deployer pubkey: patched {n}"
+          open(p2, "w").write(head + sep + tail)
+          PY
+
+          sed -i "s|^raydium_cp_swap = \".*\"|raydium_cp_swap = \"$CP_ID\"|" Anchor.toml
+          sed -i "s|^tegridy_launch = \".*\"|tegridy_launch = \"$TL_ID\"|" Anchor.toml
+
+          anchor build -- --features devnet
+
+          for P in raydium_cp_swap tegridy_launch; do
+            test -f "target/deploy/${P}.so" || { echo "::error::no ${P}.so"; exit 1; }
+            test -f "target/idl/${P}.json" || { echo "::error::no ${P} IDL"; exit 1; }
+          done
+          ls -l target/deploy/*.so
+
+      - name: Install JS deps
+        run: yarn install --frozen-lockfile
+
+      - name: Deploy both and run the rehearsal
+        env:
+          ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
+          ANCHOR_WALLET: /home/runner/.config/solana/id.json
+        run: |
+          set -euo pipefail
+          solana-test-validator --ledger /tmp/ledger --reset --quiet &
+          VALIDATOR_PID=$!
+          trap 'kill $VALIDATOR_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            solana -u http://127.0.0.1:8899 cluster-version >/dev/null 2>&1 && break
+            sleep 2
+          done
+          solana -u http://127.0.0.1:8899 cluster-version
+          solana -u http://127.0.0.1:8899 airdrop 500 || true
+
+          for P in raydium_cp_swap tegridy_launch; do
+            solana -u http://127.0.0.1:8899 program deploy \
+              --program-id "target/deploy/${P}-keypair.json" "target/deploy/${P}.so"
+          done
+
+          yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts
