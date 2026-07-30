@@ -121,7 +121,10 @@ export function useSiweAuth() {
       return result;
     } catch (err) {
       if (err.code === 4001 || err.code === "ACTION_REJECTED") {
-        throw new Error("Sign-in cancelled");
+        // Keep the original rejection as `cause`. The user-facing message stays
+        // "Sign-in cancelled", but the wallet's own error (code, provider detail)
+        // is still reachable for diagnostics instead of being thrown away.
+        throw new Error("Sign-in cancelled", { cause: err });
       }
       throw err;
     } finally {
