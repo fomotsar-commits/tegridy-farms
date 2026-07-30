@@ -146,22 +146,35 @@ jobs:
           path: frontend/dist
 
       - name: Run E2E Tests
-        # CI fix 2026-05-18 (4th layer of pre-existing debt): after the
-        # lint cleanup → Build fix chain, E2E now actually runs (it was
-        # skipped while Build was failing). The playwright suite has its
-        # own pre-existing failures — likely a mix of (a) tests asserting
-        # behavior that depends on the broken mint flow, (b) tests
-        # asserting WalletConnect/wagmi state that requires test-side
-        # provider setup, (c) selector drift since the suite was last
-        # updated. None are introduced by the lint-cleanup PR.
+        # `continue-on-error: true` REMOVED 2026-07-30. It was added 2026-05-18
+        # for pre-existing failures that were guessed at ("selector drift",
+        # "provider setup", "the broken mint flow") and never actually triaged.
+        # They were selector drift, all six of them, fixed in #137:
+        #   a11y-smoke:26   expected 4 tabs; TAB_LABELS now has 5 (TWAP added)
+        #   trade-page:34   asserted titleByTab headings, not TAB_LABELS tab text
+        #   smoke:103       hit the /lending redirect + unscoped [role=tablist]
+        #   trust-pages:82  wanted /lending in a sitemap; it is a redirect
+        #   gauge-voting:74 asserted a ConnectPrompt removed on purpose (a8b985d)
+        #   gauge-voting:89 aria-label grew; the link itself was never broken
         #
-        # Same `continue-on-error` workaround as Build + Unit Tests:
-        # keeps the job green so the lint PR can land; spawned task
-        # "Fix remaining 91 lint errors (React Compiler v7)" covers the
-        # broader frontend-CI repair (extending its scope to also triage
-        # the playwright failures and flip this back to fail-hard).
+        # Verified before flipping, under CI-EQUIVALENT conditions:
+        #   full suite, --workers=1 (matches `workers: CI ? 1` above),
+        #   retries 0 (STRICTER than CI's 2):
+        #     98 passed / 44 skipped / 0 failed
+        #
+        # One flake exists — smoke.spec.ts:85 "community tabs scroll on mobile" —
+        # but it is a PARALLEL-load artifact: it passes 3/3 in isolation and did
+        # not fail in the serial run. CI runs serial, so it should not surface
+        # here; if it ever does, `retries: 2` is the backstop.
+        #
+        # ⚠ The 44 skips are NOT this step failing to run things. They are
+        # `test.skip(!onAnvil, 'ANVIL_RPC_URL unset')` gates in
+        # claim-rewards/lending/liquidity/stake/swap.spec.ts — 20 tests x 2
+        # projects — plus 4 unconditional skips. NOTHING in .github/ sets
+        # ANVIL_RPC_URL, so the entire state-changing money-path E2E surface
+        # runs in no pipeline at all. That is a real coverage gap and needs an
+        # Anvil-fork job; it is NOT fixed by this flip.
         run: npx playwright test
-        continue-on-error: true
 
       - name: Upload E2E Report
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
