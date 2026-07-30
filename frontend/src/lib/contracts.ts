@@ -59,8 +59,12 @@ export const TEGRIDY_RESTAKING_ABI = [
   { type: 'function', name: 'restake', inputs: [{ name: '_tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'unrestake', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'claimAll', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'pendingBonus', inputs: [{ name: '_user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'pendingBase', inputs: [{ name: '_user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // pendingBonus / pendingBase were golfed off TegridyRestaking (they live on
+  // RestakingMonitorView now) and had no call site left — removed rather than
+  // re-pointed. pendingTotal is still read by useRestaking, but at
+  // TEGRIDY_RESTAKING_ADDRESS, where the selector does not exist; the read is
+  // dormant only because that address is still 0x0. Re-point it at the
+  // RestakingMonitorView deployment before restaking goes live.
   { type: 'function', name: 'pendingTotal', inputs: [{ name: '_user', type: 'address' }], outputs: [{ name: 'base', type: 'uint256' }, { name: 'bonus', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'restakers', inputs: [{ name: '', type: 'address' }], outputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'positionAmount', type: 'uint256' }, { name: 'boostedAmount', type: 'uint256' }, { name: 'bonusDebt', type: 'int256' }, { name: 'depositTime', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalRestaked', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
@@ -345,7 +349,10 @@ export const LP_FARMING_ABI = [
   // used to declare — the wrong selector could only revert. Funding is an
   // operator script action, not a dApp action.
   { type: 'function', name: 'earned', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // No balanceOf entry: the farm tracks rawBalanceOf + effectiveBalanceOf and
+  // has never exported a plain balanceOf. Every LP balance read goes through
+  // ERC20_ABI against the LP token, so this had no call site — only the
+  // potential to acquire one that could not work.
   { type: 'function', name: 'totalRawSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardRate', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
