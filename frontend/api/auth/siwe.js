@@ -271,7 +271,7 @@ export default async function handler(req, res) {
         domain: originHost,
         nonce: siweMessage.nonce,
       });
-    } catch (err) {
+    } catch {
       return res.status(400).json({ error: "Signature verification failed" });
     }
 

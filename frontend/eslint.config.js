@@ -7,6 +7,60 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores(['dist']),
+
+  // ─────────────────────────────────────────────────────────────────────
+  // PLAIN JS/MJS/CJS. Added 2026-07-28 — before this, the ONLY config
+  // object was the `**/*.{ts,tsx}` one below, and under flat config a file
+  // matched by no config object gets NO RULES. So `npm run lint` was green
+  // over 116 tracked .js/.mjs/.cjs files by construction, including the 37
+  // under `api/` that ARE the request-handling surface (orderbook, SIWE
+  // auth, seaport-verify, aggregator proxy, supabase proxy).
+  //
+  // That blind spot was hiding a real pointer: `api/orderbook.js` still
+  // read a `maker` column into an `orderMaker` variable that nothing used —
+  // residue of a REMOVED vulnerability (the legacy offerer-vs-maker
+  // fallback that let anyone replay any past Seaport sale by that maker to
+  // mark an unrelated listing filled). Deleted in this commit. Note the
+  // naive "fix the lint error by using the variable" would have re-wired a
+  // patched hole — unused-variable findings on a money path deserve a read,
+  // not an autofix.
+  //
+  // Rule options deliberately MIRROR the TS block's underscore-prefix
+  // convention rather than relaxing `caughtErrors`, so both halves of the
+  // codebase opt out of unused-checking the same way.
+  {
+    files: ['**/*.{js,mjs,cjs}'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      // api/ and scripts/ are Node (Vercel serverless + operator CLIs);
+      // public/ and src/ are browser. Kept separate rather than merged so
+      // `no-undef` still catches a browser global used server-side.
+      globals: globals.node,
+    },
+    rules: {
+      'no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+        destructuredArrayIgnorePattern: '^_',
+      }],
+
+      // Mirrors the TS block below, which documents `try { ... } catch {}` as
+      // an idiomatic best-effort pattern here (localStorage under quota /
+      // private browsing, JSON parses of untrusted external data, optional
+      // fetch fallbacks). Omitting this would have held JS to a STRICTER
+      // standard than TS for no stated reason — the convention is the
+      // codebase's, and it should apply to both halves identically.
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+  {
+    files: ['public/**/*.js', 'src/**/*.{js,mjs,cjs}'],
+    languageOptions: { globals: globals.browser },
+  },
+
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

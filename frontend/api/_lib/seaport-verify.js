@@ -354,7 +354,7 @@ export async function verifySeaportSignature({ parameters, signature }) {
   let message;
   try {
     message = buildSeaportMessage(parameters, counter);
-  } catch (err) {
+  } catch {
     return { ok: false, error: "bad-parameters" };
   }
   // REVIEW H-1-FINDING-1: prefer `publicClient.verifyTypedData` so EIP-1271
@@ -384,7 +384,7 @@ export async function verifySeaportSignature({ parameters, signature }) {
         signature,
       });
     }
-  } catch (err) {
+  } catch {
     return { ok: false, error: "bad-signature" };
   }
   if (!ok) return { ok: false, error: "signature-mismatch" };

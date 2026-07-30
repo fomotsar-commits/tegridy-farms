@@ -694,7 +694,7 @@ export default async function handler(req, res) {
           priceWeiBig = parseAmount(offerItem?.startAmount);
           currencyAddr = (offerItem?.token)?.toLowerCase() || "0x0000000000000000000000000000000000000000";
         }
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "startAmount out of range or non-numeric" });
       }
 
@@ -753,7 +753,7 @@ export default async function handler(req, res) {
       let recoveredCreator;
       try {
         recoveredCreator = (await recoverMessageAddress({ message: createMessage, signature: order.signature })).toLowerCase();
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "Invalid signature" });
       }
       if (recoveredCreator !== params.offerer.toLowerCase()) {
@@ -928,7 +928,7 @@ export default async function handler(req, res) {
           } else {
             throw new Error("bad-type");
           }
-        } catch (e) {
+        } catch {
           return res.status(400).json({ error: "Invalid seaportCounter — must be a non-negative integer" });
         }
         // Re-derive server-side. If derivation throws (malformed param) →
@@ -936,7 +936,7 @@ export default async function handler(req, res) {
         let derivedHash;
         try {
           derivedHash = computeSeaportOrderHash(params, counterBig);
-        } catch (e) {
+        } catch {
           return res.status(400).json({ error: "Could not derive Seaport orderHash from parameters" });
         }
         // Constant-time-ish equality on lowercase hex strings.
@@ -1105,7 +1105,7 @@ export default async function handler(req, res) {
           totalWei += amt;
         }
         priceWeiBig = totalWei;
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "startAmount out of range or non-numeric" });
       }
       if (priceWeiBig > MAX_PRICE_WEI) {
@@ -1143,7 +1143,7 @@ export default async function handler(req, res) {
       let recoveredCreator;
       try {
         recoveredCreator = (await recoverMessageAddress({ message: createMessage, signature: order.signature })).toLowerCase();
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "Invalid signature" });
       }
       if (recoveredCreator !== params.offerer.toLowerCase()) {
@@ -1220,13 +1220,13 @@ export default async function handler(req, res) {
         } else {
           throw new Error("bad-type");
         }
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "Invalid seaportCounter — must be a non-negative integer" });
       }
       let derivedHash;
       try {
         derivedHash = computeSeaportOrderHash(params, counterBig);
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "Could not derive Seaport orderHash from parameters" });
       }
       if (derivedHash !== clientSeaportHash.toLowerCase()) {
@@ -1347,7 +1347,7 @@ export default async function handler(req, res) {
       let recoveredAddress;
       try {
         recoveredAddress = (await recoverMessageAddress({ message: cancelMessage, signature })).toLowerCase();
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "Invalid signature" });
       }
 
@@ -1403,7 +1403,7 @@ export default async function handler(req, res) {
       let recoveredAddress;
       try {
         recoveredAddress = (await recoverMessageAddress({ message: cancelMessage, signature })).toLowerCase();
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "Invalid signature" });
       }
       if (recoveredAddress !== maker.toLowerCase()) {
@@ -1452,7 +1452,7 @@ export default async function handler(req, res) {
       let filledBy;
       try {
         filledBy = (await recoverMessageAddress({ message: fillMessage, signature })).toLowerCase();
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: "Invalid signature" });
       }
 
@@ -1478,17 +1478,23 @@ export default async function handler(req, res) {
       //     check (canonical Seaport address + matching offerer in topic[1]).
       //     Legacy rows sunset at end_time — listings have a 7-day TTL, so
       //     this fallback is bounded.
+      // `maker` is deliberately NOT selected. It was read into an `orderMaker`
+      // variable that nothing consumed — residue of the legacy fallback that
+      // compared the OrderFulfilled event's indexed offerer to this row's
+      // maker, and which let anyone who could observe ANY past Seaport sale by
+      // that maker replay its tx hash to mark an unrelated active listing
+      // filled. That fallback was removed (see the comment at the log loop);
+      // the column read outlived it. Do NOT re-introduce a maker comparison
+      // here — the canonical bytes32 orderHash check below is the whole check.
       let storedSeaportHash = null;
-      let orderMaker = null;
       {
         const { data: rowForVerify } = await supabase
           .from("native_orders")
-          .select("seaport_order_hash, maker")
+          .select("seaport_order_hash")
           .eq("order_hash", orderHash)
           .maybeSingle();
         if (rowForVerify) {
           storedSeaportHash = rowForVerify.seaport_order_hash || null;
-          orderMaker = (rowForVerify.maker || "").toLowerCase();
         }
         // Don't 404 here — the atomic update below handles missing rows
         // with a single race-free path. If the row doesn't exist it'll

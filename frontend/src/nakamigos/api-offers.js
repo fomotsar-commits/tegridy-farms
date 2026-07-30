@@ -20,7 +20,7 @@ async function assertOnExpectedChain(browserProvider) {
     if (got !== want) {
       return { error: "wrong-chain", message: `Connected to chain ${got}; expected chain ${want}` };
     }
-  } catch (err) {
+  } catch {
     return { error: "no-network", message: "Could not read wallet chain" };
   }
   return null;
@@ -743,7 +743,7 @@ export async function acceptOffer(offer) {
         },
         fulfiller: { address: sellerAddress },
       });
-    } catch (err) {
+    } catch {
       return { error: "failed", message: "Could not get fulfillment data" };
     }
     const txData = data.fulfillment_data?.transaction;
