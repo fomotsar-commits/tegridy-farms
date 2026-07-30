@@ -36,6 +36,13 @@ import { test as base, expect, type Page } from '@playwright/test';
 const DEFAULT_ACCOUNT = '0x71be63f3384f5fb98995898a86b02fb2426c5788'; // Hardhat account #9
 const DEFAULT_CHAIN_ID = 1; // Ethereum mainnet
 
+// ANVIL_BACKEND. When ANVIL_RPC_URL is set, unhandled JSON-RPC is forwarded to a
+// real anvil node instead of being answered with canned values — which is what
+// turns the `test.skip(!onAnvil, …)` specs in stake/swap/liquidity/lending/
+// claim-rewards into genuine end-to-end flows. Unset, behaviour is byte-identical
+// to before: canned reads, no network.
+const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
+
 export interface WalletMock {
   /** Mark the mock as connected; eth_accounts now returns [account]. */
   connect: (account?: string) => Promise<void>;
@@ -108,8 +115,10 @@ export { expect };
  * because Playwright serializes the function body across the page boundary.
  */
 async function installWalletMock(page: Page): Promise<void> {
+  // Must be exposed BEFORE the init script runs, and it survives navigation.
+  if (ANVIL_RPC_URL) await installAnvilBridge(page, ANVIL_RPC_URL);
   await page.addInitScript(
-    ([account, chainId]) => {
+    ([account, chainId, anvilEnabled]) => {
       type Listener = (...args: unknown[]) => void;
       const listeners: Record<string, Set<Listener>> = {};
       const calls: Array<{ method: string; params: unknown }> = [];
@@ -150,6 +159,18 @@ async function installWalletMock(page: Page): Promise<void> {
               return null;
             }
             default: {
+              // ANVIL_BACKEND step 2 — forward anything we do not emulate to the
+              // real node. Reached by eth_call, eth_estimateGas, eth_getBalance,
+              // eth_blockNumber, eth_getTransactionReceipt, eth_sendTransaction…
+              // i.e. everything a state-changing flow actually needs.
+              const bridge = (
+                window as unknown as {
+                  __tegridyAnvilRpc?: (m: string, p: unknown[]) => Promise<unknown>;
+                }
+              ).__tegridyAnvilRpc;
+              if (anvilEnabled && typeof bridge === 'function') {
+                return await bridge(args.method, (args.params as unknown[]) ?? []);
+              }
               const override = reads[args.method];
               if (override !== undefined) return override;
               return null;
@@ -184,24 +205,75 @@ async function installWalletMock(page: Page): Promise<void> {
         getCalls: () => calls,
       };
     },
-    [DEFAULT_ACCOUNT, DEFAULT_CHAIN_ID]
+    [DEFAULT_ACCOUNT, DEFAULT_CHAIN_ID, !!ANVIL_RPC_URL] as [string, number, boolean]
   );
 }
 
-// ─── ANVIL_BACKEND ───────────────────────────────────────────────────────
-// To upgrade this fixture for real on-chain simulation:
-//   1. Start Anvil on localhost:8545 forking mainnet at a known block:
-//        anvil --fork-url https://eth.llamarpc.com --fork-block-number 19000000
-//   2. In the installWalletMock default case, forward unhandled requests to
-//      Anvil over fetch:
-//        const r = await fetch('http://localhost:8545', {
-//          method: 'POST',
-//          headers: { 'content-type': 'application/json' },
-//          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: args.method, params: args.params ?? [] }),
-//        });
-//        const j = await r.json();
-//        return j.result;
-//   3. Use one of Anvil's pre-funded accounts (DEFAULT_ACCOUNT matches account #9).
-//   4. Sign eth_sendTransaction server-side via Anvil's impersonate cheatcode.
-// Once those four tweaks are in place, the same test specs become real end-to-end
-// flows — no changes to spec code required.
+/**
+ * ANVIL_BACKEND steps 2-4. Forwards JSON-RPC from the page's injected provider to
+ * a real anvil node.
+ *
+ * The forwarding deliberately happens HERE, in Node, not in the page:
+ *   * no CORS — the page never talks to 127.0.0.1 directly
+ *   * anvil's `anvil_*` cheatcodes are reachable, which is what lets us send
+ *     transactions with NO PRIVATE KEY anywhere in the test suite
+ */
+async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
+  let nextId = 1;
+
+  async function rpc(method: string, params: unknown[]): Promise<unknown> {
+    const res = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params }),
+    });
+    if (!res.ok) throw new Error(`anvil ${method}: HTTP ${res.status}`);
+    const body = (await res.json()) as { result?: unknown; error?: { message?: string } };
+    if (body.error) throw new Error(`anvil ${method}: ${body.error.message ?? JSON.stringify(body.error)}`);
+    return body.result;
+  }
+
+  // ANVIL_BACKEND step 3 — CORRECTED. The original TODO said DEFAULT_ACCOUNT is
+  // "one of Anvil's pre-funded accounts", which is true for a FRESH anvil chain
+  // and FALSE when forking: a fork inherits mainnet state, and account #9 holds
+  // 0 ETH on mainnet. Verified — eth_getBalance returned 0x0 on a live fork.
+  // So fund it explicitly. anvil_setBalance needs no key and no faucet.
+  await rpc('anvil_setBalance', [DEFAULT_ACCOUNT, '0x21e19e0c9bab2400000']); // 10,000 ETH
+
+  await page.exposeFunction(
+    '__tegridyAnvilRpc',
+    async (method: string, params: unknown[] = []): Promise<unknown> => {
+      // ANVIL_BACKEND step 4 — sign without a key. `anvil_impersonateAccount`
+      // makes the node accept eth_sendTransaction from an address it holds no
+      // key for, so DEFAULT_ACCOUNT (anvil/hardhat account #9, pre-funded on a
+      // fresh fork) can transact and NO private key is ever handled by the
+      // fixture, the specs, or CI.
+      if (method === 'eth_sendTransaction') {
+        const from = (params?.[0] as { from?: string } | undefined)?.from;
+        if (from) await rpc('anvil_impersonateAccount', [from]);
+      }
+      return rpc(method, params);
+    },
+  );
+}
+
+// ─── ANVIL_BACKEND — IMPLEMENTED 2026-07-30 ──────────────────────────────
+// This used to be a 4-step TODO. All four are now done, above:
+//   1. Run anvil forking mainnet. Verified working against a KEYLESS RPC
+//      (https://ethereum-rpc.publicnode.com) — no paid archive provider needed:
+//        anvil --fork-url https://ethereum-rpc.publicnode.com --port 8545
+//      Sanity check that the fork sees real state — TOWELI totalSupply via
+//      eth_call returns 0x033b2e3c9fd0803ce8000000 (1e9 * 1e18).
+//   2. Unhandled requests forward to anvil — see the `default:` case above.
+//   3. DEFAULT_ACCOUNT is funded via `anvil_setBalance` at bridge-install time.
+//      NOTE the original TODO was WRONG here: it said account #9 is "pre-funded",
+//      which holds for a FRESH anvil chain but not for a FORK — a fork inherits
+//      mainnet state, where that address has 0 ETH. Confirmed on a live fork
+//      (eth_getBalance -> 0x0), hence the explicit top-up.
+//   4. eth_sendTransaction is signed by the node via `anvil_impersonateAccount`,
+//      so NO private key exists anywhere in this suite.
+//
+// To run the state-changing specs:
+//   ANVIL_RPC_URL=http://127.0.0.1:8545 npx playwright test e2e/stake.spec.ts …
+// With ANVIL_RPC_URL unset every one of those specs still skips exactly as
+// before, and mock-mode behaviour is unchanged.
