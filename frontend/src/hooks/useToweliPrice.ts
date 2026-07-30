@@ -48,6 +48,69 @@ const TWAP_DIVERGENCE_THRESHOLD = 0.02;
 // Maximum staleness for Chainlink data (5 minutes)
 const MAX_STALENESS_SECONDS = 300;
 
+/**
+ * Launch-path staleness tolerance for ETH/USD — deliberately looser than the swap one.
+ *
+ * Mainnet ETH/USD publishes on a 3600s heartbeat (plus a 0.5%-deviation trigger), so the
+ * 300s window above rejects a PERFECTLY HEALTHY feed most of the time. Measured over 40
+ * consecutive rounds: every inter-round gap exceeded 300s, and the tight gate was closed
+ * ~85% of wallclock — which is exactly how often /launch refused to launch.
+ *
+ * Swaps keep the tight window on purpose: a quote priced off a 50-minute-old round is a
+ * real loss. A LAUNCH is not the same trade. The numeraire price only sets the auction's
+ * starting market-cap band, and the wizard shows that band to the creator in USD before
+ * they sign. Rejecting on anything short of the feed's own liveness definition breaks the
+ * launcher without protecting anyone. 3600s heartbeat + 300s margin.
+ */
+const MAX_LAUNCH_STALENESS_SECONDS = 3900;
+
+/** A Chainlink `latestRoundData` tuple, as wagmi returns it. */
+export type ChainlinkRound = readonly [bigint, bigint, bigint, bigint, bigint];
+
+/**
+ * Pure evaluation of a Chainlink ETH/USD round against BOTH freshness windows.
+ *
+ * Extracted from the hook so the windows are unit-testable — the launch path's tolerance is
+ * the difference between a launcher that works and one that refuses ~85% of the time, and
+ * that is not something to leave pinned only by a React hook nobody can exercise.
+ */
+export function evaluateEthUsdFeed(
+  round: ChainlinkRound | undefined,
+  nowSeconds: number,
+): { ethUsd: number; ethUsdForLaunch: number; oracleStale: boolean } {
+  if (!round) return { ethUsd: 0, ethUsdForLaunch: 0, oracleStale: false };
+
+  const [roundId, answer, , updatedAt, answeredInRound] = round;
+  const answerNum = Number(answer);
+  const updatedAtNum = Number(updatedAt);
+
+  const ETH_USD_MIN = 100_00000000; // $100 with 8 decimals
+  const ETH_USD_MAX = 100000_00000000; // $100,000 with 8 decimals
+
+  const wellFormed = answerNum > 0 && updatedAtNum > 0 && answeredInRound >= roundId;
+  const inBand = answerNum >= ETH_USD_MIN && answerNum <= ETH_USD_MAX;
+  const ageSeconds = nowSeconds - updatedAtNum;
+
+  let ethUsd = 0;
+  let oracleStale = false;
+  if (wellFormed && ageSeconds < MAX_STALENESS_SECONDS) {
+    ethUsd = answerNum / 1e8;
+  } else {
+    oracleStale = true;
+  }
+
+  // Launch path: same well-formedness checks, heartbeat-sized freshness window.
+  // Unlike `ethUsd` this ALSO requires the price to be inside the sanity band — an
+  // out-of-band answer must never reach the auction-curve math. (`ethUsd`'s looser
+  // handling is pre-existing behaviour that swap consumers guard via `priceSafeForSwaps`;
+  // widening the band check to it would change swap pricing, out of scope for this fix.)
+  const ethUsdForLaunch = wellFormed && inBand && ageSeconds < MAX_LAUNCH_STALENESS_SECONDS ? answerNum / 1e8 : 0;
+
+  if (!inBand) oracleStale = true;
+
+  return { ethUsd, ethUsdForLaunch, oracleStale };
+}
+
 export function useToweliPrice() {
   const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Tegridy DEX pair (was external Uniswap LP)
   const hasPair = checkDeployed(pairAddr);
@@ -151,34 +214,11 @@ export function useToweliPrice() {
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
-  // Validate Chainlink data
-  let ethUsd = 0;
-  let oracleStale = false;
-
-  if (ethUsdData) {
-    const [roundId, answer, , updatedAt, answeredInRound] = ethUsdData;
-    const answerNum = Number(answer);
-    const updatedAtNum = Number(updatedAt);
-    const now = Math.floor(Date.now() / 1000);
-
-    const ETH_USD_MIN = 100_00000000; // $100 with 8 decimals
-    const ETH_USD_MAX = 100000_00000000; // $100,000 with 8 decimals
-
-    if (
-      answerNum > 0 &&
-      updatedAtNum > 0 &&
-      now - updatedAtNum < MAX_STALENESS_SECONDS &&
-      answeredInRound >= roundId
-    ) {
-      ethUsd = answerNum / 1e8;
-    } else {
-      oracleStale = true;
-    }
-
-    if (answerNum < ETH_USD_MIN || answerNum > ETH_USD_MAX) {
-      oracleStale = true;
-    }
-  }
+  // Validate Chainlink data (pure — see evaluateEthUsdFeed).
+  const { ethUsd, ethUsdForLaunch, oracleStale } = evaluateEthUsdFeed(
+    ethUsdData as ChainlinkRound | undefined,
+    Math.floor(Date.now() / 1000),
+  );
 
   // Compute price (may be 0 if data not loaded)
   let priceInEth = 0;
@@ -280,6 +320,12 @@ export function useToweliPrice() {
     priceInEth,
     priceInUsd,
     ethUsd,
+    /**
+     * ETH/USD for the LAUNCH path only (see MAX_LAUNCH_STALENESS_SECONDS). 0 when the
+     * feed is genuinely unhealthy — missed heartbeat, out-of-band price, or an
+     * incomplete round. Never use this to price a swap.
+     */
+    ethUsdForLaunch,
     isLoaded,
     oracleStale,
     priceChange: sessionPriceChange,

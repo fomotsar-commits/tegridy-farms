@@ -88,13 +88,14 @@ export function isExoticLaunchEnabled(): boolean {
  *     airlock.ts feeConstitutionToBeneficiaries).
  *   - Tegridy 15% — BELOW Clanker's observed 20% survivor ceiling on purpose: our
  *     draw is the day-2 Afterlife economy, not the cheapest fee, so we can be visibly
- *     more creator-friendly than the incumbent. Sink is NUMERAIRE-AWARE (see
- *     launchService `protocolFeeSink`): an ETH pair routes to RevenueDistributor, which
- *     streams it as REAL YIELD to veTOWELI stakers (verified ETH-only — it distributes
- *     ETH to veTOWELI holders, so a TOWELI-denominated cut could never become yield);
- *     an exotic (TOWELI) pair routes to the protocol Treasury instead, and the Fact
- *     Sheet labels it "Tegridy treasury" so the disclosure stays truthful. NOT split to
- *     POL: POL is a SEPARATE fee stream (POLAccumulator/SwapFeeRouter), not this 15%.
+ *     more creator-friendly than the incumbent. Sink is the protocol TREASURY for BOTH
+ *     numeraires (see launchService `protocolFeeSink` for the full rationale): the
+ *     locker pays `msg.sender` only, and RevenueDistributor has no arbitrary-call
+ *     function, so naming it as a beneficiary would strand the whole line permanently.
+ *     Treasury is a Safe and can originate the claim. The Fact Sheet therefore labels
+ *     this "Tegridy treasury", NOT staker yield — the honest description until a
+ *     `LockerClaimer` shim exists. NOT split to POL either: POL is a SEPARATE fee
+ *     stream (POLAccumulator/SwapFeeRouter), not this 15%.
  *   - Creator + attention 80% — creator-directed. Creators keep the majority (what
  *     actually attracts launches) and can carve part to attention-holders/KOLs at
  *     launch (the Bags-style perpetual-split lever — the one proven cheap distribution
@@ -104,7 +105,9 @@ export function isExoticLaunchEnabled(): boolean {
 export const DEFAULT_FEE_CONSTITUTION: readonly FeeConstitutionLine[] = [
   { recipient: 'Creator', role: 'creator', shareBps: 7000 },
   { recipient: 'Attention beneficiaries', role: 'attention-beneficiary', shareBps: 1000 },
-  { recipient: 'Tegridy stakers', role: 'protocol-stakers', shareBps: 1500 },
+  // Label must match protocolFeeSink()'s — the sink is Treasury, so claiming "stakers"
+  // here would put a false recipient on the published Fact Sheet.
+  { recipient: 'Tegridy treasury', role: 'protocol-stakers', shareBps: 1500 },
   { recipient: 'Doppler', role: 'doppler', shareBps: 500 },
 ] as const;
 

@@ -29,7 +29,7 @@ import {
   isAllowedNumeraire,
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
-import { REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS } from '../constants';
+import { TREASURY_ADDRESS } from '../constants';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
@@ -209,28 +209,43 @@ const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION.filter(
 ).reduce((n, l) => n + l.shareBps, 0);
 
 /**
- * The protocol's 15% fee line is streamed by the locker in the POOL's currencies, so
- * its sink must be able to actually USE what it receives:
- *   - ETH launch             -> RevenueDistributor, which distributes ETH as REAL YIELD
- *                               to veTOWELI stakers. Verified on-chain: it is ETH-only —
- *                               epochs record `totalETH` and claims pay via `.call{value}`,
- *                               with no ERC20 distribution path (a non-ETH token sent to
- *                               it is, at best, an owner sweep-to-treasury, never yield).
- *   - exotic (TOWELI) launch -> the protocol Treasury (2-of-2 Safe). The cut is
- *                               TOWELI/token-denominated, which RevenueDistributor cannot
- *                               turn into staker yield, so routing it straight to Treasury
- *                               is both HONEST (protocol revenue, not "real yield to
- *                               stakers") and functional (a Safe can hold/deploy the ERC20;
- *                               it is where a stray-token sweep would land anyway).
- * The display label follows the sink so the Fact Sheet never claims staker yield for a
- * pair that can't pay it. Shared by the forward resolver and the post-graduation
+ * The protocol's 15% fee line is streamed by the locker, so its sink must be able to
+ * actually CLAIM what it is credited. Both numeraires route to the protocol Treasury.
+ *
+ * ## Why NOT RevenueDistributor, despite it being the "real yield to stakers" contract
+ *
+ * The locker is pull-based and self-addressed. `StreamableFeesLocker.releaseFees(tokenId)`
+ * requires `msg.sender` to be in `position.beneficiaries` and pays `msg.sender` ONLY;
+ * `_distributeFees` merely CREDITS `beneficiariesClaims[beneficiary][currency]`. So a
+ * beneficiary that cannot originate a call to the locker can never be paid — the credit
+ * accrues and sits there forever.
+ *
+ * RevenueDistributor cannot originate that call. Its deployed verified ABI exposes 35
+ * non-view functions and not one of them is an arbitrary external call, multicall, or
+ * exec(target, data). No transaction can ever exist with `msg.sender ==
+ * RevenueDistributor` calling `locker.releaseFees`. Pointing the beneficiary at it
+ * therefore STRANDS 100% of the protocol fee line, permanently and silently.
+ *
+ * Treasury `0x7D26…Bd7d` is a Safe v1.4.1 (VERSION() = "1.4.1", getThreshold() = 2), so it
+ * CAN originate `execTransaction -> locker.releaseFees(tokenId)`. It is the only address we
+ * control today that can. From there the operator forwards ETH to RevenueDistributor when
+ * a distribution is warranted — one manual step, versus money that is unreachable by any
+ * transaction that could ever be constructed.
+ *
+ * THIS MUST BE RIGHT BEFORE LAUNCH #1: the beneficiary set is fixed at create time and the
+ * locker has no admin re-point. A launch made with the wrong sink is unfixable.
+ *
+ * Follow-up that restores the staker-yield story without the manual step: a ~30-line
+ * `LockerClaimer` whose only job is `claim(tokenId) { locker.releaseFees(tokenId);
+ * revenueDistributor.call{value: address(this).balance}(""); }`, used AS the beneficiary.
+ * Until that exists and is deployed, the honest label is "treasury", not "stakers".
+ *
+ * The display label follows the sink so the Fact Sheet never claims staker yield the
+ * routing cannot deliver. Shared by the forward resolver and the post-graduation
  * re-attestation labeler so the on-chain split and its disclosure always agree.
  */
-export function protocolFeeSink(numeraire: Address = ETH_NUMERAIRE): { address: Address; recipient: string } {
-  const isEth = numeraire.toLowerCase() === ETH_NUMERAIRE.toLowerCase();
-  return isEth
-    ? { address: REVENUE_DISTRIBUTOR_ADDRESS, recipient: 'Tegridy stakers' }
-    : { address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' };
+export function protocolFeeSink(_numeraire: Address = ETH_NUMERAIRE): { address: Address; recipient: string } {
+  return { address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' };
 }
 
 /**
@@ -374,7 +389,11 @@ export function beneficiariesToFeeConstitution(
   return beneficiaries.map(({ beneficiary, shares }) => {
     const shareBps = Math.round((Number(shares) * 10_000) / WAD_NUMBER);
     const key = beneficiary.toLowerCase();
-    if (key === protocolStakers) return { recipient: roles.protocolRecipient ?? 'Tegridy stakers', role: 'protocol-stakers', shareBps };
+    // Default to protocolFeeSink()'s label, never a hardcoded one. This function feeds the
+    // POST-GRADUATION re-attestation — a permanent on-chain disclosure — so a stale literal
+    // here republishes a false recipient forever. (It did: this read 'Tegridy stakers' while
+    // the sink was Treasury.) Caller may still override via roles.protocolRecipient.
+    if (key === protocolStakers) return { recipient: roles.protocolRecipient ?? protocolFeeSink().recipient, role: 'protocol-stakers', shareBps };
     if (key === doppler) return { recipient: 'Doppler', role: 'doppler', shareBps };
     if (key === creator) return { recipient: 'Creator', role: 'creator', shareBps };
     return { recipient: beneficiary, role: 'attention-beneficiary', shareBps };

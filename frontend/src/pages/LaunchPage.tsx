@@ -285,7 +285,10 @@ export default function LaunchPage() {
       }
       numerairePriceUsd = price.priceInUsd;
     } else {
-      numerairePriceUsd = price?.ethUsd ?? 0;
+      // `ethUsdForLaunch`, NOT `ethUsd`: the latter carries the 300s swap-safety window,
+      // which is 12x tighter than the feed's own 3600s heartbeat and was refusing ~85%
+      // of launch attempts against a perfectly healthy oracle. See useToweliPrice.ts.
+      numerairePriceUsd = price?.ethUsdForLaunch ?? 0;
       if (!(numerairePriceUsd > 0)) {
         setLaunch({ phase: 'error', message: 'ETH price unavailable right now — try again shortly.' });
         return;
