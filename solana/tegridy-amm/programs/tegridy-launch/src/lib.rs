@@ -999,6 +999,42 @@ pub mod tegridy_launch {
         // permanent leak — and worse, it means calling this instruction always loses
         // money, which is a poor foundation for a step anyone is allowed to trigger.
         //
+        // ⚠️ DRAIN BEFORE CLOSING — this is a permanent-brick guard, not tidiness.
+        //
+        // SPL Token REFUSES to close a NON-NATIVE account holding any balance
+        // (`TokenError::NonNativeHasBalance`). `auth_token`'s address is derivable
+        // from the mint the moment `create_launch` lands, and the Associated Token
+        // Program lets anyone create an ATA for any owner, PDA or not. So an attacker
+        // could buy one token unit, create `auth_token`, donate that unit, and wait:
+        // cp-swap pulls exactly `deposit_tokens`, the donated unit survives, and an
+        // unconditional close reverts the whole instruction. Forever — nothing in
+        // this program can move tokens out of that ATA by any other path.
+        //
+        // That is the same permissionless one-transaction brick the LAUNCH_POOL_SEED
+        // fix exists to prevent, reached through a different door. Cost to attacker:
+        // ~0.002 SOL.
+        //
+        // Only `auth_token` needs this. `auth_wsol` is native, so the close ignores
+        // its balance and any donated WSOL simply returns to `payer`; `auth_lp`
+        // cannot be pre-created because its mint does not exist until cp-swap makes
+        // it inside this very instruction.
+        let auth_token_ai = ctx.accounts.auth_token.to_account_info();
+        let residual_tokens = token::accessor::amount(&auth_token_ai)?;
+        if residual_tokens > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: auth_token_ai.clone(),
+                        to: ctx.accounts.curve_vault.to_account_info(),
+                        authority: auth_ai.clone(),
+                    },
+                    auth_signer,
+                ),
+                residual_tokens,
+            )?;
+        }
+
         // The closes MUST follow the burn: `auth_lp` has to be empty first, and SPL
         // Token refuses to close a non-native account holding a balance. They send
         // rent to `payer` directly, not via the authority, so they do not change what

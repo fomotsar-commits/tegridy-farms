@@ -37,8 +37,10 @@ import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccount,
+  createAssociatedTokenAccountInstruction,
   createMint,
   createSyncNativeInstruction,
+  createTransferInstruction,
   getAssociatedTokenAddressSync,
   getMint,
   NATIVE_MINT,
@@ -289,7 +291,38 @@ describe("tegridy-launch full migration rehearsal", () => {
         ? [NATIVE_MINT, launchMint]
         : [launchMint, NATIVE_MINT];
 
-    // ── ADVERSARIAL PRECONDITION: occupy cp-swap's canonical pool ────────────
+    // ── ADVERSARIAL PRECONDITION 1: dust the migration authority's token ATA ─
+    // `auth_token`'s address is derivable from the launch mint the moment the launch
+    // is created, and the Associated Token Program lets ANYONE create an ATA for any
+    // owner, PDA or not. SPL Token then refuses to close a NON-NATIVE account holding
+    // a balance (TokenError::NonNativeHasBalance), so a single donated token unit
+    // survives cp-swap's exact-amount pull and made the unconditional close revert —
+    // a permissionless, ~0.002 SOL, PERMANENT graduation brick, with no path in the
+    // program to ever empty that account.
+    //
+    // The handler now drains any residual to the curve vault before closing. Donate
+    // the unit here so that regression turns this test red instead of shipping.
+    const authTokenAta = getAssociatedTokenAddressSync(launchMint, migAuth, true);
+    await provider.sendAndConfirm(
+      new Transaction()
+        .add(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,
+            authTokenAta,
+            migAuth,
+            launchMint
+          )
+        )
+        .add(createTransferInstruction(buyerAta, authTokenAta, wallet.publicKey, 1)),
+      []
+    );
+    assert.equal(
+      (await provider.connection.getTokenAccountBalance(authTokenAta)).value.amount,
+      "1",
+      "the dust donation must really be in place or this test proves nothing"
+    );
+
+    // ── ADVERSARIAL PRECONDITION 2: occupy cp-swap's canonical pool ──────────
     // cp-swap's `initialize` is permissionless (its `creator` is documented "Can be
     // anyone") and `create_pool` refuses a `pool_state` that is no longer
     // System-owned (initialize.rs:372-374). So the canonical
@@ -503,6 +536,16 @@ describe("tegridy-launch full migration rehearsal", () => {
         `${name} must be closed so its rent goes back to the caller`
       );
     }
+
+    // The donated dust was drained rather than left to block the close. Asserting
+    // where it LANDED, not merely that migration survived: a close made conditional
+    // instead of draining would also pass the checks above while silently stranding
+    // the rent, so pin the actual destination.
+    assert.equal(
+      (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
+      "1",
+      "the donated token unit must be swept into the curve vault before the close"
+    );
 
     // THE ASSERTION THIS FILE EXISTS FOR. Operator decision: burn the LP so
     // liquidity is permanently locked. A partial burn would leave the published
