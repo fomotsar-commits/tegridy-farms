@@ -209,16 +209,36 @@ never trusting `cargo check` here.** Seven CI iterations, every one a real defec
    — instrumentation, not reasoning, settled it. See
    `reference_solana_lamport_cpi_reconcile` in memory.
 
+### 9. Compute budget — MEASURED, and it is a CLIENT OBLIGATION
+
+`migrate_to_amm` consumes **264,128 CU** (rehearsal measurement, read off the
+confirmed transaction).
+
+⚠️ **Solana's default is 200,000 CU per instruction. This instruction does not fit
+in the default.** Every client that calls it — frontend, bot, keeper, runbook —
+MUST prepend `ComputeBudgetProgram.setComputeUnitLimit`. Omit it and migration
+fails with `Program failed to complete`, which reads like a program bug and is
+easy to misdiagnose (it already cost one debugging cycle here when a stack
+overflow produced the same message).
+
+Recommended limit: **400,000**, which is what CI runs and leaves ~34% headroom.
+The cost is dominated by cp-swap's `initialize` creating five accounts, plus two
+ATA creations, four of our own CPIs, the LP burn and three account closes — so it
+scales with cp-swap, not with the size of the raise.
+
+The rehearsal prints the measured value on every run and asserts it stays under
+the limit, so an inflating change shows up as a number moving rather than as a
+mainnet failure.
+
 ## Still not proven, even with CI green
 
 - **`create_pool_fee` is 0 in CI.** `createAmmConfig(..., new BN(0), ...)` and
   cp-swap gates the native fee transfer on `create_pool_fee != 0`. The mainnet fee
   path — the entire reason `migration_reserve_lamports` exists — has never
   executed. Green here does NOT prove the reserve is sized correctly.
-- **Compute cost is unmeasured.** Nothing had ever run past the WSOL transfer
-  before the barrier landed, so the test now sets an explicit 400k CU limit, which
-  means CI reports nothing about real consumption. Read the CUs from a rehearsal
-  log and size the mainnet limit deliberately.
+- ~~Compute cost is unmeasured.~~ **MEASURED: 264,128 CU** (rehearsal, limit
+  400,000). See the compute requirement below — it is an operator/client
+  obligation, not just a number.
 - **`sell` has never executed successfully anywhere in the repo.** It carries the
   same manual-mutation idiom and is safe only because nothing follows it. Appending
   any CPI there — or switching `emit!` to `emit_cpi!` — silently reintroduces
