@@ -35,7 +35,7 @@
     "@types/papaparse": "^5.5.2",
     "@upstash/ratelimit": "^2.0.5",
     "@upstash/redis": "^1.38.0",
-    "@whetstone-research/doppler-sdk": "^1.0.29",
+    "@whetstone-research/doppler-sdk": "^1.0.33",
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
     "ethers": "^6.17.0",
