@@ -706,15 +706,21 @@ pub mod tegridy_launch {
         )?;
 
         // ── 4. BURN the LP ───────────────────────────────────────────────────
-        ctx.accounts.curve_lp.reload()?;
-        let lp_amount = ctx.accounts.curve_lp.amount;
+        // The LP account was created by the CPI, so read it now rather than via
+        // `reload()` on a typed account that did not exist at validation time.
+        // `token::accessor::amount` reads the balance straight out of the account
+        // data. Deserializing into `Account<'info, TokenAccount>` instead does not
+        // compile here: that type requires the AccountInfo to live for 'info, and
+        // an AccountInfo produced inside this function cannot.
+        let lp_ai = ctx.accounts.curve_lp.to_account_info();
+        let lp_amount = token::accessor::amount(&lp_ai)?;
         if lp_amount > 0 {
             token::burn(
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
                     token::Burn {
                         mint: ctx.accounts.lp_mint.to_account_info(),
-                        from: ctx.accounts.curve_lp.to_account_info(),
+                        from: lp_ai.clone(),
                         authority: curve_ai.clone(),
                     },
                     signer,
@@ -725,8 +731,8 @@ pub mod tegridy_launch {
         // Assert the burn actually emptied it. "Liquidity permanently locked" is a
         // published claim; leaving any LP behind would make it false, and a
         // silently-partial burn is exactly the kind of thing nobody notices.
-        ctx.accounts.curve_lp.reload()?;
-        require!(ctx.accounts.curve_lp.amount == 0, LaunchError::LpNotBurned);
+        let lp_after = token::accessor::amount(&lp_ai)?;
+        require!(lp_after == 0, LaunchError::LpNotBurned);
 
         // ── 5. Close the curve, atomically with all of the above ─────────────
         let pool = ctx.accounts.pool_state.key();
@@ -923,15 +929,23 @@ pub struct MigrateToAmm<'info> {
     )]
     pub curve_wsol: Account<'info, TokenAccount>,
 
-    /// Receives the LP that is then burned. Owned by the curve so the curve can
-    /// authorize the burn.
-    #[account(
-        init_if_needed,
-        payer = payer,
-        associated_token::mint = lp_mint,
-        associated_token::authority = curve
-    )]
-    pub curve_lp: Account<'info, TokenAccount>,
+    /// CHECK: Receives the LP that is then burned.
+    ///
+    /// UncheckedAccount, and NOT `init_if_needed`, for two reasons — both of which
+    /// made an earlier version fail at runtime with the Associated Token Program
+    /// reporting `IncorrectProgramId`:
+    ///
+    ///   1. Anchor runs `init_if_needed` during ACCOUNT VALIDATION, before the
+    ///      instruction body. At that point `lp_mint` does not exist — cp-swap
+    ///      creates it inside the CPI — so deriving an ATA for it asks the Token
+    ///      program for the data size of a System-owned account.
+    ///   2. cp-swap `init`s `creator_lp_token` itself (initialize.rs:96-104,
+    ///      `payer = creator`), so creating it here would collide anyway.
+    ///
+    /// It is therefore created BY the CPI and deserialized afterwards to read the
+    /// balance for the burn.
+    #[account(mut)]
+    pub curve_lp: UncheckedAccount<'info>,
 
     // ── cp-swap ──────────────────────────────────────────────────────────────
     /// CHECK: matched against `global.cp_swap_program` in the handler.

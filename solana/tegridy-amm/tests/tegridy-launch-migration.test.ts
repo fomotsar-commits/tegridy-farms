@@ -350,10 +350,15 @@ describe("tegridy-launch full migration rehearsal", () => {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-    } catch {
-      buyFailed = true;
+    } catch (e) {
+      // Must be refused BECAUSE the curve is complete. A fully-funded but
+      // un-migrated curve also refuses buys (AwaitingMigration), so accepting any
+      // failure here would pass even if migration never happened — which is
+      // exactly what this test did before.
+      buyFailed = String(e).includes("AlreadyComplete");
+      if (!buyFailed) throw new Error(`buy failed for the WRONG reason: ${e}`);
     }
-    assert.isTrue(buyFailed, "buy must be refused on a completed curve");
+    assert.isTrue(buyFailed, "buy must be refused with AlreadyComplete");
 
     let sellFailed = false;
     try {
@@ -371,9 +376,10 @@ describe("tegridy-launch full migration rehearsal", () => {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-    } catch {
-      sellFailed = true;
+    } catch (e) {
+      sellFailed = String(e).includes("AlreadyComplete");
+      if (!sellFailed) throw new Error(`sell failed for the WRONG reason: ${e}`);
     }
-    assert.isTrue(sellFailed, "sell must be refused on a completed curve");
+    assert.isTrue(sellFailed, "sell must be refused with AlreadyComplete");
   });
 });
