@@ -13,14 +13,42 @@ useDefault = true
 description = "Known-public on-chain constants (not secrets)"
 # Match against the flagged finding.
 regexTarget = "match"
+#
+# EVERY entry below is `(?i)`. This is load-bearing, and its absence is what
+# broke the gate on 2026-07-30.
+#
+# Gitleaks regexes are case-sensitive (Go RE2). These addresses were written
+# here in EIP-55 CHECKSUMMED form, but the same addresses appear ALL-LOWERCASE
+# elsewhere in the repo — `cast`-friendly shell scripts in particular. So the
+# allowlist silently did not apply to the lowercase copies:
+#
+#   .gitleaks.toml        0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5   allowlisted
+#   rehome-ownership.sh   0x9dc2675b2017687dd9768c63d15f0ad5194fa3f5   NOT matched
+#
+# The gate had been green on every trunk push for weeks because the narrow
+# per-push scan never reached those 2026-07-18 commits; a wider scan on
+# 2026-07-30 did, and trunk went red on three findings that were public
+# addresses all along. Always add `(?i)` — an address is the same address in any
+# casing, and EIP-55 checksumming means both forms circulate freely.
+#
+# NOTE for a future decision, deliberately NOT taken here: the whole class could
+# be closed with one shape-based entry, '''(?i)\b0x[a-f0-9]{40}\b''' — RE2
+# supports \b, and the trailing boundary means it cannot match the first 40 hex
+# of a 66-char private key. That is broader than needed today, and widening a
+# secret-scanner allowlist deserves an explicit decision rather than a drive-by.
 regexes = [
   # TOWELI token — canonical public mainnet address. Appears in Toweli.sol /
   # SwapFeeRouter NatSpec, docs, and .well-known/security.txt. Tripped
   # generic-api-key on 2026-07-12 (aee9f96); it is public, not a secret.
-  '''0x420698CFdEDdEa6bc78D59bC17798113ad278F9D''',
+  '''(?i)0x420698CFdEDdEa6bc78D59bC17798113ad278F9D''',
   # PremiumAccess contract — public mainnet address (2026-07-16 gated batch,
   # Etherscan-verified, shown on /premium). The PREMIUM_ACCESS_ADDRESS constant
   # name contains "ACCESS", which trips generic-api-key on 2026-07-22 (062afc1);
-  # it is public, not a secret.
-  '''0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5''',
+  # it is public, not a secret. Lowercase copies live in
+  # contracts/script/rehome-ownership.sh:61 and cancel-gated-pending.sh:51.
+  '''(?i)0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5''',
+  # tokenFactory fixture in frontend/src/lib/launcher/attestation.test.ts —
+  # a public address in a TEST fixture, typed `as Address`, sitting next to
+  # 0xdead…dead. Tripped generic-api-key on 2026-07-30 (e8471c2).
+  '''(?i)0x89c261c05b5f9b6bcba07c199b8dee7cfad45292''',
 ]
