@@ -613,8 +613,12 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
                 const key = orderKeyOf(o);
                 const fromTok = findSolToken(String(o.inputMint ?? ''));
                 const toTok = findSolToken(String(o.outputMint ?? ''));
-                const sell = o.makingAmount ? prettyAmount(fromBaseUnits(String(o.makingAmount), fromTok?.decimals ?? 9)) : null;
-                const buy = o.takingAmount ? prettyAmount(fromBaseUnits(String(o.takingAmount), toTok?.decimals ?? 9)) : null;
+                // Only format a human amount when the token's REAL decimals are
+                // known. The old `?? 9` guessed 9 for any non-curated token, so a
+                // 6-decimal token (USDC etc.) rendered ~1000x wrong. Unknown →
+                // null → the row falls back to the order key below, never a lie.
+                const sell = o.makingAmount && fromTok ? prettyAmount(fromBaseUnits(String(o.makingAmount), fromTok.decimals)) : null;
+                const buy = o.takingAmount && toTok ? prettyAmount(fromBaseUnits(String(o.takingAmount), toTok.decimals)) : null;
                 const keyShort = key ? `${key.slice(0, 4)}…${key.slice(-4)}` : 'order';
                 return (
                   <div key={key ?? i} className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.10)' }}>
@@ -761,6 +765,7 @@ function SolanaSwapInner() {
 
   async function handleSwap() {
     if (!publicKey || !quote || !baseAmount) return;
+    const shown = quote; // snapshot the exact quote the user clicked on
     setSwapping(true);
     try {
       // Re-quote right before building so the on-chain min-out + routing match
@@ -772,6 +777,20 @@ function SolanaSwapInner() {
         slippageBps,
       });
       setQuote(fresh);
+      // DISPLAY-VS-SUBMIT GUARD (2026-07-24): the user consented to `shown`.
+      // slippageBps protects the tx on-chain, but the re-quoted BASELINE itself
+      // could be materially worse than what they saw. If `fresh` dropped beyond
+      // their own slippage tolerance, don't silently execute on it — show the new
+      // rate and make them swap again. Compared in BigInt base units (outAmount
+      // is a raw integer string); falls through if either is unparseable.
+      try {
+        const shownOut = BigInt(shown.outAmount);
+        const floor = shownOut - (shownOut * BigInt(slippageBps)) / 10000n;
+        if (BigInt(fresh.outAmount) < floor) {
+          toast.error('Price moved', { description: `The quote dropped beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
+          return;
+        }
+      } catch { /* unparseable amount — the pre-sign simulation below still guards */ }
       const b64 = await buildSwapTransaction({ quote: fresh, userPublicKey: publicKey.toBase58() });
       // Pre-sign simulation — refuse to send a swap that would revert (honeypot /
       // freeze / slippage / insufficient). FAIL OPEN if simulation itself errors.

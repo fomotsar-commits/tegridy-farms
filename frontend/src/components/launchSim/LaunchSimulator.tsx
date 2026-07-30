@@ -12,7 +12,7 @@
 // replace with their real plan; they are never presented as measured on-chain
 // data. With no non-zero rows, no band and no score are shown at all.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   simulate,
   CATEGORY_CHOICES,
@@ -86,6 +86,33 @@ function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange
         {hint && <span className="text-white/40 text-[11px] block leading-tight">{hint}</span>}
       </span>
     </label>
+  );
+}
+
+// A percent input whose SOURCE OF TRUTH is bps, but that keeps its own raw text
+// while the user types. The old inline inputs derived `value` straight from
+// `(bps/100).toFixed(1)`, so every keystroke round-tripped through bps and got
+// reformatted — typing "12" reformatted "1"→"1.0" mid-entry, dropping the "2"
+// after the decimal and storing 1.0%. Mirrors LaunchPage's AttentionSplitRow.
+function PctField({ bps, onBps, className }: { bps: number; onBps: (bps: number) => void; className?: string }) {
+  const [text, setText] = useState(String(bps / 100));
+  // Re-sync from bps ONLY when it changes to a value the current text doesn't
+  // already represent (an external edit) — never on the user's own keystrokes.
+  useEffect(() => {
+    if (Math.round((Number(text) || 0) * 100) !== bps) setText(String(bps / 100));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bps]);
+  return (
+    <input
+      className={className}
+      inputMode="decimal"
+      value={text}
+      onChange={(e) => {
+        const clean = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+        setText(clean);
+        onBps(Math.round((Number(clean) || 0) * 100));
+      }}
+    />
   );
 }
 
@@ -212,8 +239,6 @@ export function LaunchSimulator() {
     [rows, structural, bundlesModeled, snipersModeled, now],
   );
 
-  const teamPct = (bps: number) => (bps / 100).toFixed(1);
-
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
       {/* ── LEFT: inputs ── */}
@@ -330,20 +355,18 @@ export function LaunchSimulator() {
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="text-white/70 text-xs">Team / insider float (%)</span>
-              <input
+              <PctField
                 className={`${inputCls} mt-1 tabular-nums`}
-                inputMode="decimal"
-                value={teamPct(structural.teamAllocationBps)}
-                onChange={(e) => setS('teamAllocationBps', Math.round((Number(e.target.value.replace(/[^\d.]/g, '')) || 0) * 100))}
+                bps={structural.teamAllocationBps}
+                onBps={(bps) => setS('teamAllocationBps', bps)}
               />
             </label>
             <label className="block">
               <span className="text-white/70 text-xs">…of which on-chain vested (%)</span>
-              <input
+              <PctField
                 className={`${inputCls} mt-1 tabular-nums`}
-                inputMode="decimal"
-                value={teamPct(structural.teamAllocationVestedBps)}
-                onChange={(e) => setS('teamAllocationVestedBps', Math.round((Number(e.target.value.replace(/[^\d.]/g, '')) || 0) * 100))}
+                bps={structural.teamAllocationVestedBps}
+                onBps={(bps) => setS('teamAllocationVestedBps', bps)}
               />
             </label>
           </div>

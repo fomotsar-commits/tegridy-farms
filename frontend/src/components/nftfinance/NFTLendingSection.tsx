@@ -86,6 +86,12 @@ function getLoanStatus(loan: LoanData): 'active' | 'overdue' | 'repaid' | 'defau
   return 'active';
 }
 
+// TegridyNFTLending.GRACE_PERIOD — claimDefault reverts until
+// block.timestamp > deadline + GRACE_PERIOD. The loan is "overdue" the instant
+// the deadline passes, but the lender cannot actually claim for another hour;
+// gating the Claim Default button on this stops an hour of guaranteed reverts.
+const CLAIM_GRACE_SECONDS = 3600n;
+
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   active: { bg: 'rgba(16,185,129,0.12)', text: 'text-emerald-400', border: 'border-emerald-500/30' },
   overdue: { bg: 'rgba(234,179,8,0.12)', text: 'text-yellow-400', border: 'border-yellow-500/30' },
@@ -953,6 +959,8 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
   // AUDIT R011 (HIGH-049-4): shared 1-Hz countdown so the displayed time
   // updates every second instead of drifting until the parent re-renders.
   const countdown = useCountdown(loan.deadline);
+  // Reactive countdown to when default becomes claimable (deadline + grace).
+  const claimGrace = useCountdown(loan.deadline + CLAIM_GRACE_SECONDS);
 
   // AUDIT R011 (HIGH-049-3): pro-rata interest moves every block — refresh
   // the repayment quote every 12s + on focus + after a successful repay.
@@ -1134,11 +1142,12 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
       {isLender && (status === 'overdue') && (
         <button
           onClick={handleClaimDefault}
-          disabled={claiming || claimConfirming}
+          disabled={claiming || claimConfirming || !claimGrace.isExpired}
+          title={!claimGrace.isExpired ? 'The contract enforces a 1-hour grace period after the deadline before default can be claimed.' : undefined}
           className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}
         >
-          {claiming ? 'Confirm in Wallet...' : claimConfirming ? 'Claiming...' : 'Claim Default'}
+          {claiming ? 'Confirm in Wallet...' : claimConfirming ? 'Claiming...' : !claimGrace.isExpired ? `Claimable in ${claimGrace.text}` : 'Claim Default'}
         </button>
       )}
     </div>
