@@ -376,16 +376,21 @@ jobs:
         # FOUNDRY_FUZZ_RUNS: 256 is the Foundry default; matches the locally-
         # validated config.
         #
-        # FOUNDRY_INVARIANT_* are set DELIBERATELY LOW and are load-bearing for
-        # the `invariants` slice. Measured on this suite (37 tests, 13 files):
-        #   forge defaults      632s wall / 7,059s CPU   — 37/37 pass
-        #   32 runs x 64 depth    2.4s wall /    26s CPU  — 37/37 pass
-        # That 7,059s of CPU only finished in 632s on an ~11-core dev box; a
-        # 2-core ubuntu-latest runner would need ~59 min, i.e. four times the
-        # 15-minute SIGTERM budget. Tuned, the same suite still drives 2,048
-        # calls per invariant. This is why these suites were never wired up —
-        # at stock settings they genuinely do not fit, and nothing in
-        # foundry.toml sets an [invariant] profile.
+        # FOUNDRY_INVARIANT_* are load-bearing for the `invariants` slice, and
+        # the values are measured, not guessed. This suite (37 tests, 13 files),
+        # all three settings 37/37 PASS:
+        #   forge defaults       632s wall / 7,059s CPU
+        #   32 runs x 256 depth   13.2s wall /   144s CPU   <- chosen
+        #   32 runs x  64 depth    2.3s wall /    24s CPU
+        # Stock defaults do NOT fit: 7,059s of CPU only finished in 632s on an
+        # ~11-core dev box, so a 2-core ubuntu-latest needs ~59 min — four times
+        # the 15-minute SIGTERM budget. Nothing in foundry.toml sets an
+        # [invariant] profile, so anything naive inherits exactly that.
+        # Depth 256 costs ~1 min of execution on 2 cores (the slice's compile
+        # step alone is ~2m12s, so this is not the bottleneck) and buys 8,192
+        # calls per invariant instead of 2,048. Depth 64 was the first cut and
+        # was raised once measured — a shallow invariant run that always passes
+        # is the same false-green this guard exists to prevent.
         # These vars only bite on slices that actually contain invariant tests.
         #
         # PATTERN and FILTER come through `env:`, NOT `${{ }}` inline in the
@@ -408,7 +413,7 @@ jobs:
           SLICE_NO_MATCH_TEST: ${{ matrix.noMatchTest }}
           FOUNDRY_FUZZ_RUNS: 256
           FOUNDRY_INVARIANT_RUNS: 32
-          FOUNDRY_INVARIANT_DEPTH: 64
+          FOUNDRY_INVARIANT_DEPTH: 256
 
       - name: Coverage summary (best-effort, disabled in PR-blocking CI)
         # CI fix 2026-05-17: forge coverage on this codebase takes 15-30 min

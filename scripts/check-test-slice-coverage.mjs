@@ -231,6 +231,26 @@ function check(manifest, files) {
           `write 'test/<dir>/*.t.sol') or delete the slice.`,
       );
     }
+
+    // Per-ALTERNATIVE deadness. The whole-pattern check above passes as long as
+    // ONE brace alternative matches something, so a stale prefix inside a long
+    // brace list is invisible — which is this guard's own defect class wearing
+    // the same hat as the bug it was built for. Found three live instances the
+    // first time this ran: `AuditDemonstration` and `M19Port` in audit-early,
+    // `L2` in misc, all matching zero files on mvp-launch.
+    if (hit.length > 0) {
+      for (const alt of expandBraces(s.pattern)) {
+        const altRe = globToRegExp(alt);
+        if (!files.some((f) => altRe.test(f))) {
+          errors.push(
+            `slice "${s.slice}" brace alternative '${alt}' matches ZERO test files — a stale ` +
+              `prefix. The slice as a whole still matches, so nothing else would ever flag this. ` +
+              `Remove the dead alternative from the brace list.`,
+          );
+        }
+      }
+    }
+
     for (const f of hit) claimedBy.set(f, [...(claimedBy.get(f) ?? []), s.slice]);
   }
 
