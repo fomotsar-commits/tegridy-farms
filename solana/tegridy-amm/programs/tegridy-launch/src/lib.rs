@@ -647,6 +647,16 @@ pub mod tegridy_launch {
 
         // Rent-exempt minimum for a zero-data account: enough to make it real.
         let seed_lamports = Rent::get()?.minimum_balance(0);
+        msg!(
+            "MIGDBG A payer={} curve={} auth={} auth_owner={} auth_len={} move={} seed={}",
+            ctx.accounts.payer.to_account_info().lamports(),
+            curve_ai.lamports(),
+            auth_ai.lamports(),
+            auth_ai.owner,
+            auth_ai.data_len(),
+            move_lamports,
+            seed_lamports
+        );
         if auth_ai.lamports() == 0 {
             anchor_lang::system_program::transfer(
                 CpiContext::new(
@@ -660,6 +670,13 @@ pub mod tegridy_launch {
             )?;
         }
 
+        msg!(
+            "MIGDBG B payer={} curve={} auth={}",
+            ctx.accounts.payer.to_account_info().lamports(),
+            curve_ai.lamports(),
+            auth_ai.lamports()
+        );
+
         // The bulk, curve -> authority. Debiting an account we own and crediting one
         // that now exists — both legal, and conservation holds.
         **curve_ai.try_borrow_mut_lamports()? = curve_ai
@@ -670,6 +687,14 @@ pub mod tegridy_launch {
             .lamports()
             .checked_add(move_lamports)
             .ok_or(LaunchError::Overflow)?;
+
+        msg!(
+            "MIGDBG C payer={} curve={} auth={} wsol={}",
+            ctx.accounts.payer.to_account_info().lamports(),
+            curve_ai.lamports(),
+            auth_ai.lamports(),
+            ctx.accounts.auth_wsol.to_account_info().lamports()
+        );
 
         let auth_seeds: &[&[u8]] = &[
             MIGRATION_AUTH_SEED,
