@@ -56,7 +56,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always() && steps.slither.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@c1f0c97bcb634b400fc376ab260a5f187961f8e0 # v3.26.10
+        uses: github/codeql-action/upload-sarif@e2b3eafc8d227b0241d48be5f425d47c2d750a13 # v3.26.10
         with:
           sarif_file: ${{ steps.slither.outputs.sarif }}
 
