@@ -2,8 +2,19 @@
 # Update once public community channels exist.
 
 # Ethereum: contributions to the protocol treasury
-custom:
-  - "https://etherscan.io/address/0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e"
+#
+# DISABLED 2026-07-28. This rendered a PUBLIC GitHub Sponsors button pointing at
+#   0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e
+# which docs/SAFE_REHOME_RUNBOOK.md lists as BOTH a current Safe signer address
+# AND a hardcoded fee recipient scheduled to be retired during the Safe rebuild.
+# Soliciting public donations to an address that is about to stop being the
+# treasury is a money-misdirection surface, so the button is off until a clean
+# destination exists.
+#
+# Re-enable by uncommenting with the REBUILT treasury Safe address — not a
+# signer address, and not the pre-rebuild 0x7D26…Bd7d 2-of-2 either.
+# custom:
+#   - "https://etherscan.io/address/<rebuilt-treasury-safe>"
 
 # Uncomment and set once a Sponsors profile is available:
 # github: [your-handle]

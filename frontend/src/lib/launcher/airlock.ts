@@ -280,7 +280,97 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
     withMigrator = withMigrator.withV4Migrator(TEGRIDY_V4_MIGRATOR_ADDRESS);
   }
 
-  return withMigrator.build();
+  const params = withMigrator.build();
+
+  // Trunk's guard (#160) runs on the FINAL params — after the migrator is attached,
+  // so it verifies what is actually submitted rather than a pre-migrator draft.
+  assertMarketCapBandRoundTrips(params, cfg);
+  return params;
+}
+
+/** Fractional tolerance for the market-cap round-trip. Absorbs tick-spacing rounding. */
+const MARKET_CAP_ROUND_TRIP_TOLERANCE = 0.02;
+
+/**
+ * Local mirror of the SDK's `tickToMarketCap`
+ * (node_modules/@whetstone-research/doppler-sdk/dist/evm/index.js, `function tickToMarketCap`).
+ *
+ * Reimplemented rather than imported to preserve this module's façade seam — a static SDK
+ * import here would pull the heavy SDK (it ships Solana codecs) into every chunk that
+ * touches airlock.ts, including launchBuy.ts and lockerStream.ts. The math is six lines and
+ * stable. `airlock.test.ts` pins this against the REAL SDK function so drift fails CI; tests
+ * may import the SDK freely because they do not ship.
+ *
+ * The `Math.abs` is faithful to the SDK, and is the whole point: it reports the band the
+ * pool will ACTUALLY price at, which is what we need to compare against the declared band.
+ */
+export function tickToMarketCapUsd(
+  tick: number,
+  tokenSupply: bigint,
+  numerairePriceUSD: number,
+  tokenDecimals = 18,
+  numeraireDecimals = 18,
+): number {
+  const ratio = Math.pow(1.0001, Math.abs(tick));
+  const decimalAdjustment = 10 ** (tokenDecimals - numeraireDecimals);
+  const tokenPriceUSD = numerairePriceUSD / (ratio / decimalAdjustment);
+  const supplyNum = Number(tokenSupply) / 10 ** tokenDecimals;
+  return tokenPriceUSD * supplyNum;
+}
+
+/**
+ * Assert the ticks we are about to SUBMIT actually encode the band we DECLARED.
+ *
+ * The SDK's `marketCapToTicksForDynamicAuction` takes `Math.abs()` of both raw ticks and
+ * then min/maxes them. When the two raw ticks straddle zero — i.e. the implied token price
+ * crosses the numeraire price, which happens routinely on a cheap numeraire like TOWELI —
+ * that `abs()` destroys the ordering and the resulting band is unrelated to the request.
+ *
+ * Measured on the shipped wizard defaults against a live TOWELI price: a declared
+ * $300k -> $30k went on-chain as roughly $30.1k -> $8.3k, and `Airlock.create` SIMULATED
+ * SUCCESSFULLY. Nothing on-chain rejects it, so without this guard the first exotic launch
+ * would have been mispriced by ~10x, irreversibly, with no error shown to the creator.
+ * The same class is reachable on the ETH rail at small supplies.
+ *
+ * We reverse the built ticks with the SDK's OWN `tickToMarketCap` — deliberately, because
+ * it applies the same `abs()` and therefore reports the band the pool will actually price
+ * at, not the band we wished for. Any material disagreement means the forward conversion
+ * mangled the request, and we refuse BEFORE the user signs.
+ */
+function assertMarketCapBandRoundTrips(params: unknown, cfg: TegridyLaunchConfig): void {
+  const auction = (params as { auction?: { startTick?: unknown; endTick?: unknown } })?.auction;
+  const startTick = auction?.startTick;
+  const endTick = auction?.endTick;
+  // Defensive: if the SDK ever stops exposing ticks here, fail LOUD rather than
+  // silently skipping the check that stands between us and a 10x mispriced launch.
+  if (typeof startTick !== 'number' || typeof endTick !== 'number') {
+    throw new Error(
+      'Could not read the built auction ticks to verify the market-cap band. Refusing to launch unverified.',
+    );
+  }
+
+  const toMarketCap = (tick: number): number =>
+    tickToMarketCapUsd(tick, cfg.initialSupply, cfg.numerairePriceUsd);
+
+  // The auction descends, so the higher-market-cap end is the start of the band.
+  const a = toMarketCap(startTick);
+  const b = toMarketCap(endTick);
+  const actualStart = Math.max(a, b);
+  const actualMin = Math.min(a, b);
+
+  const off = (actual: number, declared: number): boolean =>
+    !Number.isFinite(actual) || declared <= 0 || Math.abs(actual - declared) / declared > MARKET_CAP_ROUND_TRIP_TOLERANCE;
+
+  if (off(actualStart, cfg.marketCap.start) || off(actualMin, cfg.marketCap.min)) {
+    const fmt = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+    throw new Error(
+      `Auction price band does not match what was configured. You asked for ` +
+        `${fmt(cfg.marketCap.start)} -> ${fmt(cfg.marketCap.min)}, but these settings would go ` +
+        `on-chain as ${fmt(actualStart)} -> ${fmt(actualMin)}. This is a known conversion defect ` +
+        `that hits certain supply / numeraire-price combinations. Adjust the total supply or the ` +
+        `market-cap range — or launch against ETH instead of TOWELI — and try again.`,
+    );
+  }
 }
 
 /** Convenience: the Doppler/protocol beneficiary line pointed at the Airlock owner (>=5% required). */

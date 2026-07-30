@@ -6,6 +6,7 @@
   "scripts": {
     "render-og-png": "node scripts/render-og-png.mjs",
     "extract-abis": "node frontend/scripts/extract-missing-abis.mjs",
+    "check-selectors": "node scripts/check-interface-selectors.mjs",
     "diff-addresses": "npx tsx scripts/diff-addresses.ts"
   },
   "devDependencies": {

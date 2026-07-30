@@ -18,7 +18,8 @@ name: Supabase Backup
 #   gpg --decrypt --batch --passphrase "<BACKUP_PASSPHRASE>" \
 #     supabase-backup-<date>.tar.gz.gpg | tar -xz
 #
-# Required repo secrets (workflow skips cleanly when any is unset):
+# Required repo secrets (the workflow FAILS LOUDLY when any is unset — it used
+# to skip silently and report success, and did so for its entire life):
 #   SUPABASE_URL          — https://<project-ref>.supabase.co
 #   SUPABASE_SERVICE_KEY  — service-role key (bypasses RLS; read-only use here)
 #   BACKUP_PASSPHRASE     — long random string; store a copy offline — without
@@ -44,8 +45,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Preflight — skip cleanly when secrets are not configured
-        id: preflight
+      # ─────────────────────────────────────────────────────────────────
+      # FAIL when the secrets are missing. This used to write ready=false
+      # and let every downstream step skip, so the job reported SUCCESS
+      # having backed up nothing.
+      #
+      # It did exactly that for its entire life. Every scheduled run from
+      # 2026-06-15 through 2026-07-27 is green; run 30247964816 logs
+      # "Skipping backup — repo secrets not configured: SUPABASE_URL
+      # SUPABASE_SERVICE_KEY BACKUP_PASSPHRASE" and produced 0 artifacts.
+      # Seven weekly "successful" backups, zero bytes of backup.
+      #
+      # What that silence was covering: `orders` holds SIGNED SEAPORT
+      # ORDERS. Those signatures are bearer instruments — the DB row is
+      # the only copy, and nothing on-chain can reconstruct one. A green
+      # check on an unconfigured backup is worse than no workflow at all,
+      # because it reads as protection that does not exist.
+      #
+      # A weekly red run is the correct signal here: either set the three
+      # secrets, or disable the workflow deliberately. Silent success is
+      # the one state that must not be reachable.
+      - name: Preflight — require the backup secrets
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -58,15 +78,12 @@ jobs:
           if [ -z "${SUPABASE_SERVICE_KEY}" ]; then missing="$missing SUPABASE_SERVICE_KEY"; fi
           if [ -z "${BACKUP_PASSPHRASE}" ]; then missing="$missing BACKUP_PASSPHRASE"; fi
           if [ -n "$missing" ]; then
-            echo "Skipping backup — repo secrets not configured:$missing"
-            echo "Set them under Settings > Secrets and variables > Actions to enable weekly backups."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "::error title=Supabase backup not configured::Missing repo secrets:$missing — no backup has been taken. Set them under Settings > Secrets and variables > Actions, or disable this workflow deliberately."
+            exit 1
           fi
+          echo "✅ backup secrets present."
 
       - name: Dump tables via PostgREST (paginated, 1000 rows/page)
-        if: steps.preflight.outputs.ready == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -159,7 +176,6 @@ jobs:
           fi
 
       - name: Bundle and encrypt (NEVER upload plaintext)
-        if: steps.preflight.outputs.ready == 'true'
         env:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         shell: bash
@@ -177,7 +193,6 @@ jobs:
           ls -l supabase-backup-*.tar.gz.gpg
 
       - name: Upload encrypted artifact (90-day retention)
-        if: steps.preflight.outputs.ready == 'true'
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:
           name: supabase-backup-${{ github.run_id }}

@@ -86,7 +86,9 @@ test.describe('SEO & social metadata', () => {
     expect(body).toContain('<urlset');
     expect(body).toContain('/farm');
     expect(body).toContain('/swap');
-    expect(body).toContain('/lending');
+    // NOT '/lending' — that route is a redirect to /nft-finance (App.tsx:236),
+    // and a sitemap should list the destination, not the redirect.
+    expect(body).toContain('/nft-finance');
     // lastmod was added in the Wave 2 SEO pass.
     expect(body).toContain('<lastmod>');
   });

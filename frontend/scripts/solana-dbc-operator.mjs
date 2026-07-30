@@ -247,7 +247,7 @@ function emitTransaction(tx, sent, connection, label, extra) {
   console.log(b64);
 }
 
-async function maybeSend(connection, tx, flags, signerKp) {
+async function maybeSend(connection, tx, flags, _signerKp) {
   if (!flags.send) return false;
   // The wrapper already partial-signed the ephemeral keypair(s) and (via keypairSigner)
   // the payer. Broadcast the fully-signed tx. This only completes when the operator

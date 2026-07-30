@@ -264,7 +264,7 @@ describe("auth/siwe — DELETE hardening (R052/L-076-4)", () => {
       }
       return makeQueryResult([]);
     });
-    const { req, res, statusSpy, jsonSpy } = makeReqRes({
+    const { req, res, jsonSpy } = makeReqRes({
       method: "DELETE",
       headers: { cookie: "siwe_jwt=forged.token.value" },
     });

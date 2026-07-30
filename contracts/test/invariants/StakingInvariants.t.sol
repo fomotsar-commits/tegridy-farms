@@ -61,6 +61,41 @@ contract StakingR061Handler is Test {
         vm.prank(actor);
         try staking.claimUnsettled() {} catch {}
     }
+
+    /// @notice Grow an existing position. Without this the position amount was
+    ///         frozen at its first value, so `totalStaked` never moved after the
+    ///         opening stake and the accounting invariants had nothing to track.
+    function doIncrease(uint256 extra) external {
+        uint256 tokenId = staking.userTokenId(actor);
+        if (tokenId == 0) return;
+        extra = bound(extra, 1 ether, 10_000 ether);
+        vm.startPrank(actor);
+        try staking.increaseAmount(tokenId, extra) {} catch {}
+        vm.stopPrank();
+    }
+
+    /// @notice Close the position. This is the load-bearing addition: `withdraw`
+    ///         zeroes `userTokenId(actor)`, which is exactly the guard `doStake`
+    ///         early-returns on — so adding it makes doStake REACHABLE AGAIN and
+    ///         the fuzzer can explore stake -> grow -> withdraw -> stake cycles
+    ///         instead of one position that never changes size.
+    function doWithdraw() external {
+        uint256 tokenId = staking.userTokenId(actor);
+        if (tokenId == 0) return;
+        vm.startPrank(actor);
+        try staking.withdraw(tokenId) {} catch {}
+        vm.stopPrank();
+    }
+
+    /// @notice Lock-duration changes move the boost, and therefore reward accrual.
+    function doExtend(uint256 lockDays) external {
+        uint256 tokenId = staking.userTokenId(actor);
+        if (tokenId == 0) return;
+        uint256 lock = bound(lockDays, 7, 365) * 1 days;
+        vm.startPrank(actor);
+        try staking.extendLock(tokenId, lock) {} catch {}
+        vm.stopPrank();
+    }
 }
 
 contract StakingInvariantsTest is Test {
@@ -121,12 +156,24 @@ contract StakingInvariantsTest is Test {
         assertEq(staking.totalUnsettledRewards(), sum, "R061 unsettled accounting drift");
     }
 
-    /// @notice invariant_totalStakedNonNegativeAndCapped — totalStaked never
-    ///         exceeds the actor's funded balance (no free mint).
+    /// @notice invariant_totalStakedBounded — staked principal can never exceed
+    ///         the token balance the staking contract actually custodies.
+    ///
+    ///         TIGHTENED 2026-07-30. This asserted `totalStaked <= 50_000_000
+    ///         ether` — the actor's lifetime funding — while `doStake` bounds a
+    ///         stake to 100_000 ether and (pre-doWithdraw) could only fire once.
+    ///         Reachable max was ~100k against a 50M bound: 500x slack, so it
+    ///         could not fail at any runs/depth. Its own comment asked for this.
+    ///
+    ///         The custodied-balance bound is a real solvency statement: every
+    ///         staked wei must be sitting in the contract, so only a free-mint or
+    ///         a double-count bug can break it.
     function invariant_totalStakedBounded() public view {
-        // Single-actor harness: total staked must be <= what the actor was
-        // ever funded with. Tighten when multi-actor support lands.
-        assertLe(staking.totalStaked(), 50_000_000 ether, "R061 totalStaked > funded");
+        assertLe(
+            staking.totalStaked(),
+            token.balanceOf(address(staking)),
+            "R061 totalStaked exceeds custodied balance"
+        );
     }
 
     /// @notice invariant_totalStakedEqSumPositions — `totalStaked` exactly

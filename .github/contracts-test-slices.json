@@ -1,0 +1,91 @@
+{
+  "_readme": [
+    "SINGLE SOURCE OF TRUTH for the Contracts CI forge-test matrix.",
+    "",
+    "`.github/workflows/contracts-ci.yml` builds its matrix from this file via",
+    "`scripts/check-test-slice-coverage.mjs --emit-matrix`, and the SAME script",
+    "asserts that every contracts/test/**/*.t.sol is claimed by exactly one slice",
+    "or by an explicit `excluded` entry. Keeping the patterns here (rather than",
+    "inline in the workflow) is deliberate: a guard that carries its own private",
+    "copy of the pattern list can pass while the matrix runs nothing.",
+    "",
+    "`pattern` is a GLOB, not a regex \u2014 it is passed verbatim to",
+    "`forge test --match-path`. Two rules bite constantly:",
+    "  * A PREFIX pattern cannot reach a subdirectory. `test/Audit*.t.sol` does",
+    "    NOT match `test/v4/Audit20260712_POLIsolation.t.sol`, because after",
+    "    `test/` the path continues `v4/`, not `Audit`. This is what left 13",
+    "    files unrun for weeks. Note the reason is the PREFIX, not the star:",
+    "    forge does not set globset's `literal_separator`, so `*` DOES cross",
+    "    `/` \u2014 `test/*Invariants.t.sol` matches all 7 files under",
+    "    `test/invariants/` (verified against forge 1.5.1). Write an explicit",
+    "    `test/<dir>/*.t.sol` slice for each subdirectory.",
+    "  * regex syntax (`|`, `$`, `\\.`) is matched LITERALLY and silently finds",
+    "    nothing, because forge exits 0 on 'No tests found in project!'.",
+    "",
+    "`noMatchTest` is the shared `--no-match-test` regex applied to every slice.",
+    "It filters by TEST NAME. It is ANCHORED (`^`) on purpose: it was once the",
+    "substring `(Invariant|invariant|Fuzz|fuzz|testFuzz)`, which skipped 15",
+    "deterministic unit tests purely because of how they were SPELLED \u2014 among",
+    "them test_ATTACK4_kInvariantDecrease (a red-team test), four AMM k-invariant",
+    "swap/mint-burn guards and three R018 staking-shortfall pins. All 15 pass;",
+    "they simply never ran. Every genuine fuzz/invariant uses the `testFuzz_` /",
+    "`invariant_` PREFIX, so anchoring skips exactly those and nothing else.",
+    "Keep it anchored \u2014 an unanchored edit silently re-hides tests by name.",
+    "",
+    "A slice MAY override it with its own `noMatchTest` \u2014 the `invariants` slice",
+    "does, because the shared default would strip every test it exists to run.",
+    "The override is not a loophole: the per-slice guard asserts the slice still",
+    "yields >=1 runnable test UNDER ITS EFFECTIVE FILTER, so an override that",
+    "silences everything fails loudly instead of passing over nothing."
+  ],
+  "noMatchTest": "^(invariant_|testFuzz_)",
+  "slices": [
+    {
+      "slice": "audit-early",
+      "pattern": "test/{Audit195_,Audit_,Audit20260712_,AuditFixes_}*.t.sol"
+    },
+    {
+      "slice": "audit-deep",
+      "pattern": "test/Audit{Microscope_,R014_}*.t.sol"
+    },
+    {
+      "slice": "tegridy",
+      "pattern": "test/Tegridy*.t.sol"
+    },
+    {
+      "slice": "deep-fresh-final",
+      "pattern": "test/{Deep_,FRESH2026_,FinalAudit_,FuzzInvariant}*.t.sol"
+    },
+    {
+      "slice": "r-series",
+      "pattern": "test/R[0-9]*.t.sol"
+    },
+    {
+      "slice": "misc",
+      "pattern": "test/{C01_,C1_,CommunityGrants,Gauge,Meme,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,RevenueDistributor,SwapFeeRouter,Toweli,TransferOwnershipToMultisig,VoteIncentives}*.t.sol"
+    },
+    {
+      "slice": "v4",
+      "pattern": "test/v4/*.t.sol"
+    },
+    {
+      "slice": "pass5-pocs",
+      "pattern": "test/pass5_pocs/*.t.sol"
+    },
+    {
+      "slice": "invariants",
+      "pattern": "test/invariants/*.t.sol",
+      "noMatchTest": "^testFuzz_"
+    }
+  ],
+  "excluded": [
+    {
+      "pattern": "test/echidna/*.t.sol",
+      "reason": "Echidna property definitions (`echidna_*`). forge's collector only picks up `test*` / `invariant_*`, so `forge test` finds zero runnable tests in this directory no matter what pattern points at it. Requires the `echidna` binary, which is not installed in this workflow."
+    },
+    {
+      "pattern": "test/halmos/*.t.sol",
+      "reason": "Halmos symbolic specs (`check_*`). Same story as echidna: forge collects zero tests from these files. Requires the `halmos` binary, which is not installed in this workflow."
+    }
+  ]
+}

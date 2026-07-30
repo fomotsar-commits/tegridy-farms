@@ -56,7 +56,7 @@ export default function useNfts({ onChainSupply } = {}) {
       continuation.current = data.continuation;
       setHasMore(!!data.continuation);
       loadErrorRef.current = false;
-    } catch (err) {
+    } catch {
       if (signal?.aborted) return;
       loadErrorRef.current = true;
       setError("Could not load NFTs. Please check your connection and try again.");

@@ -18,6 +18,9 @@ export function PriceProvider({ children }: { children: ReactNode }) {
       price.priceInEth,
       price.priceInUsd,
       price.ethUsd,
+      // Tracks a DIFFERENT freshness window than `ethUsd` (heartbeat vs 300s), so it
+      // flips independently — omitting it would hand /launch a stale memoized 0.
+      price.ethUsdForLaunch,
       price.isLoaded,
       price.oracleStale,
       price.priceChange,

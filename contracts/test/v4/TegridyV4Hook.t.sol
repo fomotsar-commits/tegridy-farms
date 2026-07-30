@@ -256,7 +256,13 @@ contract TegridyV4HookTest is Test, Deployers {
         TegridyV4Hook ahook = _mineAndDeployHook(address(admin));
         admin.setHook(address(ahook));
 
-        address pa = makeAddr("premiumAccess");
+        // `premiumAccess` must be a real contract: the 2026-06-07 audit fix makes
+        // `setDiscountConfig` reject `code.length` 0 (EOA) or 23 (7702-delegated EOA)
+        // — see test_setDiscountConfig_rejectsEOAPremiumAccess. The timelock route is
+        // NOT a bypass, so this flow has to propose a deployed contract, not a bare
+        // `makeAddr`. `trustedRouter` is only ever compared, never called, so it stays
+        // a plain address.
+        address pa = address(new MockPremiumAccess());
         address router = makeAddr("router");
         admin.proposeDiscountConfig(pa, router, 3000);
         vm.warp(block.timestamp + 24 hours + 1);

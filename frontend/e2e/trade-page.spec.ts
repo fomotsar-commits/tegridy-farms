@@ -34,19 +34,20 @@ test.describe('TradePage', () => {
   test('tab toggle switches between Swap, Recurring Swap, and Price Alert', async ({ page, walletMock: _w }) => {
     await page.goto('/swap');
 
-    // Tab labels match TradePage.tsx:55 `titleByTab` — "DCA" / "Limit" were
-    // historical shorthand and have been renamed to the honest UX-first
-    // phrasing. Liquidity is also a tab but isn't toggled in this smoke.
+    // Tab labels come from `TAB_LABELS` (src/pages/TradePage.tsx:43) — the
+    // SHORT names actually rendered in the tab strip. This test used to assert
+    // 'Recurring Swap' / 'Price Alert', which are `titleByTab` entries: the
+    // page-body headings, never the tab labels. Assert what the tab renders.
     // Tabs render as role="tab" (not role="button") inside a [role="tablist"].
     const swapTab = page.getByRole('tab', { name: 'Swap', exact: true });
-    const dcaTab = page.getByRole('tab', { name: 'Recurring Swap', exact: true });
-    const limitTab = page.getByRole('tab', { name: 'Price Alert', exact: true });
+    const dcaTab = page.getByRole('tab', { name: 'DCA', exact: true });
+    const limitTab = page.getByRole('tab', { name: 'Alerts', exact: true });
 
     await expect(swapTab).toBeVisible();
     await expect(dcaTab).toBeVisible();
     await expect(limitTab).toBeVisible();
 
-    // Switch to Recurring Swap — the Swap-tab-only copy "Connect your wallet
+    // Switch to DCA (page heading: "Recurring Swap") — the Swap-tab-only copy "Connect your wallet
     // to swap" should no longer be in the DOM. Use an exact match to avoid
     // colliding with the Recurring Swap tab's own "Connect Wallet" CTA.
     await dcaTab.click();

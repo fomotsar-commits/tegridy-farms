@@ -13,14 +13,55 @@ useDefault = true
 description = "Known-public on-chain constants (not secrets)"
 # Match against the flagged finding.
 regexTarget = "match"
+#
+# EVERY entry below is `(?i)`. This is load-bearing, and its absence is what
+# broke the gate on 2026-07-30.
+#
+# Gitleaks regexes are case-sensitive (Go RE2). These addresses were written
+# here in EIP-55 CHECKSUMMED form, but the same addresses appear ALL-LOWERCASE
+# elsewhere in the repo — `cast`-friendly shell scripts in particular. So the
+# allowlist silently did not apply to the lowercase copies:
+#
+#   .gitleaks.toml        0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5   allowlisted
+#   rehome-ownership.sh   0x9dc2675b2017687dd9768c63d15f0ad5194fa3f5   NOT matched
+#
+# The gate had been green on every trunk push for weeks because the narrow
+# per-push scan never reached those 2026-07-18 commits; a wider scan on
+# 2026-07-30 did, and trunk went red on three findings that were public
+# addresses all along. Always add `(?i)` — an address is the same address in any
+# casing, and EIP-55 checksumming means both forms circulate freely.
+#
+# WIDENED 2026-07-30, deliberately, to close the CLASS rather than keep chasing
+# individual addresses. This replaces three per-address entries.
+#
+# Four separate incidents were the same false positive — a 42-char Ethereum
+# address tripping the `generic-api-key` entropy heuristic:
+#   2026-07-12  aee9f96   TOWELI token       0x420698CF…78F9D
+#   2026-07-22  062afc1   PremiumAccess      0x9DC2675B…Fa3f5  (checksummed copy)
+#   2026-07-30  f48f3c0   PremiumAccess      0x9dc2675b…fa3f5  (lowercase copies in
+#                         contracts/script/rehome-ownership.sh:61 and
+#                         cancel-gated-pending.sh:51)
+#   2026-07-30  e8471c2   tokenFactory       0x89c261c0…45292  (test fixture)
+# Addresses are spreading, not shrinking — they live in contracts, scripts,
+# tests, docs, constants and security.txt. A per-address list guarantees a
+# fourth, fifth and sixth red trunk.
+#
+# WHY THIS IS SAFE, and it is the only reason it is acceptable to widen a
+# secret scanner: an address is `0x` + EXACTLY 40 hex. A private key is `0x` +
+# 64 hex. The trailing `\b` means the pattern cannot match the leading 40 hex of
+# a longer hex run, so a key is NOT exempted. Verified against RE2 semantics
+# before adopting:
+#   0x<40 hex> lowercase / checksummed / mid-sentence  -> MATCH   (intended)
+#   0x<64 hex>  (private key, either casing)           -> NO MATCH
+#   0x<41 hex>                                         -> NO MATCH
+#   sk_live_… / ghp_…                                  -> NO MATCH
+#
+# `useDefault = true` above is untouched: every default detector stays active.
+# This narrows ONE heuristic's false-positive surface, it does not disable rules.
+#
+# ⚠ What this DOES cost, stated plainly: a genuine 20-byte-hex secret would now
+# be exempt, and so are SHA-1 hashes. If a credential format like that ever
+# enters this repo, this entry must be reconsidered.
 regexes = [
-  # TOWELI token — canonical public mainnet address. Appears in Toweli.sol /
-  # SwapFeeRouter NatSpec, docs, and .well-known/security.txt. Tripped
-  # generic-api-key on 2026-07-12 (aee9f96); it is public, not a secret.
-  '''0x420698CFdEDdEa6bc78D59bC17798113ad278F9D''',
-  # PremiumAccess contract — public mainnet address (2026-07-16 gated batch,
-  # Etherscan-verified, shown on /premium). The PREMIUM_ACCESS_ADDRESS constant
-  # name contains "ACCESS", which trips generic-api-key on 2026-07-22 (062afc1);
-  # it is public, not a secret.
-  '''0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5''',
+  '''(?i)\b0x[a-f0-9]{40}\b''',
 ]

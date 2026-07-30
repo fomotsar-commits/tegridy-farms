@@ -190,7 +190,7 @@ function configSupplyFor(contract) {
 // proxy-layer request timeout still guarantees it terminates.
 const _statsInFlight = new Map();
 
-export function fetchCollectionStats({ contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug, signal } = {}) {
+export function fetchCollectionStats({ contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug, signal: _signal } = {}) {
   const osSlug = openseaSlug || slug;
   const key = `${String(contract).toLowerCase()}::${osSlug}`;
   const existing = _statsInFlight.get(key);
@@ -293,15 +293,6 @@ function blockToTimestamp(blockNumber) {
     return MERGE_TIME + (blockNumber - MERGE_BLOCK) * POST_MERGE_MS_PER_BLOCK;
   }
   return MERGE_TIME + (blockNumber - MERGE_BLOCK) * PRE_MERGE_MS_PER_BLOCK;
-}
-
-function timestampToBlock(timestampMs) {
-  // Convert a millisecond timestamp to an estimated block number
-  const elapsed = timestampMs - MERGE_TIME;
-  if (elapsed >= 0) {
-    return MERGE_BLOCK + Math.floor(elapsed / POST_MERGE_MS_PER_BLOCK);
-  }
-  return MERGE_BLOCK + Math.floor(elapsed / PRE_MERGE_MS_PER_BLOCK);
 }
 
 // ═══ CURRENT BLOCK NUMBER (live from chain, cached 60s) ═══

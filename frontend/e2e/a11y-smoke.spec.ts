@@ -28,7 +28,9 @@ test.describe('a11y landmarks — core pages', () => {
     const tablist = page.getByRole('tablist', { name: /trade view/i });
     await expect(tablist).toBeVisible();
     const tabs = tablist.getByRole('tab');
-    await expect(tabs).toHaveCount(4);
+    // Five tabs, per TAB_LABELS in src/pages/TradePage.tsx:43 —
+    // Swap / Liquidity / DCA / Alerts / TWAP. Was 4 before TWAP was added.
+    await expect(tabs).toHaveCount(5);
 
     // Default tab is Swap → must be aria-selected.
     const swapTab = tablist.getByRole('tab', { name: /^swap$/i });

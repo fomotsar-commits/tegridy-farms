@@ -149,6 +149,26 @@ export default async function handler(req, res) {
         let info = {}, top = {};
         try { info = JSON.parse(infoText); } catch { info = {}; }
         try { top = JSON.parse(topText); } catch { top = {}; }
+        // The holder list comes from getTopTokenHolders. If THAT read failed —
+        // non-2xx, non-JSON, or an Ethplorer {error:{code}} envelope (200-with-error
+        // is common for rate-limit / bad key) — we must NOT degrade into a cached
+        // 200 with empty holders. That told users a valid token had zero holders
+        // and cached the lie for 2 minutes. Fail loudly, uncached, instead.
+        const epError = top && typeof top === "object" ? top.error : null;
+        const topFailed = !topRes.ok || !!epError;
+        if (topFailed) {
+          // Ethplorer code 1 = invalid API key. Map auth failures to 403, which
+          // the client renders as the honest "scanner not enabled on this
+          // deployment yet" state (needs a paid ETHPLORER_API_KEY). Everything
+          // else is a transient upstream failure → 502. Neither is cached.
+          const isAuth = topRes.status === 401 || topRes.status === 403 || (epError && Number(epError.code) === 1);
+          res.setHeader("Cache-Control", "no-store");
+          return res.status(isAuth ? 403 : 502).json({
+            error: isAuth
+              ? "Holder data source is not enabled on this deployment"
+              : "Holder data source is temporarily unavailable — try again shortly",
+          });
+        }
         const totalSupply = info && info.totalSupply != null ? String(info.totalSupply) : null;
         let totalBig = 0n;
         try { totalBig = totalSupply ? BigInt(totalSupply) : 0n; } catch { totalBig = 0n; }
