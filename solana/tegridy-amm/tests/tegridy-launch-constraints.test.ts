@@ -133,10 +133,41 @@ describe("tegridy-launch security constraints", () => {
   const deployer = anchor.Wallet.local().payer;
   const feeRecipient = Keypair.generate().publicKey;
 
-  before(async () => {
-    // The program is built with --features devnet, whose `deployer` key is the
-    // local wallet; a default build embeds a fail-closed sentinel and cannot be
-    // initialized at all. If this fails, check which feature the .so was built with.
+  // ─── initialize_global: ORDER MATTERS, deliberately ───────────────────────
+  //
+  // `global` is a SINGLETON PDA, so the deployer gate can only be observed while
+  // that account does not yet exist. Once it does, `init` fails first with System
+  // program error 0x0 ("account already in use") and Anchor never reaches the
+  // `address = deployer::ID` constraint — an earlier version of this suite
+  // initialized in a `before` hook and its reject-path test was therefore
+  // meaningless, passing on the collision rather than on the gate.
+  //
+  // So these two run FIRST, in this order, and the rest of the suite depends on
+  // the second having succeeded. Mocha preserves declaration order.
+
+  it("initialize_global rejects a signer that is not the designated deployer", async () => {
+    const impostor = Keypair.generate();
+    await fund(provider, impostor.publicKey, 5);
+
+    await expectAnchorError(
+      program.methods
+        .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+        .accountsPartial({
+          authority: impostor.publicKey,
+          feeRecipient,
+          global: globalPda(program.programId),
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([impostor])
+        .rpc(),
+      "NotDeployAuthority"
+    );
+  });
+
+  it("initialize_global succeeds for the designated deployer", async () => {
+    // POSITIVE CONTROL for the above, and setup for everything below. The program
+    // is built with --features devnet, whose `deployer` key is the local wallet; a
+    // default build embeds a fail-closed sentinel and cannot be initialized at all.
     await program.methods
       .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
       .accountsPartial({
@@ -146,6 +177,9 @@ describe("tegridy-launch security constraints", () => {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
+
+    const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+    assert.equal(g.authority.toBase58(), deployer.publicKey.toBase58());
   });
 
   // ─── CRITICAL: freeze authority ────────────────────────────────────────────
@@ -241,35 +275,6 @@ describe("tegridy-launch security constraints", () => {
       const parsed = (info.value?.data as any)?.parsed?.info;
       assert.isNull(parsed?.mintAuthority, "mint authority must be revoked");
       assert.isNull(parsed?.freezeAuthority, "freeze authority must be absent");
-    });
-  });
-
-  // ─── MEDIUM: unprotected initializer ───────────────────────────────────────
-
-  describe("initialize_global is gated on the deployer key", () => {
-    /**
-     * The global PDA is a singleton, so an unconstrained initializer means the
-     * first caller after deploy owns the protocol and every trade fee, forever.
-     */
-    it("rejects a signer that is not the designated deployer", async () => {
-      const impostor = Keypair.generate();
-      await fund(provider, impostor.publicKey, 5);
-
-      // Re-initializing also collides with the existing account, so assert on the
-      // ADDRESS constraint specifically rather than any failure.
-      await expectAnchorError(
-        program.methods
-          .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
-          .accountsPartial({
-            authority: impostor.publicKey,
-            feeRecipient,
-            global: globalPda(program.programId),
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([impostor])
-          .rpc(),
-        "NotDeployAuthority"
-      );
     });
   });
 
