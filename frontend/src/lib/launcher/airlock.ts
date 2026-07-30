@@ -24,6 +24,8 @@
 import type { Address } from 'viem';
 import type { FeeConstitutionLine, LaunchTier } from './factSheet';
 import { DOPPLER_MAINNET } from './doppler.constants';
+import { isDeployed } from '../constants';
+import { TEGRIDY_V4_MIGRATOR_ADDRESS } from './constants';
 
 /** Canonical WETH on Ethereum mainnet. */
 export const WETH_MAINNET: Address = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
@@ -178,6 +180,20 @@ export interface DopplerAuctionBuilder {
     streamableFees: { lockDuration: number; beneficiaries: StreamBeneficiary[] };
   }): DopplerAuctionBuilder;
   withGovernance(c: { type: 'default' | 'noOp' | 'launchpad' | 'custom' }): DopplerAuctionBuilder;
+  /**
+   * Override which LiquidityMigrator module the launch graduates through.
+   *
+   * WITHOUT this call the SDK resolves the chain default —
+   * `overrides?.v4Migrator ?? addresses.v4Migrator` — i.e. Doppler's own
+   * 0x0820…205f5, and the launch graduates into a hookless canonical pool. That
+   * is the status quo and stays the behaviour until
+   * `TEGRIDY_V4_MIGRATOR_ADDRESS` is set.
+   *
+   * Real SDK surface: `withV4Migrator(address)` on the dynamic-auction builder
+   * (dist/evm/index.d.ts:2680), backed by `ModuleAddressOverrides.v4Migrator`
+   * (d.ts:817).
+   */
+  withV4Migrator(address: Address): DopplerAuctionBuilder;
   withIntegrator(address: Address): DopplerAuctionBuilder;
   withUserAddress(address: Address): DopplerAuctionBuilder;
   build(): unknown;
@@ -229,7 +245,7 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
       cliffDuration: cfg.vesting.cliffSeconds ?? 0,
     });
   }
-  const params = builder
+  let withMigrator = builder
     .withMarketCapRange({
       marketCap: cfg.marketCap,
       numerairePrice: cfg.numerairePriceUsd,
@@ -246,9 +262,28 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
     })
     .withGovernance({ type: cfg.tier === 'flagship' ? 'default' : 'noOp' })
     .withIntegrator(cfg.integrator)
-    .withUserAddress(cfg.userAddress)
-    .build();
+    .withUserAddress(cfg.userAddress);
 
+  // OWN-VENUE GRADUATION. Point the launch at TegridyLiquidityMigrator so it
+  // graduates into a canonical V4 pool carrying TegridyV4Hook — a venue the
+  // protocol owns — instead of Doppler's hookless one.
+  //
+  // Gated on `isDeployed` and NOT called while the address is zero, which keeps
+  // the status quo exactly: the SDK falls back to `addresses.v4Migrator`
+  // (Doppler's 0x0820…205f5) and nothing about a launch changes. That fallback is
+  // the honest default — flipping the constant before the module is whitelisted
+  // AND granted the hook's initializer allowance would make every graduation
+  // revert, and `Airlock.migrate` has already moved the funds by then.
+  //
+  // See TEGRIDY_V4_MIGRATOR_ADDRESS for the two preconditions.
+  if (isDeployed(TEGRIDY_V4_MIGRATOR_ADDRESS)) {
+    withMigrator = withMigrator.withV4Migrator(TEGRIDY_V4_MIGRATOR_ADDRESS);
+  }
+
+  const params = withMigrator.build();
+
+  // Runs on the FINAL params — after the migrator is wired — so the band that
+  // gets validated is the one actually going on-chain.
   assertMarketCapBandRoundTrips(params, cfg);
   return params;
 }

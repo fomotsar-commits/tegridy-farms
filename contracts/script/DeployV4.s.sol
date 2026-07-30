@@ -15,6 +15,9 @@ import {TegridyV4Hook} from "../src/v4/TegridyV4Hook.sol";
 import {TegridyV4HookAdmin} from "../src/v4/TegridyV4HookAdmin.sol";
 import {TegridyV4SwapRouter} from "../src/v4/TegridyV4SwapRouter.sol";
 import {TegridyBoostedLPStaker} from "../src/v4/TegridyBoostedLPStaker.sol";
+import {TegridyFeeLocker} from "../src/v4/TegridyFeeLocker.sol";
+import {TegridyLiquidityMigrator, IPermit2Approve, ITegridyFeeLocker} from "../src/v4/TegridyLiquidityMigrator.sol";
+import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 
 /// @title  DeployV4 — V4 migration deploy script (V4 goes live at the V2 relaunch)
 /// @notice Deploys the four V4 contracts in runbook order: TegridyV4HookAdmin, the
@@ -61,6 +64,12 @@ contract DeployV4Script is Script {
         address positionManager = vm.envAddress("POSITION_MANAGER");
         address currency0 = vm.envAddress("CURRENCY0");
         address currency1 = vm.envAddress("CURRENCY1");
+        // Doppler's Airlock (mainnet 0xde3599a2ec440b296373a983c85c365da55d9dfa) and
+        // the canonical Permit2 — both are inputs to the graduation path, not
+        // things we deploy.
+        address airlock = vm.envAddress("DOPPLER_AIRLOCK");
+        address permit2 = vm.envAddress("PERMIT2");
+        require(airlock != address(0) && permit2 != address(0), "zero migrator env");
         require(poolManager != address(0) && multisig != address(0) && treasury != address(0), "zero env");
         require(multisig != treasury, "multisig==treasury"); // minimal disjoint check
         require(rewardToken != address(0) && staking != address(0) && positionManager != address(0), "zero staker env");
@@ -108,7 +117,36 @@ contract DeployV4Script is Script {
         TegridyBoostedLPStaker staker =
             new TegridyBoostedLPStaker(IERC20(rewardToken), staking, positionManager, allowedPoolId, multisig);
 
-        // 6. Hand admin ownership to the multisig (Ownable2Step: multisig must acceptOwnership()).
+        // 6. Fee locker, then migrator, then bind — IN THIS ORDER.
+        //
+        //    The migrator takes the locker's address as a constructor immutable,
+        //    and the locker must know the migrator's. That is circular and cannot
+        //    be satisfied at construction, so the locker is deployed with the
+        //    DEPLOYER as its binder and learns the migrator afterwards, once.
+        //
+        //    `bindMigrator` is write-once: until it is called nothing can register
+        //    a lock, and after it is called the binding is permanent. If this
+        //    script is interrupted between the two, the locker is unusable rather
+        //    than hijackable — redeploy it, do not try to salvage.
+        TegridyFeeLocker feeLocker = new TegridyFeeLocker(IPositionManager(positionManager), msg.sender);
+
+        //    rescueRecipient is IMMUTABLE with no setter. It is the only address
+        //    `sweepStuck` can ever pay, so a wrong value here is unrecoverable —
+        //    it must be the multisig, never the deployer EOA.
+        TegridyLiquidityMigrator migrator = new TegridyLiquidityMigrator(
+            airlock,
+            IPoolManager(poolManager),
+            IPositionManager(positionManager),
+            IPermit2Approve(permit2),
+            IHooks(address(hook)),
+            multisig,
+            ITegridyFeeLocker(address(feeLocker))
+        );
+
+        feeLocker.bindMigrator(address(migrator));
+        require(feeLocker.locker() == address(migrator), "locker not bound to migrator");
+
+        // 7. Hand admin ownership to the multisig (Ownable2Step: multisig must acceptOwnership()).
         admin.transferOwnership(multisig);
 
         vm.stopBroadcast();
@@ -117,9 +155,18 @@ contract DeployV4Script is Script {
         console2.log("TegridyV4Hook:         ", address(hook));
         console2.log("TegridyV4SwapRouter:   ", address(router));
         console2.log("TegridyBoostedLPStaker:", address(staker));
+        console2.log("TegridyFeeLocker:      ", address(feeLocker));
+        console2.log("TegridyLiquidityMigrator:", address(migrator));
         console2.log("paramAdmin (hook):     ", hook.paramAdmin());
         console2.log("staker allowedPoolId:");
         console2.logBytes32(allowedPoolId);
-        console2.log("next: acceptOwnership, set pauseGuardian, allowlist+initialize pool, seed POL, notifyRewardAmount");
+        console2.log("");
+        console2.log("REMAINING, and graduation REVERTS until both are done:");
+        console2.log(" 1. admin.proposeInitializerAllowed(migrator, true) -> wait 48h -> executeInitializerAllowed()");
+        console2.log("    Without it every graduation reverts at poolManager.initialize, and because");
+        console2.log("    Airlock.migrate transfers the funds in BEFORE calling us, they strand.");
+        console2.log(" 2. Whetstone must whitelist the migrator: setModuleState(migrator, 4)");
+        console2.log("    See docs/WHETSTONE_MIGRATOR_PETITION.md - external party, longest lead time.");
+        console2.log("also: acceptOwnership, set pauseGuardian, allowlist+initialize pool, seed POL, notifyRewardAmount");
     }
 }
