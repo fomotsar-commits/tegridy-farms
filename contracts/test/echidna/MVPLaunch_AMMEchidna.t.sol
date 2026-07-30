@@ -24,9 +24,19 @@ import {TegridyPair} from "../../src/TegridyPair.sol";
 ///           grow on fee accrual, but never shrink)
 ///         - echidna_reservesLeBalances: reserve{0,1} <= balanceOf(token{0,1})
 ///           always (donations only widen the gap; skim reconciles)
-///         - echidna_totalSupplyConsistent: sum of LP balances == totalSupply
 ///         - echidna_minLiquidityLocked: MINIMUM_LIQUIDITY at address(0)
 ///           persists once minted
+///
+///         NOT IMPLEMENTED, and previously listed here as though it were:
+///         `echidna_totalSupplyConsistent` (sum of LP balances == totalSupply).
+///         Three properties exist, not four. The claim was corrected rather than
+///         the gap filled, because this file cannot currently be RUN to verify a
+///         new property: echidna 2.3.2 is installed but non-functional without
+///         `crytic-compile` (pip), and the `--config echidna.config.yml` this
+///         header tells you to pass does not exist in the repo either. Writing an
+///         unrunnable fourth property would just move the overclaim.
+///         Worth adding once echidna actually executes — LP-supply conservation
+///         is a real AMM invariant and nothing else here covers it.
 contract MVPLaunch_AMMEchidna {
     EchidnaToken token0;
     EchidnaToken token1;

@@ -37,12 +37,26 @@ updates:
           - "@types/*"
 
   # Indexer npm dependencies
+  # PAUSED 2026-07-30 (limit 5 -> 0). Not a judgement on the indexer; a bump
+  # here is currently UNVERIFIABLE and therefore not reviewable:
+  #   * no workflow touches indexer/ — `grep -rln indexer .github/workflows/`
+  #     returns nothing, so there is no build, typecheck or test for it
+  #   * ci.yml runs everything under `working-directory: frontend` (lines 24,
+  #     81, 126), so indexer breakage cannot surface there incidentally either
+  #   * nothing imports it — no `from '…indexer'` anywhere in frontend/src or
+  #     frontend/api; the only in-app mentions are prose comments about Ponder
+  # So if a bump broke the indexer, every gate would still be green. Four such
+  # PRs (#92, #93, #118, #119) were closed on 2026-07-30 for exactly that reason.
+  #
+  # Set this back to 5 the moment EITHER is true: indexer/ gets a CI job, or the
+  # frontend gains a real read path against it. Until then this only produces
+  # PRs nobody can responsibly merge.
   - package-ecosystem: npm
     directory: "/indexer"
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
       - "indexer"
