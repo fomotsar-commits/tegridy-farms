@@ -59,6 +59,13 @@ const SUPPLY = new BN("1000000000000000");
 const TRADE_FEE_BPS = new BN(100);
 /** V_s*S/V_t is ~27.9 SOL here, so 10 SOL is safely under the ceiling. */
 const GRAD_TARGET = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
+/** Raised on top of the target to pay cp-swap's create_pool_fee + rent on the five
+ *  accounts it creates. See MIGRATE_DESIGN.md; the ceiling check covers target+reserve. */
+const MIGRATION_RESERVE = new BN(LAMPORTS_PER_SOL).div(new BN(2));
+/** cp-swap program + AmmConfig. Zero here: these tests never migrate, and
+ *  migrate_to_amm refuses to run while either is zero — which is the intended
+ *  posture until an operator creates the AmmConfig. */
+const ZERO_PK = SystemProgram.programId;
 
 function loadProgram(provider: AnchorProvider): AnyProgram {
   const idlPath = path.resolve(__dirname, "../target/idl/tegridy_launch.json");
@@ -131,8 +138,8 @@ describe("tegridy-launch security constraints", () => {
     // local wallet; a default build embeds a fail-closed sentinel and cannot be
     // initialized at all. If this fails, check which feature the .so was built with.
     await program.methods
-      .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET)
-      .accounts({
+      .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+      .accountsPartial({
         authority: deployer.publicKey,
         feeRecipient,
         global: globalPda(program.programId),
@@ -159,7 +166,7 @@ describe("tegridy-launch security constraints", () => {
       await expectAnchorError(
         program.methods
           .createLaunch()
-          .accounts({
+          .accountsPartial({
             creator: creator.publicKey,
             global: globalPda(program.programId),
             mint,
@@ -184,7 +191,7 @@ describe("tegridy-launch security constraints", () => {
 
       await program.methods
         .createLaunch()
-        .accounts({
+        .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),
           mint,
@@ -217,7 +224,7 @@ describe("tegridy-launch security constraints", () => {
 
       await program.methods
         .createLaunch()
-        .accounts({
+        .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),
           mint,
@@ -252,8 +259,8 @@ describe("tegridy-launch security constraints", () => {
       // ADDRESS constraint specifically rather than any failure.
       await expectAnchorError(
         program.methods
-          .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET)
-          .accounts({
+          .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+          .accountsPartial({
             authority: impostor.publicKey,
             feeRecipient,
             global: globalPda(program.programId),
@@ -281,7 +288,7 @@ describe("tegridy-launch security constraints", () => {
       await expectAnchorError(
         program.methods
           .updateGlobal(null, unreachable, null, null, null)
-          .accounts({
+          .accountsPartial({
             global: globalPda(program.programId),
             authority: deployer.publicKey,
           })
@@ -295,7 +302,7 @@ describe("tegridy-launch security constraints", () => {
       const reachable = new BN(12).mul(new BN(LAMPORTS_PER_SOL));
       await program.methods
         .updateGlobal(null, reachable, null, null, null)
-        .accounts({
+        .accountsPartial({
           global: globalPda(program.programId),
           authority: deployer.publicKey,
         })
@@ -307,7 +314,7 @@ describe("tegridy-launch security constraints", () => {
       // Restore for any later test.
       await program.methods
         .updateGlobal(null, GRAD_TARGET, null, null, null)
-        .accounts({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
   });
@@ -324,7 +331,7 @@ describe("tegridy-launch security constraints", () => {
       const globalKey = globalPda(program.programId);
       await program.methods
         .updateGlobal(null, null, true, null, null)
-        .accounts({ global: globalKey, authority: deployer.publicKey })
+        .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
       const creator = Keypair.generate();
@@ -334,7 +341,7 @@ describe("tegridy-launch security constraints", () => {
       await expectAnchorError(
         program.methods
           .createLaunch()
-          .accounts({
+          .accountsPartial({
             creator: creator.publicKey,
             global: globalKey,
             mint,
@@ -352,12 +359,12 @@ describe("tegridy-launch security constraints", () => {
       // POSITIVE CONTROL: unpause and the identical call goes through.
       await program.methods
         .updateGlobal(null, null, false, null, null)
-        .accounts({ global: globalKey, authority: deployer.publicKey })
+        .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
       await program.methods
         .createLaunch()
-        .accounts({
+        .accountsPartial({
           creator: creator.publicKey,
           global: globalKey,
           mint,
