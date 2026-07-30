@@ -87,6 +87,17 @@ const TRADE_FEE_BPS = new BN(100);
 const GRAD_TARGET = new BN(2).mul(new BN(LAMPORTS_PER_SOL));
 /** Must cover cp-swap's create_pool_fee + rent on the five accounts it creates. */
 const MIGRATION_RESERVE = new BN(LAMPORTS_PER_SOL).div(new BN(4));
+/**
+ * Raydium charges 0.15 SOL to create a pool on mainnet, taken as a NATIVE SOL
+ * transfer from the `creator` and then `sync_native`d (initialize.rs, gated on
+ * `create_pool_fee != 0`).
+ *
+ * This ran at ZERO here for a long time, which meant the one mainnet cost that
+ * `migration_reserve_lamports` exists to cover was never exercised — the reserve
+ * could have been undersized and CI would still have been green. Charge it for
+ * real, at the mainnet number, so the reserve is actually proven.
+ */
+const CREATE_POOL_FEE = new BN(15).mul(new BN(LAMPORTS_PER_SOL)).div(new BN(100));
 
 function loadIdlProgram(provider: AnchorProvider, name: string): AnyProgram {
   const idl = JSON.parse(
@@ -135,7 +146,7 @@ describe("tegridy-launch full migration rehearsal", () => {
     await cpSwap.methods
       // (index, trade_fee_rate, protocol_fee_rate, fund_fee_rate, create_pool_fee,
       //  creator_fee_rate) — note the 6th arg, which the fork's own docs omit.
-      .createAmmConfig(index, new BN(2500), new BN(120000), new BN(0), new BN(0), new BN(0))
+      .createAmmConfig(index, new BN(2500), new BN(120000), new BN(0), CREATE_POOL_FEE, new BN(0))
       .accountsPartial({
         owner: wallet.publicKey,
         ammConfig,
@@ -354,6 +365,13 @@ describe("tegridy-launch full migration rehearsal", () => {
     }
 
     const rentExemptZero = await provider.connection.getMinimumBalanceForRentExemption(0);
+    // cp-swap takes create_pool_fee as a native SOL transfer out of the `creator` —
+    // our migration authority — and the migration reserve is what funds it. Measure
+    // it across the migration specifically, so a reserve too small to cover the real
+    // mainnet fee fails here instead of on mainnet.
+    const feeReceiverBefore = BigInt(
+      (await provider.connection.getTokenAccountBalance(feeReceiver)).value.amount
+    );
     const curveInfoPre = await provider.connection.getAccountInfo(curve);
     const curveLamportsPre = curveInfoPre!.lamports;
     const curveRentFloor = await provider.connection.getMinimumBalanceForRentExemption(
@@ -419,6 +437,18 @@ describe("tegridy-launch full migration rehearsal", () => {
       curveInfoPost!.lamports,
       curveRentFloor,
       "the curve must stay rent-exempt or the runtime purges it mid-life"
+    );
+
+    // The real mainnet pool-creation fee was charged, and the reserve covered it.
+    // A zero here means cp-swap skipped its fee branch and the reserve is still
+    // unproven, which is the state this test was silently in before.
+    assert.equal(
+      (
+        BigInt((await provider.connection.getTokenAccountBalance(feeReceiver)).value.amount) -
+        feeReceiverBefore
+      ).toString(),
+      CREATE_POOL_FEE.toString(),
+      "cp-swap must have charged the full create_pool_fee out of the migration reserve"
     );
 
     // ── nothing recoverable is left stranded ─────────────────────────────────

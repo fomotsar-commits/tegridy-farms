@@ -292,7 +292,7 @@ describe("tegridy-launch security constraints", () => {
       const unreachable = new BN(1000).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, unreachable, null, null, null)
+          .updateGlobal(null, unreachable, null, null, null, null, null, null)
           .accountsPartial({
             global: globalPda(program.programId),
             authority: deployer.publicKey,
@@ -306,7 +306,7 @@ describe("tegridy-launch security constraints", () => {
     it("accepts a target below the ceiling", async () => {
       const reachable = new BN(12).mul(new BN(LAMPORTS_PER_SOL));
       await program.methods
-        .updateGlobal(null, reachable, null, null, null)
+        .updateGlobal(null, reachable, null, null, null, null, null, null)
         .accountsPartial({
           global: globalPda(program.programId),
           authority: deployer.publicKey,
@@ -318,7 +318,103 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for any later test.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+    });
+  });
+
+  // ─── HIGH: the AMM addresses must be reachable after initialization ────────
+
+  describe("AMM configuration is settable after init", () => {
+    /**
+     * `initialize_global` accepts zero for both AMM addresses deliberately — the
+     * cp-swap AmmConfig is created by a cp-swap admin action AFTER this program is
+     * deployed, and THIS SUITE initializes with ZERO_PK for both. But `global` is a
+     * singleton PDA, so `initialize_global` runs exactly once, and `migrate_to_amm`
+     * refuses to run while either address is zero.
+     *
+     * There was no setter. Following that documented order therefore left migration
+     * PERMANENTLY disabled, recoverable only by a program upgrade. Nothing caught it
+     * because the rehearsal creates the AmmConfig first and passes real values at
+     * initialization, so the zero path was never followed to its conclusion.
+     */
+    it("sets cp_swap_program and amm_config after the fact", async () => {
+      const cpProgram = Keypair.generate().publicKey;
+      const cfg = Keypair.generate().publicKey;
+      await program.methods
+        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+      const g: any = await (program.account as any).globalConfig.fetch(
+        globalPda(program.programId)
+      );
+      assert.equal(g.cpSwapProgram.toBase58(), cpProgram.toBase58());
+      assert.equal(g.ammConfig.toBase58(), cfg.toBase58());
+    });
+
+    it("refuses to ZERO them — that reads as misconfiguration; `paused` is the switch", async () => {
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "InvalidParameter"
+      );
+    });
+  });
+
+  // ─── MEDIUM: reachability must count the migration reserve ─────────────────
+
+  describe("reachability counts target PLUS reserve", () => {
+    /**
+     * Both the target and the reserve are raised by traders, so both count toward
+     * the ceiling (~27.96 SOL for these parameters). `update_global` used to validate
+     * the incoming target ALONE while its comment claimed to be "the same
+     * reachability check as initialize_global" — so a target comfortably under the
+     * ceiling could still push target+reserve past it and mint launches that can
+     * never graduate. The target-only variant accepts every case below.
+     */
+    it("rejects a target that only breaches the ceiling once the reserve is added", async () => {
+      const target = new BN(20).mul(new BN(LAMPORTS_PER_SOL)); // alone: under ~27.96
+      const reserve = new BN(10).mul(new BN(LAMPORTS_PER_SOL)); // sum 30: over
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, target, null, null, null, reserve, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "GraduationTargetUnreachable"
+      );
+    });
+
+    it("rejects a RESERVE raise that breaches the ceiling with the target untouched", async () => {
+      const reserve = new BN(25).mul(new BN(LAMPORTS_PER_SOL));
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, null, null, null, null, reserve, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "GraduationTargetUnreachable"
+      );
+    });
+
+    /** POSITIVE CONTROL — a pair that fits is accepted, and BOTH fields land. */
+    it("accepts a pair under the ceiling and stores both", async () => {
+      const target = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
+      const reserve = new BN(5).mul(new BN(LAMPORTS_PER_SOL));
+      await program.methods
+        .updateGlobal(null, target, null, null, null, reserve, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+      const g: any = await (program.account as any).globalConfig.fetch(
+        globalPda(program.programId)
+      );
+      assert.equal(g.graduationTargetLamports.toString(), target.toString());
+      assert.equal(g.migrationReserveLamports.toString(), reserve.toString());
+
+      // Restore for the tests that follow.
+      await program.methods
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -335,7 +431,7 @@ describe("tegridy-launch security constraints", () => {
     it("blocks create_launch while paused, and allows it again when unpaused", async () => {
       const globalKey = globalPda(program.programId);
       await program.methods
-        .updateGlobal(null, null, true, null, null)
+        .updateGlobal(null, null, true, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
@@ -363,7 +459,7 @@ describe("tegridy-launch security constraints", () => {
 
       // POSITIVE CONTROL: unpause and the identical call goes through.
       await program.methods
-        .updateGlobal(null, null, false, null, null)
+        .updateGlobal(null, null, false, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 

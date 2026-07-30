@@ -59,6 +59,32 @@ finish line — the worst possible moment.
 `max_reachable_real_sol`, not just `target`, or the reserve can push a
 configuration past the curve's ceiling and make graduation unreachable again.
 
+**How big, exactly.** Computed from cp-swap's own `LEN` constants
+(`states/oracle.rs`, `states/pool.rs`) at `minimum_balance = (128 + size) * 6960`:
+
+| what the authority pays for | bytes | lamports |
+| --- | --- | --- |
+| `observation_state` | 4075 | 29,252,880 |
+| `pool_state` | 637 | 5,324,400 |
+| `token_0_vault` | 165 | 2,039,280 |
+| `token_1_vault` | 165 | 2,039,280 |
+| `lp_mint` | 82 | 1,461,600 |
+| `creator_lp_token` ATA | 165 | 2,039,280 |
+| **rent subtotal** | | **42,156,720** |
+| `create_pool_fee` (Raydium mainnet 0.15 SOL) | | 150,000,000 |
+| **REQUIRED MINIMUM** | | **192,156,720** (~0.1922 SOL) |
+
+So `migration_reserve_lamports` must be **at least ~0.1922 SOL** on mainnet, and
+`observation_state` alone is ~70% of the rent. The rehearsal uses 0.25 SOL, which
+leaves 57,843,280 lamports (~0.058 SOL) of headroom; the surplus is swept back to
+the caller (decision 8), so over-provisioning costs nothing but the raise.
+
+⚠️ **A too-small reserve fails at the finish line**, after the pool exists. The
+rehearsal now charges the real 0.15 SOL fee and asserts the fee receiver was
+credited exactly that, so an undersized reserve fails in CI. It ran at ZERO for a
+long time, which meant this entire cost was untested and the reserve could have
+been arbitrarily wrong while CI stayed green.
+
 ### 2. Mint ordering — RESOLVED
 
 Sort `(WSOL, launch_mint)` by pubkey and assign token_0/token_1 accordingly,

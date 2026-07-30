@@ -75,6 +75,10 @@
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
+// For `.data()` on cp-swap's generated instruction args. `migrate_to_amm` hand-builds
+// that one instruction so it can mark `pool_state` as a signer, which Anchor's typed
+// CPI cannot express — see the comment at the invoke site.
+use anchor_lang::InstructionData;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, MintTo, SetAuthority, Token, TokenAccount, Transfer};
 use anchor_spl::token::spl_token::instruction::AuthorityType;
@@ -213,25 +217,67 @@ pub mod tegridy_launch {
         paused: Option<bool>,
         new_authority: Option<Pubkey>,
         new_fee_recipient: Option<Pubkey>,
+        migration_reserve_lamports: Option<u64>,
+        new_cp_swap_program: Option<Pubkey>,
+        new_amm_config: Option<Pubkey>,
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
             require!(f <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
             g.trade_fee_bps = f;
         }
-        if let Some(t) = graduation_target_lamports {
-            require!(t > 0, LaunchError::InvalidParameter);
-            // Same reachability check as initialize_global — the curve parameters
-            // are immutable, so a later target change can just as easily land
-            // above the ceiling and start minting unfinishable launches.
+
+        // Target and reserve are validated TOGETHER, and either may change here.
+        //
+        // Both are raised by traders, so both count toward the curve's ceiling. An
+        // earlier version checked only the incoming target — its comment claimed to
+        // be "the same reachability check as initialize_global" while omitting the
+        // reserve, so raising the target could push `target + reserve` past the
+        // ceiling and start minting launches that can never graduate. That is
+        // exactly the bug initialize_global's check exists to prevent.
+        //
+        // Resolve the post-update pair, then validate the SUM once.
+        if graduation_target_lamports.is_some() || migration_reserve_lamports.is_some() {
+            let new_target = graduation_target_lamports.unwrap_or(g.graduation_target_lamports);
+            let new_reserve = migration_reserve_lamports.unwrap_or(g.migration_reserve_lamports);
+            require!(new_target > 0, LaunchError::InvalidParameter);
+            let required = new_target
+                .checked_add(new_reserve)
+                .ok_or(LaunchError::Overflow)?;
             let ceiling = max_reachable_real_sol(
                 g.initial_virtual_sol,
                 g.initial_virtual_token,
                 g.token_total_supply,
             )
             .map_err(LaunchError::from)?;
-            require!(t < ceiling, LaunchError::GraduationTargetUnreachable);
-            g.graduation_target_lamports = t;
+            require!(
+                required < ceiling,
+                LaunchError::GraduationTargetUnreachable
+            );
+            g.graduation_target_lamports = new_target;
+            g.migration_reserve_lamports = new_reserve;
+        }
+
+        // The AMM addresses MUST be settable after initialization.
+        //
+        // `initialize_global` accepts them as zero on purpose — the cp-swap AmmConfig
+        // is created by a cp-swap admin action AFTER this program is deployed. But
+        // `global` is a singleton PDA, so `initialize_global` runs exactly once, and
+        // `migrate_to_amm` refuses to run while either address is zero. Without a
+        // setter here, following that documented order left migration PERMANENTLY
+        // disabled, fixable only by a program upgrade. CI never caught it because the
+        // tests create the AmmConfig first and pass real values at initialization.
+        //
+        // Zero is rejected rather than accepted as a "disable" value: a silent zero
+        // would surface later as `AmmNotConfigured` and read like a setup mistake.
+        // `paused` is the intended kill switch — it blocks `migrate_to_amm` too.
+        if let Some(p) = new_cp_swap_program {
+            require!(p != Pubkey::default(), LaunchError::InvalidParameter);
+            g.cp_swap_program = p;
+        }
+        if let Some(c) = new_amm_config {
+            require!(c != Pubkey::default(), LaunchError::InvalidParameter);
+            g.amm_config = c;
         }
         if let Some(p) = paused {
             g.paused = p;
@@ -864,18 +910,51 @@ pub mod tegridy_launch {
             system_program: ctx.accounts.system_program.to_account_info(),
             rent: ctx.accounts.rent.to_account_info(),
         };
-        raydium_cp_swap::cpi::initialize(
-            CpiContext::new_with_signer(
-                ctx.accounts.cp_swap_program.to_account_info(),
-                cpi_accounts,
-                init_signer,
-            ),
-            amount_0,
-            amount_1,
-            // Open immediately. A future open_time would leave the pool
-            // un-tradeable while the curve is already closed — a dead window with
-            // no exit, which is the failure mode this program keeps guarding.
-            0,
+        // Hand-invoked rather than `raydium_cp_swap::cpi::initialize`, for ONE reason.
+        //
+        // Anchor derives a CPI's AccountMetas from the CALLEE's account struct, and
+        // cp-swap declares `pool_state` as `#[account(mut)]` — writable, not a signer.
+        // `invoke_signed` cannot confer privilege on an account whose meta does not
+        // request it: seeds only prove you MAY sign for an address the instruction
+        // already asks to be signed. So cp-swap saw `is_signer == false` and
+        // `require_eq!(pool_account_info.is_signer, true)` (initialize.rs:387) rejected
+        // our non-canonical pool address — the very branch that makes the address
+        // un-squattable (see LAUNCH_POOL_SEED).
+        //
+        // Keep the typed struct, because it is what keeps this 20-account call ordered
+        // and type-checked against the fork, and flip exactly that ONE flag. The
+        // promotion count is asserted: if a cp-swap bump ever renames or reorders the
+        // account, this fails loudly instead of quietly reverting to a non-signer and
+        // taking the squattable path.
+        let mut metas = cpi_accounts.to_account_metas(None);
+        let pool_key = ctx.accounts.pool_state.key();
+        let mut promoted = 0usize;
+        for m in metas.iter_mut() {
+            if m.pubkey == pool_key {
+                m.is_signer = true;
+                promoted += 1;
+            }
+        }
+        require!(promoted == 1, LaunchError::InvalidParameter);
+
+        let account_infos = cpi_accounts.to_account_infos();
+        anchor_lang::solana_program::program::invoke_signed(
+            &anchor_lang::solana_program::instruction::Instruction {
+                program_id: ctx.accounts.cp_swap_program.key(),
+                accounts: metas,
+                data: raydium_cp_swap::instruction::Initialize {
+                    init_amount_0: amount_0,
+                    init_amount_1: amount_1,
+                    // Open immediately. A future open_time would leave the pool
+                    // un-tradeable while the curve is already closed — a dead window
+                    // with no exit, which is the failure mode this program keeps
+                    // guarding.
+                    open_time: 0,
+                }
+                .data(),
+            },
+            &account_infos,
+            init_signer,
         )?;
 
         // ── 4. BURN the LP ───────────────────────────────────────────────────
