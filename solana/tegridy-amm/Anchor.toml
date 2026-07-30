@@ -3,7 +3,10 @@ anchor_version = "0.32.1"
 solana_version = "2.3.0"
 
 [workspace]
-members = ["programs/cp-swap"]
+# Anchor resolves `anchor build -p <name>` against THIS list, not against
+# [programs.Localnet] — listing a program only in the latter yields
+# "not part of the workspace".
+members = ["programs/cp-swap", "programs/tegridy-launch"]
 
 [features]
 seeds = false
@@ -15,6 +18,9 @@ skip-lint = false
 # below — the create-pool tests must set up a WSOL account at that address instead.
 [programs.Localnet]
 raydium_cp_swap = "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL"
+# Our own bonding curve. Placeholder id — replaced with a dedicated keypair
+# before any real deploy, same as the cp-swap fork's.
+tegridy_launch = "8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8"
 
 
 [registry]
