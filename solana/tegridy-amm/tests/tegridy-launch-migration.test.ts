@@ -59,6 +59,9 @@ type AnyProgram = Program<Idl>;
 const GLOBAL_SEED = Buffer.from("global");
 const CURVE_SEED = Buffer.from("curve");
 const VAULT_SEED = Buffer.from("vault");
+/** Data-less PDA that acts as cp-swap's creator — it must be System-owned to
+ *  pay rent for the five accounts cp-swap inits. See MIGRATION_AUTH_SEED. */
+const MIGRATION_AUTH_SEED = Buffer.from("migauth");
 
 // cp-swap seeds — from programs/cp-swap/src/states/{config,pool}.rs and lib.rs.
 const AMM_CONFIG_SEED = Buffer.from("amm_config");
@@ -217,6 +220,7 @@ describe("tegridy-launch full migration rehearsal", () => {
     assert.isFalse(preMigrate.complete, "curve should still be open before migrating");
 
     // ── migrate ──────────────────────────────────────────────────────────────
+    const migAuth = pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId);
     const poolState = PublicKey.findProgramAddressSync(
       [
         POOL_SEED,
@@ -243,8 +247,10 @@ describe("tegridy-launch full migration rehearsal", () => {
         curve,
         curveVault,
         wsolMint: NATIVE_MINT,
-        curveWsol: getAssociatedTokenAddressSync(NATIVE_MINT, curve, true),
-        curveLp: getAssociatedTokenAddressSync(lpMint, curve, true),
+        migrationAuthority: migAuth,
+        authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true),
+        authToken: getAssociatedTokenAddressSync(launchMint, migAuth, true),
+        authLp: getAssociatedTokenAddressSync(lpMint, migAuth, true),
         cpSwapProgram: cpSwap.programId,
         ammConfig,
         ammAuthority,
@@ -301,8 +307,10 @@ describe("tegridy-launch full migration rehearsal", () => {
           curve,
           curveVault,
           wsolMint: NATIVE_MINT,
-          curveWsol: getAssociatedTokenAddressSync(NATIVE_MINT, curve, true),
-          curveLp: getAssociatedTokenAddressSync(lpMint, curve, true),
+          migrationAuthority: pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId),
+          authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId), true),
+          authToken: getAssociatedTokenAddressSync(launchMint, pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId), true),
+          authLp: getAssociatedTokenAddressSync(lpMint, pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId), true),
           cpSwapProgram: cpSwap.programId,
           ammConfig,
           ammAuthority: pda([AUTH_SEED], cpSwap.programId),

@@ -586,6 +586,7 @@ pub mod tegridy_launch {
         );
 
         let deposit_lamports = curve.graduation_target_lamports;
+        let reserve_lamports = curve.migration_reserve_lamports;
         let deposit_tokens = curve.real_token_reserves;
         let mint_key = curve.mint;
         let curve_bump = curve.bump;
@@ -612,35 +613,76 @@ pub mod tegridy_launch {
         let seeds: &[&[u8]] = &[CURVE_SEED, mint_key.as_ref(), &[curve_bump]];
         let signer: &[&[&[u8]]] = &[seeds];
 
-        // ── 1. Wrap the deposit into WSOL ────────────────────────────────────
-        // cp-swap takes both legs as TokenAccounts; our SOL leg is raw lamports.
+        // ── 1. Fund the migration authority and stage both legs on it ────────
         //
-        // NOT a system_program::transfer. The System program requires the SOURCE
-        // account to be System-owned, and the curve PDA holds this program's data
-        // so it is owned by US — a system transfer from it fails at runtime, every
-        // time. (`cargo check` accepts it happily, which is exactly why this
-        // comment exists.) Move the lamports directly instead, the same way `sell`
-        // pays out: a program may debit only accounts it owns, and may credit any
-        // account, so debit-curve + credit-WSOL is permitted.
-        let wsol_ai = ctx.accounts.curve_wsol.to_account_info();
+        // cp-swap's `creator` must be BOTH the signer and the rent payer for five
+        // `init` accounts. Rent goes through the System program's `CreateAccount`,
+        // which demands a System-owned payer — so it cannot be the curve PDA, which
+        // holds this program's data. That is what produced "sum of account balances
+        // before and after instruction do not match". The data-less
+        // `migration_authority` PDA satisfies both roles.
+        //
+        // Move deposit + reserve onto it by DIRECT lamport manipulation: a program
+        // may debit only accounts it owns (the curve) and may credit any account.
+        // A system_program::transfer here would fail for the same ownership reason.
+        let auth_ai = ctx.accounts.migration_authority.to_account_info();
+        let move_lamports = deposit_lamports
+            .checked_add(reserve_lamports)
+            .ok_or(LaunchError::Overflow)?;
         **curve_ai.try_borrow_mut_lamports()? = curve_ai
             .lamports()
-            .checked_sub(deposit_lamports)
+            .checked_sub(move_lamports)
             .ok_or(LaunchError::Overflow)?;
-        **wsol_ai.try_borrow_mut_lamports()? = wsol_ai
+        **auth_ai.try_borrow_mut_lamports()? = auth_ai
             .lamports()
-            .checked_add(deposit_lamports)
+            .checked_add(move_lamports)
             .ok_or(LaunchError::Overflow)?;
 
-        // Lamports alone do not make a WSOL balance — sync_native is what turns
-        // the account's lamports into its token amount. Without it cp-swap would
-        // see a zero-balance token account and seed the pool with nothing.
+        let auth_seeds: &[&[u8]] = &[
+            MIGRATION_AUTH_SEED,
+            mint_key.as_ref(),
+            &[ctx.bumps.migration_authority],
+        ];
+        let auth_signer: &[&[&[u8]]] = &[auth_seeds];
+
+        // The authority IS System-owned, so a plain system transfer works here —
+        // and is the correct way to fund a WSOL account it owns.
+        let wsol_ai = ctx.accounts.auth_wsol.to_account_info();
+        anchor_lang::system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: auth_ai.clone(),
+                    to: wsol_ai.clone(),
+                },
+                auth_signer,
+            ),
+            deposit_lamports,
+        )?;
+
+        // Lamports alone are not a WSOL balance — sync_native converts them. Without
+        // it cp-swap would see a zero-balance account and seed the pool with nothing.
         token::sync_native(CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
             token::SyncNative {
                 account: wsol_ai.clone(),
             },
         ))?;
+
+        // Launch tokens: curve vault -> authority, signed by the curve (it owns the
+        // vault). cp-swap requires creator_token_* to be owned by the creator.
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.curve_vault.to_account_info(),
+                    to: ctx.accounts.auth_token.to_account_info(),
+                    authority: curve_ai.clone(),
+                },
+                signer,
+            ),
+            deposit_tokens,
+        )?;
 
         // ── 2. Sort the mints ────────────────────────────────────────────────
         // cp-swap CONSTRAINS token_0_mint < token_1_mint, so getting this backwards
@@ -654,7 +696,7 @@ pub mod tegridy_launch {
 
         // ── 3. Open + seed the pool ──────────────────────────────────────────
         let cpi_accounts = raydium_cp_swap::cpi::accounts::Initialize {
-            creator: curve_ai.clone(),
+            creator: auth_ai.clone(),
             amm_config: ctx.accounts.amm_config.to_account_info(),
             authority: ctx.accounts.amm_authority.to_account_info(),
             pool_state: ctx.accounts.pool_state.to_account_info(),
@@ -670,16 +712,16 @@ pub mod tegridy_launch {
             },
             lp_mint: ctx.accounts.lp_mint.to_account_info(),
             creator_token_0: if wsol_is_0 {
-                ctx.accounts.curve_wsol.to_account_info()
+                ctx.accounts.auth_wsol.to_account_info()
             } else {
-                ctx.accounts.curve_vault.to_account_info()
+                ctx.accounts.auth_token.to_account_info()
             },
             creator_token_1: if wsol_is_0 {
-                ctx.accounts.curve_vault.to_account_info()
+                ctx.accounts.auth_token.to_account_info()
             } else {
-                ctx.accounts.curve_wsol.to_account_info()
+                ctx.accounts.auth_wsol.to_account_info()
             },
-            creator_lp_token: ctx.accounts.curve_lp.to_account_info(),
+            creator_lp_token: ctx.accounts.auth_lp.to_account_info(),
             token_0_vault: ctx.accounts.token_0_vault.to_account_info(),
             token_1_vault: ctx.accounts.token_1_vault.to_account_info(),
             create_pool_fee: ctx.accounts.create_pool_fee.to_account_info(),
@@ -695,7 +737,7 @@ pub mod tegridy_launch {
             CpiContext::new_with_signer(
                 ctx.accounts.cp_swap_program.to_account_info(),
                 cpi_accounts,
-                signer,
+                auth_signer,
             ),
             amount_0,
             amount_1,
@@ -712,7 +754,7 @@ pub mod tegridy_launch {
         // data. Deserializing into `Account<'info, TokenAccount>` instead does not
         // compile here: that type requires the AccountInfo to live for 'info, and
         // an AccountInfo produced inside this function cannot.
-        let lp_ai = ctx.accounts.curve_lp.to_account_info();
+        let lp_ai = ctx.accounts.auth_lp.to_account_info();
         let lp_amount = token::accessor::amount(&lp_ai)?;
         if lp_amount > 0 {
             token::burn(
@@ -721,9 +763,9 @@ pub mod tegridy_launch {
                     token::Burn {
                         mint: ctx.accounts.lp_mint.to_account_info(),
                         from: lp_ai.clone(),
-                        authority: curve_ai.clone(),
+                        authority: auth_ai.clone(),
                     },
-                    signer,
+                    auth_signer,
                 ),
                 lp_amount,
             )?;
@@ -920,14 +962,46 @@ pub struct MigrateToAmm<'info> {
     #[account(address = anchor_spl::token::spl_token::native_mint::ID @ LaunchError::InvalidParameter)]
     pub wsol_mint: Account<'info, Mint>,
 
-    /// The curve's WSOL account — the SOL leg, wrapped in step 1.
+    /// CHECK: Per-launch migration authority — a DATA-LESS PDA, and it must stay
+    /// that way.
+    ///
+    /// It exists because cp-swap's `initialize` needs one account to be both the
+    /// signing `creator` AND the rent `payer` for five `init` accounts. Rent is
+    /// funded through the System program's `CreateAccount`, which requires a
+    /// System-owned payer — and the curve PDA holds `BondingCurve` data, so it is
+    /// owned by this program and can never serve. Making the curve the creator
+    /// failed at runtime with "sum of account balances before and after
+    /// instruction do not match".
+    ///
+    /// A data-less PDA satisfies both: System-owned so it can pay, derived from
+    /// this program so it can sign via seeds. Allocating any data to it would
+    /// break the payer half again.
+    ///
+    /// The alternative — making the arbitrary `payer` signer cp-swap's creator —
+    /// would have an untrusted caller briefly holding the launch's entire
+    /// liquidity in their own token accounts. Atomic, so not exploitable, but not
+    /// a shape worth shipping.
+    #[account(mut, seeds = [MIGRATION_AUTH_SEED, launch_mint.key().as_ref()], bump)]
+    pub migration_authority: UncheckedAccount<'info>,
+
+    /// The SOL leg, wrapped and held by the migration authority so cp-swap sees a
+    /// `creator_token_*` its creator actually owns.
     #[account(
         init_if_needed,
         payer = payer,
         associated_token::mint = wsol_mint,
-        associated_token::authority = curve
+        associated_token::authority = migration_authority
     )]
-    pub curve_wsol: Account<'info, TokenAccount>,
+    pub auth_wsol: Account<'info, TokenAccount>,
+
+    /// The launch-token leg, moved out of the curve vault for the same reason.
+    #[account(
+        init_if_needed,
+        payer = payer,
+        associated_token::mint = launch_mint,
+        associated_token::authority = migration_authority
+    )]
+    pub auth_token: Account<'info, TokenAccount>,
 
     /// CHECK: Receives the LP that is then burned.
     ///
@@ -942,10 +1016,10 @@ pub struct MigrateToAmm<'info> {
     ///   2. cp-swap `init`s `creator_lp_token` itself (initialize.rs:96-104,
     ///      `payer = creator`), so creating it here would collide anyway.
     ///
-    /// It is therefore created BY the CPI and deserialized afterwards to read the
-    /// balance for the burn.
+    /// It is therefore created BY the CPI and read afterwards for the burn. Owned
+    /// by the migration authority, since that is cp-swap's creator.
     #[account(mut)]
-    pub curve_lp: UncheckedAccount<'info>,
+    pub auth_lp: UncheckedAccount<'info>,
 
     // ── cp-swap ──────────────────────────────────────────────────────────────
     /// CHECK: matched against `global.cp_swap_program` in the handler.

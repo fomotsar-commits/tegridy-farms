@@ -4,6 +4,19 @@ use anchor_lang::prelude::*;
 pub const GLOBAL_SEED: &[u8] = b"global";
 pub const CURVE_SEED: &[u8] = b"curve";
 pub const VAULT_SEED: &[u8] = b"vault";
+/// Seed for the per-launch migration authority.
+///
+/// This PDA is deliberately DATA-LESS, which makes it System-owned — and that is
+/// the whole point. cp-swap's `initialize` declares five accounts as `init` with
+/// `payer = creator`, and `init` funds rent through the System program's
+/// `CreateAccount`, which requires a System-owned payer. The curve PDA holds
+/// `BondingCurve` data, so it is owned by THIS program and can never be that
+/// payer. An earlier version made the curve the creator and failed at runtime with
+/// "sum of account balances before and after instruction do not match".
+///
+/// A data-less PDA can do both jobs: sign via seeds (it is derived from this
+/// program) and pay rent (it is System-owned). Never allocate data to it.
+pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
 
 /// Protocol-wide configuration. One per program, PDA at [`GLOBAL_SEED`].
 ///
