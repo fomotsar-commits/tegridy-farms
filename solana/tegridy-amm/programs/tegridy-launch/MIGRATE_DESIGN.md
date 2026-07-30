@@ -101,6 +101,14 @@ withholding tokens from the pool or topping up SOL from somewhere. Both are wors
 than a one-off price step at graduation, and both are harder to explain honestly
 on a Fact Sheet. A visible discontinuity beats an invisible subsidy.
 
+**Superseded in part by decision 10 — read them together.** Depositing as-is is
+still correct, but "a one-off price step" understated it: at the parameters this
+repo actually shipped the step was ~7x, which is not a step anyone would accept.
+Decision 10 removes it WITHOUT changing what gets deposited, by constraining the
+CONFIGURATION so that the curve's final price and the pool's opening price coincide.
+So the deposit rule here stands; what changed is that a configuration producing a
+large step is now rejected up front.
+
 ### 4. Replay safety and observability — RESOLVED
 
 `BondingCurve` gains `pool: Pubkey` and sets `complete = true` **in the same
@@ -230,50 +238,58 @@ The rehearsal prints the measured value on every run and asserts it stays under
 the limit, so an inflating change shows up as a number moving rather than as a
 mainnet failure.
 
-### 10. ⚠️ THE GRADUATION TARGET IS NOT A FREE PARAMETER — OPERATOR DECISION OPEN
+### 10. Graduation price continuity — ENFORCED (operator chose the band)
 
 The curve prices on **virtual + real** reserves; the pool is seeded with **real**
-reserves only (`graduation_target` SOL against `real_token_reserves`). Those two
-prices agree only for one particular target, given the virtual reserves and supply.
+reserves only (`graduation_target` SOL against every unsold token). Those two prices
+coincide for exactly one target, and away from it the token GAPS the moment it lists.
 
-Let `Vs` = initial_virtual_sol, `Vt` = initial_virtual_token, `S` = token_total_supply,
-`T` = graduation_target. With `sold = Vt·T/(Vs+T)`:
+With `Vs` = initial_virtual_sol, `Vt` = initial_virtual_token, `S` = supply,
+`T` = target, `R` = migration_reserve, and `k = Vs·(Vt + S)`:
 
-- curve price at graduation = `(Vs+T) / (Vt − sold)`
-- pool price at listing = `T / (S − sold)`
+- at migration the curve has taken in `T + R`, so `x = Vs + T + R` and `y = k/x`
+- unsold tokens (all deposited) = `y − Vt`
+- curve final price = `x/y`; pool opening price = `T/(y − Vt)`
 
 They are equal exactly when
 
-> **S·(Vs+T)² = Vt·T·(2·Vs+T)**
+> **(Vs + T + R)² · Vt = Vs · (Vt + S) · (Vs + R)**
 
-pump.fun's canonical parameters satisfy this to 0.002% — that is why its listings do
-not gap. Measured:
+`curve::continuity_target` solves this for `T`; `curve::graduation_price_ratio_bps`
+reports the ratio in bps (10,000 = perfect). `initialize_global` and `update_global`
+both reject anything outside **±5%** (`PRICE_CONTINUITY_BAND_BPS`), via one shared
+helper so the two can never drift apart.
 
-| parameters | pool ÷ curve price |
+**The reserve counts.** It is raised from traders on top of the target, so the curve
+keeps selling while it accrues — but only the target is deposited. A check that
+ignored it would misprice every launch that uses one.
+
+⚠️ **Corrected 2026-07-30.** An earlier revision of this section gave
+`S(Vs+T)² = Vt·T·(2Vs+T)` and claimed the matching target was 85 SOL. That was
+pump.fun's invariant for pump.fun's curve, where virtual tokens deplete FROM `Vt`.
+This program's `effective_tokens` is `virtual + real`, so tokens deplete TOWARD `Vt`
+— a different curve with a different answer. The error surfaced because the wrong
+formula demanded an 85 SOL target while `max_reachable_real_sol` capped the same
+config at 27.96 SOL: two checks that could never both pass. Measured figures:
+
+| configuration | pool ÷ curve price |
 | --- | --- |
-| pump.fun canonical (Vs=30, Vt=1.073e9, S=1e9, T=85) | 0.9999 ✅ |
-| **this repo's rehearsal (same reserves, T=2 SOL)** | **0.0674 ❌** |
+| 30 virtual SOL, 2 SOL target (what this repo shipped) | 0.1395 ❌ ~7x drop at listing |
+| 30 virtual SOL, 11.5446 SOL target, 0.5 reserve | 0.9999 ✅ |
+| 5.329495216 virtual SOL, 2 SOL target, 0.25 reserve | 0.9999 ✅ |
 
-So a launch configured with the rehearsal's target would **list at 6.7% of the price
-its last curve buyer paid** — an instant ~15× drop that is indistinguishable from a
-rug to everyone holding it. The program does NOT currently check this.
+**The band is not restrictive**, which is why enforcing was the right call: the
+continuity target is proportional to `Vs`, so ANY target stays reachable by scaling
+the opening book with it. That is also why `initial_virtual_sol` is settable in
+`update_global` — without it the target could never be changed once set, because
+every other value would gap. Each launch snapshots its own virtual reserves at
+`create_launch`, so retuning moves future launches only and can never reprice a live
+curve.
 
-Our `V_SOL`/`V_TOK`/`SUPPLY` are pump.fun's numbers scaled for decimals, so solving
-the invariant for them gives **T = 85.0164 SOL**. The rehearsal deliberately uses
-2 SOL so a test can buy the curve out quickly — which means **the rehearsal's
-economics are not representative, and a green run is not an endorsement of its
-parameters.**
-
-**Open decision for the operator**, because it constrains what launches may be
-configured rather than fixing a defect:
-- (a) enforce a price-continuity band in `initialize_global`/`update_global` and
-  reject configurations outside it (safest for buyers, removes operator freedom, and
-  requires the rehearsal to move to an 85 SOL target); or
-- (b) leave it unenforced and treat the invariant as a documented configuration
-  requirement, publishing the resulting listing price on the Fact Sheet so buyers can
-  see the step before they buy.
-
-Do not ship a mainnet configuration without choosing one.
+⚠️ **Take the number from `continuity_target`, do not round it.** A ±5% band on
+PRICE is only about ±0.7% on the TARGET. Both test suites now use exact continuity
+values, and the rehearsal is finally economically representative rather than merely
+fast.
 
 ### 11. A dust `sell` can stall migration — accepted
 
