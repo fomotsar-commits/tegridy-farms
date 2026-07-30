@@ -99,9 +99,7 @@ someone else's pool.
 
 ---
 
-## The one genuine product decision left
-
-### LP-token custody — NEEDS AN OWNER DECISION
+### 6. LP-token custody — RESOLVED: **BURN** (operator decision, 2026-07-29)
 
 cp-swap mints LP tokens to `creator_lp_token`, an account owned by the curve PDA.
 Three options, and they are materially different promises:
@@ -112,29 +110,47 @@ Three options, and they are materially different promises:
 | **Hold in the curve PDA forever** | Functionally locked, but a future program upgrade could move it | Weaker than burning, and only as trustworthy as the upgrade authority |
 | **Transfer to the launch creator** | Creator can withdraw the pool's liquidity | This is a rug vector. Do not do this without saying so extremely loudly. |
 
-**Recommendation: burn.** It matches what the EVM leg does (`TegridyFeeLocker`
-with `unlockDate == 0` is permanent and has no release path), it is the only
-option that survives an upgrade-authority compromise, and it is the only one that
-makes a "liquidity locked" Fact Sheet claim unconditionally true.
+**Chosen: burn.** It matches the EVM leg (`TegridyFeeLocker` with
+`unlockDate == 0` is permanent and has no release path), it is the only option
+that survives an upgrade-authority compromise, and the only one that makes a
+"liquidity locked" Fact Sheet claim unconditionally true. It forecloses ever
+reclaiming that capital — an accepted cost, not an oversight.
 
-But it forecloses ever reclaiming that capital, so it is the operator's call, not
-mine.
+Implemented with a follow-up assertion that the LP balance is ZERO after the burn.
+A silently-partial burn would leave the published claim false while looking fine.
 
 ---
 
-## Why the code is not written yet
+## Implemented — and one runtime-only bug found while doing it
 
-Two reasons, both about verification rather than effort:
+`migrate_to_amm` is written and type-checks on both build profiles. Order inside
+the single instruction: verify readiness and that the supplied cp-swap program +
+AmmConfig match `GlobalConfig`; check the lamport budget covers deposit + reserve
+BEFORE anything moves; wrap to WSOL and `sync_native`; sort mints; CPI
+`initialize` with the curve PDA signing; burn the LP and assert zero; set
+`complete` + `pool`.
 
-1. **The decisions above change the account layout and the state struct.** Writing
-   the CPI first would mean rewriting it.
-2. **This box cannot run any Solana runtime** — `cargo build-sbf` and
-   `solana-test-validator` both fail with `os error 1314`, and
-   `solana-program-test` / `litesvm` both fail building `openssl-sys`. A
-   20-account fund-moving CPI written with no way to execute it is precisely how
-   the `graduate` bug shipped.
+**The bug worth remembering:** the first version wrapped the SOL leg with
+`anchor_lang::system_program::transfer` from the curve PDA. That can never work —
+the System program requires the SOURCE account to be System-owned, and the curve
+PDA holds this program's data, so it is owned by us. It would have failed at
+runtime on every single migration, and **`cargo check` accepted it without
+complaint**. Fixed to direct lamport manipulation (debit an account you own,
+credit any account), the same pattern `sell` uses.
 
-The state and config groundwork the resolved decisions imply is being added now,
-so that when the CPI is written it is a mechanical translation of this document
-rather than design-on-the-fly. The CPI itself wants either Developer Mode enabled
-locally or a devnet rehearsal in CI before it is trusted with funds.
+That is the second runtime-only defect on this instruction found by reading
+mechanics rather than by tooling — the first being the unbudgeted
+`create_pool_fee`. Treat that as the standing argument for the point below.
+
+## Still not runtime-executed
+
+This box cannot run any Solana runtime: `cargo build-sbf` and
+`solana-test-validator` both fail with `os error 1314`, and
+`solana-program-test` / `litesvm` both fail building `openssl-sys`. Devnet RPC IS
+reachable from here, so a devnet rehearsal is viable; CI's Ubuntu runner can also
+host a local validator.
+
+**Do not trust this instruction with funds until it has been executed end to end**
+— curve created, bought to target, migrated, pool inspected, LP supply confirmed
+zero. Type-checking has now twice failed to catch a defect that a single run
+would have.

@@ -33,6 +33,14 @@ pub enum LaunchError {
     NotDeployAuthority,
     #[msg("Graduation target exceeds the most SOL this curve could ever hold")]
     GraduationTargetUnreachable,
+    #[msg("cp-swap program or AmmConfig is not configured yet")]
+    AmmNotConfigured,
+    #[msg("Supplied cp-swap program or AmmConfig does not match the configured one")]
+    AmmMismatch,
+    #[msg("Curve holds too few lamports to fund migration")]
+    MigrationReserveTooLow,
+    #[msg("LP tokens were not fully burned — liquidity would not be permanently locked")]
+    LpNotBurned,
 }
 
 /// Lift a pure-curve error into the program's error space.

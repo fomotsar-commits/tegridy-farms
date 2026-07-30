@@ -37,17 +37,24 @@
 //!    cared to call it. That instruction has been REMOVED. Nothing may set
 //!    `complete` until it can move the liquidity in the same breath.
 //!
-//! ## Not yet implemented: `migrate_to_amm`
+//! 6. **LP tokens are BURNED at migration.** Operator decision, 2026-07-29. It is
+//!    the only option that makes "liquidity permanently locked" unconditionally
+//!    true: holding the LP in the curve PDA leaves it reachable by a program
+//!    upgrade, and handing it to the creator is a rug vector. Burning forecloses
+//!    ever reclaiming that capital — accepted cost, not an oversight.
 //!
-//! The instruction that CPIs into `raydium_cp_swap::initialize` to open the pool,
-//! seeds it with the curve's reserves, and sets `complete` — **all in one
-//! instruction**, for the reason in point 5. It is the highest-risk code in this
-//! program: it moves the entire raised balance at once and, unlike the AMM it
-//! calls into, has no audited upstream to diff against.
+//! ## `migrate_to_amm` — the highest-risk instruction here
 //!
-//! Until it lands, a curve can be bought and sold but never closed. That is the
-//! correct failure mode: a launch that cannot finish is recoverable, a launch
-//! whose funds are locked is not.
+//! CPIs `raydium_cp_swap::initialize` to open the pool, seeds it, burns the LP,
+//! and sets `complete` + `pool` — **all in one instruction**, per point 5. It
+//! moves the entire raised balance at once and, unlike the AMM it calls into, has
+//! no audited upstream to diff against. See MIGRATE_DESIGN.md for every decision
+//! behind it, with the cp-swap facts marked VERIFIED against source.
+//!
+//! It depends on `raydium-cp-swap` with the `cpi` feature so the 20-account call
+//! is type-checked rather than a hand-packed `invoke_signed`. That does not touch
+//! the fork's audit story — `diff-guard` compares `programs/cp-swap/src` against
+//! pinned upstream, and depending on a crate does not modify it.
 //!
 //! ## Constraints that are not negotiable
 //!
@@ -68,6 +75,7 @@
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, MintTo, SetAuthority, Token, TokenAccount, Transfer};
 use anchor_spl::token::spl_token::instruction::AuthorityType;
 
@@ -509,6 +517,222 @@ pub mod tegridy_launch {
         Ok(())
     }
 
+    /// Graduate the curve into a Tegridy CP-AMM pool and BURN the LP.
+    ///
+    /// This is the single most dangerous instruction in the program: it moves the
+    /// entire raised balance and closes the curve. Everything about it is designed
+    /// so that either it all happens or none of it does.
+    ///
+    /// ## Why LP is burned
+    ///
+    /// Operator decision, 2026-07-29. Burning is the only option that makes a
+    /// "liquidity permanently locked" claim unconditionally TRUE: holding the LP
+    /// in the curve PDA leaves it reachable by a future program upgrade, and
+    /// handing it to the creator is a rug vector. Burned LP survives even an
+    /// upgrade-authority compromise. It also forecloses ever reclaiming that
+    /// capital — that is the accepted cost, not an oversight.
+    ///
+    /// ## Why `complete` is set HERE and nowhere else
+    ///
+    /// `buy` and `sell` both require `!complete`, and `sell` is the only exit for
+    /// SOL. A removed `graduate` instruction set the flag on its own and stranded
+    /// every lamport of any launch that called it. A flag that closes the only
+    /// exit must be written by the instruction that opens the new one — so this
+    /// one, atomically with the pool being seeded.
+    ///
+    /// ## Permissionless, deliberately
+    ///
+    /// Takes no caller-chosen parameters, pays the caller nothing, and has exactly
+    /// one legal outcome once the target is met. The `payer` funds account rent
+    /// and is the only thing a caller contributes. Unlike the removed `graduate`,
+    /// the outcome here is the DESIRED one, so anyone pushing a qualifying curve
+    /// over the line is doing the protocol a favour.
+    pub fn migrate_to_amm(ctx: Context<MigrateToAmm>) -> Result<()> {
+        let g = &ctx.accounts.global;
+        require!(!g.paused, LaunchError::Paused);
+
+        // The AmmConfig is created by a cp-swap admin action AFTER this program
+        // deploys, so both may legitimately be zero for a while. Refuse to run
+        // rather than graduate into address(0).
+        require!(
+            g.cp_swap_program != Pubkey::default() && g.amm_config != Pubkey::default(),
+            LaunchError::AmmNotConfigured
+        );
+        // Verify what we were HANDED against what was CONFIGURED. Without this a
+        // caller substitutes a hostile AMM and the launch graduates into someone
+        // else's pool with our liquidity.
+        require!(
+            ctx.accounts.cp_swap_program.key() == g.cp_swap_program
+                && ctx.accounts.amm_config.key() == g.amm_config,
+            LaunchError::AmmMismatch
+        );
+
+        let curve = &ctx.accounts.curve;
+        require!(!curve.complete, LaunchError::AlreadyComplete);
+        require!(
+            curve.real_sol_reserves >= curve.graduation_target_lamports,
+            LaunchError::NotReadyToGraduate
+        );
+
+        let deposit_lamports = curve.graduation_target_lamports;
+        let deposit_tokens = curve.real_token_reserves;
+        let mint_key = curve.mint;
+        let curve_bump = curve.bump;
+
+        // The curve PDA must retain enough lamports beyond the deposit to cover
+        // cp-swap's create_pool_fee (charged as a NATIVE SOL transfer from the
+        // creator, initialize.rs:318-325) plus rent on five accounts it creates.
+        // Checked BEFORE anything moves: discovering the shortfall mid-migration
+        // would leave the curve half-graduated.
+        let curve_ai = ctx.accounts.curve.to_account_info();
+        let rent_floor = Rent::get()?.minimum_balance(curve_ai.data_len());
+        let spendable = curve_ai
+            .lamports()
+            .checked_sub(rent_floor)
+            .ok_or(LaunchError::InsufficientRentExemptBalance)?;
+        require!(
+            spendable >= deposit_lamports.checked_add(g.migration_reserve_lamports).ok_or(LaunchError::Overflow)?,
+            LaunchError::MigrationReserveTooLow
+        );
+
+        let seeds: &[&[u8]] = &[CURVE_SEED, mint_key.as_ref(), &[curve_bump]];
+        let signer: &[&[&[u8]]] = &[seeds];
+
+        // ── 1. Wrap the deposit into WSOL ────────────────────────────────────
+        // cp-swap takes both legs as TokenAccounts; our SOL leg is raw lamports.
+        //
+        // NOT a system_program::transfer. The System program requires the SOURCE
+        // account to be System-owned, and the curve PDA holds this program's data
+        // so it is owned by US — a system transfer from it fails at runtime, every
+        // time. (`cargo check` accepts it happily, which is exactly why this
+        // comment exists.) Move the lamports directly instead, the same way `sell`
+        // pays out: a program may debit only accounts it owns, and may credit any
+        // account, so debit-curve + credit-WSOL is permitted.
+        let wsol_ai = ctx.accounts.curve_wsol.to_account_info();
+        **curve_ai.try_borrow_mut_lamports()? = curve_ai
+            .lamports()
+            .checked_sub(deposit_lamports)
+            .ok_or(LaunchError::Overflow)?;
+        **wsol_ai.try_borrow_mut_lamports()? = wsol_ai
+            .lamports()
+            .checked_add(deposit_lamports)
+            .ok_or(LaunchError::Overflow)?;
+
+        // Lamports alone do not make a WSOL balance — sync_native is what turns
+        // the account's lamports into its token amount. Without it cp-swap would
+        // see a zero-balance token account and seed the pool with nothing.
+        token::sync_native(CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::SyncNative {
+                account: wsol_ai.clone(),
+            },
+        ))?;
+
+        // ── 2. Sort the mints ────────────────────────────────────────────────
+        // cp-swap CONSTRAINS token_0_mint < token_1_mint, so getting this backwards
+        // is a hard revert. Amounts and accounts must travel with their mint.
+        let wsol_is_0 = ctx.accounts.wsol_mint.key() < ctx.accounts.launch_mint.key();
+        let (amount_0, amount_1) = if wsol_is_0 {
+            (deposit_lamports, deposit_tokens)
+        } else {
+            (deposit_tokens, deposit_lamports)
+        };
+
+        // ── 3. Open + seed the pool ──────────────────────────────────────────
+        let cpi_accounts = raydium_cp_swap::cpi::accounts::Initialize {
+            creator: curve_ai.clone(),
+            amm_config: ctx.accounts.amm_config.to_account_info(),
+            authority: ctx.accounts.amm_authority.to_account_info(),
+            pool_state: ctx.accounts.pool_state.to_account_info(),
+            token_0_mint: if wsol_is_0 {
+                ctx.accounts.wsol_mint.to_account_info()
+            } else {
+                ctx.accounts.launch_mint.to_account_info()
+            },
+            token_1_mint: if wsol_is_0 {
+                ctx.accounts.launch_mint.to_account_info()
+            } else {
+                ctx.accounts.wsol_mint.to_account_info()
+            },
+            lp_mint: ctx.accounts.lp_mint.to_account_info(),
+            creator_token_0: if wsol_is_0 {
+                ctx.accounts.curve_wsol.to_account_info()
+            } else {
+                ctx.accounts.curve_vault.to_account_info()
+            },
+            creator_token_1: if wsol_is_0 {
+                ctx.accounts.curve_vault.to_account_info()
+            } else {
+                ctx.accounts.curve_wsol.to_account_info()
+            },
+            creator_lp_token: ctx.accounts.curve_lp.to_account_info(),
+            token_0_vault: ctx.accounts.token_0_vault.to_account_info(),
+            token_1_vault: ctx.accounts.token_1_vault.to_account_info(),
+            create_pool_fee: ctx.accounts.create_pool_fee.to_account_info(),
+            observation_state: ctx.accounts.observation_state.to_account_info(),
+            token_program: ctx.accounts.token_program.to_account_info(),
+            token_0_program: ctx.accounts.token_program.to_account_info(),
+            token_1_program: ctx.accounts.token_program.to_account_info(),
+            associated_token_program: ctx.accounts.associated_token_program.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+            rent: ctx.accounts.rent.to_account_info(),
+        };
+        raydium_cp_swap::cpi::initialize(
+            CpiContext::new_with_signer(
+                ctx.accounts.cp_swap_program.to_account_info(),
+                cpi_accounts,
+                signer,
+            ),
+            amount_0,
+            amount_1,
+            // Open immediately. A future open_time would leave the pool
+            // un-tradeable while the curve is already closed — a dead window with
+            // no exit, which is the failure mode this program keeps guarding.
+            0,
+        )?;
+
+        // ── 4. BURN the LP ───────────────────────────────────────────────────
+        ctx.accounts.curve_lp.reload()?;
+        let lp_amount = ctx.accounts.curve_lp.amount;
+        if lp_amount > 0 {
+            token::burn(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    token::Burn {
+                        mint: ctx.accounts.lp_mint.to_account_info(),
+                        from: ctx.accounts.curve_lp.to_account_info(),
+                        authority: curve_ai.clone(),
+                    },
+                    signer,
+                ),
+                lp_amount,
+            )?;
+        }
+        // Assert the burn actually emptied it. "Liquidity permanently locked" is a
+        // published claim; leaving any LP behind would make it false, and a
+        // silently-partial burn is exactly the kind of thing nobody notices.
+        ctx.accounts.curve_lp.reload()?;
+        require!(ctx.accounts.curve_lp.amount == 0, LaunchError::LpNotBurned);
+
+        // ── 5. Close the curve, atomically with all of the above ─────────────
+        let pool = ctx.accounts.pool_state.key();
+        let curve = &mut ctx.accounts.curve;
+        curve.real_sol_reserves = curve
+            .real_sol_reserves
+            .checked_sub(deposit_lamports)
+            .ok_or(LaunchError::Overflow)?;
+        curve.real_token_reserves = 0;
+        curve.complete = true;
+        curve.pool = pool;
+
+        emit!(Graduated {
+            mint: mint_key,
+            sol_reserves: deposit_lamports,
+            token_reserves: deposit_tokens,
+        });
+        Ok(())
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // `graduate` REMOVED — it was a permissionless total-loss bug.
     //
@@ -631,6 +855,99 @@ pub struct CreateLaunch<'info> {
     pub curve_vault: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+/// Accounts for [`tegridy_launch::migrate_to_amm`].
+///
+/// Large because cp-swap's `initialize` takes 20 accounts and we must forward all
+/// of them. The PDAs cp-swap derives itself (pool_state, vaults, lp_mint,
+/// observation_state, its authority) are passed as `UncheckedAccount` — cp-swap
+/// validates each against its own seeds, so re-deriving them here would duplicate
+/// its logic with no added safety and a real chance of drifting from it.
+#[derive(Accounts)]
+pub struct MigrateToAmm<'info> {
+    /// Funds rent for the accounts created along the way. Any caller may pay;
+    /// this is the only thing a caller contributes and it buys them nothing.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
+    pub global: Account<'info, GlobalConfig>,
+
+    pub launch_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [CURVE_SEED, launch_mint.key().as_ref()],
+        bump = curve.bump,
+        constraint = curve.mint == launch_mint.key() @ LaunchError::InvalidParameter
+    )]
+    pub curve: Account<'info, BondingCurve>,
+
+    /// The curve's token vault — becomes cp-swap's `creator_token_*` for the
+    /// launch-token leg.
+    #[account(
+        mut,
+        seeds = [VAULT_SEED, launch_mint.key().as_ref()],
+        bump,
+        constraint = curve_vault.mint == launch_mint.key() @ LaunchError::InvalidParameter
+    )]
+    pub curve_vault: Account<'info, TokenAccount>,
+
+    /// Native mint. Address-checked so a fake "WSOL" cannot be substituted.
+    #[account(address = anchor_spl::token::spl_token::native_mint::ID @ LaunchError::InvalidParameter)]
+    pub wsol_mint: Account<'info, Mint>,
+
+    /// The curve's WSOL account — the SOL leg, wrapped in step 1.
+    #[account(
+        init_if_needed,
+        payer = payer,
+        associated_token::mint = wsol_mint,
+        associated_token::authority = curve
+    )]
+    pub curve_wsol: Account<'info, TokenAccount>,
+
+    /// Receives the LP that is then burned. Owned by the curve so the curve can
+    /// authorize the burn.
+    #[account(
+        init_if_needed,
+        payer = payer,
+        associated_token::mint = lp_mint,
+        associated_token::authority = curve
+    )]
+    pub curve_lp: Account<'info, TokenAccount>,
+
+    // ── cp-swap ──────────────────────────────────────────────────────────────
+    /// CHECK: matched against `global.cp_swap_program` in the handler.
+    pub cp_swap_program: UncheckedAccount<'info>,
+    /// CHECK: matched against `global.amm_config` in the handler.
+    pub amm_config: UncheckedAccount<'info>,
+    /// CHECK: cp-swap's vault/LP-mint authority PDA; it validates its own seeds.
+    pub amm_authority: UncheckedAccount<'info>,
+    /// CHECK: cp-swap `init`s and validates this.
+    #[account(mut)]
+    pub pool_state: UncheckedAccount<'info>,
+    /// CHECK: cp-swap `init`s and validates this.
+    #[account(mut)]
+    pub lp_mint: UncheckedAccount<'info>,
+    /// CHECK: cp-swap `init`s and validates this.
+    #[account(mut)]
+    pub token_0_vault: UncheckedAccount<'info>,
+    /// CHECK: cp-swap `init`s and validates this.
+    #[account(mut)]
+    pub token_1_vault: UncheckedAccount<'info>,
+    /// CHECK: cp-swap constrains this to its own `create_pool_fee_reveiver::ID`,
+    /// so we cannot redirect the fee even if we wanted to.
+    #[account(mut)]
+    pub create_pool_fee: UncheckedAccount<'info>,
+    /// CHECK: cp-swap `init`s and validates this.
+    #[account(mut)]
+    pub observation_state: UncheckedAccount<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
 }

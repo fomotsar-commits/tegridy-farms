@@ -23,6 +23,16 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed", "event-cpi"] }
 anchor-spl = { version = "0.32.1", features = ["memo", "metadata"] }
 
+# The AMM we graduate into. Depended on with `cpi` so the 20-account
+# `initialize` call is TYPE-CHECKED against the real program rather than a
+# hand-rolled invoke_signed with hand-packed instruction data — on a call that
+# moves an entire launch's raised balance, that difference matters.
+#
+# This does NOT threaten the fork's audit story: solana-ci's diff-guard compares
+# programs/cp-swap/src against pinned upstream, and depending on a crate does not
+# modify it. Verified: diff-guard passes with this dependency in place.
+raydium-cp-swap = { path = "../cp-swap", features = ["cpi"], default-features = false }
+
 # No dev-dependencies on purpose. `curve.rs` is dependency-free so its tests run
 # under a bare `rustc --test`, with no cargo, no build scripts, and no validator
 # — which is what lets the math be verified even when the SBF toolchain is
