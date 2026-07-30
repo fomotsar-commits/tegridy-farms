@@ -682,6 +682,21 @@ pub mod tegridy_launch {
         ];
         let auth_signer: &[&[&[u8]]] = &[auth_seeds];
 
+        // The pool address is ours and we must SIGN for it, because it is not
+        // cp-swap's canonical derivation — that is what makes it un-occupiable. See
+        // [`LAUNCH_POOL_SEED`]. cp-swap's `create_or_allocate_account` signs the
+        // System `CreateAccount` with the canonical seeds, which do not match this
+        // address; the call still succeeds because System requires the NEW ACCOUNT to
+        // sign and that privilege propagates down from this `invoke_signed`. Drop
+        // these seeds and cp-swap's `require_eq!(pool_state.is_signer, true)` rejects
+        // the migration.
+        let pool_seeds: &[&[u8]] = &[
+            LAUNCH_POOL_SEED,
+            mint_key.as_ref(),
+            &[ctx.bumps.pool_state],
+        ];
+        let init_signer: &[&[&[u8]]] = &[auth_seeds, pool_seeds];
+
         let move_lamports = deposit_lamports
             .checked_add(reserve_lamports)
             .ok_or(LaunchError::Overflow)?;
@@ -853,7 +868,7 @@ pub mod tegridy_launch {
             CpiContext::new_with_signer(
                 ctx.accounts.cp_swap_program.to_account_info(),
                 cpi_accounts,
-                auth_signer,
+                init_signer,
             ),
             amount_0,
             amount_1,
@@ -1144,8 +1159,20 @@ pub struct MigrateToAmm<'info> {
     pub amm_config: UncheckedAccount<'info>,
     /// CHECK: cp-swap's vault/LP-mint authority PDA; it validates its own seeds.
     pub amm_authority: UncheckedAccount<'info>,
-    /// CHECK: cp-swap `init`s and validates this.
-    #[account(mut)]
+    /// CHECK: created by cp-swap, but at an address THIS program owns and signs for.
+    ///
+    /// Deliberately NOT cp-swap's canonical
+    /// [POOL_SEED, amm_config, token_0_mint, token_1_mint] derivation. That address
+    /// is reachable by anyone — cp-swap's `initialize` is permissionless and
+    /// `create_pool` refuses a `pool_state` that is already owned by cp-swap
+    /// (initialize.rs:372-374), so occupying it bricks a launch's graduation
+    /// permanently. cp-swap's own second branch accepts a non-canonical
+    /// `pool_state` that signs (initialize.rs:386-388), and only this program can
+    /// sign for this PDA. See [`LAUNCH_POOL_SEED`].
+    ///
+    /// Constrained here rather than left free so the CALLER cannot choose where a
+    /// launch's liquidity lands either.
+    #[account(mut, seeds = [LAUNCH_POOL_SEED, launch_mint.key().as_ref()], bump)]
     pub pool_state: UncheckedAccount<'info>,
     /// CHECK: cp-swap `init`s and validates this.
     #[account(mut)]

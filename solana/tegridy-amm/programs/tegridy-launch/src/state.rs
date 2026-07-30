@@ -11,12 +11,35 @@ pub const VAULT_SEED: &[u8] = b"vault";
 /// `payer = creator`, and `init` funds rent through the System program's
 /// `CreateAccount`, which requires a System-owned payer. The curve PDA holds
 /// `BondingCurve` data, so it is owned by THIS program and can never be that
-/// payer. An earlier version made the curve the creator and failed at runtime with
-/// "sum of account balances before and after instruction do not match".
+/// payer. An earlier version made the curve the creator and failed at runtime on
+/// the System program's "`from` must not carry data" check.
 ///
 /// A data-less PDA can do both jobs: sign via seeds (it is derived from this
-/// program) and pay rent (it is System-owned). Never allocate data to it.
+/// program) and pay rent (it is System-owned). Never allocate data to it — the
+/// reconciliation barrier in `migrate_to_amm` also System-transfers FROM it, so
+/// allocating data breaks two things at once. The handler asserts it.
 pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
+
+/// Seed for the cp-swap pool a launch graduates into.
+///
+/// The pool address is OURS, not cp-swap's canonical derivation, and that is a
+/// security property rather than a preference.
+///
+/// cp-swap's `initialize` is permissionless — its `creator` is documented "Can be
+/// anyone" — and `create_pool` rejects any `pool_state` that is not System-owned
+/// (initialize.rs:372-374). So the canonical pool PDA,
+/// [POOL_SEED, amm_config, token_0_mint, token_1_mint], can be OCCUPIED by anyone:
+/// buy a single token off a curve, wrap dust SOL, call cp-swap directly, and that
+/// launch can never graduate. Not a theft — holders keep selling while `complete`
+/// is false — but a permanent brick for the price of one transaction.
+///
+/// `create_pool` accepts a second shape: a `pool_state` that is not the canonical
+/// PDA but IS a signer (initialize.rs:386-388). Signer privilege propagates through
+/// CPI, so a PDA of THIS program qualifies and nobody else can ever sign for it.
+/// cp-swap then derives `lp_mint`, both vaults and `observation_state` from
+/// whatever `pool_state` it was given, so the whole pool hangs off this seed
+/// consistently.
+pub const LAUNCH_POOL_SEED: &[u8] = b"launchpool";
 
 /// Protocol-wide configuration. One per program, PDA at [`GLOBAL_SEED`].
 ///

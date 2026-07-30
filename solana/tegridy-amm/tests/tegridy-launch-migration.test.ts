@@ -38,6 +38,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccount,
   createMint,
+  createSyncNativeInstruction,
   getAssociatedTokenAddressSync,
   getMint,
   NATIVE_MINT,
@@ -50,6 +51,7 @@ import {
   PublicKey,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
+  Transaction,
 } from "@solana/web3.js";
 import { assert } from "chai";
 import * as fs from "fs";
@@ -63,6 +65,11 @@ const VAULT_SEED = Buffer.from("vault");
 /** Data-less PDA that acts as cp-swap's creator — it must be System-owned to
  *  pay rent for the five accounts cp-swap inits. See MIGRATION_AUTH_SEED. */
 const MIGRATION_AUTH_SEED = Buffer.from("migauth");
+/** The pool address is derived from tegridy-launch, NOT from cp-swap's canonical
+ *  [POOL_SEED, amm_config, mint0, mint1]. cp-swap's initialize is permissionless,
+ *  so the canonical address can be occupied by anyone to brick a graduation; a PDA
+ *  of the launch program cannot. See LAUNCH_POOL_SEED in state.rs. */
+const LAUNCH_POOL_SEED = Buffer.from("launchpool");
 
 // cp-swap seeds — from programs/cp-swap/src/states/{config,pool}.rs and lib.rs.
 const AMM_CONFIG_SEED = Buffer.from("amm_config");
@@ -222,22 +229,88 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     // ── migrate ──────────────────────────────────────────────────────────────
     const migAuth = pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId);
-    const poolState = PublicKey.findProgramAddressSync(
-      [
-        POOL_SEED,
-        ammConfig.toBuffer(),
-        ...(NATIVE_MINT.toBuffer() < launchMint.toBuffer()
-          ? [NATIVE_MINT.toBuffer(), launchMint.toBuffer()]
-          : [launchMint.toBuffer(), NATIVE_MINT.toBuffer()]),
-      ],
-      cpSwap.programId
-    )[0];
+    const poolState = pda([LAUNCH_POOL_SEED, launchMint.toBuffer()], launch.programId);
     const lpMint = pda([POOL_LP_MINT_SEED, poolState.toBuffer()], cpSwap.programId);
     const ammAuthority = pda([AUTH_SEED], cpSwap.programId);
     const [mint0, mint1] =
       NATIVE_MINT.toBuffer() < launchMint.toBuffer()
         ? [NATIVE_MINT, launchMint]
         : [launchMint, NATIVE_MINT];
+
+    // ── ADVERSARIAL PRECONDITION: occupy cp-swap's canonical pool ────────────
+    // cp-swap's `initialize` is permissionless (its `creator` is documented "Can be
+    // anyone") and `create_pool` refuses a `pool_state` that is no longer
+    // System-owned (initialize.rs:372-374). So the canonical
+    // [POOL_SEED, amm_config, mint0, mint1] address is a PUBLIC BRICK: buy one token
+    // off a curve, wrap dust SOL, create that pool, and the launch could never
+    // graduate. `migrate_to_amm` therefore graduates into a PDA of the LAUNCH
+    // program, which nobody else can sign for.
+    //
+    // Occupying the canonical address here is the whole point of this block: if the
+    // pool derivation ever reverts to cp-swap's canonical one, this test reverts
+    // with NotApproved instead of the defect reaching mainnet.
+    const squattedPool = PublicKey.findProgramAddressSync(
+      [POOL_SEED, ammConfig.toBuffer(), mint0.toBuffer(), mint1.toBuffer()],
+      cpSwap.programId
+    )[0];
+    {
+      // The squatter needs both legs: launch tokens (already bought off the curve
+      // above) and a little wrapped SOL.
+      const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, wallet.publicKey);
+      await provider.sendAndConfirm(
+        new Transaction()
+          .add(
+            SystemProgram.transfer({
+              fromPubkey: wallet.publicKey,
+              toPubkey: wsolAta,
+              lamports: LAMPORTS_PER_SOL / 100,
+            })
+          )
+          .add(createSyncNativeInstruction(wsolAta)),
+        []
+      );
+      const squattedLp = pda([POOL_LP_MINT_SEED, squattedPool.toBuffer()], cpSwap.programId);
+      await cpSwap.methods
+        .initialize(new BN(1_000_000), new BN(1_000_000), new BN(0))
+        .accountsPartial({
+          creator: wallet.publicKey,
+          ammConfig,
+          authority: ammAuthority,
+          poolState: squattedPool,
+          token0Mint: mint0,
+          token1Mint: mint1,
+          lpMint: squattedLp,
+          creatorToken0: getAssociatedTokenAddressSync(mint0, wallet.publicKey),
+          creatorToken1: getAssociatedTokenAddressSync(mint1, wallet.publicKey),
+          creatorLpToken: getAssociatedTokenAddressSync(squattedLp, wallet.publicKey),
+          token0Vault: pda(
+            [POOL_VAULT_SEED, squattedPool.toBuffer(), mint0.toBuffer()],
+            cpSwap.programId
+          ),
+          token1Vault: pda(
+            [POOL_VAULT_SEED, squattedPool.toBuffer(), mint1.toBuffer()],
+            cpSwap.programId
+          ),
+          createPoolFee: feeReceiver,
+          observationState: pda([OBSERVATION_SEED, squattedPool.toBuffer()], cpSwap.programId),
+          tokenProgram: TOKEN_PROGRAM_ID,
+          token0Program: TOKEN_PROGRAM_ID,
+          token1Program: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
+      assert.isNotNull(
+        await provider.connection.getAccountInfo(squattedPool),
+        "the canonical pool must really be occupied for this test to prove anything"
+      );
+      assert.notEqual(
+        squattedPool.toBase58(),
+        poolState.toBase58(),
+        "the launch must NOT graduate into the address anyone can occupy"
+      );
+    }
 
     const rentExemptZero = await provider.connection.getMinimumBalanceForRentExemption(0);
     const curveInfoPre = await provider.connection.getAccountInfo(curve);
