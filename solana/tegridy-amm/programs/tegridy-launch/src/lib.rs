@@ -907,6 +907,59 @@ pub mod tegridy_launch {
         let lp_after = token::accessor::amount(&lp_ai)?;
         require!(lp_after == 0, LaunchError::LpNotBurned);
 
+        // ── 5. Return every recoverable lamport to whoever paid for migration ─
+        //
+        // Migration is permissionless and `payer` fronts real money for it: rent on
+        // `auth_wsol` and `auth_token`, plus the authority's rent-exempt floor. The
+        // authority additionally ends up holding however much
+        // `migration_reserve_lamports` over-provisioned cp-swap's real costs.
+        //
+        // None of that is reachable afterwards. Only this program can sign for the
+        // authority, no instruction moves lamports out of a curve once `complete` is
+        // set, and this instruction cannot run twice. So leaving it behind is a
+        // permanent leak — and worse, it means calling this instruction always loses
+        // money, which is a poor foundation for a step anyone is allowed to trigger.
+        //
+        // The closes MUST follow the burn: `auth_lp` has to be empty first, and SPL
+        // Token refuses to close a non-native account holding a balance. They send
+        // rent to `payer` directly, not via the authority, so they do not change what
+        // the sweep below forwards. All four are CPIs and reconcile normally — no
+        // manual lamport mutation survives past the barrier above.
+        for account in [
+            ctx.accounts.auth_wsol.to_account_info(),
+            ctx.accounts.auth_token.to_account_info(),
+            lp_ai.clone(),
+        ] {
+            token::close_account(CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::CloseAccount {
+                    account,
+                    destination: ctx.accounts.payer.to_account_info(),
+                    authority: auth_ai.clone(),
+                },
+                auth_signer,
+            ))?;
+        }
+
+        // Sweeping to zero retires the authority entirely, which is why the
+        // rent-band hazard the seed top-up guards against cannot bite here. Keep
+        // that top-up anyway: it is what makes this safe if the sweep is ever
+        // removed.
+        let residual = auth_ai.lamports();
+        if residual > 0 {
+            system_program::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: auth_ai.clone(),
+                        to: ctx.accounts.payer.to_account_info(),
+                    },
+                    auth_signer,
+                ),
+                residual,
+            )?;
+        }
+
         // ── 5. Close the curve, atomically with all of the above ─────────────
         let pool = ctx.accounts.pool_state.key();
         let curve = &mut ctx.accounts.curve;
@@ -1067,9 +1120,9 @@ pub struct MigrateToAmm<'info> {
     pub payer: Signer<'info>,
 
     #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
-    pub global: Account<'info, GlobalConfig>,
+    pub global: Box<Account<'info, GlobalConfig>>,
 
-    pub launch_mint: Account<'info, Mint>,
+    pub launch_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
@@ -1077,7 +1130,7 @@ pub struct MigrateToAmm<'info> {
         bump = curve.bump,
         constraint = curve.mint == launch_mint.key() @ LaunchError::InvalidParameter
     )]
-    pub curve: Account<'info, BondingCurve>,
+    pub curve: Box<Account<'info, BondingCurve>>,
 
     /// The curve's token vault — becomes cp-swap's `creator_token_*` for the
     /// launch-token leg.
@@ -1087,11 +1140,11 @@ pub struct MigrateToAmm<'info> {
         bump,
         constraint = curve_vault.mint == launch_mint.key() @ LaunchError::InvalidParameter
     )]
-    pub curve_vault: Account<'info, TokenAccount>,
+    pub curve_vault: Box<Account<'info, TokenAccount>>,
 
     /// Native mint. Address-checked so a fake "WSOL" cannot be substituted.
     #[account(address = anchor_spl::token::spl_token::native_mint::ID @ LaunchError::InvalidParameter)]
-    pub wsol_mint: Account<'info, Mint>,
+    pub wsol_mint: Box<Account<'info, Mint>>,
 
     /// CHECK: Per-launch migration authority — a DATA-LESS PDA, and it must stay
     /// that way.
@@ -1123,7 +1176,7 @@ pub struct MigrateToAmm<'info> {
         associated_token::mint = wsol_mint,
         associated_token::authority = migration_authority
     )]
-    pub auth_wsol: Account<'info, TokenAccount>,
+    pub auth_wsol: Box<Account<'info, TokenAccount>>,
 
     /// The launch-token leg, moved out of the curve vault for the same reason.
     #[account(
@@ -1132,7 +1185,7 @@ pub struct MigrateToAmm<'info> {
         associated_token::mint = launch_mint,
         associated_token::authority = migration_authority
     )]
-    pub auth_token: Account<'info, TokenAccount>,
+    pub auth_token: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: Receives the LP that is then burned.
     ///

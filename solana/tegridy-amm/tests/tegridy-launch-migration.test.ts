@@ -190,6 +190,47 @@ describe("tegridy-launch full migration rehearsal", () => {
     const globalKey = pda([GLOBAL_SEED], launch.programId);
     const g: any = await (launch.account as any).globalConfig.fetch(globalKey);
 
+    // ── exercise `sell` once, while the curve is still open ──────────────────
+    // `sell` is the holders' ONLY exit, and it carries the same direct
+    // lamport-mutation idiom as migration — safe there only because no CPI follows
+    // it. Nothing in this repo had ever executed it successfully, which means a
+    // future CPI appended after that mutation would break the exit silently and no
+    // test would notice. Cover it here.
+    const tradeAccounts = {
+      trader: wallet.publicKey,
+      global: globalKey,
+      feeRecipient: g.feeRecipient,
+      mint: launchMint,
+      curve,
+      curveVault,
+      traderTokenAccount: buyerAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    };
+    await launch.methods
+      .buy(new BN(LAMPORTS_PER_SOL).div(new BN(2)), new BN(0))
+      .accountsPartial(tradeAccounts)
+      .rpc();
+    const tokensBeforeSell = BigInt(
+      (await provider.connection.getTokenAccountBalance(buyerAta)).value.amount
+    );
+    assert.isTrue(tokensBeforeSell > 0n, "the buy must have delivered tokens to sell");
+    const curveLamportsBeforeSell = (await provider.connection.getAccountInfo(curve))!.lamports;
+    await launch.methods
+      .sell(new BN((tokensBeforeSell / 4n).toString()), new BN(0))
+      .accountsPartial(tradeAccounts)
+      .rpc();
+    assert.isTrue(
+      BigInt((await provider.connection.getTokenAccountBalance(buyerAta)).value.amount) <
+        tokensBeforeSell,
+      "sell must take tokens from the seller"
+    );
+    assert.isBelow(
+      (await provider.connection.getAccountInfo(curve))!.lamports,
+      curveLamportsBeforeSell,
+      "sell must pay SOL out of the curve"
+    );
+
     // Buy in chunks: a single oversized buy quotes more tokens than the curve holds
     // as REAL reserves (quotes price on virtual+real, pay from real) and is rejected.
     for (let i = 0; i < 24; i++) {
@@ -380,16 +421,33 @@ describe("tegridy-launch full migration rehearsal", () => {
       "the curve must stay rent-exempt or the runtime purges it mid-life"
     );
 
-    // The migration authority is writable, so the SVM verifies its rent-state
-    // transition at end-of-transaction. A residual between 1 lamport and
-    // minimum_balance(0) aborts the whole transaction AFTER the pool was created —
-    // the handler seeds it to the floor precisely to make that unreachable.
+    // ── nothing recoverable is left stranded ─────────────────────────────────
+    // Migration is permissionless, so `payer` fronts rent on two ATAs plus the
+    // authority's floor, and the authority also absorbs whatever the migration
+    // reserve over-provisioned. After migration NONE of it is reachable — only the
+    // program signs for the authority, and a `complete` curve never releases
+    // lamports — so the handler closes the three token accounts and sweeps the
+    // authority to zero. Assert it actually happened: a silent regression here is a
+    // permanent leak and it makes calling this instruction lose money.
     const authInfo = await provider.connection.getAccountInfo(migAuth);
+    assert.isTrue(
+      authInfo === null || authInfo.lamports === 0,
+      `migration authority must be swept to zero, holds ${authInfo?.lamports ?? 0}`
+    );
+    // Belt and braces: had the sweep left a partial balance instead, it would have
+    // to be rent-exempt or the SVM aborts the whole transaction after the pool was
+    // already created.
     if (authInfo !== null && authInfo.lamports > 0) {
-      assert.isAtLeast(
-        authInfo.lamports,
-        rentExemptZero,
-        "migration authority residual must be rent-exempt, not in the rejected band"
+      assert.isAtLeast(authInfo.lamports, rentExemptZero, "residual must be rent-exempt");
+    }
+    for (const [name, addr] of [
+      ["auth_wsol", getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true)],
+      ["auth_token", getAssociatedTokenAddressSync(launchMint, migAuth, true)],
+      ["auth_lp", getAssociatedTokenAddressSync(lpMint, migAuth, true)],
+    ] as [string, PublicKey][]) {
+      assert.isNull(
+        await provider.connection.getAccountInfo(addr),
+        `${name} must be closed so its rent goes back to the caller`
       );
     }
 

@@ -162,16 +162,33 @@ jobs:
         run: |
           set -euo pipefail
           SO=../../target/deploy/tegridy_launch.so
-          cargo build-sbf
+          cargo build-sbf 2>&1 | tee /tmp/sbf-build.log
           if [ ! -f "$SO" ]; then
             echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
-            cargo build-sbf
+            cargo build-sbf 2>&1 | tee -a /tmp/sbf-build.log
           fi
           if [ ! -f "$SO" ]; then
             echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled"
             exit 1
           fi
           ls -l "$SO"
+
+          # ⚠️ SBF gives each function a 4 KB stack frame, and overflowing it is NOT
+          # a compile error. The linker prints a warning, the build "succeeds", and
+          # the program dies at runtime with "Access violation ... at address
+          # 0x4000000000000008". `cargo check` cannot see this at all — it is not an
+          # SBF target.
+          #
+          # This is not hypothetical: adding ONE `seeds` constraint to `pool_state`
+          # pushed `MigrateToAmm::try_accounts` to 4224 bytes and every migration
+          # aborted, while local `cargo check` stayed clean. Fail the build rather
+          # than ship undefined behaviour. The fix is to `Box<Account<'info, T>>` the
+          # deserialized accounts, as cp-swap already does.
+          if grep -q "exceeded max offset" /tmp/sbf-build.log; then
+            echo "::error::SBF stack frame overflow — a function exceeds its 4KB frame. Box large Account<T> fields."
+            grep -B3 "exceeded max offset" /tmp/sbf-build.log || true
+            exit 1
+          fi
 
       # Published so the .so can be pulled down and exercised against a local
       # validator. That is the only way to test the ACCOUNT CONSTRAINTS at
@@ -431,13 +448,25 @@ jobs:
           sed -i "s|^raydium_cp_swap = \".*\"|raydium_cp_swap = \"$CP_ID\"|" Anchor.toml
           sed -i "s|^tegridy_launch = \".*\"|tegridy_launch = \"$TL_ID\"|" Anchor.toml
 
-          anchor build -- --features devnet
+          anchor build -- --features devnet 2>&1 | tee /tmp/anchor-build.log
 
           for P in raydium_cp_swap tegridy_launch; do
             test -f "target/deploy/${P}.so" || { echo "::error::no ${P}.so"; exit 1; }
             test -f "target/idl/${P}.json" || { echo "::error::no ${P} IDL"; exit 1; }
           done
           ls -l target/deploy/*.so
+
+          # An SBF stack-frame overflow is a WARNING here, not an error, and the
+          # program then dies at runtime with "Access violation ... at address
+          # 0x4000000000000008". This build is what produced exactly that on
+          # 2026-07-30, so refuse to run the rehearsal against a binary carrying it —
+          # otherwise the failure shows up as an inscrutable "Program failed to
+          # complete" three steps later. See the same guard in launch-curve.
+          if grep -q "exceeded max offset" /tmp/anchor-build.log; then
+            echo "::error::SBF stack frame overflow — a function exceeds its 4KB frame. Box large Account<T> fields."
+            grep -B3 "exceeded max offset" /tmp/anchor-build.log || true
+            exit 1
+          fi
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile

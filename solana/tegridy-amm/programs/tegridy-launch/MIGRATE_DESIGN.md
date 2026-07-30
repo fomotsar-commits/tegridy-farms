@@ -121,36 +121,81 @@ A silently-partial burn would leave the published claim false while looking fine
 
 ---
 
-## Implemented — and one runtime-only bug found while doing it
+### 7. Pool address — RESOLVED: **our PDA, not cp-swap's canonical one**
 
-`migrate_to_amm` is written and type-checks on both build profiles. Order inside
-the single instruction: verify readiness and that the supplied cp-swap program +
-AmmConfig match `GlobalConfig`; check the lamport budget covers deposit + reserve
-BEFORE anything moves; wrap to WSOL and `sync_native`; sort mints; CPI
-`initialize` with the curve PDA signing; burn the LP and assert zero; set
-`complete` + `pool`.
+`pool_state` is `[b"launchpool", launch_mint]` derived from THIS program, and the
+CPI signs for it.
 
-**The bug worth remembering:** the first version wrapped the SOL leg with
-`anchor_lang::system_program::transfer` from the curve PDA. That can never work —
-the System program requires the SOURCE account to be System-owned, and the curve
-PDA holds this program's data, so it is owned by us. It would have failed at
-runtime on every single migration, and **`cargo check` accepted it without
-complaint**. Fixed to direct lamport manipulation (debit an account you own,
-credit any account), the same pattern `sell` uses.
+cp-swap's `initialize` is permissionless (`creator` is "Can be anyone") and
+`create_pool` refuses a `pool_state` that is no longer System-owned
+(`initialize.rs:372-374`, VERIFIED). So the canonical
+`[POOL_SEED, amm_config, mint0, mint1]` address is a **public brick**: buy one
+token off the curve, wrap dust SOL, call cp-swap directly, and that launch can
+never graduate. Not theft — sells keep working while `complete` is false — but the
+product promise is gone for the price of one transaction.
 
-That is the second runtime-only defect on this instruction found by reading
-mechanics rather than by tooling — the first being the unbudgeted
-`create_pool_fee`. Treat that as the standing argument for the point below.
+cp-swap's own second branch is the fix: a non-canonical `pool_state` is accepted
+provided it SIGNS (`initialize.rs:386-388`, VERIFIED). Signer privilege propagates
+through CPI, so only this program can ever occupy the address. It works despite
+the seeds mismatch because `create_or_allocate_account` signs System's
+`CreateAccount` with the canonical seeds while System only requires the NEW
+ACCOUNT to sign — and that privilege comes down from our `invoke_signed`. A
+dust-funded PDA survives too, via the allocate+assign branch.
 
-## Still not runtime-executed
+Constraining it also stops the CALLER choosing where a launch's liquidity lands.
 
-This box cannot run any Solana runtime: `cargo build-sbf` and
-`solana-test-validator` both fail with `os error 1314`, and
-`solana-program-test` / `litesvm` both fail building `openssl-sys`. Devnet RPC IS
-reachable from here, so a devnet rehearsal is viable; CI's Ubuntu runner can also
-host a local validator.
+### 8. Migration costs — RESOLVED: **reimburse the caller**
 
-**Do not trust this instruction with funds until it has been executed end to end**
-— curve created, bought to target, migrated, pool inspected, LP supply confirmed
-zero. Type-checking has now twice failed to catch a defect that a single run
-would have.
+Migration is permissionless, so `payer` fronts rent for `auth_wsol`/`auth_token`
+plus the authority's rent-exempt floor, and the authority absorbs whatever
+`migration_reserve_lamports` over-provisioned. None of it is reachable afterwards
+(only this program signs for the authority; a `complete` curve never releases
+lamports), so the instruction closes all three token accounts and sweeps the
+authority to zero, destination `payer`. Otherwise every migration is a permanent
+leak AND a guaranteed loss for whoever calls it.
+
+## Implemented and RUNTIME-PROVEN
+
+Green in CI's `migration-rehearsal`: curve created, bought to target, migrated,
+pool inspected, LP supply confirmed zero, plus replay safety and post-migration
+buy/sell refusal. The canonical pool is deliberately OCCUPIED before migrating, so
+a regression to the canonical derivation fails the test.
+
+**Runtime-only defects found on this one instruction — the standing argument for
+never trusting `cargo check` here.** Seven CI iterations, every one a real defect:
+
+1. Unbudgeted `create_pool_fee` (found by reading cp-swap, not by tooling).
+2. Wrapping the SOL leg with `system_program::transfer` FROM the curve PDA. Can
+   never work: System requires a System-owned, data-less source. `cargo check`
+   accepted it.
+3. cp-swap's `creator` must be System-owned for the same reason → the data-less
+   `migration_authority` PDA.
+4. `init_if_needed` on `curve_lp` ran during account validation, before `lp_mint`
+   existed.
+5. A buy cap of `target` alone made `migration_reserve_lamports` unraisable, so
+   every mainnet migration would have failed for want of rent.
+6. Crediting a not-yet-existing account manually.
+7. **The lamport-reconciliation rule.** A `try_borrow_mut_lamports` write lands in
+   the SBF input buffer and is flushed to the runtime only at instruction end, or
+   per-CPI for the accounts named in THAT CPI's meta list. So the first CPI after a
+   manual move must name every account it touched, or none. Fixed with a
+   zero-lamport System transfer barrier. The arithmetic was correct the whole time
+   — instrumentation, not reasoning, settled it. See
+   `reference_solana_lamport_cpi_reconcile` in memory.
+
+## Still not proven, even with CI green
+
+- **`create_pool_fee` is 0 in CI.** `createAmmConfig(..., new BN(0), ...)` and
+  cp-swap gates the native fee transfer on `create_pool_fee != 0`. The mainnet fee
+  path — the entire reason `migration_reserve_lamports` exists — has never
+  executed. Green here does NOT prove the reserve is sized correctly.
+- **Compute cost is unmeasured.** Nothing had ever run past the WSOL transfer
+  before the barrier landed, so the test now sets an explicit 400k CU limit, which
+  means CI reports nothing about real consumption. Read the CUs from a rehearsal
+  log and size the mainnet limit deliberately.
+- **`sell` has never executed successfully anywhere in the repo.** It carries the
+  same manual-mutation idiom and is safe only because nothing follows it. Appending
+  any CPI there — or switching `emit!` to `emit_cpi!` — silently reintroduces
+  defect 7 on the holders' only exit.
+- Local box still cannot run a validator (`os error 1314`; `openssl-sys` fails for
+  `solana-program-test` and `litesvm`). CI's Ubuntu runner is the gate.
