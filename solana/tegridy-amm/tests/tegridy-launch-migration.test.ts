@@ -378,7 +378,7 @@ describe("tegridy-launch full migration rehearsal", () => {
       curveInfoPre!.data.length
     );
 
-    await launch.methods
+    const migrateSig: string = await launch.methods
       .migrateToAmm()
       // Nothing had ever executed past the WSOL transfer before the reconciliation
       // barrier landed, so the FULL cost of this instruction (2 ATA creates, 4 of
@@ -421,6 +421,29 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     const poolAccount = await provider.connection.getAccountInfo(poolState);
     assert.isNotNull(poolAccount, "the pool must exist on-chain");
+
+    // ── report the REAL compute cost ─────────────────────────────────────────
+    // A green run prints no program logs, so pinning an explicit CU limit above
+    // silently made consumption unobservable — "it passed" says nothing about how
+    // close to the ceiling it ran. Read it off the confirmed transaction instead,
+    // so the mainnet limit can be set from a measurement rather than a guess, and
+    // so a change that inflates this shows up as a number moving.
+    let migrateCu: number | undefined;
+    for (let i = 0; i < 10 && migrateCu === undefined; i++) {
+      const tx = await provider.connection.getTransaction(migrateSig, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      migrateCu = tx?.meta?.computeUnitsConsumed;
+      if (migrateCu === undefined) await new Promise((r) => setTimeout(r, 400));
+    }
+    assert.isDefined(migrateCu, "compute units must be observable for the migration tx");
+    console.log(`      migrate_to_amm consumed ${migrateCu} CU (limit 400,000)`);
+    assert.isBelow(
+      migrateCu!,
+      400_000,
+      "migration must fit its declared compute limit, with room to spare"
+    );
 
     // ── the lamport move actually landed, and landed EXACTLY ──────────────────
     // `migrate_to_amm` moves `graduation_target + migration_reserve` off the curve
