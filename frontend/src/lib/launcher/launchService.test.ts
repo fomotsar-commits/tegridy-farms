@@ -72,36 +72,44 @@ describe('resolveFeeConstitution — the deployed split, not the 70/10 template'
   });
 });
 
-// Numeraire-aware protocol fee sink: an ETH pair routes the 15% protocol line to the
-// ETH-only RevenueDistributor (real veTOWELI yield); an exotic TOWELI pair CANNOT yield
-// there (RevenueDistributor is ETH-only, verified on-chain), so it must route to the
-// Treasury with an honest label. Pins the forward map so a regression that ignores the
-// numeraire — the pre-fix behaviour — fails loudly.
-describe('resolveFeeConstitution — numeraire-aware protocol sink', () => {
+// The 15% protocol fee line must name a beneficiary that can CLAIM it. The locker is
+// pull-based and pays msg.sender only, so a beneficiary with no way to call it strands the
+// money permanently — which is what pointing at RevenueDistributor did. Both numeraires now
+// route to Treasury (a Safe, which can originate the claim). Pins the sink AND its label so
+// neither the routing nor the published Fact Sheet can drift back.
+describe('resolveFeeConstitution — protocol sink must be claimable', () => {
   const CREATOR = '0x1489a1B0dF0e5F7B2C4d3E6a7b8c9D0e1F2A3456' as Address;
   const protocolLine = (numeraire?: Address) =>
     resolveFeeConstitution(CREATOR, [], numeraire).find((l) => l.role === 'protocol-stakers')!;
 
-  it('ETH pair (default and explicit) -> RevenueDistributor, "Tegridy stakers" (unchanged)', () => {
-    for (const line of [protocolLine(), protocolLine(ETH_NUMERAIRE)]) {
-      expect(line.address.toLowerCase()).toBe(REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase());
-      expect(line.recipient).toBe('Tegridy stakers');
-      expect(line.shareBps).toBe(1500);
+  // THE INVARIANT: the protocol fee line must name a beneficiary that can actually CLAIM.
+  // StreamableFeesLocker.releaseFees pays msg.sender only, and RevenueDistributor has no
+  // arbitrary-call function — so naming it strands the whole 15% permanently. The
+  // beneficiary set is fixed at create time and the locker has no admin re-point, so this
+  // has to be right BEFORE launch #1. Pinning the property, not just the address.
+  const CAN_ORIGINATE_A_LOCKER_CLAIM = [TREASURY_ADDRESS.toLowerCase()];
+
+  it('every numeraire routes the protocol line to a sink that can claim from the locker', () => {
+    for (const line of [protocolLine(), protocolLine(ETH_NUMERAIRE), protocolLine(TOWELI_NUMERAIRE)]) {
+      expect(CAN_ORIGINATE_A_LOCKER_CLAIM).toContain(line.address.toLowerCase());
+      // Mutation-check: pre-fix the ETH branch resolved to REVENUE_DISTRIBUTOR_ADDRESS,
+      // which no transaction can ever make the msg.sender of locker.releaseFees.
+      expect(line.address.toLowerCase()).not.toBe(REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase());
+      expect(line.shareBps).toBe(1500); // only the sink + label move — the 15% is unchanged
     }
   });
 
-  it('exotic TOWELI pair -> Treasury, "Tegridy treasury", NOT the ETH-only RevenueDistributor', () => {
-    const line = protocolLine(TOWELI_NUMERAIRE);
-    // Mutation-check: pre-fix this resolved to REVENUE_DISTRIBUTOR_ADDRESS for EVERY
-    // numeraire, so a TOWELI-denominated cut landed where it can never become staker yield.
-    expect(line.address.toLowerCase()).toBe(TREASURY_ADDRESS.toLowerCase());
-    expect(line.address.toLowerCase()).not.toBe(REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase());
-    expect(line.recipient).toBe('Tegridy treasury');
-    expect(line.shareBps).toBe(1500); // only the sink + label move — the 15% share is unchanged
+  it('labels the protocol line for where the money actually goes, never "stakers"', () => {
+    // The Fact Sheet publishes this string. While the sink is Treasury, claiming staker
+    // yield would be a false disclosure on a permanent, on-chain-attested document.
+    for (const line of [protocolLine(ETH_NUMERAIRE), protocolLine(TOWELI_NUMERAIRE)]) {
+      expect(line.recipient).toBe('Tegridy treasury');
+      expect(line.recipient).not.toMatch(/staker/i);
+    }
   });
 
   it('protocolFeeSink is the single source of truth for both sink + label', () => {
-    expect(protocolFeeSink(ETH_NUMERAIRE)).toEqual({ address: REVENUE_DISTRIBUTOR_ADDRESS, recipient: 'Tegridy stakers' });
+    expect(protocolFeeSink(ETH_NUMERAIRE)).toEqual({ address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' });
     expect(protocolFeeSink(TOWELI_NUMERAIRE)).toEqual({ address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' });
   });
 });
@@ -148,7 +156,11 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
   const KOL = '0x00000000000000000000000000000000000000AA' as Address;
   const roles: FeeRoleAddresses = {
     creator: CREATOR,
-    protocolStakers: REVENUE_DISTRIBUTOR_ADDRESS,
+    // Track the real sink, exactly as the post-graduation re-attestation does
+    // (launchService.ts resolves it via protocolFeeSink). Hardcoding an address here
+    // would silently mislabel the protocol line as soon as the sink moves — which is
+    // precisely what happened when it did.
+    protocolStakers: protocolFeeSink().address,
     doppler: DOPPLER_MAINNET.airlockOwner,
   };
   const WAD = 10n ** 18n;
@@ -167,7 +179,7 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
     expect(byRole(recovered, 'doppler')).toBe(500);
     // labels mirror the forward path exactly
     expect(recovered.find((l) => l.role === 'creator')?.recipient).toBe('Creator');
-    expect(recovered.find((l) => l.role === 'protocol-stakers')?.recipient).toBe('Tegridy stakers');
+    expect(recovered.find((l) => l.role === 'protocol-stakers')?.recipient).toBe(protocolFeeSink().recipient);
     expect(recovered.find((l) => l.role === 'doppler')?.recipient).toBe('Doppler');
     // the attention line's recipient is the KOL's own address
     expect(recovered.find((l) => l.role === 'attention-beneficiary')?.recipient?.toLowerCase()).toBe(KOL.toLowerCase());
@@ -191,7 +203,7 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
   it('exact WAD shares (bps * 1e14) round-trip to exact bps', () => {
     const bens = [
       { beneficiary: CREATOR, shares: bpsToShares(7000) },
-      { beneficiary: REVENUE_DISTRIBUTOR_ADDRESS, shares: bpsToShares(1500) },
+      { beneficiary: TREASURY_ADDRESS, shares: bpsToShares(1500) },
       { beneficiary: DOPPLER_MAINNET.airlockOwner, shares: bpsToShares(500) },
       { beneficiary: KOL, shares: bpsToShares(1000) },
     ];
@@ -213,7 +225,7 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
     const OTHER = '0x00000000000000000000000000000000000000bb' as Address;
     const bens = [
       { beneficiary: CREATOR.toLowerCase() as Address, shares: bpsToShares(6000) }, // creator given lowercased
-      { beneficiary: REVENUE_DISTRIBUTOR_ADDRESS, shares: bpsToShares(1500) },
+      { beneficiary: TREASURY_ADDRESS, shares: bpsToShares(1500) },
       { beneficiary: DOPPLER_MAINNET.airlockOwner, shares: bpsToShares(500) },
       { beneficiary: KOL, shares: bpsToShares(1000) },
       { beneficiary: OTHER, shares: bpsToShares(1000) },
@@ -292,7 +304,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
 
   it('rejects an attention split directed at the protocol or Doppler beneficiary address', () => {
     expect(() =>
-      wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: REVENUE_DISTRIBUTOR_ADDRESS, shareBps: 2000 }] })),
+      wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: protocolFeeSink().address, shareBps: 2000 }] })),
     ).toThrow(/protocol or Doppler/);
     expect(() =>
       wizardConfigToLaunchConfig(wizard(), opts({ attentionSplits: [{ address: DOPPLER_MAINNET.airlockOwner, shareBps: 500 }] })),
@@ -347,7 +359,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     const byAddress = Object.fromEntries(cfg.feeConstitution.map((l) => [l.address, l]));
     expect(byAddress[USER].role).toBe('creator');
     expect(byAddress[KOL].role).toBe('attention-beneficiary');
-    expect(byAddress[REVENUE_DISTRIBUTOR_ADDRESS].role).toBe('protocol-stakers');
+    expect(byAddress[TREASURY_ADDRESS].role).toBe('protocol-stakers');
     expect(byAddress[DOPPLER_MAINNET.airlockOwner].role).toBe('doppler');
   });
 
@@ -366,7 +378,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     expect(byAddress[USER]).toBe(6000);
     expect(byAddress[KOL]).toBe(2000);
     // Fixed lines never move.
-    expect(byAddress[REVENUE_DISTRIBUTOR_ADDRESS]).toBe(1500);
+    expect(byAddress[TREASURY_ADDRESS]).toBe(1500);
     expect(byAddress[DOPPLER_MAINNET.airlockOwner]).toBe(500);
     const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
     expect(total).toBe(10_000);
@@ -387,7 +399,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     expect(byAddress[USER]).toBe(6000); // 8000 - 1500 - 500
     expect(byAddress[KOL]).toBe(1500);
     expect(byAddress[KOL2]).toBe(500);
-    expect(byAddress[REVENUE_DISTRIBUTOR_ADDRESS]).toBe(1500);
+    expect(byAddress[TREASURY_ADDRESS]).toBe(1500);
     expect(byAddress[DOPPLER_MAINNET.airlockOwner]).toBe(500);
     const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
     expect(total).toBe(10_000);

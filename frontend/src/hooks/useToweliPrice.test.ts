@@ -18,7 +18,7 @@ vi.mock('../lib/storage', () => ({
   safeJsonParse: <T,>(_str: unknown, fallback: T) => fallback,
 }));
 
-import { useToweliPrice } from './useToweliPrice';
+import { useToweliPrice, evaluateEthUsdFeed, type ChainlinkRound } from './useToweliPrice';
 import { TOWELI_ADDRESS, ETH_USD_FEED } from '../lib/constants';
 
 // ───────────────────────── Helpers ─────────────────────────
@@ -376,5 +376,72 @@ describe('useToweliPrice', () => {
     // No reads, default fetch stub returns no price.
     const { result } = renderHook(() => useToweliPrice());
     expect(result.current.priceUnavailable).toBe(true);
+  });
+});
+
+// ─────────── Launch-path freshness window (pure, no React) ───────────
+//
+// Mainnet ETH/USD (0x5f4eC3Df…8419) publishes on a ~3600s heartbeat plus a 0.5%-deviation
+// trigger. The SWAP path deliberately demands a 300s-fresh round; the LAUNCH path must not,
+// or it refuses against a perfectly healthy oracle. Measured over 40 consecutive rounds
+// (~25.5h): every inter-round gap exceeded 300s and the tight gate was shut ~85% of
+// wallclock — /launch refused roughly 6 attempts in 7 for no protective reason.
+//
+// These pin BOTH windows. Widening the swap window or narrowing the launch window fails here.
+
+describe('evaluateEthUsdFeed — swap vs launch freshness windows', () => {
+  const PRICE = 1913_41000000n; // $1913.41, 8 decimals
+  const AT = 1_785_421_115; // a real observed updatedAt (2026-07-30)
+
+  /** A well-formed round at `updatedAt`. */
+  const round = (
+    updatedAt: number,
+    answer = PRICE,
+    answeredInRound = 7n,
+    roundId = 7n,
+  ): ChainlinkRound => [roundId, answer, BigInt(updatedAt), BigInt(updatedAt), answeredInRound];
+
+  it('a fresh round satisfies both paths', () => {
+    const r = evaluateEthUsdFeed(round(AT), AT + 60);
+    expect(r.ethUsd).toBeCloseTo(1913.41, 2);
+    expect(r.ethUsdForLaunch).toBeCloseTo(1913.41, 2);
+    expect(r.oracleStale).toBe(false);
+  });
+
+  it('THE FIX: a round past the 300s swap window still prices a LAUNCH', () => {
+    // The exact live condition measured on 2026-07-30: age 2028s, feed healthy.
+    const r = evaluateEthUsdFeed(round(AT), AT + 2028);
+    expect(r.ethUsd).toBe(0); // swaps correctly refuse
+    expect(r.oracleStale).toBe(true);
+    // Pre-fix, LaunchPage read `ethUsd` here and hard-refused with
+    // "ETH price unavailable right now" — the defect this test exists to prevent.
+    expect(r.ethUsdForLaunch).toBeCloseTo(1913.41, 2);
+  });
+
+  it('holds up to the heartbeat, refuses once the feed itself is genuinely late', () => {
+    expect(evaluateEthUsdFeed(round(AT), AT + 3899).ethUsdForLaunch).toBeGreaterThan(0);
+    expect(evaluateEthUsdFeed(round(AT), AT + 3901).ethUsdForLaunch).toBe(0);
+  });
+
+  it('the two windows stay distinct — neither collapses into the other', () => {
+    const midband = evaluateEthUsdFeed(round(AT), AT + 1800);
+    expect(midband.ethUsd).toBe(0);
+    expect(midband.ethUsdForLaunch).toBeGreaterThan(0);
+  });
+
+  it('refuses a launch on an out-of-band price even when perfectly fresh', () => {
+    // The auction curve is priced off this number — a bad one is worse than none.
+    for (const bad of [50_00000000n, 250000_00000000n]) {
+      const r = evaluateEthUsdFeed(round(AT, bad), AT + 10);
+      expect(r.ethUsdForLaunch).toBe(0);
+      expect(r.oracleStale).toBe(true);
+    }
+  });
+
+  it('refuses a launch on a malformed round', () => {
+    expect(evaluateEthUsdFeed(round(AT, PRICE, 6n, 7n), AT + 10).ethUsdForLaunch).toBe(0); // answeredInRound < roundId
+    expect(evaluateEthUsdFeed(round(AT, 0n), AT + 10).ethUsdForLaunch).toBe(0); // zero answer
+    expect(evaluateEthUsdFeed(round(0), AT + 10).ethUsdForLaunch).toBe(0); // never updated
+    expect(evaluateEthUsdFeed(undefined, AT + 10).ethUsdForLaunch).toBe(0); // not loaded yet
   });
 });
