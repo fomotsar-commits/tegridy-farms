@@ -618,82 +618,61 @@ pub mod tegridy_launch {
         // cp-swap's `creator` must be BOTH the signer and the rent payer for five
         // `init` accounts. Rent goes through the System program's `CreateAccount`,
         // which demands a System-owned payer — so it cannot be the curve PDA, which
-        // holds this program's data. That is what produced "sum of account balances
-        // before and after instruction do not match". The data-less
-        // `migration_authority` PDA satisfies both roles.
+        // holds this program's data. The data-less `migration_authority` PDA
+        // satisfies both roles.
         //
-        // FUNDING ROUTE MATTERS, in two steps, and the split is the point.
+        // The curve cannot System-transfer to the authority either: `transfer`
+        // rejects a `from` that carries data ("Transfer: `from` must not carry
+        // data", system_processor.rs:193-196). So the bulk MUST move by direct
+        // lamport mutation — and that is where the runtime bites.
         //
-        // `migration_authority` does not exist yet — zero lamports, zero data. A
-        // direct lamport credit does NOT fund a non-existent account: only the
-        // System program's transfer carries account-creation semantics, and a
-        // manual credit to nothing breaks the runtime's per-instruction
-        // conservation check. (That is why `sell`'s manual credit is fine — it
-        // credits a trader account that already exists.)
+        // ## READ THIS BEFORE REORDERING ANYTHING BELOW
         //
-        // So `payer` system-transfers a MINIMAL amount purely to bring the account
-        // into existence, and the bulk then moves from the curve by direct
-        // mutation — now targeting an account that exists, which is exactly the
-        // shape `sell` already uses in production.
+        // A `try_borrow_mut_lamports` write lands in the SBF *input buffer*, NOT in
+        // the runtime's TransactionContext. It reaches the runtime by exactly two
+        // routes:
         //
-        // An earlier version had `payer` transfer the FULL amount and the curve
-        // reimburse `payer`. That round-trip (system-debit and manual-credit the
-        // same account in one instruction) still tripped the conservation check.
-        // Do not reintroduce it.
+        //   a) at instruction END, for EVERY instruction account, via the loader's
+        //      `deserialize_parameters_aligned`; or
+        //   b) at each CPI — but ONLY for the accounts named in THAT CPI's
+        //      AccountMeta list, via `translate_and_update_accounts` ->
+        //      `update_callee_account` (bpf_loader syscalls/cpi.rs:818-896), which
+        //      runs BEFORE the callee is dispatched (cpi.rs:1044 precedes :1055).
+        //
+        // `TransactionContext::push()` then re-sums the lamports of ALL of THIS
+        // instruction's accounts and compares against the value recorded at entry
+        // (transaction-context lib.rs:351-360). So a CPI that flushes ONE half of a
+        // manual move and not the other aborts with `UnbalancedInstruction` — "sum
+        // of account balances before and after instruction do not match" — before
+        // the callee ever emits its `invoke [2]` log line.
+        //
+        // Two earlier versions died on exactly this, and the difference in WHERE
+        // they died is the proof:
+        //   - mutate curve/-X + auth/+X, then transfer auth -> auth_wsol. Metas are
+        //     [auth, auth_wsol]: auth's +X flushed, the curve's -X did not. Failed
+        //     at the WSOL transfer, on every launch.
+        //   - `payer` fronts the full amount, curve manually reimburses `payer`
+        //     mid-sequence. Metas of the WSOL transfer and `sync_native` name
+        //     neither account, so those passed; it failed at the first CPI that DID
+        //     name one — the vault `token::transfer`, whose metas include `curve`.
+        //
+        // THE INVARIANT: the first CPI after a manual lamport move must name EVERY
+        // account that move touched, or none of them. `sell` (lib.rs:484-506)
+        // satisfies it the other way — nothing follows its mutation, so route (a)
+        // flushes both halves together. Here something must follow, so we insert an
+        // explicit barrier CPI. Note that `CpiContext::with_remaining_accounts`
+        // CANNOT widen a meta list on these helpers: anchor-lang's and anchor-spl's
+        // hand-build their instruction and silently drop remaining_accounts
+        // (anchor-lang system_program.rs:298-313, anchor-spl token.rs:11-29).
         let auth_ai = ctx.accounts.migration_authority.to_account_info();
-        let move_lamports = deposit_lamports
-            .checked_add(reserve_lamports)
-            .ok_or(LaunchError::Overflow)?;
 
-        // Rent-exempt minimum for a zero-data account: enough to make it real.
-        let seed_lamports = Rent::get()?.minimum_balance(0);
-        msg!(
-            "MIGDBG A payer={} curve={} auth={} auth_owner={} auth_len={} move={} seed={}",
-            ctx.accounts.payer.to_account_info().lamports(),
-            curve_ai.lamports(),
-            auth_ai.lamports(),
-            auth_ai.owner,
-            auth_ai.data_len(),
-            move_lamports,
-            seed_lamports
-        );
-        if auth_ai.lamports() == 0 {
-            anchor_lang::system_program::transfer(
-                CpiContext::new(
-                    ctx.accounts.system_program.to_account_info(),
-                    anchor_lang::system_program::Transfer {
-                        from: ctx.accounts.payer.to_account_info(),
-                        to: auth_ai.clone(),
-                    },
-                ),
-                seed_lamports,
-            )?;
-        }
-
-        msg!(
-            "MIGDBG B payer={} curve={} auth={}",
-            ctx.accounts.payer.to_account_info().lamports(),
-            curve_ai.lamports(),
-            auth_ai.lamports()
-        );
-
-        // The bulk, curve -> authority. Debiting an account we own and crediting one
-        // that now exists — both legal, and conservation holds.
-        **curve_ai.try_borrow_mut_lamports()? = curve_ai
-            .lamports()
-            .checked_sub(move_lamports)
-            .ok_or(LaunchError::Overflow)?;
-        **auth_ai.try_borrow_mut_lamports()? = auth_ai
-            .lamports()
-            .checked_add(move_lamports)
-            .ok_or(LaunchError::Overflow)?;
-
-        msg!(
-            "MIGDBG C payer={} curve={} auth={} wsol={}",
-            ctx.accounts.payer.to_account_info().lamports(),
-            curve_ai.lamports(),
-            auth_ai.lamports(),
-            ctx.accounts.auth_wsol.to_account_info().lamports()
+        // The barrier below is a System transfer with the authority as `from`, so
+        // the authority must stay System-owned and data-less. That is already
+        // required for it to pay cp-swap's rent — asserted here so a future change
+        // that allocates data to it fails loudly instead of bricking graduation.
+        require!(
+            auth_ai.data_is_empty() && auth_ai.owner == &system_program::ID,
+            LaunchError::InvalidParameter
         );
 
         let auth_seeds: &[&[u8]] = &[
@@ -703,13 +682,92 @@ pub mod tegridy_launch {
         ];
         let auth_signer: &[&[&[u8]]] = &[auth_seeds];
 
+        let move_lamports = deposit_lamports
+            .checked_add(reserve_lamports)
+            .ok_or(LaunchError::Overflow)?;
+
+        // Top the authority up to the rent-exempt floor for a zero-data account.
+        //
+        // NOT for account creation — a direct credit to a zero-lamport,
+        // System-owned, zero-data address is a legal `set_lamports` target and
+        // materialises the account at commit. It is for the END-OF-TRANSACTION rent
+        // check: `migration_authority` is writable, so the SVM verifies its
+        // rent-state transition, and a residual strictly between 1 lamport and
+        // `minimum_balance(0)` is rejected with `InsufficientFundsForRent` — AFTER
+        // the pool has already been created. Seeding to the floor makes the residual
+        // (floor + reserve - cp-swap's costs) unconditionally rent-exempt.
+        //
+        // Topped up rather than skipped when non-zero: this address is derivable, so
+        // anyone can send it 1 lamport, and an `== 0` guard would let them push the
+        // residual into that rejected band and brick graduation for the price of a
+        // transaction.
+        let seed_lamports = Rent::get()?.minimum_balance(0);
+        let seed_topup = seed_lamports.saturating_sub(auth_ai.lamports());
+        if seed_topup > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.payer.to_account_info(),
+                        to: auth_ai.clone(),
+                    },
+                ),
+                seed_topup,
+            )?;
+        }
+
+        // The bulk, curve -> authority. Both halves legal: we own the curve, so the
+        // debit passes `set_lamports`' ExternalAccountLamportSpend guard, and a
+        // credit to a System-owned account is never blocked. INVISIBLE to the
+        // runtime until reconciled — see the block above.
+        **curve_ai.try_borrow_mut_lamports()? = curve_ai
+            .lamports()
+            .checked_sub(move_lamports)
+            .ok_or(LaunchError::Overflow)?;
+        **auth_ai.try_borrow_mut_lamports()? = auth_ai
+            .lamports()
+            .checked_add(move_lamports)
+            .ok_or(LaunchError::Overflow)?;
+
+        // ── RECONCILIATION BARRIER — LOAD-BEARING, NOT DEAD CODE ─────────────
+        //
+        // A zero-lamport System transfer whose metas are exactly
+        // [migration_authority (writable, signer), curve (writable)] — precisely the
+        // two accounts the mutation above touched. `translate_and_update_accounts`
+        // flushes BOTH halves into TransactionContext before System is dispatched,
+        // so `push()` sees the entry sum restored and every later CPI starts from a
+        // consistent world.
+        //
+        // None of these arguments is interchangeable:
+        //   - It MUST be the FIRST CPI after the mutation. Put anything in front of
+        //     it — the WSOL transfer, `sync_native`, the vault `token::transfer` —
+        //     and that CPI names one half and reverts.
+        //   - Direction MUST be authority -> curve. Flipping it hits System's
+        //     "`from` must not carry data" check and reverts with InvalidArgument.
+        //   - Zero lamports is deliberate and sufficient. `checked_sub_lamports(0)`
+        //     and `checked_add_lamports(0)` both short-circuit inside `set_lamports`
+        //     (transaction-context lib.rs:865), and the flush that matters happens
+        //     in the loader before System runs at all — so the transfer needs to
+        //     move nothing in order to do its job.
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: auth_ai.clone(),
+                    to: curve_ai.clone(),
+                },
+                auth_signer,
+            ),
+            0,
+        )?;
+
         // The authority IS System-owned, so a plain system transfer works here —
         // and is the correct way to fund a WSOL account it owns.
         let wsol_ai = ctx.accounts.auth_wsol.to_account_info();
-        anchor_lang::system_program::transfer(
+        system_program::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
-                anchor_lang::system_program::Transfer {
+                system_program::Transfer {
                     from: auth_ai.clone(),
                     to: wsol_ai.clone(),
                 },
@@ -1027,13 +1085,13 @@ pub struct MigrateToAmm<'info> {
     /// signing `creator` AND the rent `payer` for five `init` accounts. Rent is
     /// funded through the System program's `CreateAccount`, which requires a
     /// System-owned payer — and the curve PDA holds `BondingCurve` data, so it is
-    /// owned by this program and can never serve. Making the curve the creator
-    /// failed at runtime with "sum of account balances before and after
-    /// instruction do not match".
+    /// owned by this program and can never serve.
     ///
     /// A data-less PDA satisfies both: System-owned so it can pay, derived from
-    /// this program so it can sign via seeds. Allocating any data to it would
-    /// break the payer half again.
+    /// this program so it can sign via seeds. Allocating any data to it would break
+    /// the payer half AND the reconciliation barrier in `migrate_to_amm`, which
+    /// System-transfers FROM this account; the handler asserts `data_is_empty()` so
+    /// that change fails loudly rather than silently bricking graduation.
     ///
     /// The alternative — making the arbitrary `payer` signer cp-swap's creator —
     /// would have an untrusted caller briefly holding the launch's entire

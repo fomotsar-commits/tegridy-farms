@@ -44,6 +44,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
+  ComputeBudgetProgram,
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
@@ -238,8 +239,21 @@ describe("tegridy-launch full migration rehearsal", () => {
         ? [NATIVE_MINT, launchMint]
         : [launchMint, NATIVE_MINT];
 
+    const rentExemptZero = await provider.connection.getMinimumBalanceForRentExemption(0);
+    const curveInfoPre = await provider.connection.getAccountInfo(curve);
+    const curveLamportsPre = curveInfoPre!.lamports;
+    const curveRentFloor = await provider.connection.getMinimumBalanceForRentExemption(
+      curveInfoPre!.data.length
+    );
+
     await launch.methods
       .migrateToAmm()
+      // Nothing had ever executed past the WSOL transfer before the reconciliation
+      // barrier landed, so the FULL cost of this instruction (2 ATA creates, 4 of
+      // our CPIs, cp-swap `initialize` creating five accounts, the LP burn) has
+      // never been measured. Raise the ceiling explicitly so a compute exhaustion
+      // can never be mistaken for the lamport-reconciliation bug coming back.
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
       .accountsPartial({
         payer: wallet.publicKey,
         global: globalKey,
@@ -275,6 +289,36 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     const poolAccount = await provider.connection.getAccountInfo(poolState);
     assert.isNotNull(poolAccount, "the pool must exist on-chain");
+
+    // ── the lamport move actually landed, and landed EXACTLY ──────────────────
+    // `migrate_to_amm` moves `graduation_target + migration_reserve` off the curve
+    // by DIRECT lamport mutation, which the runtime only sees once reconciled. A
+    // wrong reconciliation is a hard revert, but a wrong AMOUNT is silent, so pin
+    // it: the curve must be lighter by exactly that, and never below its rent floor.
+    const curveInfoPost = await provider.connection.getAccountInfo(curve);
+    assert.equal(
+      curveLamportsPre - curveInfoPost!.lamports,
+      GRAD_TARGET.add(MIGRATION_RESERVE).toNumber(),
+      "the curve must be debited exactly target+reserve"
+    );
+    assert.isAtLeast(
+      curveInfoPost!.lamports,
+      curveRentFloor,
+      "the curve must stay rent-exempt or the runtime purges it mid-life"
+    );
+
+    // The migration authority is writable, so the SVM verifies its rent-state
+    // transition at end-of-transaction. A residual between 1 lamport and
+    // minimum_balance(0) aborts the whole transaction AFTER the pool was created —
+    // the handler seeds it to the floor precisely to make that unreachable.
+    const authInfo = await provider.connection.getAccountInfo(migAuth);
+    if (authInfo !== null && authInfo.lamports > 0) {
+      assert.isAtLeast(
+        authInfo.lamports,
+        rentExemptZero,
+        "migration authority residual must be rent-exempt, not in the rejected band"
+      );
+    }
 
     // THE ASSERTION THIS FILE EXISTS FOR. Operator decision: burn the LP so
     // liquidity is permanently locked. A partial burn would leave the published
