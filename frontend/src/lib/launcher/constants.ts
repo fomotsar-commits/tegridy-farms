@@ -46,3 +46,31 @@ export const AFTERLIFE_GAUGE_CONTROLLER_ADDRESS =
  */
 export const AFTERLIFE_V4_POSITION_MANAGER_ADDRESS =
   '0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e' as Address;
+
+/**
+ * `TegridyLiquidityMigrator` — the module that graduates a launch into a
+ * canonical Uniswap V4 pool carrying `TegridyV4Hook`, i.e. a venue we own.
+ *
+ * ZERO until deployed, and that zero is load-bearing: while it is zero the SDK
+ * resolves Doppler's own `uniswapV4Migrator` (0x0820…205f5) and launches graduate
+ * into a hookless canonical pool exactly as they do today. Nothing silently
+ * changes, and no Fact Sheet claim becomes false.
+ *
+ * ## Do NOT set this the moment the contract is deployed
+ *
+ * Two more things must be true first, or every graduation REVERTS:
+ *
+ *   1. **Whetstone must whitelist it** — `Airlock.setModuleState(migrator, 4)`.
+ *      `Airlock.create` rejects a non-whitelisted module, so launches would fail
+ *      at CREATE time. See docs/WHETSTONE_MIGRATOR_PETITION.md.
+ *   2. **The hook must grant it a standing initializer allowance** — a 48h
+ *      timelocked admin action. Without it graduation reverts at
+ *      `poolManager.initialize`, and because `Airlock.migrate` is permissionless
+ *      and transfers the graduated balances in BEFORE calling the migrator, that
+ *      revert STRANDS them rather than merely failing.
+ *
+ * Set it only after both are confirmed on-chain. `isDeployed()` is the gate every
+ * consumer must use — see `airlock.ts`.
+ */
+export const TEGRIDY_V4_MIGRATOR_ADDRESS =
+  '0x0000000000000000000000000000000000000000' as Address;
