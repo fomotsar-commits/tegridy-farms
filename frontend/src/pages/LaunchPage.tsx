@@ -45,6 +45,7 @@ import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
 import type { OutcomeRecord } from '../lib/launcher/outcomes';
 import { readOurLaunches } from '../lib/launcher/ourLaunches';
+import { cohortLogClient, CohortUnavailableError } from '../lib/launcher/cohortLogSource';
 import { isAddress, getAddress, type Address } from 'viem';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
@@ -227,6 +228,9 @@ export default function LaunchPage() {
   // registry when a launch succeeds and only offer the button once the schema is
   // live; otherwise say so plainly. null = still checking / unknown.
   const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
+  // "we could not read the launch history" must be visibly DIFFERENT from "nothing has
+  // launched yet". Collapsing the two is how an outage renders as a track record.
+  const [cohortUnavailable, setCohortUnavailable] = useState(false);
   const [explorer, setExplorer] = useState<{ launches: LaunchSummary[]; outcomes: Record<string, OutcomeRecord> }>({
     launches: [],
     outcomes: {},
@@ -254,10 +258,24 @@ export default function LaunchPage() {
     // Empty stays empty until launch #1 — that is the honest state, not a bug.
     const ac = new AbortController();
     void (async () => {
-      const { baselines, poolByToken } = await readOurLaunches({
-        client: publicClient,
-        signal: ac.signal,
-      });
+      // getLogs comes from our backend (`?resource=launch-cohort`): the Airlock's whole
+      // Create history is millions of blocks and every browser-reachable RPC refuses that
+      // range, which is why this surface was permanently empty. Provenance still happens
+      // client-side inside readOurLaunches. An unreadable history must NOT render as an
+      // empty cohort — that would publish a fabricated track record — so it is caught and
+      // surfaced separately below.
+      let baselines, poolByToken;
+      try {
+        ({ baselines, poolByToken } = await readOurLaunches({
+          client: cohortLogClient(publicClient, { signal: ac.signal }),
+          signal: ac.signal,
+        }));
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        setCohortUnavailable(e instanceof CohortUnavailableError);
+        setExplorer({ launches: [], outcomes: {} });
+        return;
+      }
       if (ac.signal.aborted) return;
       if (baselines.length === 0) {
         setExplorer({ launches: [], outcomes: {} });
@@ -495,6 +513,13 @@ export default function LaunchPage() {
         {/* Launch Afterlife — honest cohort ledger over the SAME outcomes the
             explorer lists below. Self-gates to an honest empty statement. */}
         <LaunchAfterlife outcomes={Object.values(explorer.outcomes)} />
+        {cohortUnavailable && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            We couldn&rsquo;t read the launch history just now, so the cohort below may be incomplete.
+            This is a problem on our side — it does <span className="font-semibold">not</span> mean no
+            tokens have launched.
+          </div>
+        )}
         <LaunchExplorer launches={explorer.launches} outcomes={explorer.outcomes} />
         {/* MARKET-WIDE radar — deliberately BELOW and visually distinct from the two
             cohort surfaces above. Those promise tokens that graduated through THIS

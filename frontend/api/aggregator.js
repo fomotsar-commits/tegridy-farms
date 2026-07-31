@@ -259,6 +259,15 @@ export default async function handler(req, res) {
     return handleLaunchRadar(req, res);
   }
 
+  // `?resource=launch-cohort` enumerates the Airlock `Create` history so the cohort
+  // surfaces can exist at all. Phase two — deciding which of those assets are OURS — stays
+  // client-side in ourLaunches.ts, so provenance has exactly one implementation. Lazy
+  // import: the swap hot path never pays for this. See _lib/launch-cohort.js header.
+  if (req.query.resource === "launch-cohort") {
+    const { handleLaunchCohort } = await import("./_lib/launch-cohort.js");
+    return handleLaunchCohort(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with
