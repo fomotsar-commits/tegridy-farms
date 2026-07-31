@@ -293,6 +293,8 @@ const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'wallet-exposure',  idx: 0, label: 'TT3 — Wallet Exposure backdrop' },
   { group: 'Launch & Solana', pageId: 'launch',           idx: 0, label: 'LS1 — Launch rail backdrop' },
   { group: 'Launch & Solana', pageId: 'launch-simulator', idx: 0, label: 'LS2 — Launch Simulator backdrop' },
+  { group: 'Launch & Solana', pageId: 'launch-token',     idx: 0, label: 'LS2b — Token record backdrop' },
+  { group: 'Launch & Solana', pageId: 'launch-token',     idx: 1, label: 'LS2c — Token record Fact Sheet strip' },
   { group: 'Launch & Solana', pageId: 'solana-launch',    idx: 0, label: 'LS3 — Solana Launch backdrop' },
   { group: 'Launch & Solana', pageId: 'swap',             idx: 2, label: 'LS4 — Solana Swap surface' },
   { group: 'Contracts',     pageId: 'contracts',        idx: 0, label: 'CO1 — Contracts page bg' },

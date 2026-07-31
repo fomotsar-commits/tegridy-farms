@@ -56,6 +56,10 @@ const SolanaLaunchPage = lazy(() => import('./pages/SolanaLaunchPage'));
 // (LAUNCHER_ENABLED = true); renders the create wizard. Still in-page-gated by
 // isLauncherEnabled() so it can be re-gated by flipping the flag + redeploying.
 const LaunchPage = lazy(() => import('./pages/LaunchPage'));
+// Permanent per-token record at /launch/:token — the page cohort rows link into.
+// Read-only; never gated, because a launched token's disclosures must stay reachable
+// even if the create wizard is re-gated.
+const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
 // Launch simulator — preview a token's distribution band + Fact-Sheet tier before
 // launching. Pure client-side, always usable (deliberately live before the launch rail).
 const LaunchSimulatorPage = lazy(() => import('./pages/LaunchSimulatorPage'));
@@ -215,6 +219,7 @@ function AnimatedRoutes() {
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
         <Route path="solana-launch" element={<Suspense fallback={<PageSkeleton />}><SolanaLaunchPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
+        <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
