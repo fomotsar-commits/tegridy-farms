@@ -146,6 +146,8 @@ const TIERS = new Set(["flagship", "listable", "none"]);
 // (api/etherscan.js). Same-origin (the app calling its own /api) is the norm;
 // the allowlist just keeps parity with the other proxies.
 const ALLOWED_ORIGINS = [
+  "https://memetic.fun",
+  "https://www.memetic.fun",
   "https://tegridyfarms.vercel.app",
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",

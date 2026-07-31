@@ -41,6 +41,8 @@ function authHeaders(extra = {}) {
 //         /api/etherscan for tx history rendering (HistoryPage.tsx); without
 //         this entry, browser CORS preflight fails from that origin.
 const ALLOWED_ORIGINS = [
+  "https://memetic.fun",
+  "https://www.memetic.fun",
   "https://tegridyfarms.vercel.app",
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",

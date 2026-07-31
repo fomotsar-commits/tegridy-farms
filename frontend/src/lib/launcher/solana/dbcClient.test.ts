@@ -4,7 +4,14 @@
 // path, which the jsdom/browser build of web3.js stubs out — so this suite runs under
 // the node environment where findProgramAddressSync works.
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { Keypair, PublicKey, SystemProgram, type Transaction } from '@solana/web3.js';
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction as RealTransaction,
+  TransactionInstruction,
+  type Transaction,
+} from '@solana/web3.js';
 
 // Stub the heavy SDK curve builder so mapping tests don't run real curve math;
 // dbc.ts imports the SDK type-only (erased), so only dbcClient.ts sees this mock.
@@ -73,17 +80,39 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// Stand-in blockhash: 32 '1's decodes to 32 zero bytes, so web3.js's real
+// compileMessage accepts it (bs58-decodable, correct length).
+const BLOCKHASH = '11111111111111111111111111111111';
+const LAST_VALID_BLOCK_HEIGHT = 987_654;
+
 // A mock DBC client. `owner` decides what getAccountInfo reports for the MULTISIG
 // account verifySquadsVault fetches: the Squads program (real multisig), the System
 // program (a look-alike), or null (missing).
-function makeClient(owner: PublicKey | null | 'throw' = SQUADS_PROGRAM) {
+//
+// `mkTx` builds what the SDK returns. `calls` records the ORDER of RPC methods so a test
+// can pin that the blockhash is fetched LAST (after the vault verification), keeping the
+// operator's share of the ~150-slot validity window as large as possible.
+function makeClient(
+  owner: PublicKey | null | 'throw' = SQUADS_PROGRAM,
+  mkTx: () => Transaction = () => ({ __tx: true, partialSign: vi.fn() }) as unknown as Transaction,
+  latest: { blockhash?: unknown; lastValidBlockHeight?: number } = {
+    blockhash: BLOCKHASH,
+    lastValidBlockHeight: LAST_VALID_BLOCK_HEIGHT,
+  },
+) {
+  const calls: string[] = [];
   const getAccountInfo = vi.fn(async () => {
+    calls.push('getAccountInfo');
     if (owner === 'throw') throw new Error('RPC down');
     return owner === null ? null : { owner };
   });
-  const mkTx = () => ({ __tx: true, partialSign: vi.fn() }) as unknown as Transaction;
+  const getLatestBlockhash = vi.fn(async (_c?: unknown) => {
+    calls.push('getLatestBlockhash');
+    return latest;
+  });
   return {
-    connection: { getAccountInfo },
+    calls,
+    connection: { getAccountInfo, getLatestBlockhash },
     partner: {
       createConfig: vi.fn(async (_p: unknown) => mkTx()),
       claimPartnerTradingFeeToReceiver: vi.fn(async (_p: unknown) => mkTx()),
@@ -92,6 +121,26 @@ function makeClient(owner: PublicKey | null | 'throw' = SQUADS_PROGRAM) {
       createPool: vi.fn(async (_p: unknown) => mkTx()),
     },
   };
+}
+
+/**
+ * A REAL web3.js Transaction carrying an instruction whose signers are the payer and the
+ * ephemeral keypair — so `partialSign` / `serialize` run their real preconditions instead
+ * of a stub's no-op. This is the exact thing that was broken: the Meteora SDK builds via
+ * anchor's `.transaction()` (a bare `new Transaction()`), so nothing ever set feePayer or
+ * recentBlockhash and web3.js refused to compile the message at all.
+ */
+function realTx(payer: PublicKey, ephemeral: PublicKey): Transaction {
+  return new RealTransaction().add(
+    new TransactionInstruction({
+      programId: SystemProgram.programId,
+      keys: [
+        { pubkey: payer, isSigner: true, isWritable: true },
+        { pubkey: ephemeral, isSigner: true, isWritable: true },
+      ],
+      data: Buffer.alloc(0),
+    }),
+  );
 }
 
 type MockClient = ReturnType<typeof makeClient>;
@@ -271,6 +320,96 @@ describe('claimPartnerFees — bigint → BN mapping', () => {
     } as ReturnType<typeof claimPartnerFeesParams>;
     await expect(claimPartnerFees(asClient(client), bad, undefined, provenance)).rejects.toThrow(/maxBaseAmount/);
     expect(client.partner.claimPartnerTradingFeeToReceiver).not.toHaveBeenCalled();
+  });
+});
+
+// REGRESSION: the harness could never build ANY transaction. The Meteora SDK returns
+// anchor's `.transaction()` output — a bare `new Transaction()` with no feePayer and no
+// recentBlockhash — so web3.js threw "Transaction recentBlockhash required" on
+// partialSign and "Transaction fee payer required" on serialize, on every money path.
+describe('transaction is made signable before signing (feePayer + recentBlockhash)', () => {
+  it('createPartnerConfig stamps the descriptor payer, the blockhash and lastValidBlockHeight', async () => {
+    const client = makeClient();
+    const pc = partnerConfig();
+    const tx = await createPartnerConfig(asClient(client), pc, undefined, configKp, provenance);
+    expect(tx.feePayer).toBeInstanceOf(PublicKey);
+    expect(tx.feePayer!.toBase58()).toBe(pc.accounts.payer);
+    expect(tx.recentBlockhash).toBe(BLOCKHASH);
+    expect(tx.lastValidBlockHeight).toBe(LAST_VALID_BLOCK_HEIGHT);
+  });
+
+  it('launchToken stamps the descriptor payer, the blockhash and lastValidBlockHeight', async () => {
+    const client = makeClient();
+    const p = launchParams();
+    const tx = await launchToken(asClient(client), p, undefined, baseMintKp);
+    expect(tx.feePayer!.toBase58()).toBe(p.payer);
+    expect(tx.recentBlockhash).toBe(BLOCKHASH);
+    expect(tx.lastValidBlockHeight).toBe(LAST_VALID_BLOCK_HEIGHT);
+  });
+
+  it('claimPartnerFees stamps the descriptor payer, the blockhash and lastValidBlockHeight', async () => {
+    const client = makeClient();
+    const params = claimPartnerFeesParams({
+      feeClaimer: vault,
+      pool: poolKp.publicKey.toBase58(),
+      payer: payerKp.publicKey.toBase58(),
+    });
+    const tx = await claimPartnerFees(asClient(client), params, undefined, provenance);
+    // feePayer is the OPERATOR payer, not the vault: the vault signs via Squads
+    // invoke_signed and cannot pay fees from a locally-built raw transaction.
+    expect(tx.feePayer!.toBase58()).toBe(params.payer);
+    expect(tx.recentBlockhash).toBe(BLOCKHASH);
+  });
+
+  it('a REAL web3.js transaction can be partial-signed AND serialized (the thing that threw)', async () => {
+    const client = makeClient(SQUADS_PROGRAM, () => realTx(payerKp.publicKey, baseMintKp.publicKey));
+    const p = launchParams();
+
+    const tx = await launchToken(asClient(client), p, undefined, baseMintKp);
+
+    // The ephemeral base mint really signed — proof compileMessage succeeded.
+    const sig = tx.signatures.find((s) => s.publicKey.equals(baseMintKp.publicKey));
+    expect(sig?.signature).not.toBeNull();
+    // And the print path (what the harness emits as base64) no longer throws.
+    expect(() => tx.serialize({ requireAllSignatures: false, verifySignatures: false })).not.toThrow();
+  });
+
+  it('the wallet signer receives a tx that is ALREADY signable', async () => {
+    const client = makeClient(SQUADS_PROGRAM, () => realTx(payerKp.publicKey, configKp.publicKey));
+    const signer: WalletSigner = {
+      publicKey: payerKp.publicKey,
+      signTransaction: vi.fn(async (tx: Transaction) => {
+        tx.partialSign(payerKp); // throws on a tx missing feePayer/blockhash
+        return tx;
+      }),
+    };
+    const out = await createPartnerConfig(asClient(client), partnerConfig(), signer, configKp, provenance);
+    expect(out.serialize().length).toBeGreaterThan(0); // fully signed → no requireAllSignatures escape
+  });
+
+  it('fetches the blockhash with finalized commitment, and only AFTER the vault verification', async () => {
+    const client = makeClient();
+    await createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp, provenance);
+    // 'finalized', not the connection default: a confirmed-only blockhash can be dropped
+    // by a fork switch mid-ceremony and silently invalidate the printed tx.
+    expect(client.connection.getLatestBlockhash).toHaveBeenCalledWith('finalized');
+    // Fetched last → the operator gets the largest share of the validity window.
+    expect(client.calls).toEqual(['getAccountInfo', 'getAccountInfo', 'getLatestBlockhash']);
+  });
+
+  it('fails closed when the RPC returns no blockhash instead of handing back an unsignable tx', async () => {
+    const client = makeClient(SQUADS_PROGRAM, undefined, { blockhash: undefined });
+    await expect(launchToken(asClient(client), launchParams(), undefined, baseMintKp)).rejects.toThrow(
+      /returned no blockhash/,
+    );
+  });
+
+  it('does not fetch a blockhash when an earlier guard rejects (gate / provenance / vault)', async () => {
+    const client = makeClient();
+    await expect(createPartnerConfig(asClient(client), partnerConfig(), undefined, configKp, {})).rejects.toThrow(
+      /missing Squads vault provenance/,
+    );
+    expect(client.connection.getLatestBlockhash).not.toHaveBeenCalled();
   });
 });
 

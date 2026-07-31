@@ -221,13 +221,20 @@ export async function readOurLaunches(
     if (signal?.aborted) return empty;
 
     const records: AssetRecord[] = [];
+    let unreadable = 0;
     results.forEach((res, i) => {
-      if (res.status !== 'success') return; // unreadable ⇒ unprovable ⇒ excluded
+      if (res.status !== 'success') {
+        unreadable++;
+        return;
+      }
       const d = res.result as readonly unknown[];
       const integratorOut = d?.[9];
       const migrationPool = d?.[6];
       const asset = assets[i];
-      if (typeof integratorOut !== 'string' || !asset) return;
+      if (typeof integratorOut !== 'string' || !asset) {
+        unreadable++;
+        return;
+      }
       records.push({
         asset,
         integrator: integratorOut as Address,
@@ -235,6 +242,14 @@ export async function readOurLaunches(
         createdAt: 0, // block timestamps would need a per-log getBlock; enrichment supplies time
       });
     });
+
+    // ALL-OR-NOTHING. `allowFailure: true` means a rate-limited or flaky RPC returns a PARTIAL
+    // set, and skipping the failures silently would let a real cohort render as a clean, confident
+    // "nothing has launched yet" — a fabricated track record, which is the exact thing these
+    // surfaces exist to avoid. If we cannot read every candidate's provenance we can prove
+    // nothing, so we claim nothing. (The doc comment above always promised this; the code did not
+    // implement it.)
+    if (unreadable > 0) return empty;
 
     const ours = filterOurAssets(records, integrator);
     return { baselines: assetsToBaselines(ours), poolByToken: poolByTokenFrom(ours) };

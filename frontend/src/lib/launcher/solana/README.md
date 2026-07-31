@@ -83,8 +83,11 @@ Network is chosen **only** by the RPC endpoint of the `Connection` you pass.
 ## Operator flow (the harness + the signing wrapper — out of band, not in the bundle)
 
 `dbc.ts` produces base58/bigint descriptors. **`dbcClient.ts`** maps them to web3.js
-`PublicKey` / anchor `BN`, verifies the vault provenance on-chain, partial-signs the
-ephemeral keypairs, and returns the tx. **`scripts/solana-dbc-operator.mjs`** is the
+`PublicKey` / anchor `BN`, verifies the vault provenance on-chain, stamps the
+`feePayer` + `recentBlockhash` the Meteora SDK never sets (anchor's `.transaction()`
+returns a bare `new Transaction()`; without both, `partialSign`/`serialize` throw and
+nothing can be built at all), partial-signs the ephemeral keypairs, and returns the tx.
+**`scripts/solana-dbc-operator.mjs`** is the
 runnable driver — it reads every secret from ENV/CLI (nothing hardcoded), derives the
 Squads vault PDA from the multisig + vault index, and either prints the partial-signed
 tx (default, for out-of-band Squads co-signing) or broadcasts it (`--send`).
@@ -177,6 +180,22 @@ want the wrapper to co-sign, or `undefined` to get the partial-signed tx back fo
 out-of-band Squads co-signing. **A `claim` is always co-signed by the vault** (a Squads
 PDA that signs via `invoke_signed`), so it can never be broadcast by the operator alone
 — the harness rejects `claim --send`.
+
+### Blockhash / expiry
+
+Every returned tx carries `feePayer` (the descriptor's `payer`), `recentBlockhash` and
+`lastValidBlockHeight`. The blockhash is fetched at **`finalized`** commitment — a
+confirmed-only blockhash can be dropped by a fork switch and would silently invalidate a
+tx sitting in a multisig ceremony — and is fetched *after* the vault verification so the
+operator gets the largest share of the window. The window is ~150 slots (~60-90s) and
+the harness prints the remaining slots next to the base64.
+
+That window binds **only** if you co-sign and broadcast the printed transaction as-is.
+Importing it into a Squads proposal stores the *instructions*; the later
+`vaultTransactionExecute` carries its own fresh blockhash, so an expired print is
+harmless on that path. A durable nonce would remove the window outright but needs a
+funded nonce account plus a nonce-authority signature on every build — new on-chain
+state and a second signer for a problem the Squads path does not have.
 
 ## Gating + wizard integration (not yet wired)
 

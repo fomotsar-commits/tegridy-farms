@@ -62,7 +62,7 @@
     },
     {
       "slice": "misc",
-      "pattern": "test/{C01_,C1_,CommunityGrants,Gauge,Meme,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,RevenueDistributor,SwapFeeRouter,Toweli,TransferOwnershipToMultisig,VoteIncentives}*.t.sol"
+      "pattern": "test/{C01_,C1_,CommunityGrants,Gauge,LockerClaimer,Meme,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,RevenueDistributor,SwapFeeRouter,Toweli,TransferOwnershipToMultisig,VoteIncentives}*.t.sol"
     },
     {
       "slice": "v4",
