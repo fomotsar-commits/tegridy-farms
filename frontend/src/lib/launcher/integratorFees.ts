@@ -86,20 +86,37 @@ export interface ClaimableFee {
   amount: bigint;
 }
 
+/** The outcome of a claimable-fee read, keeping "zero" and "unknown" apart. */
+export interface ClaimableFeesResult {
+  /** Non-zero balances that read back successfully. */
+  fees: ClaimableFee[];
+  /**
+   * Currencies whose read FAILED. Neither zero nor claimable — simply unknown.
+   *
+   * This is returned rather than swallowed because the omission is invisible at the call
+   * site otherwise: a bare empty list reads identically whether every balance was truly
+   * zero or the RPC was down, and a UI cannot honestly say "nothing to claim" without
+   * knowing which. That conflation is the exact bug this module was rewritten to fix —
+   * see the header — so it must not be reintroduced one layer up.
+   */
+  unreadable: Address[];
+}
+
 /**
  * Read what our integrator can currently claim, per currency.
  *
- * Returns only NON-ZERO balances, so a caller can render "nothing to claim" by checking
- * `length === 0` without having to filter. A failed read is OMITTED rather than reported
- * as zero — "we could not read this" and "there is nothing here" are different claims,
- * and only one of them is safe to show next to a withdraw button.
+ * Returns only NON-ZERO balances in `fees`, so a caller can render "nothing to claim" by
+ * checking `fees.length === 0 && unreadable.length === 0`. A failed read lands in
+ * `unreadable` rather than being reported as zero — "we could not read this" and "there
+ * is nothing here" are different claims, and only one of them is safe to show next to a
+ * withdraw button.
  */
 export async function readClaimableFees(
   client: PublicClient,
   currencies: readonly Address[],
   integrator: Address = LAUNCHER_INTEGRATOR_ADDRESS,
-): Promise<ClaimableFee[]> {
-  if (currencies.length === 0) return [];
+): Promise<ClaimableFeesResult> {
+  if (currencies.length === 0) return { fees: [], unreadable: [] };
   let results;
   try {
     results = await client.multicall({
@@ -112,16 +129,27 @@ export async function readClaimableFees(
       allowFailure: true,
     });
   } catch {
-    return [];
+    // Transport died: nothing was read, so nothing is known about ANY currency.
+    return { fees: [], unreadable: [...currencies] };
   }
-  const out: ClaimableFee[] = [];
+  const fees: ClaimableFee[] = [];
+  const unreadable: Address[] = [];
   results.forEach((res, i) => {
     const currency = currencies[i];
-    if (res.status !== 'success' || !currency) return; // unreadable ⇒ omit, never report 0
+    if (!currency) return;
+    if (res.status !== 'success') {
+      unreadable.push(currency); // unreadable ⇒ report as unknown, never as 0
+      return;
+    }
     const amount = res.result as bigint;
-    if (typeof amount === 'bigint' && amount > 0n) out.push({ currency, amount });
+    if (typeof amount !== 'bigint') {
+      // A success that did not decode to a number is not a zero balance either.
+      unreadable.push(currency);
+      return;
+    }
+    if (amount > 0n) fees.push({ currency, amount });
   });
-  return out;
+  return { fees, unreadable };
 }
 
 /**

@@ -18,6 +18,11 @@ import { WrongChainScreen } from '../components/ui/WrongChainGuard';
 // flow on destructive writes (pause / unpause). Keeps the gate uniform across
 // every admin-write call site.
 import { TypedConfirmation } from '../components/ui/TypedConfirmation';
+// Launcher revenue. Gated separately from the owner sections below: the Airlock debits
+// `msg.sender`, so only LAUNCHER_INTEGRATOR_ADDRESS can withdraw — and that is a
+// different wallet from the protocol owner.
+import { IntegratorFeesPanel } from '../components/launcher/IntegratorFeesPanel';
+import { LAUNCHER_INTEGRATOR_ADDRESS } from '../lib/launcher/config';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
 const OWNER_ABI = [
@@ -218,6 +223,16 @@ export default function AdminPage() {
     return address.toLowerCase() === owner.toLowerCase();
   }, [address, owner]);
 
+  // Second authorized role. The launcher's integrator is a dedicated hot wallet, NOT the
+  // protocol owner (verified on-chain: TegridyStaking.owner() is 0x1489…456E while the
+  // integrator is 0xD355…1051). Gating this page on `isOwner` alone would show
+  // "Not Authorized" to the only wallet that can actually withdraw launcher fees.
+  // Unlike `owner`, this is a compile-time constant, so there is no stale-role window.
+  const isIntegrator = useMemo(() => {
+    if (!address) return false;
+    return address.toLowerCase() === LAUNCHER_INTEGRATOR_ADDRESS.toLowerCase();
+  }, [address]);
+
   // Chain-aware block explorer URL — pinned to the canonical chain, not the
   // wallet's current chain (which could be anything post-switch).
   const chains = useChains();
@@ -356,8 +371,8 @@ export default function AdminPage() {
     );
   }
 
-  // Not owner
-  if (!isOwner) {
+  // Not an authorized role. Either role gets in; each sees only its own sections.
+  if (!isOwner && !isIntegrator) {
     return (
       <div className="-mt-14 relative min-h-screen">
         <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
@@ -367,7 +382,7 @@ export default function AdminPage() {
           <div className="glass-card p-8 rounded-2xl text-center max-w-md">
             <h1 className="heading-luxury text-2xl text-white mb-3">Not Authorized</h1>
             <p className="text-white text-sm">
-              This page is restricted to the contract owner.
+              This page is restricted to the contract owner and the launcher integrator.
             </p>
           </div>
         </div>
@@ -387,16 +402,27 @@ export default function AdminPage() {
             Admin Dashboard
           </h1>
           <p className="text-white text-sm">
-            Timelock overview for all Tegridy Farms contracts.
+            {isOwner
+              ? 'Timelock overview for all Tegridy Farms contracts.'
+              : 'Launcher integrator revenue. Contract administration requires the owner wallet.'}
           </p>
           {/* AUDIT ADMIN-SEC: surface current role + chain + wallet so the operator
               always sees exactly which identity is authorized. Stale owner state
               (e.g. after a mid-session transferOwnership) is detected by the
               10s refetch; Refresh forces it immediately. */}
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono">
-            <span className="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-              OWNER
-            </span>
+            {/* Both roles can hold simultaneously; show exactly what the connected
+                wallet is authorized for rather than a single hardcoded label. */}
+            {isOwner && (
+              <span className="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                OWNER
+              </span>
+            )}
+            {isIntegrator && (
+              <span className="px-2 py-1 rounded-md bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                INTEGRATOR
+              </span>
+            )}
             <span className="px-2 py-1 rounded-md bg-white/5 text-white/80 border border-white/10">
               {canonicalChain?.name ?? `chain ${CHAIN_ID}`}
             </span>
@@ -413,6 +439,13 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {/* Launcher revenue. Rendered for BOTH roles — the balance is public on-chain
+            state, and the panel disables its own withdraw button for non-integrators
+            rather than hiding the money. */}
+        <IntegratorFeesPanel />
+
+        {isOwner && (
+        <>
         {contractReadsError && (
           <div className="glass-card p-4 rounded-xl border border-red-500/40 bg-red-500/10">
             <p className="text-sm text-red-300">
@@ -461,6 +494,8 @@ export default function AdminPage() {
             Admin panel for contract owner. Manage timelocks via direct contract interaction.
           </p>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
