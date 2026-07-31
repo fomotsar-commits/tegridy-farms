@@ -44,7 +44,7 @@ import type { FeeConstitutionLine } from '../lib/launcher/factSheet';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
 import type { OutcomeRecord } from '../lib/launcher/outcomes';
-import type { LaunchBaseline } from '../lib/launcher/outcomesReader';
+import { readOurLaunches } from '../lib/launcher/ourLaunches';
 import { isAddress, getAddress, type Address } from 'viem';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
@@ -241,25 +241,37 @@ export default function LaunchPage() {
   // is pending.
   useEffect(() => {
     if (!isLauncherEnabled()) return;
-    // DELIBERATELY EMPTY — not a missing feed. These two surfaces claim "launched
-    // and graduated through THIS rail", so they must stay integrator-filtered and
-    // honestly empty until launch #1 graduates. The market-wide new_pools feed is
-    // wired, but it renders in the separately-labelled <LaunchRadar /> below;
-    // pouring it in here would fabricate a track record. Populate this only from an
-    // integrator/factory-filtered source (Airlock Create events for our integrator).
-    const baselines: LaunchBaseline[] = [];
-    if (baselines.length === 0) return;
+    if (!publicClient) return;
+    // INTEGRATOR-FILTERED, deliberately. These two surfaces claim "launched and
+    // graduated through THIS rail", so they may only ever list assets whose Airlock
+    // record names our integrator. The market-wide GeckoTerminal `new_pools` feed is
+    // wired too, but it renders in the separately-labelled <LaunchRadar /> below —
+    // pouring it in here would fabricate a track record.
+    //
+    // `readOurLaunches` cannot be a topic filter: Airlock's `Create` event indexes
+    // only `numeraire` and carries no integrator at all, so it enumerates Create and
+    // then reads `getAssetData(asset)` word[9] per asset. See ourLaunches.ts.
+    // Empty stays empty until launch #1 — that is the honest state, not a bug.
     const ac = new AbortController();
     void (async () => {
+      const { baselines, poolByToken } = await readOurLaunches({
+        client: publicClient,
+        signal: ac.signal,
+      });
+      if (ac.signal.aborted) return;
+      if (baselines.length === 0) {
+        setExplorer({ launches: [], outcomes: {} });
+        return;
+      }
       try {
-        const r = await fetchLauncherOutcomes({ baselines, signal: ac.signal });
+        const r = await fetchLauncherOutcomes({ baselines, poolByToken, signal: ac.signal });
         setExplorer({ launches: r.launches, outcomes: r.outcomes });
       } catch {
         setExplorer({ launches: [], outcomes: {} }); // client throws on net/HTTP — degrade to empty
       }
     })();
     return () => ac.abort();
-  }, []);
+  }, [publicClient]);
 
   const onLaunch = async () => {
     if (launch.phase === 'pending') return;

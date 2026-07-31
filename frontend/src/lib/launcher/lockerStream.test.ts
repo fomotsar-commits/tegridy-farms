@@ -6,7 +6,16 @@ import type { Address } from 'viem';
 // the heavy real SDK in the test env. The named export must exist for the dynamic import.
 vi.mock('@whetstone-research/doppler-sdk/evm', () => ({ streamableFeesLockerAbi: [] }));
 
-import { poolKeyToId, migrationPoolId, readMigrationStream, lockResolverFor, type MigrationStream } from './lockerStream';
+import {
+  poolKeyToId,
+  migrationPoolId,
+  readMigrationStream,
+  readLockPosition,
+  readBeneficiaryClaim,
+  lockResolverFor,
+  LOCKER_V1_ABI,
+  type MigrationStream,
+} from './lockerStream';
 import { DOPPLER_MAINNET } from './doppler.constants';
 import { ETH_NUMERAIRE, TOWELI_NUMERAIRE } from './config';
 
@@ -94,58 +103,90 @@ function mockClient(result: unknown, opts: { throws?: boolean } = {}) {
   };
 }
 
-describe('readMigrationStream — the on-chain graduation + fee read', () => {
-  it('graduated: decodes beneficiaries, lock state, and unlock time', async () => {
-    const s = await readMigrationStream(mockClient(streamTuple()), TOKEN);
-    expect(s.graduated).toBe(true);
-    expect(s.locker).toBe(DOPPLER_MAINNET.support.streamableFeesLocker);
-    expect(s.locked).toBe(true); // isUnlocked === false
-    expect(s.unlockAt).toBe(1_700_000_000 + 31_536_000);
-    expect(s.beneficiaries.map((b) => b.shares)).toEqual([
-      (8000n * 10n ** 18n) / 10_000n,
-      (500n * 10n ** 18n) / 10_000n,
-      (1500n * 10n ** 18n) / 10_000n,
-    ]);
-    expect(s.poolId).toBe(migrationPoolId(TOKEN));
-  });
-
-  it('isUnlocked === true -> locked false (honest lock state, not hardcoded)', async () => {
-    const s = await readMigrationStream(mockClient(streamTuple({ isUnlocked: true })), TOKEN);
-    expect(s.graduated).toBe(true);
-    expect(s.locked).toBe(false);
-  });
-
-  it('REVERTS (no stream / pre-graduation) -> not graduated, empty, never throws', async () => {
-    const s = await readMigrationStream(mockClient(null, { throws: true }), TOKEN);
+// ── The regression these tests exist to prevent ─────────────────────────────────────
+// The PREVIOUS version of this block mocked a `streams(poolId)` return and asserted
+// `graduated: true`. Every one of those tests passed — while production was permanently
+// broken, because V1 has no `streams` function at all and the mock was feeding V2-shaped
+// data the real contract never returns. Green tests over a fiction.
+// So: assert against the surface PROBED on mainnet, and assert the honest states.
+describe('readMigrationStream — must not claim graduation it cannot read', () => {
+  it('reports unsupported rather than a negative finding about the token', async () => {
+    const s = await readMigrationStream(mockClient(null), TOKEN);
+    expect(s.unsupported).toBe(true);
     expect(s.graduated).toBe(false);
     expect(s.beneficiaries).toEqual([]);
     expect(s.locker).toBeNull();
-    expect(s.locked).toBe(false);
-    expect(s.unlockAt).toBeNull();
   });
 
-  it('DEFENSE: a stream whose poolKey names a DIFFERENT token is rejected (not graduated)', async () => {
-    const wrong = '0x00000000000000000000000000000000DeaDBeef' as Address;
-    const s = await readMigrationStream(mockClient(streamTuple({ currency1: wrong })), TOKEN);
-    expect(s.graduated).toBe(false);
-    expect(s.beneficiaries).toEqual([]);
+  it('still returns the correct migration PoolId for diagnostics', async () => {
+    const s = await readMigrationStream(mockClient(null), TOKEN);
+    expect(s.poolId).toBe(migrationPoolId(TOKEN));
+    const t = await readMigrationStream(mockClient(null), TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE);
+    expect(t.poolId).toBe(migrationPoolId(TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE));
+    expect(t.numeraire).toBe(TOWELI_NUMERAIRE);
   });
 
-  it('TOWELI numeraire: reads the token/TOWELI pool (currency0=TOWELI, currency1=token)', async () => {
-    const tuple = streamTuple({ currency0: TOWELI_NUMERAIRE, currency1: TOKEN_ABOVE_TOWELI });
-    const s = await readMigrationStream(mockClient(tuple), TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE);
-    expect(s.graduated).toBe(true);
-    expect(s.numeraire).toBe(TOWELI_NUMERAIRE);
-    expect(s.poolId).toBe(migrationPoolId(TOKEN_ABOVE_TOWELI, TOWELI_NUMERAIRE));
-    expect(s.beneficiaries.length).toBe(3);
+  it('NEVER reports graduated:true — a fabricated split is the failure to avoid', async () => {
+    for (const canned of [streamTuple(), null, undefined, {}, []]) {
+      const s = await readMigrationStream(mockClient(canned), TOKEN);
+      expect(s.graduated).toBe(false);
+    }
+  });
+});
+
+describe('LOCKER_V1_ABI — pinned to the mainnet-probed surface', () => {
+  it('declares positions(uint256) with the 4 outputs V1 actually returns', () => {
+    const fn = LOCKER_V1_ABI.find((f) => f.name === 'positions');
+    expect(fn?.inputs.map((i) => i.type)).toEqual(['uint256']);
+    expect(fn?.outputs.map((o) => o.type)).toEqual(['address', 'uint32', 'uint32', 'bool']);
   });
 
-  it('DEFENSE: a TOWELI-pool stream is NOT accepted when reading against ETH (currency0 mismatch)', async () => {
-    // Even if the locker somehow returned a TOWELI-pool struct for an ETH-pool query,
-    // the two-currency match rejects it — an ETH read can never be mistaken for a TOWELI read.
-    const toweliTuple = streamTuple({ currency0: TOWELI_NUMERAIRE, currency1: TOKEN_ABOVE_TOWELI });
-    const s = await readMigrationStream(mockClient(toweliTuple), TOKEN_ABOVE_TOWELI, ETH_NUMERAIRE);
-    expect(s.graduated).toBe(false);
+  it('declares beneficiariesClaims(address,address) and NO streams()', () => {
+    expect(LOCKER_V1_ABI.find((f) => f.name === 'beneficiariesClaims')?.inputs.map((i) => i.type))
+      .toEqual(['address', 'address']);
+    // V1 has no streams(); re-adding it is the original bug.
+    expect(LOCKER_V1_ABI.some((f) => f.name === 'streams')).toBe(false);
+  });
+});
+
+describe('readLockPosition — V1 positions(tokenId)', () => {
+  it('decodes a live position into lock state and unlock time', async () => {
+    const client = mockClient(['0x000000000000000000000000000000000000BEEF', 1_700_000_000, 31_536_000, false]);
+    const p = await readLockPosition(client, 42n);
+    expect(p.found).toBe(true);
+    expect(p.locked).toBe(true);
+    expect(p.unlockAt).toBe(1_700_000_000 + 31_536_000);
+  });
+
+  it('isUnlocked true -> locked false', async () => {
+    const client = mockClient(['0x000000000000000000000000000000000000BEEF', 1n, 2n, true]);
+    expect((await readLockPosition(client, 42n)).locked).toBe(false);
+  });
+
+  // The getter returns ZEROS for an unknown key rather than reverting, so a zero
+  // recipient — not an exception — is the real "no such position" signal.
+  it('treats a zero recipient as absent, not as a real position', async () => {
+    const client = mockClient([ZERO, 0, 0, false]);
+    expect((await readLockPosition(client, 999n)).found).toBe(false);
+  });
+
+  it('never throws on revert or junk', async () => {
+    expect((await readLockPosition(mockClient(null, { throws: true }), 1n)).found).toBe(false);
+    for (const junk of [null, undefined, 'nope', 5]) {
+      await expect(readLockPosition(mockClient(junk), 1n)).resolves.toMatchObject({ found: false });
+    }
+  });
+});
+
+describe('readBeneficiaryClaim — what a published beneficiary actually accrued', () => {
+  it('returns the claim amount', async () => {
+    await expect(readBeneficiaryClaim(mockClient(1234n), TOKEN, ZERO)).resolves.toBe(1234n);
+  });
+
+  // null, not 0 — rendering an unread balance as zero would understate what a
+  // beneficiary is owed on a page whose whole purpose is disclosure.
+  it('returns null (not 0) when the read fails', async () => {
+    await expect(readBeneficiaryClaim(mockClient(null, { throws: true }), TOKEN, ZERO)).resolves.toBeNull();
   });
 });
 
