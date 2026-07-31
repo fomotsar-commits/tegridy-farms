@@ -23,13 +23,13 @@
  *     the signature set (see the per-command notes below). A `claim` is signed by the
  *     VAULT (a Squads PDA) and therefore can never be `--send` by the operator.
  *
- * ─── GATE (expected throw) ─────────────────────────────────────────────────────
- * `SOLANA_LAUNCHER_ENABLED` is `false` in `dbc.ts`. Every wrapper entry point calls
- * `assertEnabled()` and THROWS immediately. Running this harness today is expected to
- * print a "Solana launcher is gated" error and exit non-zero — that is the gate doing
- * its job, and it proves the whole graph loads and drives the wrapper. Un-gating is a
- * separate, deliberate go-live step (flip the flag in dbc.ts AND configure a real
- * vault); this script deploys nothing and un-gates nothing.
+ * ─── GATE (LIVE — no longer a guaranteed throw) ─────────────────────────────────
+ * `SOLANA_LAUNCHER_ENABLED` is now `true` in `dbc.ts`, so `assertEnabled()` PASSES and
+ * create-config/launch/claim really build transactions. Treat every invocation as live:
+ * the default is still print-only, but `--send` on create-config/launch WILL broadcast.
+ * The remaining fail-closed guards are the wrapper's on-chain `verifySquadsVault` (wrong
+ * multisig/index → throw) and the `claim --send` refusal. The multisig THRESHOLD is still
+ * NOT machine-checked — see the derive-vault warning; verify >= 2 out of band first.
  *
  * ─── WHY A CUSTOM LOADER (the module.register block below) ──────────────────────
  * `dbcClient.ts` and its imports are written for the Vite BUNDLER, so a raw Node
@@ -236,25 +236,55 @@ function keypairSigner(kp) {
   };
 }
 
-function emitTransaction(tx, sent, connection, label, extra) {
+// The wrapper (dbcClient.prepareAndSign) stamps feePayer + recentBlockhash +
+// lastValidBlockHeight on every tx it returns. Print the REAL deadline rather than a
+// hand-waved "~60-90s": a blockhash-anchored tx is dropped once the chain passes
+// lastValidBlockHeight, and only the operator can judge whether their ceremony fits.
+// Best-effort — a height lookup must never sink an otherwise-good print.
+async function printValidityWindow(connection, tx) {
+  console.log(`  feePayer            : ${tx.feePayer?.toBase58?.() ?? tx.feePayer}`);
+  console.log(`  blockhash           : ${tx.recentBlockhash}`);
+  console.log(`  lastValidBlockHeight: ${tx.lastValidBlockHeight ?? '(unknown)'}`);
+  if (typeof tx.lastValidBlockHeight !== 'number') return;
+  try {
+    // Must match the wrapper's BLOCKHASH_COMMITMENT ('finalized') — lastValidBlockHeight
+    // is expressed in that same commitment's block height.
+    const now = await connection.getBlockHeight('finalized');
+    const slots = tx.lastValidBlockHeight - now;
+    console.log(`  expires in          : ~${slots} slots (~${Math.round(slots * 0.45)}s from now)`);
+  } catch (e) {
+    console.log(`  expires in          : (block-height lookup failed: ${e?.message ?? e})`);
+  }
+}
+
+async function emitTransaction(tx, sent, connection, label, extra) {
   if (extra) for (const [k, v] of Object.entries(extra)) console.log(`${k}: ${v}`);
   if (sent) return; // caller already sent + logged the signature
   const b64 = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
   console.log(`\n── ${label}: partial-signed transaction (base64) ──`);
-  console.log('Hand this to the Squads multisig co-signers / import it into a Squads proposal.');
-  console.log('NOTE: it carries a recent blockhash and EXPIRES in ~60-90s of the fetch below —');
-  console.log('co-sign + submit promptly, or re-run to refresh the blockhash.\n');
+  await printValidityWindow(connection, tx);
+  console.log('');
+  console.log('  • Imported into a SQUADS PROPOSAL (the intended path): Squads stores the');
+  console.log('    INSTRUCTIONS; the later vaultTransactionExecute carries its own fresh');
+  console.log('    blockhash, so the window above does NOT apply.');
+  console.log('  • Co-signed and broadcast AS THIS RAW TX: the window above DOES apply —');
+  console.log('    submit before it lapses, or re-run this command to re-stamp a blockhash.\n');
   console.log(b64);
 }
 
 async function maybeSend(connection, tx, flags, _signerKp) {
   if (!flags.send) return false;
-  // The wrapper already partial-signed the ephemeral keypair(s) and (via keypairSigner)
-  // the payer. Broadcast the fully-signed tx. This only completes when the operator
-  // payer is a sufficient signer set (create-config / launch) — NOT for claims, where
-  // the Squads vault is the required signer.
+  // The wrapper already stamped the blockhash/feePayer, partial-signed the ephemeral
+  // keypair(s) and (via keypairSigner) the payer. Broadcast the fully-signed tx. This only
+  // completes when the operator payer is a sufficient signer set (create-config / launch)
+  // — NOT for claims, where the Squads vault is the required signer.
   const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await connection.confirmTransaction(sig, 'confirmed');
+  // Blockhash confirmation strategy, not the deprecated signature-only form: the latter
+  // polls until the RPC's own timeout even after the tx has expired and can never land.
+  await connection.confirmTransaction(
+    { signature: sig, blockhash: tx.recentBlockhash, lastValidBlockHeight: tx.lastValidBlockHeight },
+    'confirmed',
+  );
   console.log(`\n✅ sent. signature: ${sig}`);
   return true;
 }
@@ -297,7 +327,7 @@ async function cmdCreateConfig(flags) {
   const tx = await dbcClient.createPartnerConfig(client, partnerConfig, signer, configKp, provenance);
 
   const sent = await maybeSend(connection, tx, flags, payer);
-  emitTransaction(tx, sent, connection, 'createConfig', {
+  await emitTransaction(tx, sent, connection, 'createConfig', {
     'CONFIG ADDRESS (use for launch)': configKp.publicKey.toBase58(),
   });
 }
@@ -338,7 +368,7 @@ async function cmdLaunch(flags) {
   const tx = await dbcClient.launchToken(client, launchParams, signer, baseMintKp);
 
   const sent = await maybeSend(connection, tx, flags, payer);
-  emitTransaction(tx, sent, connection, 'launch', {
+  await emitTransaction(tx, sent, connection, 'launch', {
     'BASE MINT ADDRESS': baseMintKp.publicKey.toBase58(),
   });
 }
@@ -369,7 +399,7 @@ async function cmdClaim(flags) {
 
   // signer=undefined → wrapper returns the unsent tx (the vault co-signs in Squads).
   const tx = await dbcClient.claimPartnerFees(client, claimParams, undefined, provenance);
-  emitTransaction(tx, false, connection, 'claimPartnerFees', undefined);
+  await emitTransaction(tx, false, connection, 'claimPartnerFees', undefined);
 }
 
 function cmdDeriveVault() {
@@ -433,8 +463,12 @@ launch FLAGS
 claim FLAGS
   --pool <base58>              (required) DBC pool to claim from.
 
-NOTE: while SOLANA_LAUNCHER_ENABLED=false in dbc.ts, create-config/launch/claim THROW
-at the wrapper's gate — expected. derive-vault + help run regardless.
+NOTE: SOLANA_LAUNCHER_ENABLED is TRUE in dbc.ts — create-config/launch/claim build REAL
+transactions. Without --send they only print; with --send they broadcast.
+
+Printed transactions carry a 'finalized' blockhash and expire at the lastValidBlockHeight
+shown alongside them (~150 slots, ~60-90s). That window binds only if you broadcast the
+printed tx as-is; a Squads proposal re-anchors its own blockhash at execution time.
 `);
 }
 

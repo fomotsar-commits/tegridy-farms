@@ -23,10 +23,11 @@
 //     Squads vaults through the dbc.ts descriptors + their provenance here.
 //
 // The SDK methods return an unsigned web3.js `Transaction`. These wrappers
-// partial-sign the EPHEMERAL keypairs they own (the fresh config / base-mint
-// keypair, which are `signer: true` accounts), then hand the tx to the passed-in
-// wallet signer (if it exposes `signTransaction`) or return it for the operator
-// to co-sign and send. The wallet/payer and the ephemeral keypair BOTH sign.
+// FIRST make that transaction signable (feePayer + recentBlockhash — see
+// `prepareAndSign`), then partial-sign the EPHEMERAL keypairs they own (the fresh
+// config / base-mint keypair, which are `signer: true` accounts), then hand the tx
+// to the passed-in wallet signer (if it exposes `signTransaction`) or return it for
+// the operator to co-sign and send. The wallet/payer and the ephemeral keypair BOTH sign.
 
 import { buildCurveWithMarketCap, type DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
 import { BN } from '@coral-xyz/anchor';
@@ -105,11 +106,64 @@ async function assertSquadsVaultOnChain(
   }
 }
 
-async function finishSigning(
+/**
+ * Commitment for the blockhash that fixes a built transaction's validity window.
+ *
+ * Deliberately 'finalized' rather than the connection's 'confirmed' default: a
+ * confirmed-but-unfinalized blockhash can still be dropped by a fork switch, which would
+ * silently invalidate a transaction that is sitting in an out-of-band Squads ceremony.
+ * Finality costs ~32 slots (~13s) of the ~150-slot (~60-90s) window; on a flow whose
+ * DEFAULT is print-now / co-sign-later, durability is worth more than those seconds.
+ */
+const BLOCKHASH_COMMITMENT = 'finalized' as const;
+
+/**
+ * Make a freshly built SDK transaction signable, then sign it.
+ *
+ * WHY THE PREP STEP EXISTS: the Meteora SDK builds its transactions through anchor's
+ * `.transaction()`, which returns a bare `new Transaction()` carrying instructions and
+ * NOTHING else — it sets neither `feePayer` nor `recentBlockhash` (verified against
+ * @coral-xyz/anchor's TransactionFactory and the SDK dist, which contains no reference to
+ * either field). web3.js refuses to compile a message without BOTH, so before this fix
+ * `partialSign()` threw "Transaction recentBlockhash required" and `serialize()` threw
+ * "Transaction fee payer required": EVERY money-path command died before it could print
+ * or send anything, which is why nothing has ever been created on mainnet through it.
+ *
+ * `feePayer` is the DESCRIPTOR's payer, not `signer.publicKey`: the print path passes no
+ * signer at all, and the descriptor payer is the same account the SDK already encoded into
+ * the instruction, so the two can never disagree.
+ *
+ * The blockhash is fetched HERE — after the gate and the on-chain vault verification, i.e.
+ * as late as possible — so the operator gets the largest share of the validity window.
+ * `lastValidBlockHeight` is recorded on the tx (a native web3.js field) so the caller can
+ * report the real expiry deadline without re-fetching a DIFFERENT blockhash's height.
+ *
+ * VALIDITY WINDOW (the caller must surface this): a blockhash-anchored transaction is
+ * dropped once the chain passes `lastValidBlockHeight` (~150 slots, ~60-90s). That matters
+ * only when the printed transaction is itself co-signed and broadcast; when it is imported
+ * into a Squads proposal, Squads stores the INSTRUCTIONS and the later
+ * `vaultTransactionExecute` carries its own fresh blockhash, so the printed blockhash is a
+ * required-but-inert placeholder. A durable nonce would remove the window entirely, but it
+ * needs a funded nonce account plus a nonce-authority signature on every build — new
+ * on-chain state and a second signer for a problem the Squads path does not actually have.
+ */
+async function prepareAndSign(
+  client: DynamicBondingCurveClient,
   tx: Transaction,
+  payer: string,
   signer: WalletSigner | undefined,
   ephemeral: Keypair[],
 ): Promise<Transaction> {
+  const { blockhash, lastValidBlockHeight } = await client.connection.getLatestBlockhash(BLOCKHASH_COMMITMENT);
+  if (typeof blockhash !== 'string' || blockhash.trim().length === 0) {
+    throw new Error(
+      'getLatestBlockhash returned no blockhash — refusing to hand back a transaction that cannot be signed or sent',
+    );
+  }
+  tx.feePayer = new PublicKey(payer);
+  tx.recentBlockhash = blockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
+
   // The ephemeral keypairs (config / base-mint) are `signer: true` accounts the
   // wrapper owns — partial-sign them here.
   if (ephemeral.length > 0) {
@@ -177,7 +231,7 @@ export async function createPartnerConfig(
     ...configParams,
   });
 
-  return finishSigning(tx, signer, [configKeypair]);
+  return prepareAndSign(client, tx, accounts.payer, signer, [configKeypair]);
 }
 
 // ── 2) Launch a token against a config key ────────────────────────────────────
@@ -224,7 +278,7 @@ export async function launchToken(
     payer: new PublicKey(launchParams.payer),
   });
 
-  return finishSigning(tx, signer, [baseMintKeypair]);
+  return prepareAndSign(client, tx, launchParams.payer, signer, [baseMintKeypair]);
 }
 
 // ── 3) Claim partner trading fees (to the vault, never an EOA) ─────────────────
@@ -280,5 +334,5 @@ export async function claimPartnerFees(
   });
 
   // No ephemeral keypair to partial-sign for a claim.
-  return finishSigning(tx, signer, []);
+  return prepareAndSign(client, tx, claimParams.payer, signer, []);
 }
