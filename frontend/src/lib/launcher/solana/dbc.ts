@@ -66,7 +66,18 @@ import { SOL_MINT, USDC_MINT } from '../../solana';
 // signer (verified: SolanaLaunchPage has no sendTransaction/createConfig path). Real
 // launches still go through the operator's out-of-band CLI wrapper (dbcClient.ts / README),
 // which verifies the feeClaimer IS the derived Squads vault PDA on-chain (squads.ts
-// verifySquadsVault) and enforces multisig threshold >= 2 before the first real create.
+// verifySquadsVault).
+//
+// 🔴 CORRECTED 2026-07-30 — this comment previously ended "...and enforces multisig
+// threshold >= 2 before the first real create." THAT IS FALSE, and it sat directly above
+// an ENABLED flag. `verifySquadsVault` proves only (1) the parent is Squads-v4-owned and
+// (2) the fee address is that parent's canonical vault PDA. It does NOT deserialize the
+// multisig config, so it cannot and does not check the threshold — see the capitalised
+// "THRESHOLD IS NOT ENFORCED" block in squads.ts. A 1-of-1 Squads multisig (a single-key
+// drain of ALL accrued Solana fees) passes the current check, as does any other
+// Squads-program-owned account type. squads.ts records that the operator MUST verify
+// threshold >= 2 with Squads tooling BEFORE this flag flips; the flag is already true, so
+// that precondition needs confirming out-of-band rather than assumed from this file.
 // Doctrine intact: fee-capture only, zero custom program, TOWELI never on Solana.
 // Reversible: set false + redeploy.
 export const SOLANA_LAUNCHER_ENABLED = true;
