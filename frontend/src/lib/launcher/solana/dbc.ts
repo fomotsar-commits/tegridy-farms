@@ -14,7 +14,8 @@
 //     multisig (not the Squads-owned config account) — so verification derives that
 //     vault PDA from the multisig + index and confirms the fee address equals it
 //     (see squads.ts `verifySquadsVault` + README §Squads-vault invariant).
-//   • Sub-brand, GATED: SOLANA_LAUNCHER_ENABLED stays false; the operator submit
+//   • Sub-brand: SOLANA_LAUNCHER_ENABLED is TRUE since 2026-07-27 (see the block at the
+//     flag itself) — /solana-launch renders a config PREVIEW with no in-app signer; the operator submit
 //     path is unreachable until an operator flips it AND supplies a real vault.
 //
 // This file is a PURE PARAM BUILDER. It never opens a Connection, never signs,

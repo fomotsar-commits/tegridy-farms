@@ -1079,7 +1079,7 @@ with same-day and next-day corrections in
   integration (not yet wired)", and line 205 still says "Build
   `frontend/src/pages/SolanaLaunchPage.tsx`", which already exists. The same false
   statement also survives in `solana/dbc.ts`'s own header comment (line 17,
-  "SOLANA_LAUNCHER_ENABLED stays false") while line 72 sets it `true`.
+  "SOLANA_LAUNCHER_ENABLED stays false") while the flag below it is set `true`.
 
 ### Added — Art on every card, modal and standalone page; art-studio taken to total coverage (2026-07-25)
 
@@ -1115,7 +1115,7 @@ with same-day and next-day corrections in
   fixed chrome — nav logo, the 40-frame loader splash, the 39 GlitchTransition
   frames, the token icon. **Every registration was seeded with matching overrides
   so the visible app was a pixel no-op**; this is tooling, not a user-visible
-  change. `ArtStudioPage.tsx` now carries 262 registered `pageId` entries.
+  change. `ArtStudioPage.tsx` now registers every art surface. (No count is quoted here on purpose: several entries are `Array.from` spreads, so a grep undercounts and an evaluated count disagrees with it — see the art-surface inventory note.)
 - Unrelated second half of #114, and genuinely user-facing: **`/solana-launch` was
   added to the nav dropdown.** It had been reachable only through a cross-link
   buried inside `/launch`'s *gated* explainer — which meant an operator, who sees

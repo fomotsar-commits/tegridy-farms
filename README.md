@@ -71,7 +71,7 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 | **Token Launcher** | Launch an ERC-20 through Doppler with vetted defaults, launch fact-sheets, afterlife tracking, and an opt-in **TOWELI** base pair; the integrator fee accrues to the protocol and is withdrawable from `/admin`. | (Doppler periphery today — no *deployed* Tegridy contract) | 🟢 Live (EVM) · 🟡 Solana preview only |
 | **Premium / community** | Subscription premium tier, staker-voted community grants, meme-bounty board. | `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard` | 🟢 Premium live · 🔵 grants/bounties on-chain |
 | **Restaking** | Restake the position NFT for a second reward stream (EigenLayer-operator pattern). | `TegridyRestaking` | 🟡 Deferred (Phase 7 / EIP-170) |
-| **Uniswap V4 module** | V4 hook (per-user premium fee discount + POL skim), trusted swap router, boosted LP staker, plus the **graduation leg**: an Airlock-callable migrator that graduates a launch into a Tegridy-hooked V4 pool, and its fee locker. | `v4/TegridyV4Hook`(+Admin), `TegridyV4SwapRouter`, `TegridyBoostedLPStaker`, `TegridyLiquidityMigrator`, `TegridyFeeLocker` | 🟡 Next-wave (unaudited, **not deployed** — `TEGRIDY_V4_MIGRATOR_ADDRESS` is still `0x0`, and that zero is load-bearing: launches keep graduating via Doppler's own migrator until ours is whitelisted) |
+| **Uniswap V4 module** | V4 hook (per-user premium fee discount + POL skim), trusted swap router, boosted LP staker, plus the **graduation leg**: an Airlock-callable migrator that graduates a launch into a Tegridy-hooked V4 pool, and its fee locker. | `v4/TegridyV4Hook`(+Admin), `TegridyV4SwapRouter`, `TegridyBoostedLPStaker`, `TegridyLiquidityMigrator`, `TegridyFeeLocker` | 🟡 Next-wave (unaudited, app-gated). The hook is **pre-deployed** to a mined address; the **migrator is not** — `TEGRIDY_V4_MIGRATOR_ADDRESS` is still `0x0`, and that zero is load-bearing: launches keep graduating via Doppler's own migrator until ours is whitelisted |
 
 **🔵 On-chain** means the contract is **deployed to mainnet and Etherscan-verified** (the 2026-07-16 gated batch), but the frontend address is deliberately still zeroed — these are the emission/spend-side features, held back until a revenue line funds them, not a technical dependency. **🟡 Gated** means the source is in the repo and tested but **not yet deployed** — the on-chain address is intentionally zeroed in the frontend ([`isDeployed()`](frontend/src/lib/constants.ts) gate) until it clears its audit wave and deploys. Both auto-activate the moment the operator sets the real address — exactly how the 🟢 NFT-finance/launchpad/premium set went live on 2026-07-21/22. († `TegridyLending` is *not* yet deployed: it is pre-deploy-audited and hardened but **oracle-gated**, so it ships only after the pool deepen + TWAP bootstrap.)
 
@@ -100,7 +100,7 @@ Honest snapshot as of the latest commit:
 
 ## How it all fits together
 
-The `contracts/src/` tree holds **50 Solidity files**: ~34 at the root (primitives + their EIP-170 admin/vault sisters), a 4-file Uniswap V4 next-wave module under `v4/`, and 12 shared `base/` + `lib/` utilities. None are redundant — every revenue surface feeds the same staker reward stream; every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. It's **one flywheel** spread across many files.
+The `contracts/src/` tree holds **53 Solidity files**: ~35 at the root (primitives + their EIP-170 admin/vault sisters), a 6-file Uniswap V4 next-wave module under `v4/`, and 12 shared `base/` + `lib/` utilities. None are redundant — every revenue surface feeds the same staker reward stream; every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. It's **one flywheel** spread across many files.
 
 ### 1. The revenue flywheel (where the ETH actually comes from)
 
@@ -342,8 +342,8 @@ pnpm dev                # Ponder against the RPC in .env — repointed to the re
 > solution file (`{"files": [], "references": [...]}`) — plain `tsc` finds an empty
 > `files`, no `include`, and does not follow project references (that is build mode
 > only). It exits 0 in under a second having read nothing. Measured on this tree:
-> `tsc --noEmit --listFiles` reports **0** files under `src/`, `tsc -b --noEmit
-> --listFiles` reports **548**. CI and `package.json`'s `precommit` were both fixed
+> `tsc --noEmit --listFiles` reports **0** project files, `tsc -b --noEmit
+> --listFiles` reports **458** under `src/` (excluding `node_modules`). CI and `package.json`'s `precommit` were both fixed
 > to the `-b` form in [#131](https://github.com/fomotsar-commits/tegridy-farms/pull/131);
 > this README kept recommending the broken one until 2026-07-30.
 
@@ -367,7 +367,7 @@ trunk and the repo's default branch; `main` has diverged substantially (a merge 
 tegriddy-farms/
 ├── contracts/           Foundry project — Solidity 0.8.26
 │   ├── src/             50 .sol: ~34 root primitives + EIP-170 admin/vault sisters,
-│   │   ├── v4/          4-file Uniswap V4 next-wave module (gated, unaudited)
+│   │   ├── v4/          6-file Uniswap V4 next-wave module (gated, unaudited)
 │   │   ├── base/        OwnableNoRenounce, PauseGuardian, TimelockAdmin
 │   │   └── lib/         9 shared libraries (SequencerCheck, StakingViewLib, VotePowerOracle, …)
 │   ├── script/          Deploy + go-live scripts (DeployMVP, SeedLP, BootstrapTWAP, VerifyMVP, …)
