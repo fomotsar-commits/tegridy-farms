@@ -16,7 +16,18 @@ import {
   allowedNumeraires,
   ETH_NUMERAIRE,
   TOWELI_NUMERAIRE,
+  LAUNCH_FEE_TIER,
 } from '../lib/launcher/config';
+import { MIGRATION_POOL } from '../lib/launcher/airlock';
+
+// Rendered, never hardcoded. Both screens below used to read "1% total trade fee" over the
+// constitution table — conflating the AUCTION pool's fee with the GRADUATED pool's, which
+// is the fee the constitution actually divides. Terms §7 always stated this correctly; the
+// wizard, the screen a creator signs on, did not. Deriving the numbers means the literal
+// cannot drift back. feePct(10_000) = "1", feePct(3000) = "0.3".
+const feePct = (hundredthsOfBip: number) => String(hundredthsOfBip / 10_000);
+const AUCTION_FEE_PCT = feePct(LAUNCH_FEE_TIER);
+const GRADUATED_FEE_PCT = feePct(MIGRATION_POOL.fee);
 import { buildFactSheet, defaultGateConfig, type RawTokenFacts } from '../lib/launcher/gate';
 import type { LaunchFactSheet } from '../lib/launcher/factSheet';
 import { DOPPLER_MAINNET } from '../lib/launcher/doppler.constants';
@@ -925,8 +936,11 @@ function LauncherExplainer() {
 
       <ExplainerCard title="The fee split is fixed at launch">
         <p>
-          A 1% total trade fee, published in the Fact Sheet and never a marketing dial. These are the shares the rail
-          will launch with — the creator directs their pool (optionally carving a share to attention beneficiaries):
+          These shares divide the <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% trade fee</strong> — published in the
+          Fact Sheet and never a marketing dial. They do <strong>not</strong> split the {AUCTION_FEE_PCT}% auction fee:
+          during the auction the protocol takes a third-party integrator fee, and no share of it is enforced on-chain or
+          promised to you (Terms §7). These are the shares the rail will launch with — the creator directs their pool
+          (optionally carving a share to attention beneficiaries):
         </p>
         <div className="rounded-xl border border-white/12 overflow-hidden mt-1">
           {FEE_POOL_DISPLAY.map((l, i) => (
@@ -1233,7 +1247,10 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
   return (
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">Constitutional fee split</h3>
-      <p className="text-white/50 text-xs mb-3">Fixed at launch and published in the Fact Sheet — never a marketing dial. 1% total trade fee. You direct your pool below.</p>
+      <p className="text-white/50 text-xs mb-3">
+        Fixed at launch and published in the Fact Sheet — never a marketing dial. These shares divide the{' '}
+        <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% fee</strong>, not the {AUCTION_FEE_PCT}% auction fee — see Terms §7. You direct your pool below.
+      </p>
       <div className="rounded-xl border border-white/12 overflow-hidden mb-6">
         {FEE_POOL_DISPLAY.map((l, i) => (
           <div key={l.recipient} className={`flex items-center justify-between px-4 py-2.5 text-sm ${i % 2 ? 'bg-white/[0.02]' : ''}`}>
