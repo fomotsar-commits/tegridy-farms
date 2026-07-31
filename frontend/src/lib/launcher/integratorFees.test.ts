@@ -52,37 +52,54 @@ describe('readClaimableFees', () => {
       { status: 'success', result: 0n },
       { status: 'success', result: 5n },
     ]);
-    await expect(readClaimableFees(c, [NATIVE_CURRENCY, TOWELI])).resolves.toEqual([
-      { currency: TOWELI, amount: 5n },
-    ]);
+    await expect(readClaimableFees(c, [NATIVE_CURRENCY, TOWELI])).resolves.toEqual({
+      fees: [{ currency: TOWELI, amount: 5n }],
+      unreadable: [],
+    });
   });
 
   it('supports the zero address as a real currency (native ETH), not as "unset"', async () => {
     const c = pub([{ status: 'success', result: 7n }]);
-    await expect(readClaimableFees(c, [NATIVE_CURRENCY])).resolves.toEqual([
-      { currency: NATIVE_CURRENCY, amount: 7n },
-    ]);
+    await expect(readClaimableFees(c, [NATIVE_CURRENCY])).resolves.toEqual({
+      fees: [{ currency: NATIVE_CURRENCY, amount: 7n }],
+      unreadable: [],
+    });
   });
 
   // "Could not read" and "there is nothing here" are different claims, and only one of
   // them is safe to render beside a withdraw button.
-  it('OMITS a failed read rather than reporting it as a zero balance', async () => {
+  it('reports a failed read as UNREADABLE rather than as a zero balance', async () => {
     const c = pub([
       { status: 'failure', error: new Error('reverted') },
       { status: 'success', result: 3n },
     ]);
     const out = await readClaimableFees(c, [NATIVE_CURRENCY, TOWELI]);
-    expect(out).toEqual([{ currency: TOWELI, amount: 3n }]);
-    expect(out.some((f) => f.currency === NATIVE_CURRENCY)).toBe(false);
+    expect(out.fees).toEqual([{ currency: TOWELI, amount: 3n }]);
+    expect(out.fees.some((f) => f.currency === NATIVE_CURRENCY)).toBe(false);
+    // The omission must be VISIBLE to the caller. Dropping it silently is what lets a
+    // UI render "nothing to claim" over money it simply failed to look at.
+    expect(out.unreadable).toEqual([NATIVE_CURRENCY]);
   });
 
-  it('degrades to empty on transport failure and never throws', async () => {
-    await expect(readClaimableFees(pub([], { throws: true }), [TOWELI])).resolves.toEqual([]);
+  it('a decoded non-bigint is unreadable, not zero', async () => {
+    const c = pub([{ status: 'success', result: undefined }]);
+    const out = await readClaimableFees(c, [TOWELI]);
+    expect(out.fees).toEqual([]);
+    expect(out.unreadable).toEqual([TOWELI]);
+  });
+
+  it('marks EVERY currency unreadable on transport failure, and never throws', async () => {
+    // The distinction that matters: an empty `fees` here must not be mistakable for
+    // "all balances are zero".
+    const out = await readClaimableFees(pub([], { throws: true }), [NATIVE_CURRENCY, TOWELI]);
+    expect(out.fees).toEqual([]);
+    expect(out.unreadable).toEqual([NATIVE_CURRENCY, TOWELI]);
   });
 
   it('short-circuits an empty currency list without an RPC call', async () => {
     const c = pub([]);
-    await expect(readClaimableFees(c, [])).resolves.toEqual([]);
+    // Genuinely nothing to report: no fees AND nothing unread.
+    await expect(readClaimableFees(c, [])).resolves.toEqual({ fees: [], unreadable: [] });
     expect(c.multicall).not.toHaveBeenCalled();
   });
 });
