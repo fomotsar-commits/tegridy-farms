@@ -33,10 +33,14 @@ function wallet(account: unknown = { address: TREASURY }): any {
   return { account, writeContract: vi.fn(async () => '0xhash' as const) };
 }
 
-describe('AIRLOCK_FEES_ABI — pinned to the SDK-verified shapes', () => {
+// "SDK-verified" was the original framing here, and it is precisely what went wrong:
+// the SDK's airlockAbi is stale and names the fee accessor `integratorFees`, which the
+// deployed Airlock does not implement. Shapes are pinned to the real contract now —
+// see airlockSelectors.test.ts, which checks these names against its bytecode.
+describe('AIRLOCK_FEES_ABI — pinned to the deployed Airlock', () => {
   it('declares the three functions with the argument orders Airlock expects', () => {
     const byName = Object.fromEntries(AIRLOCK_FEES_ABI.map((f) => [f.name, f]));
-    expect(byName.integratorFees?.inputs.map((i) => i.type)).toEqual(['address', 'address']);
+    expect(byName.getIntegratorFees?.inputs.map((i) => i.type)).toEqual(['address', 'address']);
     expect(byName.collectIntegratorFees?.inputs.map((i) => i.name)).toEqual(['to', 'token', 'amount']);
     expect(byName.migrate?.inputs.map((i) => i.type)).toEqual(['address']);
   });

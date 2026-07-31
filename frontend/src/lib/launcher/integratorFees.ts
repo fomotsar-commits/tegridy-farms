@@ -2,17 +2,37 @@
 //
 // Doppler credits the integrator named at create time (ours:
 // LAUNCHER_INTEGRATOR_ADDRESS) with a share of every launch's fees, held INSIDE the
-// Airlock under `integratorFees[integrator][token]`. It is not streamed anywhere and it
-// does not arrive on its own — somebody has to call `collectIntegratorFees`.
+// Airlock under `getIntegratorFees[integrator][token]`. It is not streamed anywhere and
+// it does not arrive on its own — somebody has to call `collectIntegratorFees`.
 //
 // Before this module, `Airlock.collectIntegratorFees` was live on-chain with ZERO
 // callers anywhere in the repo. Fees accrued and nothing could ever withdraw them.
 //
-// ABI verified against the SDK's own airlockAbi (@whetstone-research/doppler-sdk,
-// dist/evm), not hand-written:
-//   integratorFees(address integrator, address token) view returns (uint256)
-//   collectIntegratorFees(address to, address token, uint256 amount) nonpayable
-//   migrate(address asset) nonpayable
+// 🔴 CORRECTED 2026-07-30 — the read below was `integratorFees(address,address)` and the
+// header claimed the ABI was "verified against the SDK's own airlockAbi". Verifying
+// against the SDK is what CAUSED the bug: the SDK's airlockAbi is stale relative to the
+// deployed Airlock and still names the accessor `integratorFees`, which this contract
+// does not have. Every read reverted, multicall's allowFailure swallowed it, and the UI
+// reported "nothing to claim" over live integrator revenue. Same defect class as the
+// lockerStream `streams(bytes32)` bug, from the same root cause: an SDK ABI pointed at a
+// contract version it does not describe.
+//
+// Pinned to the DEPLOYED bytecode at 0xde35…9dFA, not to the SDK (mainnet, block
+// 25650314). A revert PROVES absence here — `getIntegratorFees` is an auto-generated
+// public-mapping getter, so a missing key returns zero rather than reverting:
+//   integratorFees(address,address)    = 0x2b79198a  REVERTS, absent from an opcode walk
+//   getIntegratorFees(address,address) = 0xe7f0d8f1  returns a uint256 word, present
+//
+// Confirmed against the canonical source (whetstoneresearch/doppler, src/Airlock.sol):
+//   mapping(address integrator => mapping(address token => uint256 amount))
+//       public getIntegratorFees;                              // the getter's real name
+//   function collectIntegratorFees(address to, address token, uint256 amount) external;
+// so the argument order is (integrator, token) and the return is uint256 — both
+// unchanged by the rename. `collectIntegratorFees` debits `msg.sender`'s own row.
+//
+// airlockSelectors.test.ts now pins every function this ABI declares to that captured
+// bytecode, so a fragment naming an absent function fails the suite instead of failing
+// silently at runtime.
 //
 // `token` is the currency the fee is denominated in — the NUMERAIRE, plus the launched
 // asset itself. For an ETH launch the numeraire slot is address(0) (native ETH), which
@@ -28,8 +48,9 @@ export const NATIVE_CURRENCY = '0x0000000000000000000000000000000000000000' as A
 
 export const AIRLOCK_FEES_ABI = [
   {
+    // NOT `integratorFees` — that name is the SDK's, and it is not on this contract.
     type: 'function',
-    name: 'integratorFees',
+    name: 'getIntegratorFees',
     stateMutability: 'view',
     inputs: [
       { name: 'integrator', type: 'address' },
@@ -85,7 +106,7 @@ export async function readClaimableFees(
       contracts: currencies.map((currency) => ({
         address: DOPPLER_MAINNET.airlock,
         abi: AIRLOCK_FEES_ABI,
-        functionName: 'integratorFees' as const,
+        functionName: 'getIntegratorFees' as const,
         args: [integrator, currency] as const,
       })),
       allowFailure: true,
