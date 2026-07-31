@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { Address } from 'viem';
+import { toFunctionSelector, type Address } from 'viem';
 
 // Keep the read hermetic: the concrete streamableFeesLockerAbi shape is irrelevant to
 // the decode logic (the mock client returns canned data), and mocking avoids loading
@@ -18,6 +18,7 @@ import {
 } from './lockerStream';
 import { DOPPLER_MAINNET } from './doppler.constants';
 import { ETH_NUMERAIRE, TOWELI_NUMERAIRE } from './config';
+import { DEPLOYED_LOCKER_V1, DEPLOYED_LOCKER_V2 } from './lockerSelectors.fixture';
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const HOOK = DOPPLER_MAINNET.support.uniswapV4MigratorHook;
@@ -146,6 +147,60 @@ describe('LOCKER_V1_ABI — pinned to the mainnet-probed surface', () => {
       .toEqual(['address', 'address']);
     // V1 has no streams(); re-adding it is the original bug.
     expect(LOCKER_V1_ABI.some((f) => f.name === 'streams')).toBe(false);
+  });
+});
+
+// ── The ONLY assertions in this file that a mock cannot fake ─────────────────────────
+// Everything above feeds the module canned data, so it can prove the decode logic
+// self-consistent and nothing more — it cannot notice that the deployed contract has no
+// such function. That blind spot IS the bug this module shipped: `readMigrationStream`
+// called `streams(bytes32)` on a locker that never had one, every test passed, every
+// call reverted, and the catch reported "not graduated" forever.
+//
+// These compare the hand-rolled ABI against the real mainnet runtime bytecode captured
+// in lockerSelectors.fixture.ts, so re-declaring a function V1 does not have fails here
+// even while every mocked test above stays green.
+describe('LOCKER_V1_ABI — pinned to the DEPLOYED bytecode, not to a mock', () => {
+  const v1 = new Set<string>(DEPLOYED_LOCKER_V1.selectors);
+  const v2 = new Set<string>(DEPLOYED_LOCKER_V2.selectors);
+  // Derived from the signature, never hardcoded: editing the ABI recomputes these, so
+  // this pins the invariant ("what we call must exist") rather than a literal.
+  const STREAMS = toFunctionSelector('streams(bytes32)');
+  const POSITIONS = toFunctionSelector('positions(uint256)');
+
+  it('captures the locker the module actually calls', () => {
+    // A fixture for a different address would police nothing.
+    expect(DEPLOYED_LOCKER_V1.address.toLowerCase())
+      .toBe(DOPPLER_MAINNET.support.streamableFeesLocker.toLowerCase());
+  });
+
+  it('every function we declare exists on the deployed V1 locker', () => {
+    const declared = LOCKER_V1_ABI.map((f) => ({ name: f.name, selector: toFunctionSelector(f) }));
+    expect(declared.length).toBeGreaterThan(0);
+    expect(declared.filter((f) => !v1.has(f.selector))).toEqual([]);
+  });
+
+  it('V1 does NOT dispatch streams(bytes32) — the call that was silently reverting', () => {
+    // Absence from an opcode-walk honouring PUSH immediates is proof: the dispatcher has
+    // no branch that can match this selector, so the call always hits the fallback.
+    expect(v1.has(STREAMS)).toBe(false);
+  });
+
+  // NON-VACUITY. If the fixture were empty or captured from the wrong contract, the
+  // assertion above would pass for the wrong reason. V1 and V2 are exactly
+  // complementary, so proving the selector lives on the SIBLING proves the sets are real.
+  it('streams(bytes32) IS on V2 — so its absence from V1 is a finding, not an empty set', () => {
+    expect(v2.has(STREAMS)).toBe(true);
+    expect(v2.has(POSITIONS)).toBe(false);
+    expect(v1.has(POSITIONS)).toBe(true);
+  });
+
+  it('retargeting to V2 would be the WRONG fix — the migrator points at V1', () => {
+    // Recorded here because "just use V2, it has streams()" is the tempting wrong turn:
+    // v4Migrator.locker() returns V1, so a V2-shaped read would be reading a locker our
+    // launches never touch.
+    expect(DEPLOYED_LOCKER_V2.address.toLowerCase())
+      .not.toBe(DOPPLER_MAINNET.support.streamableFeesLocker.toLowerCase());
   });
 });
 
