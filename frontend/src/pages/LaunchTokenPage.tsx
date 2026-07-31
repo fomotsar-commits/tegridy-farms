@@ -50,6 +50,8 @@ interface Dossier {
   provenance: Provenance;
   graduation: GraduationState;
   observedAt: number;
+  /** Method names whose read did not land — see RawTokenFacts.unreadFields. */
+  unreadFields: readonly string[];
 }
 
 type LoadState =
@@ -115,7 +117,7 @@ export default function LaunchTokenPage() {
 
       setState({
         phase: 'ready',
-        data: { presence, sheet, provenance, graduation, observedAt: now },
+        data: { presence, sheet, provenance, graduation, observedAt: now, unreadFields: raw.unreadFields ?? [] },
       });
     } catch (e) {
       setState({
@@ -262,7 +264,7 @@ function DossierView({
 
       <ProvenanceCard p={d.provenance} />
       <AttestationCard lookup={attestation} />
-      <FactSheetSection sheet={d.sheet} graduation={d.graduation} />
+      <FactSheetSection sheet={d.sheet} graduation={d.graduation} unreadFields={d.unreadFields} />
       <GraduationCard g={d.graduation} />
 
       <footer className="pt-4 border-t border-white/10 text-text-muted text-[11px] leading-relaxed space-y-1">
@@ -404,8 +406,16 @@ function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
   );
 }
 
-function FactSheetSection({ sheet, graduation }: { sheet: LaunchFactSheet; graduation: GraduationState }) {
-  const unverified = unverifiedGateChecks(sheet.knownSafeTemplate, graduation);
+function FactSheetSection({
+  sheet,
+  graduation,
+  unreadFields,
+}: {
+  sheet: LaunchFactSheet;
+  graduation: GraduationState;
+  unreadFields: readonly string[];
+}) {
+  const unverified = unverifiedGateChecks(sheet.knownSafeTemplate, graduation, unreadFields);
   const powersRead = powersWereRead(sheet.knownSafeTemplate);
   const tierLabel =
     sheet.tier === 'none' ? 'Below listable bar' : sheet.tier === 'listable' ? 'COMMUNITY' : 'FLAGSHIP';

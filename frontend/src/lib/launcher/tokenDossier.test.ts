@@ -335,3 +335,41 @@ describe('I/O wrappers degrade instead of throwing', () => {
     expect(await readTokenPresence({ readContract: async () => null }, TOKEN)).toBe('unreadable');
   });
 });
+
+// A FAILED READ ON THE RECOGNISED TEMPLATE IS THE DANGEROUS CASE.
+//
+// The template-branch suppressions only fire when the contract is NOT the known Doppler
+// template — but every launch through our own rail IS that template, and collector.safeRead
+// degrades an individual failed view call to a conservative fallback. The gate reads that
+// fallback as a PASS and the page renders it as a green statement of fact:
+//   owner unread       -> null -> "Ownership renounced."        (INVERTED, not merely unknown)
+//   totalSupply unread -> 0n   -> "No team/insider allocation." + the flagship cap passes
+// One rate-limited call inside a Promise.all does it, and public RPCs return 429/1015 routinely.
+describe('unverifiedGateChecks — unread fields on the RECOGNISED template', () => {
+  const graduated: GraduationState = { locked: true, unsupported: false, locker: null, unlockAt: null };
+
+  it('suppresses the ownership check when owner() did not land', () => {
+    const out = unverifiedGateChecks(true, graduated, ['owner']);
+    expect(out['admin-renounced-or-timelock']).toMatch(/not read/i);
+  });
+
+  it('suppresses BOTH allocation checks when totalSupply did not land', () => {
+    const out = unverifiedGateChecks(true, graduated, ['totalSupply']);
+    expect(out['team-allocation-vested']).toMatch(/not read/i);
+    // insider-float-cap compares the same unread 0 against the flagship cap and would
+    // otherwise render as a clean pass.
+    expect(out['insider-float-cap']).toMatch(/not read/i);
+  });
+
+  it('suppresses nothing when every read landed (no false "unknown" either)', () => {
+    const out = unverifiedGateChecks(true, graduated, []);
+    expect(out['admin-renounced-or-timelock']).toBeUndefined();
+    expect(out['team-allocation-vested']).toBeUndefined();
+    expect(out['insider-float-cap']).toBeUndefined();
+  });
+
+  it('an unread owner is suppressed even on an UNRECOGNISED template (both paths agree)', () => {
+    const out = unverifiedGateChecks(false, graduated, ['owner']);
+    expect(out['admin-renounced-or-timelock']).toMatch(/not read/i);
+  });
+});

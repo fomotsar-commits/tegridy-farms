@@ -4,6 +4,7 @@ import { ArtImg } from '../components/ArtImg';
 import { SWAP_FEE_BPS } from '../lib/constants';
 import { DEFAULT_FEE_CONSTITUTION, LAUNCH_FEE_TIER } from '../lib/launcher/config';
 import { protocolFeeSink } from '../lib/launcher/launchService';
+import { MIGRATION_POOL } from '../lib/launcher/airlock';
 
 // Render the swap fee straight from the on-chain-mirrored constant so Terms can
 // never drift from the Risks page / contract again (F373/F440).
@@ -14,6 +15,10 @@ const SWAP_FEE_PCT = (SWAP_FEE_BPS / 100).toFixed(2).replace(/\.?0+$/, '');
 // FOLLOW the constants the wizard submits rather than restate them in prose.
 // LAUNCH_FEE_TIER is in hundredths of a basis point (10000 = 1%).
 const LAUNCH_FEE_PCT = (LAUNCH_FEE_TIER / 10_000).toFixed(2).replace(/\.?0+$/, '');
+// The GRADUATED pool's fee — a different number from the auction fee above, and the one
+// the fee constitution actually divides. Rendered from the same constant airlock.ts passes
+// to withMigration(), so the Terms cannot drift from what is deployed.
+const MIGRATION_POOL_FEE_PCT = (MIGRATION_POOL.fee / 10_000).toFixed(2).replace(/\.?0+$/, '');
 // The protocol line's label comes from protocolFeeSink() — the single source of truth
 // shared with the Fact Sheet — so the Terms can never name a recipient the routing
 // cannot actually pay (the sink is the treasury Safe, NOT staker yield).
@@ -55,7 +60,7 @@ export const SECTIONS = [
   },
   {
     title: '7. Fees',
-    body: `The Protocol charges the following fees: a ${SWAP_FEE_PCT}% fee on token swaps routed through the SwapFeeRouter (SWAP_FEE_BPS = ${SWAP_FEE_BPS}; capped at 1.00% / MAX_FEE_BPS = 100 by contract); a 25% early withdrawal penalty on staked positions withdrawn before their lock period expires; and protocol fees on NFT lending transactions as determined by the lending contract parameters. Fee structures may be modified by the protocol admin subject to the on-chain timelock. All fees are transparently enforced by the smart contracts and cannot be altered outside of the timelocked admin process. Separately, the token launcher charges no fee to create a launch — you pay only Ethereum network gas for the deployment transaction — but every token launched through it carries a total trade fee of ${LAUNCH_FEE_PCT}% (LAUNCH_FEE_TIER = ${LAUNCH_FEE_TIER} hundredths of a basis point), divided by that launch's fee constitution as follows: ${FEE_CONSTITUTION_TEXT}. The ${PROTOCOL_FEE_PCT}% protocol share is streamed to the ${PROTOCOL_FEE_RECIPIENT}; it is not staker yield and grants no claim on any Tegridy revenue distribution. The creator-directed share may be carved at launch to attention beneficiaries the creator names. Unlike the fees above, a launch's fee constitution is fixed at creation time by the on-chain streaming locker and can afterwards be changed by no one — not the creator, not the protocol admin, not the timelock.`,
+    body: `The Protocol charges the following fees: a ${SWAP_FEE_PCT}% fee on token swaps routed through the SwapFeeRouter (SWAP_FEE_BPS = ${SWAP_FEE_BPS}; capped at 1.00% / MAX_FEE_BPS = 100 by contract); a 25% early withdrawal penalty on staked positions withdrawn before their lock period expires; and protocol fees on NFT lending transactions as determined by the lending contract parameters. Fee structures may be modified by the protocol admin subject to the on-chain timelock. All fees are transparently enforced by the smart contracts and cannot be altered outside of the timelocked admin process. Separately, the token launcher charges no fee to create a launch — you pay only Ethereum network gas for the deployment transaction. A launch then has TWO distinct fee phases, and they do not work the same way. During the initial dynamic auction, trades pay ${LAUNCH_FEE_PCT}% (LAUNCH_FEE_TIER = ${LAUNCH_FEE_TIER} hundredths of a basis point); the Protocol's share of that auction fee is collected as a third-party integrator fee by an address the Protocol controls off-chain and can change by redeploying its interface, so no split of the auction fee is enforced on-chain and none is promised to you here. After the launch graduates, its liquidity migrates into a Uniswap V4 pool whose trade fee is ${MIGRATION_POOL_FEE_PCT}% — not ${LAUNCH_FEE_PCT}% — and it is THAT pool's fees which the launch's fee constitution divides, streamed by the on-chain locker as follows: ${FEE_CONSTITUTION_TEXT}. The ${PROTOCOL_FEE_PCT}% protocol share is streamed to the ${PROTOCOL_FEE_RECIPIENT}; it is not staker yield and grants no claim on any Tegridy revenue distribution. The creator-directed share may be carved at launch to attention beneficiaries the creator names. That post-graduation constitution — and only it — is fixed at creation time by the on-chain streaming locker; its shares can afterwards be changed by no one, though each named beneficiary may re-point its own entry to a different address of its choosing.`,
   },
   {
     title: '8. Launching a Token: You Are the Issuer',

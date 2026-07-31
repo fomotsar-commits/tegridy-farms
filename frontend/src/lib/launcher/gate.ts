@@ -28,6 +28,17 @@ import { KNOWN_SAFE_TOKEN_FACTORIES } from './doppler.constants';
 
 /** Raw facts the on-chain collector gathers about a launch. Gate input. */
 export interface RawTokenFacts {
+  /**
+   * Method names whose on-chain read did NOT land (threw, or returned null/absent), so the
+   * corresponding field below is a conservative FALLBACK rather than an observation.
+   *
+   * The gate itself ignores this by design — a fallback fails the gate, which is the safe
+   * direction. It exists for surfaces that publish PROSE about a token, where the same
+   * fallback reads as a positive finding: an unread `owner` degrades to null degrades to
+   * "Ownership renounced.", which is inverted, not merely unknown. Optional so every existing
+   * producer and consumer is unaffected.
+   */
+  unreadFields?: readonly string[];
   token: Address;
   chainId: number;
   name: string;

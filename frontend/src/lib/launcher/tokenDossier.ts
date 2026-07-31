@@ -291,8 +291,31 @@ export function classifyGraduation(stream: MigrationStream): GraduationState {
 export function unverifiedGateChecks(
   knownSafeTemplate: boolean,
   graduation: GraduationState,
+  unreadFields: readonly string[] = [],
 ): Record<string, string> {
   const out: Record<string, string> = {};
+
+  // A FAILED READ ON THE RECOGNISED TEMPLATE IS THE DANGEROUS CASE.
+  //
+  // The template branches below only fire when the contract is NOT the known Doppler
+  // template. But every launch through our own rail IS that template, and the collector
+  // still degrades an individual failed view call to a conservative fallback — which the
+  // gate then reads as a PASS and this page renders as a green statement of fact:
+  //   owner unread       -> null -> "Ownership renounced."          (INVERTED, not unknown)
+  //   totalSupply unread -> 0n   -> "No team/insider allocation."   and the flagship cap passes
+  // One rate-limited call inside a Promise.all is enough, and public RPCs return 429/1015
+  // routinely. So suppress off what actually landed, not off which template it is.
+  const unread = new Set(unreadFields);
+  if (unread.has('owner')) {
+    out['admin-renounced-or-timelock'] =
+      'Not read. The ownership call did not return, so a renounced owner and an unreachable node are indistinguishable here.';
+  }
+  if (unread.has('totalSupply')) {
+    const reason =
+      'Not read. Total supply did not return, so insider allocation could not be computed — this is unknown, not a zero.';
+    out['team-allocation-vested'] = reason;
+    out['insider-float-cap'] = reason;
+  }
   if (!knownSafeTemplate) {
     const reason =
       'Not read. This contract is not the recognised Doppler template, so its powers were not enumerated — this is unknown, not a finding.';
