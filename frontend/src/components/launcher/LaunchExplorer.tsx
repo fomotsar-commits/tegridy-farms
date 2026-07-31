@@ -13,6 +13,7 @@
 
 import { useMemo } from 'react';
 import { m } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import type { Address } from 'viem';
 import type { LaunchTier } from '../../lib/launcher/factSheet';
 import {
@@ -136,9 +137,15 @@ function LaunchRow({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-white/30 tabular-nums text-sm w-6 shrink-0">#{rank}</span>
-          <span className="text-white/80 text-sm font-mono truncate" title={summary.token}>
+          {/* Rows used to be dead ends. They now open the token's permanent record —
+              its provenance, disclosures, attestation and post-graduation state. */}
+          <Link
+            to={`/launch/${summary.token}`}
+            className="text-white/80 hover:text-white text-sm font-mono truncate underline underline-offset-2 decoration-white/25 hover:decoration-white/60"
+            title={`Open the record for ${summary.token}`}
+          >
             {shortAddr(summary.token)}
-          </span>
+          </Link>
         </div>
         <span
           className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border shrink-0 ${badge.cls}`}

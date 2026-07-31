@@ -105,11 +105,18 @@ export async function collectTokenFacts(
     ? DOPPLER_MAINNET.modules.dopplerErc20V1Factory.address
     : null;
 
+  // WHICH reads actually landed. `safeRead` degrades a failure to a conservative fallback,
+  // which is right for the GATE (it cannot grant a tier off a value nobody read) but wrong for
+  // a page that publishes prose: an unread `owner` becomes `null` becomes "Ownership
+  // renounced.", which is not merely unknown but INVERTED for a token that has a live owner.
+  // Callers that render statements must consult this and say "not read" instead.
+  const unread = new Set<string>();
+
   const [name, symbol, totalSupply, owner] = await Promise.all([
-    safeRead<string>(reader, token, 'name', ''),
-    safeRead<string>(reader, token, 'symbol', ''),
-    safeRead<bigint>(reader, token, 'totalSupply', 0n),
-    safeRead<Address | null>(reader, token, 'owner', null),
+    safeRead<string>(reader, token, 'name', '', unread),
+    safeRead<string>(reader, token, 'symbol', '', unread),
+    safeRead<bigint>(reader, token, 'totalSupply', 0n, unread),
+    safeRead<Address | null>(reader, token, 'owner', null, unread),
   ]);
 
   // Powers. Known Doppler template => proven-false by construction (verified source).
@@ -147,6 +154,7 @@ export async function collectTokenFacts(
   return {
     token,
     chainId,
+    unreadFields: [...unread],
     name,
     symbol,
     totalSupply,
@@ -165,11 +173,21 @@ export async function collectTokenFacts(
   };
 }
 
-async function safeRead<T>(reader: ChainReader, token: Address, fn: string, fallback: T): Promise<T> {
+async function safeRead<T>(
+  reader: ChainReader,
+  token: Address,
+  fn: string,
+  fallback: T,
+  unread?: Set<string>,
+): Promise<T> {
   try {
     const v = await reader.readToken<T>(token, fn);
+    // A null/undefined answer is NOT the same as a successful read of a real value: a
+    // contract without the method, and an RPC that dropped the call, both land here.
+    if (v == null) unread?.add(fn);
     return (v ?? fallback) as T;
   } catch {
+    unread?.add(fn);
     return fallback;
   }
 }

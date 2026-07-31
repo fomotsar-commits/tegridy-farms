@@ -260,3 +260,72 @@ describe('viemChainReader — read-only PublicClient adapter', () => {
     expect(buildFactSheet(facts, defaultGateConfig(NOW)).tier).toBe('none');
   });
 });
+
+// `safeRead` degrades a failed view call to a conservative fallback. That is right for the
+// GATE (a fallback fails the gate, the safe direction) but it erases the difference between
+// "read said X" and "read never landed" — and surfaces that publish PROSE invert on that:
+// an unread owner becomes null becomes "Ownership renounced."
+//
+// `unreadFields` is what lets those surfaces tell the two apart, so it has to be recorded.
+// A mutation that stopped recording it originally broke NO test — this closes that gap.
+describe('collectTokenFacts — unreadFields records which reads did not land', () => {
+  const TOKEN = '0xabc0000000000000000000000000000000000abc' as Address;
+
+  /** A reader whose named methods throw, mimicking one 429 inside the Promise.all. */
+  function flakyReader(failing: string[], code: string): ChainReader {
+    return {
+      async getCode() {
+        return code;
+      },
+      async readToken<T>(_addr: Address, fn: string): Promise<T> {
+        if (failing.includes(fn)) throw new Error('HTTP 429');
+        const map: Record<string, unknown> = {
+          name: 'Mock',
+          symbol: 'MOCK',
+          totalSupply: 1_000_000_000n,
+          owner: '0x00000000000000000000000000000000000000ff',
+          isBalanceLimitActive: false,
+          vestedTotalAmount: 0n,
+        };
+        if (!(fn in map)) throw new Error(`unexpected read: ${fn}`);
+        return map[fn] as T;
+      },
+    };
+  }
+
+  it('is empty when every read lands', async () => {
+    const facts = await collectTokenFacts(mockReader({ code: cloneCode(IMPL) }), TOKEN, {
+      now: NOW,
+      lockResolver: lockedTwoYears,
+    });
+    expect(facts.unreadFields ?? []).not.toContain('owner');
+    expect(facts.unreadFields ?? []).not.toContain('totalSupply');
+  });
+
+  it('records a throwing owner() — and the fallback would otherwise read as renounced', async () => {
+    const facts = await collectTokenFacts(flakyReader(['owner'], cloneCode(IMPL)), TOKEN, {
+      now: NOW,
+      lockResolver: lockedTwoYears,
+    });
+    expect(facts.unreadFields).toContain('owner');
+    // The inversion this exists to prevent: a token WITH a live owner reports renounced.
+    expect(facts.ownerRenounced).toBe(true);
+  });
+
+  it('records a throwing totalSupply() — the fallback would otherwise read as zero float', async () => {
+    const facts = await collectTokenFacts(flakyReader(['totalSupply'], cloneCode(IMPL)), TOKEN, {
+      now: NOW,
+      lockResolver: lockedTwoYears,
+    });
+    expect(facts.unreadFields).toContain('totalSupply');
+    expect(facts.totalSupply).toBe(0n);
+  });
+
+  it('records several failures at once', async () => {
+    const facts = await collectTokenFacts(flakyReader(['owner', 'totalSupply'], cloneCode(IMPL)), TOKEN, {
+      now: NOW,
+      lockResolver: lockedTwoYears,
+    });
+    expect(facts.unreadFields).toEqual(expect.arrayContaining(['owner', 'totalSupply']));
+  });
+});

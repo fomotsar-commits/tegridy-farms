@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render as rtlRender, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import type { Address } from 'viem';
 import { LaunchExplorer, outcomeFor, formatPriceReturn } from './LaunchExplorer';
 import type { LaunchSummary } from '../../lib/launcher/ordering';
@@ -28,6 +29,9 @@ vi.mock('framer-motion', () => {
     domAnimation: {},
   };
 });
+
+// Rows are <Link>s into /launch/:token, so the tree needs a router context.
+const render = (ui: React.ReactElement) => rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 const NOW = 1_800_000_000;
 const DAY = 86_400;
@@ -108,6 +112,14 @@ describe('LaunchExplorer — discovery + outcomes surface', () => {
     expect(screen.getByText(/Pool liquidity is 90% below its level at graduation\./)).toBeInTheDocument();
     // Factual signed price move is shown, never editorialised.
     expect(screen.getByText('-50% vs launch')).toBeInTheDocument();
+  });
+
+  // The point of the permalink: a cohort row must be reachable, not a dead end.
+  it('links each row to that token\'s permanent record at /launch/:token', () => {
+    const token = '0xEeE0000000000000000000000000000000000006' as Address;
+    render(<LaunchExplorer launches={[launch({ token })]} now={NOW} />);
+    const link = screen.getByRole('link', { name: /0xEeE0…0006/i });
+    expect(link).toHaveAttribute('href', `/launch/${token}`);
   });
 
   it('degrades to "no snapshot" copy when a launch has no outcome record', () => {
