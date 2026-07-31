@@ -67,6 +67,11 @@ const PROTOCOL_RISKS: Array<{
     body: 'The protocol is maintained by one developer. Response to incidents, emergency pauses, and bug-bounty triage is bounded by that person being online. SECURITY.md documents the disclosure channel; realistic expectations on turnaround should reflect the maintainer count.',
   },
   {
+    title: 'Anyone can launch a token, and a launch cannot be undone',
+    status: 'Active',
+    body: 'The token launcher is permissionless: there is no application, no human approval and no allowlist, so any member of the public can deploy an ERC-20 through it on Ethereum mainnet. Nothing about a token appearing here is an endorsement — the Fact Sheet and its gate tier are automated structural disclosures (template, mint/pause/blacklist/upgrade powers, LP lock, insider vesting, fee split) read at one moment in time, not a security audit, a valuation or a safety warranty, and a token that clears a tier can still go to zero. For creators the exposure runs the other way: the launch transaction is irreversible and the fee constitution is fixed on-chain at creation, so a mistyped supply, market-cap band or beneficiary address is permanent, and the person who launches is the issuer for every legal purpose in their own jurisdiction. We can decline to surface a token in this app; we cannot alter or remove it on-chain.',
+  },
+  {
     title: 'NFT collateral concentration',
     status: 'Active',
     body: 'The staking boost multiplier and NFT lending surface tie into specific collections (JBAC, JBAY Gold, GNSS). If any of those collections become illiquid or lose marketplace support, the boost ceiling and NFT-loan market depth degrade silently — positions still function, but the economic assumptions behind them thin out.',

@@ -1314,6 +1314,16 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
         mainnet. Your token deploys from Doppler's audited template, the V4 auction opens, and on graduation liquidity
         migrates to a V4 pool with fees locked to the constitution above.
       </p>
+      {/* The irreversible action is one button away, so surface the issuer terms HERE — a
+          term nobody is shown is a weak term, and §8–§11 of the Terms are the issuer-side
+          ones (you are the issuer; launches are permissionless and final). */}
+      <p className="text-white/40 text-xs mt-2">
+        By launching you become the <span className="text-white/60">issuer</span> of this token and accept the{' '}
+        <Link to="/terms" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
+          Terms of Service
+        </Link>
+        , including the issuer, irreversibility and prohibited-use sections.
+      </p>
     </div>
   );
 }
