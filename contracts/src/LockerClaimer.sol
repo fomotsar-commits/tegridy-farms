@@ -204,12 +204,6 @@ contract LockerClaimer is ReentrancyGuard {
     ///      ETH arriving.
     function _forwardETH() internal {
         uint256 amount = address(this).balance;
-        // slither-disable-next-line incorrect-equality
-        // Slither flags `== 0` on a balance because a balance can be forced upward (selfdestruct),
-        // making equality checks unreliable as LOGIC. Here it is only a no-op guard: for a uint,
-        // `== 0` and `< 1` are the same test, and a forced balance makes this branch LESS likely,
-        // never more. Silenced at source so the recurring static-analysis report keeps signalling
-        // real regressions instead of gaining a permanent false entry.
         if (amount == 0) return;
         (bool ok,) = revenueDistributor.call{value: amount}("");
         if (!ok) revert ForwardFailed();
