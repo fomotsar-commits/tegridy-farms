@@ -26,7 +26,7 @@
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Uniswap / Gondi primitives, copied from battle-tested sources on purpose.
 
-- **Website:** [tegridyfarms.vercel.app](https://tegridyfarms.vercel.app)
+- **Website:** [memetic.fun](https://memetic.fun)
 - **Token:** [`TOWELI`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) · 1,000,000,000 fixed supply · Ethereum Mainnet (unchanged across the relaunch — only the protocol contracts were redeployed)
 - **Price / liquidity:** [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) (the deep TOWELI/WETH liquidity lives in the Uniswap V2 pool)
 
@@ -68,10 +68,10 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 | **NFT Finance** | Peer-to-peer NFT lending (Gondi pattern, lender-only liquidation, sequencer-aware grace) + Sudoswap-style bonding-curve NFT AMM. ERC-20 lending against TOWELI positions is staged behind the oracle. | `TegridyNFTLending`(+Admin), `TegridyNFTPoolFactory`, `TegridyLending` | 🟢 Live † |
 | **Governance** | Curve-style gauge voting with commit-reveal, plus a permissionless bribe market ("Cartman's Market"). | `GaugeController`, `VoteIncentives`(+Admin) | 🔵 On-chain |
 | **NFT Launchpad** | Click-deploy ERC-721 collections (Merkle allowlist, Dutch auction, delayed reveal, ERC-2981/7572) via a single `createCollection` tx. | `TegridyLaunchpadV2`, `TegridyDropV2` | 🟢 Live |
-| **Token Launcher** | Launch an ERC-20 through Doppler with vetted defaults, launch fact-sheets, and afterlife tracking; the integrator fee accrues to the protocol. | (Doppler periphery — no custom Tegridy contract) | 🟢 Live (EVM; Solana gated) |
+| **Token Launcher** | Launch an ERC-20 through Doppler with vetted defaults, launch fact-sheets, afterlife tracking, and an opt-in **TOWELI** base pair; the integrator fee accrues to the protocol and is withdrawable from `/admin`. | (Doppler periphery today — no *deployed* Tegridy contract) | 🟢 Live (EVM) · 🟡 Solana preview only |
 | **Premium / community** | Subscription premium tier, staker-voted community grants, meme-bounty board. | `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard` | 🟢 Premium live · 🔵 grants/bounties on-chain |
 | **Restaking** | Restake the position NFT for a second reward stream (EigenLayer-operator pattern). | `TegridyRestaking` | 🟡 Deferred (Phase 7 / EIP-170) |
-| **Uniswap V4 module** | V4 hook (per-user premium fee discount + POL skim) + trusted swap router + boosted LP staker. | `v4/TegridyV4Hook`, `TegridyV4SwapRouter`, `TegridyBoostedLPStaker` | 🟡 Next-wave (unaudited, gated) |
+| **Uniswap V4 module** | V4 hook (per-user premium fee discount + POL skim), trusted swap router, boosted LP staker, plus the **graduation leg**: an Airlock-callable migrator that graduates a launch into a Tegridy-hooked V4 pool, and its fee locker. | `v4/TegridyV4Hook`(+Admin), `TegridyV4SwapRouter`, `TegridyBoostedLPStaker`, `TegridyLiquidityMigrator`, `TegridyFeeLocker` | 🟡 Next-wave (unaudited, **not deployed** — `TEGRIDY_V4_MIGRATOR_ADDRESS` is still `0x0`, and that zero is load-bearing: launches keep graduating via Doppler's own migrator until ours is whitelisted) |
 
 **🔵 On-chain** means the contract is **deployed to mainnet and Etherscan-verified** (the 2026-07-16 gated batch), but the frontend address is deliberately still zeroed — these are the emission/spend-side features, held back until a revenue line funds them, not a technical dependency. **🟡 Gated** means the source is in the repo and tested but **not yet deployed** — the on-chain address is intentionally zeroed in the frontend ([`isDeployed()`](frontend/src/lib/constants.ts) gate) until it clears its audit wave and deploys. Both auto-activate the moment the operator sets the real address — exactly how the 🟢 NFT-finance/launchpad/premium set went live on 2026-07-21/22. († `TegridyLending` is *not* yet deployed: it is pre-deploy-audited and hardened but **oracle-gated**, so it ships only after the pool deepen + TWAP bootstrap.)
 
@@ -85,9 +85,12 @@ Honest snapshot as of the latest commit:
 
 - ✅ **Relaunch MVP is live on mainnet** (deployed 2026-06-06 via `DeployMVP`, block ~25,263,328). Staking, the native DEX, SwapFeeRouter, RevenueDistributor, TWAP, POLAccumulator, ReferralSplitter, TokenURIReader, and (since 2026-06-08) LP Farming are all deployed and wired.
 - ✅ **Gated-feature batch deployed on-chain 2026-07-16** (11 contracts, all Etherscan-verified): GaugeController, VoteIncentives (+Admin), PremiumAccess, TegridyNFTPoolFactory, TegridyNFTLending (+Admin), MemeBountyBoard, CommunityGrants, and TegridyLaunchpadV2 (+ its DropV2 template). Each cleared a fresh pre-deploy adversarial audit wave.
-- ✅ **Capital-free surfaces un-gated in the app 2026-07-21/22** (operator-authorized): P2P NFT lending, the NFT AMM, the launchpad, Premium, and the EVM token launcher are **live at [tegridyfarms.vercel.app](https://tegridyfarms.vercel.app)** — verified against the deployed bytecode (every frontend ABI selector checked on-chain) before the flip. Their fees accrue to the **treasury Safe** (`0x7D26…Bd7d`). GaugeController, VoteIncentives, CommunityGrants, and MemeBountyBoard stay app-gated: they *spend* (emissions/grants/bounties), so they wait for a revenue line to fund them.
-- ✅ **Legacy exit surface (2026-07-22):** two retired pre-relaunch staking contracts still held user funds; the Farm page now shows an **exit-only card** (withdraw/early-withdraw, no deposit path) to any wallet with a legacy position, and the contracts are listed as *retired — withdraw only* on [/contracts](https://tegridyfarms.vercel.app/contracts).
+- ✅ **Capital-free surfaces un-gated in the app 2026-07-21/22** (operator-authorized): P2P NFT lending, the NFT AMM, the launchpad, Premium, and the EVM token launcher are **live at [memetic.fun](https://memetic.fun)** — verified against the deployed bytecode (every frontend ABI selector checked on-chain) before the flip. Their fees accrue to the **treasury Safe** (`0x7D26…Bd7d`). GaugeController, VoteIncentives, CommunityGrants, and MemeBountyBoard stay app-gated: they *spend* (emissions/grants/bounties), so they wait for a revenue line to fund them.
+- ✅ **Legacy exit surface (2026-07-22):** two retired pre-relaunch staking contracts still held user funds; the Farm page now shows an **exit-only card** (withdraw/early-withdraw, no deposit path) to any wallet with a legacy position, and the contracts are listed as *retired — withdraw only* on [/contracts](https://memetic.fun/contracts).
 - ✅ **Trust tooling + limit orders live (2026-07-22):** token scanner, wallet exposure, deployer reputation, launch simulator/afterlife, and NFT market-integrity surfaces shipped (see [Trust tooling](#trust-tooling)), and **gasless limit orders via CoW Protocol** are live on the Trade page.
+- ✅ **Launcher hardening wave (2026-07-24 → 07-30).** The EVM launcher went from "switched on" to actually working: the launch button had been refusing roughly six attempts in seven (it shared the swap path's 300s Chainlink staleness gate against a ~3600s ETH/USD heartbeat — now a separate `ethUsdForLaunch` window); the Explorer/Afterlife feed was a hardcoded empty array and now reads real provenance from `Airlock.getAssetData`; auction bands that could have gone on-chain ~10× wrong are refused before signing; Fact Sheet splits now attest the **real resolved** constitution rather than a template; and the protocol's 15% fee line was re-pointed from `RevenueDistributor` to the **Treasury Safe** before launch #1 (the Doppler locker pays `msg.sender` only, so the original beneficiary could never have claimed it). The honest cost: that line is **not** staker yield today.
+- ✅ **Launcher revenue is now readable and withdrawable (2026-07-30).** `Airlock.collectIntegratorFees` had been live on-chain with zero callers anywhere in the repo. An **Integrator Fees panel** now ships on [/admin](https://memetic.fun/admin), gated to `LAUNCHER_INTEGRATOR_ADDRESS` — which is *not* the protocol owner, so that page is now two-role and asymmetric (the integrator sees the fees panel and nothing else). Balances distinguish "nothing owed" from "could not read": a failed balance read is never painted as a confident zero next to a withdraw button.
+- ✅ **Exotic base pairs + Solana launcher preview un-gated (2026-07-26).** `EXOTIC_LAUNCHES_ENABLED = true` — creators may pair a launch against **TOWELI** instead of ETH (opt-in; ETH stays the default). `SOLANA_LAUNCHER_ENABLED = true` renders `/solana-launch` as a live config **preview** — it is **not** an in-app money path (the page has no signer; real Solana launches still go through the operator's out-of-band CLI).
 - ⏳ **Ownership is not yet decentralized.** All live contracts are still owned by the deployer EOA. A 2-step Safe multisig handoff is in progress; the first attempt's 14-day window lapsed and is being re-initiated ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). **This single-key window is the biggest current risk — bigger than any specific code finding.**
 - ⏳ **The protocol-owned TOWELI/WETH pool is seeded but shallow.** It holds live liquidity at market price, but the TWAP oracle bootstrap is still gated on deepening it past the oracle's reserve floor; until then the smart front-door routes swaps to the deepest venue (the Uniswap V2 pool). Deepen + bootstrap are scripted go-live steps ([`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)).
 - 🟡 **A few surfaces remain not-yet-deployed:** token lending (`TegridyLending` — pre-deploy-audited but oracle-gated), restaking (EIP-170 split / Phase 7), the Pro Pass (a launchpad operation), and the Uniswap V4 module (next-wave, unaudited).
@@ -227,13 +230,13 @@ You don't need to read the contracts. Four steps from cold wallet to earning yie
 MetaMask, Rabby, Coinbase Wallet, or anything RainbowKit supports. Fund it with ETH for gas.
 
 ### 2. Get TOWELI
-- **App swap:** [tegridyfarms.vercel.app/swap](https://tegridyfarms.vercel.app/swap) — the smart front-door; the protocol fee flows to stakers.
+- **App swap:** [memetic.fun/swap](https://memetic.fun/swap) — the smart front-door; the protocol fee flows to stakers.
 - **Uniswap V2:** [app.uniswap.org](https://app.uniswap.org/swap?outputCurrency=0x420698CFdEDdEa6bc78D59bC17798113ad278F9D&chain=ethereum) — works, but Uniswap keeps the fees.
 
 Price & liquidity: [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D).
 
 ### 3. Stake & lock
-Go to [tegridyfarms.vercel.app/farm](https://tegridyfarms.vercel.app/farm) and pick a lock:
+Go to [memetic.fun/farm](https://memetic.fun/farm) and pick a lock:
 
 | Lock | Boost | Flavor |
 |---|---|---|
@@ -245,7 +248,7 @@ Go to [tegridyfarms.vercel.app/farm](https://tegridyfarms.vercel.app/farm) and p
 | 2 years | ~3.0× | In It For The Kids |
 | 4 years | 4.0× | Till Death Do Us Farm |
 
-Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9) for a **+0.5× bonus** (ceiling 4.5×). **Early exit costs 25%** (the "DEA Raid Tax") — the penalty redistributes to stakers still locked.
+Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9) for a **+0.5× bonus** (ceiling 4.5×). **Early exit costs 25%** (the "DEA Raid Tax") — the penalty goes to the **protocol treasury**, *not* to other stakers.
 
 ### 4. Earn, farm, (soon) vote
 - **Yield accrues continuously.** Claim ETH rewards anytime; no minimum.
@@ -262,14 +265,14 @@ Shipped 2026-07-22: a set of app-side analysis surfaces built on one shared dete
 
 | Surface | Where | What it tells you |
 |---|---|---|
-| **Token scanner** | [/scan](https://tegridyfarms.vercel.app/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
-| **Wallet exposure** | [/exposure](https://tegridyfarms.vercel.app/exposure) | The scanner pointed inward — how much of your own bag sits in concentrated or risky distributions. |
-| **Deployer reputation** | [/deployer](https://tegridyfarms.vercel.app/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
-| **Launch simulator** | [/launch-simulator](https://tegridyfarms.vercel.app/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
-| **Launch afterlife** | [/launch](https://tegridyfarms.vercel.app/launch) | What actually happened to tokens launched through the launcher — outcome tracking above the launch explorer. |
+| **Token scanner** | [/scan](https://memetic.fun/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
+| **Wallet exposure** | [/exposure](https://memetic.fun/exposure) | The scanner pointed inward — how much of your own bag sits in concentrated or risky distributions. |
+| **Deployer reputation** | [/deployer](https://memetic.fun/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
+| **Launch simulator** | [/launch-simulator](https://memetic.fun/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
+| **Launch afterlife** | [/launch](https://memetic.fun/launch) | What actually happened to tokens launched through the launcher — outcome tracking above the launch explorer. |
 | **NFT market integrity** | Tradermigos → Integrity tab | Wash-trade, coordinated-cluster, and fake-floor detection over OpenSea + on-chain data (recent-window scoped; gaps disclosed). |
 
-The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](https://tegridyfarms.vercel.app/swap)): gasless, MEV-protected orders placed through **CoW Protocol** solvers — no keeper infrastructure, orders fill at your price or better.
+The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](https://memetic.fun/swap)): gasless, MEV-protected orders placed through **CoW Protocol** solvers — no keeper infrastructure, orders fill at your price or better.
 
 ---
 
@@ -277,7 +280,7 @@ The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](h
 
 Tegridy runs a Solana surface too — but **TOWELI never touches Solana** (no bridge, no wrapped token, ever).
 
-- **Swap fee-capture (live in the app):** [tegridyfarms.vercel.app](https://tegridyfarms.vercel.app) routes Solana swaps through the Jupiter aggregator with a small platform fee that accrues to a Tegridy Solana fee account. Pure fee-capture — we don't custody liquidity here. Frontend: [`SolanaSwapPage.tsx`](frontend/src/pages/SolanaSwapPage.tsx).
+- **Swap fee-capture (live in the app):** [memetic.fun](https://memetic.fun) routes Solana swaps through the Jupiter aggregator with a small platform fee that accrues to a Tegridy Solana fee account. Pure fee-capture — we don't custody liquidity here. Frontend: [`SolanaSwapPage.tsx`](frontend/src/pages/SolanaSwapPage.tsx).
 - **Tegridy CP-AMM (Phase 0, devnet groundwork — NOT audited, NOT on mainnet, holds no real funds):** a **verbatim fork of Raydium's audited CPMM** ([`raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap), Apache-2.0) so the protocol can earn a config-set protocol fee on pools it hosts — the "own the venue" model. The **entire code delta from upstream is four authority/identity constants** across two files, CI-enforced by a diff-guard so the re-audit surface stays tiny. See [`solana/tegridy-amm/TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md), [`AUDIT_RFQ.md`](solana/tegridy-amm/AUDIT_RFQ.md), and [`MAINNET_RUNBOOK.md`](solana/tegridy-amm/MAINNET_RUNBOOK.md). A fund-holding mainnet deploy is gated behind a professional diff-audit.
 
 ---
@@ -287,7 +290,7 @@ Tegridy runs a Solana surface too — but **TOWELI never touches Solana** (no br
 - **Total supply:** 1,000,000,000 TOWELI. **Fixed.** No mint function. No burn entrypoint.
 - **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) — an engagement/leaderboard window. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
 - **Revenue flow (live):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). The native pair's separate 0.3% grows the pool for LPs.
-- **Penalty flow:** 25% early-exit penalty → stakers still locked (pro-rata).
+- **Penalty flow:** 25% early-exit penalty → the **treasury** (`safeTransfer(treasury, penalty)`, emitting `PenaltySentToTreasury`). The penalty-recycle split was removed for EIP-170 size; it does *not* redistribute to stakers.
 - **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is what actually streams to stakers (default 100%, floor 50%). Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate.
 
 Full detail: **[TOKENOMICS.md](TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
@@ -333,10 +336,28 @@ pnpm dev                # Ponder against the RPC in .env — repointed to the re
 
 ### Running tests
 - **Solidity:** `cd contracts && forge test`
-- **Frontend typecheck / unit / build:** `cd frontend && pnpm exec tsc --noEmit` · `pnpm exec vitest run` · `pnpm build`
+- **Frontend typecheck / unit / build:** `cd frontend && pnpm exec tsc -b --noEmit` · `pnpm exec vitest run` · `pnpm build`
+
+> ⚠️ **`tsc --noEmit` without `-b` checks zero files.** `frontend/tsconfig.json` is a
+> solution file (`{"files": [], "references": [...]}`) — plain `tsc` finds an empty
+> `files`, no `include`, and does not follow project references (that is build mode
+> only). It exits 0 in under a second having read nothing. Measured on this tree:
+> `tsc --noEmit --listFiles` reports **0** files under `src/`, `tsc -b --noEmit
+> --listFiles` reports **548**. CI and `package.json`'s `precommit` were both fixed
+> to the `-b` form in [#131](https://github.com/fomotsar-commits/tegridy-farms/pull/131);
+> this README kept recommending the broken one until 2026-07-30.
+
+> ⚠️ **The browser E2E suite does not cover the money paths.** 44 specs that stake,
+> swap, add/remove liquidity, borrow, repay and claim are skipped unless an Anvil
+> fork is supplied, and no pipeline supplies one today (`grep -rn ANVIL_RPC_URL
+> .github/` returns only comments). A green E2E run proves the interface renders,
+> not that a transaction works.
 
 ### Contributing
-See [CONTRIBUTING.md](CONTRIBUTING.md). Branch off `main`, keep changes focused, run `forge test` + frontend typecheck before opening a PR.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Branch off **`mvp-launch`** — it is the real
+trunk and the repo's default branch; `main` has diverged substantially (a merge is a
+63-file conflict). Keep changes focused, and run `forge test` + `pnpm exec tsc -b
+--noEmit` before opening a PR.
 
 ---
 
@@ -455,7 +476,7 @@ Tegridy Farms treats its own custom code as a known-risk attack surface: the sta
 
 **Still gated (not live in the app):** the emission/spend-side of the batch — `GaugeController`, `VoteIncentives`(+Admin), `CommunityGrants`, `MemeBountyBoard` (deployed + verified, held until a revenue line funds them) — plus `TegridyLending` (pre-deploy-audited; oracle-gated — deploys after the pool deepen + TWAP bootstrap), `TegridyRestaking` (not deployed — EIP-170 split / Phase 7), the Pro Pass (a `TegridyLaunchpadV2.createCollection` operation, not a standalone contract), and the Uniswap V4 module — whose fee hook is **pre-deployed** to a mined address ([`0xB6cf…0044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044)) but whose swap surface stays gated pending its audit wave. The frontend un-gates each automatically once the address is set. The Wave-0 (April 2026) contracts are superseded and retained only for provenance in [`docs/MIGRATION_HISTORY.md`](docs/MIGRATION_HISTORY.md).
 
-Live directory in the app: [tegridyfarms.vercel.app](https://tegridyfarms.vercel.app).
+Live directory in the app: [memetic.fun](https://memetic.fun).
 
 ---
 
@@ -470,8 +491,10 @@ Full roadmap in [`ROADMAP.md`](ROADMAP.md) · shipping cadence in [`CHANGELOG.md
 
 **Medium-term:**
 - ✅ ~~Limit orders~~ **live via CoW Protocol solvers** (Trade page, 2026-07-22 — no keeper needed); CoW market-swap + TWAP/DCA execution panels are built but held for live-wallet QA
-- Wire leaderboard/history pages to the Ponder indexer + a Dune dashboard
-- Solana CP-AMM: devnet dry-run → diff-audit → mainnet → Jupiter integration
+- **Dune analytics — partially done (2026-07-30).** Five public queries exist and the corrected wei→ETH numerator cast is published in [`docs/DUNE_QUERIES.md`](docs/DUNE_QUERIES.md), but per that doc's own "Still to do" only one of the five has the fix applied *on dune.com*, and **no dashboard is built yet**. Leaderboard/history are still unwired from the Ponder indexer.
+- **Solana — two programs, neither on mainnet.** The CP-AMM fork (devnet groundwork, unaudited) and, since 2026-07-30, an original **bonding-curve program** (`tegridy-launch`) that graduates into a non-squattable pool PDA. Both are CI-gated and hold no funds; path is diff-audit → mainnet → Jupiter integration.
+- **V4 graduation leg audit.** `TegridyLiquidityMigrator` + `TegridyFeeLocker` are written and tested but undeployed; adoption needs a Whetstone module whitelist plus a timelocked hook allowance.
+- **`LockerClaimer` adoption** — the small contract that would let the launcher's 15% fee line reach TOWELI stakers instead of resting in the treasury. Written and tested, wired to nothing.
 - V4 module audit + protocol-owned-liquidity growth
 - Public Discord / Twitter presence
 
