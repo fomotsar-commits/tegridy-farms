@@ -173,8 +173,18 @@ export const CURRENT_SEASON = {
 
 // Canonical production origin. Single source of truth for share links / fallback
 // URLs so nothing ships a dead domain (e.g. tegridyfarms.io / tegridy.farm).
-// Keep in lock-step with index.html <link rel=canonical> and usePageTitle SITE_URL.
-export const SITE_URL = 'https://tegridyfarms.vercel.app';
+// Keep in lock-step with index.html <link rel=canonical>. usePageTitle now IMPORTS
+// this rather than re-declaring it — it previously held a second literal, which is
+// how the two drifted apart.
+//
+// 🔴 CORRECTED 2026-07-30 — this said `tegridyfarms.vercel.app` while memetic.fun was
+// the live canonical domain. The site was therefore telling search engines and every
+// social unfurl that its identity lived at the .vercel.app alias. The API allowlists
+// had already been corrected to memetic.fun in #180; this half had not, so the two
+// halves of the app disagreed about which domain is production. Both hosts still
+// serve, and api/ deliberately keeps BOTH in its origin allowlist — this constant is
+// about declared identity, not access.
+export const SITE_URL = 'https://memetic.fun';
 
 // External links
 export const ETHERSCAN_TOKEN = `https://etherscan.io/token/${TOWELI_ADDRESS}`;

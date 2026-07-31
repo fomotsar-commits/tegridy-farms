@@ -108,9 +108,10 @@ function drawCard(ctx, img, nft, collection) {
   ctx.font = "13px 'Inter', Arial, sans-serif";
   ctx.fillStyle = "rgba(200,168,80,0.7)";
   ctx.textAlign = "center";
-  // Print the real share host (e.g. tegridyfarms.vercel.app) rather than a
-  // pseudo-domain like "nakamigos.gallery" the project doesn't own.
-  const host = (typeof window !== "undefined" && window.location?.host) || "tegridyfarms.vercel.app";
+  // Print the real share host (e.g. memetic.fun) rather than a pseudo-domain like
+  // "nakamigos.gallery" the project doesn't own. The fallback only applies off-window
+  // (SSR/tests); in a browser this is whatever host actually served the page.
+  const host = (typeof window !== "undefined" && window.location?.host) || "memetic.fun";
   ctx.fillText(host, W / 2, H - 12);
   ctx.textAlign = "left";
 }
