@@ -44,7 +44,7 @@ describe('index.html static site identity', () => {
 
   it('the JSON-LD url agrees too', () => {
     // Same block the CSP sha256 in vercel.json pins — see the note below.
-    const ld = html.match(/<script[^>]*application\/ld\+json[^>]*>(.*?)<\/script>/is)?.[1];
+    const ld = html.match(/<script[^>]*application\/ld\+json[^>]*>(.*?)<\/script\s*>/is)?.[1];
     expect(ld, 'no JSON-LD block in index.html').toBeTruthy();
     const parsed = JSON.parse(ld!.trim()) as { url?: string };
     expect(origin(parsed.url ?? '')).toBe(origin(SITE_URL));
@@ -63,7 +63,7 @@ describe('index.html static site identity', () => {
     // `i` because HTML tag names are case-insensitive: without it a <SCRIPT> block is
     // silently skipped and its missing pin passes this guard (CodeQL js/bad-tag-filter).
     // Must stay identical to the pattern in scripts/csp-hash.mjs.
-    for (const m of normalized.matchAll(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi)) {
+    for (const m of normalized.matchAll(/<script(\s[^>]*)?>([\s\S]*?)<\/script\s*>/gi)) {
       if (/\bsrc\s*=/.test((m[1] ?? '').trim())) continue; // external → no body to pin
       inline.push(m[2]);
     }
