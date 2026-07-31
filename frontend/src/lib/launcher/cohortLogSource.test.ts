@@ -72,3 +72,31 @@ describe('cohortLogClient', () => {
     await expect(wrapped.getLogs({} as never)).rejects.toBeInstanceOf(CohortUnavailableError);
   });
 });
+
+// INTEGRATION: the wrapped client fed to the REAL readOurLaunches.
+//
+// The unit tests above all passed while the page wiring was broken: I first drove the
+// "couldn't read" banner off a try/catch, but readOurLaunches NEVER throws — it degrades
+// to an empty result and reports `complete: false`. The catch was dead code, so an outage
+// would have rendered as "nothing has launched". Unit-green, integration-broken. These
+// pin the contract that actually matters: a failing log source must yield complete=false.
+describe('cohortLogClient + readOurLaunches — a failing log source is INCOMPLETE, not empty', () => {
+  const multicallOnly = { multicall: async () => [] } as unknown as PublicClient;
+
+  it('reports complete=false when the log source is unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502, json: async () => ({}) }) as unknown as Response));
+    const { readOurLaunches } = await import('./ourLaunches');
+    const r = await readOurLaunches({ client: cohortLogClient(multicallOnly) });
+    expect(r.baselines).toEqual([]);
+    // The whole point: empty AND incomplete, so the caller can say "couldn't read".
+    expect(r.complete).toBe(false);
+  });
+
+  it('reports complete=true for a genuinely empty history', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok({ assets: [] })));
+    const { readOurLaunches } = await import('./ourLaunches');
+    const r = await readOurLaunches({ client: cohortLogClient(multicallOnly) });
+    expect(r.baselines).toEqual([]);
+    expect(r.complete).toBe(true);
+  });
+});

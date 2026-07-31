@@ -45,7 +45,7 @@ import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
 import type { OutcomeRecord } from '../lib/launcher/outcomes';
 import { readOurLaunches } from '../lib/launcher/ourLaunches';
-import { cohortLogClient, CohortUnavailableError } from '../lib/launcher/cohortLogSource';
+import { cohortLogClient } from '../lib/launcher/cohortLogSource';
 import { isAddress, getAddress, type Address } from 'viem';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
@@ -261,22 +261,19 @@ export default function LaunchPage() {
       // getLogs comes from our backend (`?resource=launch-cohort`): the Airlock's whole
       // Create history is millions of blocks and every browser-reachable RPC refuses that
       // range, which is why this surface was permanently empty. Provenance still happens
-      // client-side inside readOurLaunches. An unreadable history must NOT render as an
-      // empty cohort — that would publish a fabricated track record — so it is caught and
-      // surfaced separately below.
-      let baselines, poolByToken;
-      try {
-        ({ baselines, poolByToken } = await readOurLaunches({
-          client: cohortLogClient(publicClient, { signal: ac.signal }),
-          signal: ac.signal,
-        }));
-      } catch (e) {
-        if (ac.signal.aborted) return;
-        setCohortUnavailable(e instanceof CohortUnavailableError);
-        setExplorer({ launches: [], outcomes: {} });
-        return;
-      }
+      // client-side inside readOurLaunches.
+      //
+      // Drive the banner off `complete`, NOT off a catch. readOurLaunches NEVER throws — it
+      // degrades every failure to an empty result and reports `complete: false` — so a
+      // try/catch here is dead code that silently never fires, and an unreadable history
+      // would render as "nothing has launched": the fabricated track record this path
+      // exists to prevent. (Written as a catch first; caught by reading ourLaunches.ts.)
+      const { baselines, poolByToken, complete } = await readOurLaunches({
+        client: cohortLogClient(publicClient, { signal: ac.signal }),
+        signal: ac.signal,
+      });
       if (ac.signal.aborted) return;
+      setCohortUnavailable(!complete);
       if (baselines.length === 0) {
         setExplorer({ launches: [], outcomes: {} });
         return;
