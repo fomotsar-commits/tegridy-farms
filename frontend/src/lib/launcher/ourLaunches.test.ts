@@ -168,3 +168,80 @@ describe('readOurLaunches — a partial provenance read claims NOTHING', () => {
     expect(r.baselines).toEqual([]);
   });
 });
+
+// WHY AN EMPTY LIST IS NOT AN ANSWER.
+//
+// All-or-nothing made the empty result SAFE, but it also made it more ambiguous: an
+// empty `baselines` now means "no launches yet" OR "getLogs failed" OR "aborted" OR "one
+// asset out of many was unreadable". This function never throws, so a caller had no way
+// at all to tell those apart — and a consumer that wanted to say "asset discovery was
+// unavailable" literally could not obtain the fact. `complete` is that fact.
+//
+// Tested against the REAL function, not a mock of it: a mock of `readOurLaunches` can be
+// made to throw, which is exactly how a consumer ended up with an unreachable catch block
+// and a permanently-false "unavailable" flag.
+describe('readOurLaunches — `complete` separates "nothing found" from "could not look"', () => {
+  const OURS = LAUNCHER_INTEGRATOR_ADDRESS;
+  const A1 = '0x00000000000000000000000000000000000000A1' as Address;
+  const A2 = '0x00000000000000000000000000000000000000A2' as Address;
+
+  const logsFor = (...assets: Address[]) => assets.map((asset) => ({ args: { asset } }));
+  const record = (integrator: Address) => ({
+    status: 'success' as const,
+    result: [ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, integrator],
+  });
+
+  it('is TRUE when every candidate read back', async () => {
+    const client = { getLogs: async () => logsFor(A1, A2), multicall: async () => [record(OURS), record(OURS)] };
+    await expect(readOurLaunches({ client: client as never })).resolves.toMatchObject({ complete: true });
+  });
+
+  it('is TRUE for a genuinely empty window — a real finding, not a failure', async () => {
+    const client = { getLogs: async () => [], multicall: async () => [] };
+    const r = await readOurLaunches({ client: client as never });
+    expect(r.baselines).toEqual([]);
+    expect(r.complete).toBe(true);
+  });
+
+  // The case that matters. Same empty `baselines` as above, opposite meaning.
+  it('is FALSE when a partial read forced the empty result', async () => {
+    const client = {
+      getLogs: async () => logsFor(A1, A2),
+      multicall: async () => [record(OURS), { status: 'failure' as const, error: new Error('429') }],
+    };
+    const r = await readOurLaunches({ client: client as never });
+    expect(r.baselines).toEqual([]);
+    expect(r.complete).toBe(false);
+  });
+
+  it('is FALSE when the log scan itself fails', async () => {
+    const client = {
+      getLogs: async () => {
+        throw new Error('eth_getLogs: archive required');
+      },
+      multicall: async () => [],
+    };
+    const r = await readOurLaunches({ client: client as never });
+    expect(r.baselines).toEqual([]);
+    expect(r.complete).toBe(false);
+  });
+
+  it('is FALSE when the scan was aborted mid-flight', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const client = { getLogs: async () => logsFor(A1), multicall: async () => [record(OURS)] };
+    const r = await readOurLaunches({ client: client as never, signal: ac.signal });
+    expect(r.complete).toBe(false);
+  });
+
+  it('never throws, so a caller cannot rely on a catch block to detect failure', async () => {
+    const client = {
+      getLogs: async () => {
+        throw new Error('boom');
+      },
+      multicall: async () => [],
+    };
+    // This is the trap: a consumer wrapping this in try/catch gets dead code.
+    await expect(readOurLaunches({ client: client as never })).resolves.toBeDefined();
+  });
+});
