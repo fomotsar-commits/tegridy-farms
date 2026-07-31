@@ -65,8 +65,9 @@ interface IStreamableFeesLocker {
 ///     runtime (2026-07-30) finds 4 CALL sites, all 4 immediately preceded by GAS, and ZERO
 ///     occurrences of the 2300 stipend constant (PUSH2 0x08fc). All available gas is forwarded.
 ///  2. Precisely BECAUSE the failure is not swallowed, any revert inside our `receive()` bricks
-///     the fee line for that position — and since the beneficiary set is immutable per launch,
-///     unrecoverably. A bare `receive()` cannot revert (no SSTORE that can hit a gas ceiling, no
+///     the fee line for that position until someone calls the locker's `updateBeneficiary` to
+///     re-point the slot — and THIS contract has no way to call it (see ADOPTION below), so from
+///     here it is unrecoverable. A bare `receive()` cannot revert (no SSTORE that can hit a gas ceiling, no
 ///     guard that can trip, no external call that can fail), which is the only shape that is
 ///     safe under BOTH today's full-gas CALL and a hypothetical future `transfer`/`send` sender.
 ///
@@ -91,10 +92,22 @@ interface IStreamableFeesLocker {
 /// @dev ADOPTION (operator): this contract intentionally does NOT wire itself in. To adopt it:
 ///      (1) deploy with (locker, RevenueDistributor, Treasury Safe), (2) verify on Etherscan and
 ///      read back `locker()` / `revenueDistributor()` / `treasury()` on-chain, (3) only THEN flip
-///      `launchService.protocolFeeSink()` to the deployed address + label. Because the locker's
-///      beneficiary set is fixed at launch-create time and has no admin re-point, the flip
-///      affects FUTURE launches only — every already-created launch keeps the Treasury sink it
-///      was created with, forever.
+///      `launchService.protocolFeeSink()` to the deployed address + label.
+///
+///      The flip governs FUTURE launches: the beneficiary SET (who is in it, and each share) is
+///      fixed at launch-create time and no admin can rewrite it.
+///
+///      But an already-created launch is NOT stranded on its original sink. The deployed locker
+///      exposes `updateBeneficiary(uint256 tokenId, address newBeneficiary)` — verified present in
+///      the live runtime, selector 0x3e8eb5a4 — which lets the CURRENT beneficiary of a slot
+///      re-point that slot to a new address (it releases what is owed to the caller first, then
+///      rewrites the entry). So Treasury, as an existing beneficiary, can migrate its own slot to
+///      a deployed LockerClaimer later. That is a Safe transaction per position, not a redeploy.
+///
+///      This contract deliberately CANNOT call `updateBeneficiary`: it holds no such function, so
+///      once it is a beneficiary its slot is one-way. That is intentional — a fee sink that can
+///      re-point itself is a rug vector, and the whole point here is that the destination is not
+///      a parameter. The migration lever stays with the Safe, which is a human-authorised path.
 contract LockerClaimer is ReentrancyGuard {
     using SafeTransferLib for address;
 

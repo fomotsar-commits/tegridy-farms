@@ -247,11 +247,19 @@ async function printValidityWindow(connection, tx) {
   console.log(`  lastValidBlockHeight: ${tx.lastValidBlockHeight ?? '(unknown)'}`);
   if (typeof tx.lastValidBlockHeight !== 'number') return;
   try {
-    // Must match the wrapper's BLOCKHASH_COMMITMENT ('finalized') — lastValidBlockHeight
-    // is expressed in that same commitment's block height.
-    const now = await connection.getBlockHeight('finalized');
+    // Compare against the CONFIRMED tip, not 'finalized'.
+    //
+    // The cluster expires a blockhash-anchored tx by comparing lastValidBlockHeight against the
+    // block height at the PROCESSED tip. 'finalized' lags that tip by roughly 32 slots, so
+    // measuring against it reports ~32 more slots (~14s) of runway than actually remain — an
+    // over-estimate, and the one direction an operator must never be misled in: they would
+    // submit a ceremony they believe fits and find the tx already dropped. 'confirmed' sits
+    // within a slot or two of the processed tip, so what we print is now a slight UNDER-estimate.
+    // (The wrapper still FETCHES the blockhash at 'finalized' — that is about durability of the
+    // hash we anchor to, a different question from where the deadline is measured.)
+    const now = await connection.getBlockHeight('confirmed');
     const slots = tx.lastValidBlockHeight - now;
-    console.log(`  expires in          : ~${slots} slots (~${Math.round(slots * 0.45)}s from now)`);
+    console.log(`  expires in          : ~${slots} slots (~${Math.round(slots * 0.4)}s from now)`);
   } catch (e) {
     console.log(`  expires in          : (block-height lookup failed: ${e?.message ?? e})`);
   }

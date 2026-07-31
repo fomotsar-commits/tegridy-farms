@@ -7,9 +7,12 @@ import {
   assetsToBaselines,
   poolByTokenFrom,
   sameAddress,
+  readOurLaunches,
   type AssetRecord,
 } from './ourLaunches';
 import { LAUNCHER_INTEGRATOR_ADDRESS } from './config';
+
+const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as Address;
 
 const OURS = LAUNCHER_INTEGRATOR_ADDRESS;
 const THEIRS = '0x00000000000000000000000000000000deadbeef' as Address;
@@ -115,5 +118,53 @@ describe('sameAddress', () => {
       expect(() => sameAddress(junk, OURS)).not.toThrow();
       expect(sameAddress(junk, OURS)).toBe(false);
     }
+  });
+});
+
+// PARTIAL-READ INTEGRITY.
+//
+// `readOurLaunches` uses multicall(allowFailure: true). Before this, a failed asset read was
+// silently skipped, so a rate-limited or flaky RPC could turn a real cohort into a confident
+// "nothing has launched yet" — a fabricated empty track record on a trust surface. The module's
+// own doc comment already promised all-or-nothing; the code did not implement it.
+describe('readOurLaunches — a partial provenance read claims NOTHING', () => {
+  const OURS = LAUNCHER_INTEGRATOR_ADDRESS;
+  const A1 = '0x00000000000000000000000000000000000000A1' as Address;
+  const A2 = '0x00000000000000000000000000000000000000A2' as Address;
+
+  const logsFor = (...assets: Address[]) => assets.map((asset) => ({ args: { asset } }));
+  const record = (integrator: Address) => ({
+    status: 'success' as const,
+    result: [ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, ZERO_ADDR, integrator],
+  });
+
+  it('returns every launch when all reads succeed (positive control)', async () => {
+    const client = {
+      getLogs: async () => logsFor(A1, A2),
+      multicall: async () => [record(OURS), record(OURS)],
+    };
+    const r = await readOurLaunches({ client: client as never });
+    expect(r.baselines).toHaveLength(2);
+  });
+
+  it('returns EMPTY when any asset read fails — never a shortened list', async () => {
+    const client = {
+      getLogs: async () => logsFor(A1, A2),
+      // A2's provenance is unreadable. A1 is ours. Pre-fix this returned 1 launch; the danger
+      // is the mirror case, where the unreadable one was ours and the page says "none".
+      multicall: async () => [record(OURS), { status: 'failure' as const, error: new Error('429') }],
+    };
+    const r = await readOurLaunches({ client: client as never });
+    expect(r.baselines).toEqual([]);
+    expect(r.poolByToken).toEqual({});
+  });
+
+  it('returns EMPTY when a read succeeds but the integrator word is malformed', async () => {
+    const client = {
+      getLogs: async () => logsFor(A1, A2),
+      multicall: async () => [record(OURS), { status: 'success' as const, result: [1, 2] }],
+    };
+    const r = await readOurLaunches({ client: client as never });
+    expect(r.baselines).toEqual([]);
   });
 });

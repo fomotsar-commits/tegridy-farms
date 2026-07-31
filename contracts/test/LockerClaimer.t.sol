@@ -167,7 +167,8 @@ contract ReentrantToken is ERC20 {
 ///         than at an ETH-only contract, the destinations cannot be redirected, a failed push
 ///         rolls the release back rather than consuming the credit, and — the one that would be
 ///         unrecoverable in production — `receive()` stays bare so it can never revert the
-///         locker's payout for a position whose beneficiary set is immutable.
+///         locker's payout. (Recovery would need the locker's `updateBeneficiary`, which this
+///         contract deliberately cannot call, so from here a reverting `receive()` is terminal.)
 contract LockerClaimerTest is Test {
     LockerClaimer internal claimer;
     MockLocker internal locker;
@@ -247,16 +248,40 @@ contract LockerClaimerTest is Test {
 
     /// @notice The locker's own guards bubble up rather than being swallowed — a keeper must
     ///         never see a successful tx for a claim that collected nothing.
+    // A locker revert must propagate UNWRAPPED. A review flagged these two as vacuous because
+    // they survived eight mutations; that was a gap in the mutation set, not in the tests. The
+    // load-bearing assertion is the SELECTOR: wrapping the call in
+    // `try locker.releaseFees(id) {} catch { revert ForwardFailed(); }` turns both red
+    // (`ForwardFailed() != InvalidBeneficiary()`), i.e. they do pin "never mask the locker's own
+    // error", which matters because a keeper reading our error instead of the locker's would
+    // misdiagnose why a claim failed.
+    //
+    // The balance assertions below are SECONDARY and deliberately weak: the call reverts, so
+    // state rolls back and they hold trivially. They are kept as documentation of the intended
+    // post-condition, not as the thing under test. Do not mistake them for coverage.
     function test_claim_bubblesLockerRevertWhenNotBeneficiary() public {
         locker.credit(TOKEN_ID, address(0xCAFE), 1 ether, 0);
+        uint256 sinkBefore = address(revenueDistributor).balance;
+        uint256 lockerBefore = address(locker).balance;
 
         vm.expectRevert(MockLocker.InvalidBeneficiary.selector);
         claimer.claim(TOKEN_ID);
+
+        assertEq(address(revenueDistributor).balance, sinkBefore, "no ETH may reach the sink");
+        assertEq(address(locker).balance, lockerBefore, "locker must keep the funds");
+        assertEq(address(claimer).balance, 0, "claimer must hold nothing");
+        // The other beneficiary's credit is untouched — we never consumed someone else's slot.
+        assertEq(locker.ethClaims(TOKEN_ID, address(0xCAFE)), 1 ether, "third-party credit intact");
     }
 
     function test_claim_bubblesLockerRevertForUnknownPosition() public {
+        uint256 sinkBefore = address(revenueDistributor).balance;
+
         vm.expectRevert(MockLocker.PositionNotFound.selector);
         claimer.claim(999);
+
+        assertEq(address(revenueDistributor).balance, sinkBefore, "no ETH may reach the sink");
+        assertEq(address(claimer).balance, 0, "claimer must hold nothing");
     }
 
     /// @notice Atomicity: if the push to the distributor fails, the locker release must roll
