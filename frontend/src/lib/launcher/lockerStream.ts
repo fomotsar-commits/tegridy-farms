@@ -1,26 +1,47 @@
 // Post-graduation locker read — the fully-verifiable half of the fee disclosure.
 //
 // A Tegridy launch's fee split is a set of `streamableFees.beneficiaries` params at
-// CREATE time (airlock.ts), but the Doppler StreamableFeesLocker stream is only
-// created AT GRADUATION, keyed by the MIGRATION pool's PoolId. So the truthful,
-// on-chain fee constitution can only be read once a token has migrated to its V4 pool.
-// This module derives that PoolId and reads the locker; launchService.ts's
-// beneficiariesToFeeConstitution turns the result back into labelled fee lines.
+// CREATE time (airlock.ts), but the Doppler StreamableFeesLocker position is only
+// created AT GRADUATION. So the truthful, on-chain fee constitution can only be read
+// once a token has migrated to its V4 pool. This module derives the migration PoolId
+// and reads the locker; launchService.ts's beneficiariesToFeeConstitution turns the
+// result back into labelled fee lines.
 //
-// GROUNDED IN ON-CHAIN READS (2026-07-26, mainnet):
+// 🔴 CORRECTED 2026-07-30 — this module previously read `streams(poolId)` and the
+// header below asserted V1 "HAS the enumerable streams(bytes32) getter". That was
+// BACKWARDS, and it made the whole module inert: the call always reverted, the catch
+// reported "not graduated", and no token could ever be attested. Re-probed on mainnet:
+//
+//   V1 0xe24F…1eC6 (ours)  streams(bytes32) -> REVERT   positions(uint256) -> 128 bytes
+//   V2 0xce32…3d47         streams(bytes32) -> data     positions(uint256) -> REVERT
+//
+// A revert PROVES ABSENCE here: an auto-generated public-mapping getter returns zeros
+// for a missing key, it never reverts. Same probe also confirmed V1 has
+// `beneficiariesClaims(address,address)`, and does NOT have `currencyBalances` or
+// `airlock()`; `owner()`=0x21E2…7A66, `positionManager()`=0xbD21…ee9e.
+//
+// ⚠ The SDK's exported `streamableFeesLockerAbi` is the **V2** shape. Importing it and
+// pointing it at V1 is exactly how the original bug happened — do not re-introduce it.
+//
+// ⚠ V1 is keyed by the UniV4 position **tokenId (uint256)**, NOT by a PoolId(bytes32).
+// The PoolId helpers below are still correct UniV4 math and still worth having (the
+// migration pool's id is a real, useful identifier), but they are NOT V1's lookup key.
+// Resolving token -> tokenId needs the locker's own Lock event, whose shape is NOT
+// derivable from the SDK (the SDK's `Lock` belongs to a different contract) and cannot
+// be sampled on-chain today: the uniswapV4->V1 path is DORMANT, V1 holds zero positions
+// from the canonical PositionManager. So `readLockPosition` takes the tokenId as an
+// argument rather than guessing an event signature — guessing is what produced the bug
+// this comment documents.
+//
+// GROUNDED IN ON-CHAIN READS (2026-07-26 / re-verified 2026-07-30, mainnet):
 //   - Our launches use withMigration({type:'uniswapV4'}) -> the SDK's v4Migrator
 //     0x0820…205f5, whose IMMUTABLE getters read: migratorHook()=0x4053…E500,
-//     locker()=0xe24F…1eC6 (the V1 StreamableFeesLocker, which HAS the enumerable
-//     streams(bytes32) getter — the V2 locker 0xcE32… does NOT).
+//     locker()=0xe24F…1eC6 (V1 StreamableFeesLocker).
 //   - PoolId = keccak256(abi.encode(currency0,currency1,fee:uint24,tickSpacing:int24,
 //     hooks)) — canonical UniV4 PoolId.toId; matches the SDK's computePoolId, PROVEN
 //     against 3 real on-chain PoolManager Initialize events.
 //   - For a native-ETH numeraire (our launches), currency0 is 0x0 and currency1 is the
 //     token (isToken0Expected(0)===false; 0x0 is the minimum address).
-//   - streams(poolId) REVERTS for any key without a stream (pre-graduation, or a
-//     mis-derived key). We catch it and report "not graduated". Because keccak256 makes
-//     a wrong PoolId revert (never collide with another token's stream), a mis-derivation
-//     can only fail SAFE — it can never surface a plausible-but-wrong split.
 
 import { encodeAbiParameters, keccak256, type Address, type Hex } from 'viem';
 import { NATIVE_ETH, MIGRATION_POOL } from './airlock';
@@ -98,6 +119,14 @@ export interface StreamBeneficiaryRaw {
 export interface MigrationStream {
   /** true iff the locker holds a stream for this token's migration pool (i.e. it graduated). */
   graduated: boolean;
+  /**
+   * true when we could not READ the locker at all, as opposed to having read it and
+   * found no stream. Keeping these apart is the whole lesson of this module: for weeks
+   * an unreadable surface rendered identically to "has not graduated yet", so a
+   * permanently broken call looked like a normal empty state. A caller showing
+   * provenance MUST NOT present `unsupported` as a negative finding about the token.
+   */
+  unsupported?: boolean;
   /** The base pair the read was performed against (native ETH or TOWELI). */
   numeraire: Address;
   /** The derived migration PoolId (returned even when not graduated, for diagnostics). */
@@ -121,62 +150,124 @@ export interface LockerReadClient {
   readContract(args: any): Promise<unknown>;
 }
 
+/** V1 StreamableFeesLocker read surface — PROBED on mainnet, not taken from the SDK. */
+export const LOCKER_V1_ABI = [
+  {
+    type: 'function',
+    name: 'positions',
+    stateMutability: 'view',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [
+      { name: 'recipient', type: 'address' },
+      { name: 'startDate', type: 'uint32' },
+      { name: 'lockDuration', type: 'uint32' },
+      { name: 'isUnlocked', type: 'bool' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'beneficiariesClaims',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'beneficiary', type: 'address' },
+      { name: 'currency', type: 'address' },
+    ],
+    outputs: [{ name: 'amount', type: 'uint256' }],
+  },
+] as const;
+
 /**
- * Read the StreamableFeesLocker stream for `token`'s migration pool. Never throws:
- * a revert (no stream / pre-graduation) resolves to `{ graduated: false, … }`.
- * The locker ABI comes from the SDK (`streamableFeesLockerAbi`) via a dynamic import
- * so the ~heavy SDK stays a lazy chunk — this is a deliberate, user-triggered read.
+ * Read one locked LP position from the V1 locker by its UniV4 position tokenId.
+ *
+ * Never throws — a revert (unknown tokenId) resolves to `{ found: false }`. Because
+ * `positions` is an auto-generated getter, an unknown key returns ZEROS rather than
+ * reverting, so a zero `recipient` is the real "no such position" signal; the try/catch
+ * only covers transport failure and a wrong-contract call.
+ */
+export async function readLockPosition(
+  client: LockerReadClient,
+  tokenId: bigint,
+  locker: Address = DOPPLER_MAINNET.support.streamableFeesLocker,
+): Promise<{ found: boolean; recipient: Address | null; locked: boolean; unlockAt: number | null }> {
+  const none = { found: false, recipient: null, locked: false, unlockAt: null };
+  let raw: unknown;
+  try {
+    raw = await client.readContract({ address: locker, abi: LOCKER_V1_ABI, functionName: 'positions', args: [tokenId] });
+  } catch {
+    return none;
+  }
+  const r = raw as readonly unknown[] | Record<string, unknown> | null;
+  if (r == null || typeof r !== 'object') return none;
+  const arr = Array.isArray(r);
+  const recipient = (arr ? r[0] : (r as Record<string, unknown>).recipient) as Address | undefined;
+  const startDate = Number(arr ? r[1] : (r as Record<string, unknown>).startDate);
+  const lockDuration = Number(arr ? r[2] : (r as Record<string, unknown>).lockDuration);
+  const isUnlocked = Boolean(arr ? r[3] : (r as Record<string, unknown>).isUnlocked);
+  // Zero recipient = empty mapping slot = no such position.
+  if (!recipient || /^0x0{40}$/i.test(recipient)) return none;
+  return {
+    found: true,
+    recipient,
+    locked: !isUnlocked,
+    unlockAt: Number.isFinite(startDate + lockDuration) ? startDate + lockDuration : null,
+  };
+}
+
+/**
+ * Read what a published beneficiary has actually accrued in `currency` on the locker.
+ *
+ * This is the part of post-graduation re-attestation that works TODAY against V1's real
+ * surface: we already know the beneficiary addresses (we set them at create time), so
+ * reading each one's claim proves the published split is wired to real, funded accounts
+ * rather than being a claim on a page. Returns null on any read failure — a missing
+ * number must never be rendered as a zero balance.
+ */
+export async function readBeneficiaryClaim(
+  client: LockerReadClient,
+  beneficiary: Address,
+  currency: Address,
+  locker: Address = DOPPLER_MAINNET.support.streamableFeesLocker,
+): Promise<bigint | null> {
+  try {
+    const raw = await client.readContract({
+      address: locker,
+      abi: LOCKER_V1_ABI,
+      functionName: 'beneficiariesClaims',
+      args: [beneficiary, currency],
+    });
+    return typeof raw === 'bigint' ? raw : BigInt(raw as string | number);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Post-graduation stream read.
+ *
+ * ⛔ NOT IMPLEMENTED against V1, deliberately — see the file header. It requires a
+ * token -> position-tokenId mapping that is only recoverable from the locker's own Lock
+ * event, whose signature cannot be verified today (the SDK ships V2's ABI, and the V1
+ * path is dormant on mainnet so there is no live event to sample).
+ *
+ * It returns `graduated: false` with `unsupported: true` so callers can tell
+ * "we cannot read this yet" apart from "this token has not graduated" — the conflation
+ * of those two is precisely what hid the original bug for weeks. It must never return
+ * `graduated: true` without a real read.
  */
 export async function readMigrationStream(
-  client: LockerReadClient,
+  _client: LockerReadClient,
   token: Address,
   numeraire: Address = NATIVE_ETH,
 ): Promise<MigrationStream> {
-  const expectedKey = migrationPoolKey(token, numeraire);
-  const poolId = poolKeyToId(expectedKey);
-  const locker = DOPPLER_MAINNET.support.streamableFeesLocker;
-  const notGraduated: MigrationStream = {
+  return {
     graduated: false,
+    unsupported: true,
     numeraire,
-    poolId,
+    poolId: migrationPoolId(token, numeraire),
     locker: null,
     locked: false,
     unlockAt: null,
     beneficiaries: [],
-  };
-
-  let raw: unknown;
-  try {
-    const { streamableFeesLockerAbi } = await import('@whetstone-research/doppler-sdk/evm');
-    raw = await client.readContract({ address: locker, abi: streamableFeesLockerAbi, functionName: 'streams', args: [poolId] });
-  } catch {
-    // streams(poolId) reverts when no stream exists — the honest "not graduated" signal.
-    return notGraduated;
-  }
-
-  const decoded = decodeStream(raw);
-  if (!decoded) return notGraduated;
-  // Defense in depth: the only stream at this exact PoolId is this pool's (keccak256 —
-  // a mis-derived key reverts, never collides). Refuse a read whose poolKey does not
-  // match BOTH derived currencies (token AND the numeraire we asked for), so a false
-  // disclosure is structurally impossible even if the SDK ABI shape or the derivation
-  // ever changed underneath us — and so an ETH-pool read can never be mistaken for a
-  // TOWELI-pool read (or vice-versa).
-  if (
-    decoded.currency0.toLowerCase() !== expectedKey.currency0.toLowerCase() ||
-    decoded.currency1.toLowerCase() !== expectedKey.currency1.toLowerCase()
-  ) {
-    return notGraduated;
-  }
-
-  return {
-    graduated: true,
-    numeraire,
-    poolId,
-    locker,
-    locked: !decoded.isUnlocked,
-    unlockAt: decoded.startDate + decoded.lockDuration,
-    beneficiaries: decoded.beneficiaries,
   };
 }
 
@@ -189,41 +280,6 @@ export function lockResolverFor(stream: MigrationStream): LockResolver {
   return async () => ({ locked: stream.locked, locker: stream.locker, unlockAt: stream.unlockAt });
 }
 
-/**
- * Normalise viem's `streams` return into just the fields we use. viem returns the 7
- * named outputs as a tuple array [poolKey, recipient, startDate, lockDuration,
- * isUnlocked, beneficiaries, positions]; we also tolerate an object form defensively.
- */
-function decodeStream(
-  raw: unknown,
-): { currency0: Address; currency1: Address; isUnlocked: boolean; startDate: number; lockDuration: number; beneficiaries: StreamBeneficiaryRaw[] } | null {
-  if (raw == null || typeof raw !== 'object') return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const r = raw as any;
-  const arr = Array.isArray(r);
-  const poolKey = arr ? r[0] : r.poolKey;
-  const startDate = arr ? r[2] : r.startDate;
-  const lockDuration = arr ? r[3] : r.lockDuration;
-  const isUnlocked = arr ? r[4] : r.isUnlocked;
-  const beneficiaries = arr ? r[5] : r.beneficiaries;
-  if (poolKey == null || !Array.isArray(beneficiaries)) return null;
-  const pkArr = Array.isArray(poolKey);
-  const currency0 = (pkArr ? poolKey[0] : poolKey.currency0) as Address | undefined;
-  const currency1 = (pkArr ? poolKey[1] : poolKey.currency1) as Address | undefined;
-  if (!currency0 || !currency1) return null;
-  return {
-    currency0,
-    currency1,
-    isUnlocked: Boolean(isUnlocked),
-    startDate: Number(startDate),
-    lockDuration: Number(lockDuration),
-    beneficiaries: beneficiaries.map((b: unknown) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const x = b as any;
-      return {
-        beneficiary: (Array.isArray(x) ? x[0] : x.beneficiary) as Address,
-        shares: BigInt(Array.isArray(x) ? x[1] : x.shares),
-      };
-    }),
-  };
-}
+// `decodeStream` lived here: it normalised the V2 `streams` tuple. Deleted with the
+// V2-shaped read it served — keeping a decoder for a function this locker does not have
+// is what made the dead call look maintained.
