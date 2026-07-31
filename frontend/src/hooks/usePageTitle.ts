@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
+// Imported, not re-declared. This file used to carry its own SITE_URL literal, which is
+// exactly how it drifted: constants.ts calls itself the "single source of truth" and says
+// to keep this in lock-step, but a second literal cannot be kept in lock-step by
+// instruction alone — only by not existing.
+import { SITE_URL } from '../lib/constants';
 
 const BASE_TITLE = 'Tegridy Farms';
-const SITE_URL = 'https://tegridyfarms.vercel.app';
 const DEFAULT_OG_IMAGE = `${SITE_URL}/art/gallery-collage.jpg`;
 
 // F15: mirror the index.html default description so pages that don't pass one

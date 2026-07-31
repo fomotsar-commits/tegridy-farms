@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+// Safe to import: constants.ts is a dependency-free constants module (zero imports),
+// so pulling it into the Playwright graph costs nothing and drags in no browser code.
+import { SITE_URL } from '../src/lib/constants';
 
 /**
  * Trust-signal page coverage.
@@ -60,16 +63,27 @@ test.describe('Trust pages', () => {
 });
 
 test.describe('SEO & social metadata', () => {
-  test('home page has canonical URL and og:image', async ({ page }) => {
+  test('home page canonical matches the declared SITE_URL', async ({ page }) => {
     await page.goto('/');
-    // Canonical URL set via usePageTitle on mount. The production deploy
-    // currently uses *.vercel.app (Vercel preview); .xyz is a future custom
-    // domain. Accept either so this test survives the cutover without churn.
+    // Canonical URL is set via usePageTitle on mount.
+    //
+    // This asserted `/tegridyfarms\.(xyz|vercel\.app)/` until 2026-07-30, with a comment
+    // saying it accepted both "so this test survives the cutover without churn". It did
+    // not survive it — hardcoding two domain literals is what made the memetic.fun
+    // cutover fail CI. Pin the INVARIANT instead: the rendered canonical must equal the
+    // single source of truth it is generated from. That still catches real drift (a stray
+    // literal reappearing in usePageTitle, which is exactly how this drifted before) while
+    // surviving any future domain change with no edit here.
     const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-    expect(canonical).toMatch(/tegridyfarms\.(xyz|vercel\.app)/);
+    expect(canonical).toBeTruthy();
+    expect(canonical?.replace(/\/$/, '')).toBe(SITE_URL.replace(/\/$/, ''));
+
     const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content');
     expect(ogImage).toBeTruthy();
     expect(ogImage).toMatch(/^https?:\/\//);
+    // The share image must live on the same origin we just declared canonical —
+    // an og:image on a stale host is how a rebrand ships broken unfurls.
+    expect(ogImage?.startsWith(SITE_URL)).toBe(true);
   });
 
   test('page title reflects route', async ({ page }) => {
