@@ -21,7 +21,10 @@ const html = readFileSync(htmlPath, 'utf8');
 // endings regardless of the working-copy line endings on Windows.
 const normalized = html.replace(/\r\n/g, '\n');
 
-const re = /<script(\s[^>]*)?>([\s\S]*?)<\/script>/g;
+// `i` matters: HTML tag names are case-insensitive, so a stray <SCRIPT> would be
+// skipped here and then go unpinned in vercel.json — CodeQL js/bad-tag-filter.
+// Keep this pattern identical to src/lib/siteIdentity.test.ts, which asserts the pins.
+const re = /<script(\s[^>]*)?>([\s\S]*?)<\/script(?:\s[^>]*)?>/gi;
 let match;
 let idx = 0;
 const hashes = [];

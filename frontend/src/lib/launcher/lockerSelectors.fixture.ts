@@ -75,7 +75,7 @@ export const DEPLOYED_LOCKER_V1: DeployedLocker = {
     '0x5c46a7ef',
     '0x6029bf9f', // distributeFees(uint256)
     '0x6ec9be11',
-    '0x70a08231', // balanceOf(address)
+    '0x70a08231', // NOT dispatched by V1 — an OUTGOING ERC20 call the code builds
     '0x715018a6', // renounceOwnership()
     '0x791b98bc', // positionManager()
     '0x7ba03aad',

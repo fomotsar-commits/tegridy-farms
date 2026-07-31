@@ -181,8 +181,9 @@ describe('LOCKER_V1_ABI — pinned to the DEPLOYED bytecode, not to a mock', () 
   });
 
   it('V1 does NOT dispatch streams(bytes32) — the call that was silently reverting', () => {
-    // Absence from an opcode-walk honouring PUSH immediates is proof: the dispatcher has
-    // no branch that can match this selector, so the call always hits the fallback.
+    // Absence from the walk is strong evidence rather than a proof (a 0x00000000
+    // selector is matched by a bare ISZERO with no PUSH4). For THIS selector it was
+    // confirmed by a live eth_call, recorded in the fixture header.
     expect(v1.has(STREAMS)).toBe(false);
   });
 
