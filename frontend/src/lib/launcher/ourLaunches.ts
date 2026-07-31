@@ -162,6 +162,26 @@ export interface ReadOurLaunchesOptions {
  */
 export const AIRLOCK_FIRST_BLOCK = 21_000_000n;
 
+/** What a launch enumeration produced, and whether it is the WHOLE answer. */
+export interface OurLaunchesResult {
+  baselines: LaunchBaseline[];
+  poolByToken: Record<string, Address>;
+  /**
+   * True only when the full candidate set was enumerated AND every candidate's
+   * provenance read back.
+   *
+   * This function never throws — every failure degrades to an empty result — so before
+   * this flag existed an empty return conflated FOUR different things: no launches yet,
+   * `eth_getLogs` failed, the scan was aborted, and (since the all-or-nothing partial
+   * read below) one asset out of many being unreadable. A caller could not tell "nothing
+   * has launched" from "we could not look", which is the whole failure mode these
+   * surfaces exist to avoid — and a consumer that reported the difference had no way to
+   * obtain it. `complete: false` means the empty list is an absence of knowledge, not a
+   * finding.
+   */
+  complete: boolean;
+}
+
 /**
  * Discover the launches that went through OUR integrator.
  *
@@ -175,10 +195,15 @@ export const AIRLOCK_FIRST_BLOCK = 21_000_000n;
  */
 export async function readOurLaunches(
   opts: ReadOurLaunchesOptions,
-): Promise<{ baselines: LaunchBaseline[]; poolByToken: Record<string, Address> }> {
+): Promise<OurLaunchesResult> {
   const { client, integrator = LAUNCHER_INTEGRATOR_ADDRESS, signal } = opts;
-  const empty = { baselines: [], poolByToken: {} };
-  if (sameAddress(integrator, ZERO)) return empty;
+  // Incomplete by default: every early return below is a case where we did NOT finish
+  // enumerating, and the one path that did is explicit at the bottom. Defaulting the
+  // other way is how "we could not look" starts rendering as "there is nothing here".
+  const empty = { baselines: [], poolByToken: {}, complete: false };
+  // A zero integrator is a deterministic config state, not a failed read: there is
+  // genuinely nothing to discover, and we know it.
+  if (sameAddress(integrator, ZERO)) return { ...empty, complete: true };
 
   try {
     const logs = await client.getLogs({
@@ -207,7 +232,8 @@ export async function readOurLaunches(
       seen.add(k);
       assets.push(checksummed);
     }
-    if (assets.length === 0) return empty;
+    // Read the whole window and found no Create logs: a real, complete answer.
+    if (assets.length === 0) return { ...empty, complete: true };
 
     const results = await client.multicall({
       contracts: assets.map((asset) => ({
@@ -252,8 +278,9 @@ export async function readOurLaunches(
     if (unreadable > 0) return empty;
 
     const ours = filterOurAssets(records, integrator);
-    return { baselines: assetsToBaselines(ours), poolByToken: poolByTokenFrom(ours) };
+    // The only complete path: every candidate's provenance was read.
+    return { baselines: assetsToBaselines(ours), poolByToken: poolByTokenFrom(ours), complete: true };
   } catch {
-    return empty; // network/RPC failure — degrade to the clean empty state
+    return empty; // network/RPC failure — degrade to the clean empty state, flagged incomplete
   }
 }

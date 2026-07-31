@@ -42,7 +42,7 @@ function queriedCurrencies(): string[] {
 describe('useIntegratorFees', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    readOurLaunches.mockResolvedValue({ baselines: [], poolByToken: {} });
+    readOurLaunches.mockResolvedValue({ baselines: [], poolByToken: {}, complete: true });
     readClaimableFees.mockResolvedValue({ fees: [], unreadable: [] });
     multicall.mockResolvedValue([]);
   });
@@ -50,7 +50,7 @@ describe('useIntegratorFees', () => {
   it('queries the launch ASSETS as well as the numeraires', async () => {
     // Airlock fees accrue in the numeraire AND in the launched asset. Checking only
     // numeraires would under-report revenue.
-    readOurLaunches.mockResolvedValue({ baselines: [{ token: ASSET }], poolByToken: {} });
+    readOurLaunches.mockResolvedValue({ baselines: [{ token: ASSET }], poolByToken: {}, complete: true });
     const { result } = renderHook(() => useIntegratorFees(true));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -59,7 +59,7 @@ describe('useIntegratorFees', () => {
   });
 
   it('de-dupes a launch asset that is also a numeraire, so no balance is double-counted', async () => {
-    readOurLaunches.mockResolvedValue({ baselines: [{ token: TOWELI }], poolByToken: {} });
+    readOurLaunches.mockResolvedValue({ baselines: [{ token: TOWELI }], poolByToken: {}, complete: true });
     const { result } = renderHook(() => useIntegratorFees(true));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -86,8 +86,11 @@ describe('useIntegratorFees', () => {
     expect(result.current.checkedCount).toBeGreaterThan(0);
   });
 
-  it('flags assetsUnavailable when launch discovery throws, and still reads numeraires', async () => {
-    readOurLaunches.mockRejectedValue(new Error('getLogs capped'));
+  // NOT `mockRejectedValue`. readOurLaunches never throws — an earlier version of this
+  // test mocked a throw, which passed while the production flag stayed permanently false
+  // because the real function degrades to an incomplete result instead.
+  it('flags assetsUnavailable from an INCOMPLETE scan, and still reads numeraires', async () => {
+    readOurLaunches.mockResolvedValue({ baselines: [], poolByToken: {}, complete: false });
     const { result } = renderHook(() => useIntegratorFees(true));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 

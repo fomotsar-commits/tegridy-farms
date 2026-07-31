@@ -146,18 +146,17 @@ export function useIntegratorFees(enabled: boolean): UseIntegratorFeesResult {
       try {
         const numeraires = allowedNumeraires();
 
-        // Asset side. `readOurLaunches` already swallows its own failures and returns
-        // empty, so an empty result is ambiguous between "no launches yet" and "could
-        // not scan". Distinguish them here: a throw is the only unambiguous failure,
-        // and an empty-with-no-throw is genuinely "no launches yet".
-        let assets: Address[] = [];
-        let assetsFailed = false;
-        try {
-          const { baselines } = await readOurLaunches({ client: publicClient, signal: ac.signal });
-          assets = baselines.map((b) => b.token as Address);
-        } catch {
-          assetsFailed = true;
-        }
+        // Asset side. `readOurLaunches` NEVER throws — every failure degrades to an
+        // empty result — so a try/catch here would be dead code and `assetsFailed` would
+        // be permanently false. Its `complete` flag is the only real signal, and it is
+        // false whenever the scan could not finish (getLogs failed, aborted, or any one
+        // asset's provenance was unreadable under its all-or-nothing rule).
+        const { baselines, complete } = await readOurLaunches({
+          client: publicClient,
+          signal: ac.signal,
+        });
+        const assets: Address[] = baselines.map((b) => b.token as Address);
+        const assetsFailed = !complete;
         if (ac.signal.aborted || runIdRef.current !== runId) return;
 
         // De-dupe case-insensitively: an asset could equal a numeraire in principle,
