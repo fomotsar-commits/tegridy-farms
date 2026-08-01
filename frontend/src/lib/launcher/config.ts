@@ -105,9 +105,11 @@ export function isExoticLaunchEnabled(): boolean {
 export const DEFAULT_FEE_CONSTITUTION: readonly FeeConstitutionLine[] = [
   { recipient: 'Creator', role: 'creator', shareBps: 7000 },
   { recipient: 'Attention beneficiaries', role: 'attention-beneficiary', shareBps: 1000 },
-  // Label must match protocolFeeSink()'s — the sink is Treasury, so claiming "stakers"
-  // here would put a false recipient on the published Fact Sheet.
-  { recipient: 'Tegridy treasury', role: 'protocol-stakers', shareBps: 1500 },
+  // Label must match protocolFeeSink()'s. As of the LockerClaimer deploy (2026-08-01) the
+  // ETH-pair sink can actually reach veTOWELI stakers, so "stakers" is true again for the
+  // default pair. An exotic (TOWELI) pair still resolves to "Tegridy treasury" at runtime —
+  // both legs are ERC20 there and sweep to the Safe. protocolFeeSink() is the source of truth.
+  { recipient: 'Tegridy stakers', role: 'protocol-stakers', shareBps: 1500 },
   { recipient: 'Doppler', role: 'doppler', shareBps: 500 },
 ] as const;
 

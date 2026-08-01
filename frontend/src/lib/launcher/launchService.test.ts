@@ -33,7 +33,7 @@ import {
 } from './launchService';
 import { feeConstitutionToBeneficiaries } from './airlock';
 import { DOPPLER_MAINNET } from './doppler.constants';
-import { REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS } from '../constants';
+import { REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS, LOCKER_CLAIMER_ADDRESS } from '../constants';
 import { LAUNCHER_INTEGRATOR_ADDRESS, LAUNCH_FEE_TIER, DEFAULT_FEE_CONSTITUTION, ETH_NUMERAIRE, TOWELI_NUMERAIRE } from './config';
 
 // The wizard used to DISPLAY and ATTEST the static DEFAULT_FEE_CONSTITUTION
@@ -87,7 +87,7 @@ describe('resolveFeeConstitution — protocol sink must be claimable', () => {
   // arbitrary-call function — so naming it strands the whole 15% permanently. The
   // beneficiary set is fixed at create time and the locker has no admin re-point, so this
   // has to be right BEFORE launch #1. Pinning the property, not just the address.
-  const CAN_ORIGINATE_A_LOCKER_CLAIM = [TREASURY_ADDRESS.toLowerCase()];
+  const CAN_ORIGINATE_A_LOCKER_CLAIM = [LOCKER_CLAIMER_ADDRESS.toLowerCase(), TREASURY_ADDRESS.toLowerCase()];
 
   it('every numeraire routes the protocol line to a sink that can claim from the locker', () => {
     for (const line of [protocolLine(), protocolLine(ETH_NUMERAIRE), protocolLine(TOWELI_NUMERAIRE)]) {
@@ -99,18 +99,19 @@ describe('resolveFeeConstitution — protocol sink must be claimable', () => {
     }
   });
 
-  it('labels the protocol line for where the money actually goes, never "stakers"', () => {
-    // The Fact Sheet publishes this string. While the sink is Treasury, claiming staker
-    // yield would be a false disclosure on a permanent, on-chain-attested document.
-    for (const line of [protocolLine(ETH_NUMERAIRE), protocolLine(TOWELI_NUMERAIRE)]) {
-      expect(line.recipient).toBe('Tegridy treasury');
-      expect(line.recipient).not.toMatch(/staker/i);
-    }
+  it('labels the protocol line for where the money actually goes, per numeraire', () => {
+    // The Fact Sheet publishes this string, permanently and on-chain. A locker position has
+    // TWO currencies: on an ETH pair the numeraire leg reaches RevenueDistributor through
+    // LockerClaimer, so "stakers" is true; on an exotic pair BOTH legs are ERC20 and sweep
+    // to the Safe, so claiming staker yield there would be false.
+    expect(protocolLine(ETH_NUMERAIRE).recipient).toBe('Tegridy stakers');
+    expect(protocolLine(TOWELI_NUMERAIRE).recipient).toBe('Tegridy treasury');
+    expect(protocolLine(TOWELI_NUMERAIRE).recipient).not.toMatch(/staker/i);
   });
 
   it('protocolFeeSink is the single source of truth for both sink + label', () => {
-    expect(protocolFeeSink(ETH_NUMERAIRE)).toEqual({ address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' });
-    expect(protocolFeeSink(TOWELI_NUMERAIRE)).toEqual({ address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' });
+    expect(protocolFeeSink(ETH_NUMERAIRE)).toEqual({ address: LOCKER_CLAIMER_ADDRESS, recipient: 'Tegridy stakers' });
+    expect(protocolFeeSink(TOWELI_NUMERAIRE)).toEqual({ address: LOCKER_CLAIMER_ADDRESS, recipient: 'Tegridy treasury' });
   });
 });
 
@@ -203,7 +204,7 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
   it('exact WAD shares (bps * 1e14) round-trip to exact bps', () => {
     const bens = [
       { beneficiary: CREATOR, shares: bpsToShares(7000) },
-      { beneficiary: TREASURY_ADDRESS, shares: bpsToShares(1500) },
+      { beneficiary: LOCKER_CLAIMER_ADDRESS, shares: bpsToShares(1500) },
       { beneficiary: DOPPLER_MAINNET.airlockOwner, shares: bpsToShares(500) },
       { beneficiary: KOL, shares: bpsToShares(1000) },
     ];
@@ -225,7 +226,7 @@ describe('beneficiariesToFeeConstitution — reverse of the on-chain locker spli
     const OTHER = '0x00000000000000000000000000000000000000bb' as Address;
     const bens = [
       { beneficiary: CREATOR.toLowerCase() as Address, shares: bpsToShares(6000) }, // creator given lowercased
-      { beneficiary: TREASURY_ADDRESS, shares: bpsToShares(1500) },
+      { beneficiary: LOCKER_CLAIMER_ADDRESS, shares: bpsToShares(1500) },
       { beneficiary: DOPPLER_MAINNET.airlockOwner, shares: bpsToShares(500) },
       { beneficiary: KOL, shares: bpsToShares(1000) },
       { beneficiary: OTHER, shares: bpsToShares(1000) },
@@ -359,7 +360,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     const byAddress = Object.fromEntries(cfg.feeConstitution.map((l) => [l.address, l]));
     expect(byAddress[USER].role).toBe('creator');
     expect(byAddress[KOL].role).toBe('attention-beneficiary');
-    expect(byAddress[TREASURY_ADDRESS].role).toBe('protocol-stakers');
+    expect(byAddress[LOCKER_CLAIMER_ADDRESS].role).toBe('protocol-stakers');
     expect(byAddress[DOPPLER_MAINNET.airlockOwner].role).toBe('doppler');
   });
 
@@ -378,7 +379,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     expect(byAddress[USER]).toBe(6000);
     expect(byAddress[KOL]).toBe(2000);
     // Fixed lines never move.
-    expect(byAddress[TREASURY_ADDRESS]).toBe(1500);
+    expect(byAddress[LOCKER_CLAIMER_ADDRESS]).toBe(1500);
     expect(byAddress[DOPPLER_MAINNET.airlockOwner]).toBe(500);
     const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
     expect(total).toBe(10_000);
@@ -399,7 +400,7 @@ describe('wizardConfigToLaunchConfig — mapping', () => {
     expect(byAddress[USER]).toBe(6000); // 8000 - 1500 - 500
     expect(byAddress[KOL]).toBe(1500);
     expect(byAddress[KOL2]).toBe(500);
-    expect(byAddress[TREASURY_ADDRESS]).toBe(1500);
+    expect(byAddress[LOCKER_CLAIMER_ADDRESS]).toBe(1500);
     expect(byAddress[DOPPLER_MAINNET.airlockOwner]).toBe(500);
     const total = cfg.feeConstitution.reduce((n, l) => n + l.shareBps, 0);
     expect(total).toBe(10_000);

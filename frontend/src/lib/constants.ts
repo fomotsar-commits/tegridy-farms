@@ -106,6 +106,27 @@ export const ETH_USD_FEED = '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419' as cons
 // Treasury — RELAUNCH 2026-06-06: 2-of-2 Safe (protocol funds)
 export const TREASURY_ADDRESS = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d' as const;
 
+/**
+ * `LockerClaimer` — the address the Doppler fee locker can actually PAY.
+ *
+ * The locker is pull-based and self-addressed: `releaseFees(tokenId)` pays `msg.sender`
+ * only, so a beneficiary that cannot originate a call to it accrues credit no transaction
+ * can ever collect. `RevenueDistributor` has no arbitrary-call surface, so naming it
+ * directly stranded the whole protocol fee line — which is why this line pointed at the
+ * Treasury Safe in the interim.
+ *
+ * This contract closes that gap: permissionless `claim(tokenId)` pulls from the locker and
+ * forwards the ETH leg to `RevenueDistributor` (real veTOWELI staker yield) while
+ * `sweepToken` sends any ERC20 leg to the Treasury, since RevenueDistributor is ETH-only.
+ *
+ * DEPLOYED + VERIFIED 2026-08-01, tx 0x44773647910223e089b2bdc3142b9fb9d2fa6fd70b55e63b042d3a0e189943ca.
+ * Read back on-chain before wiring: runtime 1,181 bytes (byte-identical to the local
+ * artifact); locker() = 0xe24f…1ec6, revenueDistributor() = 0xf993…3e17, treasury() =
+ * 0x7d26…bd7d; and owner()/transferOwnership/setLocker/upgradeTo are all ABSENT — there is
+ * no admin surface and the three destinations are immutable.
+ */
+export const LOCKER_CLAIMER_ADDRESS = '0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7' as const;
+
 // Jungle Bay NFTs
 export const JBAC_NFT_ADDRESS = '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' as const;
 export const JBAY_GOLD_ADDRESS = '0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3' as const;

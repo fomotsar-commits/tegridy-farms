@@ -29,7 +29,7 @@ import {
   isAllowedNumeraire,
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
-import { TREASURY_ADDRESS } from '../constants';
+import { LOCKER_CLAIMER_ADDRESS } from '../constants';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
@@ -226,26 +226,35 @@ const CREATOR_ATTENTION_POOL_BPS = DEFAULT_FEE_CONSTITUTION.filter(
  * RevenueDistributor` calling `locker.releaseFees`. Pointing the beneficiary at it
  * therefore STRANDS 100% of the protocol fee line, permanently and silently.
  *
- * Treasury `0x7D26…Bd7d` is a Safe v1.4.1 (VERSION() = "1.4.1", getThreshold() = 2), so it
- * CAN originate `execTransaction -> locker.releaseFees(tokenId)`. It is the only address we
- * control today that can. From there the operator forwards ETH to RevenueDistributor when
- * a distribution is warranted — one manual step, versus money that is unreachable by any
- * transaction that could ever be constructed.
+ * The interim answer was the Treasury Safe: it CAN originate `execTransaction ->
+ * locker.releaseFees(tokenId)`, so nothing stranded — but the protocol's cut stopped being
+ * staker yield and became treasury revenue, and the Fact Sheet had to say so.
  *
- * THIS MUST BE RIGHT BEFORE LAUNCH #1: the beneficiary set is fixed at create time and the
- * locker has no admin re-point. A launch made with the wrong sink is unfixable.
+ * ## What it points at now
  *
- * Follow-up that restores the staker-yield story without the manual step: a ~30-line
- * `LockerClaimer` whose only job is `claim(tokenId) { locker.releaseFees(tokenId);
- * revenueDistributor.call{value: address(this).balance}(""); }`, used AS the beneficiary.
- * Until that exists and is deployed, the honest label is "treasury", not "stakers".
+ * `LockerClaimer` — DEPLOYED + Etherscan-VERIFIED 2026-08-01 at 0xD2Ac…E6C7. Permissionless
+ * `claim(tokenId)` pulls from the locker and pushes the ETH leg to RevenueDistributor, where
+ * veTOWELI stakers actually earn it; `sweepToken` sends any ERC20 leg to the Treasury,
+ * because RevenueDistributor is ETH-ONLY and an ERC20 pushed into it is dead weight rather
+ * than yield. No owner, no setter, no upgrade path — read back on-chain before wiring.
  *
- * The display label follows the sink so the Fact Sheet never claims staker yield the
- * routing cannot deliver. Shared by the forward resolver and the post-graduation
- * re-attestation labeler so the on-chain split and its disclosure always agree.
+ * ## Why the LABEL stays numeraire-aware even though the ADDRESS no longer is
+ *
+ * A locker position carries TWO currencies. On an ETH launch the numeraire leg is ETH, so it
+ * reaches stakers and "Tegridy stakers" is true. On an exotic (TOWELI) launch BOTH legs are
+ * ERC20, so everything sweeps to the Safe and claiming staker yield would be false. Same
+ * address, honest label per pair.
+ *
+ * The display label follows the sink so the Fact Sheet never claims staker yield the routing
+ * cannot deliver. Shared by the forward resolver and the post-graduation re-attestation
+ * labeler so the on-chain split and its disclosure always agree.
  */
-export function protocolFeeSink(_numeraire: Address = ETH_NUMERAIRE): { address: Address; recipient: string } {
-  return { address: TREASURY_ADDRESS, recipient: 'Tegridy treasury' };
+export function protocolFeeSink(numeraire: Address = ETH_NUMERAIRE): { address: Address; recipient: string } {
+  const isEth = numeraire.toLowerCase() === ETH_NUMERAIRE.toLowerCase();
+  return {
+    address: LOCKER_CLAIMER_ADDRESS,
+    recipient: isEth ? 'Tegridy stakers' : 'Tegridy treasury',
+  };
 }
 
 /**

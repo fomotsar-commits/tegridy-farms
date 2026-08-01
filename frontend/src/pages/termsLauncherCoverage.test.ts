@@ -76,13 +76,17 @@ describe('Terms of Service — launcher coverage', () => {
     }
   });
 
-  it('§7 attributes the protocol share to the real sink and never to stakers', () => {
+  it('§7 describes BOTH destinations, and promises no revenue claim either way', () => {
     const s7 = section(7)?.body ?? '';
-    // protocolFeeSink() is the treasury Safe today; the locker pays msg.sender only, so
-    // "staker yield" would be a false statement about where the money goes.
-    expect(protocolFeeSink().recipient).toBe('Tegridy treasury');
-    expect(s7).toContain(protocolFeeSink().recipient);
-    expect(s7).toMatch(/not staker yield/i);
+    // The sink moved (Treasury -> LockerClaimer) the moment the claimer was deployed, so
+    // pin the PROPERTY rather than a literal: §7 must name both real destinations, because
+    // a locker position has two currencies and they do NOT land in the same place. The ETH
+    // leg reaches stakers; an exotic pair's two ERC20 legs sweep to the treasury.
+    expect(s7).toMatch(/revenue distributor/i);
+    expect(s7).toMatch(/treasury/i);
+    expect(s7).toMatch(/stakers may claim/i);
+    // And whichever it is, holding a launched token buys no claim on Tegridy revenue.
+    expect(s7).toMatch(/grant you\s+any claim on any Tegridy revenue distribution/i);
   });
 
   it('the issuer-side terms exist and say the load-bearing things', () => {
@@ -126,6 +130,9 @@ describe('Terms of Service — launcher coverage', () => {
     expect(code).toMatch(/\$\{LAUNCH_FEE_TIER\}/);
     expect(code).toMatch(/\$\{FEE_CONSTITUTION_TEXT\}/);
     expect(code).toMatch(/\$\{PROTOCOL_FEE_PCT\}%/);
+    // BOTH recipient labels come from protocolFeeSink(), because the sink is numeraire-aware.
+    expect(code).toMatch(/\$\{PROTOCOL_FEE_RECIPIENT\}/);
+    expect(code).toMatch(/\$\{PROTOCOL_FEE_RECIPIENT_EXOTIC\}/);
     expect(code).toMatch(/\$\{PROTOCOL_FEE_RECIPIENT\}/);
     // A retyped split is the failure mode this guard exists for.
     expect(code).not.toMatch(/70% Creator|Creator 70%|15% to the treasury/);
