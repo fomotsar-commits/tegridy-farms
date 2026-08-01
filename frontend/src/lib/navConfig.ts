@@ -119,6 +119,13 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // Surfaced here for parity with Solana Swap; "Soon" pill until the launcher
       // flag flips (SOLANA_LAUNCHER_ENABLED, launcher/solana/dbc.ts).
       { to: '/solana-launch', label: 'Solana Launch', soon: !isSolanaLauncherEnabled() },
+      // Our OWN Solana curve (tegridy-launch + our cp-swap fork), as opposed to
+      // the Meteora rail above. Permanently pilled "Soon": the program is not
+      // deployed on any cluster, and the page proves that from a live read of
+      // the program id rather than from a flag. No flag drives this one because
+      // there is nothing to flip — a deploy is what changes it, and the page
+      // picks that up on its own.
+      { to: '/curve-launch', label: 'Tegridy Curve', soon: true },
       // Pure client-side — always usable, deliberately live before the launch rail opens.
       { to: '/launch-simulator', label: 'Launch Simulator' },
     ],

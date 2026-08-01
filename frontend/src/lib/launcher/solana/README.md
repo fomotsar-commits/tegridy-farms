@@ -222,3 +222,12 @@ gate. To surface a gated Solana launch wizard later:
      irreversibly. That guard is closed; a 1-of-1 multisig is now rejected too.
 
 No new dependencies; the SDK and `@solana/web3.js` are already installed.
+
+## Not part of this leg — `curvePoints.ts`
+
+`curvePoints.ts` lives in this directory but belongs to a **different program**: our own
+`tegridy-launch` bonding curve (`solana/tegridy-amm/programs/tegridy-launch/`), not
+Meteora's DBC. It is pure plot geometry for `frontend/src/components/launcher/CurveChart.tsx`
+— it opens no connection and imports nothing. **That program is not deployed to any
+cluster**, so every surface built on it must say so; the interface it is written against is
+`docs/OWN_CURVE_FRONTEND_CONTRACT.md`.
