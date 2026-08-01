@@ -88,14 +88,16 @@ export function isExoticLaunchEnabled(): boolean {
  *     airlock.ts feeConstitutionToBeneficiaries).
  *   - Tegridy 15% — BELOW Clanker's observed 20% survivor ceiling on purpose: our
  *     draw is the day-2 Afterlife economy, not the cheapest fee, so we can be visibly
- *     more creator-friendly than the incumbent. Sink is the protocol TREASURY for BOTH
- *     numeraires (see launchService `protocolFeeSink` for the full rationale): the
- *     locker pays `msg.sender` only, and RevenueDistributor has no arbitrary-call
- *     function, so naming it as a beneficiary would strand the whole line permanently.
- *     Treasury is a Safe and can originate the claim. The Fact Sheet therefore labels
- *     this "Tegridy treasury", NOT staker yield — the honest description until a
- *     `LockerClaimer` shim exists. NOT split to POL either: POL is a SEPARATE fee
- *     stream (POLAccumulator/SwapFeeRouter), not this 15%.
+ *     more creator-friendly than the incumbent. Sink is `LockerClaimer` (DEPLOYED +
+ *     verified 2026-08-01, 0xD2Ac…E6C7) for BOTH numeraires — see launchService
+ *     `protocolFeeSink` for the full rationale. Short version: the locker pays
+ *     `msg.sender` only and RevenueDistributor has no arbitrary-call function, so naming
+ *     the distributor directly would strand the line permanently; LockerClaimer is the
+ *     minimal thing that CAN originate the claim and forward the proceeds.
+ *     The LABEL stays numeraire-aware because a locker position carries two currencies:
+ *     an ETH pair's numeraire leg reaches stakers ("Tegridy stakers"), while an exotic
+ *     pair's two ERC20 legs sweep to the Safe ("Tegridy treasury"). NOT split to POL
+ *     either: POL is a SEPARATE fee stream (POLAccumulator/SwapFeeRouter), not this 15%.
  *   - Creator + attention 80% — creator-directed. Creators keep the majority (what
  *     actually attracts launches) and can carve part to attention-holders/KOLs at
  *     launch (the Bags-style perpetual-split lever — the one proven cheap distribution

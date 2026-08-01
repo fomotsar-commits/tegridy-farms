@@ -291,13 +291,34 @@ the fee constitution divides:
 | Phase | Pool | Fee | Who takes it |
 |---|---|---|---|
 | **1 — the auction** | The Doppler dynamic-auction pool | `LAUNCH_FEE_TIER = 10,000` hundredths of a bip = **1%** | Collected by Doppler as a third-party **integrator fee** to `LAUNCHER_INTEGRATOR_ADDRESS`, an address the protocol controls off-chain and can re-point by redeploying the frontend. **No split of this fee is enforced on-chain**, and none is promised. It is read + withdrawn from the Integrator Fees panel on [/admin](https://memetic.fun/admin). |
-| **2 — after graduation** | The Uniswap **V4** pool the liquidity migrates into — `MIGRATION_POOL.fee = 3000`, `tickSpacing 60` ([`airlock.ts`](frontend/src/lib/launcher/airlock.ts), verified on-chain 2026-07-26) | **0.3%** | **This** is what the launch's fee constitution divides, streamed by the on-chain locker: **Creator 70% · attention beneficiaries 10% · Tegridy treasury 15% · Doppler 5%** (`DEFAULT_FEE_CONSTITUTION`, bps summing to 10,000). Fixed at creation and published in the Fact Sheet. |
+| **2 — after graduation** | The Uniswap **V4** pool the liquidity migrates into — `MIGRATION_POOL.fee = 3000`, `tickSpacing 60` ([`airlock.ts`](frontend/src/lib/launcher/airlock.ts), verified on-chain 2026-07-26) | **0.3%** | **This** is what the launch's fee constitution divides, streamed by the on-chain locker: **Creator 70% · attention beneficiaries 10% · Tegridy 15% · Doppler 5%** (`DEFAULT_FEE_CONSTITUTION`, bps summing to 10,000). Fixed at creation and published in the Fact Sheet. Where the Tegridy 15% *lands* depends on the pair — see below. |
 
-Two honest caveats on that 15%. It goes to the **Tegridy treasury**, *not* to TOWELI stakers —
-the Doppler locker pays `msg.sender` only and `RevenueDistributor` has no arbitrary-call
-function, so naming the distributor as beneficiary would have stranded the whole line
-permanently. The `LockerClaimer` shim that would bridge it to stakers is written, tested, and
-**wired to nothing**. And the Doppler 5% is a protocol floor, not a number we chose.
+Where that 15% lands depends on the pair, and the reason is worth stating because it drove a
+real fix. The Doppler locker is pull-based and pays `msg.sender` only, while
+`RevenueDistributor` has no arbitrary-call function — so naming the distributor as a
+beneficiary directly would have stranded the entire line permanently, credited and
+unclaimable. For a while the line therefore pointed at the Treasury Safe, which *can*
+originate the claim, and this README said plainly that it was treasury revenue rather than
+staker yield.
+
+That gap is now closed. [`LockerClaimer`](contracts/src/LockerClaimer.sol) is **deployed and
+Etherscan-verified** at
+[`0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`](https://etherscan.io/address/0xd2ac3dc13c6fd09855f0e4a077826983aa66e6c7#code)
+— 1,181 bytes, no owner, no setter, no upgrade path, three immutable destinations read back
+on-chain before it was wired. Its permissionless `claim(tokenId)` pulls from the locker and
+pushes the ETH leg to `RevenueDistributor`, where veTOWELI stakers claim it.
+
+So: an **ETH-paired** launch streams that 15% to stakers, and the Fact Sheet says
+*"Tegridy stakers"*. A **TOWELI-paired** launch has two ERC-20 legs, which
+`RevenueDistributor` cannot turn into yield — they sweep to the Treasury instead, and the
+Fact Sheet says *"Tegridy treasury"*. Same contract, honest label per pair; `protocolFeeSink()`
+in [`launchService.ts`](frontend/src/lib/launcher/launchService.ts) is the single source of
+truth for both, and the published Terms render from it rather than hardcoding either string.
+
+And the Doppler 5% is a protocol floor, not a number we chose — our own
+`TegridyLiquidityMigrator` now [enforces the same floor on-chain](contracts/src/v4/TegridyLiquidityMigrator.sol)
+with byte-identical revert selectors, so a custom migrator cannot quietly delete Doppler's
+revenue.
 
 ### The per-token record
 
