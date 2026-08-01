@@ -376,6 +376,31 @@ export default function ContractsPage() {
               </a>
             </p>
           </div>
+
+          {/* Frontend-independence / self-custody fallback (2026-07-25). The app
+              is a convenience, not a dependency: if memetic.fun is ever DDoS'd,
+              DNS-attacked, or taken down, funds are unaffected and every contract
+              can be driven straight from Etherscan's verified Read/Write tabs.
+              Sky tint (reassurance) to distinguish from the amber warning above. */}
+          <div
+            role="note"
+            className="rounded-xl p-4 md:p-5 max-w-[860px] mt-4"
+            style={{ border: '1px solid rgba(56, 189, 248, 0.30)', background: 'rgba(56, 189, 248, 0.06)' }}
+          >
+            <p className="text-sky-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+              This app is a convenience, not a dependency
+            </p>
+            <p className="text-white/80 text-[12px] leading-relaxed" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.85)' }}>
+              Every contract below is verified on Etherscan. If this site is ever unreachable — an
+              outage, a DNS or DDoS attack, a domain takedown — your funds are unaffected and the
+              protocol keeps running on-chain. Open any address below and use Etherscan's{' '}
+              <span className="text-white/90 font-medium">Read Contract</span> and{' '}
+              <span className="text-white/90 font-medium">Write Contract</span> tabs to check
+              balances and transact with no frontend required. The full address list is also
+              mirrored in the repo's <span className="text-white/90 font-medium">CONTRACTS.md</span>{' '}
+              (linked above), so you can recover it even if this page is down.
+            </p>
+          </div>
         </header>
 
         <div className="space-y-8 md:space-y-10">

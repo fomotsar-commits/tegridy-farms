@@ -227,7 +227,10 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
     // Pin the VERIFIED-SAFE template. Without `type: 'dopplerERC20V1'` the SDK
     // defaults to a StandardToken (CloneERC20) that our gate does not whitelist;
     // DopplerERC20V1 is the audited no-mint/no-tax/pool-lock/vesting template.
-    .tokenConfig({ type: 'dopplerERC20V1', ...cfg.token })
+    // DEFENSE-IN-DEPTH (audit 2026-07-22): spread cfg.token FIRST so the pinned
+    // `type` always wins and can never be spread-overridden — cfg.token is typed
+    // without a `type` field today, so this is belt-and-suspenders, not a live hole.
+    .tokenConfig({ ...cfg.token, type: 'dopplerERC20V1' })
     .saleConfig({
       initialSupply: cfg.initialSupply,
       numTokensToSell: cfg.numTokensToSell,

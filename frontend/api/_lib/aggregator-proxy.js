@@ -25,7 +25,7 @@
 // Each provider file exports a default handler that calls runProxy with its
 // own config. Tests mock checkRateLimit + globalThis.fetch.
 
-import { checkRateLimit } from "./ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -217,6 +217,18 @@ export async function runProxy(req, res, cfg) {
     identifier: cfg.identifier,
   });
   if (!allowed) return;
+
+  // AUDIT 2026-07-25: global circuit-breaker. Per-IP limits don't stop a
+  // distributed flood from draining a provider's quota or poisoning our
+  // shared-IP reputation with it. Cap TOTAL traffic per provider (cfg.identifier
+  // keys its own bucket) and shed with 503 past the aggregate ceiling. Override
+  // per provider via cfg.globalLimit, or fleet-wide via AGGREGATOR_GLOBAL_RPM.
+  const underGlobalCap = await checkGlobalLimit(res, {
+    limit: cfg.globalLimit ?? (Number(process.env.AGGREGATOR_GLOBAL_RPM) || 600),
+    windowSec: cfg.rateWindowSec ?? 60,
+    identifier: cfg.identifier,
+  });
+  if (!underGlobalCap) return;
 
   // Path allowlist
   const rawPath = extractCatchAllPath(req.query);

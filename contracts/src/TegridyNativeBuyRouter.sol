@@ -17,6 +17,18 @@ import {WETHFallbackLib} from "./lib/WETHFallbackLib.sol";
 /// listing through it and asserts the referral credit + NFT delivery, and (3) a
 /// full external audit — before any mainnet deploy. The reference design +
 /// attacker-pass live in docs/NATIVE_BUY_ROUTER_DESIGN.md.
+///
+/// KNOWN PRE-DEPLOY ITEM (Spartan audit 2026-07-22, MEDIUM): the platform fee is
+/// inferred from a whole-contract balance delta (`address(this).balance -
+/// priorBalance`) around the Seaport fill. That assumes Seaport consumes exactly
+/// msg.value; on any fulfillment where Seaport REFUNDS unused ETH to the caller,
+/// the refund is indistinguishable from an intended fee under the delta accounting
+/// and would be mis-booked (swept to treasury) instead of returned to the buyer.
+/// GUARD 1 (msg.value == exact native total) makes a refund unlikely on the standard
+/// full-fill path, but the fork suite in (2) MUST include an order that refunds ETH
+/// and assert the buyer gets the change + treasury gets only the intended fee. Prefer
+/// pinning fee to an explicit precomputed amount and refunding the residual to
+/// msg.sender rather than delta-inferring it. Resolve before un-gating.
 /// ─────────────────────────────────────────────────────────────────────────────
 
 // ── Minimal Seaport 1.6 types (only what fulfillAdvancedOrder needs) ──
@@ -137,6 +149,7 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
     error ValueMismatch(); // msg.value != the order's exact native total (overpay/underpay guard)
     error FulfillFailed();
     error NothingToSweep();
+    error PartialFillNotSupported(); // numerator != denominator — see GUARD 0 in buy()
 
     constructor(address _seaport, address _referralSplitter, address _treasury, address _weth)
         OwnableNoRenounce(msg.sender)
@@ -166,6 +179,15 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
     /// @param  orderHash  The canonical order hash, for the event only (not trusted
     ///                    for any value decision — purely off-chain attribution).
     function buy(AdvancedOrder calldata order, bytes32 orderHash) external payable nonReentrant {
+        // GUARD 0 — full fills only. _nativeTotal (and thus GUARD 1) sums the order's
+        // FULL startAmounts with no numerator/denominator scaling, so it is only correct
+        // for a 1/1 fill. A partial fill (numerator < denominator, legal for a
+        // PARTIAL_OPEN ERC1155 order) would have the buyer pass the full msg.value while
+        // Seaport consumes only the fraction and REFUNDS the remainder to this router,
+        // where it is then mis-booked as platform fee. The docstring already assumes 1/1;
+        // enforce it so the assumption can't be violated by a hand-crafted order.
+        if (order.numerator != order.denominator) revert PartialFillNotSupported();
+
         // GUARD 1 — exact payment. Sum every NATIVE consideration item; the buyer
         // must send exactly that. This blocks the overpay vector where Seaport would
         // refund the excess to THIS router and the excess would then be mis-counted

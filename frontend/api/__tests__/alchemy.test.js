@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // Rate-limiter is pass-through unless a test overrides it. Each test gets a
 // fresh import via vi.resetModules() so module-init env reads are honored.
 const noopRateLimit = vi.fn(async () => true);
-vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: noopRateLimit }));
+vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: noopRateLimit, checkGlobalLimit: noopRateLimit }));
 
 const NAKAMIGOS = "0xd774557b647330c91bf44cfeab205095f7e6c367";
 

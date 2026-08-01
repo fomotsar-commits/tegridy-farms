@@ -263,6 +263,74 @@ export async function checkRateLimit(req, res, opts) {
   }
 }
 
+// ── Global circuit-breaker (2026-07-25) ─────────────────────────────────
+// Loud-once-per-instance flag per identifier — a tripped breaker must be
+// visible in Vercel logs without flooding them during an actual attack.
+const globalTripWarned = new Set();
+
+/**
+ * Global circuit-breaker — a SECOND limit keyed ONLY by `identifier`, shared
+ * across every caller (no per-IP / per-wallet split).
+ *
+ * checkRateLimit stops ONE abusive source but does nothing about a DISTRIBUTED
+ * flood: N botnet IPs each staying under the per-IP cap all sail through and
+ * burn metered upstream — Alchemy compute units, third-party aggregator quota,
+ * shared-IP reputation. The protocol funds opex from fees, not a treasury, so
+ * runaway upstream spend is a real cost risk, not just a nuisance.
+ *
+ * When aggregate traffic for `identifier` exceeds `limit` per `windowSec`, shed
+ * load with 503 + Retry-After. 503 (not the per-client 429) because the service
+ * is protecting its upstream budget, not blaming the caller — a legit user
+ * caught in the shed should read "try again", not "you are rate limited". On
+ * success it sets NO headers, so the per-client X-RateLimit-* that checkRateLimit
+ * already wrote stay authoritative.
+ *
+ * Same Upstash-with-in-memory-fallback machinery as checkRateLimit, so it
+ * inherits degraded mode and never turns a Redis blip into a hard outage.
+ *
+ * @param {import('http').ServerResponse} res
+ * @param {{ limit: number, windowSec: number, identifier: string }} opts
+ * @returns {Promise<boolean>} true = allowed, false = shed (503 already sent)
+ */
+export async function checkGlobalLimit(res, opts) {
+  const { limit, windowSec, identifier } = opts;
+  // Distinct `-global` suffix so this bucket never collides with the per-IP
+  // bucket of the same endpoint; constant key so every caller shares it.
+  const globalOpts = { limit, windowSec, identifier: `${identifier}-global` };
+  const limiter = getLimiter(globalOpts);
+  const KEY = 'global';
+
+  let result;
+  if (!limiter) {
+    warnDegraded('not configured');
+    result = memoryRateLimit(`${globalOpts.identifier}:${KEY}`, limit, windowSec);
+  } else {
+    try {
+      result = await limiter.limit(KEY);
+    } catch (err) {
+      console.error('[ratelimit] upstash error (global):', err?.message ?? err);
+      warnDegraded('erroring');
+      result = memoryRateLimit(`${globalOpts.identifier}:${KEY}`, limit, windowSec);
+    }
+  }
+
+  if (!result.success) {
+    const retryAfter = Math.max(1, Math.ceil((result.reset - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfter));
+    if (!globalTripWarned.has(identifier)) {
+      globalTripWarned.add(identifier);
+      console.error(
+        `[ratelimit] GLOBAL BREAKER tripped for "${identifier}" ` +
+        `(${limit}/${windowSec}s aggregate) — shedding load with 503. ` +
+        'Raise the matching *_GLOBAL_RPM env if this is organic traffic.',
+      );
+    }
+    res.status(503).json({ error: 'Service temporarily unavailable' });
+    return false;
+  }
+  return true;
+}
+
 /**
  * Wrap an existing handler with rate limiting as the first step.
  *

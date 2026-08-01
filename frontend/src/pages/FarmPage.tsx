@@ -168,13 +168,12 @@ export default function FarmPage() {
           },
         });
         submittedDataRef.current = null;
-      } else if (actionType === 'approve') {
-        // F95: approve gets its own receipt (RECEIPT_COPY.approve exists) — never
-        // a fake stake. No confetti (it's not a value-moving completion).
-        showReceipt({
-          type: 'approve',
-          data: { token: 'TOWELI', txHash: actions.hash },
-        });
+      // 2026-07-26: an approval is a prerequisite, not a completion, so it now
+      // gets NO receipt. The old full-screen "PERMISSION GRANTED" receipt (with
+      // Share/Copy buttons) read like the stake had already happened — the exact
+      // "looks finished but it's only an approval" confusion. useFarmActions now
+      // fires a clear "approved — now confirm your stake" toast instead, and the
+      // button relabels to "Stake & Lock". (Confetti already excluded approve.)
       } else if (actionType === 'claim') {
         showReceipt({
           type: 'claim',
