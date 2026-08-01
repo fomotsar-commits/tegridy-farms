@@ -68,13 +68,6 @@ remappings = [
     "forge-std/=lib/forge-std/src/",
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
-    # LONGEST PREFIX WINS, so this must sit alongside the bare `solmate/` mapping below:
-    # the V4 libs import `solmate/src/Foo.sol` while our V2 code imports `solmate/Foo.sol`.
-    # Without this, the bare rule turns the former into `lib/solmate/src/src/Foo.sol` and
-    # the compile dies on a doubled `src/`. The context-scoped overrides further down were
-    # what used to cover this; foundry 1.9 no longer honours them for these paths, and a
-    # prefix rule does not depend on context semantics at all.
-    "solmate/src/=lib/solmate/src/",
     "solmate/=lib/solmate/src/",
     "solady/=lib/solady/src/",
     # Context-scoped: inside the V4 libs, solmate is imported as `solmate/src/...`
