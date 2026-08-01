@@ -222,3 +222,28 @@ gate. To surface a gated Solana launch wizard later:
      irreversibly. That guard is closed; a 1-of-1 multisig is now rejected too.
 
 No new dependencies; the SDK and `@solana/web3.js` are already installed.
+
+## Not part of this leg — `curve/`
+
+The `curve/` subdirectory lives here but belongs to a **different program**: our own
+`tegridy-launch` bonding curve (`solana/tegridy-amm/programs/tegridy-launch/`), not
+Meteora's DBC. It is the **single** implementation of that program's client — quote
+maths, account decoders, instruction builders, reads, plot geometry, operator pre-flight
+and formatting — and it serves `/curve-launch`, `components/launcher/CurveChart.tsx` and
+`scripts/tegridy-launch-operator.mjs` alike.
+
+`CurveLaunchPage` mounts `CurveChart` (always `source: 'chain'`, only where a decoded
+`curve` account is in hand), so the plotted curve and the numbers beside it come from
+one read and one derivation. The chart shipped built, tested and rendered by nothing
+for a while — `CurveLaunchPage.test.tsx` now asserts it is on screen, because the
+chart's own suite renders the component directly and cannot see that it is unmounted.
+
+**That program is not deployed to any cluster**, so every surface built on it must say
+so. The interface it is written against is `docs/OWN_CURVE_FRONTEND_CONTRACT.md`, which
+also lists what each file in `curve/` owns.
+
+⚠️ `curve/math.ts` is the only place quote arithmetic for this program may live. The
+page, the chart and the operator CLI each once carried their own transcription of
+`curve.rs`; they disagreed, and one of the disagreements was a real bug (the `u128`
+ceiling on the two config-time functions). Adding a fourth copy is a defect, whatever
+it is for.

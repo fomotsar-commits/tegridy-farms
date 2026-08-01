@@ -52,6 +52,11 @@ const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
 // Solana launch sub-brand (Meteora DBC). Gated in-page (isSolanaLauncherEnabled)
 // — renders the SOON placeholder until an operator enables it + a verified vault.
 const SolanaLaunchPage = lazy(() => import('./pages/SolanaLaunchPage'));
+// Our OWN Solana bonding curve (tegridy-launch), which graduates into our cp-swap
+// fork — as opposed to the Meteora rail above. NOT gated by a flag: the page
+// probes the chain for the program on mount and renders "not deployed" from that
+// live read, so it needs no redeploy to start working once the program ships.
+const CurveLaunchPage = lazy(() => import('./pages/CurveLaunchPage'));
 // Token launch rail (Doppler V4 integration). LIVE since 2026-07-22
 // (LAUNCHER_ENABLED = true); renders the create wizard. Still in-page-gated by
 // isLauncherEnabled() so it can be re-gated by flipping the flag + redeploying.
@@ -218,6 +223,7 @@ function AnimatedRoutes() {
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
         <Route path="solana-launch" element={<Suspense fallback={<PageSkeleton />}><SolanaLaunchPage /></Suspense>} />
+        <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />
