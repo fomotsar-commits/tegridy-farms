@@ -30,6 +30,13 @@ interface ILiquidityMigrator {
 ///      resolves only inside v4-periphery's own build context, and adding a root
 ///      remapping for one function would widen the import graph for every contract.
 ///      Mirrors the locally-declared `IPremiumAccess` in TegridyV4Hook.
+/// @dev The one Airlock getter this migrator needs. Doppler's Airlock exposes `owner()`
+///      (its Whetstone Safe); the protocol-owner fee floor is measured against it, read
+///      LIVE rather than pinned so a Safe rotation cannot brick every graduation.
+interface IAirlockOwner {
+    function owner() external view returns (address);
+}
+
 interface IPermit2Approve {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
 }
@@ -105,6 +112,15 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     error TickOutOfRange();
     /// @dev The launch declared a fee-beneficiary split this migrator cannot pay.
     ///      See `initialize` — failing closed beats publishing an unbacked split.
+    /// @notice The beneficiary list does not include the Airlock owner at all.
+    /// @dev    Selector 0xdfa06864 — byte-identical to Doppler's own `UniswapV4Migrator`,
+    ///         verified by probing the deployed 0x0820a4d0…05f5 with `from = Airlock`.
+    error InvalidProtocolOwnerBeneficiary();
+
+    /// @notice The Airlock owner is present but below the protocol floor.
+    /// @dev    Selector 0x2b6dc823, matching Doppler's. Args are (expected, actual) in WAD.
+    error InvalidProtocolOwnerShares(uint96 expected, uint96 actual);
+
     error FeeConstitutionUnsupported();
     /// @dev The launch declared an LP lock duration this migrator does not implement.
     error LockDurationUnsupported();
@@ -126,6 +142,14 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     // ─── Immutables ───────────────────────────────────────────────────
 
     /// @notice The Doppler Airlock. Sole authorized caller of initialize/migrate.
+    /// @notice Doppler's protocol fee floor: 5% of the streamed fees, in WAD.
+    /// @dev    Doppler's `UniswapV4Migrator` enforces this and reverts below it — probed
+    ///         live against the deployed module, which returned expected 5e16 / actual 4e16
+    ///         for a 4% owner share. We enforce the SAME floor: a migrator that quietly
+    ///         dropped it would be asking Whetstone to whitelist a module that removes
+    ///         their own revenue, and no honest petition survives that.
+    uint96 public constant PROTOCOL_OWNER_MIN_SHARES = 5e16; // 5% of 1e18
+
     address public immutable airlock;
     IPoolManager public immutable poolManager;
     IPositionManager public immutable positionManager;
@@ -245,6 +269,38 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         // constitution is only acceptable if we actually have one wired.
         if (beneficiaries.length > 0 && address(feeLocker) == address(0)) {
             revert FeeConstitutionUnsupported();
+        }
+
+        // DOPPLER'S 5% PROTOCOL FLOOR — enforced here, not assumed upstream.
+        //
+        // Doppler's own `UniswapV4Migrator` requires the Airlock owner to appear in the
+        // beneficiary list with >= 5% of the streamed fees, and reverts otherwise. That
+        // floor is how Doppler earns from launches that use its Airlock. Because a custom
+        // LiquidityMigrator REPLACES their module, anything it does not enforce is simply
+        // not enforced — so a migrator that omitted this would be asking Whetstone to
+        // whitelist a module that deletes their revenue. We enforce the same rule, with
+        // the same selectors, so the two modules are indistinguishable on this point.
+        //
+        // The owner is read LIVE from the Airlock rather than pinned at construction:
+        // Whetstone's owner is a 3-of-6 Safe and can be rotated, and a pinned copy would
+        // turn a rotation into a revert on every graduation.
+        if (beneficiaries.length > 0) {
+            address protocolOwner = IAirlockOwner(airlock).owner();
+            uint96 ownerShares = 0;
+            bool found = false;
+            for (uint256 i = 0; i < beneficiaries.length; ++i) {
+                if (beneficiaries[i].beneficiary == protocolOwner) {
+                    // Sum rather than break: a list may legitimately name an address twice,
+                    // and taking only the first entry would under-count the owner's real
+                    // take and reject a list Doppler itself would accept.
+                    ownerShares += beneficiaries[i].shares;
+                    found = true;
+                }
+            }
+            if (!found) revert InvalidProtocolOwnerBeneficiary();
+            if (ownerShares < PROTOCOL_OWNER_MIN_SHARES) {
+                revert InvalidProtocolOwnerShares(PROTOCOL_OWNER_MIN_SHARES, ownerShares);
+            }
         }
         // A lock with nobody to pay is meaningless — and it would silently become
         // a PERMANENT lock in the locker's semantics, stranding the position.

@@ -42,6 +42,9 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
     TegridyFeeLocker internal feeLocker;
 
     address internal airlockMock = makeAddr("airlock");
+    /// @dev Doppler's protocol owner. `initialize` reads it LIVE off the Airlock, so the
+    ///      mock airlock must answer `owner()` — see the vm.mockCall in setUp.
+    address internal protocolOwner = makeAddr("dopplerProtocolOwner");
     address internal launchTimelock = makeAddr("launchTimelock");
     address internal rescue = makeAddr("rescue");
     address internal treasury = makeAddr("treasury");
@@ -57,6 +60,10 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
     uint256 internal constant SEED = 10 ether;
 
     function setUp() public {
+        // The migrator reads `Airlock.owner()` to enforce Doppler's 5% protocol floor.
+        // airlockMock is a bare address with no code, so stub the one call it must answer.
+        vm.mockCall(airlockMock, abi.encodeWithSignature("owner()"), abi.encode(protocolOwner));
+
         deployFreshManagerAndRouters();
         (currency0, currency1) = deployMintAndApprove2Currencies();
         deployAndApprovePosm(manager);
@@ -203,16 +210,18 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
     ///         publishing that split would be false.
     function test_initialize_recordsBeneficiariesWhenALockerCanPayThem() public {
         (address t0, address t1) = _tokens();
-        BeneficiaryData[] memory bens = new BeneficiaryData[](1);
-        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(1e18)});
+        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
+        // Doppler's 5% floor — see test_initialize_enforcesDopplerProtocolFloor.
+        bens[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)});
 
         vm.prank(airlockMock);
         migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
 
         (uint32 lockDuration, BeneficiaryData[] memory stored) = migrator.getFeeConstitution(t0, t1);
         assertEq(lockDuration, 0, "duration must round-trip");
-        assertEq(stored.length, 1, "the split must be recorded, not dropped");
-        assertEq(uint256(stored[0].shares), 1e18);
+        assertEq(stored.length, 2, "the split must be recorded, not dropped");
+        assertEq(uint256(stored[0].shares), 95e16);
     }
 
     /// @notice The fail-closed half. A migrator deployed WITHOUT a locker cannot
@@ -242,8 +251,9 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
     ///         launch timelock instead would silently strand the constitution.
     function test_migrate_routesPositionToLockerWhenSplitDeclared() public {
         (address t0, address t1) = _tokens();
-        BeneficiaryData[] memory bens = new BeneficiaryData[](1);
-        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(1e18)});
+        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
+        bens[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)});
 
         vm.prank(airlockMock);
         migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
@@ -357,5 +367,93 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
             manager, BLOCK_OFFSET, paramAdmin_, MIN_FEE, MAX_FEE, BASE_FEE, MAX_POL_BPS, POL_BPS, treasury
         );
         require(address(h) == hookAddr_, "hook addr mismatch");
+    }
+
+    // ─── Doppler's 5% protocol floor ────────────────────────────────────────
+    //
+    // A custom LiquidityMigrator REPLACES Doppler's own module, so anything theirs
+    // enforces and ours does not is simply not enforced. Their `UniswapV4Migrator`
+    // requires the Airlock owner to hold >= 5% of the streamed fees; probing the
+    // deployed 0x0820a4d0…05f5 with `from = Airlock` returns InvalidProtocolOwnerBeneficiary()
+    // when the owner is absent and InvalidProtocolOwnerShares(5e16, 4e16) at 4%.
+    // Dropping it would mean petitioning Whetstone to whitelist a module that deletes
+    // their revenue. These pin that we enforce the same rule, with the same selectors.
+
+    function test_initialize_rejectsAConstitutionThatOmitsTheProtocolOwner() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](1);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(1e18)});
+
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.InvalidProtocolOwnerBeneficiary.selector);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
+    function test_initialize_rejectsAProtocolOwnerShareBelowTheFloor() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(96e16)});
+        bens[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(4e16)}); // 4%
+
+        vm.prank(airlockMock);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                TegridyLiquidityMigrator.InvalidProtocolOwnerShares.selector, uint96(5e16), uint96(4e16)
+            )
+        );
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
+    function test_initialize_acceptsExactlyTheFloor() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
+        bens[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)});
+
+        vm.prank(airlockMock);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+
+        (, BeneficiaryData[] memory stored) = migrator.getFeeConstitution(t0, t1);
+        assertEq(stored.length, 2, "a floor-satisfying constitution must be recorded");
+    }
+
+    /// @notice A list may name the owner twice. Taking only the first entry would
+    ///         under-count their real take and reject a split Doppler itself accepts.
+    function test_initialize_sumsDuplicateProtocolOwnerEntries() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](3);
+        bens[0] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(3e16)});
+        bens[1] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
+        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(2e16)}); // 3+2 = 5%
+
+        vm.prank(airlockMock);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+
+        (, BeneficiaryData[] memory stored) = migrator.getFeeConstitution(t0, t1);
+        assertEq(stored.length, 3, "duplicate owner entries must sum, not reject");
+    }
+
+    /// @notice The owner is read LIVE, not pinned: Whetstone's owner is a 3-of-6 Safe
+    ///         and can rotate. A pinned copy would turn a rotation into a revert on
+    ///         every graduation.
+    function test_initialize_followsAnAirlockOwnerRotation() public {
+        address rotated = makeAddr("rotatedDopplerOwner");
+        vm.mockCall(airlockMock, abi.encodeWithSignature("owner()"), abi.encode(rotated));
+
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
+        bens[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
+        bens[1] = BeneficiaryData({beneficiary: rotated, shares: uint96(5e16)});
+
+        vm.prank(airlockMock);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+
+        // And the OLD owner no longer satisfies it.
+        BeneficiaryData[] memory stale = new BeneficiaryData[](2);
+        stale[0] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
+        stale[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)});
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.InvalidProtocolOwnerBeneficiary.selector);
+        migrator.initialize(makeAddr("t2"), makeAddr("t3"), _migratorData(TICK_SPACING, 0, stale));
     }
 }

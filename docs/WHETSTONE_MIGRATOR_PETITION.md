@@ -142,7 +142,30 @@ Our launches use `UniswapV4Initializer` (selector absent). So for the launches w
 actually ship, **`UniswapV4Migrator` is the only contract in the whole path that enforces
 your floor.** Replace it and the enforcement is gone.
 
-### What our module does about it today: nothing on-chain
+### ✅ RESOLVED — we now enforce it on-chain (was: nothing)
+
+**This section originally read "nothing on-chain", and that was true when the petition
+was drafted.** We fixed it rather than ask you to accept it. `initialize` now reads
+`Airlock.owner()` **live** and requires it to hold at least `PROTOCOL_OWNER_MIN_SHARES
+= 5e16` of the beneficiary list, reverting `InvalidProtocolOwnerBeneficiary()` when the
+owner is absent and `InvalidProtocolOwnerShares(5e16, actual)` when it is short — the
+**same selectors your own module returns** (`0xdfa06864` / `0x2b6dc823`), so an
+integrator decoding a revert cannot tell the two modules apart on this point.
+
+The owner is read live rather than pinned at construction precisely because your owner
+is a 3-of-6 Safe: a pinned copy would turn a Safe rotation into a revert on every
+graduation. Duplicate owner entries are summed rather than first-match, so a list you
+would accept is not rejected by us.
+
+Five tests cover it: owner absent, owner below the floor (asserting the exact
+`(5e16, 4e16)` args), exactly-at-floor accepted, duplicate entries summed, and an owner
+rotation followed live. **Verify with §10.**
+
+<details>
+<summary>The original finding, kept for the record</summary>
+
+#### What our module did about it: nothing on-chain
+
 
 Stated plainly, because it is true:
 
@@ -166,9 +189,11 @@ Stated plainly, because it is true:
    comments (lines 28 and 320) and neither in an assertion. **No test exercises the floor,
    because nothing implements it.**
 
-**Read from your side, whitelisting this module as written removes your protocol-owner
-revenue floor from every launch that routes through it.** That is a fair reading, and we
-are not going to argue otherwise.
+**Read from your side, whitelisting the module AS ORIGINALLY WRITTEN would have removed your
+protocol-owner revenue floor from every launch that routed through it.** That was a fair
+reading, we did not argue otherwise, and it is the reason the floor is now enforced in code.
+
+</details>
 
 ### What we propose
 
@@ -271,6 +296,9 @@ Neither contract has been deployed to mainnet. The addresses in §9 are blank be
 do not exist yet.
 
 ## 9. What we still owe you before you should say yes
+
+> **Updated:** item 1 (the on-chain 5% floor) is **DONE** — see §4. The rest stand.
+
 
 Our own list, unprompted:
 
