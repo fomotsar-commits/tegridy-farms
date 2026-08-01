@@ -211,6 +211,37 @@ jobs:
           fi
           ls -l "$SO"
 
+      # -- DEPLOY COST, MEASURED --------------------------------------------
+      # The ~16.8 SOL peak-float figure in the runbook and the capital model uses
+      # cp-swap's size as a stand-in for BOTH programs, because tegridy-launch had
+      # never been built to a .so anywhere. That is the number an operator funds a
+      # deployer with, so derive it from the artifact just produced, not an estimate.
+      #
+      # Rate read from mainnet getMinimumBalanceForRentExemption: 6960.89
+      # lamports/byte. programdata carries a 45-byte header. `solana program deploy`
+      # defaults max_len to 2x the binary so the program can grow on upgrade, which
+      # DOUBLES the permanently-locked rent -- that is why the runbook's literal
+      # command costs 9.865 SOL on cp-swap rather than the ~5 SOL it claims.
+      - name: Report measured deploy cost
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/tegridy_launch.so
+          [ -f "$SO" ] || { echo "no artifact to measure"; exit 0; }
+          BYTES=$(stat -c%s "$SO")
+          awk -v b="$BYTES" 'BEGIN {
+            rate = 6960.89; hdr = 45;
+            exact = (b + hdr) * rate / 1e9;
+            dbl   = (2 * b + hdr) * rate / 1e9;
+            printf "### tegridy-launch - measured deploy cost\n\n";
+            printf "| | |\n|---|---|\n";
+            printf "| .so size | %d bytes |\n", b;
+            printf "| rent, --max-len exact | **%.3f SOL** |\n", exact;
+            printf "| rent, CLI default (2x max_len) | **%.3f SOL** |\n", dbl;
+            printf "| peak float during deploy | ~**%.3f SOL** |\n\n", dbl * 2;
+            printf "Peak exceeds the settled cost because the write-buffer holds its own rent until it is closed and refunded.\n";
+            printf "Rent is a refundable deposit, not a fee. Pass an explicit --max-len to avoid paying double for upgrade headroom.\n";
+          }' | tee -a "$GITHUB_STEP_SUMMARY"
+
           # ⚠️ SBF gives each function a 4 KB stack frame, and overflowing it is NOT
           # a compile error. The linker prints a warning, the build "succeeds", and
           # the program dies at runtime with "Access violation ... at address
