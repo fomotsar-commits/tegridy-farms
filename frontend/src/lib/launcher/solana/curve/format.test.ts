@@ -102,6 +102,28 @@ describe('parseDecimalToBaseUnits', () => {
     // More precision than the mint has is a mistake, not a rounding opportunity.
     expect(parseDecimalToBaseUnits('1.0000000001', 9)).toBeNull();
   });
+
+  it('still accepts the shapes an amount field actually produces mid-typing', () => {
+    // The rewrite for ReDoS replaced two explicit '' / '.' rejections with the regex
+    // itself, so pin every branch rather than trusting the alternation reads right.
+    expect(parseDecimalToBaseUnits('123', 9)).toBe(123_000_000_000n);
+    expect(parseDecimalToBaseUnits('12.', 9)).toBe(12_000_000_000n); // trailing dot
+    expect(parseDecimalToBaseUnits('.5', 9)).toBe(500_000_000n); // leading dot
+    expect(parseDecimalToBaseUnits('.', 9)).toBeNull();
+    expect(parseDecimalToBaseUnits('..5', 9)).toBeNull();
+    expect(parseDecimalToBaseUnits('1.2.3', 9)).toBeNull();
+  });
+
+  it('refuses an absurdly long input instead of grinding on it', () => {
+    // u64 max is 20 digits, so nothing legitimate approaches the cap. The cap — not the
+    // regex rewrite — is what makes the backtracking unreachable, so it is what gets
+    // pinned. A wall-clock assertion was tried here and deliberately removed: the old
+    // pattern is POLYNOMIAL, not exponential, so 5k characters still matched in 4ms and
+    // the timing passed on the vulnerable code. A test that cannot fail on the bug it
+    // names is worse than no test.
+    expect(parseDecimalToBaseUnits('9'.repeat(80), 9)).not.toBeNull();
+    expect(parseDecimalToBaseUnits('9'.repeat(81), 9)).toBeNull();
+  });
 });
 
 describe('looksLikePubkey', () => {

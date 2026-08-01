@@ -92,7 +92,14 @@ export function formatTokenAmount(
  */
 export function parseDecimalToBaseUnits(input: string, decimals: number): bigint | null {
   const t = input.trim();
-  if (!/^\d*\.?\d*$/.test(t) || t === '' || t === '.') return null;
+  // A real amount is never this long (u64 max is 20 digits), and the cap bounds the work
+  // a paste into the amount field can make this function do.
+  if (t.length > 80) return null;
+  // Written as an unambiguous alternation rather than `^\d*\.?\d*$`: two adjacent `\d*`
+  // around an optional dot let the engine split a long digit run many ways, which is
+  // quadratic backtracking on a near-miss (CodeQL js/polynomial-redos). This form also
+  // subsumes the old explicit '' and '.' rejections — neither matches either branch.
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(t)) return null;
   const [whole = '', frac = ''] = t.split('.');
   if (frac.length > decimals) return null;
   const padded = frac.padEnd(decimals, '0');
