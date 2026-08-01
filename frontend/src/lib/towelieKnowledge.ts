@@ -272,7 +272,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // HONESTY PASS 2026-06-11: there is NO paid third-party audit and the bug
     // bounty has no funded pool — state the real (checkable) security record.
     keywords: ['safe', 'security', 'audit', 'rug', 'risk'],
-    answer: "Straight answer: no paid outside audit yet. Security record = internal multi-agent audit waves, Slither on every CI run, 1,500+ tests. Token's fixed-supply with no mint or pause, and admin changes wait out a 24–48h timelock. /security has the artifacts, /risks has the blunt version.",
+    answer: "Straight answer: no paid outside audit yet. Security record = internal multi-agent audit waves, Slither on every CI run, 1,500+ tests. Token's fixed-supply with no mint or pause, and the sensitive admin changes — treasury, fees, oracle floors — wait out a 24–48h timelock. Emergency pause and a few operational setters are immediate, so it's not every change. /security has the artifacts, /risks has the blunt version.",
   },
   {
     keywords: ['risks'],
@@ -326,7 +326,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // HONESTY PASS 2026-06-11: contracts are NOT multisig-governed yet — the
     // multisig handoff (acceptOwnership) is in progress; timelock IS live.
     keywords: ['team', 'devs', 'who', 'built'],
-    answer: "Team's pseudonymous. Admin changes sit behind a 24–48h timelock, and the multisig handoff is in progress. /security has the setup, /contracts the code.",
+    answer: "Team's pseudonymous. Sensitive admin changes sit behind a 24–48h timelock — emergency pause and some operational setters don't — and the multisig handoff is in progress. /security has the setup, /contracts the code.",
   },
   {
     keywords: ['contact', 'support', 'help', 'discord'],
