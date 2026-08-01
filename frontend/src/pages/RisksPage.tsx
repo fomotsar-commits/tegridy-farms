@@ -29,7 +29,7 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'Single-operator admin key (no multisig yet)',
     status: 'Active',
-    body: 'Administrative functions are held by one EOA today. A 24–48 hour timelock delays every parameter change, but one key loss or compromise still puts those parameters at risk after the delay elapses. A multisig migration is the next operational milestone; until it lands, size deposits as if the single-key assumption holds.',
+    body: 'Administrative functions are held by one EOA today. A 24–48 hour timelock delays sensitive parameter changes (treasury, fee recipients, fees, emission budget, oracle floors), but some operational setters (e.g. stake caps) and emergency pause act immediately, and one key loss or compromise still puts the timelocked parameters at risk after the delay elapses. A multisig migration is the next operational milestone; until it lands, size deposits as if the single-key assumption holds.',
   },
   {
     title: 'Patched contracts not yet redeployed on-chain',
@@ -173,7 +173,7 @@ const RISKS = [
   },
   {
     title: '8. Centralization Risk',
-    body: 'Certain administrative functions of the Protocol are controlled by admin keys held by the core team. These keys can pause contracts, modify fee parameters, and update contract configurations. While all administrative actions are subject to a 24-48 hour timelock to allow community review, this represents a centralization vector. If admin keys were compromised, an attacker could potentially execute malicious parameter changes after the timelock period.',
+    body: 'Certain administrative functions of the Protocol are controlled by admin keys held by the core team. These keys can pause contracts, modify fee parameters, and update contract configurations. Sensitive administrative actions (treasury, fee recipients, fees, emission budget, oracle floors) are subject to a 24-48 hour timelock to allow community review, but emergency pause and some operational setters take effect immediately, and this still represents a centralization vector. If admin keys were compromised, an attacker could execute the immediate actions at once and the timelocked ones after the delay.',
   },
   {
     title: '9. Network Risk',

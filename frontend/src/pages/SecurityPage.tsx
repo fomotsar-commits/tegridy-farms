@@ -34,9 +34,9 @@ const CONTRACTS = [
 
 const PROTECTIONS = [
   { title: 'Reentrancy Guards', desc: 'All high-risk functions protected with nonReentrant modifiers', icon: 'shield' },
-  { title: 'Timelock Admin', desc: '24-48h delay on all admin parameter changes', icon: 'clock' },
-  { title: 'On-Chain TWAP Pricing', desc: 'Prices derive from a time-weighted average of our own pools — no external price feeds like Chainlink', icon: 'eye-off' },
-  { title: 'No Flash Loans', desc: 'Flash swaps explicitly disabled at the router level', icon: 'zap-off' },
+  { title: 'Timelock Admin', desc: 'Sensitive changes (treasury, fee recipients, fees, emission budget, oracle floors) run behind a 24-48h on-chain timelock; emergency pause and some operational setters (e.g. stake caps) are immediate', icon: 'clock' },
+  { title: 'On-Chain TWAP Pricing', desc: 'A TWAP of our own pools with no external feed like Chainlink — depth-gated behind a minimum reserve floor and currently inactive until the native pool is deep enough, so no live valuation depends on it yet', icon: 'eye-off' },
+  { title: 'No Flash Loans', desc: 'Flash swaps explicitly disabled at the pool level — a non-empty swap callback reverts', icon: 'zap-off' },
   { title: 'Ownership Protection', desc: '2-step ownership transfer, renouncement disabled', icon: 'lock' },
   { title: 'Pausable', desc: 'Emergency pause mechanism on all core contracts', icon: 'pause' },
 ];
@@ -304,7 +304,7 @@ export default function SecurityPage() {
             <div className="space-y-3">
               {[
                 'Protocol swap fees route on-chain to stakers (split is governance-adjustable — see Treasury)',
-                'All admin changes are timelocked (24-48h delay)',
+                'Sensitive admin changes are timelocked (24-48h); emergency pause and some operational setters act immediately',
                 'No proxy contracts — all code is immutable after deployment',
                 'Source code available for independent review',
               ].map((item) => (
@@ -347,8 +347,8 @@ export default function SecurityPage() {
             <div className="space-y-3">
               {[
                 'Single-operator admin key today (one EOA); multisig migration in progress',
-                'All parameter changes require 24-48h timelock',
-                'Users have time to exit before any admin change takes effect',
+                'Sensitive parameter changes (treasury, fee recipients, fees, emission budget, oracle floors) require a 24-48h timelock',
+                'That delay is your window to exit — but it does not cover emergency pause or every operational setter, which take effect at once',
                 'Ownership transfer requires 2-step confirmation',
               ].map((item) => (
                 <div key={item} className="flex items-start gap-2 text-[#22c55e]" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}><span className="mt-0.5"><CheckIcon /></span>{item}</div>
