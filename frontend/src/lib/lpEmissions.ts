@@ -8,7 +8,7 @@
  *
  * Verified on mainnet 2026-07-31 against 0x1171268AE5B69791c47Fd589b7825932c957e149:
  * `periodFinish()` = 1781493095 (2026-06-15 UTC, in the past) while `rewardRate()` was
- * still 3_365_022_998_270_306 — exactly the trap above. /launch was advertising
+ * still 3_306_878_306_878_306 — exactly the trap above. /launch was advertising
  * "boosted LP farming today" off the back of it.
  */
 export type LpEmissionsPhase = 'unknown' | 'running' | 'ended';

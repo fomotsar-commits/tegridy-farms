@@ -161,9 +161,10 @@ Stated plainly, because it is true:
    (`resolveFeeConstitution`, where the Doppler line is fixed and cannot be carved away).
    `Airlock.create` is permissionless — anyone can call it with our migrator address and
    an empty beneficiary list, and our TypeScript is not in the loop.
-5. `contracts/test/v4/TegridyLiquidityMigrator.t.sol` has 16 `test` functions and **zero**
-   mentions of `doppler`, `protocolOwner`, or `airlockOwner`. Nothing tests the floor
-   because nothing implements it.
+5. `contracts/test/v4/TegridyLiquidityMigrator.t.sol` has 16 `test` functions and **zero
+   mentions of `protocolOwner` or `airlockOwner`**. `doppler` appears twice, both in
+   comments (lines 28 and 320) and neither in an assertion. **No test exercises the floor,
+   because nothing implements it.**
 
 **Read from your side, whitelisting this module as written removes your protocol-owner
 revenue floor from every launch that routes through it.** That is a fair reading, and we

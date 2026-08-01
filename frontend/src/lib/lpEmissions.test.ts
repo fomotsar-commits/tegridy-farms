@@ -3,7 +3,7 @@ import { lpEmissionsPhase, dayTwoEconomyPhrase, dayTwoEconomyShortPhrase } from 
 
 // The real mainnet reading, 2026-07-31 (TegridyLPFarming 0x1171…e149):
 //   periodFinish() = 1781493095  → 2026-06-15 UTC, in the PAST
-//   rewardRate()   = 3365022998270306 → still non-zero, the residual trap
+//   rewardRate()   = 3306878306878306 → still non-zero, the residual trap
 const MAINNET_PERIOD_FINISH = 1781493095;
 const NOW_2026_07_31 = Date.parse('2026-07-31T00:00:00Z');
 
