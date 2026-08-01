@@ -1,82 +1,36 @@
-# Raydium CP-Swap (CPMM) Bug Bounty Program
+# Security policy — Tegridy CP-AMM & tegridy-launch
 
-Raydium's full bug bounty program with ImmuneFi can be found at: https://immunefi.com/bounty/raydium/
+## There is no bug bounty for this repository
 
-## Rewards by Threat Level
+We do not currently run one, and **no third party's bounty covers this code.**
 
-Rewards are distributed according to the impact of the vulnerability based on the Immunefi Vulnerability Severity Classification System V2.3. This is a simplified 5-level scale, focusing on the impact of the vulnerability reported.
+A previous revision of this file was Raydium's `SECURITY.md`, inherited verbatim when
+`programs/cp-swap/` was forked. It advertised rewards of up to USD 505,000 and routed
+disclosure to Raydium's security address. **None of that applied to this repository.** GitHub
+surfaces this file as the repo's security policy, so a researcher who found a real bug in our
+code would have reported it to a company with no ability to fix it, expecting a payout nobody
+had offered. That was our error, and it is corrected here.
 
-### Smart Contracts
+## Reporting a vulnerability
 
-| Severity | Bounty                    |
-| -------- | ------------------------- |
-| Critical | USD 50,000 to USD 505,000 |
-| High     | USD 40,000                |
-| Medium   | USD 5,000                 |
+Open a **private security advisory** on this repository
+(Security → Advisories → Report a vulnerability). If you cannot, open a normal issue saying
+only that you have a security report and asking for a contact — do not put details in a public
+issue.
 
-All bug reports must include a Proof of Concept (PoC) demonstrating how the vulnerability can be exploited to impact an asset-in-scope to be eligible for a reward. Critical and High severity bug reports should also include a suggestion for a fix. Explanations and statements are not accepted as PoC and code is required.
+We will acknowledge receipt. We cannot promise a payout, and we would rather say so than imply
+one.
 
-Rewards for critical smart contract bug reports will be further capped at 10% of direct funds at risk if the bug discovered is exploited. However, there is a minimum reward of USD 50,000.
+## Scope, and what is actually audited
 
-Bugs in `raydium-sdk` and other code outside of the smart contract will be assessed on a case-by-case basis.
+| Component | Provenance | Audited? |
+|---|---|---|
+| `programs/cp-swap/` | Verbatim fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. |
+| `programs/tegridy-launch/` | Novel — written for this repo | **No.** No upstream to compare against. `migrate_to_amm` moves an entire raised balance in one instruction; treat it as the highest-risk surface here. |
 
-## Report Submission
+Neither program is deployed to Solana mainnet. Neither holds user funds today.
 
-Please email security@reactorlabs.io with a detailed description of the attack vector. For high- and critical-severity reports, please include a proof of concept. We will reach back out within 24 hours with additional questions or next steps on the bug bounty.
+## If you are an auditor
 
-## Payout Information
-
-Payouts are handled by the Raydium team directly and are denominated in USD. Payouts can be done in RAY, SOL, or USDC.
-
-## Out of Scope & Rules
-
-The following vulnerabilities are excluded from the rewards for this bug bounty program:
-
-- Attacks that the reporter has already exploited themselves, leading to damage
-- Attacks requiring access to leaked keys/credentials
-- Attacks requiring access to privileged addresses (governance, strategist)
-- Incorrect data supplied by third party oracles (not excluding oracle manipulation/flash loan attacks)
-- Basic economic governance attacks (e.g. 51% attack)
-- Lack of liquidity
-- Best practice critiques
-- Sybil attacks
-- Centralization risks
-- Any UI bugs
-- Bugs in the core Solana runtime (please submit these to [Solana's bug bounty program](https://github.com/solana-labs/solana/security/policy))
-- Vulnerabilities that require a validator to execute them
-- Vulnerabilities requiring access to privileged keys/credentials
-- MEV vectors the team is already aware of
-
-## AMM Assets in Scope
-
-| Target                                                                                                                    | Type                                  |
-| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/lib.rs                                     | Smart Contract - lib                  |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/error.rs                                   | Smart Contract - error                |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/admin/collect_fund_fee.rs     | Smart Contract - collect_fund_fee     |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/admin/collect_protocol_fee.rs | Smart Contract - collect_protocol_fee |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/admin/create_config.rs        | Smart Contract - create_config        |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/admin/mod.rs                  | Smart Contract - admin mod            |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/admin/update_config.rs        | Smart Contract - update_config        |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/admin/update_pool_status.rs   | Smart Contract - update_pool_status   |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/deposit.rs                    | Smart Contract - deposit              |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/initialize.rs                 | Smart Contract - initialize           |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/mod.rs                        | Smart Contract - instructions mod     |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/swap_base_input.rs            | Smart Contract - swap_base_input      |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/swap_base_output.rs           | Smart Contract - swap_base_output     |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/instructions/withdraw.rs                   | Smart Contract - withdraw             |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/states/config.rs                           | Smart Contract - config               |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/states/events.rs                           | Smart Contract - events               |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/states/mod.rs                              | Smart Contract - states mod           |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/states/pool.rs                             | Smart Contract - pool                 |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/utils/math.rs                              | Smart Contract - math                 |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/utils/mod.rs                               | Smart Contract - utils mod            |
-| https://github.com/raydium-io/raydium-cp-swap/blob/master/programs/cp-swap/src/utils/token.rs                             | Smart Contract - utils token          |
-
-## Additional Information
-
-A public testnet of Raydium's CPMM can be found at A public testnet of Raydium’s AMM can be found at https://explorer.solana.com/address/CPMDWBwJDtYax9qW7AyRuVC19Cc4L4Vcy4n2BHAbHkCW?cluster=devnet
-
-A public testnet of OpenBook's Central Limit Order Book can be found at https://explorer.solana.com/address/EoTcMgcDRTJVZDMZWBoU6rhYHZfkNTVEAfz3uUJRcYGj
-
-If a Critical Impact can be caused to any other asset managed by Raydium that isn't on this table but for which the impact is in the Impacts in Scope section below, you are encouraged to submit it for consideration by the project. This only applies to Critical impacts.
+`AUDIT_RFQ.md` describes both scopes. The short version: `cp-swap` is a cheap four-constant
+diff against audited upstream; `tegridy-launch` is the real review.

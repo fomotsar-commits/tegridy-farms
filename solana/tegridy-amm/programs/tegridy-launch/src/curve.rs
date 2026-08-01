@@ -4,7 +4,8 @@
 //!
 //! # Model
 //!
-//! Constant product over *virtual* reserves, the pump.fun shape:
+//! Constant product over *virtual* reserves — the Uniswap V2 invariant x*y=k applied to
+//! synthetic reserves, which is the standard shape for a launch bonding curve:
 //!
 //! ```text
 //!     k = sol_reserves * token_reserves
@@ -31,7 +32,7 @@
 pub const BPS_DENOMINATOR: u64 = 10_000;
 
 /// Hard ceiling on the trade fee, enforced at config time as well as here.
-/// 10% is far above anything sane (pump.fun sits at 100 bps); this is a
+/// 10% is far above anything sane (comparable launch rails sit under 100 bps); this is a
 /// backstop against a fat-fingered or hostile config, not a target.
 pub const MAX_FEE_BPS: u64 = 1_000;
 

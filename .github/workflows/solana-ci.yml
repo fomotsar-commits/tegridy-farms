@@ -3,8 +3,9 @@ name: solana-ci
 # Tegridy CP-AMM (solana/tegridy-amm) — a verbatim fork of raydium-cp-swap,
 # plus tegridy-launch, our own bonding curve that graduates into it.
 # Gates:
-#   1. diff-guard  — proves the fork is byte-identical to the pinned audited
-#      upstream EXCEPT programs/cp-swap/src/lib.rs (the 3 authority constants).
+#   1. diff-guard  — proves the fork's delta from pinned audited upstream is
+#      EXACTLY the pinned hash. Not a file allowlist: the previous version accepted
+#      ANY change inside lib.rs, which holds upstream's whole #[program] dispatcher.
 #      This is the security invariant; it needs no Solana toolchain.
 #      SCOPED TO cp-swap ONLY — tegridy-launch is our own code with no upstream
 #      to diff against, so it is deliberately NOT covered by this job.
@@ -59,31 +60,68 @@ jobs:
         run: |
           git clone "$UPSTREAM_REPO" /tmp/upstream
           git -C /tmp/upstream checkout --quiet "$UPSTREAM_COMMIT"
-      - name: Assert ONLY the allowed authority files differ from audited upstream
+      - name: Assert the delta from audited upstream is EXACTLY the pinned one
         run: |
           set -euo pipefail
-          # The ENTIRE code delta from audited upstream must be confined to these two
-          # files, which hold ONLY hardcoded authority/identity constants (program id,
-          # admin, fee receiver, support-mint owner). Anything else = audit invariant broken.
-          # Match the differing file's path in a `diff -rq` line ("Files A and B differ").
-          # Do NOT anchor to end-of-line — the line ends in "differ", not the filename.
-          ALLOWED='/(lib\.rs|create_support_mint_associated\.rs) '
-          UNEXPECTED=$(diff -rq /tmp/upstream/programs/cp-swap/src \
-                                solana/tegridy-amm/programs/cp-swap/src \
-                        | grep -vE "$ALLOWED" || true)
+          UP=/tmp/upstream/programs/cp-swap
+          OURS=solana/tegridy-amm/programs/cp-swap
+
+          # ── WHY A HASH, NOT A FILE ALLOWLIST ──────────────────────────────────
+          # The previous guard filtered `diff -rq` output through
+          #   ALLOWED='/(lib\.rs|create_support_mint_associated\.rs) '
+          # i.e. it accepted ANY difference in those files. Upstream's lib.rs contains
+          # the entire `#[program]` dispatcher and every instruction handler, so
+          # arbitrary logic could be added there and this job stayed green — while the
+          # comment above it claimed the files hold "ONLY hardcoded authority constants".
+          # That assumption was never enforced, and it is the exact claim we make to
+          # auditors ("the delta is four constants"), so it has to be mechanical.
+          #
+          # Now: the delta is canonicalised and hashed. Any change to it — including
+          # inside the allowed files — fails until a human deliberately re-pins
+          # EXPECTED_DELTA_SHA256 after reading the printed diff.
+          #
+          # CRLF is stripped on BOTH sides: the fork carries CRLF for some files, and
+          # without normalising, every line reads as changed (736 lines of noise for an
+          # 86-line real delta).
+          EXPECTED_DELTA_SHA256=789f7ada2258faf69994135ac882d0a41745cce1a98efe4e76639a9bc9dd6baa
+
+          # 1. NO file outside the two allowed source files may differ at all.
+          #    Paths are anchored to their full relative path — the old pattern matched
+          #    a bare `lib.rs ` anywhere in the tree.
+          UNEXPECTED=$(diff -rq "$UP/src" "$OURS/src"             | grep -vE "(^Files .*/src/lib\.rs and .* differ$|^Files .*/src/instructions/admin/create_support_mint_associated\.rs and .* differ$)"             || true)
           if [ -n "$UNEXPECTED" ]; then
-            echo "::error::Fork diverges from audited upstream beyond the allowed authority files:"
+            echo "::error::Fork diverges from audited upstream beyond the two authority files:"
             echo "$UNEXPECTED"
             exit 1
           fi
-          echo "✅ Only lib.rs + create_support_mint_associated.rs differ from upstream $UPSTREAM_COMMIT"
-      - name: Show the authority deltas (for review)
-        run: |
-          for f in lib.rs instructions/admin/create_support_mint_associated.rs; do
-            echo "═══ $f ═══"
-            diff "/tmp/upstream/programs/cp-swap/src/$f" \
-                 "solana/tegridy-amm/programs/cp-swap/src/$f" || true
-          done
+
+          # 2. The delta INSIDE those files — plus Cargo.toml, which the old guard did
+          #    not look at at all, leaving a dependency swap completely unguarded — must
+          #    hash to the pinned value.
+          {
+            for f in lib.rs instructions/admin/create_support_mint_associated.rs; do
+              echo "=== src/$f ==="
+              diff <(sed 's/\r$//' "$UP/src/$f") <(sed 's/\r$//' "$OURS/src/$f") || true
+            done
+            echo "=== Cargo.toml ==="
+            diff <(sed 's/\r$//' "$UP/Cargo.toml") <(sed 's/\r$//' "$OURS/Cargo.toml") || true
+          } > /tmp/tegridy-delta.txt
+
+          ACTUAL=$(sha256sum /tmp/tegridy-delta.txt | cut -d' ' -f1)
+          echo "─── the delta being hashed ───"
+          cat /tmp/tegridy-delta.txt
+          echo "──────────────────────────────"
+          if [ "$ACTUAL" != "$EXPECTED_DELTA_SHA256" ]; then
+            echo "::error::Delta from upstream CHANGED."
+            echo "  expected $EXPECTED_DELTA_SHA256"
+            echo "  actual   $ACTUAL"
+            echo "If the change is intentional, read the diff printed above, satisfy yourself"
+            echo "it is still ONLY authority/identity constants and comments, then update"
+            echo "EXPECTED_DELTA_SHA256 in this workflow IN THE SAME PR."
+            exit 1
+          fi
+          echo "✅ Delta from upstream $UPSTREAM_COMMIT matches the pinned hash exactly"
+          echo "   ($(grep -c '^[<>]' /tmp/tegridy-delta.txt) changed lines across 3 files)"
 
   build:
     runs-on: ubuntu-latest
@@ -172,6 +210,37 @@ jobs:
             exit 1
           fi
           ls -l "$SO"
+
+      # -- DEPLOY COST, MEASURED --------------------------------------------
+      # The ~16.8 SOL peak-float figure in the runbook and the capital model uses
+      # cp-swap's size as a stand-in for BOTH programs, because tegridy-launch had
+      # never been built to a .so anywhere. That is the number an operator funds a
+      # deployer with, so derive it from the artifact just produced, not an estimate.
+      #
+      # Rate read from mainnet getMinimumBalanceForRentExemption: 6960.89
+      # lamports/byte. programdata carries a 45-byte header. `solana program deploy`
+      # defaults max_len to 2x the binary so the program can grow on upgrade, which
+      # DOUBLES the permanently-locked rent -- that is why the runbook's literal
+      # command costs 9.865 SOL on cp-swap rather than the ~5 SOL it claims.
+      - name: Report measured deploy cost
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/tegridy_launch.so
+          [ -f "$SO" ] || { echo "no artifact to measure"; exit 0; }
+          BYTES=$(stat -c%s "$SO")
+          awk -v b="$BYTES" 'BEGIN {
+            rate = 6960.89; hdr = 45;
+            exact = (b + hdr) * rate / 1e9;
+            dbl   = (2 * b + hdr) * rate / 1e9;
+            printf "### tegridy-launch - measured deploy cost\n\n";
+            printf "| | |\n|---|---|\n";
+            printf "| .so size | %d bytes |\n", b;
+            printf "| rent, --max-len exact | **%.3f SOL** |\n", exact;
+            printf "| rent, CLI default (2x max_len) | **%.3f SOL** |\n", dbl;
+            printf "| peak float during deploy | ~**%.3f SOL** |\n\n", dbl * 2;
+            printf "Peak exceeds the settled cost because the write-buffer holds its own rent until it is closed and refunded.\n";
+            printf "Rent is a refundable deposit, not a fee. Pass an explicit --max-len to avoid paying double for upgrade headroom.\n";
+          }' | tee -a "$GITHUB_STEP_SUMMARY"
 
           # ⚠️ SBF gives each function a 4 KB stack frame, and overflowing it is NOT
           # a compile error. The linker prints a warning, the build "succeeds", and

@@ -1,11 +1,12 @@
 # NOTICE — Third-Party Attributions & Fair Use
 
-Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)). This file documents third-party code, design patterns, intellectual property considerations, and fair-use rationale for the project.
+Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)), **except `solana/tegridy-amm/`, which is Apache-2.0 (see [`solana/tegridy-amm/LICENSE`](solana/tegridy-amm/LICENSE)) because it derives from Apache-2.0 upstream.** This file documents third-party code, design patterns, intellectual property considerations, and fair-use rationale for the project.
 
 ## Smart contract code & patterns
 
 | Component | Source | License | Attribution |
 |---|---|---|---|
+| **Raydium CP-Swap (CPMM)** | [raydium-io/raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` | **Apache-2.0** | [`solana/tegridy-amm/programs/cp-swap/`](solana/tegridy-amm/programs/cp-swap/) is a fork. **Changes made (Apache-2.0 §4(b)):** four authority/identity constants only — the program id in `lib.rs` and the admin / fee-receiver / support-mint-owner constants; all swap, curve and fee math is unmodified. The delta is enforced by the `diff-guard` job in `.github/workflows/solana-ci.yml`. Apache-2.0 text retained at [`solana/tegridy-amm/LICENSE`](solana/tegridy-amm/LICENSE). **Upstream's MadShield audit and Raydium's Immunefi bounty do NOT cover this fork.** |
 | **OpenZeppelin Contracts** | [OpenZeppelin/openzeppelin-contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) | MIT | Imported via npm/Foundry. Used for ERC20, ERC721, ReentrancyGuard, Pausable, SafeERC20, etc. Licence inherited. |
 | **Synthetix StakingRewards** | [Synthetixio/synthetix](https://github.com/Synthetixio/synthetix) | MIT | [`TegridyLPFarming.sol`](contracts/src/TegridyLPFarming.sol) adapts the StakingRewards reward-math pattern. Attribution in source comment. |
 | **Curve GaugeController** | [curvefi/curve-dao-contracts](https://github.com/curvefi/curve-dao-contracts) | MIT | [`GaugeController.sol`](contracts/src/GaugeController.sol) adapts Curve's gauge-voting + emission-direction pattern. Attribution in source comment. |
@@ -77,4 +78,4 @@ Contributors agree to licence their contributions under MIT (see [CONTRIBUTING.m
 
 ---
 
-*Last updated: 2026-04-17.*
+*Last updated: 2026-08-01.*

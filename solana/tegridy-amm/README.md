@@ -1,14 +1,33 @@
-# raydium-cp-swap
+# Tegridy CP-AMM
 
-A revamped constant product AMM program optimized for straightforward pool deployment along with additional features and integrations:
-- No Openbook market ID is required for pool creation
-- Token22 is supported
-- Built-in price oracle
-- Optimized in Anchor
+A constant-product AMM for Solana. **This is a fork of
+[raydium-io/raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) (Apache-2.0)**,
+@ `78f254e`. The entire delta from upstream is four authority/identity constants across two
+files, enforced automatically by the `diff-guard` job in `.github/workflows/solana-ci.yml`.
+All swap, curve and fee math is byte-identical to upstream.
 
-The program has been audited by [MadShield](https://www.madshield.xyz/). The report can be found [here](https://github.com/raydium-io/raydium-docs/tree/master/audit/MadShield%20Q1%202024).
+Upstream's features carry over: no Openbook market ID needed for pool creation, Token22
+support, a built-in price oracle, written in Anchor.
 
-The program assets are in-scope for Raydium’s [Immunefi bug bounty program](https://immunefi.com/bug-bounty/raydium/).
+## ⚠️ Audit and bug-bounty status — READ THIS
+
+**This fork has NOT been audited, and it is NOT covered by any bug bounty.**
+
+Upstream raydium-cp-swap was audited by [MadShield](https://www.madshield.xyz/)
+([report](https://github.com/raydium-io/raydium-docs/tree/master/audit/MadShield%20Q1%202024))
+and Raydium's deployed programs are in scope for
+[their Immunefi programme](https://immunefi.com/bug-bounty/raydium/). **Neither covers this
+repository.** Those are Raydium's audit and Raydium's money, obtained for Raydium's code and
+Raydium's deployment. An audit of upstream is evidence about the code we did not change; it
+says nothing about our four constants, our deployment, or `programs/tegridy-launch/`, which is
+novel code with no upstream at all.
+
+An earlier revision of this file was inherited verbatim from upstream and asserted both the
+audit and the bounty as if they applied here. They never did. If you are a security
+researcher, see [SECURITY.md](SECURITY.md) — and please do not send findings about this fork
+to Raydium.
+
+Status: **Phase 0 — devnet. NOT audited. NOT on mainnet. Holds no funds.**
 
 ## Environment Setup
 

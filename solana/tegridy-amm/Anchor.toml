@@ -24,7 +24,7 @@ tegridy_launch = "8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8"
 
 
 [registry]
-url = "https://github.com/raydium-io/raydium-cp-swap"
+url = "https://github.com/fomotsar-commits/tegridy-farms"
 
 [provider]
 cluster = "Localnet"
