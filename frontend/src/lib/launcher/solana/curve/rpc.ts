@@ -74,7 +74,9 @@ export function browserRpc(fetchImpl: typeof fetch = fetch): SolanaRpc {
     try {
       body = await res.json();
     } catch (e) {
-      throw new Error(`${method}: the response was not JSON (${clipDetail(e)})`);
+      // `cause` keeps the parser's own error reachable — the clipped detail in the
+      // message is for humans, not for whoever has to debug a malformed proxy response.
+      throw new Error(`${method}: the response was not JSON (${clipDetail(e)})`, { cause: e });
     }
     if (typeof body !== 'object' || body === null) {
       throw new Error(`${method}: the response was not a JSON-RPC object`);
