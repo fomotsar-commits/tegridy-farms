@@ -295,7 +295,8 @@ function SolanaLaunchInner() {
 
           <p className="mt-4 text-center text-white/40 text-[10px] leading-relaxed">
             Solana leg is fee-capture only — no TOWELI on Solana, no custom program. Launch parameters are disclosed, not a
-            hidden dial. Submission stays disabled until the launcher is enabled and a Squads vault is verified.
+            hidden dial. This page never submits: it has no signer by design, so there is no state in which a launch
+            starts here. Real launches are signed out of band by the operator.
           </p>
         </div>
       </m.div>
@@ -407,14 +408,16 @@ function SolanaLauncherExplainer() {
             transaction. A mismatch fails closed.
           </li>
           <li>
-            <span className="text-white/80">A signing threshold confirmed out of band.</span> That on-chain check
-            proves the vault&apos;s derivation, not its threshold — reading the threshold needs a Squads SDK this app
-            does not ship. So a 1-of-1 multisig would pass it. That the vault genuinely requires more than one signer
-            is an operator precondition verified with Squads&apos; own tooling, not something this page can prove to you.
+            <span className="text-white/80">A signing threshold enforced in code.</span> The wrapper also reads the
+            parent multisig&apos;s account data — matched on its Anchor discriminator, so a different Squads account
+            type cannot be substituted — and requires a threshold of <strong>at least 2</strong>. A 1-of-1 multisig is
+            rejected. This used to be an out-of-band operator check that this page could not prove to you; it is now a
+            fail-closed gate in the signing path.
           </li>
           <li>
             <span className="text-white/80">Sequencing.</span> Solana is deliberately behind the Ethereum rail — a
-            later, smaller phase. We are not naming a date for the first launch through it.
+            later, smaller phase. The partner config is now live on Solana mainnet, so the rail is armed; we are still
+            not naming a date for the first launch through it.
           </li>
         </ul>
       </ExplainerCard>

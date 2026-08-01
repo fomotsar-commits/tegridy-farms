@@ -47,8 +47,11 @@ real vault* and only pass the config account — which can never sign a claim �
 funds-lock trap. Instead, the operator supplies each fee address **together with its
 provenance** (parent multisig + vault index) as a `vaultProvenance` map. The wrapper
 (1) re-derives the canonical vault PDA from that provenance and requires the fee
-address to equal it, and (2) confirms the parent multisig account is Squads-owned.
-Missing provenance for any vault **fails closed**.
+address to equal it, (2) confirms the parent multisig account is Squads-owned, and
+(3) confirms that parent is a genuine `Multisig` account — matched on its 8-byte
+Anchor discriminator — whose **threshold is >= 2**. Step (3) is what rejects both a
+1-of-1 multisig (a single-key drain wearing a multisig's clothes) and any other
+Squads-owned account type. Missing provenance for any vault **fails closed**.
 
 ## Fee economics (disclosed, never a hidden dial)
 
@@ -207,13 +210,15 @@ gate. To surface a gated Solana launch wizard later:
    routed at `frontend/src/App.tsx`. It collects token meta + market-cap band and
    previews the Fact Sheet (fee split, anti-snipe schedule, LP lock) from the builders
    here. It has **no signer and no submit path** — that is the design, not an omission.
-2. **Still open before a first real Solana launch**, and neither is a frontend task:
-   - No DBC partner config of ours exists on **mainnet**; `create-config --send` has
-     never been run, so there is nothing to launch against.
-   - ⚠️ `verifySquadsVault` (squads.ts) checks program-ownership and PDA derivation but
-     **not the account discriminator or the threshold**. Feed it a Squads *ProgramConfig*
-     rather than a `Multisig` and it passes — producing a config whose `feeClaimer` no
-     one can ever sign for, which would strand 100% of partner fees irreversibly. Fix
-     that guard BEFORE running create-config.
+2. ~~**Still open before a first real Solana launch**~~ — **both cleared 2026-08-01:**
+   - ✅ A DBC partner config of ours now exists on **mainnet** — `create-config --send`
+     has been run by the operator, so there *is* something to launch against. What has
+     **not** happened is a launch: no token has gone through this rail yet, and the
+     Fact-Sheet numbers on `/solana-launch` remain builder defaults, not observed history.
+   - ✅ `verifySquadsVault` (squads.ts) now enforces the account **discriminator and a
+     threshold >= 2**. It previously checked only program-ownership and PDA derivation,
+     so a Squads *ProgramConfig* fed in place of a `Multisig` would pass — producing a
+     config whose `feeClaimer` no one can ever sign for, stranding 100% of partner fees
+     irreversibly. That guard is closed; a 1-of-1 multisig is now rejected too.
 
 No new dependencies; the SDK and `@solana/web3.js` are already installed.

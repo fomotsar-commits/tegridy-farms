@@ -16,6 +16,17 @@ const CARD_ART = Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards',
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'August 1, 2026',
+    title: 'The Solana Rail Is Armed — and the Lock On It Was Weaker Than Advertised',
+    items: [
+      'Something now exists on Solana mainnet for the first time: the partner configuration that our Meteora launcher launches against. Yesterday\'s note said nothing had ever been created there; that is no longer true. What has still not happened is a launch — zero tokens have gone through this rail, and every number shown on the Solana launch page remains a default the software proposes, not a record of anything that has traded',
+      'The Solana launch page has not changed and will not: it has no signer and no submit button, by design. Launches are signed by the operator outside the app. If you read "the rail is armed" as "you can launch on Solana here", that is the wrong reading — arming the rail and opening it to the public are separate steps, and only the first has happened',
+      'The safety check protecting every fee this rail will ever earn was weaker than our own documentation claimed. Meteora\'s fee-claim signer has full custody of accrued fees and can send them anywhere, so that signer has to be a genuine multi-signature vault. Our check proved the vault was derived from a real Squads account — but never opened that account to look inside. A 1-of-1 "multisig", which is just one key with extra steps, would have passed as multi-signature custody. Worse, a different kind of Squads account could have been substituted entirely, producing a configuration whose fee claimer nobody can ever sign for — which would have stranded every partner fee permanently, with no recovery',
+      'The check now opens the account. It confirms the account really is a multisig — matched on the identifying bytes at its head, so no substitute type gets through — and requires at least two signers. Anything else is refused rather than assumed safe. We verified the check genuinely bites by deliberately weakening it and confirming the test that should fail does fail',
+      'The uncomfortable part, stated plainly: the instruction "fix that guard before creating the configuration" was written in our own notes, and the fix had been written on July 26 — but it was never published to the shared repository, so the code everyone actually ran still had the weak check when the configuration was created. It is published now. We are recording this rather than quietly shipping the fix, because the gap between "we wrote a fix" and "the fix is in what runs" is exactly the kind of thing that is easy to leave unsaid',
+    ],
+  },
+  {
     date: 'July 30, 2026',
     title: 'Launcher Repairs, and What Is Built But Not Live',
     items: [
