@@ -1,7 +1,7 @@
 [package]
 name = "raydium-cp-swap"
 version = "0.2.0"
-description = "Raydium constant product AMM, supports Token2022 and without Openbook"
+description = "Tegridy constant product AMM (fork of Raydium CP-Swap, Apache-2.0), supports Token2022 and without Openbook"
 edition = "2021"
 publish = false
 

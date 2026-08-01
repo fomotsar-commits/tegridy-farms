@@ -1,6 +1,6 @@
 //! # Tegridy Launch — bonding curve
 //!
-//! The launch rail that feeds the Tegridy CP-AMM: a pump.fun-shaped constant
+//! The launch rail that feeds the Tegridy CP-AMM: a virtual-reserve constant
 //! product over virtual reserves. A token bonds here, and on reaching its
 //! graduation target its liquidity migrates into a **Tegridy CP-AMM pool** — the
 //! venue the protocol owns — rather than a third party's.
