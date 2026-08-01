@@ -75,6 +75,14 @@ remappings = [
     # untouched. Needed for the V4 test harness (Deployers pulls in solmate mocks).
     "lib/v4-core/:solmate/=lib/solmate/",
     "lib/v4-periphery/:solmate/=lib/solmate/",
+    # v4-periphery vendors its OWN nested copy of v4-core and permit2, and 14 files
+    # under them import `solmate/src/...` too. A context only matches the path prefix
+    # it names, so `lib/v4-periphery/:` does NOT cover `lib/v4-periphery/lib/v4-core/`.
+    # Without these the bare `solmate/=lib/solmate/src/` wins and resolves to
+    # `lib/solmate/src/src/...`, which does not exist. Older foundry never compiled
+    # these files so the gap was invisible; it is a latent break, not a new one.
+    "lib/v4-periphery/lib/v4-core/:solmate/=lib/solmate/",
+    "lib/v4-periphery/lib/permit2/:solmate/=lib/solmate/",
 ]
 
 [lint]
