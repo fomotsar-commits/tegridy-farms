@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { CurveChart, UNPLOTTABLE_COPY, type CurveChartState } from './CurveChart';
-import type { CurveSnapshot } from '../../lib/launcher/solana/curvePoints';
+import type { CurveSnapshot } from '../../lib/launcher/solana/curve';
 
 // Program test parameters — tests/tegridy-launch-constraints.test.ts:56-68.
 const V_SOL = 30_000_000_000n;
@@ -32,6 +32,38 @@ describe('CurveChart — honest states', () => {
     const { container } = render(<CurveChart state={{ status: 'not-deployed' }} />);
     expect(screen.getByText(/not deployed/i)).toBeTruthy();
     expect(container.querySelector('svg')).toBeNull();
+  });
+
+  // ⚠ THE ASSERTION ABOVE ONLY PINS THE TITLE. A reviewer replaced the whole BODY
+  // of the not-deployed branch with "Trading opens soon. Current price 0.0000 SOL"
+  // — an invented market for a program that does not exist — and the suite stayed
+  // 45/45 green. The three below pin the body's SUBSTANCE, so that substitution
+  // now fails: the first on what the copy must deny, the second on what it must
+  // never assert, the third on the fabrication's exact shape.
+  it('denies a market, a price AND a history in the body, not just the heading', () => {
+    const { container } = render(<CurveChart state={{ status: 'not-deployed' }} />);
+    const text = container.textContent ?? '';
+    expect(text).toMatch(/no market/i);
+    expect(text).toMatch(/no price/i);
+    expect(text).toMatch(/no history/i);
+    // …and says that none of them is shown, rather than merely that they are absent.
+    expect(text).toMatch(/none is shown here/i);
+  });
+
+  it('never states a price, an amount or a percentage while not deployed', () => {
+    const { container } = render(<CurveChart state={{ status: 'not-deployed' }} />);
+    const text = container.textContent ?? '';
+    expect(text).not.toMatch(/\d[\d,]*\.\d+\s*SOL/);
+    expect(text).not.toMatch(/\d+(\.\d+)?%/);
+    expect(text).not.toMatch(/spot price/i);
+    expect(text).not.toMatch(/\bsoon\b/i);
+  });
+
+  it('shows none of the plotted stats when the program is not deployed', () => {
+    render(<CurveChart state={{ status: 'not-deployed' }} />);
+    expect(screen.queryByText(/SOL raised/i)).toBeNull();
+    expect(screen.queryByText(/Still to send/i)).toBeNull();
+    expect(screen.queryByText(/Progress/i)).toBeNull();
   });
 
   it('renders a failed read as a failed read, never as zero', () => {

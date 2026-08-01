@@ -1,36 +1,28 @@
-// Bonding-curve GEOMETRY for our own Solana launch program (`tegridy-launch`).
-//
-// PURE and dependency-free by design, mirroring ./dbc.ts: no Connection, no
-// web3.js, no SDK, not even a type-only one. It takes an already-decoded
-// `BondingCurve` snapshot and returns plot geometry, so the chart component
-// carries zero runtime Solana weight and every number below is host-testable.
+// Bonding-curve GEOMETRY for `tegridy-launch` — plot coordinates, nothing else.
 //
 // WHAT THIS PLOTS, AND WHAT IT REFUSES TO PLOT
 //   The curve is a FUNCTION OF STATE — price at a given amount raised — so it is
 //   always knowable from one account read. It is NOT a time series. There is no
 //   indexer, no trade history, and the program is not deployed anywhere, so a
-//   price-over-time chart could only be fabricated (docs/OWN_CURVE_FRONTEND_CONTRACT.md
-//   §9 row 7). Nothing here produces one.
+//   price-over-time chart could only be fabricated
+//   (docs/OWN_CURVE_FRONTEND_CONTRACT.md §9 row 7). Nothing here produces one.
 //
-// ⚠️ DUPLICATED MATH — CONSOLIDATE WHEN THE QUOTE MODULE LANDS.
-//   The constant-product model and `lamportsUntilTarget` below are transcribed from
-//   solana/tegridy-amm/programs/tegridy-launch/src/curve.rs (read 2026-08-01) and
-//   docs/OWN_CURVE_FRONTEND_CONTRACT.md §5. The trade-quote module (buy/sell) is a
-//   sibling workstream that was NOT committed when this was written, so the model
-//   is restated here. When it lands, this file should import its helpers instead.
-//   Nothing here quotes a trade — it only plots — so a drift is a cosmetic bug
-//   rather than a money bug, but it is still a drift.
+// THE ARITHMETIC IS NOT HERE. An earlier draft of this file restated
+// `lamports_until_target` and the fee constants locally, with a TODO saying to
+// consolidate when the quote module landed. It has landed: `math.ts` is the single
+// port of curve.rs, proven differentially against 3,815 Rust-generated vectors,
+// and this file imports from it. A plot that disagrees with the quote engine is a
+// cosmetic bug rather than a money bug — but a second copy of the model is how the
+// money bug arrives later, so there is one copy.
+//
+// What remains here is genuinely presentational: sampling the domain, normalising
+// to 0..1 canvas coordinates, and deciding which landmarks must sit on the line.
 //
 // BigInt everywhere for on-chain quantities. `virtual_token_reserves` in the
 // program's own tests is 1_073_000_000_000_000; products of that with lamports
-// leave float precision immediately (contract §5, "BigInt everywhere").
+// leave float precision immediately.
 
-/** curve.rs:32. */
-export const BPS_DENOMINATOR = 10_000n;
-/** curve.rs:37 — hard ceiling on the trade fee, enforced at config time too. */
-export const MAX_FEE_BPS = 1_000n;
-/** Solana protocol constant. SOL is always 9 decimals; the LAUNCH MINT is not (§9 row 3). */
-export const LAMPORTS_PER_SOL = 1_000_000_000n;
+import { MAX_FEE_BPS, lamportsUntilTarget, type CurveTerms } from './math';
 
 /** Fixed-point scale for the spot-price ratio. 1e-18 lamports/base-unit is the floor. */
 const PRICE_SCALE = 10n ** 18n;
@@ -46,24 +38,17 @@ const MIN_SAMPLE_COUNT = 2;
 const MAX_SAMPLE_COUNT = 512;
 
 /**
- * The fields of `BondingCurve` this module needs, decoded from the account
- * (contract §3.2, PDA `["curve", mint]`, 162 bytes).
+ * The curve fields this module needs.
  *
- * Every one is a per-launch SNAPSHOT taken at `create_launch` (lib.rs:430-432).
- * Never populate these from `global` — `global` describes only FUTURE launches
- * (contract §9 row 14), and a curve created before a fee change carries the old fee.
+ * Structurally a {@link CurveTerms} plus `complete`, so a decoded `BondingCurve`
+ * satisfies it directly and the same snapshot feeds both the quote engine and the
+ * plot — there is no second shape to keep in step.
+ *
+ * Every field is a per-launch SNAPSHOT taken at `create_launch` (lib.rs:430-432).
+ * Never populate these from `global`: `global` describes only FUTURE launches, and
+ * a curve created before a fee change carries the old fee.
  */
-export interface CurveSnapshot {
-  virtualSolReserves: bigint;
-  virtualTokenReserves: bigint;
-  /** The progress number. NOT the curve PDA's lamport balance (contract §3.3). */
-  realSolReserves: bigint;
-  realTokenReserves: bigint;
-  /** Per-launch snapshot. Quoting from `global.trade_fee_bps` disagrees silently. */
-  tradeFeeBps: bigint;
-  /** EXCLUDES the migration reserve (contract §3.1). */
-  graduationTargetLamports: bigint;
-  migrationReserveLamports: bigint;
+export interface CurveSnapshot extends CurveTerms {
   /** Terminal; only `migrate_to_amm` sets it. */
   complete: boolean;
 }
@@ -75,7 +60,7 @@ export interface CurvePoint {
   effectiveTokens: bigint;
   /**
    * Spot price in lamports per token BASE UNIT — a display ratio, not a trade.
-   * Any real trade moves it (contract §5.6).
+   * Any real trade moves it.
    */
   price: number;
   /** 0..1 across the plotted domain. */
@@ -89,13 +74,17 @@ export interface CurveGeometry {
   points: CurvePoint[];
   /** Where the curve stands right now. */
   current: CurvePoint;
-  /** `graduation_target_lamports` alone — target met, reserve still raising (contract §7.1 row 5). */
+  /** `graduation_target_lamports` alone — target met, reserve still raising. */
   target: CurvePoint;
-  /** target + migration reserve — fully funded, buys revert, sells still work (row 4). */
+  /** target + migration reserve — fully funded, buys revert, sells still work. */
   ceiling: CurvePoint;
   /** `real_sol_reserves / (target + reserve)`, clamped to [0,1]. That denominator is what `buy` caps against. */
   progress: number;
-  /** Lamports a buyer must SEND to fill the curve (already fee-grossed), or null when fully funded. */
+  /**
+   * Lamports a buyer must SEND to fill the curve (already fee-grossed), or `null`
+   * when fully funded — which the program answers with `AwaitingMigration` (6019),
+   * NOT `AlreadyComplete`.
+   */
   lamportsUntilCeiling: bigint | null;
   /** True when reserves already exceed the ceiling, so the domain was widened to keep the marker on-canvas. */
   pastCeiling: boolean;
@@ -107,37 +96,24 @@ export interface CurveGeometry {
  * to a flat line at zero.
  */
 export type CurveUnplottableReason =
-  /** Migration closed the curve; its reserves no longer describe a market (contract §7.2). */
+  /** Migration closed the curve; its reserves no longer describe a market. */
   | 'graduated'
   /** No virtual reserves to price against — nothing to draw. */
   | 'no-virtual-reserves'
   /** target + reserve is zero, so there is no progress denominator. */
   | 'no-graduation-target'
-  /** Fee outside [0, MAX_FEE_BPS]: a config bug, not a user action (contract §6, 6003). */
-  | 'fee-out-of-range';
+  /** Fee outside [0, MAX_FEE_BPS]: a config bug, not a user action (6003). */
+  | 'fee-out-of-range'
+  /**
+   * `math.ts` refused the remaining-to-send figure for these terms — the same
+   * arithmetic the program runs said no. Rather than plot a curve whose headline
+   * number could not be computed, say so.
+   */
+  | 'arithmetic-refused';
 
 export type CurveGeometryResult =
   | { ok: true; geometry: CurveGeometry }
   | { ok: false; reason: CurveUnplottableReason };
-
-/**
- * Port of `lamports_until_target` (curve.rs:216-240).
- *
- * `ceiling` is `graduation_target + migration_reserve` — the target PLUS the
- * reserve, which is what `buy` actually caps against (lib.rs:466-469). The
- * returned value is grossed up for the fee, so it is what a buyer must SEND,
- * not what lands on the curve.
- *
- * `null` = already fully funded. The program answers that case with
- * `AwaitingMigration` (6019), NOT `AlreadyComplete` (lib.rs:476-479).
- */
-export function lamportsUntilTarget(realSolReserves: bigint, ceiling: bigint, feeBps: bigint): bigint | null {
-  if (realSolReserves >= ceiling) return null;
-  const remaining = ceiling - realSolReserves; // post-fee
-  if (feeBps >= BPS_DENOMINATOR || feeBps < 0n) throw new RangeError('fee out of range');
-  const denom = BPS_DENOMINATOR - feeBps;
-  return (remaining * BPS_DENOMINATOR + denom - 1n) / denom; // div_ceil
-}
 
 /**
  * Sample the curve into plot geometry.
@@ -151,8 +127,8 @@ export function lamportsUntilTarget(realSolReserves: bigint, ceiling: bigint, fe
  *     y(r) = k / x(r)
  *     price(r) = x(r) / y(r) = x(r)^2 / k
  *
- * `real_sol_reserves` accumulates the POST-fee amount, so the fee never enters
- * the curve and does not belong in this shape. Integer truncation on real trades
+ * `real_sol_reserves` accumulates the POST-fee amount, so the fee never enters the
+ * curve and does not belong in this shape. Integer truncation on real trades
  * always rounds in the curve's favour, so `k` drifts marginally upward over a
  * launch's life; the plot is redrawn from live state, so it tracks that drift.
  */
@@ -160,14 +136,16 @@ export function buildCurveGeometry(
   curve: CurveSnapshot,
   options: { sampleCount?: number } = {},
 ): CurveGeometryResult {
-  // A graduated curve's reserves were gutted by migration — `real_sol_reserves`
-  // is decremented by (target + reserve) and `real_token_reserves` zeroed
+  // A graduated curve's reserves were gutted by migration — `real_sol_reserves` is
+  // decremented by (target + reserve) and `real_token_reserves` zeroed
   // (lib.rs:1167-1178). Plotting from them would draw a wrong-shaped curve and
   // report a graduated launch as ~0% raised. The pre-graduation `k` cannot be
   // rebuilt from the curve alone (`token_total_supply` lives on `global`), so we
   // refuse rather than guess.
   if (curve.complete) return { ok: false, reason: 'graduated' };
-  if (curve.tradeFeeBps < 0n || curve.tradeFeeBps > MAX_FEE_BPS) return { ok: false, reason: 'fee-out-of-range' };
+  if (curve.tradeFeeBps < 0n || curve.tradeFeeBps > MAX_FEE_BPS) {
+    return { ok: false, reason: 'fee-out-of-range' };
+  }
   if (curve.virtualSolReserves <= 0n || curve.virtualTokenReserves <= 0n) {
     return { ok: false, reason: 'no-virtual-reserves' };
   }
@@ -178,6 +156,13 @@ export function buildCurveGeometry(
   const realSol = curve.realSolReserves > 0n ? curve.realSolReserves : 0n;
   const realToken = curve.realTokenReserves > 0n ? curve.realTokenReserves : 0n;
   const k = (curve.virtualSolReserves + realSol) * (curve.virtualTokenReserves + realToken);
+
+  // THE one number on this chart that is also a quote: what a buyer must still
+  // send. It comes from `math.ts`, and its failure is surfaced rather than
+  // swallowed — a `catch` here would put a plot on screen whose headline stat
+  // silently vanished.
+  const remaining = lamportsUntilTarget(realSol, ceilingRaised, curve.tradeFeeBps);
+  if (!remaining.ok) return { ok: false, reason: 'arithmetic-refused' };
 
   // A curve past its ceiling still has to render its own position, so widen the
   // domain rather than clamp the marker onto the edge and imply it is exactly there.
@@ -225,47 +210,10 @@ export function buildCurveGeometry(
       target: at(curve.graduationTargetLamports),
       ceiling: at(ceilingRaised),
       progress: rawProgress > 1 ? 1 : rawProgress,
-      lamportsUntilCeiling: lamportsUntilTarget(realSol, ceilingRaised, curve.tradeFeeBps),
+      lamportsUntilCeiling: remaining.value,
       pastCeiling,
     },
   };
-}
-
-/** Lamports → a plain SOL string. Exact: no float ever touches the value. */
-export function formatSol(lamports: bigint, decimalPlaces = 4): string {
-  const dp = clampInt(decimalPlaces, 0, 9);
-  const negative = lamports < 0n;
-  const abs = negative ? -lamports : lamports;
-  const whole = (abs / LAMPORTS_PER_SOL).toString();
-  if (dp === 0) return `${negative ? '-' : ''}${whole}`;
-  const frac = (abs % LAMPORTS_PER_SOL).toString().padStart(9, '0').slice(0, dp);
-  return `${negative ? '-' : ''}${whole}.${frac}`;
-}
-
-/**
- * Label the spot price WITHOUT assuming the launch mint's decimals.
- *
- * The program never stores decimals and never constrains them (contract §9 row 3),
- * so with no `tokenDecimals` read from the mint account the only honest unit is
- * raw base units. Never assume 9.
- */
-export function spotPriceLabel(price: number, tokenDecimals?: number): { value: string; unit: string } {
-  if (!Number.isFinite(price) || price < 0) return { value: '—', unit: 'unreadable' };
-  if (tokenDecimals == null || !Number.isInteger(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 18) {
-    return { value: formatRatio(price), unit: 'lamports per base unit' };
-  }
-  const solPerToken = (price * 10 ** tokenDecimals) / Number(LAMPORTS_PER_SOL);
-  return { value: formatRatio(solPerToken), unit: 'SOL per token' };
-}
-
-function formatRatio(v: number): string {
-  if (v === 0) return '0';
-  if (v < 0.000001 || v >= 1e9) return v.toExponential(3);
-  const s = v.toPrecision(4);
-  // Only strip trailing zeros from a FRACTION. Applying it to "1000" leaves "1",
-  // i.e. a price understated by 1000x — the exact silent-wrong-number bug this
-  // whole surface exists to avoid.
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 }
 
 /** Fixed-point 0..1 ratio of two bigints, so no intermediate exceeds float range. */

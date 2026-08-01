@@ -8,13 +8,19 @@
 // chain settles a different one. So this is not "close enough" arithmetic — it is
 // a transcription, and it is proven to be one:
 //
-//   • `curveVectors.fixture.ts` holds 3,125 input/output rows produced by
+//   • `curveVectors.fixture.ts` holds 3,815 input/output rows produced by
 //     COMPILING AND RUNNING the real `curve.rs` on the host (see that file's
 //     header for the exact recipe). `math.test.ts` replays every row through the
 //     functions below and asserts an exact match, error variants included.
 //   • The literal assertions from `curve.rs`'s own `#[cfg(test)] mod tests` are
 //     hand-ported into `math.test.ts` as well, so the two suites pin the same
 //     numbers.
+//
+// ⚠ AND "proven" IS ONLY AS WIDE AS THE SAMPLE. The first fixture drew the two
+// config-time functions from a window that could not reach `u128::MAX`, so their
+// overflow branch was never compared — and the port was wrong there for exactly
+// that reason. When a function gains a new intermediate, widen the generator
+// before trusting the green.
 //
 // Hard rules, all inherited from curve.rs:
 //   • `bigint` everywhere, never `number`. `virtual_token_reserves` is
@@ -44,6 +50,23 @@ export const PRICE_CONTINUITY_BAND_BPS = 500n;
 
 /** Largest value the program can hold in a `u64` field. */
 export const U64_MAX = 2n ** 64n - 1n;
+
+/**
+ * Largest value a Rust `u128` INTERMEDIATE can hold.
+ *
+ * `bigint` has no ceiling and Rust's `u128` does, so every `checked_mul` on a u128
+ * intermediate in curve.rs is a branch this file has to emulate explicitly — the
+ * program returns `Overflow` there and unbounded arithmetic returns a confident
+ * number instead. Most of curve.rs is safe by construction (a product of two `u64`s
+ * is at most `(2^64−1)^2 < u128::MAX`), so this only matters where an intermediate
+ * is itself wider than a `u64`: `graduationPriceRatioBps` and `continuityTarget`,
+ * both of which form `Vs·(Vt+S)` where `Vt+S` can reach 2^65.
+ *
+ * This was a real bug, not a hypothetical: those two were the only functions whose
+ * fixture rows were sampled from a window too narrow to reach the ceiling, and the
+ * port was wrong in exactly the gap. See curveVectors.fixture.ts's header.
+ */
+export const U128_MAX = 2n ** 128n - 1n;
 
 /** The four failures `curve.rs` can return, by name. `CurveError`, curve.rs:51-63. */
 export type CurveErrorCode = 'Overflow' | 'InsufficientLiquidity' | 'ZeroAmount' | 'FeeTooHigh';
@@ -86,6 +109,25 @@ function guardU64(...vs: readonly bigint[]): CurveErrorCode | null {
 /** `u64::try_from` — the program fails rather than wrapping. */
 function toU64(v: bigint): CurveResult<bigint> {
   return isU64(v) ? ok(v) : err<bigint>('Overflow');
+}
+
+/**
+ * `u128::checked_mul` — `Overflow` rather than an unbounded product.
+ *
+ * Written to be called at exactly the points curve.rs calls `checked_mul` on a
+ * u128, in the same order, so the error a caller sees is the error the program
+ * would have returned. Never "tidy" a call away because the inputs look small: the
+ * whole class of bug is that the SAMPLED inputs looked small.
+ */
+function mulU128(a: bigint, b: bigint): CurveResult<bigint> {
+  const p = a * b;
+  return p > U128_MAX ? err<bigint>('Overflow') : ok(p);
+}
+
+/** `u128::checked_add`, for the same reason. */
+function addU128(a: bigint, b: bigint): CurveResult<bigint> {
+  const s = a + b;
+  return s > U128_MAX ? err<bigint>('Overflow') : ok(s);
 }
 
 /** Ceiling division for non-negative bigints. */
@@ -303,10 +345,15 @@ export function graduationPriceRatioBps(
   }
 
   // k is fixed by the opening book: k = Vs · (Vt + S).
-  const k = virtualSol * (virtualToken + tokenSupply);
+  // `Vt + S` reaches 2^65, so `Vs · (Vt + S)` can pass `u128::MAX` and curve.rs
+  // returns Overflow there (curve.rs:339-341). Emulated, not assumed away.
+  const vtPlusS = addU128(virtualToken, tokenSupply);
+  if (!vtPlusS.ok) return err(vtPlusS.error);
+  const k = mulU128(virtualSol, vtPlusS.value);
+  if (!k.ok) return err(k.error);
   // State at migration: the curve has taken in target AND reserve.
   const x = virtualSol + graduationTarget + migrationReserve;
-  const y = k / x;
+  const y = k.value / x;
   // Unsold tokens — everything the pool receives. Rust uses `checked_sub` here,
   // so an underflow is InsufficientLiquidity, not a negative number.
   if (y < virtualToken) return err('InsufficientLiquidity');
@@ -314,7 +361,14 @@ export function graduationPriceRatioBps(
   if (remaining === 0n) return err('InsufficientLiquidity');
 
   // pool/curve = [T / remaining] / [x / y] = T·y / (remaining·x)
-  return toU64((graduationTarget * y * BPS_DENOMINATOR) / (remaining * x));
+  // `y` is a u128, so both products are checked (curve.rs:359-364).
+  const ty = mulU128(graduationTarget, y);
+  if (!ty.ok) return err(ty.error);
+  const num = mulU128(ty.value, BPS_DENOMINATOR);
+  if (!num.ok) return err(num.error);
+  const den = mulU128(remaining, x);
+  if (!den.ok) return err(den.error);
+  return toU64(num.value / den.value);
 }
 
 /**
@@ -336,9 +390,17 @@ export function continuityTarget(
   if (virtualSol === 0n || virtualToken === 0n || tokenSupply === 0n) return err('ZeroAmount');
 
   // Divide before the second multiply so large books do not overflow — and
-  // because the truncation is part of the result the program produces.
-  const scaled = (virtualSol * (virtualToken + tokenSupply)) / virtualToken;
-  const x = isqrt(scaled * (virtualSol + migrationReserve));
+  // because the truncation is part of the result the program produces. The FIRST
+  // multiply is still checked: `Vs · (Vt + S)` precedes the division and can pass
+  // `u128::MAX` on its own (curve.rs:391-394).
+  const vtPlusS = addU128(virtualToken, tokenSupply);
+  if (!vtPlusS.ok) return err(vtPlusS.error);
+  const product = mulU128(virtualSol, vtPlusS.value);
+  if (!product.ok) return err(product.error);
+  const scaled = product.value / virtualToken;
+  const inner = mulU128(scaled, virtualSol + migrationReserve);
+  if (!inner.ok) return err(inner.error);
+  const x = isqrt(inner.value);
   // Rust chains two `checked_sub`s; either underflowing is InsufficientLiquidity.
   if (x < virtualSol) return err('InsufficientLiquidity');
   const afterVs = x - virtualSol;
@@ -507,4 +569,30 @@ export function quoteSellOnCurve(
   }
 
   return q;
+}
+
+// ── slippage ─────────────────────────────────────────────────────────────────
+
+/**
+ * The floor to send as `min_tokens_out` / `min_lamports_out`, from a quote and a
+ * tolerance in bps.
+ *
+ * Rounded DOWN, so the floor is never above what the quote promised — rounding up
+ * would produce an instruction that reverts with `SlippageExceeded` (6007) against
+ * the very quote it was derived from.
+ *
+ * A user surface must never send 0 here. A quote is computed from an account
+ * snapshot and is stale on arrival; 0 accepts any fill at all, which is the whole
+ * sandwich.
+ *
+ * `null` — not a `CurveResult` — on an amount outside `u64` or a tolerance of 100%
+ * or more. This is NOT one of curve.rs's functions and has no `CurveError` to
+ * borrow; `CurveErrorCode` is pinned to the Rust enum and must not grow a variant
+ * the program cannot return. "Accept anything" is not a tolerance, so it has no
+ * answer rather than a permissive one.
+ */
+export function applySlippage(amount: bigint, toleranceBps: bigint): bigint | null {
+  if (!isU64(amount)) return null;
+  if (toleranceBps < 0n || toleranceBps >= BPS_DENOMINATOR) return null;
+  return (amount * (BPS_DENOMINATOR - toleranceBps)) / BPS_DENOMINATOR;
 }

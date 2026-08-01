@@ -46,8 +46,18 @@
  *
  * `status` prints exactly which of these steps is outstanding.
  *
+ * ─── WHERE THE LOGIC LIVES ─────────────────────────────────────────────────────
+ * `src/lib/launcher/solana/curve/` and nowhere else. This harness once imported a
+ * `tegridyLaunch.ts` that carried its OWN transcription of curve.rs, its own account
+ * decoder and its own Borsh encoders — a fourth copy of the same money math, next to
+ * the page's, the chart's and the client's. It is deleted; every symbol below comes
+ * from the one differentially-proven core.
+ *
+ * This file keeps only what a CLI is for: flags, chain pre-flight, refusals and
+ * output. It builds no arithmetic of its own.
+ *
  * ─── WHY A CUSTOM LOADER ───────────────────────────────────────────────────────
- * `tegridyLaunch.ts` is written for the Vite bundler; the inline loader below strips
+ * The core is written for the Vite bundler; the inline loader below strips
  * TypeScript types so a plain `node scripts/…` run works with no build step and no
  * extra dependency (Node >= 23.6). Same trick as solana-dbc-operator.mjs, minus the
  * shims that file needs for imports this one does not have.
@@ -94,17 +104,21 @@ export async function load(url, context, nextLoad) {
 register(`data:text/javascript,${encodeURIComponent(loaderSource)}`);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LIB = pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'launcher', 'solana', 'tegridyLaunch.ts')).href;
+const CURVE = path.join(HERE, '..', 'src', 'lib', 'launcher', 'solana', 'curve');
+const mod = (name) => import(pathToFileURL(path.join(CURVE, `${name}.ts`)).href);
 
-const {
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  TransactionInstruction,
-} = await import('@solana/web3.js');
-const L = await import(LIB);
+const { Connection, Keypair, PublicKey, Transaction } = await import('@solana/web3.js');
+
+// The specific modules, not `index.ts`: the barrel also re-exports `rpc.ts`, which
+// pulls the browser transport (and `frontend/src/lib/solana.ts` behind it) into a
+// process that has a real `Connection` and no business with `/api/solrpc`.
+const L = {
+  ...(await mod('program')),
+  ...(await mod('ix')),
+  ...(await mod('read')),
+  ...(await mod('config')),
+  ...(await mod('math')),
+};
 
 // ─── Program constants (verified against lib.rs / state.rs, not copied blind) ────
 
@@ -237,19 +251,41 @@ function sol(lamports) {
   return `${whole}${frac ? `.${frac}` : ''} SOL`;
 }
 
+const PLACEHOLDER_PROGRAM_ID = L.PROGRAM_ID.toBase58();
+
 function programId(flags) {
-  return flags['program-id'] ? String(flags['program-id']).trim() : L.TEGRIDY_LAUNCH_PROGRAM_ID;
+  return flags['program-id'] ? String(flags['program-id']).trim() : PLACEHOLDER_PROGRAM_ID;
+}
+
+/** `globalPda` takes a `PublicKey`; every call site here has a base58 string. */
+function globalPdaOf(pid) {
+  return L.globalPda(new PublicKey(pid)).toBase58();
 }
 
 function connect() {
   return new Connection(requireEnv('SOLANA_RPC_URL'), 'confirmed');
 }
 
-/** Render a `ProgramDeployment` honestly — an unreadable RPC is never "not deployed". */
+/**
+ * Read deployment + global in the honest order, using the core's readers.
+ *
+ * `global` stays `null` when we DELIBERATELY DID NOT LOOK — because the program is
+ * not deployed, or could not be read — which is different from `absent`, a real read
+ * of a missing account. Never collapse them: one is a fact about the protocol, the
+ * other is a fact about our connection.
+ */
+async function readProtocol(connection, pid) {
+  const programKey = new PublicKey(pid);
+  const program = await L.readDeployment(connection, programKey);
+  if (program.kind !== 'deployed') return { program, global: null };
+  return { program, global: await L.readGlobal(connection, programKey) };
+}
+
+/** Render a `Deployment` honestly — an unreadable RPC is never "not deployed". */
 function printDeployment(d) {
   switch (d.kind) {
     case 'deployed':
-      console.log(`  program      : DEPLOYED (owner ${d.owner}, ${d.dataLen} bytes)`);
+      console.log('  program      : DEPLOYED (an executable account is at this address)');
       return;
     case 'not-deployed':
       console.log('  program      : NOT DEPLOYED — no account at this address');
@@ -259,12 +295,12 @@ function printDeployment(d) {
       console.log('                 someone funded the address; the program is still not deployed');
       return;
     default:
-      console.log(`  program      : COULD NOT READ — ${d.reason}`);
+      console.log(`  program      : COULD NOT READ — ${d.detail}`);
       console.log('                 this is NOT a statement that the program is absent');
   }
 }
 
-function printGlobal(g, programKind) {
+function printGlobal(g, address, programKind) {
   if (!g) {
     console.log(
       programKind === 'unreadable'
@@ -274,23 +310,25 @@ function printGlobal(g, programKind) {
     return;
   }
   switch (g.kind) {
-    case 'not-initialized':
-      console.log(`  global       : NOT INITIALIZED (${g.address}) — run \`init-global\``);
+    case 'absent':
+      console.log(`  global       : NOT INITIALIZED (${address}) — run \`init-global\``);
       return;
-    case 'malformed':
-      console.log(`  global       : MALFORMED at ${g.address} — ${g.reason}`);
+    case 'undecodable':
+      // An account EXISTS at the PDA and is not a GlobalConfig. Reporting that as
+      // "not initialized" would send an operator chasing the wrong thing.
+      console.log(`  global       : MALFORMED at ${address} — ${g.reason}`);
       return;
     case 'unreadable':
-      console.log(`  global       : COULD NOT READ — ${g.reason}`);
+      console.log(`  global       : COULD NOT READ — ${g.detail}`);
       return;
     default:
       break;
   }
-  const c = g.config;
-  const venue = L.graduationVenue(c);
-  console.log(`  global       : INITIALIZED (${g.address})`);
-  console.log(`    authority             : ${c.authority}`);
-  console.log(`    fee_recipient         : ${c.feeRecipient}`);
+  const c = g.value;
+  const ammConfigured = L.isAmmConfigured(c);
+  console.log(`  global       : INITIALIZED (${address})`);
+  console.log(`    authority             : ${c.authority.toBase58()}`);
+  console.log(`    fee_recipient         : ${c.feeRecipient.toBase58()}`);
   console.log(`    trade_fee_bps         : ${c.tradeFeeBps}`);
   console.log(`    initial_virtual_sol   : ${c.initialVirtualSol} (${sol(c.initialVirtualSol)})`);
   console.log(`    initial_virtual_token : ${c.initialVirtualToken}`);
@@ -298,9 +336,9 @@ function printGlobal(g, programKind) {
   console.log(`    graduation_target     : ${c.graduationTargetLamports} (${sol(c.graduationTargetLamports)})`);
   console.log(`    migration_reserve     : ${c.migrationReserveLamports} (${sol(c.migrationReserveLamports)})`);
   console.log(`    paused                : ${c.paused}${c.paused ? '  (buys blocked; SELLS STAY OPEN)' : ''}`);
-  if (venue.kind === 'configured') {
-    console.log(`    cp_swap_program       : ${venue.cpSwapProgram}`);
-    console.log(`    amm_config            : ${venue.ammConfig}`);
+  if (ammConfigured) {
+    console.log(`    cp_swap_program       : ${c.cpSwapProgram.toBase58()}`);
+    console.log(`    amm_config            : ${c.ammConfig.toBase58()}`);
   } else {
     console.log('    graduation venue      : NOT CONFIGURED YET');
     console.log('                            migrate_to_amm fails AmmNotConfigured (6015) until');
@@ -371,35 +409,11 @@ async function maybeSend(connection, tx, flags) {
 
 // ─── Instructions ───────────────────────────────────────────────────────────────
 //
-// The DATA encoders live in tegridyLaunch.ts (unit-tested there) — hand-rolled Borsh
-// with no IDL is exactly the surface that fails silently, so it must not sit in an
-// untested script. Only the ACCOUNT lists live here.
-
-/** `initialize_global` accounts, in declaration order (lib.rs:1222-1240). */
-function ixInitializeGlobal({ pid, authority, feeRecipient, globalPda, args }) {
-  return new TransactionInstruction({
-    programId: pid,
-    keys: [
-      { pubkey: authority, isSigner: true, isWritable: true }, // pays rent for `global`
-      { pubkey: feeRecipient, isSigner: false, isWritable: false },
-      { pubkey: globalPda, isSigner: false, isWritable: true }, // `init`
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    data: Buffer.from(L.encodeInitializeGlobalData(args)),
-  });
-}
-
-/** `update_global` accounts, in declaration order (lib.rs:1242-1252). */
-function ixUpdateGlobal({ pid, globalPda, authority, args }) {
-  return new TransactionInstruction({
-    programId: pid,
-    keys: [
-      { pubkey: globalPda, isSigner: false, isWritable: true },
-      { pubkey: authority, isSigner: true, isWritable: false },
-    ],
-    data: Buffer.from(L.encodeUpdateGlobalData(args)),
-  });
-}
+// Both instructions — account lists AND the hand-rolled Borsh data — come from
+// `curve/ix.ts`, where they are unit-tested byte by byte. Borsh with no IDL is
+// exactly the surface that fails silently, and the failure is not an error: it is
+// the program applying a value to a DIFFERENT field than the operator intended. It
+// must not sit in an untested script, and there must not be two copies of it.
 
 // ─── Shared pre-flight ──────────────────────────────────────────────────────────
 
@@ -409,9 +423,15 @@ function ixUpdateGlobal({ pid, globalPda, authority, args }) {
  * error code after a multisig ceremony.
  */
 async function requireDeployed(connection, pid) {
-  const status = await L.fetchLaunchProtocolStatus(connection, pid);
+  const status = await readProtocol(connection, pid);
   if (status.program.kind === 'unreadable') {
-    fail(`could not read the program account: ${status.program.reason}\n  Refusing to build blind — this is NOT proof the program is absent.`);
+    fail(`could not read the program account: ${status.program.detail}\n  Refusing to build blind — this is NOT proof the program is absent.`);
+  }
+  if (status.program.kind === 'not-a-program') {
+    fail(
+      `an account exists at ${pid} but it is NOT executable (owner ${status.program.owner}).\n` +
+        '  Someone funded the address; the program is still not deployed. Refusing to build.',
+    );
   }
   if (status.program.kind !== 'deployed') {
     fail(
@@ -429,14 +449,15 @@ async function requireDeployed(connection, pid) {
 async function cmdStatus(flags) {
   const pid = programId(flags);
   const connection = connect();
-  const status = await L.fetchLaunchProtocolStatus(connection, pid);
+  const status = await readProtocol(connection, pid);
+  const globalAddress = globalPdaOf(pid);
 
   console.log('[operator] tegridy-launch status');
   console.log(`  cluster      : ${connection.rpcEndpoint.replace(/\?.*$/, '')}`);
-  console.log(`  program id   : ${pid}${pid === L.TEGRIDY_LAUNCH_PROGRAM_ID ? '  (PLACEHOLDER from lib.rs:101)' : ''}`);
-  console.log(`  global PDA   : ${L.deriveGlobalConfigPda(pid)}`);
+  console.log(`  program id   : ${pid}${pid === PLACEHOLDER_PROGRAM_ID ? '  (PLACEHOLDER from lib.rs:101)' : ''}`);
+  console.log(`  global PDA   : ${globalAddress}`);
   printDeployment(status.program);
-  printGlobal(status.global, status.program.kind);
+  printGlobal(status.global, globalAddress, status.program.kind);
 
   console.log('\n  outstanding steps:');
   if (status.program.kind === 'unreadable') {
@@ -450,12 +471,12 @@ async function cmdStatus(flags) {
     console.log('    2. init-global');
     console.log('    3. cp-swap admin creates the AmmConfig');
     console.log('    4. update-global --cp-swap-program … --amm-config …');
-  } else if (status.global?.kind === 'not-initialized') {
+  } else if (status.global?.kind === 'absent') {
     console.log('    2. init-global   ← NEXT  (AMM addresses may be left zero here)');
     console.log('    3. cp-swap admin creates the AmmConfig');
     console.log('    4. update-global --cp-swap-program … --amm-config …');
-  } else if (status.global?.kind === 'initialized') {
-    if (L.graduationVenue(status.global.config).kind === 'not-configured') {
+  } else if (status.global?.kind === 'ok') {
+    if (!L.isAmmConfigured(status.global.value)) {
       console.log('    3. cp-swap admin creates the AmmConfig (if it does not exist)');
       console.log('    4. update-global --cp-swap-program … --amm-config …   ← NEXT');
     } else {
@@ -470,7 +491,7 @@ function cmdDerive(flags) {
   const pid = programId(flags);
   console.log('[operator] derived addresses');
   console.log(`  program id : ${pid}`);
-  console.log(`  global PDA : ${L.deriveGlobalConfigPda(pid)}   seeds ["global"]`);
+  console.log(`  global PDA : ${globalPdaOf(pid)}   seeds ["global"]`);
   console.log('\n  Pure derivation — no chain access, so this says NOTHING about what is deployed.');
 }
 
@@ -504,13 +525,13 @@ async function cmdInitGlobal(flags) {
   const connection = connect();
   const status = await requireDeployed(connection, pid.toBase58());
 
-  if (status.global?.kind === 'initialized') {
+  if (status.global?.kind === 'ok') {
     fail(
       'global is ALREADY initialized — it is a singleton PDA and `initialize_global` runs exactly once.\n' +
         '  Use `update-global` to change parameters (including the AMM addresses).',
     );
   }
-  if (status.global?.kind !== 'not-initialized') {
+  if (status.global?.kind !== 'absent') {
     fail(`refusing to build: global is in state "${status.global?.kind}". Resolve it first.`);
   }
 
@@ -547,22 +568,23 @@ async function cmdInitGlobal(flags) {
   }
 
   const tx = new Transaction().add(
-    ixInitializeGlobal({
-      pid,
-      authority,
-      feeRecipient: new PublicKey(feeRecipient),
-      globalPda: new PublicKey(L.deriveGlobalConfigPda(pid.toBase58())),
-      args: {
+    // Accounts AND data from `curve/ix.ts`; the `global` PDA is derived inside it
+    // from the same `programId`, so the address here cannot drift from the one the
+    // encoder targets.
+    L.initializeGlobalIx(
+      { authority, feeRecipient: new PublicKey(feeRecipient) },
+      {
         tradeFeeBps: requireU64Flag(flags, 'fee-bps'),
         initialVirtualSol: requireU64Flag(flags, 'virtual-sol'),
         initialVirtualToken: requireU64Flag(flags, 'virtual-token'),
         tokenTotalSupply: requireU64Flag(flags, 'supply'),
         graduationTargetLamports: requireU64Flag(flags, 'target'),
         migrationReserveLamports: requireU64Flag(flags, 'reserve'),
-        cpSwapProgram,
-        ammConfig,
+        cpSwapProgram: new PublicKey(cpSwapProgram),
+        ammConfig: new PublicKey(ammConfig),
       },
-    }),
+      { programId: pid },
+    ),
   );
   await prepareAndSign(connection, tx, authority, flags.send ? payer : undefined);
   const sent = await maybeSend(connection, tx, flags);
@@ -574,13 +596,13 @@ async function cmdUpdateGlobal(flags) {
   const connection = connect();
   const status = await requireDeployed(connection, pid.toBase58());
 
-  if (status.global?.kind !== 'initialized') {
+  if (status.global?.kind !== 'ok') {
     fail(
       `global is "${status.global?.kind}" — \`update_global\` requires an initialized config.\n` +
         '  Run `init-global` first.',
     );
   }
-  const current = status.global.config;
+  const current = status.global.value;
 
   if (flags.pause && flags.unpause) fail('--pause and --unpause are mutually exclusive');
   const args = {
@@ -601,34 +623,31 @@ async function cmdUpdateGlobal(flags) {
   // `has_one = authority` (lib.rs:1248). Check it against CHAIN state rather than
   // letting the ceremony end in Unauthorized (6008).
   const payer = await loadKeypair('OPERATOR_KEYPAIR');
-  if (payer.publicKey.toBase58() !== current.authority) {
+  if (payer.publicKey.toBase58() !== current.authority.toBase58()) {
     fail(
       `the loaded key is not \`global.authority\`.\n` +
         `    loaded    : ${payer.publicKey.toBase58()}\n` +
-        `    authority : ${current.authority}\n` +
+        `    authority : ${current.authority.toBase58()}\n` +
         '  On mainnet the authority is the Squads multisig, so this is expected: build the\n' +
         '  instruction inside a Squads proposal rather than signing locally.',
     );
   }
 
-  // The economics are validated TOGETHER whenever any of the three moves
-  // (lib.rs:308-345), against the POST-update values — mirror that resolution here.
-  if (args.graduationTargetLamports !== undefined || args.migrationReserveLamports !== undefined || args.newInitialVirtualSol !== undefined) {
-    const report = L.checkLaunchEconomics({
-      tradeFeeBps: args.tradeFeeBps ?? current.tradeFeeBps,
-      initialVirtualSol: args.newInitialVirtualSol ?? current.initialVirtualSol,
-      initialVirtualToken: current.initialVirtualToken, // not settable by update_global
-      tokenTotalSupply: current.tokenTotalSupply, // not settable by update_global
-      graduationTargetLamports: args.graduationTargetLamports ?? current.graduationTargetLamports,
-      migrationReserveLamports: args.migrationReserveLamports ?? current.migrationReserveLamports,
-    });
+  // EVERY guard `update_global` applies, in the shape the program applies them —
+  // including the MAX_FEE_BPS ceiling, which is unconditional on `--fee-bps` being
+  // supplied and used to be reachable only when an unrelated flag was also present.
+  // The resolution lives in `curve/config.ts` so it is unit-tested rather than
+  // asserted by this script's shape (config.test.ts).
+  const check = L.checkUpdateGlobal(args, current);
+  if (check.economics) {
     console.log('[operator] post-update economics pre-flight');
-    console.log(`  lists at          : ${report.graduationPriceRatioBps ?? '(could not compute)'} bps of the final curve price`);
-    console.log(`  continuity target : ${report.continuityTarget ?? '(could not compute)'}`);
-    if (report.problems.length > 0) {
-      for (const p of report.problems) console.log(`     • ${p}`);
-      fail('the program would reject this update — nothing was built.');
-    }
+    console.log(`  lists at          : ${check.economics.graduationPriceRatioBps ?? '(could not compute)'} bps of the final curve price`);
+    console.log(`  continuity target : ${check.economics.continuityTarget ?? '(could not compute)'}`);
+  }
+  if (check.problems.length > 0) {
+    console.log('[operator] the program would REJECT this update:');
+    for (const p of check.problems) console.log(`     • ${p}`);
+    fail('the program would reject this update — nothing was built.');
   }
 
   console.log('\n[operator] update_global');
@@ -638,12 +657,19 @@ async function cmdUpdateGlobal(flags) {
   }
 
   const tx = new Transaction().add(
-    ixUpdateGlobal({
-      pid,
-      globalPda: new PublicKey(status.global.address),
-      authority: payer.publicKey,
-      args,
-    }),
+    L.updateGlobalIx(
+      { authority: payer.publicKey },
+      {
+        ...args,
+        // `ix.ts` types the address options as `PublicKey`; the flags parse to
+        // base58. `undefined` stays `undefined` — that is `None`, "leave unchanged".
+        newAuthority: args.newAuthority ? new PublicKey(args.newAuthority) : undefined,
+        newFeeRecipient: args.newFeeRecipient ? new PublicKey(args.newFeeRecipient) : undefined,
+        newCpSwapProgram: args.newCpSwapProgram ? new PublicKey(args.newCpSwapProgram) : undefined,
+        newAmmConfig: args.newAmmConfig ? new PublicKey(args.newAmmConfig) : undefined,
+      },
+      { programId: pid },
+    ),
   );
   await prepareAndSign(connection, tx, payer.publicKey, flags.send ? payer : undefined);
   const sent = await maybeSend(connection, tx, flags);

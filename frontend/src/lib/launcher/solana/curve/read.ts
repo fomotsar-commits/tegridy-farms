@@ -119,7 +119,18 @@ async function fetchAccount(rpc: CurveRpc, address: PublicKey): Promise<Fetched>
  * not exist.
  */
 export type Deployment =
-  | { kind: 'deployed'; executable: boolean }
+  | { kind: 'deployed'; executable: true }
+  /**
+   * An account EXISTS at the program id and it is not executable.
+   *
+   * Its own state, never folded into either neighbour. A program id is a public
+   * address and anyone may transfer lamports to it, which makes `getAccountInfo`
+   * return a non-null System-owned account while the program is still not there.
+   * Calling that `deployed` turns a stranger's dust transfer into a live-protocol
+   * badge; calling it `not-deployed` throws away the fact that something is
+   * squatting the address.
+   */
+  | { kind: 'not-a-program'; owner: string }
   | { kind: 'not-deployed' }
   | { kind: 'unreadable'; detail: string };
 
@@ -131,9 +142,19 @@ export async function readDeployment(
   if (r.kind === 'unreadable') return r;
   if (r.kind === 'absent') return { kind: 'not-deployed' };
   // A BPF program account is owned by a loader; nothing here needs to know which
-  // one, only that something is there. `executable` is passed through so a caller
-  // can notice a non-program account squatting the address rather than assume.
-  return { kind: 'deployed', executable: r.value.executable ?? false };
+  // one, only that something executable is there.
+  //
+  // `executable` is OPTIONAL on `AccountSnapshot` so a fixture need not supply it,
+  // and a missing flag must not read as `false` — that would report a real program
+  // as a squatter. Absent means "the transport did not tell us", which is a read
+  // failure about our own call, not a finding about the account.
+  if (r.value.executable === undefined) {
+    return { kind: 'unreadable', detail: 'the RPC response carried no `executable` flag for the program account' };
+  }
+  if (!r.value.executable) {
+    return { kind: 'not-a-program', owner: r.value.owner.toBase58() };
+  }
+  return { kind: 'deployed', executable: true };
 }
 
 // ── accounts ─────────────────────────────────────────────────────────────────
@@ -228,6 +249,11 @@ export async function readRentFloors(
 export type LaunchPhase =
   /** The program is not on this cluster. Say so plainly and stop. */
   | { kind: 'not-deployed' }
+  /**
+   * Something occupies the program id but is not a program. Neither "deployed"
+   * nor "nothing here" — say what was actually found (see {@link Deployment}).
+   */
+  | { kind: 'not-a-program'; owner: string }
   /** A read failed or timed out. Say the read failed. NEVER fall through to a later phase. */
   | { kind: 'unreadable'; detail: string }
   /**
@@ -283,6 +309,9 @@ export function classifyLaunch(
     return { ...bare, phase: { kind: 'unreadable', detail: deployment.detail } };
   }
   if (deployment.kind === 'not-deployed') return { ...bare, phase: { kind: 'not-deployed' } };
+  if (deployment.kind === 'not-a-program') {
+    return { ...bare, phase: { kind: 'not-a-program', owner: deployment.owner } };
+  }
 
   if (global.kind === 'unreadable') {
     return { ...bare, phase: { kind: 'unreadable', detail: global.detail } };

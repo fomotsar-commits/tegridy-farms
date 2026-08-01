@@ -157,6 +157,22 @@ fn main() {
     }
     println!("];");
 
+    // `U128_EDGE` exists because the ORIGINAL sampling window (vs≤2^48, vt/s≤2^56)
+    // capped `vs·(vt+s)` at ~2^105 and therefore never reached `u128::MAX`. Both
+    // functions below hold u128 intermediates that CAN exceed it on real u64 inputs,
+    // and `checked_mul` turns that into `Overflow` — a branch the narrow window made
+    // unreachable, so the TypeScript port went unproven there and got it wrong.
+    // These pairs straddle the u128 ceiling: (vt+s) near 2^65 against a `vs` chosen so
+    // the product lands just under and just over 2^128.
+    const U128_EDGE: [(u64, u64, u64); 6] = [
+        (u64::MAX, u64::MAX, u64::MAX),          // vs·(vt+s) ≈ 2^129 — over
+        (1u64 << 63, u64::MAX, u64::MAX),        // = 2^128 − 2^64 — just under
+        ((1u64 << 63) + 1, u64::MAX, u64::MAX),  // = 2^128 + 2^64 − 2 — just over
+        (1u64 << 60, u64::MAX, u64::MAX),        // well under
+        (u64::MAX, 1, u64::MAX),                 // (vt+s) ≈ 2^64, vs ≈ 2^64 — just under
+        (u64::MAX, u64::MAX, 1),                 // symmetric partner
+    ];
+
     println!("export const PRICE_RATIO_VECTORS: readonly CurveVector[] = [");
     for _ in 0..300 {
         let vs = r.mag(48);
@@ -166,6 +182,24 @@ fn main() {
         let res = r.mag(40);
         let q = graduation_price_ratio_bps(vs, vt, s, t, res).map(|v| vec![v]);
         println!("  {},", row(&[vs, vt, s, t, res], q));
+    }
+    // FULL u64 magnitude on every argument — the window the original sampling missed.
+    for _ in 0..300 {
+        let vs = r.mag(64);
+        let vt = r.mag(64);
+        let s = r.mag(64);
+        let t = r.mag(64);
+        let res = r.mag(64);
+        let q = graduation_price_ratio_bps(vs, vt, s, t, res).map(|v| vec![v]);
+        println!("  {},", row(&[vs, vt, s, t, res], q));
+    }
+    for &(vs, vt, s) in U128_EDGE.iter() {
+        for &t in &[1u64, 1u64 << 59, 1u64 << 62, 1u64 << 63, u64::MAX] {
+            for &res in &[0u64, 1u64 << 40] {
+                let q = graduation_price_ratio_bps(vs, vt, s, t, res).map(|v| vec![v]);
+                println!("  {},", row(&[vs, vt, s, t, res], q));
+            }
+        }
     }
     for &(vs, vt, s, t, res) in &[
         (30_000_000_000u64, 1_073_000_000_000_000u64, 1_000_000_000_000_000u64, 2_000_000_000u64, 250_000_000u64),
@@ -183,6 +217,18 @@ fn main() {
         let s = r.mag(56);
         let res = r.mag(40);
         println!("  {},", row(&[vs, vt, s, res], continuity_target(vs, vt, s, res).map(|v| vec![v])));
+    }
+    for _ in 0..300 {
+        let vs = r.mag(64);
+        let vt = r.mag(64);
+        let s = r.mag(64);
+        let res = r.mag(64);
+        println!("  {},", row(&[vs, vt, s, res], continuity_target(vs, vt, s, res).map(|v| vec![v])));
+    }
+    for &(vs, vt, s) in U128_EDGE.iter() {
+        for &res in &[0u64, 1, 1u64 << 40, 1u64 << 62, u64::MAX] {
+            println!("  {},", row(&[vs, vt, s, res], continuity_target(vs, vt, s, res).map(|v| vec![v])));
+        }
     }
     for &(vs, vt, s, res) in &[
         (30_000_000_000u64, 1_073_000_000_000_000u64, 1_000_000_000_000_000u64, 500_000_000u64),

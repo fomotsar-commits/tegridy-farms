@@ -18,12 +18,23 @@
 import { useId, useMemo } from 'react';
 import {
   buildCurveGeometry,
-  formatSol,
+  formatSol as formatSolRaw,
   spotPriceLabel,
   type CurveGeometry,
   type CurveSnapshot,
   type CurveUnplottableReason,
-} from '../../lib/launcher/solana/curvePoints';
+} from '../../lib/launcher/solana/curve';
+
+/**
+ * Fixed-width SOL for the stat grid — a ragged fraction breaks the column.
+ *
+ * `formatSol` is the ONE formatter (curve/format.ts); `fixed` is a presentation
+ * setting on it, not a second copy. It keeps the `<0.0001` floor either way, so a
+ * curve holding a single lamport reads as "<0.0001 SOL" here rather than the
+ * "0.0000 SOL" the chart's own former copy produced.
+ */
+const formatSol = (lamports: bigint, decimalPlaces = 4) =>
+  formatSolRaw(lamports, decimalPlaces, { fixed: true });
 
 /**
  * Where the plotted numbers came from. Required, not optional: an illustrative
@@ -67,6 +78,24 @@ const INNER_H = VIEW_H - PAD * 2;
 const toX = (x: number) => PAD + x * INNER_W;
 const toY = (y: number) => PAD + (1 - y) * INNER_H;
 
+/**
+ * The not-deployed notice, hoisted out of the JSX so a test can pin the BODY.
+ *
+ * ⚠ THE BODY IS THE LOAD-BEARING PART, not the title. A reviewer replaced this
+ * whole body with "Trading opens soon. Current price 0.0000 SOL" — a fabricated
+ * market for a program that does not exist — and the suite stayed 45/45 green,
+ * because the only assertion matched the title. The `unreadable` and `no-curve`
+ * branches were already pinned on their bodies; this one was not. It is now
+ * (CurveChart.test.tsx), and that is why this is a constant rather than a string
+ * literal inline: a test that reads the same literal proves nothing, so the test
+ * asserts the SUBSTANCE — the three things it promises are absent — not this
+ * object's identity.
+ */
+export const NOT_DEPLOYED_COPY = {
+  title: 'The launch program is not deployed',
+  body: 'There is no bonding curve to plot. This program has not been deployed to mainnet-beta or devnet, so there is no market, no price, and no history — and none is shown here.',
+} as const;
+
 /** Copy for every reason the curve cannot be plotted. Exported for tests. */
 export const UNPLOTTABLE_COPY: Record<CurveUnplottableReason, string> = {
   graduated:
@@ -77,6 +106,8 @@ export const UNPLOTTABLE_COPY: Record<CurveUnplottableReason, string> = {
     'This curve has no graduation target, so there is nothing to measure progress against.',
   'fee-out-of-range':
     'This curve records a trade fee outside the range the program accepts, so no quote or plot from it would be trustworthy.',
+  'arithmetic-refused':
+    'The same arithmetic the program runs refused these curve terms, so the amount still needed to graduate cannot be stated. Nothing is plotted rather than plotted around a missing figure.',
 };
 
 export function CurveChart({ state, tokenDecimals, className }: CurveChartProps) {
@@ -90,10 +121,7 @@ export function CurveChart({ state, tokenDecimals, className }: CurveChartProps)
   if (state.status === 'not-deployed') {
     return (
       <Frame className={className}>
-        <Notice
-          title="The launch program is not deployed"
-          body="There is no bonding curve to plot. This program has not been deployed to mainnet-beta or devnet, so there is no market, no price, and no history — and none is shown here."
-        />
+        <Notice title={NOT_DEPLOYED_COPY.title} body={NOT_DEPLOYED_COPY.body} />
       </Frame>
     );
   }

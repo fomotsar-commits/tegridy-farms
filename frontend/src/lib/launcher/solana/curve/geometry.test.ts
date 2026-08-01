@@ -1,13 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import {
-  BPS_DENOMINATOR,
-  MAX_FEE_BPS,
-  buildCurveGeometry,
-  lamportsUntilTarget,
-  formatSol,
-  spotPriceLabel,
-  type CurveSnapshot,
-} from './curvePoints';
+import { buildCurveGeometry, type CurveSnapshot } from './geometry';
+import { BPS_DENOMINATOR, MAX_FEE_BPS, lamportsUntilTarget } from './math';
+import { formatSol as formatSolRaw, spotPriceLabel } from './format';
+
+// The chart renders SOL fixed-width so its stat columns line up. `formatSol` is a
+// single implementation with `fixed` as a setting — see format.ts — so this local
+// alias is a presentation choice, not a second formatter.
+const formatSol = (lamports: bigint, decimalPlaces = 4) =>
+  formatSolRaw(lamports, decimalPlaces, { fixed: true });
+
+/**
+ * `lamportsUntilTarget` returns a `CurveResult` in the core (curve.rs returns a
+ * `Result`), where the geometry module's former private copy threw. These helpers
+ * keep the assertions below reading the same while pointing at the one port.
+ */
+const untilTarget = (real: bigint, ceiling: bigint, fee: bigint): bigint | null => {
+  const r = lamportsUntilTarget(real, ceiling, fee);
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+};
 
 // The program's OWN test parameters, so the geometry is exercised at the
 // magnitudes it will actually see rather than at invented round numbers.
@@ -132,7 +143,7 @@ describe('buildCurveGeometry — progress and remaining', () => {
   it('grosses the remaining amount up for the fee — it is what a buyer must SEND', () => {
     const g = unwrap(curveAtRaised(GRAD_TARGET));
     const remaining = CEILING - GRAD_TARGET;
-    expect(g.lamportsUntilCeiling).toBe(lamportsUntilTarget(GRAD_TARGET, CEILING, FEE_BPS));
+    expect(g.lamportsUntilCeiling).toBe(untilTarget(GRAD_TARGET, CEILING, FEE_BPS));
     // Strictly more than the bare shortfall, because the fee comes off the top.
     expect(g.lamportsUntilCeiling! > remaining).toBe(true);
   });
@@ -234,22 +245,25 @@ describe('buildCurveGeometry — sampling', () => {
   });
 });
 
-describe('lamportsUntilTarget', () => {
+// These pin the properties the CHART depends on. The function itself is proven
+// against 370 Rust-generated vectors in math.test.ts; this is the second reader of
+// the one port, not a second port.
+describe('lamportsUntilTarget — as the chart consumes it', () => {
   it('returns null once the ceiling is reached — that is AwaitingMigration, not AlreadyComplete', () => {
-    expect(lamportsUntilTarget(CEILING, CEILING, FEE_BPS)).toBeNull();
-    expect(lamportsUntilTarget(CEILING + 1n, CEILING, FEE_BPS)).toBeNull();
+    expect(untilTarget(CEILING, CEILING, FEE_BPS)).toBeNull();
+    expect(untilTarget(CEILING + 1n, CEILING, FEE_BPS)).toBeNull();
   });
 
   it('rounds the gross-up UP, so the returned amount always clears the shortfall', () => {
     // 1 lamport short at 1% => ceil(1 * 10000 / 9900) = 2, not 1.
-    expect(lamportsUntilTarget(CEILING - 1n, CEILING, 100n)).toBe(2n);
+    expect(untilTarget(CEILING - 1n, CEILING, 100n)).toBe(2n);
     // Zero fee is a pass-through.
-    expect(lamportsUntilTarget(0n, 1_000n, 0n)).toBe(1_000n);
+    expect(untilTarget(0n, 1_000n, 0n)).toBe(1_000n);
   });
 
   it('never returns less than the bare shortfall for any fee in range', () => {
     for (const fee of [0n, 1n, 25n, 100n, 300n, MAX_FEE_BPS]) {
-      const gross = lamportsUntilTarget(0n, CEILING, fee)!;
+      const gross = untilTarget(0n, CEILING, fee)!;
       expect(gross >= CEILING).toBe(true);
       // And the post-fee remainder still covers the shortfall: gross - ceil(gross*fee/1e4) >= CEILING.
       const feeTaken = (gross * fee + BPS_DENOMINATOR - 1n) / BPS_DENOMINATOR;
@@ -257,9 +271,26 @@ describe('lamportsUntilTarget', () => {
     }
   });
 
-  it('throws rather than silently answering for an impossible fee', () => {
-    expect(() => lamportsUntilTarget(0n, CEILING, BPS_DENOMINATOR)).toThrow();
-    expect(() => lamportsUntilTarget(0n, CEILING, -1n)).toThrow();
+  it('refuses rather than silently answering for an impossible fee', () => {
+    expect(lamportsUntilTarget(0n, CEILING, BPS_DENOMINATOR)).toEqual({
+      ok: false,
+      error: 'FeeTooHigh',
+    });
+    // Negative is not representable on chain at all — the program would never have
+    // received it, so it is an Overflow, not a fee judgement.
+    expect(lamportsUntilTarget(0n, CEILING, -1n)).toEqual({ ok: false, error: 'Overflow' });
+  });
+
+  it('a curve the arithmetic refuses is not plotted at all', () => {
+    // A fee outside [0, MAX_FEE_BPS] is caught earlier by its own reason; this is
+    // the branch where `lamportsUntilTarget` itself says no. The chart must render
+    // a refusal, never a plot with a blank headline stat.
+    const res = buildCurveGeometry(
+      curveAtRaised(0n, { graduationTargetLamports: 2n ** 64n - 1n, migrationReserveLamports: 2n ** 64n - 1n }),
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('arithmetic-refused');
   });
 });
 
@@ -278,6 +309,16 @@ describe('formatSol', () => {
 
   it('handles a negative delta', () => {
     expect(formatSol(-ONE_SOL, 2)).toBe('-1.00');
+  });
+
+  // The chart's own former copy of formatSol lacked this floor and rendered a
+  // single lamport as "0.0000" — a real balance shown as zero. Consolidating on
+  // the one implementation brought the floor with it, in fixed mode too.
+  it('never renders a non-zero balance as zero, even padded', () => {
+    expect(formatSol(1n)).toBe('<0.0001');
+    expect(formatSol(99_999n)).toBe('<0.0001');
+    // A true zero is still a plain zero — the floor is for values that exist.
+    expect(formatSol(0n)).toBe('0.0000');
   });
 });
 

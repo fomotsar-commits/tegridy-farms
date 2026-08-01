@@ -11,39 +11,38 @@ import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
+import { PublicKey } from '@solana/web3.js';
 import {
-  CurveQuoteError,
   LAUNCH_ERROR_COPY,
-  TEGRIDY_LAUNCH_PROGRAM_ID,
+  PROGRAM_ID,
   applySlippage,
+  browserCurveRpc,
+  browserRpc,
   buyBlockedReason,
-  classifyLaunchPhase,
+  classifyLaunch,
+  clipDetail,
+  curveProgress,
   formatSol,
   formatTokenAmount,
-  graduationProgress,
-  isZeroPubkey,
+  isAmmConfigured,
   looksLikePubkey,
   parseDecimalToBaseUnits,
-  quoteBuy,
-  quoteSell,
+  quoteBuyOnCurve,
+  quoteSellOnCurve,
   raiseCeiling,
-  sellBlockedReason,
-  spotPriceScaled,
-  SPOT_SCALE,
-  type BondingCurveState,
-  type LaunchPhase,
-  type ProgramProbe,
-} from '../lib/launcher/solana/curve';
-import {
-  browserRpc,
-  probeProgram,
+  readDeployment,
   readLaunch,
   readMint,
+  sellBlockedReason,
+  spotPriceLabel,
+  type BondingCurve,
   type CurveWriteClient,
-  type LaunchSnapshot,
+  type Deployment,
+  type LaunchPhase,
+  type LaunchState,
   type MintFacts,
-} from '../lib/launcher/solana/curveClient';
-import type { AccountRead } from '../lib/launcher/solana/curve';
+  type Read,
+} from '../lib/launcher/solana/curve';
 
 // /curve-launch — the surface for OUR OWN bonding curve
 // (solana/tegridy-amm/programs/tegridy-launch), which graduates into our cp-swap
@@ -118,7 +117,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 // ---------------------------------------------------------------------------
 
 const PROBE_COPY: Record<
-  'checking' | ProgramProbe['status'],
+  'checking' | Deployment['kind'],
   { badge: string; tone: string; line: string }
 > = {
   checking: {
@@ -130,6 +129,13 @@ const PROBE_COPY: Record<
     badge: 'NOT DEPLOYED',
     tone: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
     line: 'There is no program at this address. No launches exist, no curve can be traded, and nothing on this page can be signed.',
+  },
+  // Its own badge, not folded into either neighbour: anyone may send lamports to
+  // a public address, so an account can exist there while the program does not.
+  'not-a-program': {
+    badge: 'NOT A PROGRAM',
+    tone: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+    line: 'An account exists at this address but it is not executable, so it is not a program. Someone funded the address; nothing here is deployed.',
   },
   unreadable: {
     badge: 'READ FAILED',
@@ -143,8 +149,8 @@ const PROBE_COPY: Record<
   },
 };
 
-export function DeploymentBanner({ probe }: { probe: ProgramProbe | null }) {
-  const key = probe === null ? 'checking' : probe.status;
+export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
+  const key = probe === null ? 'checking' : probe.kind;
   const c = PROBE_COPY[key];
   return (
     <m.div
@@ -164,8 +170,11 @@ export function DeploymentBanner({ probe }: { probe: ProgramProbe | null }) {
           <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-semibold border ${c.tone}`}>{c.badge}</span>
         </div>
         <p className="text-white/60 text-[11px] leading-relaxed">{c.line}</p>
-        {probe?.status === 'unreadable' && <p className="text-rose-200/80 text-[10px] mt-1.5 break-all">{probe.reason}</p>}
-        <p className="text-white/35 text-[10px] mt-2 break-all font-mono">{TEGRIDY_LAUNCH_PROGRAM_ID}</p>
+        {probe?.kind === 'unreadable' && <p className="text-rose-200/80 text-[10px] mt-1.5 break-all">{probe.detail}</p>}
+        {probe?.kind === 'not-a-program' && (
+          <p className="text-amber-200/80 text-[10px] mt-1.5 break-all">owned by {probe.owner}</p>
+        )}
+        <p className="text-white/35 text-[10px] mt-2 break-all font-mono">{PROGRAM_ID.toBase58()}</p>
         <p className="text-white/35 text-[10px] mt-1 leading-relaxed">
           That id is a placeholder generated so the program compiles. It is replaced with a real key at deploy, so it is
           expected to return nothing today — this badge is a live read, not a hardcoded state.
@@ -181,8 +190,12 @@ export function DeploymentBanner({ probe }: { probe: ProgramProbe | null }) {
 
 const PHASE_COPY: Record<LaunchPhase['kind'], { label: string; line: string }> = {
   'not-deployed': { label: 'Not deployed', line: 'The program does not exist on chain.' },
+  'not-a-program': {
+    label: 'Not a program',
+    line: 'Something occupies the program address but is not executable. Nothing has been deployed, so there is nothing to look up.',
+  },
   unreadable: { label: "Couldn't read", line: 'A read failed. This is not a statement about the launch.' },
-  'not-initialized': {
+  'protocol-not-initialized': {
     label: 'Protocol not initialised',
     line: 'The program exists but its global config has never been created. Not a problem with this mint.',
   },
@@ -207,12 +220,15 @@ export function CurveStateCard({
   curve,
   decimals,
   paused,
+  lookedUp,
 }: {
   phase: LaunchPhase;
-  /** `null` means no lookup has been attempted — which is NOT a failed read. */
-  curve: AccountRead<BondingCurveState> | null;
+  /** `null` whenever no `BondingCurve` was established — see `phase` for why. */
+  curve: BondingCurve | null;
   decimals: number | null;
   paused: boolean | null;
+  /** False means no lookup has been attempted — which is NOT a failed read. */
+  lookedUp: boolean;
 }) {
   const p = PHASE_COPY[phase.kind];
   return (
@@ -226,17 +242,17 @@ export function CurveStateCard({
         )}
       </div>
       <p>{p.line}</p>
-      {phase.kind === 'unreadable' && <p className="text-amber-300/90 break-all">{phase.reason}</p>}
+      {phase.kind === 'unreadable' && <p className="text-amber-300/90 break-all">{phase.detail}</p>}
 
-      {curve?.status === 'present' ? (
-        <CurveNumbers curve={curve.value} decimals={decimals} />
+      {curve ? (
+        <CurveNumbers curve={curve} decimals={decimals} />
       ) : (
         <p className="text-white/40">
-          {curve === null
+          {!lookedUp
             ? // Nothing has been looked up. Saying "the read failed" here would be
               // a claim about a call that was never made.
               'No launch has been looked up yet.'
-            : curve.status === 'absent'
+            : phase.kind === 'pre-launch'
               ? 'No curve account, so there are no reserves to show. Deliberately blank rather than zeroed.'
               : 'Curve reserves are unavailable because the read failed.'}
         </p>
@@ -245,31 +261,51 @@ export function CurveStateCard({
   );
 }
 
-function CurveNumbers({ curve, decimals }: { curve: BondingCurveState; decimals: number | null }) {
+function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: number | null }) {
   const ceiling = raiseCeiling(curve);
-  const progress = graduationProgress(curve);
-  const spot = spotPriceScaled(curve);
+  // One derivation of progress and spot, from the core. `null` here means the
+  // curve's own terms overflow a u64 — an arithmetic refusal, not a zero.
+  const p = curveProgress(curve);
   const sold = formatTokenAmount(curve.realTokenReserves, decimals);
-  // Spot price per WHOLE token needs decimals. Without them the only honest
-  // figure is per base unit, which we say explicitly rather than scaling by an
-  // assumed 9.
-  const spotPerToken =
-    spot === null ? null : decimals === null ? null : (spot * 10n ** BigInt(decimals)) / SPOT_SCALE;
+  // Spot is an exact numerator/denominator pair so nothing is rounded on the way
+  // out. `spotPriceLabel` decides the UNIT, and refuses to assume 9 decimals.
+  const spot =
+    p?.spot == null
+      ? null
+      : spotPriceLabel(Number(p.spot.numerator) / Number(p.spot.denominator), decimals);
+  const progress = p?.progressBps == null ? null : p.progressBps / 10_000;
 
   return (
     <div className="space-y-2 pt-1">
       <div>
         <div className="flex items-baseline justify-between gap-2 mb-1">
           <span className="text-white/60">Raised toward graduation</span>
-          <span className="font-mono text-white/80">{(progress * 100).toFixed(2)}%</span>
+          <span className="font-mono text-white/80">
+            {progress === null ? '—' : `${(progress * 100).toFixed(2)}%`}
+          </span>
         </div>
-        <div className="h-1.5 rounded-full overflow-hidden bg-white/10" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100}>
-          <div className="h-full bg-[var(--color-stan)]" style={{ width: `${Math.min(100, progress * 100)}%` }} />
-        </div>
-        <p className="text-white/40 text-[10px] mt-1">
-          {formatSol(curve.realSolReserves)} of {formatSol(ceiling)} SOL. The denominator is the graduation target plus
-          the migration reserve — the line buys are actually capped at.
-        </p>
+        {progress === null ? (
+          <p className="text-amber-300/90 text-[10px]">
+            Progress could not be computed from this curve&apos;s own terms, so none is shown. That is a refusal, not
+            0%.
+          </p>
+        ) : (
+          <>
+            <div
+              className="h-1.5 rounded-full overflow-hidden bg-white/10"
+              role="progressbar"
+              aria-valuenow={Math.round(progress * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div className="h-full bg-[var(--color-stan)]" style={{ width: `${Math.min(100, progress * 100)}%` }} />
+            </div>
+            <p className="text-white/40 text-[10px] mt-1">
+              {formatSol(curve.realSolReserves)} of {ceiling.ok ? formatSol(ceiling.value) : '—'} SOL. The denominator
+              is the graduation target plus the migration reserve — the line buys are actually capped at.
+            </p>
+          </>
+        )}
       </div>
 
       <Row label="SOL raised (curve reserves)" value={`${formatSol(curve.realSolReserves)} SOL`} />
@@ -277,16 +313,7 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurveState; decimals:
       <Row label="Migration reserve" value={`${formatSol(curve.migrationReserveLamports)} SOL`} />
       <Row label="Trade fee (this launch)" value={`${(Number(curve.tradeFeeBps) / 100).toFixed(2)}%`} />
       <Row label={`Tokens still on the curve${sold.isBaseUnits ? ' (base units)' : ''}`} value={sold.text} />
-      <Row
-        label="Spot price"
-        value={
-          spotPerToken === null
-            ? spot === null
-              ? '—'
-              : `${spot.toString()} / 1e12 lamports per base unit`
-            : `${formatSol(spotPerToken, 9)} SOL per token`
-        }
-      />
+      <Row label="Spot price" value={spot === null ? '—' : `${spot.value} ${spot.unit}`} />
       <p className="text-white/35 text-[10px] leading-relaxed">
         Spot is a display ratio off the curve&apos;s virtual + real reserves. Any real trade moves it, so it is not an
         executable price. There is no market cap, volume or holder count here — none of them exist in program state.
@@ -311,7 +338,7 @@ export function TradePanel({
   writeClient,
 }: {
   phase: LaunchPhase;
-  curve: AccountRead<BondingCurveState> | null;
+  curve: BondingCurve | null;
   decimals: number | null;
   paused: boolean | null;
   writeClient: CurveWriteClient | null;
@@ -320,7 +347,7 @@ export function TradePanel({
   const [amount, setAmount] = useState('');
   const [slippageBps, setSlippageBps] = useState(100n);
 
-  const c = curve?.status === 'present' ? curve.value : null;
+  const c = curve;
   // Paused is an overlay on buys only. `sell` is deliberately unpausable
   // (lib.rs:563-564) — a pause stops new money entering, it must never strand
   // holders — so a paused protocol must NOT grey out the sell side.
@@ -333,13 +360,15 @@ export function TradePanel({
     // assumed 9.
     const raw = side === 'buy' ? parseDecimalToBaseUnits(amount, 9) : parseDecimalToBaseUnits(amount, decimals ?? 0);
     if (raw === null || raw === 0n) return null;
-    try {
-      return side === 'buy'
-        ? ({ side: 'buy', ...quoteBuy(c, raw) } as const)
-        : ({ side: 'sell', ...quoteSell(c, raw) } as const);
-    } catch (e) {
-      return e instanceof CurveQuoteError ? ({ side: 'error', code: e.code } as const) : null;
+    // `quoteBuyOnCurve` / `quoteSellOnCurve` are the SAME arithmetic the program
+    // runs, and they RETURN their failures rather than throwing. No try/catch: a
+    // catch-all is how a real failure becomes a clean-looking zero.
+    if (side === 'buy') {
+      const q = quoteBuyOnCurve(c, raw);
+      return q.ok ? ({ side: 'buy', ...q.value } as const) : ({ side: 'error', code: q.error } as const);
     }
+    const q = quoteSellOnCurve(c, raw);
+    return q.ok ? ({ side: 'sell', ...q.value } as const) : ({ side: 'error', code: q.error } as const);
   }, [c, blocked, side, amount, decimals]);
 
   const disabled = !c || !!blocked;
@@ -435,24 +464,27 @@ function BuyQuoteRows({
   decimals,
   slippageBps,
 }: {
-  quote: { cappedIn: bigint; feeLamports: bigint; lamportsToCurve: bigint; tokensOut: bigint; capped: boolean };
+  quote: { lamportsIn: bigint; feeLamports: bigint; lamportsToCurve: bigint; tokensOut: bigint; capped: boolean };
   decimals: number | null;
   slippageBps: bigint;
 }) {
   const out = formatTokenAmount(quote.tokensOut, decimals);
-  const floor = formatTokenAmount(applySlippage(quote.tokensOut, slippageBps), decimals);
+  // `applySlippage` returns null for a tolerance it will not honour. A missing
+  // floor is stated, never rendered as 0 — 0 accepts any fill at all.
+  const floorRaw = applySlippage(quote.tokensOut, slippageBps);
+  const floor = floorRaw === null ? null : formatTokenAmount(floorRaw, decimals);
   return (
     <div className="space-y-1.5 pt-1">
       {quote.capped && (
         <p className="text-amber-300/90">
-          Capped at the graduation line. You will spend {formatSol(quote.cappedIn)} SOL, not the amount entered — the
+          Capped at the graduation line. You will spend {formatSol(quote.lamportsIn)} SOL, not the amount entered — the
           remainder is never taken and never leaves your wallet.
         </p>
       )}
-      <Row label="You pay" value={`${formatSol(quote.cappedIn)} SOL`} />
+      <Row label="You pay" value={`${formatSol(quote.lamportsIn)} SOL`} />
       <Row label="…of which fee" value={`${formatSol(quote.feeLamports)} SOL`} />
       <Row label={`You receive${out.isBaseUnits ? ' (base units)' : ''}`} value={out.text} />
-      <Row label="Minimum received" value={floor.text} />
+      <Row label="Minimum received" value={floor === null ? 'not computable at that tolerance' : floor.text} />
       <p className="text-white/35 text-[10px] leading-relaxed">
         A quote is computed from an account snapshot and is stale the moment it is made, so a trade carries the minimum
         above as an on-chain floor. Network fees and the rent for a token account, if you do not already have one, are on
@@ -462,12 +494,22 @@ function BuyQuoteRows({
   );
 }
 
-function SellQuoteRows({ quote, slippageBps }: { quote: { gross: bigint; feeLamports: bigint; lamportsOut: bigint }; slippageBps: bigint }) {
+function SellQuoteRows({
+  quote,
+  slippageBps,
+}: {
+  quote: { grossLamports: bigint; feeLamports: bigint; lamportsOut: bigint };
+  slippageBps: bigint;
+}) {
+  const floor = applySlippage(quote.lamportsOut, slippageBps);
   return (
     <div className="space-y-1.5 pt-1">
       <Row label="You receive" value={`${formatSol(quote.lamportsOut)} SOL`} />
       <Row label="…after fee" value={`${formatSol(quote.feeLamports)} SOL`} />
-      <Row label="Minimum received" value={`${formatSol(applySlippage(quote.lamportsOut, slippageBps))} SOL`} />
+      <Row
+        label="Minimum received"
+        value={floor === null ? 'not computable at that tolerance' : `${formatSol(floor)} SOL`}
+      />
       <p className="text-white/35 text-[10px] leading-relaxed">
         A sell may also be refused if it would drop the curve account below its rent floor. That check reads the
         account&apos;s live balance, so it is only knowable at send time.
@@ -506,13 +548,16 @@ function Check({ ok, children }: { ok: boolean | null; children: React.ReactNode
 export function CreateChecklist({
   mint,
   global,
+  globalPhase,
 }: {
-  /** `null` on both = nothing looked up yet, which is not a failed read. */
-  mint: AccountRead<MintFacts> | null;
-  global: LaunchSnapshot['global'] | null;
+  /** `null` = nothing looked up yet, which is not a failed read. */
+  mint: Read<MintFacts> | null;
+  global: LaunchState['global'];
+  /** Why `global` is null, when it is. Drives the copy — never a blank or a zero. */
+  globalPhase: LaunchPhase | null;
 }) {
-  const f = mint?.status === 'present' ? mint.value : null;
-  const g = global?.status === 'present' ? global.value : null;
+  const f = mint?.kind === 'ok' ? mint.value : null;
+  const g = global;
   return (
     <Card title="Open a launch">
       <p>
@@ -540,9 +585,14 @@ export function CreateChecklist({
       </ul>
 
       {mint === null && <p className="text-white/40">No mint looked up, so none of the above has been checked yet.</p>}
-      {mint?.status === 'absent' && <p className="text-white/40">No mint at that address yet.</p>}
-      {mint?.status === 'unreadable' && (
-        <p className="text-amber-300/90">Could not read the mint, so none of the above has been checked: {mint.reason}</p>
+      {mint?.kind === 'absent' && <p className="text-white/40">No mint at that address yet.</p>}
+      {mint?.kind === 'unreadable' && (
+        <p className="text-amber-300/90">Could not read the mint, so none of the above has been checked: {mint.detail}</p>
+      )}
+      {mint?.kind === 'undecodable' && (
+        <p className="text-amber-300/90">
+          That address holds an account that is not an SPL mint ({mint.reason}), so none of the above has been checked.
+        </p>
       )}
       {f && <Row label="Decimals (read from the mint)" value={String(f.decimals)} />}
 
@@ -554,17 +604,14 @@ export function CreateChecklist({
             <Row label="Graduation target" value={`${formatSol(g.graduationTargetLamports)} SOL`} />
             <Row label="Migration reserve" value={`${formatSol(g.migrationReserveLamports)} SOL`} />
             <Row label="Total supply (base units)" value={g.tokenTotalSupply.toString()} />
-            <Row
-              label="Graduation venue"
-              value={isZeroPubkey(g.cpSwapProgram) || isZeroPubkey(g.ammConfig) ? 'not configured yet' : 'configured'}
-            />
+            <Row label="Graduation venue" value={isAmmConfigured(g) ? 'configured' : 'not configured yet'} />
             {g.paused && <p className="text-amber-300/90">New launches are paused.</p>}
           </>
         ) : (
           <p className="text-white/40">
-            {global === null
+            {globalPhase === null
               ? 'Nothing has been read yet, so the terms are not known.'
-              : global.status === 'absent'
+              : globalPhase.kind === 'protocol-not-initialized'
                 ? 'The protocol config has not been created, so there are no terms to show yet.'
                 : 'The protocol config could not be read, so the terms are unknown.'}
           </p>
@@ -585,14 +632,15 @@ export function CreateChecklist({
 // ---------------------------------------------------------------------------
 
 export interface CurveLaunchViewProps {
-  probe: ProgramProbe | null;
-  snapshot: LaunchSnapshot | null;
-  mint: AccountRead<MintFacts> | null;
+  probe: Deployment | null;
+  /** `null` until a lookup has been made — NOT the same as a failed one. */
+  snapshot: LaunchState | null;
+  mint: Read<MintFacts> | null;
   mintInput: string;
   onMintInput: (v: string) => void;
   onLookup: () => void;
   loading: boolean;
-  /** Null until a write client exists. See curveClient.ts's CurveWriteClient. */
+  /** Null until a write client exists. See curve/rpc.ts's CurveWriteClient. */
   writeClient?: CurveWriteClient | null;
   wallet?: { address: string | null; connecting: boolean; onConnect: () => void };
 }
@@ -612,24 +660,22 @@ export function CurveLaunchView({
   writeClient = null,
   wallet,
 }: CurveLaunchViewProps) {
-  // `null` = no lookup attempted. Kept distinct from a failed read all the way
-  // down: the classifier has to call it unreadable (it genuinely cannot say),
-  // but the cards must not tell the user that a call failed when none was made.
-  const globalRead = snapshot?.global ?? null;
-  const curveRead = snapshot?.curve ?? null;
-  const notLookedUp = { status: 'unreadable', reason: 'not looked up yet' } as const;
-  const phase = classifyLaunchPhase(
-    probe ?? { status: 'unreadable', reason: 'still checking' },
-    globalRead ?? notLookedUp,
-    curveRead ?? notLookedUp,
-  );
-  const paused = globalRead?.status === 'present' ? globalRead.value.paused : null;
-  const decimals = mint?.status === 'present' ? mint.value.decimals : null;
+  // `snapshot === null` = no lookup attempted. Kept distinct from a failed read
+  // all the way down: the classifier has to call it unreadable (it genuinely
+  // cannot say), but the cards must not tell the user that a call failed when no
+  // call was made — which is what `lookedUp` below is for.
+  const lookedUp = snapshot !== null;
+  const notLookedUp = { kind: 'unreadable', detail: 'not looked up yet' } as const;
+  const phase =
+    snapshot?.phase ??
+    classifyLaunch(probe ?? { kind: 'unreadable', detail: 'still checking' }, notLookedUp, notLookedUp).phase;
+  const paused = snapshot?.paused ?? null;
+  const decimals = mint?.kind === 'ok' ? mint.value.decimals : null;
 
   // A lookup is only meaningful once we know a program is actually there.
   // Offering it beforehand would invite deriving PDAs under a program that does
   // not exist and rendering their absence as data about a launch.
-  const canLookUp = probe?.status === 'deployed' && looksLikePubkey(mintInput);
+  const canLookUp = probe?.kind === 'deployed' && looksLikePubkey(mintInput);
 
   return (
     <>
@@ -651,7 +697,7 @@ export function CurveLaunchView({
               onChange={(e) => onMintInput(e.target.value)}
               placeholder="Base58 mint address"
               spellCheck={false}
-              disabled={probe?.status !== 'deployed'}
+              disabled={probe?.kind !== 'deployed'}
               aria-label="Token mint address"
             />
           </Field>
@@ -663,7 +709,7 @@ export function CurveLaunchView({
           >
             {loading ? 'Reading…' : 'Look up'}
           </button>
-          {probe?.status === 'not-deployed' && (
+          {(probe?.kind === 'not-deployed' || probe?.kind === 'not-a-program') && (
             <p className="text-white/40">Nothing to look up while the program does not exist.</p>
           )}
           {mintInput.trim() !== '' && !looksLikePubkey(mintInput) && (
@@ -671,11 +717,23 @@ export function CurveLaunchView({
           )}
         </Card>
 
-        <CurveStateCard phase={phase} curve={curveRead} decimals={decimals} paused={paused} />
+        <CurveStateCard
+          phase={phase}
+          curve={snapshot?.curve?.curve ?? null}
+          decimals={decimals}
+          paused={paused}
+          lookedUp={lookedUp}
+        />
 
-        <TradePanel phase={phase} curve={curveRead} decimals={decimals} paused={paused} writeClient={writeClient} />
+        <TradePanel
+          phase={phase}
+          curve={snapshot?.curve?.curve ?? null}
+          decimals={decimals}
+          paused={paused}
+          writeClient={writeClient}
+        />
 
-        <CreateChecklist mint={mint} global={globalRead} />
+        <CreateChecklist mint={mint} global={snapshot?.global ?? null} globalPhase={lookedUp ? phase : null} />
 
         {wallet && (
           <Card title="Wallet">
@@ -766,43 +824,48 @@ function CurveLaunchInner() {
   const { publicKey, connecting } = useWallet();
   const { setVisible } = useWalletModal();
 
+  // One transport, two views of it: the raw JSON-RPC callable for `readMint`, and
+  // the `CurveRpc` adapter every reader in `curve/read.ts` is written against.
   const rpc = useMemo(() => browserRpc(), []);
-  const [probe, setProbe] = useState<ProgramProbe | null>(null);
+  const curveRpc = useMemo(() => browserCurveRpc(rpc), [rpc]);
+  const [probe, setProbe] = useState<Deployment | null>(null);
   const [mintInput, setMintInput] = useState('');
-  const [snapshot, setSnapshot] = useState<LaunchSnapshot | null>(null);
-  const [mint, setMint] = useState<AccountRead<MintFacts> | null>(null);
+  const [snapshot, setSnapshot] = useState<LaunchState | null>(null);
+  const [mint, setMint] = useState<Read<MintFacts> | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // The first read any surface performs. `null` → not deployed, and we stop
-  // there rather than deriving PDAs and rendering their absence as data.
+  // The first read any surface performs. `not-deployed` → we stop there rather
+  // than deriving PDAs and rendering their absence as data. A malformed or failed
+  // response is `unreadable`, which is not that answer.
   useEffect(() => {
     let live = true;
-    probeProgram(rpc).then((r) => {
+    readDeployment(curveRpc).then((r) => {
       if (live) setProbe(r);
     });
     return () => {
       live = false;
     };
-  }, [rpc]);
+  }, [curveRpc]);
 
   const onLookup = useCallback(async () => {
     const addr = mintInput.trim();
-    if (probe?.status !== 'deployed' || !looksLikePubkey(addr)) return;
+    if (probe?.kind !== 'deployed' || !looksLikePubkey(addr)) return;
     setLoading(true);
     try {
-      const [snap, facts] = await Promise.all([readLaunch(rpc, addr), readMint(rpc, addr)]);
+      const key = new PublicKey(addr);
+      const [snap, facts] = await Promise.all([readLaunch(curveRpc, key), readMint(rpc, addr)]);
       setSnapshot(snap);
       setMint(facts);
     } catch (e) {
       // A throw here is a client fault (a malformed address reaching PDA
       // derivation), not a finding — surface it as unreadable, not as absent.
-      const reason = (e as Error).message;
+      const detail = clipDetail(e);
       setSnapshot(null);
-      setMint({ status: 'unreadable', reason });
+      setMint({ kind: 'unreadable', detail });
     } finally {
       setLoading(false);
     }
-  }, [mintInput, probe, rpc]);
+  }, [mintInput, probe, rpc, curveRpc]);
 
   return (
     <CurveLaunchView

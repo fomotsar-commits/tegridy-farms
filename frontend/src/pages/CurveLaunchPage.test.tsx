@@ -1,9 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { PublicKey } from '@solana/web3.js';
 import { CurveLaunchView, type CurveLaunchViewProps } from './CurveLaunchPage';
-import type { AccountRead, BondingCurveState, GlobalConfigState, ProgramProbe } from '../lib/launcher/solana/curve';
-import type { LaunchSnapshot, MintFacts } from '../lib/launcher/solana/curveClient';
+import {
+  classifyLaunch,
+  type BondingCurve,
+  type CurveAccount,
+  type Deployment,
+  type GlobalConfig,
+  type LaunchState,
+  type MintFacts,
+  type Read,
+} from '../lib/launcher/solana/curve';
 
 // The page's I/O sits in the default export; `CurveLaunchView` is the
 // presentational seam, so every phase can be driven directly without a wallet
@@ -21,11 +30,13 @@ vi.mock('framer-motion', () => {
 });
 
 const SOL = 1_000_000_000n;
+const KEY = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
+const DEPLOYED: Deployment = { kind: 'deployed', executable: true };
 
-function curve(over: Partial<BondingCurveState> = {}): BondingCurveState {
+function curve(over: Partial<BondingCurve> = {}): BondingCurve {
   return {
-    mint: new Uint8Array(32).fill(1),
-    creator: new Uint8Array(32).fill(2),
+    mint: KEY(1),
+    creator: KEY(2),
     virtualSolReserves: 30n * SOL,
     virtualTokenReserves: 1_073_000_000_000_000n,
     realSolReserves: 0n,
@@ -34,53 +45,57 @@ function curve(over: Partial<BondingCurveState> = {}): BondingCurveState {
     graduationTargetLamports: 85n * SOL,
     migrationReserveLamports: 1n * SOL,
     complete: false,
-    pool: new Uint8Array(32),
+    pool: new PublicKey(new Uint8Array(32)),
     bump: 255,
     ...over,
   };
 }
 
-function globalCfg(over: Partial<GlobalConfigState> = {}): GlobalConfigState {
+function globalCfg(over: Partial<GlobalConfig> = {}): GlobalConfig {
   return {
-    authority: new Uint8Array(32).fill(3),
-    feeRecipient: new Uint8Array(32).fill(4),
+    authority: KEY(3),
+    feeRecipient: KEY(4),
     tradeFeeBps: 100n,
     initialVirtualSol: 30n * SOL,
     initialVirtualToken: 1_073_000_000_000_000n,
     tokenTotalSupply: 1_000_000_000_000_000n,
     graduationTargetLamports: 85n * SOL,
     migrationReserveLamports: 1n * SOL,
-    cpSwapProgram: new Uint8Array(32).fill(5),
-    ammConfig: new Uint8Array(32).fill(6),
+    cpSwapProgram: KEY(5),
+    ammConfig: KEY(6),
     paused: false,
     bump: 254,
     ...over,
   };
 }
 
+const curveAccount = (c: BondingCurve, lamports = 0n): CurveAccount => ({
+  address: KEY(9),
+  curve: c,
+  lamports,
+});
+
+/**
+ * Build a `LaunchState` the way the page receives one — through the REAL
+ * classifier, not by hand. A hand-built phase would let this suite assert a
+ * rendering for a state the classifier can never produce.
+ */
 function snapshot(
-  g: AccountRead<GlobalConfigState>,
-  c: AccountRead<BondingCurveState>,
-  over: Partial<LaunchSnapshot> = {},
-): LaunchSnapshot {
-  return {
-    global: g,
-    curve: c,
-    curveAccountLamports: null,
-    curveRentExemptLamports: null,
-    pdas: { global: 'G', curve: 'C', vault: 'V', migrationAuthority: 'M', pool: 'P' },
-    ...over,
-  };
+  g: Read<GlobalConfig>,
+  c: Read<CurveAccount>,
+  deployment: Deployment = DEPLOYED,
+): LaunchState {
+  return classifyLaunch(deployment, g, c);
 }
 
-const mintFacts = (over: Partial<MintFacts> = {}): AccountRead<MintFacts> => ({
-  status: 'present',
+const mintFacts = (over: Partial<MintFacts> = {}): Read<MintFacts> => ({
+  kind: 'ok',
   value: { supply: 0n, decimals: 9, mintAuthority: 'creator', freezeAuthority: null, isLegacySplToken: true, ...over },
 });
 
 function renderView(over: Partial<CurveLaunchViewProps> = {}) {
   const props: CurveLaunchViewProps = {
-    probe: { status: 'not-deployed' },
+    probe: { kind: 'not-deployed' },
     snapshot: null,
     mint: null,
     mintInput: '',
@@ -105,7 +120,7 @@ function renderView(over: Partial<CurveLaunchViewProps> = {}) {
 
 describe('deployment honesty', () => {
   it('says NOT DEPLOYED, from a read, and offers no lookup', () => {
-    renderView({ probe: { status: 'not-deployed' } });
+    renderView({ probe: { kind: 'not-deployed' } });
     expect(screen.getByText('NOT DEPLOYED')).toBeInTheDocument();
     expect(screen.getByText(/no program at this address/i)).toBeInTheDocument();
     expect(screen.getByLabelText('Token mint address')).toBeDisabled();
@@ -116,7 +131,7 @@ describe('deployment honesty', () => {
     // A fourth state alongside present/absent/unreadable: not asked. On first
     // load nothing has been looked up, and saying "the read failed" there is a
     // claim about a call that was never made.
-    renderView({ probe: { status: 'not-deployed' }, snapshot: null, mint: null });
+    renderView({ probe: { kind: 'not-deployed' }, snapshot: null, mint: null });
     expect(screen.getByText(/no launch has been looked up yet/i)).toBeInTheDocument();
     expect(screen.getByText(/no mint looked up, so none of the above has been checked yet/i)).toBeInTheDocument();
     expect(screen.getByText(/nothing has been read yet, so the terms are not known/i)).toBeInTheDocument();
@@ -134,7 +149,7 @@ describe('deployment honesty', () => {
 
   it('renders a failed probe as READ FAILED — never as "not deployed"', () => {
     // The defect class: an RPC error rendering as a clean negative finding.
-    renderView({ probe: { status: 'unreadable', reason: 'HTTP 503 from proxy' } });
+    renderView({ probe: { kind: 'unreadable', detail: 'HTTP 503 from proxy' } });
     expect(screen.getByText('READ FAILED')).toBeInTheDocument();
     // The reason is surfaced by both the banner and the curve card, because the
     // probe failure propagates into the phase. Redundant, not contradictory.
@@ -143,22 +158,52 @@ describe('deployment honesty', () => {
     expect(screen.queryByText('NOT DEPLOYED')).not.toBeInTheDocument();
   });
 
+  // ⚠ THE DEFECT THIS PAGE SHIPPED. `browserRpc` returned `body.result`, which is
+  // `undefined` for a 200 carrying neither `result` nor `error`; `?? null`
+  // downstream turned that into `{status:'not-deployed'}` and this page stated
+  // "There is no program at this address. No launches exist…" — a finding
+  // fabricated from a non-answer. The transport now throws (curve/rpc.test.ts) and
+  // the read surfaces as `unreadable`; this pins what the USER then sees.
+  it('a malformed RPC answer renders as READ FAILED, never as a confident negative', () => {
+    renderView({
+      probe: { kind: 'unreadable', detail: 'getAccountInfo: the response carried no `value`' },
+    });
+    expect(screen.getByText('READ FAILED')).toBeInTheDocument();
+    expect(screen.queryByText('NOT DEPLOYED')).not.toBeInTheDocument();
+    const body = document.body.textContent ?? '';
+    expect(body).not.toMatch(/There is no program at this address/i);
+    expect(body).not.toMatch(/No launches exist/i);
+    expect(body).toMatch(/says nothing about whether the program is live/i);
+  });
+
+  // The other end of the same distinction: an account IS there and it is not a
+  // program. Neither "deployed" nor "nothing here".
+  it('renders a squatting non-program account as its own state, and names the owner', () => {
+    renderView({ probe: { kind: 'not-a-program', owner: 'SoLsQuAtTeR11111111111111111111111111111111' } });
+    expect(screen.getByText('NOT A PROGRAM')).toBeInTheDocument();
+    expect(screen.getByText(/owned by SoLsQuAtTeR/)).toBeInTheDocument();
+    expect(screen.queryByText('DEPLOYED')).not.toBeInTheDocument();
+    expect(screen.queryByText('NOT DEPLOYED')).not.toBeInTheDocument();
+    // And it does not invite a lookup against a program that is not there.
+    expect(screen.getByRole('button', { name: /look up/i })).toBeDisabled();
+  });
+
   it('enables lookup only once a program was actually found', () => {
-    renderView({ probe: { status: 'deployed' }, mintInput: 'So11111111111111111111111111111111111111112' });
+    renderView({ probe: DEPLOYED, mintInput: 'So11111111111111111111111111111111111111112' });
     expect(screen.getByLabelText('Token mint address')).not.toBeDisabled();
     expect(screen.getByRole('button', { name: /look up/i })).not.toBeDisabled();
   });
 
   it('withholds lookup for an address that is not plausibly base58', () => {
-    renderView({ probe: { status: 'deployed' }, mintInput: 'not-an-address!!' });
+    renderView({ probe: DEPLOYED, mintInput: 'not-an-address!!' });
     expect(screen.getByRole('button', { name: /look up/i })).toBeDisabled();
     expect(screen.getByText(/does not look like a base58/i)).toBeInTheDocument();
   });
 
   it('never fabricates a market: no USD figure, no volume window, no holder count', () => {
     renderView({
-      probe: { status: 'deployed' },
-      snapshot: snapshot({ status: 'present', value: globalCfg() }, { status: 'present', value: curve() }),
+      probe: DEPLOYED,
+      snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'ok', value: curveAccount(curve()) }),
       mint: mintFacts(),
     });
     const body = document.body.textContent ?? '';
@@ -179,29 +224,29 @@ describe('deployment honesty', () => {
 // ---------------------------------------------------------------------------
 
 describe('phase rendering', () => {
-  const g: AccountRead<GlobalConfigState> = { status: 'present', value: globalCfg() };
-  const deployed: ProgramProbe = { status: 'deployed' };
+  const g: Read<GlobalConfig> = { kind: 'ok', value: globalCfg() };
+  const deployed: Deployment = DEPLOYED;
 
   it('says "protocol not initialised" when global is missing', () => {
-    renderView({ probe: deployed, snapshot: snapshot({ status: 'absent' }, { status: 'absent' }) });
+    renderView({ probe: deployed, snapshot: snapshot({ kind: 'absent' }, { kind: 'absent' }) });
     expect(screen.getByText(/protocol not initialised/i)).toBeInTheDocument();
     expect(screen.queryByText(/no curve for this mint/i)).not.toBeInTheDocument();
   });
 
   it('says "no curve for this mint" when only the curve is missing', () => {
-    renderView({ probe: deployed, snapshot: snapshot(g, { status: 'absent' }) });
+    renderView({ probe: deployed, snapshot: snapshot(g, { kind: 'absent' }) });
     expect(screen.getByText(/no curve for this mint/i)).toBeInTheDocument();
     expect(screen.queryByText(/protocol not initialised/i)).not.toBeInTheDocument();
   });
 
   it('renders an absent curve as blank, NOT as 0 SOL raised', () => {
-    renderView({ probe: deployed, snapshot: snapshot(g, { status: 'absent' }) });
+    renderView({ probe: deployed, snapshot: snapshot(g, { kind: 'absent' }) });
     expect(screen.getByText(/deliberately blank rather than zeroed/i)).toBeInTheDocument();
     expect(screen.queryByText(/SOL raised/i)).not.toBeInTheDocument();
   });
 
   it('renders an unreadable curve as a read failure, not as an empty launch', () => {
-    renderView({ probe: deployed, snapshot: snapshot(g, { status: 'unreadable', reason: 'decode failed' }) });
+    renderView({ probe: deployed, snapshot: snapshot(g, { kind: 'unreadable', detail: 'decode failed' }) });
     expect(screen.getByText(/couldn't read/i)).toBeInTheDocument();
     expect(screen.getByText(/decode failed/)).toBeInTheDocument();
     expect(screen.queryByText(/SOL raised/i)).not.toBeInTheDocument();
@@ -214,7 +259,7 @@ describe('phase rendering', () => {
   it('renders a fully funded curve as AWAITING MIGRATION, explicitly not graduated', () => {
     renderView({
       probe: deployed,
-      snapshot: snapshot(g, { status: 'present', value: curve({ realSolReserves: 86n * SOL }) }),
+      snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ realSolReserves: 86n * SOL })) }),
     });
     expect(screen.getByText(/fully funded — awaiting migration/i)).toBeInTheDocument();
     // Said by BOTH the phase card and the blocked-buy reason — the two surfaces
@@ -224,20 +269,26 @@ describe('phase rendering', () => {
   });
 
   it('renders a completed curve as GRADUATED', () => {
-    renderView({ probe: deployed, snapshot: snapshot(g, { status: 'present', value: curve({ complete: true }) }) });
+    renderView({ probe: deployed, snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ complete: true })) }) });
     expect(screen.getByText('Graduated')).toBeInTheDocument();
     expect(screen.getByText(/liquidity has moved to the AMM pool/i)).toBeInTheDocument();
     expect(screen.queryByText(/awaiting migration/i)).not.toBeInTheDocument();
   });
 
   it('shows progress against target + reserve, not the target alone', () => {
-    // Sitting exactly on the 85 SOL target with a 1 SOL reserve is 98.84%, not
+    // Sitting exactly on the 85 SOL target with a 1 SOL reserve is 98.83%, not
     // 100% — buys still succeed up to the ceiling.
+    //
+    // 98.83 and not 98.84: `curveProgress` returns integer bps and TRUNCATES
+    // (85/86 = 98.8372…% → 9883 bps), the same conservative direction as every
+    // other rounding decision on this surface. Overstating progress is the one
+    // that misleads.
     renderView({
       probe: deployed,
-      snapshot: snapshot(g, { status: 'present', value: curve({ realSolReserves: 85n * SOL }) }),
+      snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ realSolReserves: 85n * SOL })) }),
     });
-    expect(screen.getByText('98.84%')).toBeInTheDocument();
+    expect(screen.getByText('98.83%')).toBeInTheDocument();
+    expect(screen.queryByText('100.00%')).not.toBeInTheDocument();
     expect(screen.getByText(/graduation target plus\s+the migration reserve/i)).toBeInTheDocument();
   });
 });
@@ -249,10 +300,10 @@ describe('phase rendering', () => {
 describe('pause', () => {
   it('halts buys but keeps SELL usable — sells are unpausable on chain', () => {
     renderView({
-      probe: { status: 'deployed' },
+      probe: DEPLOYED,
       snapshot: snapshot(
-        { status: 'present', value: globalCfg({ paused: true }) },
-        { status: 'present', value: curve() },
+        { kind: 'ok', value: globalCfg({ paused: true }) },
+        { kind: 'ok', value: curveAccount(curve()) },
       ),
       mint: mintFacts(),
     });
@@ -272,9 +323,9 @@ describe('pause', () => {
 // ---------------------------------------------------------------------------
 
 describe('trade quote', () => {
-  const deployedCurve = (over: Partial<BondingCurveState> = {}) => ({
-    probe: { status: 'deployed' } as ProgramProbe,
-    snapshot: snapshot({ status: 'present', value: globalCfg() }, { status: 'present', value: curve(over) }),
+  const deployedCurve = (over: Partial<BondingCurve> = {}) => ({
+    probe: DEPLOYED,
+    snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'ok', value: curveAccount(curve(over)) }),
     mint: mintFacts(),
   });
 
@@ -306,7 +357,7 @@ describe('trade quote', () => {
   it('labels the sell input as base units when the mint decimals were not read', () => {
     // Never assume 9 — decimals are not on the curve and not constrained by the
     // program.
-    renderView({ ...deployedCurve(), mint: { status: 'unreadable', reason: 'mint read failed' } });
+    renderView({ ...deployedCurve(), mint: { kind: 'unreadable', detail: 'mint read failed' } });
     fireEvent.click(screen.getByRole('button', { name: /^sell$/i }));
     expect(screen.getByLabelText(/Amount of tokens to sell/i)).toBeInTheDocument();
     expect(screen.getByText(/decimals could not be read, so this is in raw base units/i)).toBeInTheDocument();
@@ -326,8 +377,8 @@ describe('trade quote', () => {
 describe('write path', () => {
   it('builds no transaction and offers no submit while there is no write client', () => {
     renderView({
-      probe: { status: 'deployed' },
-      snapshot: snapshot({ status: 'present', value: globalCfg() }, { status: 'present', value: curve() }),
+      probe: DEPLOYED,
+      snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'ok', value: curveAccount(curve()) }),
       mint: mintFacts(),
       writeClient: null,
     });
@@ -347,8 +398,8 @@ describe('write path', () => {
 describe('create checklist', () => {
   it('checks the mint requirements the program actually enforces', () => {
     renderView({
-      probe: { status: 'deployed' },
-      snapshot: snapshot({ status: 'present', value: globalCfg() }, { status: 'absent' }),
+      probe: DEPLOYED,
+      snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }),
       mint: mintFacts({ freezeAuthority: 'someone' }),
     });
     const card = screen.getByText('Open a launch').closest('section') as HTMLElement;
@@ -359,8 +410,8 @@ describe('create checklist', () => {
 
   it('does not offer name / symbol / image fields — the program stores none of them', () => {
     renderView({
-      probe: { status: 'deployed' },
-      snapshot: snapshot({ status: 'present', value: globalCfg() }, { status: 'absent' }),
+      probe: DEPLOYED,
+      snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }),
       mint: mintFacts(),
     });
     const card = screen.getByText('Open a launch').closest('section') as HTMLElement;
@@ -370,10 +421,10 @@ describe('create checklist', () => {
 
   it('shows the terms read from global, and flags an unconfigured venue as a real state', () => {
     renderView({
-      probe: { status: 'deployed' },
+      probe: DEPLOYED,
       snapshot: snapshot(
-        { status: 'present', value: globalCfg({ ammConfig: new Uint8Array(32) }) },
-        { status: 'absent' },
+        { kind: 'ok', value: globalCfg({ ammConfig: new PublicKey(new Uint8Array(32)) }) },
+        { kind: 'absent' },
       ),
       mint: mintFacts(),
     });
@@ -383,7 +434,7 @@ describe('create checklist', () => {
   });
 
   it('states the terms are unknown rather than showing zeros when global is unreadable', () => {
-    renderView({ probe: { status: 'deployed' }, snapshot: snapshot({ status: 'unreadable', reason: 'x' }, { status: 'absent' }) });
+    renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'unreadable', detail: 'x' }, { kind: 'absent' }) });
     const card = screen.getByText('Open a launch').closest('section') as HTMLElement;
     expect(within(card).getByText(/config could not be read, so the terms are unknown/i)).toBeInTheDocument();
     expect(within(card).queryByText('0 SOL')).not.toBeInTheDocument();
@@ -396,7 +447,7 @@ describe('create checklist', () => {
 
 describe('enumeration', () => {
   it('says launches cannot be listed rather than showing an incomplete list as complete', () => {
-    renderView({ probe: { status: 'deployed' } });
+    renderView({ probe: DEPLOYED });
     expect(screen.getByText(/cannot be listed/i)).toBeInTheDocument();
   });
 });

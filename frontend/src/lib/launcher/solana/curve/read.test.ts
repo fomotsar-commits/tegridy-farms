@@ -158,11 +158,39 @@ describe('readDeployment — the first call any surface makes', () => {
     expect(d.detail).toContain('502');
   });
 
-  it('passes through executable so a squatting non-program account is visible', async () => {
+  it('reports a squatting non-program account as not-a-program, never as deployed', async () => {
+    // Anyone may send lamports to the program id, which makes `getAccountInfo`
+    // return a non-null, non-executable account while the program is still absent.
+    // Calling that "deployed" turns a stranger's dust transfer into a live badge.
     const rpc = fakeRpc({
       accounts: { [PROGRAM_ID.toBase58()]: snapshot(new Uint8Array(4), 1, false) },
     });
-    expect(await readDeployment(rpc)).toEqual({ kind: 'deployed', executable: false });
+    expect(await readDeployment(rpc)).toEqual({
+      kind: 'not-a-program',
+      owner: PROGRAM_ID.toBase58(),
+    });
+  });
+
+  it('reports a missing executable flag as unreadable, not as a squatter', async () => {
+    // `executable` is optional on the snapshot type. Absent means the transport
+    // did not tell us — a fact about our own call — so it must not be read as
+    // `false`, which would report a real program as a squatter.
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: { data: new Uint8Array(36), lamports: 1, owner: PROGRAM_ID },
+      },
+    });
+    const d = await readDeployment(rpc);
+    expect(d.kind).toBe('unreadable');
+    if (d.kind !== 'unreadable') return;
+    expect(d.detail).toContain('executable');
+  });
+
+  it('reports a real executable program as deployed', async () => {
+    const rpc = fakeRpc({
+      accounts: { [PROGRAM_ID.toBase58()]: snapshot(new Uint8Array(36), 1_000_000, true) },
+    });
+    expect(await readDeployment(rpc)).toEqual({ kind: 'deployed', executable: true });
   });
 });
 
@@ -256,6 +284,21 @@ describe('classifyLaunch — the five phases, first match wins', () => {
     expect(s.global).toBeNull();
     expect(s.curve).toBeNull();
     expect(s.paused).toBeNull();
+  });
+
+  it('row 0a: a squatter at the program id stops everything too, and names the owner', () => {
+    // The failure this replaces: `{kind:'deployed', executable:false}` walked on to
+    // read `global`, found nothing, and rendered "the program exists but its global
+    // config has never been created" — a confident claim about a protocol that is
+    // not there.
+    const s = classifyLaunch(
+      { kind: 'not-a-program', owner: MINT.toBase58() },
+      decodedGlobal(),
+      decodedCurve(),
+    );
+    expect(s.phase).toEqual({ kind: 'not-a-program', owner: MINT.toBase58() });
+    expect(s.global).toBeNull();
+    expect(s.curve).toBeNull();
   });
 
   it('row 0b: an unreadable deployment NEVER falls through to a later row', () => {
