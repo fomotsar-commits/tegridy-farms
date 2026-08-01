@@ -11,30 +11,28 @@
 //   node scripts/make-operator-keypair.mjs <output-path>
 
 import { Keypair } from '@solana/web3.js';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const out = resolve(process.argv[2] ?? 'operator-payer.json');
 
-if (existsSync(out)) {
-  console.error(`REFUSING: ${out} already exists.`);
-  console.error('Overwriting a keypair destroys it. Delete it yourself if you are certain.');
-  process.exit(1);
-}
-
 const kp = Keypair.generate();
 mkdirSync(dirname(out), { recursive: true });
-// EXCLUSIVE create. The existsSync above is only for the friendly error message — on its
-// own it is a time-of-check-to-time-of-use race, so the "never overwrite" promise would be
-// best-effort rather than a guarantee. Here that promise is load-bearing: the file it would
-// clobber is a FUNDED payer keypair, and overwriting it strands the SOL with no way back.
-// `wx` makes the create fail atomically if the path exists. (Flagged by CodeQL.)
+
+// EXCLUSIVE CREATE, and no existsSync pre-check.
+//
+// The promise this script makes — never overwrite an existing keypair — is load-bearing:
+// the file it would clobber is a FUNDED payer, and overwriting one strands its SOL with no
+// way back. A check-then-write pair cannot make that promise, because the file can appear
+// in between; `wx` fails the create atomically instead, so the guarantee is the syscall's
+// rather than ours. An existsSync guard in front of it would add nothing but a race for a
+// static analyser to find, so there isn't one.
 try {
   writeFileSync(out, JSON.stringify(Array.from(kp.secretKey)), { flag: 'wx', mode: 0o600 });
 } catch (e) {
   if (e && e.code === 'EEXIST') {
-    console.error(`REFUSING: ${out} appeared while this script was running.`);
-    console.error('Nothing was written. Overwriting a keypair destroys it.');
+    console.error(`REFUSING: ${out} already exists. Nothing was written.`);
+    console.error('Overwriting a keypair destroys it. Delete it yourself if you are certain.');
     process.exit(1);
   }
   throw e;
