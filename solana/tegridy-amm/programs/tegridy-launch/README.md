@@ -16,8 +16,22 @@ cargo check
 ```
 
 With that, `cargo check` works fully — types, borrow checking, and Anchor macro
-expansion are all verified locally. This catches essentially every class of error
-short of codegen.
+expansion are all verified locally.
+
+⚠️ **But do not read a clean `cargo check` as "this will run."** It is not an SBF
+target, so it is blind to at least two classes that have already bitten this program:
+
+- **SBF 4 KB stack frames.** Adding ONE `seeds` constraint pushed
+  `MigrateToAmm::try_accounts` to 4,224 bytes. The linker emits a *warning*, the build
+  succeeds, and the program dies at runtime with `Access violation ... at address
+  0x4000000000000008` — which the test harness reports as `Program failed to complete`.
+  `cargo check` said zero errors throughout. Fix: `Box<Account<'info, T>>`. CI now fails
+  on `exceeded max offset`.
+- **Runtime account/lamport semantics.** Per-CPI lamport reconciliation, System's
+  "`from` must not carry data", a PDA that cannot be a rent payer — every one of these
+  compiled cleanly and failed on a validator. See `MIGRATE_DESIGN.md` for the full list.
+
+`cargo check` proves it *compiles*. Only CI proves it *runs*.
 
 ### 2. `cargo build-sbf` blocked by symlink privilege (`os error 1314`) — NOT solved
 

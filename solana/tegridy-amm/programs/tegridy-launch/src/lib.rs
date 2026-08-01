@@ -88,7 +88,8 @@ pub mod errors;
 pub mod state;
 
 use crate::curve::{
-    lamports_until_target, max_reachable_real_sol, quote_buy, quote_sell, MAX_FEE_BPS,
+    graduation_price_ratio_bps, lamports_until_target, max_reachable_real_sol, quote_buy,
+    quote_sell, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
 };
 use crate::errors::LaunchError;
 use crate::state::*;
@@ -126,6 +127,47 @@ pub mod deployer {
     pub const ID: Pubkey = pubkey!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
     #[cfg(not(feature = "devnet"))]
     pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed)
+}
+
+/// Every economic sanity check a launch configuration must pass.
+///
+/// ONE function, called by both `initialize_global` and `update_global`, on purpose.
+/// The last time these validations were written separately, `update_global`'s comment
+/// claimed to be "the same reachability check as initialize_global" while silently
+/// omitting the migration reserve. Anything added here is added to both by
+/// construction.
+fn check_launch_economics(
+    virtual_sol: u64,
+    virtual_token: u64,
+    token_supply: u64,
+    graduation_target: u64,
+    migration_reserve: u64,
+) -> Result<()> {
+    // The reserve must at least cover the rent cp-swap charges the creator. It is
+    // snapshotted onto every curve at creation, so setting it too low does not fail
+    // here — it fails at the finish line of every launch created afterwards, with
+    // the pool already half-built and no way back. See MIN_MIGRATION_RESERVE_LAMPORTS
+    // for why this is a floor rather than the full requirement.
+    require!(
+        migration_reserve >= MIN_MIGRATION_RESERVE_LAMPORTS,
+        LaunchError::MigrationReserveTooLow
+    );
+
+    let ratio = graduation_price_ratio_bps(
+        virtual_sol,
+        virtual_token,
+        token_supply,
+        graduation_target,
+        migration_reserve,
+    )
+    .map_err(LaunchError::from)?;
+    let lo = BPS_DENOMINATOR.saturating_sub(PRICE_CONTINUITY_BAND_BPS);
+    let hi = BPS_DENOMINATOR.saturating_add(PRICE_CONTINUITY_BAND_BPS);
+    require!(
+        (lo..=hi).contains(&ratio),
+        LaunchError::GraduationPriceGap
+    );
+    Ok(())
 }
 
 #[program]
@@ -185,6 +227,26 @@ pub mod tegridy_launch {
         .map_err(LaunchError::from)?;
         require!(required < ceiling, LaunchError::GraduationTargetUnreachable);
 
+        // The launch must LIST at roughly the price its last curve buyer paid.
+        //
+        // The curve prices on virtual+real; the pool is seeded with real reserves
+        // only. Those agree at exactly one target, and away from it the token gaps
+        // the moment it lists — this repo's original parameters opened the pool at
+        // 14% of the curve's final price, a ~7x drop with nothing stolen and no
+        // instruction at fault. Checked here because it is a property of the
+        // CONFIGURATION, and by migration time it is far too late.
+        //
+        // This constrains nothing that matters: the continuity target scales with
+        // virtual SOL, so any target stays reachable by scaling the opening book.
+        // `curve::continuity_target` computes the exact value.
+        check_launch_economics(
+            initial_virtual_sol,
+            initial_virtual_token,
+            token_total_supply,
+            graduation_target_lamports,
+            migration_reserve_lamports,
+        )?;
+
         let g = &mut ctx.accounts.global;
         g.authority = ctx.accounts.authority.key();
         g.fee_recipient = ctx.accounts.fee_recipient.key();
@@ -220,6 +282,7 @@ pub mod tegridy_launch {
         migration_reserve_lamports: Option<u64>,
         new_cp_swap_program: Option<Pubkey>,
         new_amm_config: Option<Pubkey>,
+        new_initial_virtual_sol: Option<u64>,
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
@@ -237,15 +300,27 @@ pub mod tegridy_launch {
         // exactly the bug initialize_global's check exists to prevent.
         //
         // Resolve the post-update pair, then validate the SUM once.
-        if graduation_target_lamports.is_some() || migration_reserve_lamports.is_some() {
+        // `initial_virtual_sol` is retunable HERE and nowhere else, because the
+        // continuity target is proportional to it: without this, a target could never
+        // be changed at all once set — every alternative value would gap. Each launch
+        // snapshots its own virtual reserves at `create_launch` (lib.rs:361), so this
+        // moves future launches only and can never reprice a live curve.
+        if graduation_target_lamports.is_some()
+            || migration_reserve_lamports.is_some()
+            || new_initial_virtual_sol.is_some()
+        {
             let new_target = graduation_target_lamports.unwrap_or(g.graduation_target_lamports);
             let new_reserve = migration_reserve_lamports.unwrap_or(g.migration_reserve_lamports);
-            require!(new_target > 0, LaunchError::InvalidParameter);
+            let new_vsol = new_initial_virtual_sol.unwrap_or(g.initial_virtual_sol);
+            require!(
+                new_target > 0 && new_vsol > 0,
+                LaunchError::InvalidParameter
+            );
             let required = new_target
                 .checked_add(new_reserve)
                 .ok_or(LaunchError::Overflow)?;
             let ceiling = max_reachable_real_sol(
-                g.initial_virtual_sol,
+                new_vsol,
                 g.initial_virtual_token,
                 g.token_total_supply,
             )
@@ -254,8 +329,19 @@ pub mod tegridy_launch {
                 required < ceiling,
                 LaunchError::GraduationTargetUnreachable
             );
+            // Same continuity gate as initialize_global — actually shared this time,
+            // via one helper, rather than a comment claiming the checks match while
+            // one of them quietly omits a term.
+            check_launch_economics(
+                new_vsol,
+                g.initial_virtual_token,
+                g.token_total_supply,
+                new_target,
+                new_reserve,
+            )?;
             g.graduation_target_lamports = new_target;
             g.migration_reserve_lamports = new_reserve;
+            g.initial_virtual_sol = new_vsol;
         }
 
         // The AMM addresses MUST be settable after initialization.
@@ -1078,9 +1164,16 @@ pub mod tegridy_launch {
         // ── 5. Close the curve, atomically with all of the above ─────────────
         let pool = ctx.accounts.pool_state.key();
         let curve = &mut ctx.accounts.curve;
+        // Subtract EVERYTHING that left, not just the deposit. `move_lamports` is
+        // deposit + reserve and all of it went to the migration authority, so
+        // subtracting only the deposit left a migrated curve reporting a balance of
+        // exactly `migration_reserve_lamports` that it does not hold. Harmless
+        // on-chain — nothing reads it once `complete` is set — but every indexer,
+        // Fact Sheet and explorer reading curve state would have shown a number that
+        // is simply false.
         curve.real_sol_reserves = curve
             .real_sol_reserves
-            .checked_sub(deposit_lamports)
+            .checked_sub(move_lamports)
             .ok_or(LaunchError::Overflow)?;
         curve.real_token_reserves = 0;
         curve.complete = true;

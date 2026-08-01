@@ -10,8 +10,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Solidity 0.8.26](https://img.shields.io/badge/Solidity-0.8.26-blue)](contracts/foundry.toml)
 [![Ethereum Mainnet](https://img.shields.io/badge/chain-Ethereum_Mainnet-627eea)](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D)
+[![App: memetic.fun](https://img.shields.io/badge/app-memetic.fun-ff7a18)](https://memetic.fun)
 
 > **A DeFi yield protocol on Ethereum where swap fees flow to stakers, votes are weighted by how long you've locked, and the whole thing runs on fixed-supply TOWELI. Real yield. No inflation tricks. Farm with tegridy.**
+
+> **Live at [memetic.fun](https://memetic.fun).** The surface taking the most build effort today is the **token launcher** ([/launch](https://memetic.fun/launch)) — launch an ERC-20 through Doppler with a published on-chain fee constitution, a Fact Sheet, a permanent per-token record at `/launch/:token`, and afterlife tracking of what actually happened to it. See [Token launcher](#token-launcher). The yield protocol below is what those fees are meant to feed.
 
 > ⚠️ **Status: relaunch live, hardening in progress.** The core protocol was **redeployed to Ethereum mainnet on 2026-06-06** from a fresh deployer wallet (the "MVP" set — ~14 contracts), and on **2026-07-16** the audited **gated-feature batch — 11 contracts spanning governance, NFT-finance, the launchpad, and the premium/community tier — was deployed on-chain and Etherscan-verified.** On **2026-07-21/22** the capital-free revenue surfaces — **P2P NFT lending, the NFT AMM, the launchpad, Premium, and the EVM token launcher — went live in the app** (operator-authorized). It is **live but not yet decentralized**: ownership still sits behind the deployer key (Safe rebuild + handoff planned — [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md)), the emission/spend-side features (governance, grants, bounties) stay **frontend-gated until a revenue line funds them**, and there is **no professional human-firm audit yet**. Size deposits accordingly.
 
@@ -21,7 +24,7 @@
 2. The protocol runs a DEX, staking, revenue distribution, an oracle, LP farming, **NFT finance (P2P NFT lending + a bonding-curve NFT AMM), an NFT launchpad, a premium tier, and an EVM token launcher** live today; **governance and the community programs** are deployed on-chain + verified (2026-07-16) but stay app-gated until a revenue line funds their emissions. (Token lending is audited and staged, pending the oracle bootstrap.)
 3. Fees from live surfaces route to TOWELI stakers, in ETH.
 4. The longer you lock (up to 4y), the more ETH you earn and the louder you'll vote once governance is live.
-5. A Solana surface earns fees too (swap fee-capture live; the Tegridy-owned Solana programs are **written but deployed nowhere** — not mainnet, not devnet).
+5. A Solana surface earns fees too — swap fee-capture is live; the launcher there is a **config preview with no submit path**, and the Tegridy-owned Solana programs are **written but deployed nowhere** — not mainnet, not devnet.
 6. The app ships **trust tooling** — a token scanner, wallet-exposure check, deployer-reputation graph, and launch fact-sheets/afterlife tracking — that self-gates to "no data" instead of faking signal.
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Uniswap / Gondi primitives, copied from battle-tested sources on purpose.
@@ -38,6 +41,7 @@ Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there —
 - [Live deployment status](#live-deployment-status) — what's on-chain vs gated
 - [How it all fits together](#how-it-all-fits-together) — flywheel diagrams
 - [How to use it (for users)](#how-to-use-it-for-users)
+- [Token launcher](#token-launcher) — the two rails, and the two fee phases
 - [Trust tooling](#trust-tooling) — scanner, exposure, deployer graph, market integrity
 - [Solana surface](#solana-surface)
 - [Tokenomics in one minute](#tokenomics-in-one-minute)
@@ -68,7 +72,7 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 | **NFT Finance** | Peer-to-peer NFT lending (Gondi pattern, lender-only liquidation, sequencer-aware grace) + Sudoswap-style bonding-curve NFT AMM. ERC-20 lending against TOWELI positions is staged behind the oracle. | `TegridyNFTLending`(+Admin), `TegridyNFTPoolFactory`, `TegridyLending` | 🟢 Live † |
 | **Governance** | Curve-style gauge voting with commit-reveal, plus a permissionless bribe market ("Cartman's Market"). | `GaugeController`, `VoteIncentives`(+Admin) | 🔵 On-chain |
 | **NFT Launchpad** | Click-deploy ERC-721 collections (Merkle allowlist, Dutch auction, delayed reveal, ERC-2981/7572) via a single `createCollection` tx. | `TegridyLaunchpadV2`, `TegridyDropV2` | 🟢 Live |
-| **Token Launcher** | Launch an ERC-20 through Doppler with vetted defaults, launch fact-sheets, afterlife tracking, and an opt-in **TOWELI** base pair; the integrator fee accrues to the protocol and is withdrawable from `/admin`. | (Doppler periphery today — no *deployed* Tegridy contract) | 🟢 Live (EVM) · 🟡 Solana preview only |
+| **Token Launcher** | Launch an ERC-20 through Doppler with vetted defaults, a published fee constitution, Fact Sheets, a permanent per-token record at `/launch/:token`, afterlife tracking, and an opt-in **TOWELI** base pair; the auction's integrator fee accrues to the protocol and is withdrawable from `/admin`. Full detail — including the **two** distinct fee phases — in [Token launcher](#token-launcher). | (Doppler periphery today — no *deployed* Tegridy contract) | 🟢 Live (EVM) · 🟡 Solana preview only |
 | **Premium / community** | Subscription premium tier, staker-voted community grants, meme-bounty board. | `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard` | 🟢 Premium live · 🔵 grants/bounties on-chain |
 | **Restaking** | Restake the position NFT for a second reward stream (EigenLayer-operator pattern). | `TegridyRestaking` | 🟡 Deferred (Phase 7 / EIP-170) |
 | **Uniswap V4 module** | V4 hook (per-user premium fee discount + POL skim), trusted swap router, boosted LP staker, plus the **graduation leg**: an Airlock-callable migrator that graduates a launch into a Tegridy-hooked V4 pool, and its fee locker. | `v4/TegridyV4Hook`(+Admin), `TegridyV4SwapRouter`, `TegridyBoostedLPStaker`, `TegridyLiquidityMigrator`, `TegridyFeeLocker` | 🟡 Next-wave (unaudited, app-gated). The hook is **pre-deployed** to a mined address; the **migrator is not** — `TEGRIDY_V4_MIGRATOR_ADDRESS` is still `0x0`, and that zero is load-bearing: launches keep graduating via Doppler's own migrator until ours is whitelisted |
@@ -90,7 +94,7 @@ Honest snapshot as of the latest commit:
 - ✅ **Trust tooling + limit orders live (2026-07-22):** token scanner, wallet exposure, deployer reputation, launch simulator/afterlife, and NFT market-integrity surfaces shipped (see [Trust tooling](#trust-tooling)), and **gasless limit orders via CoW Protocol** are live on the Trade page.
 - ✅ **Launcher hardening wave (2026-07-24 → 07-30).** The EVM launcher went from "switched on" to actually working: the launch button had been refusing roughly six attempts in seven (it shared the swap path's 300s Chainlink staleness gate against a ~3600s ETH/USD heartbeat — now a separate `ethUsdForLaunch` window); the Explorer/Afterlife feed was a hardcoded empty array and now reads real provenance from `Airlock.getAssetData`; auction bands that could have gone on-chain ~10× wrong are refused before signing; Fact Sheet splits now attest the **real resolved** constitution rather than a template; and the protocol's 15% fee line was re-pointed from `RevenueDistributor` to the **Treasury Safe** before launch #1 (the Doppler locker pays `msg.sender` only, so the original beneficiary could never have claimed it). The honest cost: that line is **not** staker yield today.
 - ✅ **Launcher revenue is now readable and withdrawable (2026-07-30).** `Airlock.collectIntegratorFees` had been live on-chain with zero callers anywhere in the repo. An **Integrator Fees panel** now ships on [/admin](https://memetic.fun/admin), gated to `LAUNCHER_INTEGRATOR_ADDRESS` — which is *not* the protocol owner, so that page is now two-role and asymmetric (the integrator sees the fees panel and nothing else). Balances distinguish "nothing owed" from "could not read": a failed balance read is never painted as a confident zero next to a withdraw button.
-- ✅ **Exotic base pairs + Solana launcher preview un-gated (2026-07-26).** `EXOTIC_LAUNCHES_ENABLED = true` — creators may pair a launch against **TOWELI** instead of ETH (opt-in; ETH stays the default). `SOLANA_LAUNCHER_ENABLED = true` renders `/solana-launch` as a live config **preview** — it is **not** an in-app money path (the page has no signer; real Solana launches still go through the operator's out-of-band CLI).
+- ✅ **Exotic base pairs + Solana launcher preview un-gated (2026-07-27).** `EXOTIC_LAUNCHES_ENABLED = true` — creators may pair a launch against **TOWELI** instead of ETH (opt-in; ETH stays the default). `SOLANA_LAUNCHER_ENABLED = true` renders `/solana-launch` as a live config **preview** — it is **not** an in-app money path (the page has no signer; real Solana launches still go through the operator's out-of-band CLI).
 - ⏳ **Ownership is not yet decentralized.** All live contracts are still owned by the deployer EOA. A 2-step Safe multisig handoff is in progress; the first attempt's 14-day window lapsed and is being re-initiated ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). **This single-key window is the biggest current risk — bigger than any specific code finding.**
 - ⏳ **The protocol-owned TOWELI/WETH pool is seeded but shallow.** It holds live liquidity at market price, but the TWAP oracle bootstrap is still gated on deepening it past the oracle's reserve floor; until then the smart front-door routes swaps to the deepest venue (the Uniswap V2 pool). Deepen + bootstrap are scripted go-live steps ([`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)).
 - 🟡 **A few surfaces remain not-yet-deployed:** token lending (`TegridyLending` — pre-deploy-audited but oracle-gated), restaking (EIP-170 split / Phase 7), the Pro Pass (a launchpad operation), and the Uniswap V4 module (next-wave, unaudited).
@@ -259,17 +263,63 @@ New to DeFi? See [QUICKSTART.md](QUICKSTART.md) or [FAQ.md](FAQ.md).
 
 ---
 
+## Token launcher
+
+Launch an ERC-20 without writing a contract. There are **two rails**, and they are at very
+different stages — the difference matters more than the shared branding does.
+
+| Rail | Where | Venue | Status |
+|---|---|---|---|
+| **EVM launcher** | [/launch](https://memetic.fun/launch) | Doppler V4 dynamic auction on Ethereum mainnet | 🟢 **Live** — a real in-app signing path (`LAUNCHER_ENABLED = true`, [`launcher/config.ts`](frontend/src/lib/launcher/config.ts)) |
+| **Solana launcher** | [/solana-launch](https://memetic.fun/solana-launch) | Meteora DBC | 🟡 **Config preview only** — the page renders the descriptors the pure builders emit and has **no submit path**. Real Solana launches are driven out-of-band by the operator CLI ([`frontend/scripts/solana-dbc-operator.mjs`](frontend/scripts/solana-dbc-operator.mjs)) |
+| **Own Solana curve** | — | `tegridy-launch` bonding curve → a Tegridy-owned CP-AMM pool | 🔴 **Code on trunk, deployed to no cluster.** Source at [`solana/tegridy-amm/programs/tegridy-launch`](solana/tegridy-amm/programs/tegridy-launch); `getAccountInfo` on its program id returns `null` on both mainnet-beta and devnet (checked 2026-07-31) |
+
+**Two tiers on the EVM rail** (`LAUNCH_TIERS`): *Flagship* — full dynamic Dutch auction,
+strictest structural config (renounced or timelocked admin, 12-month LP lock, capped insider
+float), eligible for the Afterlife fast-track — and *Community* — static/multicurve, an
+automated hygiene bar (audited template, no mint/tax/blacklist/upgrade, LP locked, on-chain
+vesting). ETH is the default base pair; **TOWELI** is the one opt-in alternative
+(`EXOTIC_LAUNCHES_ENABLED = true`, 2026-07-27). *There is no launch-creation fee — you pay
+Ethereum gas.*
+
+### The two fee phases (this is the part people get wrong)
+
+A launch does **not** have one fee. It has two, in sequence, and only the second one is what
+the fee constitution divides:
+
+| Phase | Pool | Fee | Who takes it |
+|---|---|---|---|
+| **1 — the auction** | The Doppler dynamic-auction pool | `LAUNCH_FEE_TIER = 10,000` hundredths of a bip = **1%** | Collected by Doppler as a third-party **integrator fee** to `LAUNCHER_INTEGRATOR_ADDRESS`, an address the protocol controls off-chain and can re-point by redeploying the frontend. **No split of this fee is enforced on-chain**, and none is promised. It is read + withdrawn from the Integrator Fees panel on [/admin](https://memetic.fun/admin). |
+| **2 — after graduation** | The Uniswap **V4** pool the liquidity migrates into — `MIGRATION_POOL.fee = 3000`, `tickSpacing 60` ([`airlock.ts`](frontend/src/lib/launcher/airlock.ts), verified on-chain 2026-07-26) | **0.3%** | **This** is what the launch's fee constitution divides, streamed by the on-chain locker: **Creator 70% · attention beneficiaries 10% · Tegridy treasury 15% · Doppler 5%** (`DEFAULT_FEE_CONSTITUTION`, bps summing to 10,000). Fixed at creation and published in the Fact Sheet. |
+
+Two honest caveats on that 15%. It goes to the **Tegridy treasury**, *not* to TOWELI stakers —
+the Doppler locker pays `msg.sender` only and `RevenueDistributor` has no arbitrary-call
+function, so naming the distributor as beneficiary would have stranded the whole line
+permanently. The `LockerClaimer` shim that would bridge it to stakers is written, tested, and
+**wired to nothing**. And the Doppler 5% is a protocol floor, not a number we chose.
+
+### The per-token record
+
+Every launch gets a permanent page at **`/launch/:token`** — provenance read from
+`Airlock.getAssetData`, the resolved Fact Sheet, its EAS attestation, and the migration
+stream. Everything on it is a read, and it keeps three states apart: proven true, proven
+false, and *not readable* — a failed read is never painted as a confident zero.
+
+---
+
 ## Trust tooling
 
 Shipped 2026-07-22: a set of app-side analysis surfaces built on one shared detection core ([`frontend/src/lib/detection/`](frontend/src/lib/detection)) — holder-distribution math (effective holder count, clustered supply, bundled supply, sniper share) behind a weakest-link risk gate (mint/freeze authority, LP lock, dominant clusters). The design rule everywhere: **unmeasured signals drop out of the score instead of flattering it, and every surface self-gates to "no data" rather than fabricating a track record.**
 
 | Surface | Where | What it tells you |
 |---|---|---|
+| **Trust hub** | [/trust](https://memetic.fun/trust) | The index for the suite — a deliberately thin page that owns no detection logic, so the tools below are discoverable instead of buried in a submenu. |
 | **Token scanner** | [/scan](https://memetic.fun/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
 | **Wallet exposure** | [/exposure](https://memetic.fun/exposure) | The scanner pointed inward — how much of your own bag sits in concentrated or risky distributions. |
 | **Deployer reputation** | [/deployer](https://memetic.fun/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
 | **Launch simulator** | [/launch-simulator](https://memetic.fun/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
 | **Launch afterlife** | [/launch](https://memetic.fun/launch) | What actually happened to tokens launched through the launcher — outcome tracking above the launch explorer. |
+| **Token record** | `/launch/:token` | The permanent per-launch dossier: provenance from `Airlock.getAssetData`, resolved Fact Sheet, EAS attestation, migration stream. See [Token launcher](#token-launcher). |
 | **NFT market integrity** | Tradermigos → Integrity tab | Wash-trade, coordinated-cluster, and fake-floor detection over OpenSea + on-chain data (recent-window scoped; gaps disclosed). |
 
 The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](https://memetic.fun/swap)): gasless, MEV-protected orders placed through **CoW Protocol** solvers — no keeper infrastructure, orders fill at your price or better.
@@ -281,7 +331,9 @@ The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](h
 Tegridy runs a Solana surface too — but **TOWELI never touches Solana** (no bridge, no wrapped token, ever).
 
 - **Swap fee-capture (live in the app):** [memetic.fun](https://memetic.fun) routes Solana swaps through the Jupiter aggregator with a small platform fee that accrues to a Tegridy Solana fee account. Pure fee-capture — we don't custody liquidity here. Frontend: [`SolanaSwapPage.tsx`](frontend/src/pages/SolanaSwapPage.tsx).
+- **Solana launcher (`/solana-launch`) — a config PREVIEW, not a money path.** `SOLANA_LAUNCHER_ENABLED = true` renders the page, but it **has no submit path**: it previews the descriptors the pure builders emit for a Meteora **DBC** launch (fee split, anti-snipe decay, LP lock) and stops there. The page mounts no signer — it reads a connected wallet's public key for display and generates *ephemeral* preview keys, and it never builds or sends a transaction. Real Solana launches are signed out-of-band by the operator CLI ([`frontend/scripts/solana-dbc-operator.mjs`](frontend/scripts/solana-dbc-operator.mjs)). Do not read this page as "you can launch on Solana here".
 - **Tegridy CP-AMM (Phase 0 — NOT audited, deployed to NO cluster: verified 2026-07-31 that the program id returns no account on mainnet, devnet and testnet; it has only ever run on an ephemeral CI validator, and holds no funds):** a **verbatim fork of Raydium's audited CPMM** ([`raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap), Apache-2.0) so the protocol can earn a config-set protocol fee on pools it hosts — the "own the venue" model. The **entire code delta from upstream is four authority/identity constants** across two files, CI-enforced by a diff-guard so the re-audit surface stays tiny. See [`solana/tegridy-amm/TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md), [`AUDIT_RFQ.md`](solana/tegridy-amm/AUDIT_RFQ.md), and [`MAINNET_RUNBOOK.md`](solana/tegridy-amm/MAINNET_RUNBOOK.md). A fund-holding mainnet deploy is gated behind a professional diff-audit.
+- **`tegridy-launch` — our own bonding curve (code on trunk, also deployed to no cluster: `getAccountInfo` on its program id returns `null` on mainnet-beta and devnet, checked 2026-07-31):** a pump.fun-shaped constant product over virtual reserves that graduates *atomically* into a Tegridy CP-AMM pool rather than a third party's. Mint authority is revoked at creation, pause blocks buys but never sells, launch terms are snapshotted onto the curve so governance cannot retroactively rewrite them, and LP is **burned** at migration. Its pricing surface is host-proven; the Anchor layer is CI-compiled only. Source: [`solana/tegridy-amm/programs/tegridy-launch`](solana/tegridy-amm/programs/tegridy-launch).
 
 ---
 
@@ -347,11 +399,14 @@ pnpm dev                # Ponder against the RPC in .env — repointed to the re
 > to the `-b` form in [#131](https://github.com/fomotsar-commits/tegridy-farms/pull/131);
 > this README kept recommending the broken one until 2026-07-30.
 
-> ⚠️ **The browser E2E suite does not cover the money paths.** 44 specs that stake,
-> swap, add/remove liquidity, borrow, repay and claim are skipped unless an Anvil
-> fork is supplied, and no pipeline supplies one today (`grep -rn ANVIL_RPC_URL
-> .github/` returns only comments). A green E2E run proves the interface renders,
-> not that a transaction works.
+> ⚠️ **The browser E2E suite does not cover the money paths.** A full run reports
+> **44 skips**, and per [`ci.yml`](.github/workflows/ci.yml)'s own accounting that is
+> **20 tests × 2 projects** — every stake, swap, add/remove-liquidity, borrow, repay
+> and claim assertion in `claim-rewards`/`lending`/`liquidity`/`stake`/`swap.spec.ts`,
+> behind a `test.skip(!onAnvil, …)` gate — plus 4 unconditional skips. No pipeline
+> supplies an Anvil fork today: `grep -rn ANVIL .github/` returns **two lines, both
+> comments**. A green E2E run proves the interface renders, not that a transaction
+> works.
 
 ### Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md). Branch off **`mvp-launch`** — it is the real
@@ -366,16 +421,20 @@ trunk and the repo's default branch; `main` has diverged substantially (a merge 
 ```
 tegriddy-farms/
 ├── contracts/           Foundry project — Solidity 0.8.26
-│   ├── src/             50 .sol: ~34 root primitives + EIP-170 admin/vault sisters,
+│   ├── src/             53 .sol: 35 root primitives + EIP-170 admin/vault sisters,
 │   │   ├── v4/          6-file Uniswap V4 next-wave module (gated, unaudited)
 │   │   ├── base/        OwnableNoRenounce, PauseGuardian, TimelockAdmin
 │   │   └── lib/         9 shared libraries (SequencerCheck, StakingViewLib, VotePowerOracle, …)
 │   ├── script/          Deploy + go-live scripts (DeployMVP, SeedLP, BootstrapTWAP, VerifyMVP, …)
-│   └── test/            100+ test files — most are audit-derived regressions
+│   └── test/            106 test files — most are audit-derived regressions
 ├── frontend/            Vite + React 19 + TypeScript (+ Solana swap surface)
-│   ├── src/pages/       Routed pages (Swap, Farm, SolanaSwap, NFT surfaces, …)
+│   ├── src/pages/       Routed pages (Launch, Swap, Farm, SolanaSwap, NFT surfaces, …)
 │   ├── src/lib/         constants.ts (canonical addresses), ABIs, solana.ts, Irys client
+│   │   ├── launcher/    Doppler config + airlock, Fact Sheet/gate, locker stream, solana/dbc
+│   │   └── detection/   Shared holder-distribution core behind the trust surfaces
 │   ├── api/             Vercel serverless (aggregator proxy, orderbook, price, …)
+│   ├── scripts/         7 build/operator CLIs — incl. solana-dbc-operator.mjs, the only
+│   │                    path that can actually submit a Solana launch
 │   └── supabase/        SQL migrations (orderbook, chat, profiles)
 ├── indexer/             Ponder — event indexer & GraphQL API (repointed to relaunch addrs)
 ├── solana/tegridy-amm/  Raydium CPMM fork + tegridy-launch curve (Phase 0, undeployed) — see TEGRIDY_FORK.md

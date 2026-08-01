@@ -58,7 +58,11 @@ const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
 const TRADE_FEE_BPS = new BN(100);
 /** V_s*S/V_t is ~27.9 SOL here, so 10 SOL is safely under the ceiling. */
-const GRAD_TARGET = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
+// The continuity target for V_SOL=30 with a 0.5 SOL reserve: the launch lists at
+// the price its last curve buyer paid. Deliberately not a round number — a +-5%
+// PRICE band is only about +-0.7% in the TARGET, so this comes from
+// curve::continuity_target rather than from picking something tidy.
+const GRAD_TARGET = new BN(11_544_610_844);
 /** Raised on top of the target to pay cp-swap's create_pool_fee + rent on the five
  *  accounts it creates. See MIGRATE_DESIGN.md; the ceiling check covers target+reserve. */
 const MIGRATION_RESERVE = new BN(LAMPORTS_PER_SOL).div(new BN(2));
@@ -292,7 +296,7 @@ describe("tegridy-launch security constraints", () => {
       const unreachable = new BN(1000).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, unreachable, null, null, null, null, null, null)
+          .updateGlobal(null, unreachable, null, null, null, null, null, null, null)
           .accountsPartial({
             global: globalPda(program.programId),
             authority: deployer.publicKey,
@@ -304,9 +308,9 @@ describe("tegridy-launch security constraints", () => {
 
     /** POSITIVE CONTROL — a target under the ceiling is accepted. */
     it("accepts a target below the ceiling", async () => {
-      const reachable = new BN(12).mul(new BN(LAMPORTS_PER_SOL));
+      const reachable = GRAD_TARGET; // under the ceiling AND price-continuous
       await program.methods
-        .updateGlobal(null, reachable, null, null, null, null, null, null)
+        .updateGlobal(null, reachable, null, null, null, null, null, null, null)
         .accountsPartial({
           global: globalPda(program.programId),
           authority: deployer.publicKey,
@@ -318,7 +322,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for any later test.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -343,7 +347,7 @@ describe("tegridy-launch security constraints", () => {
       const cpProgram = Keypair.generate().publicKey;
       const cfg = Keypair.generate().publicKey;
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg)
+        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -356,7 +360,7 @@ describe("tegridy-launch security constraints", () => {
     it("refuses to ZERO them — that reads as misconfiguration; `paused` is the switch", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null)
+          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "InvalidParameter"
@@ -380,7 +384,7 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(10).mul(new BN(LAMPORTS_PER_SOL)); // sum 30: over
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, target, null, null, null, reserve, null, null)
+          .updateGlobal(null, target, null, null, null, reserve, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
@@ -391,19 +395,38 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(25).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, reserve, null, null)
+          .updateGlobal(null, null, null, null, null, reserve, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
       );
     });
 
+    /**
+     * A reserve too small to cover cp-swap's rent does not fail at config time on
+     * its own — it fails at the FINISH LINE of every launch created afterwards,
+     * because the reserve is snapshotted per curve. By then the pool is half-built
+     * and there is no way back. Floor is the exact rent from cp-swap's own LEN
+     * constants (42,156,720); the real requirement adds create_pool_fee on top.
+     */
+    it("rejects a migration reserve below cp-swap's rent floor", async () => {
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "MigrationReserveTooLow"
+      );
+    });
+
     /** POSITIVE CONTROL — a pair that fits is accepted, and BOTH fields land. */
     it("accepts a pair under the ceiling and stores both", async () => {
-      const target = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
+      // Continuity pair for V_SOL=30 with a 5 SOL reserve — a bigger reserve pulls
+      // the target DOWN, because the reserve is raised from traders too.
+      const target = new BN(10_039_591_158);
       const reserve = new BN(5).mul(new BN(LAMPORTS_PER_SOL));
       await program.methods
-        .updateGlobal(null, target, null, null, null, reserve, null, null)
+        .updateGlobal(null, target, null, null, null, reserve, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -414,7 +437,73 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for the tests that follow.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+    });
+  });
+
+  // ─── HIGH: a launch must not GAP at listing ────────────────────────────────
+
+  describe("graduation price continuity", () => {
+    /**
+     * The curve prices on virtual+real reserves; the pool is seeded with real
+     * reserves ONLY. Those two prices agree at exactly one target, and away from it
+     * the token gaps the instant it lists.
+     *
+     * This is not hypothetical: the rehearsal shipped 30 virtual SOL against a 2 SOL
+     * target, which opens the pool at 14% of the curve's final price — a ~7x drop,
+     * nothing stolen, no instruction at fault, and indistinguishable from a rug to
+     * everyone holding it.
+     */
+    it("rejects a target that would list far from the curve's final price", async () => {
+      // 10 SOL sits comfortably under the ~27.96 SOL reachability ceiling, so that
+      // check passes and ONLY the continuity band can reject this. Ratio ~8196 bps.
+      const gapping = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, gapping, null, null, null, null, null, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "GraduationPriceGap"
+      );
+    });
+
+    /** POSITIVE CONTROL — the continuity target for these reserves is accepted. */
+    it("accepts the continuity target", async () => {
+      await program.methods
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+      const g: any = await (program.account as any).globalConfig.fetch(
+        globalPda(program.programId)
+      );
+      assert.equal(g.graduationTargetLamports.toString(), GRAD_TARGET.toString());
+    });
+
+    /**
+     * The escape hatch that makes the band non-restrictive, and the reason
+     * `initial_virtual_sol` is settable at all: the continuity target is
+     * proportional to virtual SOL, so ANY target stays reachable by scaling the
+     * opening book with it. Without this the target could never be changed once set,
+     * because every other value would gap.
+     */
+    it("accepts a retuned pair — a different target with virtual SOL scaled to match", async () => {
+      const target = new BN(6).mul(new BN(LAMPORTS_PER_SOL));
+      const vsol = new BN(15_784_562_498); // continuity partner for 6 SOL + 0.5 reserve
+      await program.methods
+        .updateGlobal(null, target, null, null, null, MIGRATION_RESERVE, null, null, vsol)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+      const g: any = await (program.account as any).globalConfig.fetch(
+        globalPda(program.programId)
+      );
+      assert.equal(g.graduationTargetLamports.toString(), target.toString());
+      assert.equal(g.initialVirtualSol.toString(), vsol.toString());
+
+      // Restore the suite's baseline for anything that follows.
+      await program.methods
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, V_SOL)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -431,7 +520,7 @@ describe("tegridy-launch security constraints", () => {
     it("blocks create_launch while paused, and allows it again when unpaused", async () => {
       const globalKey = globalPda(program.programId);
       await program.methods
-        .updateGlobal(null, null, true, null, null, null, null, null)
+        .updateGlobal(null, null, true, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
@@ -459,7 +548,7 @@ describe("tegridy-launch security constraints", () => {
 
       // POSITIVE CONTROL: unpause and the identical call goes through.
       await program.methods
-        .updateGlobal(null, null, false, null, null, null, null, null)
+        .updateGlobal(null, null, false, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 

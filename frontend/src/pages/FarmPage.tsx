@@ -22,6 +22,7 @@ import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
 import { safeParseEther } from '../lib/safeParseEther';
+import { seasonStatus } from '../lib/season';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
@@ -103,9 +104,9 @@ export default function FarmPage() {
   const amtNum = parseFloat(stakeAmount) || 0;
   const effectiveStake = amtNum * totalBoostBps / 10000;
 
-  // Season countdown
-  const seasonEnd = new Date(CURRENT_SEASON.endDate).getTime();
-  const daysLeft = Math.max(0, Math.ceil((seasonEnd - Date.now()) / 86400000));
+  // Season countdown. Math.max(0, …) used to live here, which meant the tile froze at
+  // "0d left" forever once endDate passed; seasonStatus() reports the phase instead.
+  const season = seasonStatus();
 
   // F101/F123: surface the honest "rewards remaining" (balance − staked −
   // unsettled) + runway on the Farm page itself, sourced from usePoolData (the
@@ -237,7 +238,7 @@ export default function FarmPage() {
               price={price}
               priceData={priceData}
               priceError={priceError}
-              daysLeft={daysLeft}
+              season={season}
             />
 
             {/* Real-yield thesis surfaced in the staking loop: 100% of swap fees → stakers
@@ -320,7 +321,7 @@ export default function FarmPage() {
           price={price}
           priceData={priceData}
           priceError={priceError}
-          daysLeft={daysLeft}
+          season={season}
         />
 
         {/* Real-yield thesis in the staking loop — 100% swap fees → stakers as ETH. */}

@@ -299,6 +299,12 @@ function SolanaLaunchInner() {
           </p>
         </div>
       </m.div>
+
+      {/* Rail explainer, restored into the LIVE path 2026-07-31 — it had been stranded in
+          the dead `!isSolanaLauncherEnabled()` arm since the flag flipped, so the copy a
+          first-time launcher needs was reaching nobody. Below the preview card so the
+          config form still leads. */}
+      <SolanaLauncherExplainer />
       </div>
     </>
   );
@@ -317,14 +323,19 @@ function ExplainerCard({ title, children }: { title: string; children: React.Rea
 }
 
 /**
- * Pre-launch explainer — rendered ONLY in the gated (not-live) branch, BENEATH the
- * SOON wall, mirroring LaunchPage.tsx's LauncherExplainer.
+ * Rail explainer, mirroring LaunchPage.tsx's LauncherExplainer.
+ *
+ * RESTORED TO THE LIVE PATH 2026-07-31. It was written for the gated branch, and when
+ * SOLANA_LAUNCHER_ENABLED flipped true (2026-07-27) the whole `if (!isSolanaLauncherEnabled())`
+ * arm went dead — orphaning every word of it. This is the copy a first-time launcher
+ * reads, so it now renders beneath the preview card as well; the gated arm keeps it too,
+ * so re-gating loses nothing. The tense was corrected in the same pass: cards written as
+ * "before this opens" / "nothing here is live" were false the moment the flag flipped.
  *
  * Every claim is grounded in shipped code/docs, and every number is READ from dbc.ts
  * (program id, Meteora's protocol take, the anti-snipe defaults, the LP-lock floor) so
  * this copy cannot drift from the builders that actually run. Nothing here names a
- * date, quotes a metric, or implies a launch has happened — while SOLANA_LAUNCHER_ENABLED
- * is false the submit path does not exist (dbcClient.ts throws on every entry point).
+ * date, quotes a metric, or implies a launch has happened.
  */
 function SolanaLauncherExplainer() {
   const openPct = (DEFAULT_ANTI_SNIPE.startingFeeBps / 100).toFixed(0);
@@ -382,7 +393,7 @@ function SolanaLauncherExplainer() {
         </p>
       </ExplainerCard>
 
-      <ExplainerCard title="What has to exist before this opens">
+      <ExplainerCard title="What has to be true before any real launch">
         <ul className="list-disc pl-4 space-y-1">
           <li>
             <span className="text-white/80">A Squads v4 multisig vault.</span> Meteora&apos;s fee-claim signer has full
@@ -397,19 +408,21 @@ function SolanaLauncherExplainer() {
           </li>
           <li>
             <span className="text-white/80">A signing threshold confirmed out of band.</span> That on-chain check
-            proves the vault&apos;s derivation, not its threshold; that the multisig genuinely requires more than one
-            signer is verified with Squads&apos; own tooling before the flag is flipped.
+            proves the vault&apos;s derivation, not its threshold — reading the threshold needs a Squads SDK this app
+            does not ship. So a 1-of-1 multisig would pass it. That the vault genuinely requires more than one signer
+            is an operator precondition verified with Squads&apos; own tooling, not something this page can prove to you.
           </li>
           <li>
-            <span className="text-white/80">Sequencing.</span> Solana is a later phase, deliberately behind the
-            Ethereum rail — it opens only once that one shows real activity. We are not naming a date.
+            <span className="text-white/80">Sequencing.</span> Solana is deliberately behind the Ethereum rail — a
+            later, smaller phase. We are not naming a date for the first launch through it.
           </li>
         </ul>
       </ExplainerCard>
 
       <p className="text-center text-white/40 text-[10px] leading-relaxed px-2">
-        Nothing here is live. While the launcher is gated there is no submit path — the operator tooling itself
-        refuses to build a transaction.
+        This page is a configuration preview and nothing more: there is no in-app submit path and no signer. Real
+        launches go through the operator&apos;s out-of-band wrapper, which refuses to build a transaction unless the
+        fee claimer is the derived Squads vault.
       </p>
     </div>
   );

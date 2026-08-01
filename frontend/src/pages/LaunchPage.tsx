@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
-import { useAccount, useChainId, usePublicClient, useWalletClient } from 'wagmi';
+import { useAccount, useChainId, usePublicClient, useReadContract, useWalletClient } from 'wagmi';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -58,6 +58,14 @@ import type { OutcomeRecord } from '../lib/launcher/outcomes';
 import { readOurLaunches } from '../lib/launcher/ourLaunches';
 import { cohortLogClient } from '../lib/launcher/cohortLogSource';
 import { isAddress, getAddress, type Address } from 'viem';
+import { LP_FARMING_ABI } from '../lib/contracts';
+import { LP_FARMING_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
+import {
+  lpEmissionsPhase,
+  dayTwoEconomyPhrase,
+  dayTwoEconomyShortPhrase,
+  type LpEmissionsPhase,
+} from '../lib/lpEmissions';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
@@ -202,6 +210,24 @@ const FEE_POOL_DISPLAY: { recipient: string; shareBps: number }[] = [
 
 const STEPS = ['Details', 'Tier & curve', 'Fees & disclosure', 'Review'] as const;
 
+/**
+ * Does the LP farm have a funded emissions period right now? Read ONCE at the page root
+ * and threaded down, so the two day-2 copy sites can never disagree with each other or
+ * with the chain. `periodFinish` only — the Synthetix `rewardRate` residual survives the
+ * period and would report emissions nobody is paid (see lib/lpEmissions.ts). A failed
+ * read degrades to 'unknown', never to 'running'.
+ */
+function useLpEmissionsPhase(): LpEmissionsPhase {
+  const { data } = useReadContract({
+    address: LP_FARMING_ADDRESS,
+    abi: LP_FARMING_ABI,
+    functionName: 'periodFinish',
+    chainId: CHAIN_ID,
+    query: { enabled: isDeployed(LP_FARMING_ADDRESS), staleTime: 300_000 },
+  });
+  return lpEmissionsPhase(typeof data === 'bigint' ? Number(data) : 0);
+}
+
 type LaunchStatus =
   | { phase: 'idle' }
   | { phase: 'pending' }
@@ -230,6 +256,7 @@ export default function LaunchPage() {
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const price = useTOWELIPriceOptional();
+  const lpPhase = useLpEmissionsPhase();
   const [launch, setLaunch] = useState<LaunchStatus>({ phase: 'idle' });
   const [attest, setAttest] = useState<AttestStatus>({ phase: 'idle' });
   // EAS honesty gate (2026-07-24): the Fact Sheet schema must be registered on
@@ -419,7 +446,7 @@ export default function LaunchPage() {
   if (!isLauncherEnabled()) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
-        <LaunchHeader />
+        <LaunchHeader lpPhase={lpPhase} />
         <FeatureNotDeployed
           pageId="community"
           idx={5}
@@ -445,7 +472,7 @@ export default function LaunchPage() {
     <>
       <PageArtBackdrop pageId="launch" />
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-10">
-      <LaunchHeader />
+      <LaunchHeader lpPhase={lpPhase} />
       <Stepper step={step} />
 
       <m.div
@@ -497,8 +524,15 @@ export default function LaunchPage() {
       </div>
 
       {step === STEPS.length - 1 && launch.phase !== 'idle' && (
-        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} onResetLaunch={() => setLaunch({ phase: 'idle' })} />
+        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} onResetLaunch={() => setLaunch({ phase: 'idle' })} lpPhase={lpPhase} />
       )}
+
+      {/* Rail explainer, restored into the LIVE path 2026-07-31 — it had been stranded in
+          the dead `!isLauncherEnabled()` arm since the flag flipped, so the copy a
+          first-time launcher needs (audited template, what a Fact Sheet is and is not,
+          the fee split, the afterlife) was reaching nobody. Below the wizard so the
+          four steps still lead the page. */}
+      <LauncherExplainer />
 
       {/* Post-graduation re-attestation — the fully-verifiable fee disclosure, read
           from the graduated pool's StreamableFeesLocker. Distinct from the pre-launch
@@ -540,7 +574,7 @@ export default function LaunchPage() {
   );
 }
 
-function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaunch }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null; onResetLaunch: () => void }) {
+function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaunch, lpPhase }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null; onResetLaunch: () => void; lpPhase: LpEmissionsPhase }) {
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
@@ -638,12 +672,15 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
         )}
       </div>
 
-      {/* Afterlife — a day-2 economy that few other launchers offer. */}
+      {/* Afterlife — a day-2 economy that few other launchers offer. The LP-farming clause
+          is read from TegridyLPFarming.periodFinish, not asserted: it said "boosted LP
+          farming today" for six weeks after the last emissions period ended 2026-06-15.
+          ba4d3399 corrected this sentence to a static "period ended and is not currently
+          funded"; the live read replaces it so a re-funded period needs no code change. */}
       <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
         After the auction graduates into a V4 pool, this token can plug into the Tegridy
-        economy — the boosted LP-farming rail exists today, though its TOWELI reward period
-        ended and is not currently funded, with a gauge-emissions program as governance
-        deploys. Few launchers give a launch any day-2 economy at all.
+        economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
+        economy at all.
       </p>
     </div>
   );
@@ -850,14 +887,19 @@ function ExplainerCard({ title, children }: { title: string; children: React.Rea
 }
 
 /**
- * Pre-launch explainer — rendered ONLY in the gated (not-live) branch.
+ * Rail explainer.
  *
- * Every claim here is already true of the shipped code or docs/LAUNCHER_STRATEGY.md:
- * the wizard/gate/attestation modules exist and are tested, they are simply behind
- * the §6 sequencing gates. The gate floors are READ from defaultGateConfig() and the
- * fee rows from DEFAULT_FEE_CONSTITUTION, so this copy cannot drift from the checker
- * that actually runs. Nothing here promises a date, quotes a yield, or implies any
- * launch has happened.
+ * RESTORED TO THE LIVE PATH 2026-07-31. It was written for the gated branch, and when
+ * LAUNCHER_ENABLED flipped true (2026-07-22) the whole `if (!isLauncherEnabled())` arm
+ * went dead — orphaning every word of it. This is the copy a first-time launcher reads,
+ * so it now renders beneath the wizard as well; the gated arm keeps it too, so re-gating
+ * loses nothing. The tense was corrected in the same pass: a card headed "what we are
+ * waiting on", and two cross-links calling live rails "gated", were false once they went live.
+ *
+ * Every claim here is already true of the shipped code or docs/LAUNCHER_STRATEGY.md.
+ * The gate floors are READ from defaultGateConfig() and the fee rows from
+ * DEFAULT_FEE_CONSTITUTION, so this copy cannot drift from the checker that actually
+ * runs. Nothing here promises a date, quotes a yield, or implies any launch has happened.
  */
 function LauncherExplainer() {
   const g = defaultGateConfig(0);
@@ -866,7 +908,7 @@ function LauncherExplainer() {
   const flagshipTeamPct = g.flagshipMaxTeamBps / 100;
   return (
     <div className="mt-8 space-y-4">
-      <ExplainerCard title="What the launch rail will do">
+      <ExplainerCard title="What the launch rail does">
         <ol className="list-decimal pl-4 space-y-1.5 marker:text-white/30">
           <li>
             <span className="text-white/80">Configure.</span> Name, supply, tier and curve range, LP lock, and any
@@ -940,7 +982,7 @@ function LauncherExplainer() {
           These shares divide the <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% trade fee</strong> — published in the
           Fact Sheet and never a marketing dial. They do <strong>not</strong> split the {AUCTION_FEE_PCT}% auction fee:
           during the auction the protocol takes a third-party integrator fee, and no share of it is enforced on-chain or
-          promised to you (Terms §7). These are the shares the rail will launch with — the creator directs their pool
+          promised to you (Terms §7). These are the shares the rail launches with — the creator directs their pool
           (optionally carving a share to attention beneficiaries):
         </p>
         <div className="rounded-xl border border-white/12 overflow-hidden mt-1">
@@ -978,16 +1020,19 @@ function LauncherExplainer() {
         </ul>
       </ExplainerCard>
 
-      <ExplainerCard title="What is built, and what we are waiting on">
+      <ExplainerCard title="What is built, and what is still open">
         <p>
           The engine is integrated rather than sketched: Doppler's mainnet modules are address-verified on-chain, the
           gate and Fact Sheet are pure, unit-tested code, and a full auction creation has been run green against a fork
-          of Ethereum mainnet.
+          of Ethereum mainnet. The rail is open — this page submits a real{' '}
+          <code className="text-white/70">create()</code> on Ethereum mainnet.
         </p>
         <p>
-          What remains is sequencing, not construction. The rail opens after the core loop is live, treasury ownership
-          is re-homed to the new Safe, and TOWELI has an active market — because a launcher on a dead protocol only
-          advertises the emptiness. We are not naming a date.
+          What is still open is the protocol around it, and we would rather you heard it here than found out after
+          launching: the sequencing gates this rail was originally meant to wait on — a deep native pool, treasury
+          ownership fully re-homed, an active TOWELI market — were waived, not passed. The day-2 economy above is
+          infrastructure that exists, not a program currently paying anyone. Judge the launch rail on the Fact Sheet it
+          produces, not on the protocol's own traction.
         </p>
       </ExplainerCard>
 
@@ -997,12 +1042,13 @@ function LauncherExplainer() {
         Planning a launch? Preview your distribution band and Fact-Sheet tier and fix concentration first with the{' '}
         <Link to="/launch-simulator" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Launch Simulator</Link>.
       </p>
-      {/* Cross-link to the Solana sub-brand rail. Secondary by design: the destination is
-          gated too (SOLANA_LAUNCHER_ENABLED = false in lib/launcher/solana/dbc.ts), so this
-          is wayfinding, not a call to action. Fee capture only — no TOWELI on Solana. */}
+      {/* Cross-link to the Solana sub-brand rail. Secondary by design: the destination is a
+          CONFIG PREVIEW with no in-app submit path (SOLANA_LAUNCHER_ENABLED = true since
+          2026-07-27, but the page never signs), so this is wayfinding, not a call to
+          action. Fee capture only — no TOWELI on Solana. */}
       <p className="text-white/40 text-xs leading-relaxed">
         There is also a Solana leg — a separate fee-capture sub-brand over Meteora&rsquo;s Dynamic Bonding Curve, with no
-        TOWELI on Solana and no AMM of our own there. It is gated as well.{' '}
+        TOWELI on Solana and no AMM of our own there. That page previews a launch config; it does not submit one.{' '}
         <Link to="/solana-launch" className="text-white/60 hover:text-white underline transition-colors">
           See the Solana rail
         </Link>
@@ -1011,14 +1057,15 @@ function LauncherExplainer() {
   );
 }
 
-function LaunchHeader() {
+function LaunchHeader({ lpPhase }: { lpPhase: LpEmissionsPhase }) {
   return (
     <div className="mb-6">
       <h1 className="text-2xl font-bold text-white">Launch a token</h1>
       <p className="text-white/60 text-sm mt-1 max-w-xl">
         The verifiable, V4-native rail. Every launch uses Doppler's audited non-upgradeable template, publishes a
-        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy (LP farming today;
-        a gauge program as governance deploys) that few other launchers offer.
+        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy{' '}
+        {/* "LP farming today" was hardcoded and went stale the day the emissions period ended. */}
+        ({dayTwoEconomyShortPhrase(lpPhase)}) that few other launchers offer.
       </p>
     </div>
   );

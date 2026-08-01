@@ -33,6 +33,8 @@ pub enum LaunchError {
     NotDeployAuthority,
     #[msg("Graduation target exceeds the most SOL this curve could ever hold")]
     GraduationTargetUnreachable,
+    #[msg("Launch would list at a price far from its final curve price — retune virtual SOL or the target")]
+    GraduationPriceGap,
     #[msg("cp-swap program or AmmConfig is not configured yet")]
     AmmNotConfigured,
     #[msg("Supplied cp-swap program or AmmConfig does not match the configured one")]
