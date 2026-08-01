@@ -155,13 +155,22 @@ export function browserCurveRpc(rpc: SolanaRpc = browserRpc()): CurveRpc {
       if (typeof account.lamports !== 'number') {
         throw new Error('getAccountInfo: the account carried no lamport balance');
       }
+      // `executable` is the field the whole deployment probe gates on, so it gets the
+      // same runtime check as `owner` and `lamports` rather than being trusted because
+      // the interface says `boolean`. TypeScript does not check a JSON payload, so a
+      // proxy returning a string, a number, or null would otherwise flow straight into
+      // `AccountSnapshot.executable` and be compared with `=== undefined` — which it is
+      // not — landing on the "exists but is not a program" branch off a value nobody
+      // validated. ABSENT stays `undefined` deliberately: `readDeployment` turns that
+      // into `unreadable`, whereas defaulting to `false` would report a real program as
+      // a squatting account.
+      if (account.executable !== undefined && typeof account.executable !== 'boolean') {
+        throw new Error('getAccountInfo: the account carried a non-boolean executable flag');
+      }
       return {
         data: accountData('getAccountInfo', account),
         lamports: account.lamports,
         owner: new PublicKey(account.owner),
-        // Deliberately passed through as `undefined` when the field is missing.
-        // `readDeployment` turns that into `unreadable`; defaulting it to `false`
-        // here would report a real program as a squatting account.
         executable: account.executable,
       };
     },

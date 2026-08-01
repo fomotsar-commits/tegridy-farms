@@ -11,6 +11,7 @@ import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
+import { CurveChart } from '../components/launcher/CurveChart';
 import { PublicKey } from '@solana/web3.js';
 import {
   LAUNCH_ERROR_COPY,
@@ -277,6 +278,14 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
 
   return (
     <div className="space-y-2 pt-1">
+      {/* The curve is a function of the state we just decoded, so it is shown only here —
+          where a real `curve` account is in hand. `source: 'chain'` is a claim the chart
+          cannot verify for itself, so it must never be passed for a synthesised snapshot. */}
+      <CurveChart
+        state={{ status: 'ready', curve, source: { kind: 'chain' } }}
+        tokenDecimals={decimals ?? undefined}
+        className="mb-3"
+      />
       <div>
         <div className="flex items-baseline justify-between gap-2 mb-1">
           <span className="text-white/60">Raised toward graduation</span>

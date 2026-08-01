@@ -451,3 +451,52 @@ describe('enumeration', () => {
     expect(screen.getByText(/cannot be listed/i)).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The chart is actually MOUNTED
+// ---------------------------------------------------------------------------
+// CurveChart shipped fully built and fully tested but rendered by nothing, so a
+// visitor with a live curve saw a text progress bar and no curve. Its own suite
+// could not catch that — it renders the component directly. These assert the
+// PAGE puts it on screen, which is the property that was actually broken.
+
+describe('curve chart is mounted', () => {
+  const g: Read<GlobalConfig> = { kind: 'ok', value: globalCfg() };
+
+  it('renders the curve figure when a real curve account is in hand', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ realSolReserves: 12n * SOL })) }),
+      mint: mintFacts(),
+    });
+    const fig = screen.getByRole('img', { name: /bonding curve/i });
+    expect(fig).toBeInTheDocument();
+    // The label carries the same raise the numbers do — one derivation, not two.
+    expect(fig).toHaveAttribute('aria-label', expect.stringMatching(/needed to graduate/i));
+  });
+
+  it('does NOT draw a curve when there is no curve account', () => {
+    renderView({ probe: DEPLOYED, snapshot: snapshot(g, { kind: 'absent' }), mint: mintFacts() });
+    expect(screen.queryByRole('img', { name: /bonding curve/i })).not.toBeInTheDocument();
+  });
+
+  it('does NOT draw a curve when the read failed', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(g, { kind: 'unreadable', detail: 'decode failed' }),
+      mint: mintFacts(),
+    });
+    expect(screen.queryByRole('img', { name: /bonding curve/i })).not.toBeInTheDocument();
+  });
+
+  it('plots from the chain, never as an illustrative shape', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ realSolReserves: 12n * SOL })) }),
+      mint: mintFacts(),
+    });
+    // The "illustrative" badge naming a hand-drawn shape must never appear on a
+    // page that just decoded a real account.
+    expect(document.body.textContent ?? '').not.toMatch(/illustrative/i);
+  });
+});

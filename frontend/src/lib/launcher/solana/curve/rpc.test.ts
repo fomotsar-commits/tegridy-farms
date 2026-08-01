@@ -200,6 +200,36 @@ describe('browserCurveRpc — a malformed account payload is unreadable, not abs
     ).rejects.toThrow(/no lamport balance/);
   });
 
+  // `executable` is the one field the deployment probe branches on, and it was the
+  // only one of the four not runtime-checked. A proxy answering `"true"` or `1` would
+  // fail `=== undefined`, so it flowed into the "exists but is not a program" branch —
+  // reporting our own live program as a squatting account, off a value nobody validated.
+  it('throws on a non-boolean executable flag instead of branching on it', async () => {
+    for (const bad of ['true', 1, 0, null, {}]) {
+      await expect(
+        from(async () => ({ value: account(new Uint8Array(4), { executable: bad }) })).getAccountInfo(PROGRAM_ID),
+      ).rejects.toThrow(/non-boolean executable/);
+    }
+  });
+
+  it('still passes a MISSING executable through as undefined, so it reads unreadable', async () => {
+    // Absent is not malformed: readDeployment turns undefined into `unreadable`.
+    // Throwing here, or defaulting to false, would both be wrong in opposite ways.
+    const snap = await from(async () => ({
+      value: account(new Uint8Array(4), { executable: undefined }),
+    })).getAccountInfo(PROGRAM_ID);
+    expect(snap?.executable).toBeUndefined();
+  });
+
+  it('accepts both real booleans', async () => {
+    for (const good of [true, false]) {
+      const snap = await from(async () => ({
+        value: account(new Uint8Array(4), { executable: good }),
+      })).getAccountInfo(PROGRAM_ID);
+      expect(snap?.executable).toBe(good);
+    }
+  });
+
   it('refuses a non-numeric rent figure rather than passing a guess along', async () => {
     await expect(
       from(async () => 'plenty').getMinimumBalanceForRentExemption(BONDING_CURVE_SIZE),

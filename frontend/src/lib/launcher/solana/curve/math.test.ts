@@ -462,6 +462,37 @@ describe('quoteSellOnCurve', () => {
     ).toBe(true);
   });
 
+  // The program does `balance.checked_sub(gross).ok_or(Overflow)? >= floor` — so a
+  // balance BELOW gross is an Overflow, NOT a rent shortfall. bigint has no underflow,
+  // so subtracting first silently produced a negative and reported the wrong error.
+  // Same refusal either way; a UI that names the wrong on-chain error sends whoever
+  // debugs it to the wrong line of the program.
+  it('calls a balance below gross Overflow, not a rent shortfall (lib.rs:605-614)', () => {
+    const q = quoteSellOnCurve(held, 1_000_000_000n);
+    expect(q.ok).toBe(true);
+    if (!q.ok) return;
+    const gross = q.value.grossLamports;
+    const rentExempt = 2_018_400n;
+    expect(
+      quoteSellOnCurve(held, 1_000_000_000n, 0n, {
+        curveAccountLamports: gross - 1n,
+        rentExemptLamports: rentExempt,
+      }),
+    ).toEqual({ ok: false, error: 'Overflow' });
+    // An empty account is the same refusal, not a rent one.
+    expect(
+      quoteSellOnCurve(held, 1_000_000_000n, 0n, { curveAccountLamports: 0n, rentExemptLamports: rentExempt }),
+    ).toEqual({ ok: false, error: 'Overflow' });
+    // The boundary belongs to the rent branch: exactly gross clears the subtraction,
+    // then fails the floor. This is what separates the two errors.
+    expect(
+      quoteSellOnCurve(held, 1_000_000_000n, 0n, {
+        curveAccountLamports: gross,
+        rentExemptLamports: rentExempt,
+      }),
+    ).toEqual({ ok: false, error: 'InsufficientRentExemptBalance' });
+  });
+
   it('enforces the slippage floor (lib.rs:578-581)', () => {
     const q = quoteSellOnCurve(held, 1_000_000_000n);
     expect(q.ok).toBe(true);

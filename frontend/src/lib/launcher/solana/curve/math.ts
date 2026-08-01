@@ -564,8 +564,19 @@ export function quoteSellOnCurve(
   if (q.value.grossLamports > c.realSolReserves) {
     return { ok: false, error: 'InsufficientLiquidity' };
   }
-  if (rent && rent.curveAccountLamports - q.value.grossLamports < rent.rentExemptLamports) {
-    return { ok: false, error: 'InsufficientRentExemptBalance' };
+  if (rent) {
+    // lib.rs:605-614 does `balance.checked_sub(gross).ok_or(Overflow)? >= floor`, so a
+    // balance BELOW gross is an Overflow, not a rent shortfall. bigint has no underflow,
+    // so subtracting first sends the negative into the rent comparison and reports the
+    // wrong error. Unreachable on-chain today (the InsufficientLiquidity check above
+    // fires first for any curve whose account holds its own reserves), but the UI must
+    // not invent a diagnosis the program would never give.
+    if (rent.curveAccountLamports < q.value.grossLamports) {
+      return { ok: false, error: 'Overflow' };
+    }
+    if (rent.curveAccountLamports - q.value.grossLamports < rent.rentExemptLamports) {
+      return { ok: false, error: 'InsufficientRentExemptBalance' };
+    }
   }
 
   return q;
