@@ -275,7 +275,18 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         (, address recipient, uint32 unlockDate, BeneficiaryData[] memory b) = feeLocker.getLock(tokenId);
         assertEq(recipient, launchTimelock, "release recipient must be the launch");
         assertEq(unlockDate, 0, "zero duration must stay PERMANENT, not become releasable now");
-        assertEq(b.length, 1);
+        // Two: the creator plus Doppler's mandatory protocol-owner line. The whole
+        // constitution must reach the locker — dropping either would mean the locker
+        // pays a split different from the one the Fact Sheet published.
+        assertEq(b.length, 2, "the full constitution must reach the locker");
+        // Search rather than index: the locker requires strictly-ascending beneficiary
+        // addresses, so the position of any entry depends on how two makeAddr hashes
+        // happen to sort. Asserting b[1] would be betting on that.
+        uint96 ownerShares;
+        for (uint256 i = 0; i < b.length; ++i) {
+            if (b[i].beneficiary == protocolOwner) ownerShares = b[i].shares;
+        }
+        assertEq(uint256(ownerShares), 5e16, "the protocol-owner line must survive at its floor share");
     }
 
     /// @notice Same reasoning for an LP lock we do not implement.
