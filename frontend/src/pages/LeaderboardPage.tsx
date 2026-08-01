@@ -4,6 +4,7 @@ import { usePoints } from '../hooks/usePoints';
 import { TIER_THRESHOLDS, BADGES } from '../lib/pointsEngine';
 import { CopyButton } from '../components/ui/CopyButton';
 import { CURRENT_SEASON } from '../lib/constants';
+import { seasonStatus } from '../lib/season';
 import { TegridyScore } from '../components/TegridyScore';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -23,6 +24,7 @@ export default function LeaderboardPage() {
   );
   const { isConnected } = useAccount();
   const points = usePoints();
+  const season = seasonStatus();
 
   if (isConnected && !points.data) {
     return <PageSkeleton />;
@@ -48,7 +50,16 @@ export default function LeaderboardPage() {
         <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Your Tegridy Score</h1>
           <div className="rounded-lg p-3 inline-block max-w-full" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <p className="text-[14px] font-medium" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{CURRENT_SEASON.name} — Earn points by using the protocol</p>
+            {/* The season line had NO date check: past endDate it kept inviting people to
+                earn points in a window that had closed. Points themselves stay on-chain and
+                keep accruing — it is the SEASON that ends, and it now says which it is. */}
+            <p className="text-[14px] font-medium" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+              {season.phase === 'ended'
+                ? `${CURRENT_SEASON.name} has ended — points stay on-chain, and a new season hasn’t been announced`
+                : season.phase === 'upcoming'
+                  ? `${CURRENT_SEASON.name} ${season.shortLabel} — points are already accruing on-chain`
+                  : `${CURRENT_SEASON.name} — Earn points by using the protocol${season.phase === 'active' ? ` (${season.shortLabel})` : ''}`}
+            </p>
             <p className="text-[11px] mt-1" style={{ color: '#22c55e', opacity: 0.85, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Points verified on-chain per wallet. A cross-wallet ranking goes live when the Ponder indexer is publicly queryable.</p>
           </div>
         </m.div>

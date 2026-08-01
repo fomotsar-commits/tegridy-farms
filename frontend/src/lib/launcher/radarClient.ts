@@ -81,10 +81,21 @@ function entryName(raw: GeckoPoolEntry): string | undefined {
  */
 const MAX_PLAUSIBLE_TOKEN_PRICE_USD = 1_000_000;
 
+/**
+ * The same absurdity bound on the RESERVE, because the price bound alone does not cover
+ * it: a row can carry a modest-looking per-token price and still report a fabricated
+ * reserve, and only the reserve is rendered. (The comment here used to claim this guard
+ * existed while the code only rejected non-finite/negative values — the magnitude case
+ * fell straight through and printed.) These are MINUTES-OLD pools; six figures of ETH on
+ * one side is orders of magnitude past anything a new pool holds, so this only ever
+ * catches fiction. Loose on purpose: an absurdity filter, not a judgement.
+ */
+const MAX_PLAUSIBLE_POOL_LIQUIDITY_ETH = 100_000;
+
 function plausible(priceUsd: number | null, liquidityEth: number): boolean {
   if (priceUsd != null && Number.isFinite(priceUsd) && priceUsd > MAX_PLAUSIBLE_TOKEN_PRICE_USD) return false;
-  // Guards the same fiction arriving via the reserve alone (finite, positive, absurd).
   if (!Number.isFinite(liquidityEth) || liquidityEth < 0) return false;
+  if (liquidityEth > MAX_PLAUSIBLE_POOL_LIQUIDITY_ETH) return false;
   return true;
 }
 

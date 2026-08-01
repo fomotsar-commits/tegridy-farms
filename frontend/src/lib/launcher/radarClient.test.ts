@@ -81,6 +81,29 @@ describe('coerceRadar — market-wide new-pool normalisation', () => {
     expect(e.priceEth).toBe(0);
   });
 
+  // The price bound alone did NOT cover this: only the RESERVE is rendered, and a row
+  // can pair a modest-looking per-token price with a fabricated reserve. The comment in
+  // radarClient.ts claimed the reserve was guarded while the code only rejected
+  // non-finite/negative values, so a six-figure ETH reserve printed as a number.
+  // Mutation-check: without the MAX_PLAUSIBLE_POOL_LIQUIDITY_ETH branch this reads
+  // ~520607 and the assertion fails.
+  it('does NOT repeat an absurd RESERVE that arrives with a plausible price', () => {
+    const fakeReserve = entry(TOKEN_A, {
+      base_token_price_native_currency: '0.001',
+      base_token_price_usd: '3', // unremarkable per-token price — passes the price bound
+      reserve_in_usd: '1561821000', // → 520,607 ETH at 3000 USD/ETH
+    });
+    const [e] = coerceRadar({ data: [fakeReserve] }, 12).entries;
+    expect(e.token).toBe(TOKEN_A);
+    expect(e.liquidityEth).toBe(0);
+    expect(e.priceEth).toBe(0);
+  });
+
+  it('leaves a genuinely deep pool below the reserve bound untouched', () => {
+    const deep = entry(TOKEN_B, { reserve_in_usd: '29970000' }); // 9,990 ETH at 3000 USD/ETH
+    expect(coerceRadar({ data: [deep] }, 12).entries[0].liquidityEth).toBeCloseTo(9990);
+  });
+
   it('leaves a legitimately-priced row untouched (the guard is an absurdity filter, not a cap)', () => {
     // A real high-value token: $60k/unit is far above normal yet plainly legitimate.
     const pricey = entry(TOKEN_B, {

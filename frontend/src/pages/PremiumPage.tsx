@@ -10,6 +10,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
+import { goldCardBenefits } from '../lib/premiumBenefits';
 
 // F375: the PremiumAccess contract charges monthlyFee × months with NO discount
 // (subscribe() = `monthlyFeeToweli * months`), and the hook approves/passes the
@@ -24,14 +25,9 @@ const PLANS = [
   { months: 12, label: '1 Year', discount: 0 },
 ];
 
-// HONESTY PASS 2026-07-18: cut vapor benefits. The contract has NO fee discount (see F375
-// above), points are derived on-chain from activity (no subscription "3x multiplier"), and
-// "priority gas" is not a real mechanic. Smart Alerts + Advanced Analytics already ship free
-// to every wallet on the Dashboard. Keep only the two genuinely real mechanics.
-const ACTIVE_BENEFITS = [
-  { icon: '\u{1F4B0}', title: 'Real ETH yield', desc: 'Like every staker, Gold Card holders earn ETH from protocol swap fees — real revenue, not emissions.' },
-  { icon: '\u{1F451}', title: 'JBAC Lifetime Access', desc: 'Jungle Bay Ape Club holders get permanent Gold Card access — no subscription needed.' },
-];
+// HONESTY PASS 2026-07-18 cut the vapor benefits; 2026-07-31 moved the two survivors into
+// lib/premiumBenefits.ts so the "Real ETH yield" line is CONDITIONED on what
+// RevenueDistributor has actually distributed instead of being a flat literal.
 
 /* Shimmer skeleton block */
 function Skeleton({ className = '' }: { className?: string }) {
@@ -235,7 +231,7 @@ export default function PremiumPage() {
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Gold Card Benefits</h2>
           <p className="text-white text-[12px] mb-5">Everything included with your Gold Card membership</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {ACTIVE_BENEFITS.map((b, i) => (
+            {goldCardBenefits({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading }).map((b, i) => (
               <m.div key={b.title} className="glass-card p-4"
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }} transition={{ delay: i * 0.06 }}>

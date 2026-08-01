@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 import { pageArt, artStyle } from '../../lib/artConfig';
 import { CURRENT_SEASON } from '../../lib/constants';
+import type { SeasonStatus } from '../../lib/season';
 import { PulseDot } from '../PulseDot';
 import { Sparkline } from '../Sparkline';
 import { CountUpText } from '../motion';
@@ -12,15 +13,16 @@ interface FarmStatsRowProps {
   price: { displayPriceStale: boolean };
   priceData: number[];
   priceError: unknown;
-  daysLeft: number;
+  season: SeasonStatus;
 }
 
-export function FarmStatsRow({ stats, pool, price, priceData, priceError, daysLeft }: FarmStatsRowProps) {
+export function FarmStatsRow({ stats, pool, price, priceData, priceError, season }: FarmStatsRowProps) {
   const items = [
     { l: 'Total Value Locked', v: stats.tvl, art: pageArt('farm-stats', 0), pos: 'center 30%' },
     { l: 'TOWELI Price', v: stats.toweliPrice + (price.displayPriceStale ? ' (stale)' : ''), art: pageArt('farm-stats', 1), pos: 'center 30%' },
     { l: 'Emissions APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: pageArt('farm-stats', 2), pos: 'center 0%', sub: pool.aprDisclaimer },
-    { l: 'Season', v: `${daysLeft}d left`, sub: CURRENT_SEASON.name, art: pageArt('farm-stats', 3), pos: 'center 30%' },
+    // An expired window reads "Ended", never a frozen "0d left" (see lib/season.ts).
+    { l: 'Season', v: season.shortLabel, sub: season.phase === 'ended' ? `${CURRENT_SEASON.name} — closed` : CURRENT_SEASON.name, art: pageArt('farm-stats', 3), pos: 'center 30%' },
   ];
 
   return (
