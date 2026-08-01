@@ -21,7 +21,7 @@
 2. The protocol runs a DEX, staking, revenue distribution, an oracle, LP farming, **NFT finance (P2P NFT lending + a bonding-curve NFT AMM), an NFT launchpad, a premium tier, and an EVM token launcher** live today; **governance and the community programs** are deployed on-chain + verified (2026-07-16) but stay app-gated until a revenue line funds their emissions. (Token lending is audited and staged, pending the oracle bootstrap.)
 3. Fees from live surfaces route to TOWELI stakers, in ETH.
 4. The longer you lock (up to 4y), the more ETH you earn and the louder you'll vote once governance is live.
-5. A Solana surface earns fees too (swap fee-capture live; a Tegridy-owned Solana AMM is in devnet groundwork).
+5. A Solana surface earns fees too (swap fee-capture live; the Tegridy-owned Solana programs are **written but deployed nowhere** — not mainnet, not devnet).
 6. The app ships **trust tooling** — a token scanner, wallet-exposure check, deployer-reputation graph, and launch fact-sheets/afterlife tracking — that self-gates to "no data" instead of faking signal.
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Uniswap / Gondi primitives, copied from battle-tested sources on purpose.
@@ -281,7 +281,7 @@ The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](h
 Tegridy runs a Solana surface too — but **TOWELI never touches Solana** (no bridge, no wrapped token, ever).
 
 - **Swap fee-capture (live in the app):** [memetic.fun](https://memetic.fun) routes Solana swaps through the Jupiter aggregator with a small platform fee that accrues to a Tegridy Solana fee account. Pure fee-capture — we don't custody liquidity here. Frontend: [`SolanaSwapPage.tsx`](frontend/src/pages/SolanaSwapPage.tsx).
-- **Tegridy CP-AMM (Phase 0, devnet groundwork — NOT audited, NOT on mainnet, holds no real funds):** a **verbatim fork of Raydium's audited CPMM** ([`raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap), Apache-2.0) so the protocol can earn a config-set protocol fee on pools it hosts — the "own the venue" model. The **entire code delta from upstream is four authority/identity constants** across two files, CI-enforced by a diff-guard so the re-audit surface stays tiny. See [`solana/tegridy-amm/TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md), [`AUDIT_RFQ.md`](solana/tegridy-amm/AUDIT_RFQ.md), and [`MAINNET_RUNBOOK.md`](solana/tegridy-amm/MAINNET_RUNBOOK.md). A fund-holding mainnet deploy is gated behind a professional diff-audit.
+- **Tegridy CP-AMM (Phase 0 — NOT audited, deployed to NO cluster: verified 2026-07-31 that the program id returns no account on mainnet, devnet and testnet; it has only ever run on an ephemeral CI validator, and holds no funds):** a **verbatim fork of Raydium's audited CPMM** ([`raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap), Apache-2.0) so the protocol can earn a config-set protocol fee on pools it hosts — the "own the venue" model. The **entire code delta from upstream is four authority/identity constants** across two files, CI-enforced by a diff-guard so the re-audit surface stays tiny. See [`solana/tegridy-amm/TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md), [`AUDIT_RFQ.md`](solana/tegridy-amm/AUDIT_RFQ.md), and [`MAINNET_RUNBOOK.md`](solana/tegridy-amm/MAINNET_RUNBOOK.md). A fund-holding mainnet deploy is gated behind a professional diff-audit.
 
 ---
 
@@ -378,7 +378,7 @@ tegriddy-farms/
 │   ├── api/             Vercel serverless (aggregator proxy, orderbook, price, …)
 │   └── supabase/        SQL migrations (orderbook, chat, profiles)
 ├── indexer/             Ponder — event indexer & GraphQL API (repointed to relaunch addrs)
-├── solana/tegridy-amm/  Raydium CPMM fork (Phase 0, devnet) — see TEGRIDY_FORK.md
+├── solana/tegridy-amm/  Raydium CPMM fork + tegridy-launch curve (Phase 0, undeployed) — see TEGRIDY_FORK.md
 ├── docs/                Architecture, deploy runbooks, go-live handoff, Solana plans
 └── *.md                 AUDITS, FIX_STATUS, TOKENOMICS, ROADMAP, SECURITY, RELAUNCH_RUNBOOK, …
 ```
@@ -492,7 +492,7 @@ Full roadmap in [`ROADMAP.md`](ROADMAP.md) · shipping cadence in [`CHANGELOG.md
 **Medium-term:**
 - ✅ ~~Limit orders~~ **live via CoW Protocol solvers** (Trade page, 2026-07-22 — no keeper needed); CoW market-swap + TWAP/DCA execution panels are built but held for live-wallet QA
 - **Dune analytics — partially done (2026-07-30).** Five public queries exist and the corrected wei→ETH numerator cast is published in [`docs/DUNE_QUERIES.md`](docs/DUNE_QUERIES.md), but per that doc's own "Still to do" only one of the five has the fix applied *on dune.com*, and **no dashboard is built yet**. Leaderboard/history are still unwired from the Ponder indexer.
-- **Solana — two programs, neither on mainnet.** The CP-AMM fork (devnet groundwork, unaudited) and, since 2026-07-30, an original **bonding-curve program** (`tegridy-launch`) that graduates into a non-squattable pool PDA. Both are CI-gated and hold no funds; path is diff-audit → mainnet → Jupiter integration.
+- **Solana — two programs, deployed to no cluster at all.** The CP-AMM fork (unaudited, never deployed — the program id resolves nowhere) and, since 2026-07-30, an original **bonding-curve program** (`tegridy-launch`) that graduates into a non-squattable pool PDA. Both are CI-gated and hold no funds; path is diff-audit → mainnet → Jupiter integration.
 - **V4 graduation leg audit.** `TegridyLiquidityMigrator` + `TegridyFeeLocker` are written and tested but undeployed; adoption needs a Whetstone module whitelist plus a timelocked hook allowance.
 - **`LockerClaimer` adoption** — the small contract that would let the launcher's 15% fee line reach TOWELI stakers instead of resting in the treasury. Written and tested, wired to nothing.
 - V4 module audit + protocol-owned-liquidity growth

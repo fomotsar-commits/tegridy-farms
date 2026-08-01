@@ -641,7 +641,8 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
       {/* Afterlife — a day-2 economy that few other launchers offer. */}
       <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
         After the auction graduates into a V4 pool, this token can plug into the Tegridy
-        economy — boosted LP farming today, with a gauge-emissions program as governance
+        economy — the boosted LP-farming rail exists today, though its TOWELI reward period
+        ended and is not currently funded, with a gauge-emissions program as governance
         deploys. Few launchers give a launch any day-2 economy at all.
       </p>
     </div>
