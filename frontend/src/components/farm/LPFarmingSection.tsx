@@ -151,16 +151,28 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalStakedFormatted)}</p>
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-              <p className="text-white text-[10px] mb-0.5">Reward Rate</p>
-              <p className="stat-value text-[14px] text-white font-mono">{formatNumber(lpFarm.rewardRatePerDay, 2)} / day</p>
+              {/* The NUMBER here was already correct: useLPFarming zeroes rewardRatePerDay
+                  once `periodFinish` lapses (fix F100), so this read "0.00 / day" rather
+                  than a live figure. What it did not do is say WHY. "0.00 / day" beside a
+                  past "Period Ends" date reads like a lull between epochs; the reward
+                  period actually ended 2026-06-15 and is unfunded. This is a legibility
+                  change on an already-honest number, not a correction. */}
+              <p className="text-white text-[10px] mb-0.5">{lpFarm.isActive ? 'Reward Rate' : 'Reward Rate (ended)'}</p>
+              {lpFarm.isActive ? (
+                <p className="stat-value text-[14px] text-white font-mono">{formatNumber(lpFarm.rewardRatePerDay, 2)} / day</p>
+              ) : (
+                <p className="stat-value text-[14px] text-amber-300 font-mono" title="The reward period has ended — staking LP here accrues nothing until it is refunded.">
+                  0 / day
+                </p>
+              )}
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Total Funded</p>
               <p className="stat-value text-[14px] text-white font-mono">{formatNumber(parseFloat(lpFarm.totalRewardsFundedFormatted), 0)} TOWELI</p>
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-              <p className="text-white text-[10px] mb-0.5">Period Ends</p>
-              <p className="stat-value text-[14px] text-white font-mono">
+              <p className="text-white text-[10px] mb-0.5">{lpFarm.isActive ? 'Period Ends' : 'Period Ended'}</p>
+              <p className={`stat-value text-[14px] font-mono ${lpFarm.isActive ? 'text-white' : 'text-amber-300'}`}>
                 {lpFarm.periodFinish > 0 ? new Date(lpFarm.periodFinish * 1000).toLocaleDateString() : '–'}
               </p>
             </div>

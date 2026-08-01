@@ -197,18 +197,23 @@ harmless on that path. A durable nonce would remove the window outright but need
 funded nonce account plus a nonce-authority signature on every build — new on-chain
 state and a second signer for a problem the Squads path does not have.
 
-## Gating + wizard integration (not yet wired)
+## Gating + wizard integration (preview page LIVE; no in-app submit)
 
-`SOLANA_LAUNCHER_ENABLED = false` in `dbc.ts`; `isSolanaLauncherEnabled()` is the
+`SOLANA_LAUNCHER_ENABLED = true` in `dbc.ts` since 2026-07-27 — `/solana-launch` renders a
+config PREVIEW with no signer and no submit path. `isSolanaLauncherEnabled()` is the
 gate. To surface a gated Solana launch wizard later:
 
-1. Build `frontend/src/pages/SolanaLaunchPage.tsx` that renders the standard
-   "SOON" placeholder while `!isSolanaLauncherEnabled()`, mirroring the EVM
-   launcher's `isLauncherEnabled()` gate in `../config.ts`.
-2. Behind the gate: collect token meta + market-cap band, call the builders here
-   to preview the Fact Sheet (fee split, anti-snipe schedule, LP lock), and hand
-   the descriptors to the operator signing wrapper — the submit path stays
-   unreachable until an operator flips `SOLANA_LAUNCHER_ENABLED` **and** a real
-   Squads vault is configured.
+1. ~~Build `frontend/src/pages/SolanaLaunchPage.tsx`~~ — **DONE.** It exists and is
+   routed at `frontend/src/App.tsx`. It collects token meta + market-cap band and
+   previews the Fact Sheet (fee split, anti-snipe schedule, LP lock) from the builders
+   here. It has **no signer and no submit path** — that is the design, not an omission.
+2. **Still open before a first real Solana launch**, and neither is a frontend task:
+   - No DBC partner config of ours exists on **mainnet**; `create-config --send` has
+     never been run, so there is nothing to launch against.
+   - ⚠️ `verifySquadsVault` (squads.ts) checks program-ownership and PDA derivation but
+     **not the account discriminator or the threshold**. Feed it a Squads *ProgramConfig*
+     rather than a `Multisig` and it passes — producing a config whose `feeClaimer` no
+     one can ever sign for, which would strand 100% of partner fees irreversibly. Fix
+     that guard BEFORE running create-config.
 
 No new dependencies; the SDK and `@solana/web3.js` are already installed.
