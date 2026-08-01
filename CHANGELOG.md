@@ -31,6 +31,48 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 > runs are attributed to the commit that recorded them. They are internally
 > consistent but are **not** reproducible from the repository.
 
+### Security — Solana partner config went live against a custody gate that could not see a 1-of-1 (2026-08-01)
+
+The operator ran `create-config --send`, so a **Meteora DBC partner config now exists
+on Solana mainnet** and the launcher rail is armed. **Zero tokens have launched through
+it**; every figure on `/solana-launch` is still a builder default, not a track record,
+and the page keeps its no-signer / no-submit design.
+
+The config was created while the in-code custody gate was weaker than its own docs
+demanded. `verifySquadsVault` proved only (1) the parent multisig is Squads-v4-owned and
+(2) the fee address is that parent's canonical vault PDA. It never deserialized the
+account, so two things passed that must not:
+
+- a **1-of-1** Squads multisig — a single-key drain of all accrued Solana fees, wearing
+  multisig custody as a label; and
+- any **other Squads-owned account type** (`Proposal` / `VaultTransaction` /
+  `ProgramConfig`), since only the program-owner was checked and not the 8-byte Anchor
+  discriminator that identifies a `Multisig`. Naming one of those as `feeClaimer`
+  produces a config **nobody can ever sign a claim for — stranding 100% of partner fees
+  irreversibly.**
+
+`frontend/src/lib/launcher/solana/README.md` had carried the instruction *"Fix that
+guard BEFORE running create-config"* since it was written. The fix existed — authored
+2026-07-26 — but sat on an unpushed local branch and reached no remote, so the trunk
+(and every clone of it) still shipped the weak gate.
+
+Now enforced, dependency-free: a discriminator-**guarded** byte read confirms the account
+is a genuine Squads v4 `Multisig` (discriminator computed as `sha256("account:Multisig")[0:8]`,
+not trusted from memory) and reads `threshold` as u16-LE at offset 72, requiring `>= 2`.
+The guard is what makes a hand-rolled offset safe: offset 72 is only ever read on an
+account already proven to be a `Multisig`, so a wrong account type, short data, or a
+missing account returns `null` → reject, never a spuriously-high threshold that would
+*accept* a bad vault.
+
+Mutation-checked: weakening the constant to `>= 1` fails exactly the threshold-1 test and
+nothing else. Frontend suite green — 157 files, 2037 tests — and `tsc --noEmit` clean.
+
+Docs and UI reconciled in the same change: the README's Solana rows move from "preview
+only" to "rail armed, 0 launches", and `/solana-launch` no longer tells readers
+"submission stays disabled until the launcher is enabled and a Squads vault is verified"
+— both of those conditions are now met, yet submission is deliberately still absent, so
+that sentence had become an implied promise the page never intends to keep.
+
 ### Fixed — Launcher unblocked: a 300s oracle gate, a stranded fee line, and 10x-wrong auction bands (2026-07-30)
 
 Three independent launch-path defects, all closed in `3ff679f9`
