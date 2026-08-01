@@ -24,7 +24,21 @@ if (existsSync(out)) {
 
 const kp = Keypair.generate();
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, JSON.stringify(Array.from(kp.secretKey)), { mode: 0o600 });
+// EXCLUSIVE create. The existsSync above is only for the friendly error message — on its
+// own it is a time-of-check-to-time-of-use race, so the "never overwrite" promise would be
+// best-effort rather than a guarantee. Here that promise is load-bearing: the file it would
+// clobber is a FUNDED payer keypair, and overwriting it strands the SOL with no way back.
+// `wx` makes the create fail atomically if the path exists. (Flagged by CodeQL.)
+try {
+  writeFileSync(out, JSON.stringify(Array.from(kp.secretKey)), { flag: 'wx', mode: 0o600 });
+} catch (e) {
+  if (e && e.code === 'EEXIST') {
+    console.error(`REFUSING: ${out} appeared while this script was running.`);
+    console.error('Nothing was written. Overwriting a keypair destroys it.');
+    process.exit(1);
+  }
+  throw e;
+}
 
 console.log('');
 console.log('  Keypair written to : ' + out);
