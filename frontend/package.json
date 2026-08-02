@@ -24,7 +24,7 @@
     "@irys/web-upload": "^0.0.15",
     "@irys/web-upload-ethereum": "^0.0.16",
     "@metamask/connect-evm": "^2.1.1",
-    "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.10",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.11",
     "@rainbow-me/rainbowkit": "^2.2.11",
     "@safe-global/safe-apps-provider": "^0.18.6",
     "@safe-global/safe-apps-sdk": "^9.1.0",
