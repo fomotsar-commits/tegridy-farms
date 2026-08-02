@@ -61,6 +61,9 @@ export function ArtImg({
   };
   return (
     <img
+      // Lets /art-studio's Live-page preview find and jump to the exact
+      // surface being edited instead of just loading the route's top.
+      data-art-surface={`${pageId}:${idx}`}
       src={errored ? PLACEHOLDER_NFT : art.src}
       width={width ?? 1200}
       height={height ?? 800}

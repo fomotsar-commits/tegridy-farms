@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
+import { ArtImg } from '../ArtImg';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -380,18 +381,24 @@ export const TopNav = React.memo(function TopNav() {
               role="dialog"
               aria-modal="true"
               aria-label="Navigation menu"
-              className="fixed right-0 top-0 bottom-0 z-50 w-56 sm:hidden flex flex-col"
+              className="fixed right-0 top-0 bottom-0 z-50 w-56 sm:hidden flex flex-col overflow-hidden"
               style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid var(--color-purple-75)' }}
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}>
-              <div className="p-4 flex justify-end">
+              {/* Art behind the drawer, under a heavy scrim so nav labels keep
+                  their contrast. Pickable as `nav-drawer:0` in /art-studio. */}
+              <div className="absolute inset-0" aria-hidden="true">
+                <ArtImg pageId="nav-drawer" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+              </div>
+              <div className="absolute inset-0" aria-hidden="true" style={{ background: 'rgba(6,12,26,0.82)' }} />
+              <div className="relative z-10 p-4 flex justify-end">
                 <button onClick={() => setOpen(false)} aria-label="Close navigation menu" className="text-text-muted p-2.5 min-w-[48px] min-h-[48px] flex items-center justify-center">
                   <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                     <path d="M5 5l10 10M15 5l-10 10" />
                   </svg>
                 </button>
               </div>
-              <nav className="flex-1 px-3 overflow-y-auto pb-6">
+              <nav className="relative z-10 flex-1 px-3 overflow-y-auto pb-6">
                 {/* Mirror the desktop "More" dropdown — single source of
                     truth in navConfig. Primary tabs already live in the
                     BottomNav, so the drawer is just the secondary overflow. */}
