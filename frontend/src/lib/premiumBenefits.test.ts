@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { goldCardBenefits } from './premiumBenefits';
+import { goldCardBenefits, goldCardSubhead } from './premiumBenefits';
 
 const ethYield = (state: { ethDistributed: number; isLoading: boolean }) => goldCardBenefits(state)[0]!;
 
@@ -29,6 +29,33 @@ describe('goldCardBenefits', () => {
 
   it('treats a NaN read as unpaid, never as paid', () => {
     expect(ethYield({ ethDistributed: Number.NaN, isLoading: false }).title).not.toBe('Real ETH yield');
+  });
+
+  it('does not let the HERO line promise what the benefit card refuses to', () => {
+    // The 2026-07-31 pass conditioned the card and left the hero subhead — the first
+    // sentence on the page — reading "earn real ETH from swap fees, like every
+    // staker." Verified on-chain 2026-08-01: SwapFeeRouter.totalETHFees() is 0 and
+    // always has been. Pin the two surfaces AGREEING, so neither can drift alone.
+    const unpaid = { ethDistributed: 0, isLoading: false };
+    expect(goldCardSubhead(unpaid)).not.toMatch(/earn real ETH/i);
+    expect(goldCardSubhead(unpaid)).toMatch(/distributed nothing yet/i);
+    expect(goldCardBenefits(unpaid)[0]!.title).not.toBe('Real ETH yield');
+  });
+
+  it('lets the hero make the claim once a distribution has actually landed', () => {
+    const paid = { ethDistributed: 0.25, isLoading: false };
+    expect(goldCardSubhead(paid)).toMatch(/earn real ETH/i);
+    expect(goldCardBenefits(paid)[0]!.title).toBe('Real ETH yield');
+  });
+
+  it('asserts neither way in the hero while the read is in flight', () => {
+    const loading = { ethDistributed: 0, isLoading: true };
+    expect(goldCardSubhead(loading)).not.toMatch(/earn real ETH/i);
+    expect(goldCardSubhead(loading)).not.toMatch(/distributed nothing yet/i);
+  });
+
+  it('treats a NaN read as unpaid in the hero too', () => {
+    expect(goldCardSubhead({ ethDistributed: Number.NaN, isLoading: false })).not.toMatch(/earn real ETH/i);
   });
 
   it('keeps the JBAC lifetime-access benefit in every state', () => {

@@ -140,8 +140,9 @@ export default function ScannerPage() {
         <StateCard tone="muted" title="Not enabled on this deployment yet">
           <p>{scan.errorMessage}</p>
           <p className="mt-2 text-text-muted">
-            Solana token scans work today. Ethereum scans need the holder-data route configured on the server (see the
-            deployment notes) — until then this tab stays honest about the gap rather than showing invented numbers.
+            Solana token scans work today. Ethereum scans need the holder-data source configured on the server — the
+            route may be deployed and simply missing its upstream API key (see the deployment notes). Until then this
+            tab stays honest about the gap rather than showing invented numbers.
           </p>
         </StateCard>
       )}
@@ -149,7 +150,16 @@ export default function ScannerPage() {
       {scan.status === 'empty' && (
         <StateCard tone="muted" title="No holder data for this token">
           <p>{scan.errorMessage}</p>
-          <p className="mt-2 text-text-muted">Double-check the address is a token (not a wallet or an NFT), then try again.</p>
+          {/* Not an accusation of user error. This state is also what a real token
+              with nothing left to enumerate looks like — a fully-burned Solana mint
+              reads exactly this way, and so does a token whose holders all sit below
+              the enumeration cut. On Ethereum, "you pasted a wallet" now has its own
+              message (the 422 path), so this card no longer has to carry that guess
+              as its headline explanation. */}
+          <p className="mt-2 text-text-muted">
+            Double-check the address is a token (not a wallet or an NFT) — or the token really has no holders left to
+            enumerate, which is how a fully-burned supply reads.
+          </p>
         </StateCard>
       )}
 

@@ -12,7 +12,6 @@ import {
 } from './constants';
 import { isSolanaConfigured } from './solana';
 import { isLauncherEnabled } from './launcher/config';
-import { isSolanaLauncherEnabled } from './launcher/solana/dbc';
 
 export interface NavItem {
   to: string;
@@ -116,9 +115,16 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // The Solana leg (fee-capture sub-brand over Meteora DBC). Previously only
       // reachable via a cross-link buried in /launch's GATED explainer, so an
       // operator (who sees the live wizard, not the explainer) had no path to it.
-      // Surfaced here for parity with Solana Swap; "Soon" pill until the launcher
-      // flag flips (SOLANA_LAUNCHER_ENABLED, launcher/solana/dbc.ts).
-      { to: '/solana-launch', label: 'Solana Launch', soon: !isSolanaLauncherEnabled() },
+      // Surfaced here for parity with Solana Swap.
+      //
+      // Pilled "Soon" UNCONDITIONALLY, like /curve-launch below. This was
+      // `soon: !isSolanaLauncherEnabled()`, which keyed the pill to a feature flag
+      // rather than to the only question a visitor cares about — can I launch from
+      // this page? SolanaLaunchPage has NO signer and NO submit path by design (it
+      // says so itself: "this page never submits"), so with the flag on, the pill
+      // cleared and the nav advertised a launch surface that cannot launch. Flip
+      // this to a flag only when a submit path actually ships.
+      { to: '/solana-launch', label: 'Solana Launch', soon: true },
       // Our OWN Solana curve (tegridy-launch + our cp-swap fork), as opposed to
       // the Meteora rail above. Permanently pilled "Soon": the program is not
       // deployed on any cluster, and the page proves that from a live read of

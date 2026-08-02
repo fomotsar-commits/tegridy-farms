@@ -34,6 +34,25 @@ const JBAC_BENEFIT: GoldCardBenefit = {
   desc: 'Jungle Bay Ape Club holders get permanent Gold Card access — no subscription needed.',
 };
 
+/**
+ * The hero subhead, conditioned on the same read as the benefit card below.
+ *
+ * The 2026-07-31 pass conditioned the benefit CARD and left the hero line — the first
+ * sentence on the page — as the flat literal "Back the protocol in TOWELI — and earn
+ * real ETH from swap fees, like every staker." Verified on-chain 2026-08-01:
+ * `SwapFeeRouter.totalETHFees()` is 0 and always has been, so on a page charging
+ * 10,000 TOWELI/month the headline promise was the one thing a visitor read first and
+ * the one thing that had never happened. Conditioning the card while the headline
+ * still promised it is not a fix, so both now follow the same chain.
+ */
+export function goldCardSubhead({ ethDistributed, isLoading }: EthYieldState): string {
+  if (isLoading) return 'Back the protocol in TOWELI. Reading what the ETH fee rail has distributed…';
+  const paid = Number.isFinite(ethDistributed) && ethDistributed > 0;
+  return paid
+    ? 'Back the protocol in TOWELI — and earn real ETH from swap fees, like every staker.'
+    : 'Back the protocol in TOWELI. The ETH swap-fee rail is live on-chain but has distributed nothing yet — today this buys access, not yield.';
+}
+
 export function goldCardBenefits({ ethDistributed, isLoading }: EthYieldState): GoldCardBenefit[] {
   const paid = Number.isFinite(ethDistributed) && ethDistributed > 0;
   const ethYield: GoldCardBenefit = {

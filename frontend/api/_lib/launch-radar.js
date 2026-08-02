@@ -38,9 +38,9 @@ const MAX_PAGES = 2;
 const ALLOWED_ORIGINS = [
   "https://memetic.fun",
   "https://www.memetic.fun",
+  "https://memetics.finance",
+  "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
-  "https://nakamigos.gallery",
-  "https://www.nakamigos.gallery",
 ];
 if (process.env.NODE_ENV === "development") {
   ALLOWED_ORIGINS.push("http://localhost:5173", "http://localhost:3000");

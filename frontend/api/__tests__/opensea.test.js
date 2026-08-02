@@ -15,7 +15,7 @@ function makeReq({ method = "POST", query = {}, body = {}, headers = {} } = {}) 
     method,
     query,
     body,
-    headers: { origin: "https://nakamigos.gallery", ...headers },
+    headers: { origin: "https://memetic.fun", ...headers },
   };
 }
 

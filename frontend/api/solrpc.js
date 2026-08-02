@@ -60,10 +60,10 @@ function isProdLikeEnv() {
 
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
+    "https://memetics.finance",
+    "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
   ]);
   if (process.env.ALLOWED_ORIGIN) set.add(process.env.ALLOWED_ORIGIN);
