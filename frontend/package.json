@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@base-org/account": "^2.5.8",
+    "@coinbase/wallet-sdk": "^4.3.7",
     "@irys/web-upload": "^0.0.15",
     "@irys/web-upload-ethereum": "^0.0.16",
     "@metamask/connect-evm": "^2.1.1",

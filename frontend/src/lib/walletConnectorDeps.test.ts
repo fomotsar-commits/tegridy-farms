@@ -35,6 +35,11 @@ const WALLET_RUNTIME_DEPS: ReadonlyArray<readonly [wallet: string, pkg: string]>
   ['Base', '@base-org/account'],
   ['Safe', '@safe-global/safe-apps-sdk'],
   ['Safe', '@safe-global/safe-apps-provider'],
+  // Not a RainbowKit row. `wagmi.ts` wires coinbaseWallet directly in the
+  // no-projectId fallback config, which is what CI, preview deploys, E2E and
+  // fresh clones actually run — so it stubs there even though production,
+  // which always has a projectId, never reaches it.
+  ['Coinbase (fallback config)', '@coinbase/wallet-sdk'],
 ];
 
 describe('wallet connector runtime dependencies', () => {
@@ -54,7 +59,6 @@ describe('wallet connector runtime dependencies', () => {
       'typescript', // toolchain, not a runtime wallet dep
       'porto', // no Porto wallet in the connect modal
       'accounts', // no Accounts wallet in the connect modal
-      '@coinbase/wallet-sdk', // Coinbase row is not in our RainbowKit wallet list
     ]);
 
     const meta = requireFrom('@wagmi/connectors/package.json').peerDependenciesMeta ?? {};
