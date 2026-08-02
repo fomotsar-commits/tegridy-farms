@@ -1,10 +1,29 @@
-# Core-Loop Go-Live — verified on-chain 2026-07-11
+# Core-Loop Go-Live — ⚠️ SUPERSEDED, re-read on-chain 2026-08-02
 
-Read directly from mainnet (`ethereum-rpc.publicnode.com`) + forge-simulated
-against live state. Supersedes the "empty pool / seed LP first" assumption in the
-older memory — **the native pool is already seeded.**
+> **🔴 THE 2026-07-11 STATE BELOW IS NO LONGER TRUE. The native pool was drained.**
+>
+> Re-read from mainnet (`ethereum-rpc.publicnode.com`) on **2026-08-02**:
+>
+> | Read | 2026-07-11 (below) | **2026-08-02 (actual)** |
+> |---|---|---|
+> | Native pair `0x55875887…58a481` reserves | 776,678 TOWELI + 0.0203 WETH | **146,258.41 TOWELI + 0.003830891 WETH** |
+> | Native pool depth | ~$73 | **~$14.30** |
+> | Native pair LP `totalSupply()` | 125.7 | **23.67** |
+> | LP Farming `0x1171268A…e149` LP balance | 125.0 (99.5% staked) | **0** |
+> | Uniswap pair `0x6682Ac59…F81104D` | ~$26,400 | 278,952,490 TOWELI + 7.3786 WETH |
+> | Uniswap depth advantage | 360× | **1,926× in WETH** |
+> | `SwapFeeRouter.totalETHFees()` | — | **0 — lifetime, never earned** |
+>
+> ~83% of the LP was burned and the farm's staked LP went to zero. So
+> **"farming is live" is false**, and the `DeepenLP.s.sol` plan sized below
+> (~50M TOWELI + ~1.31 ETH) is undersized by roughly 6× — an independent model
+> puts the point where the native pool starts winning $1k trades at **8–11 WETH
+> (~$30–41k both sides at ETH $1,866)**, not 1.33.
+>
+> Everything below is retained as the historical 2026-07-11 record. Do not action
+> it without re-reading the chain first.
 
-## Verified state
+## Verified state (2026-07-11 — HISTORICAL, see the correction above)
 | Fact | Value |
 |---|---|
 | Native TOWELI/WETH pool (`0x5587…a481`) | **SEEDED**: 776,678 TOWELI + 0.0203 WETH |
