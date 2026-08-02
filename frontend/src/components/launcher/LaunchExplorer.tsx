@@ -16,6 +16,7 @@ import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import type { Address } from 'viem';
 import type { LaunchTier } from '../../lib/launcher/factSheet';
+import { ArtCard } from '../ui/ArtCard';
 import {
   orderLaunches,
   defaultOrderingConfig,
@@ -84,15 +85,12 @@ export function LaunchExplorer({ launches, outcomes, now }: LaunchExplorerProps)
       </header>
 
       {ranked.length === 0 ? (
-        <div
-          className="rounded-2xl p-8 text-center"
-          style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
-        >
-          <p className="text-white/70 text-sm font-medium">No launches yet</p>
-          <p className="text-white/40 text-xs mt-1">
+        <ArtCard pageId="launch" idx={42} padding="p-8" className="text-center">
+          <p className="text-white/80 text-sm font-medium">No launches yet</p>
+          <p className="text-white/50 text-xs mt-1">
             Graduated launches will appear here with their transparent score and tracked outcomes.
           </p>
-        </div>
+        </ArtCard>
       ) : (
         <ol className="space-y-3">
           {ranked.map((r, i) => (
