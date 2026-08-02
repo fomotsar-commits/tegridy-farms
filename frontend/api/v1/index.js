@@ -148,27 +148,74 @@ export default async function handler(req, res) {
         const { text: infoText, truncated: it } = await readBoundedText(infoRes, MAX_RESPONSE_BYTES);
         const { text: topText, truncated: tt } = await readBoundedText(topRes, MAX_RESPONSE_BYTES);
         if (it || tt) throw new Error("upstream-too-large");
-        let info = {}, top = {};
-        try { info = JSON.parse(infoText); } catch { info = {}; }
-        try { top = JSON.parse(topText); } catch { top = {}; }
-        // The holder list comes from getTopTokenHolders. If THAT read failed —
-        // non-2xx, non-JSON, no `holders` list at all, or an Ethplorer {error:{code}}
-        // envelope (200-with-error is common for rate-limit / bad key) — we must NOT
-        // degrade into a cached 200 with empty holders. That told users a valid token
-        // had zero holders and cached the lie for 2 minutes. Fail loudly, uncached.
+        let info = null, top = null;
+        try { info = JSON.parse(infoText); } catch { info = null; }
+        try { top = JSON.parse(topText); } catch { top = null; }
+
+        // ── EVERY READ HAS THREE OUTCOMES AND ONLY TWO ARE ANSWERS ────────────
+        //   (a) read it, the answer is no   (b) read it, the answer is yes
+        //   (c) COULD NOT READ IT
+        // (c) is not a finding. This route is the end of the pipe that can CACHE
+        // one: a degraded 200 gets stamped s-maxage=120 and served to everyone who
+        // scans that token for the next two minutes, and the client renders a body
+        // with no holders as "No holder data for this token — double-check the
+        // address is a token (not a wallet or an NFT)". So (c) takes the uncached
+        // failure path below, and only (a)/(b) are allowed to become a 200.
+
+        /**
+         * A base-unit integer as a digit string, or null when it cannot be read
+         * EXACTLY. A JSON number past 2^53 had its low digits fabricated by the
+         * parse itself, so there is nothing left there to read even though
+         * `BigInt(Math.trunc(v))` returns a confident-looking integer.
+         */
+        const baseUnits = (v) => {
+          if (typeof v === "string") return /^[0-9]+$/.test(v) ? v : null;
+          if (typeof v === "number") return Number.isSafeInteger(v) && v >= 0 ? String(v) : null;
+          return null;
+        };
+
+        // getTokenInfo carries the denominator every published percentage divides
+        // by. An unparsable body is a failed read of ALL of it, not five nulls. An
+        // ABSENT totalSupply is the route's documented gap and stays null (the
+        // client leaves it undefined and the core falls back to the enumerated sum,
+        // disclosed as an upper bound); a PRESENT one we cannot read is neither, and
+        // must not go out as a mangled string — the client's `toBig` turned "1e+21"
+        // into 121n and published 100% concentration off it.
+        const infoOk = !!info && typeof info === "object";
+        const rawTotal = infoOk ? info.totalSupply : null;
+        const totalSupply = rawTotal == null ? null : baseUnits(rawTotal);
+
+        // Ethplorer hands us the exact integer in `rawBalance`. This ignored it and
+        // rebuilt every balance from `share` — a percentage rounded to TWO decimals
+        // — so each published balance carried a fixed ±0.005pp error whose RELATIVE
+        // size explodes on small holders: measured on TOWELI's own live scan, one
+        // holder was published 6.01% light (44,733 TOWELI), and any holder under
+        // 0.005% rounds to a zero balance and vanishes from the set entirely.
         //
-        // The `holders` check is what covers the unparsable body above: `catch { top =
-        // {} }` used to be indistinguishable from a 200 that genuinely carried no
-        // holders, because `(top.holders || [])` produced `[]` either way. A 200
-        // carrying a CDN interstitial or a gateway HTML page is the ordinary way an
-        // upstream fails WITHOUT a non-2xx, and it got cached as a finding about
-        // somebody's token. A `holders: []` that IS present stays a success — that is
-        // the read working and the answer being nobody. Only an absent or non-array
-        // list is a failed read.
+        // A row whose balance cannot be read is a failed read, not a row to drop:
+        // dropping a holder understates concentration, the flattering direction, and
+        // dropping ALL of them lands the client on "No holder data for this token".
+        // A row that is not an EVM address can be attributed to nobody and stays
+        // dropped — the only row-level drop left.
+        const rows = top && typeof top === "object" && Array.isArray(top.holders) ? top.holders : null;
+        let holders = rows ? [] : null;
+        for (const h of rows || []) {
+          const address = String((h && h.address) || "").toLowerCase();
+          if (!/^0x[0-9a-f]{40}$/.test(address)) continue;
+          const balance = baseUnits(h && h.rawBalance != null ? h.rawBalance : h && h.balance);
+          if (balance === null) { holders = null; break; }
+          holders.push({ address, balance, isContract: !!(h && h.isContract) });
+        }
+
+        // A 200 carrying a CDN interstitial or a gateway HTML page is the ordinary
+        // way an upstream fails WITHOUT a non-2xx, and an Ethplorer {error:{code}}
+        // envelope is how it reports a bad key or a rate-limit. Both used to fall
+        // through `catch { top = {} }` / `(top.holders || [])` into a cached 200
+        // carrying `holders: []`. A `holders: []` that IS present still succeeds —
+        // that is the read working and the answer being nobody.
         const epError = top && typeof top === "object" ? top.error : null;
-        const topUnreadable = !epError && !Array.isArray(top && top.holders);
-        const topFailed = !topRes.ok || !!epError || topUnreadable;
-        if (topFailed) {
+        const unreadable = !infoOk || (rawTotal != null && totalSupply === null) || holders === null;
+        if (!topRes.ok || epError || unreadable) {
           // Ethplorer code 1 = invalid API key. Map auth failures to 403, which
           // the client renders as the honest "scanner not enabled on this
           // deployment yet" state (needs a paid ETHPLORER_API_KEY). Everything
@@ -181,29 +228,20 @@ export default async function handler(req, res) {
               : "Holder data source is temporarily unavailable — try again shortly",
           });
         }
-        const totalSupply = info && info.totalSupply != null ? String(info.totalSupply) : null;
-        let totalBig = 0n;
-        try { totalBig = totalSupply ? BigInt(totalSupply) : 0n; } catch { totalBig = 0n; }
-        const decimals = parseInt(info && info.decimals, 10);
-        const holders = ((top && top.holders) || []).map((h) => {
-          const address = String(h.address || "").toLowerCase();
-          let balance = null;
-          if (typeof h.share === "number" && totalBig > 0n) {
-            balance = String((totalBig * BigInt(Math.round(h.share * 1e4))) / 1000000n);
-          } else if (h.balance != null && Number.isFinite(Number(h.balance))) {
-            balance = String(BigInt(Math.trunc(Number(h.balance))));
-          }
-          return { address, balance, isContract: !!h.isContract };
-        }).filter((h) => /^0x[0-9a-f]{40}$/.test(h.address) && h.balance);
+
+        // `decimals` and `holdersCount` are the two fields an unreadable value may
+        // stay null for: neither feeds a metric, and a null holdersCount makes the
+        // scanner disclose `top-n` coverage — the conservative direction.
+        const decimals = parseInt(info.decimals, 10);
         res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=300");
         return res.json({
           chain: "ethereum",
           contract,
-          name: (info && info.name) || null,
-          symbol: (info && info.symbol) || null,
+          name: info.name || null,
+          symbol: info.symbol || null,
           decimals: Number.isFinite(decimals) ? decimals : null,
           totalSupply,
-          holdersCount: info && typeof info.holdersCount === "number" ? info.holdersCount : null,
+          holdersCount: typeof info.holdersCount === "number" ? info.holdersCount : null,
           source: "ethplorer",
           holders,
         });

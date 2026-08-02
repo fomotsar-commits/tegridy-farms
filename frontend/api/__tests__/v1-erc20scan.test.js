@@ -132,3 +132,149 @@ describe("v1 erc20scan — an unreadable holder payload is a failed read, not an
     expect(statusSpy).toHaveBeenCalledWith(403);
   });
 });
+
+describe("v1 erc20scan — the numbers it publishes are the numbers it read", () => {
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    vi.doMock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
+    handler = (await import("../v1/index.js")).default;
+  });
+
+  afterEach(() => { delete globalThis.fetch; });
+
+  function serve({ info = INFO, top }) {
+    globalThis.fetch = vi.fn(async (url) =>
+      String(url).includes("getTopTokenHolders") ? upstream(top) : upstream(info),
+    );
+  }
+
+  async function scan(bodies) {
+    serve(bodies);
+    const { res, headers, statusSpy, jsonSpy } = makeRes();
+    await handler(makeReq(), res);
+    return { headers, statusSpy, body: jsonSpy.mock.calls[0]?.[0] };
+  }
+
+  it("publishes the exact rawBalance, not a balance rebuilt from a 2-decimal share", async () => {
+    // ⚠ THE LIVE DEFECT. Ethplorer hands over the exact integer in `rawBalance`;
+    // this route ignored it and reconstructed each balance as
+    // totalSupply × round(share × 1e4) / 1e6. `share` is a percentage rounded to
+    // TWO decimals, so the reconstruction carried a fixed ±0.005pp error — which is
+    // ~0.02% on the top holder but 6.01% on a 0.07% holder (measured on TOWELI's
+    // own live scan: 700000000000000000000000 published against an actual
+    // 744733489701014745728907). Every downstream metric divides these.
+    const exact = "744733489701014745728907";
+    const { body } = await scan({
+      top: JSON.stringify({
+        holders: [{ address: `0x${"a".repeat(40)}`, balance: 7.447334897010147e23, share: 0.07, rawBalance: exact }],
+      }),
+    });
+    expect(body.holders[0].balance).toBe(exact);
+  });
+
+  it("does not let a holder under 0.005% round away to nothing", async () => {
+    // The other end of the same quantization: `share` rounds to 0.00, the rebuilt
+    // balance is 0, and the client drops every zero-balance row. A real holder
+    // disappeared from the set, which understates concentration.
+    const { body } = await scan({
+      top: JSON.stringify({
+        holders: [{ address: `0x${"b".repeat(40)}`, share: 0, rawBalance: "40000000000000000000" }],
+      }),
+    });
+    expect(body.holders).toHaveLength(1);
+    expect(body.holders[0].balance).toBe("40000000000000000000");
+  });
+
+  it("refuses a row whose balance cannot be read exactly rather than dropping it", async () => {
+    // Dropping understates concentration — the flattering direction — and dropping
+    // every row lands the client on "No holder data for this token".
+    for (const bad of [{ balance: "1,000" }, { balance: "9.9e32" }, { balance: null }, { rawBalance: "0x10" }, {}]) {
+      const { statusSpy } = await scan({
+        top: JSON.stringify({ holders: [{ address: `0x${"c".repeat(40)}`, ...bad }] }),
+      });
+      expect(statusSpy, JSON.stringify(bad)).toHaveBeenCalledWith(502);
+    }
+  });
+
+  it("refuses a float balance whose low digits the parse already fabricated", async () => {
+    // No rawBalance to fall back on: `BigInt(Math.trunc(4.1e32))` returns a
+    // confident-looking integer whose last 17 digits came from the float, not
+    // from the chain.
+    const { statusSpy } = await scan({
+      top: JSON.stringify({ holders: [{ address: `0x${"d".repeat(40)}`, balance: 4.10436517170573e32 }] }),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+
+  it("still accepts an exact integer balance when no rawBalance is offered", async () => {
+    // Hardening must not narrow what the upstream can legitimately send: below 2^53
+    // a JSON number IS the exact value (USDC's real top holders look like this).
+    const { body, statusSpy } = await scan({
+      top: JSON.stringify({ holders: [{ address: `0x${"e".repeat(40)}`, balance: 4187687406315896 }] }),
+    });
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(body.holders[0].balance).toBe("4187687406315896");
+  });
+
+  it("still drops a row that is not an EVM address", async () => {
+    const { body } = await scan({
+      top: JSON.stringify({
+        holders: [{ address: "not-an-address", rawBalance: "5" }, { address: `0x${"f".repeat(40)}`, rawBalance: "7" }],
+      }),
+    });
+    expect(body.holders).toEqual([{ address: `0x${"f".repeat(40)}`, balance: "7", isContract: false }]);
+  });
+
+  it("does NOT publish a totalSupply it could not read", async () => {
+    // `String(info.totalSupply)` yields "1e+21" for any JSON number ≥ 1e21 — the
+    // size a meme-coin supply actually is — and the client's toBig stripped the
+    // non-digits down to 121n, then published 100% concentration and a fired
+    // single-holder-majority gate off it.
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    for (const totalSupply of [1e21, "1e+21", "abc", "1.5", ""]) {
+      const { statusSpy, headers } = await scan({ info: JSON.stringify({ totalSupply }), top });
+      expect(statusSpy, String(totalSupply)).toHaveBeenCalledWith(502);
+      expect(headers["Cache-Control"]).toBe("no-store");
+    }
+  });
+
+  it("keeps an absent totalSupply as the documented gap it is", async () => {
+    // The explorer does not always report one. That is an ANSWER: the client leaves
+    // it undefined and the core's fallback to the enumerated sum is disclosed by the
+    // coverage notes. Only a PRESENT-but-unreadable total is a failed read.
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    const { body, statusSpy } = await scan({ info: JSON.stringify({ name: "T", symbol: "T" }), top });
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(body.totalSupply).toBeNull();
+  });
+
+  it("treats an unparsable token-info body as a failed read, not as five nulls", async () => {
+    // getTokenInfo carries the denominator. Degrading it to `{}` published a scan
+    // whose every percentage divided by a substituted enumerated sum, from a read
+    // that never happened.
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    const { statusSpy, headers } = await scan({ info: "<!doctype html><title>502</title>", top });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("serves the fully readable payload uncut", async () => {
+    const { body, statusSpy, headers } = await scan({
+      top: JSON.stringify({ holders: [{ address: HOLDER.address, rawBalance: "12345", isContract: true }] }),
+    });
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toMatch(/s-maxage/);
+    expect(body).toMatchObject({
+      chain: "ethereum",
+      symbol: "SHIB",
+      decimals: 18,
+      totalSupply: "999982329055168014311278372706779",
+      holdersCount: 1678265,
+      source: "ethplorer",
+      holders: [{ address: HOLDER.address, balance: "12345", isContract: true }],
+    });
+  });
+});
