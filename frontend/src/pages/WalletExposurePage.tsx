@@ -24,9 +24,10 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 //
 // HONEST-FRAMING: this is a descriptive measurement with a disclosed method and a
 // timestamp, never a fraud verdict. Position sizes are exact on-chain reads.
-// Distribution scoring self-gates to "pending" for tokens whose holder
-// distribution we can't fetch yet — never a fabricated band. See
-// lib/detection/walletExposure.ts for the scanner seam that lights these up.
+// Distribution scoring self-gates to "not measured" for tokens whose holder
+// distribution could not be read — never a fabricated band, and never retried
+// behind the user's back. See lib/detection/walletExposure.ts for the scanner
+// seam, which this page fills with the live `scanTokenLive` adapter below.
 
 const CARD_BG = 'rgba(6, 12, 26, 0.82)';
 const CARD_BORDER = '1px solid rgba(245, 228, 184, 0.12)';
@@ -295,7 +296,7 @@ export default function WalletExposurePage() {
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mb-5 text-[12px] text-white/60">
               <span>{holdings.length} position{holdings.length === 1 ? '' : 's'}</span>
               <span>{summary.measured} measured</span>
-              {summary.unmeasured > 0 && <span>{summary.unmeasured} pending holder data</span>}
+              {summary.unmeasured > 0 && <span>{summary.unmeasured} not measured</span>}
               {summary.worstBand && (
                 <span className="inline-flex items-center gap-1.5">
                   Worst read: <BandPill band={summary.worstBand} />
@@ -340,8 +341,8 @@ export default function WalletExposurePage() {
               is kept but lowers confidence, never assumed hostile.
             </p>
             <p>
-              Distribution scoring is shown only for tokens whose holder distribution is available. Where it isn’t,
-              the read is marked pending — the position size stays exact and nothing is inferred.
+              Distribution scoring is shown only for tokens whose holder distribution could be read. Where it
+              couldn’t, the read is marked not measured — the position size stays exact and nothing is inferred.
             </p>
           </footer>
         </>

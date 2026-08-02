@@ -333,11 +333,13 @@ false, and *not readable* — a failed read is never painted as a confident zero
 
 Shipped 2026-07-22: a set of app-side analysis surfaces built on one shared detection core ([`frontend/src/lib/detection/`](frontend/src/lib/detection)) — holder-distribution math (effective holder count, clustered supply, bundled supply, sniper share) behind a weakest-link risk gate (mint/freeze authority, LP lock, dominant clusters). The design rule everywhere: **unmeasured signals drop out of the score instead of flattering it, and every surface self-gates to "no data" rather than fabricating a track record.**
 
+**Coverage caveat.** The Ethereum holder read is the **top ~100 holders** through the `erc20scan` route ([`frontend/api/v1/index.js`](frontend/api/v1/index.js), Ethplorer upstream) — a partial, largest-first read, *not* a full holder enumeration. For a token like USDC that is 100 of ~8.1M holders, so concentration is reported as an **upper bound** and each read carries `top-n` coverage plus a separate data-confidence flag rather than being presented as exhaustive. When that source is unavailable, rate-limited, or unconfigured, the affected surface reports **not measured** — it is never retried behind your back and never degraded into a flattering zero.
+
 | Surface | Where | What it tells you |
 |---|---|---|
 | **Trust hub** | [/trust](https://memetic.fun/trust) | The index for the suite — a deliberately thin page that owns no detection logic, so the tools below are discoverable instead of buried in a submenu. |
 | **Token scanner** | [/scan](https://memetic.fun/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
-| **Wallet exposure** | [/exposure](https://memetic.fun/exposure) | The scanner pointed inward — how much of your own bag sits in concentrated or risky distributions. |
+| **Wallet exposure** | [/exposure](https://memetic.fun/exposure) | The scanner pointed inward — how concentrated the tokens you hold are. Reads a curated token set plus any address you paste; it does not enumerate every token in your wallet. Position sizes are exact on-chain reads; a token whose holder distribution can't be read is marked *not measured*, never scored. |
 | **Deployer reputation** | [/deployer](https://memetic.fun/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
 | **Launch simulator** | [/launch-simulator](https://memetic.fun/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
 | **Launch afterlife** | [/launch](https://memetic.fun/launch) | What actually happened to tokens launched through the launcher — outcome tracking above the launch explorer. |
