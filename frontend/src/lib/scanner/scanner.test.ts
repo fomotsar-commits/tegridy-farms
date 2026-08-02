@@ -546,6 +546,21 @@ describe('parseEthereumScan — a payload we could not read is never a finding',
       }
     });
 
+    it('does not manufacture an empty holder set by discarding every row', () => {
+      // Rows arrived; none were attributable. Deriving `[]` from that and landing on
+      // "No holder data for this token" is the same laundering in slow motion — the
+      // payload was NOT empty, we just could not use any of it. The route 502s this
+      // case too; this is the client half of the same guard.
+      const err = scanErrorFrom(() =>
+        parseEthereumScan('0xabc', {
+          ...ok,
+          holders: [{ address: 'not-an-address', balance: '5' }, { address: '0xzz', balance: '6' }],
+        }),
+      );
+      expect(err.code).toBe('network');
+      expect(err.code).not.toBe('empty');
+    });
+
     it('keeps a genuinely empty holder set as the real answer it is', () => {
       // The other side of the same coin — hardening must not turn "we read it and
       // nobody holds this" into a retry-me network error.
@@ -702,6 +717,20 @@ describe('fetchEthereumScan — the error taxonomy at the transport', () => {
     expect(e502.code).toBe('network');
     expect(e502.code).not.toBe('empty');
     expect(e502.code).not.toBe('unavailable');
+  });
+
+  it('reports the route’s 422 as "not a token", not as a scan that failed', async () => {
+    // The MIRROR of every other case here. The upstream looked and said this address
+    // is not an ERC-20 (Ethplorer code 150 — what a wallet or an NFT returns). That
+    // is an answer about the address, and 'not-found' carries it to the
+    // "double-check the address is a token (not a wallet or an NFT)" copy. Routing it
+    // to 'network' would render "Couldn't complete the scan" with a retry that can
+    // never succeed.
+    mockFetchOnce({ ok: false, status: 422, json: async () => ({ error: 'not a token' }) });
+    const err = await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT));
+    expect(err.code).toBe('not-found');
+    expect(err.code).not.toBe('network');
+    expect(err.code).not.toBe('unavailable');
   });
 
   it('keeps the unconfigured-route 403 as the deployment gap it is', async () => {

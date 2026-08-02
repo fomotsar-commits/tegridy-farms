@@ -163,6 +163,16 @@ export function parseEthereumScan(_contract: string, json: unknown): AdapterResu
     holders.push({ address, balance, isContract: row.isContract === true, label });
   }
 
+  // Rows arrived but NONE of them were attributable. An empty holder set is only an
+  // answer when the payload itself was empty; deriving one by discarding every row it
+  // did send is the same laundering in slow motion, and lands on the "No holder data
+  // for this token — double-check the address is a token" copy. Non-empty in, empty
+  // out, is drift. (The route now 502s this case too, so this is the client half of
+  // the same guard rather than the only one.)
+  if (rawHolders.length > 0 && holders.length === 0) {
+    throw unreadable(`all ${rawHolders.length} holder rows were unattributable`);
+  }
+
   if (holders.length === 0) {
     throw new ScanError('empty', 'No holder data was returned for this token.');
   }
@@ -219,10 +229,27 @@ export async function fetchEthereumScan(contract: string, signal?: AbortSignal):
   // The route (or the contract allowlist that precedes it) is not yet serving
   // arbitrary ERC-20s → present this as an honest "unavailable", not a failure of
   // the token being scanned.
+  // 422 = the upstream LOOKED and this address is not an ERC-20 (Ethplorer code 150,
+  // which a wallet or an NFT address returns). That is an answer about the address,
+  // not a failed read, and 'not-found' is the code whose copy — "double-check the
+  // address is a token (not a wallet or an NFT)" — was written for it. Routing it to
+  // 'network' would be the mirror of the defect this file exists to not have: a real
+  // answer rendered as "Couldn't complete the scan", with a retry that can never
+  // succeed no matter how many times it is pressed.
+  if (res.status === 422) {
+    throw new ScanError(
+      'not-found',
+      'That address is not an ERC-20 token contract — the explorer looked, and there is no token there.',
+    );
+  }
+  // The route (or the contract allowlist that precedes it) is not serving this read.
+  // Deliberately vague about WHICH gap: the route may be deployed and merely missing
+  // its upstream API key, so blaming "the route is unconfigured" sends an operator to
+  // the wrong place. The server's own message is shown alongside this one.
   if (res.status === 400 || res.status === 403 || res.status === 404 || res.status === 501) {
     throw new ScanError(
       'unavailable',
-      'Ethereum token scanning is not enabled on this deployment yet (the holder-data route is unconfigured).',
+      'Ethereum token scanning is not enabled on this deployment yet — the holder-data source is unconfigured or its key is missing.',
     );
   }
   if (!res.ok) throw new ScanError('network', `Ethereum data proxy returned ${res.status}.`);
