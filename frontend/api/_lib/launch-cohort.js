@@ -48,6 +48,8 @@ const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const ALLOWED_ORIGINS = [
   "https://memetic.fun",
   "https://www.memetic.fun",
+  "https://memetics.finance",
+  "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
   "https://nakamigos.gallery",
   "https://www.nakamigos.gallery",
