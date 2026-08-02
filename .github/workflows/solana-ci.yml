@@ -83,7 +83,7 @@ jobs:
           # CRLF is stripped on BOTH sides: the fork carries CRLF for some files, and
           # without normalising, every line reads as changed (736 lines of noise for an
           # 86-line real delta).
-          EXPECTED_DELTA_SHA256=789f7ada2258faf69994135ac882d0a41745cce1a98efe4e76639a9bc9dd6baa
+          EXPECTED_DELTA_SHA256=b0882158077056186368db5dc59e2cdffefc3dc816806ba08d21f1f29fa263af
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched

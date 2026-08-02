@@ -11,9 +11,9 @@ pub use states::CreatorFeeOn;
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
     name: "tegridy-cp-amm",
-    project_url: "https://tegridyfarms.vercel.app",
-    contacts: "link:https://tegridyfarms.vercel.app",
-    policy: "https://tegridyfarms.vercel.app",
+    project_url: "https://memetic.fun",
+    contacts: "link:https://memetic.fun/trust",
+    policy: "https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY.md",
     source_code: "https://github.com/fomotsar-commits/tegridy-farms/tree/main/solana/tegridy-amm",
     preferred_languages: "en"
     // AUDITORS line intentionally REMOVED (was upstream's Raydium/MadShield audit):
