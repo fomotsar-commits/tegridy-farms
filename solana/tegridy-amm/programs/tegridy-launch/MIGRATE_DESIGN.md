@@ -312,9 +312,21 @@ single shot.
 - ~~Compute cost is unmeasured.~~ **MEASURED: 264,128 CU** (rehearsal, limit
   400,000). See the compute requirement below — it is an operator/client
   obligation, not just a number.
-- **`sell` has never executed successfully anywhere in the repo.** It carries the
-  same manual-mutation idiom and is safe only because nothing follows it. Appending
-  any CPI there — or switching `emit!` to `emit_cpi!` — silently reintroduces
-  defect 7 on the holders' only exit.
+- **`sell` is one CPI away from defect 7, on the holders' only exit.** It carries the
+  same manual-mutation idiom (`lib.rs:602-638`: direct debit of the curve, direct credit
+  of the trader, direct credit of `fee_recipient`) and is safe **only because nothing
+  follows it**. Appending any CPI there — or switching `emit!` to `emit_cpi!`, or adding
+  a creator-fee leg as a `system_program::transfer` instead of another manual credit —
+  silently reintroduces defect 7 on the one instruction holders cannot be denied.
+
+  ⚠️ **Corrected 2026-08-02.** This entry previously read "`sell` has never executed
+  successfully anywhere in the repo." **That was false**, and it was being handed to
+  Scope-B auditors as a residual risk. `sell` executes for real in the migration
+  rehearsal — `tests/tegridy-launch-migration.test.ts:236-249` calls it via `.rpc()` and
+  asserts both legs (tokens leave the seller, SOL leaves the curve), and `:649` exercises
+  the post-migration refusal path. What is genuinely unproven is the **modification
+  hazard** above, not the instruction. A false item on an auditor's risk list is worse
+  than no list: it spends review budget on a non-issue and devalues the true entries
+  next to it.
 - Local box still cannot run a validator (`os error 1314`; `openssl-sys` fails for
   `solana-program-test` and `litesvm`). CI's Ubuntu runner is the gate.
