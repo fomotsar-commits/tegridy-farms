@@ -546,6 +546,21 @@ describe('parseEthereumScan — a payload we could not read is never a finding',
       }
     });
 
+    it('does not manufacture an empty holder set by discarding every row', () => {
+      // Rows arrived; none were attributable. Deriving `[]` from that and landing on
+      // "No holder data for this token" is the same laundering in slow motion — the
+      // payload was NOT empty, we just could not use any of it. The route 502s this
+      // case too; this is the client half of the same guard.
+      const err = scanErrorFrom(() =>
+        parseEthereumScan('0xabc', {
+          ...ok,
+          holders: [{ address: 'not-an-address', balance: '5' }, { address: '0xzz', balance: '6' }],
+        }),
+      );
+      expect(err.code).toBe('network');
+      expect(err.code).not.toBe('empty');
+    });
+
     it('keeps a genuinely empty holder set as the real answer it is', () => {
       // The other side of the same coin — hardening must not turn "we read it and
       // nobody holds this" into a retry-me network error.

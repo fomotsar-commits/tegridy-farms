@@ -163,6 +163,16 @@ export function parseEthereumScan(_contract: string, json: unknown): AdapterResu
     holders.push({ address, balance, isContract: row.isContract === true, label });
   }
 
+  // Rows arrived but NONE of them were attributable. An empty holder set is only an
+  // answer when the payload itself was empty; deriving one by discarding every row it
+  // did send is the same laundering in slow motion, and lands on the "No holder data
+  // for this token — double-check the address is a token" copy. Non-empty in, empty
+  // out, is drift. (The route now 502s this case too, so this is the client half of
+  // the same guard rather than the only one.)
+  if (rawHolders.length > 0 && holders.length === 0) {
+    throw unreadable(`all ${rawHolders.length} holder rows were unattributable`);
+  }
+
   if (holders.length === 0) {
     throw new ScanError('empty', 'No holder data was returned for this token.');
   }
