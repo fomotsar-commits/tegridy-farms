@@ -66,6 +66,18 @@
       "has": [{ "type": "host", "value": "tegridyfarms-three.vercel.app" }],
       "destination": "https://tegridyfarms.vercel.app/$1",
       "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.memetic.fun" }],
+      "destination": "https://memetic.fun/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.memetics.finance" }],
+      "destination": "https://memetics.finance/$1",
+      "permanent": true
     }
   ],
   "rewrites": [

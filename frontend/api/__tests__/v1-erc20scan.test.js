@@ -320,6 +320,16 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
     expect(headers["Cache-Control"]).toBe("no-store");
   });
 
+  it("does not accept a JSON ARRAY as a readable token-info body", async () => {
+    // `typeof [] === "object"`, so an array slipped through `infoOk` as a readable
+    // payload whose every field is undefined — landing straight back on "the explorer
+    // did not report a total", the answer this check exists to keep unreachable.
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    const { statusSpy, headers } = await scan({ info: JSON.stringify([{ totalSupply: "1000" }]), top });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
   it("treats an unparsable token-info body as a failed read, not as five nulls", async () => {
     // getTokenInfo carries the denominator. Degrading it to `{}` published a scan
     // whose every percentage divided by a substituted enumerated sum, from a read
@@ -370,6 +380,40 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
     const { statusSpy, body } = await scan({ top: JSON.stringify({ holders: [] }), code: "fail" });
     expect(statusSpy).not.toHaveBeenCalledWith(502);
     expect(body.holders).toEqual([]);
+  });
+
+  it("reports a wallet/NFT address as NOT A TOKEN, not as a scan that failed", async () => {
+    // ⚠ THE MIRROR of everything else in this file. Ethplorer answers a non-token
+    // address with {"error":{"code":150,"message":"Address is not a token contract"}}
+    // — it LOOKED. Reported live 2026-08-02. Treating that as a transient failure
+    // renders "Couldn't complete the scan" with a retry button that can never
+    // succeed, and buries the "double-check the address is a token (not a wallet or
+    // an NFT)" copy written for exactly this.
+    const notAToken = JSON.stringify({ error: { code: 150, message: "Address is not a token contract" } });
+    const { statusSpy, headers } = await scan({ info: notAToken, top: notAToken });
+    expect(statusSpy).toHaveBeenCalledWith(422);
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("still prefers the auth answer when the key is also bad", async () => {
+    // A bad key can produce both signals; the deployment gap is the more actionable
+    // one, and calling it "not a token" would be a claim about somebody's address.
+    const { statusSpy } = await scan({
+      info: JSON.stringify({ error: { code: 1, message: "Invalid API key" } }),
+      top: JSON.stringify({ error: { code: 150, message: "Address is not a token contract" } }),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(403);
+  });
+
+  it("treats an info-side auth failure as the deployment gap it is", async () => {
+    // isAuth read only `topRes`, so a bad key surfacing on the info leg reported as a
+    // transient outage — sending an operator to look for a problem that is not there.
+    const { statusSpy } = await scan({
+      info: JSON.stringify({ error: { code: 1, message: "Invalid API key" } }),
+      top: JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] }),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(403);
   });
 
   it("serves the fully readable payload uncut", async () => {

@@ -40,15 +40,17 @@ function isRevocationRequired() {
   );
 }
 
-// AUDIT R050 MED + R052 077: env-driven allowlist; no hardcoded
-// `nakamigos.gallery` fallback. Production hosts + dev localhost form the
-// default; ALLOWED_ORIGINS=foo,bar extends without redeploy.
+// AUDIT R050 MED + R052 077: env-driven allowlist. Production hosts + dev
+// localhost form the default; ALLOWED_ORIGINS=foo,bar extends without redeploy.
+//
+// 2026-08-02: `nakamigos.gallery` removed — the project does not control that
+// domain. See auth/siwe.js. Do NOT re-add it.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
+    "https://memetics.finance",
+    "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
   ]);
   if (process.env.NODE_ENV === "development") {

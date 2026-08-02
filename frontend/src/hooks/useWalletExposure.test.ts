@@ -139,3 +139,67 @@ describe('useWalletExposure — the no-retry behaviour the copy has to match', (
     await waitFor(() => expect(scanToken).toHaveBeenCalledTimes(3));
   });
 });
+
+// ── A failed balanceOf is not a zero balance ─────────────────────────────────
+//
+// `balRes?.status === 'success' ? result : 0n`, followed by the `<= 0n` skip, deleted
+// the position outright: one failed leg of the multicall and that token vanished from
+// your exposure, taking its weight out of the headline concentration with it. The
+// flattering direction, and completely invisible — while the page's own footer
+// promises "the position size stays exact and nothing is inferred".
+//
+// Read it and it is zero → still skipped: you do not hold it, and that IS an answer.
+describe('useWalletExposure — an unreadable balance is disclosed, not deleted', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setAccount({ address: WALLET, isConnected: true });
+    wagmiMock.setChainId(CHAIN_ID);
+  });
+
+  /** Everything reads back EXCEPT balanceOf, which the mock reports as a failure. */
+  function stubHoldingWithoutBalance(address: string, symbol: string) {
+    wagmiMock.setReadResult({ address, functionName: 'totalSupply', result: 1000n * 10n ** 18n });
+    wagmiMock.setReadResult({ address, functionName: 'symbol', result: symbol });
+    wagmiMock.setReadResult({ address, functionName: 'decimals', result: 18 });
+  }
+
+  it('reports a token whose balance could not be read instead of dropping it', async () => {
+    stubHoldingWithoutBalance(TOKEN_B, 'BBB');
+    const { result } = renderHook(() =>
+      useWalletExposure({ extraTokens: [TOKEN_B], scanToken: vi.fn().mockResolvedValue(null) }),
+    );
+
+    await waitFor(() => expect(result.current.unreadableBalances).toContain(TOKEN_B));
+    // No size to show, so it is correctly absent from the list — the count is what
+    // keeps that absence from being silent.
+    expect(result.current.holdings.some((h) => h.address === TOKEN_B)).toBe(false);
+  });
+
+  it('does NOT report a token the wallet genuinely holds none of', async () => {
+    // The other side: a read that worked and returned zero is an answer, and calling
+    // it unreadable would cry wolf on every token in the curated list.
+    wagmiMock.setReadResult({ address: TOKEN_B, functionName: 'balanceOf', result: 0n });
+    wagmiMock.setReadResult({ address: TOKEN_B, functionName: 'totalSupply', result: 1000n * 10n ** 18n });
+    wagmiMock.setReadResult({ address: TOKEN_B, functionName: 'symbol', result: 'BBB' });
+    wagmiMock.setReadResult({ address: TOKEN_B, functionName: 'decimals', result: 18 });
+
+    const { result } = renderHook(() =>
+      useWalletExposure({ extraTokens: [TOKEN_B], scanToken: vi.fn().mockResolvedValue(null) }),
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.unreadableBalances).not.toContain(TOKEN_B);
+    expect(result.current.holdings.some((h) => h.address === TOKEN_B)).toBe(false);
+  });
+
+  it('keeps a real position out of the unreadable list', async () => {
+    stubHolding(TOKEN_A, 'AAA');
+    const { result } = renderHook(() =>
+      useWalletExposure({ extraTokens: [TOKEN_A], scanToken: vi.fn().mockResolvedValue(fakeAnalysis()) }),
+    );
+
+    await waitFor(() => expect(result.current.scanning).toBe(false));
+    expect(result.current.holdings.some((h) => h.address === TOKEN_A)).toBe(true);
+    expect(result.current.unreadableBalances).not.toContain(TOKEN_A);
+  });
+});

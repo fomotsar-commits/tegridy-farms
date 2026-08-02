@@ -129,8 +129,18 @@ export const LAUNCH_TIERS = [
   {
     id: 'listable' as const,
     label: 'Community',
-    curve: 'Static / multicurve (Doppler V4)',
-    blurb: 'Simpler curve. Automated hygiene bar (audited template, no mint/tax/blacklist/upgrade, LP locked, vesting on-chain). Still gated, still Fact-Sheeted.',
+    // THE CURVE IS IDENTICAL TO FLAGSHIP. `buildTegridyLaunchParams` calls
+    // `.buildDynamicAuction()` unconditionally (airlock.ts) — the ONLY thing the tier
+    // selects is governance, at `.withGovernance({ type: tier === 'flagship' ?
+    // 'default' : 'noOp' })`. This line used to read "Static / multicurve (Doppler V4)"
+    // and the blurb "Simpler curve.", both false: the wizard's Review step printed that
+    // label directly above the signature button while the two rows beneath it said
+    // "Market cap (Dutch) … (descends)" and "Descending Dutch price". A creator cannot
+    // consent to a curve we mislabel, and the launch is irreversible. If a genuinely
+    // static curve is ever wanted here, the SDK exposes buildStaticAuction() — change
+    // the BUILDER, and only then this string.
+    curve: 'Dynamic Dutch auction (Doppler V4)',
+    blurb: 'Same auction as Flagship; the difference is governance — no governance contract is deployed for this tier. Automated hygiene bar (audited template, no mint/tax/blacklist/upgrade, LP locked, vesting on-chain). Still gated, still Fact-Sheeted.',
   },
 ] as const;
 

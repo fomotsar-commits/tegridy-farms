@@ -687,7 +687,23 @@ export async function cancelOrder(order) {
     // rebuilds OrderComponents so cancel() targets the REAL order hash (the old
     // inline ABI put totalOriginalConsiderationItems in the counter slot and
     // cancelled a phantom order while the real one stayed fillable).
-    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: SEAPORT_ADDRESS });
+    // Cancel on the Seaport the order was actually SIGNED against, not on whichever
+    // version this constant happens to name.
+    //
+    // `cancelSeaportOrder` documents that "every caller passes a server-supplied
+    // protocol_address" and pins it at the sink — but this call site handed it the
+    // hardcoded default, and the pin cannot catch that, because the default IS an
+    // allowlisted address. So an order created on a different Seaport version had its
+    // cancel sent to this one, where that order hash does not exist: `cancel()` marks
+    // an unknown hash without reverting, the tx succeeds, this returns
+    // `{ success: true }` — and the real order stays fillable. The user is told their
+    // listing is cancelled while it can still be bought.
+    //
+    // Passing null keeps the documented default for an order that genuinely carries no
+    // protocol address; an address outside the allowlist still fails closed at the sink.
+    const orderProtocolAddress =
+      order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
+    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: orderProtocolAddress });
     await tx.wait();
     return { success: true, hash: tx.hash };
   } catch (err) {

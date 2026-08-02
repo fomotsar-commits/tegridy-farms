@@ -74,10 +74,10 @@ const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 // redeploy. Fail-closed: an origin not in the set gets neither ACAO nor ACAC.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
+    "https://memetics.finance",
+    "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
   ]);
   if (process.env.NODE_ENV === "development") {

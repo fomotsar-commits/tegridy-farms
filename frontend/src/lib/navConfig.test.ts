@@ -79,4 +79,18 @@ describe('navConfig', () => {
     const unique = new Set(paths);
     expect(unique.size).toBe(paths.length);
   });
+
+  // The "Soon" pill answers one question for a visitor: can I do the thing this
+  // entry names? Both pages below are previews with NO signer and NO submit path,
+  // so both must stay pilled regardless of any feature flag. /solana-launch was
+  // `soon: !isSolanaLauncherEnabled()` — with the flag on, the pill cleared and the
+  // nav advertised a launch surface that cannot launch. Unpill either one only when
+  // a submit path actually ships.
+  it('pills the launch pages that have no submit path', () => {
+    for (const path of ['/solana-launch', '/curve-launch']) {
+      const entry = ALL_NAV.find((n) => n.to === path);
+      expect(entry, `${path} missing from nav`).toBeTruthy();
+      expect(entry?.soon, `${path} must be pilled Soon`).toBe(true);
+    }
+  });
 });
