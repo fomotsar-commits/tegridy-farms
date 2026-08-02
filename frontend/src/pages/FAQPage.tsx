@@ -63,7 +63,7 @@ const FAQ_DATA: FAQSection[] = [
   {
     category: 'Premium',
     items: [
-      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium membership, live now on the Premium page. You pay in TOWELI — the monthly fee is read straight from the PremiumAccess contract and shown on that page — and you can prepay 1, 3, 6 or 12 months at the same flat rate. Like every staker, holders earn ETH from protocol swap fees. The contract is internally reviewed, not third-party audited.' },
+      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium membership, live now on the Premium page. You pay in TOWELI — the monthly fee is read straight from the PremiumAccess contract and shown on that page — and you can prepay 1, 3, 6 or 12 months at the same flat rate. Like every staker, holders sit in the protocol’s ETH swap-fee share — the same pipeline described above, deployed on-chain and paying out when the native pool goes live. The contract is internally reviewed, not third-party audited.' },
       { q: 'Do JBAC holders get free access?', a: 'Yes. JBAC NFT holders have lifetime Gold Card access at no cost — simply hold a JBAC in your connected wallet and premium unlocks automatically.' },
     ],
   },

@@ -42,6 +42,13 @@ fallback (publicnode/drpc/merkle). Tunable via env: `HALT_RATIO` (default 3),
 `{"status":"HALT"}`) and calls the relevant `PauseGuardian` — kept out of this
 read-only monitor by design (the monitor holds no keys).
 
-Verified against live mainnet 2026-07-18: native 0.0203 WETH (pre-deepen) →
-WARN (below the 1.0 floor); after B1 deepens native to ~1.33 WETH the ratio is
-~5.5× → GO.
+Verified against live mainnet 2026-08-02 (`cast`, read-only): native **0.003830891
+WETH** → WARN (far below the 1.0 floor); Uniswap 7.4936 WETH, i.e. ~1,956× deeper.
+
+⚠ The 2026-07-18 reading recorded here previously (native 0.0203 WETH) is
+superseded: ~83% of the native LP was burned between blocks 25,656,000 and
+25,658,000 and the LP Farming balance went 125.0 → 0. The old "after B1 deepens
+native to ~1.33 WETH → ~5.5× → GO" projection is also **stale** — it was sized
+against 0.0203 WETH. Re-derive the deepen target from current reserves before
+relying on it; independent modelling puts the level where native starts winning
+$1k+ trades at ~7.5–9 WETH, not 1.33.

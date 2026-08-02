@@ -1,16 +1,63 @@
-# Core-Loop Go-Live — verified on-chain 2026-07-11
+# Core-Loop Go-Live — ⚠️ the "Verified state" table is SUPERSEDED (2026-08-01)
+
+> **⚠️ SUPERSEDED — re-read on-chain 2026-08-01, block 25,664,356**
+> (`https://ethereum-rpc.publicnode.com`; historical reads via `https://eth.drpc.org`,
+> because publicnode 403s archive blocks). Everything below the horizontal rule is
+> a **2026-07-11 / 07-18 historical record, not current state.** Four headline
+> claims have reversed:
+>
+> | Claim below | Reality on 2026-08-01 | Read with |
+> |---|---|---|
+> | pool = 776,678 TOWELI + 0.0203 WETH, ~$73 (`Native TOWELI/WETH pool` + `Native pool depth` rows, lines 57/59) | **146,258.41 TOWELI + 0.003830891 WETH** — ≈$14 on the same ~$1.8k/ETH basis the "$73" used | `cast call $PAIR "getReserves()(uint112,uint112,uint32)"` |
+> | 125.0 of 125.7 LP staked in LP Farming (`Native LP ownership` row, line 60) | **LP Farming holds 0 LP.** Pair `totalSupply` fell **138.031 → 23.666 LP (82.85 % burned)** between block 25,600,000 and 25,664,356 | `balanceOf($FARM)`=0, `totalSupply()`; archive at block 25,600,000 → 138.031 / 125.000 |
+> | "farming is live" (same `Native LP ownership` row, line 60 — struck through there) | **Wrong even when written.** `periodFinish()` = `1781493095` → the reward period ended **2026-06-15**, 26 days *before* this doc was authored. LP was staked; emissions were not flowing. (Same finding: `WORKORDER_V2.md:56`.) | `cast call $FARM "periodFinish()(uint256)"` |
+> | "the swap/stake/farm half of the loop is LIVE" (`Already live / done`, lines 68-71; the old "## Bottom line" said the same and has been rewritten in place) | The **contracts** are live. The **economics** are not: `SwapFeeRouter.totalETHFees()` = **0**, and that is a lifetime counter (`contracts/src/SwapFeeRouter.sol:88`, written only by `+=` at `:711/:781/:974`, never reset) — the front door has **never collected one wei of fee**. `RevenueDistributor` ETH balance = 0. | `cast call $SFR "totalETHFees()(uint256)"`; `cast balance $RD` |
+>
+> **Still true on 2026-08-01, re-read the same way — do not "fix" these:**
+> `TegridyTWAP.effectiveMinReserveFloor($PAIR)` = `1e19` (**10 WETH**) → **B0 was never
+> proposed**; the Track-B sequence below is unstarted and still valid *as a sequence*.
+> `stakerShareBps()` = `10000`; `polAccumulator()` = `0x0`. Uniswap arb venue = **7.4936 WETH**
+> (the 7.26 at line 139 is ~3 % stale, harmless).
+>
+> **What this changes about Track B:** B1's "~1.31 ETH pairs with 50M TOWELI" was derived
+> from the old reserves. The *ratio* barely moved (native 3.818e7 vs the old 3.826e7
+> TOWELI/ETH — the burn was proportional), so ~1.31 ETH is still the right order of
+> magnitude — but **re-derive from live `getReserves()` immediately before broadcasting,
+> do not trust this doc's number.** The pool is now **1,956×** shallower than Uniswap
+> (was 360×) and **2,610×** below the 10-WETH floor (line 80 says ~500×).
+>
+> **Re-verify this banner before acting on it (read-only, ~30 s):**
+> ```bash
+> RPC=https://ethereum-rpc.publicnode.com
+> PAIR=0x55875887B43C2E23aE424AF0FC8606Fdb058a481
+> FARM=0x1171268AE5B69791c47Fd589b7825932c957e149
+> SFR=0x6d5791A660e79175F74C6D639584C98422d5956E
+> TWAP=0xdFdd6D72539A425dC917F49FB834901105cA98c9
+> cast call $PAIR "getReserves()(uint112,uint112,uint32)" --rpc-url $RPC
+> cast call $PAIR "totalSupply()(uint256)"               --rpc-url $RPC
+> cast call $PAIR "balanceOf(address)(uint256)" $FARM     --rpc-url $RPC
+> cast call $FARM "periodFinish()(uint256)"               --rpc-url $RPC
+> cast call $SFR  "totalETHFees()(uint256)"               --rpc-url $RPC
+> cast call $TWAP "effectiveMinReserveFloor(address)(uint256)" $PAIR --rpc-url $RPC
+> ```
+
+---
+
+**Original snapshot — written 2026-07-11, re-verified 2026-07-18. Kept verbatim as the
+historical record. Every figure below is as-of those dates.**
 
 Read directly from mainnet (`ethereum-rpc.publicnode.com`) + forge-simulated
 against live state. Supersedes the "empty pool / seed LP first" assumption in the
-older memory — **the native pool is already seeded.**
+older memory — **the native pool is already seeded.** *(true 2026-07-11; ~83 % of that
+LP has since been burned — see banner)*
 
-## Verified state
+## Verified state *(as of 2026-07-11 / 07-18 — SUPERSEDED 2026-08-01, see banner)*
 | Fact | Value |
 |---|---|
 | Native TOWELI/WETH pool (`0x5587…a481`) | **SEEDED**: 776,678 TOWELI + 0.0203 WETH |
 | Native price vs Uniswap | ~38.26M TOWELI/ETH — **0.28% off Uniswap** (aligned, no arb) |
 | Native pool depth | ~$73 (Uniswap ~$26,400 — **360× deeper**) |
-| Native LP ownership | 125.0 of 125.7 LP (99.5%) staked in LP Farming — farming is live |
+| Native LP ownership | 125.0 of 125.7 LP (99.5%) staked in LP Farming — ~~farming is live~~ **← WRONG WHEN WRITTEN: `periodFinish()` = 2026-06-15, so emissions had already ended 26 days earlier. Staked LP ≠ live emissions. As of 2026-08-01 the farm holds 0 LP.** |
 | TWAP observations | **0** (not bootstrapped) |
 | TWAP reserve floor | **10 WETH per side** (`effectiveMinReserveFloor`, no override) |
 | Deployer `0x1489…456E` | 0.004 ETH ($7) + 680,152 TOWELI ($32) |
@@ -23,9 +70,14 @@ older memory — **the native pool is already seeded.**
   swap/stake/farm half of the loop is LIVE. `SeedLP.s.sol` correctly aborts now
   (pool already seeded — the safety check works).
 
+> **2026-08-01 correction.** "Live" here means *deployed and callable*, not *earning*.
+> `SwapFeeRouter.totalETHFees()` is still `0` — the lifetime counter has never moved, so
+> zero swap-fee ETH has ever reached `RevenueDistributor`. LP-farming emissions ended
+> 2026-06-15. Read this section as a deployment inventory, not a revenue claim.
+
 ## 🚧 THE GATE: oracle-dependent features are blocked on pool depth
 `TWAP.update()` rejects the pool with **`ReservesBelowFloor()`** — the WETH side
-(0.0203) is ~500× below the 10-WETH floor (an anti-manipulation guard). So the
+(0.0203 on 2026-07-11; **0.00383 on 2026-08-01**) is ~500× — now **~2,610×** — below the 10-WETH floor (an anti-manipulation guard). So the
 **TWAP can't bootstrap**, which blocks everything that consumes the oracle:
 **NFT lending, token lending, POL accumulate.**
 
@@ -79,7 +131,7 @@ Start B0 now (24h clock); B1 anytime; B2 after 24h; then B3/B4.
 `RPC=https://ethereum-rpc.publicnode.com`, `TWAP=0xdFdd…98c9`, `PAIR=0x5587…a481`,
 `ROUTER=0xE9F8…8Db8`, `TOWELI=0x4206…8F9D`.
 
-> **✅ Pre-flight re-verified on-chain 2026-07-18** (nothing drifted; B0–B4 valid as written):
+> **⚠️ Pre-flight re-verified on-chain 2026-07-18 — the reserve figures below EXPIRED on/before 2026-08-01** (the floor / owner / arb-ratio lines still hold; see the banner at the top). B0–B4 remain valid as a *sequence*; their input amounts must be re-derived live:
 > - Native pair `0x5587…a481`: **776,678 TOWELI + 0.0203 WETH** (unchanged; deepen still needed).
 > - TWAP floor `effectiveMinReserveFloor(PAIR)` = **10 WETH** (`1e19`) — B0 not yet started.
 > - TWAP `owner()` = **`0x1489…456E`** (deployer EOA) — can call `proposeAdminMinReserveFloor1`
@@ -132,7 +184,14 @@ forge script script/BootstrapTWAP.s.sol --rpc-url flashbots --broadcast --slow -
 monitor + auto-pause wired (safety conditions above). Per each feature's audit wave.
 
 ## Bottom line
-The swap/stake/farm loop is **live**; ship it to prod + hand off ownership (Track
-A, no capital). The NFT-finance loop is **capital-gated** on TOWELI the protocol
-doesn't hold — that's a strategy call (supply the bag, lower the floor, or wait),
-not a code fix.
+
+*(rewritten 2026-08-01 against live chain state — supersedes the 2026-07-11 text)*
+
+The swap/stake/farm contracts are **deployed and callable**; the loop is **not yet
+earning**. `SwapFeeRouter.totalETHFees()` = 0 (never a single wei), LP-farming emissions
+ended 2026-06-15, and the native pool has been drawn down to **0.00383 WETH** (~$14) with
+**0 LP** left in the farm. Track A (ship the frontend, hand off ownership) is still capital-
+free and still the right first move. The NFT-finance loop stays **capital-gated** — and the
+capital ask is now *larger* than this doc's Track B says, because the pool it was sized
+against no longer exists at that depth. Re-derive B1 from live `getReserves()` before
+broadcasting anything.

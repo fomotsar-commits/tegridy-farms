@@ -283,7 +283,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // TOWELI (read from the contract — never hardcode it here, it is timelock-
     // mutable), and there is no points multiplier or fee discount.
     keywords: ['premium', 'gold', 'card', 'subscription'],
-    answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page — and holders earn ETH from swap fees like every staker. JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
+    answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page — and holders sit in the same ETH swap-fee share as every staker — that rail's deployed but hasn't paid out yet; it turns on with the native pool. JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
   },
   {
     // AUDIT R073: prior copy said "no refund mid-period" — wrong. PremiumAccess

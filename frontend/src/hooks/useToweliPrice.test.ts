@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 
 // Sonner: hook doesn't call toast directly, but stub for safety in case
@@ -19,7 +21,7 @@ vi.mock('../lib/storage', () => ({
 }));
 
 import { useToweliPrice, evaluateEthUsdFeed, type ChainlinkRound } from './useToweliPrice';
-import { TOWELI_ADDRESS, ETH_USD_FEED } from '../lib/constants';
+import { TOWELI_ADDRESS, ETH_USD_FEED, TEGRIDY_LP_ADDRESS, TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
 
 // ───────────────────────── Helpers ─────────────────────────
 
@@ -376,6 +378,98 @@ describe('useToweliPrice', () => {
     // No reads, default fetch stub returns no price.
     const { result } = renderHook(() => useToweliPrice());
     expect(result.current.priceUnavailable).toBe(true);
+  });
+
+  // 12. WHICH POOL the headline price comes from ─────────────────────────
+  //
+  // The hook priced off TEGRIDY_LP_ADDRESS (our own native pair) on the premise
+  // that it would be the deep one. On 2026-08-02 that pair held 0.00383 WETH —
+  // about $7 a side — while the Uniswap V2 pair held 7.49 WETH, ~1,956x deeper.
+  // Every existing test above stubs on `functionName` ALONE with no `address`,
+  // so a single unscoped stub answers for whichever pair the hook asks about and
+  // not one of them can tell the two apart. That is precisely why the defect
+  // shipped green. These stubs are address-scoped (wagmi-mocks.ts:110) and
+  // register BOTH pairs at their real mainnet reserves, so the hook's choice of
+  // pool is the only thing under test.
+  describe('price source pool', () => {
+    // Real mainnet state, read 2026-08-02. token0 is TOWELI on both pairs.
+    const NATIVE_TOWELI = 146_258_413_709_023_551_111_936n;
+    const NATIVE_WETH = 3_830_891_242_585_222n; // 0.00383 WETH
+    const UNI_TOWELI = 274_657_533_970_735_849_999_999_999n;
+    const UNI_WETH = 7_493_598_886_468_978_000n; // 7.4936 WETH
+
+    /** Stub both pairs, each at its own reserves, plus a healthy ETH/USD round. */
+    function stubBothPairs(nativeWeth: bigint, uniWeth: bigint): void {
+      wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'token0', result: TOWELI_ADDRESS });
+      wagmiMock.setReadResult({
+        address: TEGRIDY_LP_ADDRESS,
+        functionName: 'getReserves',
+        result: reserves(NATIVE_TOWELI, nativeWeth),
+      });
+      wagmiMock.setReadResult({ address: TOWELI_WETH_LP_ADDRESS, functionName: 'token0', result: TOWELI_ADDRESS });
+      wagmiMock.setReadResult({
+        address: TOWELI_WETH_LP_ADDRESS,
+        functionName: 'getReserves',
+        result: reserves(UNI_TOWELI, uniWeth),
+      });
+      wagmiMock.setReadResult({
+        address: ETH_USD_FEED,
+        functionName: 'latestRoundData',
+        result: validChainlinkRound(1871.7),
+      });
+    }
+
+    // Expected prices are DERIVED from the stubbed reserves, not hard-coded, so
+    // this keeps pinning the invariant if the reserve fixtures are ever refreshed.
+    const impliedPrice = (weth: bigint, toweli: bigint) => Number(weth) / Number(toweli);
+
+    it('prices off the DEEP Uniswap pool, never the drained native pair', () => {
+      stubBothPairs(NATIVE_WETH, UNI_WETH);
+      const uniPrice = impliedPrice(UNI_WETH, UNI_TOWELI); // 2.7283e-8
+      const nativePrice = impliedPrice(NATIVE_WETH, NATIVE_TOWELI); // 2.6193e-8
+
+      const { result } = renderHook(() => useToweliPrice());
+
+      // Relative, not absolute — toBeCloseTo's absolute epsilon is meaningless
+      // against a number of magnitude 1e-8.
+      expect(result.current.priceInEth / uniPrice).toBeCloseTo(1, 3);
+      expect(Math.abs(result.current.priceInEth - nativePrice) / nativePrice).toBeGreaterThan(0.03);
+    });
+
+    it('still ignores the native pair when the two pools disagree wildly', () => {
+      // Same setup, but the native pair is drained 10x further so the two pools'
+      // implied prices are an order of magnitude apart. Live reserves differ by
+      // only ~4%; if that ever narrows, the test above could pass by coincidence
+      // while this one cannot.
+      stubBothPairs(NATIVE_WETH / 10n, UNI_WETH);
+      const uniPrice = impliedPrice(UNI_WETH, UNI_TOWELI);
+
+      const { result } = renderHook(() => useToweliPrice());
+
+      expect(result.current.priceInEth / uniPrice).toBeCloseTo(1, 3);
+      // ETH at $1871.70 → the deep pool's price in USD, not the dust pool's.
+      expect(result.current.priceInUsd).toBeCloseTo(uniPrice * 1871.7, 10);
+    });
+  });
+});
+
+// ─────────── Wiring guard: the price source pool ───────────
+//
+// Mirrors launchPriceWiring.test.ts, which exists for this same failure class: a
+// one-identifier change that breaks no behavioural test. The address-scoped tests
+// above DO catch a revert, but this pins it at the source too, because the failure
+// mode is a well-meaning "restore the native pair" edit and the diff should be the
+// thing that argues back.
+
+describe('useToweliPrice price-source wiring', () => {
+  const src = readFileSync(join(process.cwd(), 'src', 'hooks', 'useToweliPrice.ts'), 'utf8');
+
+  /** Strip comments so the prose explaining the switch cannot satisfy or trip a check. */
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('reads the pair TOWELI actually trades in, not the protocol-owned dust pool', () => {
+    expect(code).toMatch(/const pairAddr = TOWELI_WETH_LP_ADDRESS/);
+    expect(code).not.toMatch(/const pairAddr = TEGRIDY_LP_ADDRESS/);
   });
 });
 

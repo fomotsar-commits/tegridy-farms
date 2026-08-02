@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../lib/contracts';
-import { TEGRIDY_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TOWELI_WETH_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
 
 // R075: every cache key carries its own schema version. A stale entry from
@@ -112,7 +112,29 @@ export function evaluateEthUsdFeed(
 }
 
 export function useToweliPrice() {
-  const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Tegridy DEX pair (was external Uniswap LP)
+  // Price off the pool TOWELI actually trades in, not the pool we happen to own.
+  //
+  // This read pointed at TEGRIDY_LP_ADDRESS (our native pair) on the premise that it
+  // would be the deep one. It is not: on 2026-08-02 it held 146,258 TOWELI + 0.00383
+  // WETH — about $7 a side, where a ~$10 trade moves the quote arbitrarily. The
+  // Uniswap V2 pair holds 274.6M TOWELI + 7.49 WETH, ~1,956x deeper in WETH, and is
+  // the ONLY pool GeckoTerminal indexes for this token. Everything else on the site
+  // already prices off it: the chart (PriceChart.tsx), the 24h sparkline
+  // (usePriceHistory.ts), the trades feed (useProtocolActivity.ts), and the API
+  // fallback below. The headline number was the last surface reading the dust pool.
+  //
+  // The TWAP leg below does NOT cover this either way — TegridyTWAP.consult reverts
+  // ReservesBelowFloor for BOTH pairs (10 ETH floor, side-0 and side-1) and
+  // observationCount is 0 for both, so `twapPriceInEth` is always 0. Verified on
+  // mainnet 2026-08-02. Do not treat the divergence branch as live protection.
+  //
+  // This does NOT make the price manipulation-proof — 7.49 WETH is thin in absolute
+  // terms and the pair is dormant. It makes it ~1,956x harder to move, and sourced
+  // from the real market rather than a $14 pool.
+  //
+  // Point this back at the native pair only once it is genuinely deeper — read both
+  // pairs' getReserves and compare WETH before flipping it, don't flip it on intent.
+  const pairAddr = TOWELI_WETH_LP_ADDRESS;
   const hasPair = checkDeployed(pairAddr);
 
   const { data: reserves } = useReadContract({

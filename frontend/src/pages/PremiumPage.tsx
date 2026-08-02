@@ -10,7 +10,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
-import { goldCardBenefits } from '../lib/premiumBenefits';
+import { goldCardBenefits, goldCardHeroSubtitle } from '../lib/premiumBenefits';
 
 // F375: the PremiumAccess contract charges monthlyFee × months with NO discount
 // (subscribe() = `monthlyFeeToweli * months`), and the hook approves/passes the
@@ -138,7 +138,7 @@ export default function PremiumPage() {
             Gold <span style={{ color: '#d4a017' }}>Card</span>
           </h1>
           <p className="text-white text-base md:text-lg max-w-lg mx-auto">
-            Back the protocol in TOWELI — and earn real ETH from swap fees, like every staker.
+            {goldCardHeroSubtitle({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading })}
           </p>
         </m.div>
 
@@ -386,7 +386,7 @@ export default function PremiumPage() {
         {/* Revenue Sharing Section */}
         <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Revenue Sharing</h2>
-          <p className="text-white text-[12px] mb-5">100% of protocol fees distributed to stakers</p>
+          <p className="text-white text-[12px] mb-5">100% of protocol fees route to stakers — the on-chain split, not a payout to date</p>
 
           {revenue.isDataLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
