@@ -10,7 +10,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
-import { goldCardBenefits } from '../lib/premiumBenefits';
+import { goldCardBenefits, goldCardSubhead } from '../lib/premiumBenefits';
 
 // F375: the PremiumAccess contract charges monthlyFee × months with NO discount
 // (subscribe() = `monthlyFeeToweli * months`), and the hook approves/passes the
@@ -138,7 +138,7 @@ export default function PremiumPage() {
             Gold <span style={{ color: '#d4a017' }}>Card</span>
           </h1>
           <p className="text-white text-base md:text-lg max-w-lg mx-auto">
-            Back the protocol in TOWELI — and earn real ETH from swap fees, like every staker.
+            {goldCardSubhead({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading })}
           </p>
         </m.div>
 
