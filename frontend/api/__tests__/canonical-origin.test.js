@@ -21,6 +21,7 @@ import { join } from "node:path";
 
 const ORIGIN_GATED = [
   "api/alchemy.js",
+  "api/analytics.js",
   "api/auth/me.js",
   "api/auth/siwe.js",
   "api/etherscan.js",
