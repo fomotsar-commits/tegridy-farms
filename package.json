@@ -8,7 +8,8 @@
     "extract-abis": "node frontend/scripts/extract-missing-abis.mjs",
     "check-selectors": "node scripts/check-interface-selectors.mjs",
     "capture-airlock-selectors": "node frontend/scripts/capture-airlock-selectors.mjs",
-    "diff-addresses": "npx tsx scripts/diff-addresses.ts"
+    "diff-addresses": "npx tsx scripts/diff-addresses.ts",
+    "predeploy": "node scripts/predeploy-check.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2"
