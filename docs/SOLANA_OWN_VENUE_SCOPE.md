@@ -60,7 +60,7 @@ every lamport raised. Graduation happens only inside `migrate_to_amm`.
 | Bonding curve program | **Built** — 1,170 nSLOC, 6 instructions, CI-green | Audit; deploy; real program id (`declare_id!` is a labelled throwaway) |
 | Curve → AMM graduation | **Built** — atomic inside `migrate_to_amm` | The highest-risk instruction; deepest audit focus. 264,128 CU — every client MUST raise the compute limit |
 | Fee/treasury routing | Config-driven in the AMM; curve pays `global.fee_recipient` | Pick the actual fee values — **not one is chosen in the repo yet** |
-| Creator fee share | **Does not exist — creator is paid ZERO** | Spec'd 2026-08-02; see `CREATOR_FEE_SPEC.md`. Decide before the audit is scoped |
+| Creator fee share | **Does not exist — creator is paid ZERO** | Spec'd 2026-08-02: [`programs/tegridy-launch/CREATOR_FEE_SPEC.md`](../solana/tegridy-amm/programs/tegridy-launch/CREATOR_FEE_SPEC.md). Decide before the audit is scoped |
 | Token metadata | **Does not exist** | `create_launch` takes no args and never touches Metaplex — launched tokens are nameless in every wallet and explorer |
 | Discovery / feed | **Does not exist** | `getProgramAccounts` is off the RPC proxy allowlist; a launch is resolvable only if you already know its mint. No indexer, no DB table |
 | Anti-snipe | **Does not exist** | Meteora's rail ships a 9900→100 bps 6h decay; ours has none, so block one is a free snipe |
@@ -138,7 +138,8 @@ happened — it is the critical path.*
   people it needs to attract. Post-graduation it is structurally zero too: our migration
   calls cp-swap's permissionless `initialize`, which hardcodes `enable_creator_fee = false`,
   and the fork has no setter — **the curve is the only place a creator can ever be paid.**
-  See `CREATOR_FEE_SPEC.md`.
+  Spec'd 2026-08-02 with a recommended 48 bps (parity with our own Meteora rail):
+  [`programs/tegridy-launch/CREATOR_FEE_SPEC.md`](../solana/tegridy-amm/programs/tegridy-launch/CREATOR_FEE_SPEC.md).
 - 🔴 **The actual fee values.** Not one is chosen anywhere in the repo. `trade_fee_bps`,
   `trade_fee_rate`, `protocol_fee_rate`, `fund_fee_rate` and `create_pool_fee` are all
   runtime arguments with no committed default. The only concrete numbers in-repo are the
