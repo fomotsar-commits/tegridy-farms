@@ -219,7 +219,7 @@ export default async function handler(req, res) {
           if (!/^0x[0-9a-f]{40}$/.test(address)) continue;
           const balance = baseUnits(h && h.rawBalance != null ? h.rawBalance : h && h.balance);
           if (balance === null) { holders = null; break; }
-          holders.push({ address, balance, isContract: !!(h && h.isContract) });
+          holders.push({ address, balance, isContract: false });
         }
         // Rows arrived but NONE of them were attributable. An empty `holders: []` is
         // only an answer when the upstream itself said "nobody"; deriving one by
@@ -234,8 +234,35 @@ export default async function handler(req, res) {
         // through `catch { top = {} }` / `(top.holders || [])` into a cached 200
         // carrying `holders: []`. A `holders: []` that IS present still succeeds —
         // that is the read working and the answer being nobody.
+        // Which of these holders are CONTRACTS? Ethplorer does not say, and the old
+        // `!!h.isContract` therefore evaluated to `false` for every row — so the
+        // detection core's exclusion pass (LP pairs, CEX wallets, bridges, lockers,
+        // vaults) ran and matched nothing, and every pool was counted as a person.
+        // Measured on TOWELI's own live scan: 15 of the top 100 have code, including
+        // the LARGEST at 27.47% — the Uniswap V2 pair — and the staking contract at
+        // 5.1%. That published "largest holder 27.47%" where the largest PERSON holds
+        // 3.71%, and 6.0 effective holders against a real 23.1.
+        //
+        // Fail-closed on purpose: an unreadable code batch is an unreadable read, and
+        // a distribution verdict whose exclusion pass silently did not run is the
+        // defect this whole route has been fixing. The chain walks a configured
+        // Alchemy key then three keyless public nodes, so every URL failing means
+        // something is genuinely wrong rather than one node being slow.
+        let codeReadFailed = false;
+        if (holders !== null && holders.length > 0) {
+          try {
+            const { fetchContractFlags } = await import("../_lib/eth-code.js");
+            const flags = await fetchContractFlags(holders.map((h) => h.address));
+            for (const h of holders) h.isContract = flags.get(h.address) === true;
+          } catch (err) {
+            console.error("erc20scan eth_getCode failed:", logSafe(err));
+            codeReadFailed = true;
+          }
+        }
+
         const epError = top && typeof top === "object" ? top.error : null;
-        const unreadable = infoUnreadable || (rawTotal != null && totalSupply === null) || holders === null;
+        const unreadable =
+          infoUnreadable || (rawTotal != null && totalSupply === null) || holders === null || codeReadFailed;
         if (!topRes.ok || epError || unreadable) {
           // Ethplorer code 1 = invalid API key. Map auth failures to 403, which
           // the client renders as the honest "scanner not enabled on this

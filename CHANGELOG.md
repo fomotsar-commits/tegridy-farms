@@ -135,6 +135,28 @@ preserved-behaviour tests stay green both ways, which is what shows the hardenin
 not blunt the real answers. Frontend suite green — 169 files, 2411 tests — `tsc -b`
 and ESLint clean.
 
+**And the exclusion pass was inert on Ethereum the whole time.** The detection core
+removes structural holders — LP pairs, CEX wallets, bridges, lockers, vaults — from
+the person-held distribution, and its only generic input is `isContract`. Ethplorer
+does not send that field, so `!!h.isContract` was `false` for every row: the pass ran
+and matched nothing. Measured against the live route, 15 of TOWELI's top 100 holders
+have code — including the LARGEST at 27.47%, which is the **Uniswap V2 pair itself**,
+and the staking contract at 5.1% — so the headline read "largest holder 27.47%" where
+the largest PERSON holds 3.71%, and 6.0 effective holders against a real 23.1. WBTC is
+worse: **40 of its top 100 have code**, top holder 27.87% against a top person of
+**1.47%**, a 19x overstatement on the one number the page exists to report.
+
+The route now reads it, batching `eth_getCode` over the enumerated holders through a
+configured Alchemy key then the three keyless public nodes the repo already trusts
+(`_lib/eth-code.js`, mirroring the roster and per-attempt timeout in
+`_lib/seaport-verify.js`). A batch that answers only some of its ids, answers one
+twice, or returns a non-hex result is rejected rather than partially trusted — partial
+trust would silently mark the unanswered addresses EOAs, which is the same defect one
+level down. An unreadable batch fails closed: a distribution verdict whose exclusion
+pass did not run is exactly what this route has spent three commits removing. The
+upstream's own `isContract` is no longer consulted at all; a value we never read is
+not a classification.
+
 **Operator note:** this changes numbers on a live surface. Balances become exact, so
 published shares shift slightly and sub-0.005% holders reappear in the set. It also
 fails closed where it used to degrade: if the upstream changes shape or drops

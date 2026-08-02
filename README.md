@@ -339,6 +339,8 @@ Shipped 2026-07-22: a set of app-side analysis surfaces built on one shared dete
 
 The Ethereum route also publishes the explorer's **exact base-unit integer** rather than rebuilding each balance from `share`, a percentage rounded to two decimals. That rebuild was a fixed ±0.005pp error whose relative size grows as holdings shrink: measured against the live route on TOWELI, one holder was published **6.01% light** (44,733 TOWELI), and any holder under 0.005% rounded to a zero balance and dropped out of the set entirely.
 
+And it now reads **which holders are contracts**, via `eth_getCode`. The exclusion pass that removes LP pairs, CEX wallets, bridges, lockers and vaults from the *person-held* distribution has exactly one generic input — `isContract` — and Ethplorer never sends it, so on Ethereum it was always `false`: the pass ran and matched nothing. Measured live, that reported the largest holder as **27.47%** of TOWELI (the Uniswap V2 pair itself) where the largest *person* holds 3.71%, and **27.87%** of WBTC where the largest person holds **1.47%** — 40 of its top 100 holders are contracts. A field nobody read is not a `false`.
+
 | Surface | Where | What it tells you |
 |---|---|---|
 | **Trust hub** | [/trust](https://memetic.fun/trust) | The index for the suite — a deliberately thin page that owns no detection logic, so the tools below are discoverable instead of buried in a submenu. |

@@ -53,11 +53,20 @@ describe("v1 erc20scan — an unreadable holder payload is a failed read, not an
 
   afterEach(() => { delete globalThis.fetch; });
 
-  /** getTokenInfo always succeeds; the holder read is what each case varies. */
+  /**
+   * getTokenInfo always succeeds and every holder reads back as an EOA; the holder
+   * read is what each case varies. The `eth_getCode` batch is a third upstream now —
+   * answered here so these cases exercise the payload handling they were written for
+   * rather than tripping the code-read failure path.
+   */
   function serve(topResponse) {
-    globalThis.fetch = vi.fn(async (url) =>
-      String(url).includes("getTopTokenHolders") ? topResponse : upstream(INFO),
-    );
+    globalThis.fetch = vi.fn(async (url, opts) => {
+      const u = String(url);
+      if (u.includes("getTopTokenHolders")) return topResponse;
+      if (u.includes("ethplorer")) return upstream(INFO);
+      const calls = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => calls.map((c) => ({ id: c.id, result: "0x" })) };
+    });
   }
 
   it("does NOT cache a 200 with no holders when the body is not JSON", async () => {
@@ -145,12 +154,27 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
 
   afterEach(() => { delete globalThis.fetch; });
 
-  /** `info`/`top` may be a body string, or a pre-built response to control ok/status. */
-  function serve({ info = INFO, top }) {
+  /**
+   * `info`/`top` may be a body string, or a pre-built response to control ok/status.
+   * `code` maps a lowercased address to its `eth_getCode` result; anything absent
+   * answers "0x" (an EOA). Pass `code: 'fail'` to make every RPC endpoint fail.
+   */
+  function serve({ info = INFO, top, code = {} }) {
     const wrap = (v) => (typeof v === "string" ? upstream(v) : v);
-    globalThis.fetch = vi.fn(async (url) =>
-      String(url).includes("getTopTokenHolders") ? wrap(top) : wrap(info),
-    );
+    globalThis.fetch = vi.fn(async (url, opts) => {
+      const u = String(url);
+      if (u.includes("getTopTokenHolders")) return wrap(top);
+      if (u.includes("ethplorer")) return wrap(info);
+      // Everything else is the JSON-RPC eth_getCode batch.
+      if (code === "fail") throw new Error("rpc down");
+      const calls = JSON.parse(opts.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          calls.map((c) => ({ jsonrpc: "2.0", id: c.id, result: code[c.params[0]] ?? "0x" })),
+      };
+    });
   }
 
   async function scan(bodies) {
@@ -306,7 +330,52 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
     expect(headers["Cache-Control"]).toBe("no-store");
   });
 
+  it("reports which holders are CONTRACTS instead of calling every pool a person", async () => {
+    // ⚠ Ethplorer never sends `isContract`, so `!!h.isContract` was `false` for every
+    // row and the core's exclusion pass ran but matched nothing. Measured on TOWELI's
+    // own live scan: 15 of the top 100 have code, including the LARGEST at 27.47% —
+    // the Uniswap V2 pair — which published "largest holder 27.47%" where the largest
+    // PERSON holds 3.71%, and 6.0 effective holders against a real 23.1.
+    const pair = `0x${"a".repeat(40)}`;
+    const person = `0x${"b".repeat(40)}`;
+    const { body, statusSpy } = await scan({
+      top: JSON.stringify({
+        holders: [
+          { address: pair, rawBalance: "274700000000000000000000000" },
+          { address: person, rawBalance: "37100000000000000000000000" },
+        ],
+      }),
+      code: { [pair]: "0x60806040" },
+    });
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(body.holders.find((h) => h.address === pair).isContract).toBe(true);
+    expect(body.holders.find((h) => h.address === person).isContract).toBe(false);
+  });
+
+  it("fails closed when the code read is unavailable, rather than shipping an inert exclusion pass", async () => {
+    // A distribution verdict whose exclusion pass silently did not run is the defect
+    // this route has spent three commits removing. The chain walks a configured key
+    // plus three keyless public nodes, so all of them failing is a real outage.
+    const { statusSpy, headers } = await scan({
+      top: JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] }),
+      code: "fail",
+    });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("does not consult an RPC when the holder set is legitimately empty", async () => {
+    // `holders: []` is an answer, and there is nothing to classify — asking anyway
+    // would turn a working scan into an RPC dependency for no information.
+    const { statusSpy, body } = await scan({ top: JSON.stringify({ holders: [] }), code: "fail" });
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(body.holders).toEqual([]);
+  });
+
   it("serves the fully readable payload uncut", async () => {
+    // Note the upstream's own `isContract: true` is IGNORED — Ethplorer never sends
+    // that field, and a value we did not read is not a classification. `eth_getCode`
+    // is the sole source now, and here it says EOA.
     const { body, statusSpy, headers } = await scan({
       top: JSON.stringify({ holders: [{ address: HOLDER.address, rawBalance: "12345", isContract: true }] }),
     });
@@ -319,7 +388,7 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
       totalSupply: "999982329055168014311278372706779",
       holdersCount: 1678265,
       source: "ethplorer",
-      holders: [{ address: HOLDER.address, balance: "12345", isContract: true }],
+      holders: [{ address: HOLDER.address, balance: "12345", isContract: false }],
     });
   });
 });
