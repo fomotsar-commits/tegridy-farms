@@ -719,6 +719,20 @@ describe('fetchEthereumScan — the error taxonomy at the transport', () => {
     expect(e502.code).not.toBe('unavailable');
   });
 
+  it('reports the route’s 422 as "not a token", not as a scan that failed', async () => {
+    // The MIRROR of every other case here. The upstream looked and said this address
+    // is not an ERC-20 (Ethplorer code 150 — what a wallet or an NFT returns). That
+    // is an answer about the address, and 'not-found' carries it to the
+    // "double-check the address is a token (not a wallet or an NFT)" copy. Routing it
+    // to 'network' would render "Couldn't complete the scan" with a retry that can
+    // never succeed.
+    mockFetchOnce({ ok: false, status: 422, json: async () => ({ error: 'not a token' }) });
+    const err = await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT));
+    expect(err.code).toBe('not-found');
+    expect(err.code).not.toBe('network');
+    expect(err.code).not.toBe('unavailable');
+  });
+
   it('keeps the unconfigured-route 403 as the deployment gap it is', async () => {
     mockFetchOnce({ ok: false, status: 403, json: async () => ({ error: 'not enabled' }) });
     expect((await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT))).code).toBe('unavailable');

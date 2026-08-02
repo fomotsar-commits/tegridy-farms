@@ -268,8 +268,30 @@ export default async function handler(req, res) {
           // the client renders as the honest "scanner not enabled on this
           // deployment yet" state (needs a paid ETHPLORER_API_KEY). Everything
           // else is a transient upstream failure → 502. Neither is cached.
-          const isAuth = topRes.status === 401 || topRes.status === 403 || (epError && Number(epError.code) === 1);
+          // ⚠ NOT every upstream error is a failed read. Ethplorer answers a wallet or
+          // an NFT address with `{"error":{"code":150,"message":"Address is not a token
+          // contract"}}` — it LOOKED, and that address is not an ERC-20. Treating that
+          // as a transient failure is the mirror image of the defect this route spent
+          // three commits removing: it takes a real answer about the address and
+          // renders it as "Couldn't complete the scan" with a retry button that can
+          // never succeed. 422 keeps it distinct from both the auth gap and the
+          // transient failure; the client maps it to the "double-check the address is
+          // a token (not a wallet or an NFT)" copy that exists for exactly this.
+          const notAToken = Number(epError?.code) === 150 || Number(infoError?.code) === 150;
+          // Auth is checked on BOTH legs: an info-side bad key is still a deployment
+          // gap, not a transient blip, and reporting it as transient sends the operator
+          // looking for an outage that is not happening.
+          const isAuth =
+            topRes.status === 401 ||
+            topRes.status === 403 ||
+            infoRes.status === 401 ||
+            infoRes.status === 403 ||
+            Number(epError?.code) === 1 ||
+            Number(infoError?.code) === 1;
           res.setHeader("Cache-Control", "no-store");
+          if (notAToken && !isAuth) {
+            return res.status(422).json({ error: "Address is not an ERC-20 token contract" });
+          }
           return res.status(isAuth ? 403 : 502).json({
             error: isAuth
               ? "Holder data source is not enabled on this deployment"

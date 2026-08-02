@@ -140,8 +140,9 @@ export default function ScannerPage() {
         <StateCard tone="muted" title="Not enabled on this deployment yet">
           <p>{scan.errorMessage}</p>
           <p className="mt-2 text-text-muted">
-            Solana token scans work today. Ethereum scans need the holder-data route configured on the server (see the
-            deployment notes) — until then this tab stays honest about the gap rather than showing invented numbers.
+            Solana token scans work today. Ethereum scans need the holder-data source configured on the server — the
+            route may be deployed and simply missing its upstream API key (see the deployment notes). Until then this
+            tab stays honest about the gap rather than showing invented numbers.
           </p>
         </StateCard>
       )}
