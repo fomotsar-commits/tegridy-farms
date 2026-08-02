@@ -26,6 +26,12 @@ import {
   type DbcPartnerConfig,
   type DbcLaunchParams,
 } from '../lib/launcher/solana/dbc';
+import {
+  fetchLivePoolConfig,
+  feeBpsAtSeconds,
+  splitAtFee,
+  type LivePoolConfig,
+} from '../lib/launcher/solana/liveConfig';
 
 // The Solana leg is a fee-capture SUB-BRAND, deliberately separate from the EVM
 // flagship launcher. This page is GATED: while isSolanaLauncherEnabled() is false
@@ -109,6 +115,80 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between gap-2 text-white/75">
       <span>{label}</span>
       <span className="font-mono text-right truncate ml-2">{value}</span>
+    </div>
+  );
+}
+
+// The live partner config on mainnet. Left UNSET by default: publishing the
+// address also publishes the Squads vault it names as feeClaimer, and that is
+// the operator's call, not a default. When unset the page behaves exactly as
+// before — builder previews, labelled as previews.
+const LIVE_DBC_CONFIG = (import.meta.env.VITE_SOLANA_DBC_CONFIG as string | undefined)?.trim();
+
+/**
+ * Terms read from the LIVE config account, or nothing.
+ *
+ * The Fact Sheet above is a PREVIEW of what we would configure. This panel is
+ * the opposite: what IS configured, decoded from the account, with the address
+ * so a reader can check it themselves. If the read fails it says so — it never
+ * falls back to the builder defaults, because a default dressed as a live value
+ * is precisely the confusion this panel exists to remove.
+ */
+function LiveTerms() {
+  const [state, setState] = useState<'idle' | 'loading' | 'ok' | 'failed'>(LIVE_DBC_CONFIG ? 'loading' : 'idle');
+  const [cfg, setCfg] = useState<LivePoolConfig | null>(null);
+
+  useEffect(() => {
+    if (!LIVE_DBC_CONFIG) return;
+    const ac = new AbortController();
+    let alive = true;
+    fetchLivePoolConfig(LIVE_DBC_CONFIG, { signal: ac.signal })
+      .then((c) => { if (alive) { setCfg(c); setState(c ? 'ok' : 'failed'); } })
+      .catch(() => { if (alive) setState('failed'); });
+    return () => { alive = false; ac.abort(); };
+  }, []);
+
+  if (state === 'idle') return null;
+
+  const pctOf = (bps: number) => (bps / 100).toFixed(2);
+
+  return (
+    <div className="mt-3 rounded-xl p-3.5 text-[11px] space-y-2.5" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+      <p className="text-white/50 text-[10px] uppercase tracking-wide">Live mainnet config</p>
+
+      {state === 'loading' && <p className="text-white/40 text-[10px]">Reading the config account…</p>}
+
+      {state === 'failed' && (
+        <p className="text-white/40 text-[10px]">
+          Could not read the live config right now. The Fact Sheet above is a builder preview, not
+          observed on-chain terms.
+        </p>
+      )}
+
+      {state === 'ok' && cfg && (
+        <>
+          <Row label="Config account" value={`${LIVE_DBC_CONFIG!.slice(0, 6)}…${LIVE_DBC_CONFIG!.slice(-4)}`} />
+          <Row label="Creator share of fee" value={`${splitAtFee(cfg, 10_000).creatorBps / 100}%`} />
+          <Row label="Tegridy share of fee" value={`${splitAtFee(cfg, 10_000).partnerBps / 100}%`} />
+
+          <div className="space-y-1 pt-1" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <p className="text-white/60 text-[10px]">
+              What a trade actually costs, {cfg.mode} over {(cfg.totalDurationSeconds / 3600).toFixed(0)}h
+            </p>
+            {[0, 3600, 3 * 3600, cfg.totalDurationSeconds].map((t) => (
+              <Row
+                key={t}
+                label={t === 0 ? 'at launch' : `after ${(t / 3600).toFixed(0)}h`}
+                value={`${pctOf(feeBpsAtSeconds(cfg, t))}%`}
+              />
+            ))}
+            <p className="text-white/40 text-[10px]">
+              The opening fee is an anti-snipe measure and decays on the schedule above. It is the
+              real cost of trading in that window, not a headline rate.
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -292,6 +372,10 @@ function SolanaLaunchInner() {
           ) : (
             <p className="mt-3 text-amber-300 text-[11px]">{vaultAddress || name || symbol || uri ? preview.error : 'Fill in the fields above to preview the Fact Sheet.'}</p>
           )}
+
+          {/* Outside the preview ternary on purpose: the live config is a fact
+              about mainnet, not about whether this draft validates. */}
+          <LiveTerms />
 
           <p className="mt-4 text-center text-white/40 text-[10px] leading-relaxed">
             Solana leg is fee-capture only — no TOWELI on Solana, no custom program. Launch parameters are disclosed, not a

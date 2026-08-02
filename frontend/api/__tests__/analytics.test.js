@@ -71,7 +71,7 @@ describe("privacy — no wallet address may be stored", () => {
     const { default: handler } = await load();
     const { res, out } = makeRes();
     await handler(makeReq({
-      body: { events: [EVENT({ properties: { payer: "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd" } })] },
+      body: { events: [EVENT({ properties: { payer: "11111111111111111111111111111112" } })] },
     }), res);
     expect(out.payload.accepted).toBe(0);
     expect(out.payload.reasons["address-shaped-value"]).toBe(1);
@@ -98,7 +98,7 @@ describe("privacy — no wallet address may be stored", () => {
 
   it("still catches a bare pubkey with surrounding whitespace", async () => {
     const { containsAddress } = await load();
-    expect(containsAddress("  GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd  ")).toBe(true);
+    expect(containsAddress("  11111111111111111111111111111112  ")).toBe(true);
   });
 
   it("is bounded against deeply nested hostile payloads", async () => {
