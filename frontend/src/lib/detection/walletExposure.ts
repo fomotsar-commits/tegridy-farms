@@ -10,17 +10,18 @@
 // components, exclusions, timestamp and correction path.
 //
 // PURITY: this module is pure. It does no network I/O of its own — the wallet
-// hook fetches balances (wagmi multicall) and, when a token scanner adapter is
-// available, hands its `DistributionAnalysis` here to be summarised. When the
-// scanner is absent (the current default — no ERC-20 holder-list source is
-// deployed yet), `deriveHoldingExposure(null, …)` self-gates to `unmeasured`.
+// hook fetches balances (wagmi multicall) and hands the scanner's resulting
+// `DistributionAnalysis` here to be summarised. Whenever that analysis is absent,
+// `deriveHoldingExposure(null, …)` self-gates to `unmeasured`.
 //
 // WHY A SCANNER SEAM: the detection core needs a token's HOLDER DISTRIBUTION
-// (RawHolder[]) to compute concentration. Arbitrary ERC-20 holder lists are not
-// fetchable with the currently-wired data sources (no Ponder index, no holder
-// list API). `ScanTokenFn` is the injection point a token-scanner adapter
-// satisfies; until one exists, exposure stays honestly `unmeasured` and this
-// file's shape does not change when it lands.
+// (RawHolder[]) to compute concentration, which this pure module cannot fetch.
+// `ScanTokenFn` is the injection point; WalletExposurePage satisfies it with the
+// live `scanTokenLive` adapter, which reads a token's TOP-N holders through the
+// deployed erc20scan route — a partial, largest-first read, NOT a full holder
+// enumeration. That read can still come back empty (route unconfigured,
+// rate-limited, or the token not covered), so `unmeasured` stays a normal,
+// expected outcome here — not a placeholder for wiring that was never built.
 
 import { analyzeDistribution } from './index';
 import type {
@@ -193,7 +194,8 @@ export const BAND_LABEL: Record<Band, string> = {
  * Portfolio-level roll-up of a set of exposures — how many measured, and the
  * WORST band observed among measured holdings. Never counts `unmeasured` toward
  * a verdict (an unknown is not a risk). Returns `worstBand: null` when nothing
- * was measurable, so the UI shows an honest "pending" summary, not a fake "safe".
+ * was measurable, so the UI shows an honest "not measured" summary, not a fake
+ * "safe".
  */
 export function summarizeExposures(exposures: readonly HoldingExposure[]): {
   measured: number;

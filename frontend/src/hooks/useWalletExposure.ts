@@ -22,12 +22,14 @@ import {
 //   exact wallet data — no indexer, no API key, no fabricated numbers.
 //
 // SCORING (honest-gated):
-//   The detection core needs each token's HOLDER DISTRIBUTION, which is not
-//   fetchable for arbitrary ERC-20s with the data sources wired today. A token
-//   `scanToken` adapter is the injection seam (see ScanTokenFn). Until one is
-//   provided, every holding's exposure self-gates to `unmeasured` — the position
-//   size is still exact, the distribution read is honestly "pending". The moment
-//   a scanner is injected, cards light up with real bands; no UI change needed.
+//   The detection core needs each token's HOLDER DISTRIBUTION. A `scanToken`
+//   adapter is the injection seam (see ScanTokenFn), and WalletExposurePage
+//   supplies one: the live `scanTokenLive` path, which reads a token's TOP-N
+//   holders through the deployed erc20scan route. The seam stays optional — when
+//   no scanner is passed, or when a scan comes back empty (route unconfigured,
+//   rate-limited, token not covered), that holding self-gates to `unmeasured`
+//   instead of showing a fabricated band. The position size is exact either way.
+//   A scan that fails is NOT retried; see the scan effect below.
 //
 // SELF-GATING: no wallet ⇒ empty; wrong network ⇒ flagged + empty; a wallet with
 // no tracked balances ⇒ empty holdings (the page shows an honest empty state, not
@@ -41,9 +43,9 @@ export interface UseWalletExposureOptions {
   extraTokens?: string[];
   /**
    * Token-distribution scanner. When supplied, each held token is scanned and
-   * scored via the detection core. Omitted by default (no holder-list source is
-   * deployed) ⇒ all holdings read as `unmeasured`. This is the wiring point for a
-   * future scanner adapter — inject it here and the page needs no other change.
+   * scored via the detection core — WalletExposurePage injects the live
+   * `scanTokenLive` adapter here. Optional: when omitted, or when a scan resolves
+   * to `null`, those holdings read as `unmeasured` — never as a passing band.
    */
   scanToken?: ScanTokenFn;
   /** Poll interval for balance refreshes (ms). Default 30s. */
