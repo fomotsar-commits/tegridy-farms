@@ -320,6 +320,16 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
     expect(headers["Cache-Control"]).toBe("no-store");
   });
 
+  it("does not accept a JSON ARRAY as a readable token-info body", async () => {
+    // `typeof [] === "object"`, so an array slipped through `infoOk` as a readable
+    // payload whose every field is undefined — landing straight back on "the explorer
+    // did not report a total", the answer this check exists to keep unreachable.
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    const { statusSpy, headers } = await scan({ info: JSON.stringify([{ totalSupply: "1000" }]), top });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
   it("treats an unparsable token-info body as a failed read, not as five nulls", async () => {
     // getTokenInfo carries the denominator. Degrading it to `{}` published a scan
     // whose every percentage divided by a substituted enumerated sum, from a read

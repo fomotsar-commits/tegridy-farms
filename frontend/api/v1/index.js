@@ -194,7 +194,10 @@ export default async function handler(req, res) {
         // captioned "of total supply", and a large-enough holder crosses the 50%
         // single-holder-majority gate and floors the band at `concentrated`. Cached
         // for 120s, then the same token reads clean once the quota resets.
-        const infoOk = !!info && typeof info === "object";
+        // `typeof [] === "object"`, so an array body slipped through as a readable
+        // token-info payload with every field undefined — i.e. straight back into the
+        // "the explorer did not report a total" answer this check exists to prevent.
+        const infoOk = !!info && typeof info === "object" && !Array.isArray(info);
         const infoError = infoOk ? info.error : null;
         const infoUnreadable = !infoOk || !!infoError || !infoRes.ok;
         const rawTotal = infoOk ? info.totalSupply : null;
