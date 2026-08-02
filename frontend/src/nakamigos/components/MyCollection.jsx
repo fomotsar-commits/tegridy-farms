@@ -29,6 +29,12 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
   const [error, setError] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
   const [listings, setListings] = useState([]);
+  // Three distinct states, deliberately NOT collapsed into "listings.length === 0":
+  // in flight, reachable-and-empty, and could-not-reach. Before this, all three
+  // rendered as no listings at all, so a seller whose listings were merely
+  // unreachable was silently told they had none.
+  const [loadingListings, setLoadingListings] = useState(false);
+  const [listingsError, setListingsError] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [bulkListOpen, setBulkListOpen] = useState(false);
@@ -125,10 +131,14 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     });
 
     // Fetch active listings for this wallet
-    fetchMyListings(wallet, collection.contract).then((data) => {
+    setLoadingListings(true);
+    setListingsError(false);
+    fetchMyListings(wallet, collection.contract).then(({ listings: rows, fallback }) => {
       if (!mounted) return;
-      setListings(data);
-    }).catch(() => {});
+      setListings(rows);
+      setListingsError(fallback);
+      setLoadingListings(false);
+    });
 
     return () => { mounted = false; };
   }, [wallet, collection.contract, collection.metadataBase]);
@@ -143,6 +153,8 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     setTotalCount(0);
     setListings([]);
     setLoading(true);
+    setLoadingListings(true);
+    setListingsError(false);
 
     fetchWalletNfts(wallet, collection.contract, collection.metadataBase).then((data) => {
       if (retryGenRef.current !== gen) return; // stale -- collection switched
@@ -155,10 +167,12 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
       setLoading(false);
     });
 
-    fetchMyListings(wallet, collection.contract).then((data) => {
+    fetchMyListings(wallet, collection.contract).then(({ listings: rows, fallback }) => {
       if (retryGenRef.current !== gen) return;
-      setListings(data);
-    }).catch(() => {});
+      setListings(rows);
+      setListingsError(fallback);
+      setLoadingListings(false);
+    });
   }, [wallet, collection.contract, collection.metadataBase]);
 
   const handleCancelListing = useCallback(async (listing) => {
@@ -214,11 +228,22 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           </h2>
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
             {shortenAddress(wallet)} {"\u00b7"} {totalCount} {collection.name} owned
-            {listings.length > 0 && (
+            {/* In flight / unreachable / known \u2014 three states, never collapsed.
+                Rendering nothing while the fetch is open reads as "0 listed",
+                which is a claim we have not earned yet. */}
+            {loadingListings ? (
+              <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
+                {"\u00b7"} checking listings{"\u2026"}
+              </span>
+            ) : listingsError ? (
+              <span style={{ color: "var(--red)", marginLeft: 8 }}>
+                {"\u00b7"} listings unavailable
+              </span>
+            ) : listings.length > 0 ? (
               <span style={{ color: "var(--gold)", marginLeft: 8 }}>
                 {"\u00b7"} {listings.length} listed
               </span>
-            )}
+            ) : null}
           </div>
         </div>
         {tokens.length > 0 && (
@@ -320,6 +345,19 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           </div>
           <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--gold)", whiteSpace: "nowrap" }}>{"→"}</span>
         </Link>
+      )}
+
+      {/* Listings outage — distinct from "nothing listed". Without this the
+          seller sees an absent banner either way and concludes they have no
+          live listings, which may be false and is unactionable. */}
+      {listingsError && (
+        <div className="error-banner" style={{ margin: "0 32px 16px" }}>
+          <span>
+            Couldn{"’"}t load your active listings {"—"} the listings API did not
+            respond. Any live listings are unaffected and still on-chain.
+          </span>
+          <button onClick={handleRetry}>Retry</button>
+        </div>
       )}
 
       {/* Active Listings Banner */}
@@ -507,9 +545,10 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           collection={collection}
           onClose={() => setBundleOpen(false)}
           onListingCreated={() => {
-            fetchMyListings(wallet, collection.contract)
-              .then(setListings)
-              .catch((err) => console.warn('[MyCollection] fetchMyListings failed:', err?.message ?? err));
+            fetchMyListings(wallet, collection.contract).then(({ listings: rows, fallback }) => {
+              setListings(rows);
+              setListingsError(fallback);
+            });
           }}
           stats={stats}
         />
@@ -522,9 +561,10 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           onClose={() => setBulkListOpen(false)}
           onListingCreated={() => {
             // Refresh listings after new listings are created
-            fetchMyListings(wallet, collection.contract)
-              .then(setListings)
-              .catch((err) => console.warn('[MyCollection] fetchMyListings failed:', err?.message ?? err));
+            fetchMyListings(wallet, collection.contract).then(({ listings: rows, fallback }) => {
+              setListings(rows);
+              setListingsError(fallback);
+            });
           }}
           addToast={addToast}
           onConnect={onConnect}
