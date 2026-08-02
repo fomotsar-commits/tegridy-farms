@@ -49,8 +49,6 @@ const ALLOWED_ORIGINS = [
   "https://memetic.fun",
   "https://www.memetic.fun",
   "https://tegridyfarms.vercel.app",
-  "https://nakamigos.gallery",
-  "https://www.nakamigos.gallery",
 ];
 
 function setCors(req, res) {

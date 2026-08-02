@@ -54,8 +54,6 @@ function isProdLikeEnv() {
 // in one place so security policy doesn't drift between proxies.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
     "https://tegridyfarms.vercel.app",

@@ -44,7 +44,7 @@ const SLUG_TO_CONTRACT = {
   junglebay: "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
 };
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery";
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
 
 // ── Shared validation helpers ──
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -56,8 +56,6 @@ function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.tes
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const prodOrigins = [
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
     "https://tegridyfarms.vercel.app",
