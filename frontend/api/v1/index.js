@@ -60,6 +60,8 @@ function setCors(req, res) {
     "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
+    "https://memetics.finance",
+    "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
   ];
   // AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
