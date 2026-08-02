@@ -10,8 +10,28 @@ Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external subm
 
 ## 0. Prereqs
 - Diff-audit passed; findings (if any) fixed and re-diffed (CI `diff-guard` still green).
-- Squads multisig created for **admin** and a **treasury** address chosen.
 - `solana` CLI installed; `solana config set --url mainnet-beta`.
+
+### The identities, and which already exist
+
+Verified on mainnet 2026-08-01. The first two exist **now**; do not regenerate them.
+
+| # | Identity | Value | State |
+|---|---|---|---|
+| 1 | Squads multisig | `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK` | **Exists.** Owner `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`, **threshold = 2** (u16 at data offset 72) |
+| 2 | Admin = Squads **vault PDA**, index 0 | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | **Exists.** System-owned, non-executable, 0.001 SOL |
+| 3 | Fee receiver = vault's **WSOL ATA** | `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa` | ⚠️ **DOES NOT EXIST YET** — must be created on-chain (§2b) |
+| 4 | cp-swap program keypair | — | Must be generated (§1) |
+| 5 | `tegridy-launch` program keypair | — | Must be generated (§1) |
+| 6 | `tegridy-launch` deploy authority | — | Must be generated (§1). A plain wallet: it is `Signer` **and** `payer` for `initialize_global`, so it must hold SOL |
+
+Re-derive #2 rather than trusting this table — the derivation is what binds it to the
+multisig. Checking "owner == System Program" is **not** sufficient; every ordinary wallet
+is System-owned too.
+
+```bash
+SQUADS_MULTISIG=EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK SQUADS_VAULT_INDEX=0   node frontend/scripts/solana-dbc-operator.mjs derive-vault
+```
 
 ## 1. 🔑 Generate the mainnet program keypair
 ```bash
@@ -20,8 +40,14 @@ solana-keygen pubkey keys/mainnet-program.json
 ```
 
 ## 2. 🔑 Set the mainnet authority constants (the 4-constant diff, mainnet side)
-The `#[cfg(not(feature = "devnet"))]` values ship as **fail-closed System-Program sentinels
-(`1111…1111`)** — a mainnet build is non-functional until you replace ALL of them:
+
+⚠️ **`declare_id!` is the exception — it is NOT fail-closed.** The three authority
+constants ship as System-Program sentinels (`1111…1111`) on the `#[cfg(not(feature =
+"devnet"))]` arm, so a mainnet build genuinely cannot function until you replace them.
+`declare_id!` does **not**: both arms currently hold the same devnet throwaway
+`BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL`, whose keypair is a gitignored file that
+is **not present in this checkout**. Forget this one and the build succeeds and deploys
+to a throwaway address someone else may hold the key to. Replace it explicitly.
 - `programs/cp-swap/src/lib.rs`
   - `declare_id!(…)` → the pubkey from step 1
   - `admin::ID` → **Squads multisig**
@@ -31,9 +57,43 @@ The `#[cfg(not(feature = "devnet"))]` values ship as **fail-closed System-Progra
 - `programs/cp-swap/src/instructions/admin/create_support_mint_associated.rs`
   - `create_support_mint_associated_owner::ID` → **Squads multisig**
 
-Commit → CI `diff-guard` stays green (it checks *which files* differ, not the *values*), so
-**also manually verify** all four mainnet constants now equal your multisig/treasury/WSOL-ATA,
-not the sentinels or the devnet keys.
+⚠️ **CI will FAIL on this commit, by design.** The old guard only checked *which files*
+differed; since #202 it canonicalises the delta and compares
+`sha256` against a pinned `EXPECTED_DELTA_SHA256` in `.github/workflows/solana-ci.yml`.
+Editing any constant changes the delta and fails `diff-guard` until a human re-pins it.
+That is the intended workflow, not a breakage:
+
+1. Push the constant change. `diff-guard` fails and **prints the full delta and the actual
+   hash**.
+2. Read the printed delta and satisfy yourself it is still only identity constants.
+3. Update `EXPECTED_DELTA_SHA256` to the printed `actual` value **in the same PR**.
+
+The delta is 86 lines over **three** files — `lib.rs`,
+`instructions/admin/create_support_mint_associated.rs`, and `Cargo.toml`.
+
+The program id is **mirrored in two more places** that the guard does not cover; all three
+must agree or the client derives PDAs that do not exist under the deployed program:
+- `Anchor.toml:20` (`raydium_cp_swap = "…"`)
+- `frontend/src/lib/launcher/solana/curve/program.ts:28` (`CP_SWAP_PROGRAM_ID`)
+
+Then **manually verify** all four mainnet constants equal your multisig / WSOL-ATA /
+program id — not the sentinels, not the devnet keys.
+
+## 2b. 💰 Create the fee-receiver WSOL ATA — BEFORE any pool is created
+`create_pool_fee_reveiver::ID` is consumed as `InterfaceAccount<TokenAccount>`
+(`instructions/initialize.rs:131-135`). Hardcoding an address that does not yet exist
+compiles fine and then makes **every `create_pool` fail**. As of 2026-08-01 the ATA
+`2sa31zce…` does not exist.
+
+```bash
+spl-token create-account So11111111111111111111111111111111111111112   --owner GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd --url mainnet-beta
+```
+Costs ~0.00204 SOL of rent — this is **not** part of the ~12 SOL deploy float. Verify it
+landed and is a token account:
+```bash
+solana account 2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa --url mainnet-beta
+# owner MUST be TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA — NOT the System Program
+```
 
 ## 3. Build the verifiable mainnet binary
 The CI `tegridy-cp-amm-devnet-sbf` artifact is a **devnet** build — do NOT deploy it to mainnet.
