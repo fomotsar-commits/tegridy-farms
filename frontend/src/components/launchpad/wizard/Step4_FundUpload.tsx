@@ -11,6 +11,7 @@ import { useIrysUpload } from '../../../hooks/useIrysUpload';
 import { REVENUE_DISTRIBUTOR_ADDRESS } from '../../../lib/constants';
 import type { WizardState, WizardAction } from './wizardReducer';
 import { BTN_EMERALD, LABEL } from '../launchpadConstants';
+import { ArtCard } from '../../ui/ArtCard';
 
 /// Upload cost estimate overshoots slightly (20%) so dust funding covers surge
 /// pricing between quote and actual upload. Any excess is retained by Irys for
@@ -144,7 +145,7 @@ export function Step4_FundUpload({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl p-4 bg-black/40 border border-white/10">
+      <ArtCard pageId="wizard" idx={0} padding="p-4">
         <label className={LABEL}>Arweave upload cost</label>
         <p className="text-emerald-400 text-2xl font-semibold mt-1">
           {phase === 'idle' ? 'Calculating…' : `~${Number(quoteEth).toFixed(5)} ETH`}
@@ -156,10 +157,10 @@ export function Step4_FundUpload({
             <span className="text-emerald-400/80"> · Wallet already funded — retries skip funding.</span>
           )}
         </p>
-      </div>
+      </ArtCard>
 
       {phase === 'uploading' && irys.progress.total > 0 && (
-        <div className="rounded-xl p-4 bg-black/40 border border-white/10">
+        <ArtCard pageId="wizard" idx={1} padding="p-4">
           <label className={LABEL}>
             Uploading {irys.progress.uploaded} / {irys.progress.total}
           </label>
@@ -174,7 +175,7 @@ export function Step4_FundUpload({
               {irys.progress.currentFile}
             </p>
           )}
-        </div>
+        </ArtCard>
       )}
 
       <div className="space-y-2 text-[12px]">

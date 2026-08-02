@@ -183,6 +183,39 @@ export const ART = {
   card24: { id: 'card24', src: '/art/new/IMG_2765.jpg', title: 'Tegridy Art #24', description: 'Fresh drop for the cards' },
   card25: { id: 'card25', src: '/art/new/IMG_2766.jpg', title: 'Tegridy Art #25', description: 'Fresh drop for the cards' },
   card26: { id: 'card26', src: '/art/new/IMG_2767.jpg', title: 'Tegridy Art #26', description: 'Fresh drop for the cards' },
+  // 2026-07-30 drop — art that was sitting loose in the project folder and
+  // had never been copied into public/. Registered in ART (so /art-studio can
+  // pick them) but deliberately NOT added to ART_POOL_ALL: the pool length
+  // feeds the deterministic rotation, so appending would reshuffle the art on
+  // every surface that has no explicit override.
+  drop01: { id: 'drop01', src: '/art/drop/drop01.jpg', title: 'Drop #01', description: 'Community drop' },
+  drop02: { id: 'drop02', src: '/art/drop/drop02.jpg', title: 'Drop #02', description: 'Community drop' },
+  drop03: { id: 'drop03', src: '/art/drop/drop03.jpg', title: 'Drop #03', description: 'Community drop' },
+  drop04: { id: 'drop04', src: '/art/drop/drop04.jpg', title: 'Drop #04', description: 'Community drop' },
+  drop05: { id: 'drop05', src: '/art/drop/drop05.jpg', title: 'Drop #05', description: 'Community drop' },
+  drop06: { id: 'drop06', src: '/art/drop/drop06.jpg', title: 'Drop #06', description: 'Community drop' },
+  drop07: { id: 'drop07', src: '/art/drop/drop07.jpg', title: 'Drop #07', description: 'Community drop' },
+  drop08: { id: 'drop08', src: '/art/drop/drop08.jpg', title: 'Drop #08', description: 'Community drop' },
+  drop09: { id: 'drop09', src: '/art/drop/drop09.jpg', title: 'Drop #09', description: 'Community drop' },
+  drop10: { id: 'drop10', src: '/art/drop/drop10.jpg', title: 'Drop #10', description: 'Community drop' },
+  drop11: { id: 'drop11', src: '/art/drop/drop11.jpg', title: 'Drop #11', description: 'Community drop' },
+  drop12: { id: 'drop12', src: '/art/drop/drop12.jpg', title: 'Drop #12', description: 'Community drop' },
+  drop13: { id: 'drop13', src: '/art/drop/drop13.jpg', title: 'Drop #13', description: 'Community drop' },
+  drop14: { id: 'drop14', src: '/art/drop/drop14.jpg', title: 'Drop #14', description: 'Community drop' },
+  drop15: { id: 'drop15', src: '/art/drop/drop15.jpg', title: 'Drop #15', description: 'Community drop' },
+  drop16: { id: 'drop16', src: '/art/drop/drop16.jpg', title: 'Drop #16', description: 'Community drop' },
+  drop17: { id: 'drop17', src: '/art/drop/drop17.jpg', title: 'Drop #17', description: 'Community drop' },
+  shot01: { id: 'shot01', src: '/art/drop/shot01.jpg', title: 'Shot #01', description: 'Studio capture' },
+  shot02: { id: 'shot02', src: '/art/drop/shot02.jpg', title: 'Shot #02', description: 'Studio capture' },
+  shot03: { id: 'shot03', src: '/art/drop/shot03.jpg', title: 'Shot #03', description: 'Studio capture' },
+  shot04: { id: 'shot04', src: '/art/drop/shot04.jpg', title: 'Shot #04', description: 'Studio capture' },
+  shot05: { id: 'shot05', src: '/art/drop/shot05.jpg', title: 'Shot #05', description: 'Studio capture' },
+  shot06: { id: 'shot06', src: '/art/drop/shot06.jpg', title: 'Shot #06', description: 'Studio capture' },
+  shot07: { id: 'shot07', src: '/art/drop/shot07.jpg', title: 'Shot #07', description: 'Studio capture' },
+  shot08: { id: 'shot08', src: '/art/drop/shot08.jpg', title: 'Shot #08', description: 'Studio capture' },
+  shot09: { id: 'shot09', src: '/art/drop/shot09.jpg', title: 'Shot #09', description: 'Studio capture' },
+  azzuzu: { id: 'azzuzu', src: '/art/drop/azzuzu.jpg', title: 'Azzuzu', description: 'Community drop' },
+  skeletonAlt: { id: 'skeletonAlt', src: '/nakamigos/skeleton.jpg', title: 'Skeleton (alt)', description: 'Bones of the chain — alternate cut' },
 };
 
 /**

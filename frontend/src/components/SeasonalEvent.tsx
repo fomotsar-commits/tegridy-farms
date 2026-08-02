@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
+import { ArtImg } from './ArtImg';
 
 interface SeasonalEvent {
   id: string;
@@ -104,13 +105,19 @@ export function SeasonalEventBanner() {
       className="relative z-30 mx-auto max-w-[1200px] px-4 md:px-6 mt-2"
     >
       <div
-        className="rounded-xl backdrop-blur-md p-4 flex items-center justify-between gap-3 flex-wrap animate-pulse-border"
+        className="relative overflow-hidden rounded-xl backdrop-blur-md p-4 flex items-center justify-between gap-3 flex-wrap animate-pulse-border"
         style={{
           background: `linear-gradient(135deg, ${event.color}15, ${event.color}08)`,
           border: `1.5px solid ${event.color}`,
           boxShadow: `0 0 20px ${event.color}20`,
         }}
       >
+        {/* Art behind the banner, tinted with the event colour so the seasonal
+            identity still reads at a glance. Pickable as `seasonal:0`. */}
+        <div className="absolute inset-0 -z-10" aria-hidden="true">
+          <ArtImg pageId="seasonal" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${event.color}22, rgba(6,12,26,0.86))` }} />
+        </div>
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-lg shrink-0" style={{ color: event.color }}>
             {event.multiplier >= 2 ? '\u2728' : '\u{1F680}'}
