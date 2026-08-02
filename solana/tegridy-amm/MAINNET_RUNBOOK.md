@@ -79,6 +79,18 @@ A **separate program** from cp-swap, deliberately — folding it in would break
 2. Call `initialize_global`. **Three parameters are not free choices — get them
    wrong and the launcher misbehaves in ways nothing will warn you about later.**
 
+### `creator_fee_share_bps` — the volume magnet; recommended **5_000** (50% of the fee)
+
+The creator's share OF THE TRADE FEE, paid instantly and non-custodially to the
+launch creator on every buy and sell (2026-08-02 economics synthesis). Every
+surviving launchpad pays creators a streaming cut — pump.fun 0.30%/vol on-curve,
+the Meteora-partner rail 0.48%/vol — and a curve that pays zero loses its
+launches to the rails that pay. At `trade_fee_bps = 100` and a 5_000 share, the
+creator earns 0.50%/vol (best on-curve rate among the majors) and the protocol
+nets 0.50%/vol — still above the 0.32% the Meteora partner rail pays us.
+Snapshotted per launch like the fee itself; `update_global` moves future
+launches only. Bounded at 10_000 (100% of the fee).
+
 ### ⚠️ `migration_reserve_lamports` — minimum **192,156,720** (~0.1922 SOL)
 
 Raised from traders on top of the target, and it pays cp-swap's costs at migration:

@@ -45,6 +45,8 @@ pub enum LaunchError {
     LpNotBurned,
     #[msg("Curve is fully funded and awaiting migration — it has NOT graduated yet")]
     AwaitingMigration,
+    #[msg("Creator account does not match the creator recorded on this curve")]
+    CreatorMismatch,
 }
 
 /// Lift a pure-curve error into the program's error space.
@@ -58,6 +60,9 @@ impl From<CurveError> for LaunchError {
             CurveError::InsufficientLiquidity => LaunchError::InsufficientLiquidity,
             CurveError::ZeroAmount => LaunchError::ZeroAmount,
             CurveError::FeeTooHigh => LaunchError::FeeTooHigh,
+            // A share above 100% is a config-shaped mistake, and config
+            // validation is where it should have been caught.
+            CurveError::ShareTooHigh => LaunchError::InvalidParameter,
         }
     }
 }

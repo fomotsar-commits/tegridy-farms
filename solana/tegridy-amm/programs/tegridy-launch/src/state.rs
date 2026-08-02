@@ -79,10 +79,18 @@ pub const LAUNCH_POOL_SEED: &[u8] = b"launchpool";
 pub struct GlobalConfig {
     /// Admin. Mainnet: the Squads multisig, threshold >= 2.
     pub authority: Pubkey,
-    /// Where trade fees accrue. Mainnet: the treasury's Squads vault.
+    /// Where the PROTOCOL's share of trade fees accrues (the creator's share
+    /// goes straight to `BondingCurve.creator`). Mainnet: the treasury's Squads
+    /// vault.
     pub fee_recipient: Pubkey,
     /// Trade fee in basis points, bounded by `curve::MAX_FEE_BPS`.
     pub trade_fee_bps: u64,
+    /// The creator's share OF THE TRADE FEE, in bps of the fee (5_000 = half the
+    /// fee), paid instantly and non-custodially to `BondingCurve.creator` on
+    /// every buy and sell. This is the launcher's volume magnet: every surviving
+    /// launchpad pays creators a streaming cut, and one that pays zero loses its
+    /// launches to the rails that do. The protocol keeps the remainder.
+    pub creator_fee_share_bps: u64,
     /// Virtual reserves every new curve opens with — these set the opening price.
     pub initial_virtual_sol: u64,
     pub initial_virtual_token: u64,
@@ -136,6 +144,9 @@ pub struct BondingCurve {
     /// Fee snapshotted at creation, so a later governance change cannot alter the
     /// terms of a launch that is already trading.
     pub trade_fee_bps: u64,
+    /// Creator's share of the fee, snapshotted for the same reason — a creator's
+    /// income stream must not be governance-mutable after people bought in.
+    pub creator_fee_share_bps: u64,
     /// Graduation target, snapshotted for the same reason.
     pub graduation_target_lamports: u64,
     /// Migration reserve, snapshotted for the same reason.
@@ -199,7 +210,12 @@ pub struct Traded {
     pub is_buy: bool,
     pub sol_amount: u64,
     pub token_amount: u64,
+    /// TOTAL fee charged on the trade (creator + protocol).
     pub fee_lamports: u64,
+    /// The slice of `fee_lamports` paid to the launch creator. The protocol's
+    /// slice is the difference — emitted so indexers and the Fact Sheet can
+    /// report both without re-deriving the split.
+    pub creator_fee_lamports: u64,
     pub real_sol_reserves: u64,
     pub real_token_reserves: u64,
 }

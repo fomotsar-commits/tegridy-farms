@@ -89,7 +89,7 @@ pub mod state;
 
 use crate::curve::{
     graduation_price_ratio_bps, lamports_until_target, max_reachable_real_sol, quote_buy,
-    quote_sell, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
+    quote_sell, split_fee, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
 };
 use crate::errors::LaunchError;
 use crate::state::*;
@@ -188,6 +188,7 @@ pub mod tegridy_launch {
     pub fn initialize_global(
         ctx: Context<InitializeGlobal>,
         trade_fee_bps: u64,
+        creator_fee_share_bps: u64,
         initial_virtual_sol: u64,
         initial_virtual_token: u64,
         token_total_supply: u64,
@@ -197,6 +198,12 @@ pub mod tegridy_launch {
         amm_config: Pubkey,
     ) -> Result<()> {
         require!(trade_fee_bps <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
+        // A share of the FEE, so 100% is the natural bound — anything above it
+        // would pay the creator more than the trade charged.
+        require!(
+            creator_fee_share_bps <= BPS_DENOMINATOR,
+            LaunchError::InvalidParameter
+        );
         // Zero virtual reserves would make the opening price undefined (division
         // by zero in the curve); zero supply or target would make a launch that
         // can never trade or never graduate.
@@ -251,6 +258,7 @@ pub mod tegridy_launch {
         g.authority = ctx.accounts.authority.key();
         g.fee_recipient = ctx.accounts.fee_recipient.key();
         g.trade_fee_bps = trade_fee_bps;
+        g.creator_fee_share_bps = creator_fee_share_bps;
         g.initial_virtual_sol = initial_virtual_sol;
         g.initial_virtual_token = initial_virtual_token;
         g.token_total_supply = token_total_supply;
@@ -283,11 +291,18 @@ pub mod tegridy_launch {
         new_cp_swap_program: Option<Pubkey>,
         new_amm_config: Option<Pubkey>,
         new_initial_virtual_sol: Option<u64>,
+        new_creator_fee_share_bps: Option<u64>,
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
             require!(f <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
             g.trade_fee_bps = f;
+        }
+        // Future launches only — every live curve snapshotted its own share at
+        // creation, exactly like the fee itself.
+        if let Some(s) = new_creator_fee_share_bps {
+            require!(s <= BPS_DENOMINATOR, LaunchError::InvalidParameter);
+            g.creator_fee_share_bps = s;
         }
 
         // Target and reserve are validated TOGETHER, and either may change here.
@@ -428,6 +443,7 @@ pub mod tegridy_launch {
         c.real_sol_reserves = 0;
         c.real_token_reserves = supply;
         c.trade_fee_bps = g.trade_fee_bps;
+        c.creator_fee_share_bps = g.creator_fee_share_bps;
         c.graduation_target_lamports = g.graduation_target_lamports;
         c.migration_reserve_lamports = g.migration_reserve_lamports;
         c.complete = false;
@@ -494,8 +510,16 @@ pub mod tegridy_launch {
             LaunchError::InsufficientLiquidity
         );
 
-        // Move SOL first: buyer -> curve (principal), buyer -> treasury (fee).
-        // Both are plain system transfers signed by the buyer.
+        // The fee splits creator/protocol per the share snapshotted on the curve.
+        // Splitting the FEE (not the trade) keeps the curve math untouched: the
+        // principal leg and the total charged are identical to the unsplit case.
+        let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
+            .map_err(LaunchError::from)?;
+
+        // Move SOL first: buyer -> curve (principal), buyer -> creator (their
+        // fee share), buyer -> treasury (the rest). All plain system transfers
+        // signed by the buyer — non-custodial by construction: the creator's cut
+        // never rests in a protocol-controlled account.
         system_program::transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -506,7 +530,19 @@ pub mod tegridy_launch {
             ),
             q.lamports_to_curve,
         )?;
-        if q.fee_lamports > 0 {
+        if fs.creator_lamports > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.trader.to_account_info(),
+                        to: ctx.accounts.creator.to_account_info(),
+                    },
+                ),
+                fs.creator_lamports,
+            )?;
+        }
+        if fs.protocol_lamports > 0 {
             system_program::transfer(
                 CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
@@ -515,7 +551,7 @@ pub mod tegridy_launch {
                         to: ctx.accounts.fee_recipient.to_account_info(),
                     },
                 ),
-                q.fee_lamports,
+                fs.protocol_lamports,
             )?;
         }
 
@@ -552,6 +588,7 @@ pub mod tegridy_launch {
             sol_amount: q.lamports_to_curve,
             token_amount: q.tokens_out,
             fee_lamports: q.fee_lamports,
+            creator_fee_lamports: fs.creator_lamports,
             real_sol_reserves: curve.real_sol_reserves,
             real_token_reserves: curve.real_token_reserves,
         });
@@ -613,6 +650,15 @@ pub mod tegridy_launch {
             LaunchError::InsufficientRentExemptBalance
         );
 
+        // The debit below is `gross = lamports_out + fee`, and the fee splits
+        // creator/protocol. All four touched accounts are instruction accounts
+        // and NO CPI follows these writes, so route (a) — the end-of-instruction
+        // flush — reconciles every half together. Appending any CPI after this
+        // block reintroduces the UnbalancedInstruction defect documented in
+        // `migrate_to_amm`; the split adds a third credit, not a new hazard.
+        let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
+            .map_err(LaunchError::from)?;
+
         **curve_ai.try_borrow_mut_lamports()? = balance
             .checked_sub(q.gross_lamports)
             .ok_or(LaunchError::Overflow)?;
@@ -623,7 +669,23 @@ pub mod tegridy_launch {
             .lamports()
             .checked_add(q.lamports_out)
             .ok_or(LaunchError::Overflow)?;
-        if q.fee_lamports > 0 {
+        // Creator first, then protocol — each read-then-write completes before
+        // the next begins, so the sums stay correct even when creator aliases
+        // trader or fee_recipient (the same account passed under two names).
+        if fs.creator_lamports > 0 {
+            **ctx
+                .accounts
+                .creator
+                .to_account_info()
+                .try_borrow_mut_lamports()? = ctx
+                .accounts
+                .creator
+                .to_account_info()
+                .lamports()
+                .checked_add(fs.creator_lamports)
+                .ok_or(LaunchError::Overflow)?;
+        }
+        if fs.protocol_lamports > 0 {
             **ctx
                 .accounts
                 .fee_recipient
@@ -633,7 +695,7 @@ pub mod tegridy_launch {
                 .fee_recipient
                 .to_account_info()
                 .lamports()
-                .checked_add(q.fee_lamports)
+                .checked_add(fs.protocol_lamports)
                 .ok_or(LaunchError::Overflow)?;
         }
 
@@ -654,6 +716,7 @@ pub mod tegridy_launch {
             sol_amount: q.lamports_out,
             token_amount: tokens_in,
             fee_lamports: q.fee_lamports,
+            creator_fee_lamports: fs.creator_lamports,
             real_sol_reserves: curve.real_sol_reserves,
             real_token_reserves: curve.real_token_reserves,
         });
@@ -1479,6 +1542,15 @@ pub struct Trade<'info> {
         has_one = mint @ LaunchError::InvalidParameter
     )]
     pub curve: Account<'info, BondingCurve>,
+
+    /// CHECK: must be the creator recorded on the curve at `create_launch`;
+    /// receives the creator's share of the trade fee, instantly and
+    /// non-custodially, on every buy and sell. Pinned to the curve's snapshot so
+    /// neither the trader nor the protocol can redirect a creator's income.
+    /// Declared AFTER `curve` — Anchor evaluates constraints in field order, so
+    /// the reference must point backwards.
+    #[account(mut, address = curve.creator @ LaunchError::CreatorMismatch)]
+    pub creator: UncheckedAccount<'info>,
 
     #[account(
         mut,
