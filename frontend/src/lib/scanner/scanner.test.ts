@@ -9,7 +9,7 @@ import {
   type AdapterResult,
 } from './index';
 import { fetchSolanaScan, parseSolanaScan, type SolanaScanRaw } from './solanaAdapter';
-import { parseEthereumScan } from './ethereumAdapter';
+import { fetchEthereumScan, parseEthereumScan } from './ethereumAdapter';
 
 // These tests drive the REAL data-adapter parsers and the REAL detection core end
 // to end on synthetic on-chain payloads — the closest runtime surface to the live
@@ -511,6 +511,218 @@ describe('parseEthereumScan', () => {
 
   it('throws when the route returns no usable holders', () => {
     expect(() => parseEthereumScan('0xabc', { holders: [] })).toThrowError(ScanError);
+  });
+});
+
+describe('parseEthereumScan — a payload we could not read is never a finding', () => {
+  // Same rule as the Solana block above, in the erc20scan route's dialect. Every
+  // read has three outcomes and only two are answers; (c) COULD NOT READ IT must
+  // never surface as a statement about somebody's token.
+  //
+  // A healthy fixture on purpose: 100 holders, the largest holding 3% of a 1e33
+  // supply — so any red flag these tests see was MANUFACTURED, not observed.
+  const SUPPLY = '1000000000000000000000000000000000'; // 1e33
+  const holders = Array.from({ length: 100 }, (_, i) => ({
+    address: `0x${(i + 1).toString(16).padStart(40, '0')}`,
+    balance: i === 0 ? '30000000000000000000000000000000' : '1000000000000000000000000000000',
+  }));
+  const ok = { chain: 'ethereum', totalSupply: SUPPLY, decimals: 18, holdersCount: 1678265, source: 'ethplorer', holders };
+
+  describe('the holder list', () => {
+    it('does NOT report a body with no `holders` key as a token with no holders', () => {
+      // ⚠ THE ORIGINAL BUG. `Array.isArray(json.holders) ? json.holders : []` made a
+      // body we could not read byte-identical to a token nobody holds: both fell to
+      // ScanError('empty'), which ScannerPage renders as "No holder data for this
+      // token — double-check the address is a token (not a wallet or an NFT)".
+      const err = scanErrorFrom(() => parseEthereumScan('0xabc', { totalSupply: SUPPLY }));
+      expect(err.code).toBe('network');
+      expect(err.code).not.toBe('empty');
+      expect(err.message).toMatch(/no `holders` list/);
+    });
+
+    it('rejects a `holders` whose type drifted rather than reading "nobody" from it', () => {
+      for (const drifted of [{}, 'none', 0, null]) {
+        expect(scanErrorFrom(() => parseEthereumScan('0xabc', { ...ok, holders: drifted })).code).toBe('network');
+      }
+    });
+
+    it('keeps a genuinely empty holder set as the real answer it is', () => {
+      // The other side of the same coin — hardening must not turn "we read it and
+      // nobody holds this" into a retry-me network error.
+      expect(scanErrorFrom(() => parseEthereumScan('0xabc', { ...ok, holders: [] })).code).toBe('empty');
+    });
+
+    it('does not read a finding out of a body that is not even an object', () => {
+      for (const body of [null, undefined, 'not json', 42, [1, 2]]) {
+        expect(scanErrorFrom(() => parseEthereumScan('0xabc', body)).code).toBe('network');
+      }
+    });
+  });
+
+  describe('the denominator', () => {
+    it('refuses a totalSupply that is not a plain decimal instead of mangling it', () => {
+      // ⚠ THE WORST CASE, because it does not fail — it SUCCEEDS and renders a report.
+      // `toBig` stripped a decimal tail and then every non-digit, so "1e+21" — which
+      // is exactly what `String(n)` yields for any JSON number ≥ 1e21, the size a
+      // meme-coin supply actually is — became 121n. Measured on THIS fixture:
+      // top1ShareOfTotal 0.03 → 1, band "mixed" → "concentrated", and the
+      // `single-holder-majority` gate FIRED. A maximum-severity red flag about a
+      // healthy token, computed from a field the scan never managed to read.
+      const err = scanErrorFrom(() => parseEthereumScan('0xabc', { ...ok, totalSupply: '1e+21' }));
+      expect(err.code).toBe('network');
+      expect(err.message).toMatch(/integer base-unit amount/);
+    });
+
+    it('rejects every other shape a base-unit integer never has', () => {
+      // A caught exception would not be enough: BigInt('') is 0n and throws nothing,
+      // BigInt('0x10') is 16n, BigInt(' 42 ') is 42n. Hence a digits-only match.
+      for (const totalSupply of ['', 'abc', '1.5', '0x10', ' 42 ', '1,000', '-5', '1e33']) {
+        const err = scanErrorFrom(() => parseEthereumScan('0xabc', { ...ok, totalSupply }));
+        expect(err.code, `totalSupply ${JSON.stringify(totalSupply)}`).toBe('network');
+      }
+    });
+
+    it('never returns a scan whose denominator was not actually read', () => {
+      // The invariant behind the two cases above, stated without reference to a
+      // message: if a scan comes back carrying a total at all, that total came off
+      // the wire unmodified.
+      const r = parseEthereumScan('0xabc', ok);
+      expect(r.input.totalSupply).toBe(BigInt(SUPPLY));
+    });
+
+    it('keeps an absent total as the documented gap it is', () => {
+      // The route documents `totalSupply: string | null` — the explorer does not
+      // always report one. That is an ANSWER, and the core's fallback to the
+      // enumerated sum is disclosed by the coverage notes as an upper bound. Only a
+      // total that is PRESENT and unreadable is a failed read.
+      for (const totalSupply of [null, undefined]) {
+        const r = parseEthereumScan('0xabc', { ...ok, totalSupply });
+        expect(r.input.totalSupply).toBeUndefined();
+        expect(r.enumeratedHolders).toBe(100);
+      }
+    });
+  });
+
+  describe('holder balances', () => {
+    it('never renders a whale as dust because its balance was unreadable', () => {
+      // ⚠ THE FLATTERING DIRECTION. The same coercion, one field down: a top holder
+      // reported as "9.9e32" was parsed as 9n — nine base units. Measured on this
+      // fixture, that wallet really holds 99% of supply, and the mangled read
+      // published top1ShareOfTotal 0.001, effectiveHolders 99, band
+      // "well-distributed", and NO fired gate. A single wallet owning the entire
+      // float, handed a clean bill of health on a page people use to decide whether
+      // to trust that token.
+      const whale = { address: `0x${'a'.repeat(40)}`, balance: '9.9e32' };
+      const err = scanErrorFrom(() => parseEthereumScan('0xabc', { ...ok, holders: [whale, ...holders.slice(1)] }));
+      expect(err.code).toBe('network');
+
+      // The same row, readable, is exactly the finding the mangled one erased.
+      const real = parseEthereumScan('0xabc', {
+        ...ok,
+        holders: [{ ...whale, balance: '990000000000000000000000000000000' }, ...holders.slice(1)],
+      });
+      const a = analyzeDistribution(real.input);
+      expect(a.band).toBe('concentrated');
+      expect(a.gate.findings.find((f) => f.id === 'single-holder-majority')?.fired).toBe(true);
+    });
+
+    it('rejects a row carrying no readable balance at all', () => {
+      for (const balance of [null, undefined, '', 'abc', {}, true]) {
+        const row = { address: `0x${'a'.repeat(40)}`, balance };
+        expect(scanErrorFrom(() => parseEthereumScan('0xabc', { ...ok, holders: [row] })).code).toBe('network');
+      }
+    });
+
+    it('rejects a JSON number whose low digits the parse already fabricated', () => {
+      // BigInt(Math.trunc(1e21)) returns a confident-looking 1000000000000000000000n,
+      // but every digit past 2^53 came from the float, not from the chain.
+      for (const balance of [1e21, Number.MAX_VALUE, NaN, Infinity, -5, 1.5]) {
+        const row = { address: `0x${'a'.repeat(40)}`, balance };
+        expect(scanErrorFrom(() => parseEthereumScan('0xabc', { ...ok, holders: [row] })).code).toBe('network');
+      }
+    });
+
+    it('still accepts the readable forms, including an exact number', () => {
+      // Hardening must not narrow what the route can legitimately emit.
+      const r = parseEthereumScan('0xabc', {
+        ...ok,
+        holders: [
+          { address: `0x${'a'.repeat(40)}`, balance: '1000000000000000000' },
+          { address: `0x${'b'.repeat(40)}`, balance: 4200 },
+        ],
+      });
+      expect(r.input.holders.map((h) => h.balance)).toEqual([1000000000000000000n, 4200n]);
+    });
+
+    it('keeps dropping the junk it was always right to drop', () => {
+      // A zero balance is a READ answer (nobody holds it) and a non-address row can
+      // be attributed to nobody — both stay dropped, and dropping them must not be
+      // confused with the unreadable cases above.
+      const r = parseEthereumScan('0xabc', {
+        ...ok,
+        holders: [
+          ...holders,
+          { address: 'not-an-address', balance: '5' },
+          { address: `0x${'c'.repeat(40)}`, balance: '0' },
+        ],
+      });
+      expect(r.enumeratedHolders).toBe(100);
+    });
+  });
+});
+
+describe('fetchEthereumScan — the error taxonomy at the transport', () => {
+  const CONTRACT = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
+
+  function mockFetchOnce(r: { ok?: boolean; status?: number; json?: () => Promise<unknown> }) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: r.ok ?? true,
+            status: r.status ?? 200,
+            json: r.json ?? (async () => ({})),
+          }) as unknown as Response,
+      ),
+    );
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports the route’s uncached 502 as a failed read, never as an empty token', async () => {
+    // This is the contract the server half depends on: erc20scan now answers 502
+    // when the holder source was unreadable, precisely so it stops caching a 200
+    // with no holders. That 502 must not resurface here as a claim about the token.
+    const err = await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT));
+    expect(err.code).toBe('network');
+
+    mockFetchOnce({ ok: false, status: 502, json: async () => ({ error: 'upstream' }) });
+    const e502 = await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT));
+    expect(e502.code).toBe('network');
+    expect(e502.code).not.toBe('empty');
+    expect(e502.code).not.toBe('unavailable');
+  });
+
+  it('keeps the unconfigured-route 403 as the deployment gap it is', async () => {
+    mockFetchOnce({ ok: false, status: 403, json: async () => ({ error: 'not enabled' }) });
+    expect((await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT))).code).toBe('unavailable');
+  });
+
+  it('does not read a token verdict out of a 200 that is not JSON', async () => {
+    mockFetchOnce({
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON');
+      },
+    });
+    expect((await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT))).code).toBe('network');
+  });
+
+  it('does not read a token verdict out of a 200 carrying no holder list', async () => {
+    mockFetchOnce({ json: async () => ({ chain: 'ethereum', contract: CONTRACT, totalSupply: '1000' }) });
+    const err = await asyncScanErrorFrom(() => fetchEthereumScan(CONTRACT));
+    expect(err.code).toBe('network');
+    expect(err.code).not.toBe('empty');
   });
 });
 
