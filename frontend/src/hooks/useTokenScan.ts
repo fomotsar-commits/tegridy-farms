@@ -34,7 +34,19 @@ export interface TokenScanState {
   reload: () => void;
 }
 
-function statusForError(err: unknown): { status: ScanStatus; message: string } {
+/**
+ * PURE: map a thrown scan failure to the state the page renders.
+ *
+ * This is the hinge the adapters were written against. Both of them route an
+ * unreadable payload to `ScanError('network')` SPECIFICALLY because it lands on
+ * `error` — "Couldn't complete the scan", a statement about the READ — while
+ * `empty`/`not-found` render "No holder data for this token — double-check the
+ * address is a token", a claim about somebody's token, and `unavailable` renders
+ * deployment copy. Every one of those adapter comments is an assertion about THIS
+ * function, so it is exported and pinned: remapping a code here would silently undo
+ * the honesty work upstream without breaking anything else.
+ */
+export function statusForError(err: unknown): { status: ScanStatus; message: string } {
   if (err instanceof ScanError) {
     switch (err.code) {
       case 'invalid-address':
