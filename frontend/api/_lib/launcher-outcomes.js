@@ -11,7 +11,7 @@
 //
 // WHAT IT DOES:
 //   - Builds a concrete LauncherDataFetcher (the interface in outcomesReader.ts)
-//       fetchMarket    -> GeckoTerminal (keyless, ETH-denominated, null on 429/fail)
+//       fetchMarket    -> GeckoTerminal (keyless, ETH-denominated; {read:false} on 429/fail)
 //       fetchChainStats-> Etherscan (server-side key ONLY, null on miss)
 //   - Consumes a launch list (LaunchBaseline[]) supplied by the CALLER. Launch
 //     DISCOVERY is out of scope here — GeckoTerminal `new_pools` or an indexer
@@ -35,6 +35,15 @@ import { logSafe } from "./logSafe.js";
 // invoke). Keeping this function self-contained removes that api→src boundary hazard.
 // KEEP IN SYNC with outcomesReader.ts — the frontend source of truth (unit-tested there);
 // this is a faithful 1:1 port of its pure logic (no types, same behavior).
+//
+// DELIBERATE DIVERGENCE 2026-08-01: this port's `fetchMarket` returns
+// `{read, market}` and its records carry `marketReadFailed`, because it owns the
+// only GeckoTerminal boundary that actually runs — the /deployer path — and a
+// throttled read there was rendering as a "no live market" verdict. The TS reader's
+// `MarketFetcher` interface (`fetchMarket(token): Promise<TokenMarket | null>`) is
+// implemented by several modules and unit-tested, so widening it is a separate
+// change; it carries the SAME latent defect for any surface that fetches through it.
+// Do not "resync" this file by reverting the third state — port it upward instead.
 function finiteOr(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -70,8 +79,15 @@ async function safeCall(fn) {
   }
 }
 async function buildOutcomeRecord(baseline, fetcher, observedAt) {
-  const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
-  const marketObserved = marketIsObserved(rawMarket);
+  // `safeCall` yields null when the fetcher THREW, which is also a failed read.
+  const res = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  // A pool we found but could not fully read (no derivable liquidity) is not a
+  // basis for any verdict either — it is the same "could not read it", one field
+  // down, and `unobserved` is the honest place for it.
+  const marketReadFailed =
+    !res || res.read !== true || (res.market != null && !Number.isFinite(res.market.liquidityEth));
+  const rawMarket = marketReadFailed ? null : res.market;
+  const marketObserved = !marketReadFailed && marketIsObserved(rawMarket);
   const market = normalizeMarket(rawMarket);
   const chain = normalizeChain(await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)));
   const launchPriceEth = nonNegOr(baseline.launchPriceEth, 0);
@@ -89,10 +105,20 @@ async function buildOutcomeRecord(baseline, fetcher, observedAt) {
     unlocks: baseline.unlocks ?? [],
     lastTeamActivityAt: chain.lastTeamActivityAt,
     marketObserved,
+    /**
+     * The third state the wire was missing. `marketObserved:false` alone cannot say
+     * whether GeckoTerminal answered "no pool" or never answered at all, and the
+     * reader's `unobserved` status — the one written for exactly this — was
+     * unreachable from the server as a result. Optional so older cached records
+     * (absent = false) keep their existing meaning.
+     */
+    marketReadFailed,
   };
 }
 async function buildLaunchSummary(baseline, fetcher) {
-  const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  const res = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  if (!res || res.read !== true) return null;
+  const rawMarket = res.market;
   if (!marketIsObserved(rawMarket)) return null;
   const market = normalizeMarket(rawMarket);
   const chain = normalizeChain(await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)));
@@ -190,15 +216,29 @@ function num(v) {
 // fabricated) — it only feeds the log-scaled activity term in ordering.ts.
 //
 // Returns null on ANY failure or 429 (never throws) so the reader degrades.
+// ── a market read has THREE outcomes, and only two are answers ───────────────
+//   (a) read it, there is no pool      (b) read it, here is the pool
+//   (c) COULD NOT READ IT — 429, non-2xx, over-cap body, unparseable JSON
+// (c) is not a finding. Collapsed into (a) it renders on /deployer as a "No live
+// market" pill plus a note speculating the pool "may have been withdrawn" — rug-
+// adjacent language about someone's token, manufactured from our own throttling.
+// GeckoTerminal's keyless ceiling is ~30/min from one IP and a single /deployer
+// request can issue up to 50 reads, so (c) is the ROUTINE case, not the exotic one.
+// The detection core already ships the right destination for it — `unobserved`,
+// "State unknown — this is not a signal about the token" — it was simply
+// unreachable because the wire had no third state.
+const UNREAD = { read: false };
+const readOk = (json) => ({ read: true, json });
+
 async function geckoFetchJson(url) {
   const resp = await fetch(url, { headers: { Accept: "application/json" } });
-  if (resp.status === 429 || !resp.ok) return null;
+  if (resp.status === 429 || !resp.ok) return UNREAD;
   const { text, truncated } = await readBoundedText(resp, MAX_RESPONSE_BYTES);
-  if (truncated) return null;
+  if (truncated) return UNREAD;
   try {
-    return JSON.parse(text);
+    return readOk(JSON.parse(text));
   } catch {
-    return null;
+    return UNREAD;
   }
 }
 
@@ -208,7 +248,15 @@ function poolAttrsToMarket(attrs) {
   if (priceEth == null) return null;
 
   // Derive liquidity in ETH from the USD reserve + implied ETH/USD.
-  let liquidityEth = 0;
+  //
+  // `null`, not 0, when it cannot be derived. A zero here was not a small error: a
+  // pool whose price parsed but whose `reserve_in_usd` did not (routine on freshly
+  // indexed pools, and on any pool GT has not priced in USD yet) still satisfied
+  // `marketIsObserved`, so the record published liquidity 0 and the core classified
+  // it `thin-market` with the note "liquidity is thin (~0.0e+0 ETH) — an exit of any
+  // size would move the price sharply". That is a specific, damning claim about
+  // someone's token, derived entirely from a field that never arrived.
+  let liquidityEth = null;
   const reserveUsd = num(attrs.reserve_in_usd);
   const baseUsd = num(attrs.base_token_price_usd);
   if (reserveUsd != null && baseUsd != null && priceEth > 0) {
@@ -236,40 +284,50 @@ function poolBaseTokenAddress(json) {
   return m ? m[0].toLowerCase() : null;
 }
 
+/**
+ * Resolve a token's current market.
+ *
+ * Returns `{read:false}` when the upstream could not be read, `{read:true, market}`
+ * otherwise — where a null `market` is the real answer "GeckoTerminal answered and
+ * there is no pool". Callers must not conflate the two; see the UNREAD header.
+ */
 function makeFetchMarket(poolByToken) {
   return async function fetchMarket(token) {
     try {
       const key = String(token).toLowerCase();
       const pool = poolByToken[key];
       if (pool && ETH_ADDRESS_RE.test(pool)) {
-        const json = await geckoFetchJson(
+        const res = await geckoFetchJson(
           `${GECKO_BASE}/networks/${GECKO_NETWORK}/pools/${pool}`,
         );
-        if (json) {
+        if (res.read) {
           // L11: the caller-supplied pool is UNTRUSTED. poolAttrsToMarket reads
           // base_token_price_native_currency as THIS token's price — so a stale or
           // hostile mapping pointing at an unrelated (possibly healthy) pool would
           // attribute that pool's price/liquidity to `token`. Only trust the mapping
           // when the pool's base token actually IS the requested token; otherwise
           // fall through to the token→pool discovery path below rather than lie.
-          if (poolBaseTokenAddress(json) === key) {
-            return poolAttrsToMarket(json?.data?.attributes);
+          if (poolBaseTokenAddress(res.json) === key) {
+            return { read: true, market: poolAttrsToMarket(res.json?.data?.attributes) };
           }
         } else {
-          // Upstream miss/429 for a mapped pool — degrade to null (don't spend a
-          // second GT read chasing discovery; the reader mirrors the baseline).
-          return null;
+          // Upstream miss/429 for a mapped pool. Previously this returned null and the
+          // token rendered as "no live market"; it is a failed READ, and spending a
+          // second GT read chasing discovery would only compound the throttling.
+          return UNREAD;
         }
       }
       // Fallback: resolve the token's deepest pool. GT scopes /tokens/{token}/pools
       // to the token itself, so pools it returns already belong to the token.
-      const json = await geckoFetchJson(
+      const res = await geckoFetchJson(
         `${GECKO_BASE}/networks/${GECKO_NETWORK}/tokens/${key}/pools?page=1`,
       );
-      const first = Array.isArray(json?.data) ? json.data[0] : null;
-      return poolAttrsToMarket(first?.attributes);
+      if (!res.read) return UNREAD;
+      const first = Array.isArray(res.json?.data) ? res.json.data[0] : null;
+      // `first == null` here IS an answer: GT replied and listed no pool.
+      return { read: true, market: poolAttrsToMarket(first?.attributes) };
     } catch {
-      return null;
+      return UNREAD;
     }
   };
 }

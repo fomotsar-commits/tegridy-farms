@@ -41,6 +41,17 @@ export interface OutcomeRecord {
    * than "no adverse signals". Undefined = observed (back-compat with existing records).
    */
   marketObserved?: boolean;
+  /**
+   * The market read FAILED — the upstream 429'd, errored, or returned something we
+   * could not parse — as opposed to answering "there is no pool".
+   *
+   * `marketObserved:false` alone cannot tell those apart, and collapsing them made
+   * a throttled read render as a "No live market" verdict with a note speculating
+   * the pool "may have been withdrawn". Consumers should map this to the reader's
+   * `unobserved` status, never to `no-market`. Undefined = the read succeeded
+   * (back-compat with records written before this field existed).
+   */
+  marketReadFailed?: boolean;
 }
 
 export interface OutcomeFlags {
