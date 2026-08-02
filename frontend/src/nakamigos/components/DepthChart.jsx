@@ -100,7 +100,7 @@ const HEALTH_COLORS = {
   invalid: "var(--text-muted)",
 };
 
-export default function DepthChart({ listings = [], offers = [], floorPrice, collection }) {
+export default function DepthChart({ listings = [], offers = [], floorPrice }) {
   const svgRef = useRef(null);
   const [tooltip, setTooltip] = useState(null);
 

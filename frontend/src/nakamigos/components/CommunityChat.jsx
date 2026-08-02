@@ -72,7 +72,12 @@ function sanitize(str) {
     // Fallback: strip tags via regex if DOMParser unavailable (e.g. SSR)
     str = str.replace(/<[^>]*>?/g, "");
   }
-  // Collapse control chars
+  // Collapse control chars. The control characters ARE the point here — this is
+  // the sanitizer's last step, stripping bytes that would otherwise smuggle
+  // terminal escapes or line-break spoofing into rendered chat. `no-control-regex`
+  // flags the literal ranges; deleting them to satisfy the rule would remove the
+  // sanitization, so the rule is disabled for this line specifically.
+  // eslint-disable-next-line no-control-regex
   return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
 }
 

@@ -508,9 +508,6 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     return listings.filter((l) => !l.expiry || new Date(l.expiry).getTime() > now);
   }, [listings]);
 
-  const totalListedPrice = useMemo(() => {
-    return activeListings.reduce((sum, l) => sum + (l.price || 0), 0);
-  }, [activeListings]);
   const totalRevenue = useMemo(() => {
     return activeListings.reduce((sum, l) => sum + computeRevenue(l.price || 0), 0);
   }, [activeListings]);

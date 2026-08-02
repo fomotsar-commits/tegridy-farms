@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { CHARACTER_TYPES, TRAIT_LORE } from "../constants";
+import { CHARACTER_TYPES } from "../constants";
 
 /* ── Tier helpers ── */
 const ULTRA_RARE = new Set(["Ghost", "Balloon"]);
@@ -140,7 +140,7 @@ const S = {
     gap: 12,
     marginBottom: 8,
   },
-  ninjaCard: (color) => ({
+  ninjaCard: () => ({
     display: "flex",
     alignItems: "center",
     gap: 12,

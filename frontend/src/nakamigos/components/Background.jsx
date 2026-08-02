@@ -1,4 +1,4 @@
-import { useRef, useMemo, memo, useState, useEffect, useCallback } from "react";
+import { useRef, useMemo, memo, useState, useEffect } from "react";
 import React from "react";
 import { m } from "framer-motion";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion";
@@ -224,7 +224,7 @@ function MeshGradient({ colors }) {
 // ═══ Premium glass orbs — bokeh-like floating lights ═══
 function GlassOrbs({ color }) {
   const orbs = useMemo(() =>
-    Array.from({ length: 8 }, (_, i) => ({
+    Array.from({ length: 8 }, () => ({
       x: 10 + Math.random() * 80,
       y: 10 + Math.random() * 80,
       size: 60 + Math.random() * 120,
@@ -303,7 +303,7 @@ function LightRays({ color }) {
 // ═══ Premium floating dust motes ═══
 function DustMotes({ color }) {
   const motes = useMemo(() =>
-    Array.from({ length: 20 }, (_, i) => ({
+    Array.from({ length: 20 }, () => ({
       x: Math.random() * 100,
       y: Math.random() * 100,
       size: 2 + Math.random() * 3,

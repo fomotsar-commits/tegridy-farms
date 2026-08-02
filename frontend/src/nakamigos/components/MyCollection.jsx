@@ -29,7 +29,6 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
   const [error, setError] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
   const [listings, setListings] = useState([]);
-  const [loadingListings, setLoadingListings] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [bulkListOpen, setBulkListOpen] = useState(false);
@@ -126,15 +125,10 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     });
 
     // Fetch active listings for this wallet
-    setLoadingListings(true);
     fetchMyListings(wallet, collection.contract).then((data) => {
       if (!mounted) return;
       setListings(data);
-      setLoadingListings(false);
-    }).catch(() => {
-      if (!mounted) return;
-      setLoadingListings(false);
-    });
+    }).catch(() => {});
 
     return () => { mounted = false; };
   }, [wallet, collection.contract, collection.metadataBase]);
@@ -149,7 +143,6 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     setTotalCount(0);
     setListings([]);
     setLoading(true);
-    setLoadingListings(true);
 
     fetchWalletNfts(wallet, collection.contract, collection.metadataBase).then((data) => {
       if (retryGenRef.current !== gen) return; // stale -- collection switched
@@ -165,11 +158,7 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     fetchMyListings(wallet, collection.contract).then((data) => {
       if (retryGenRef.current !== gen) return;
       setListings(data);
-      setLoadingListings(false);
-    }).catch(() => {
-      if (retryGenRef.current !== gen) return;
-      setLoadingListings(false);
-    });
+    }).catch(() => {});
   }, [wallet, collection.contract, collection.metadataBase]);
 
   const handleCancelListing = useCallback(async (listing) => {

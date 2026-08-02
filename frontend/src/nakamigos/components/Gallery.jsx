@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useMemo, memo } from "react";
 import VirtualGalleryGrid from "./VirtualGalleryGrid";
 import FilterSidebar, { FilterPills, MobileFilterButton } from "./FilterSidebar";
 import { SORT_OPTIONS } from "../constants";

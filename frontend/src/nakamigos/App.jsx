@@ -393,7 +393,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   // Enrich the open NFT with its listing at render time, so the detail Modal has
   // the buy route no matter which entry path set `selected` (see enrichWithListing).
   const selectedEnriched = useMemo(() => enrichWithListing(selected, listings), [selected, listings]);
-  const { tier: holderTier, count: holderCount } = useHolderStatus(wallet, collection.contract);
+  const { tier: holderTier } = useHolderStatus(wallet, collection.contract);
   // Onboarding is keyed once per marketplace ("tradermigos_onboarded") rather
   // than per collection (F767); the legacy per-collection key is still honored
   // so prior completers aren't re-shown the tour.

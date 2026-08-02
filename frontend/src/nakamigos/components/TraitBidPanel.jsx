@@ -2,7 +2,7 @@ import { Eth } from "./Icons";
 import { useTraitOffers } from "../hooks/useOffers";
 import EmptyState from "./EmptyState";
 
-export default function TraitBidPanel({ traitKey, traitValue, matchCount, sampled, wallet, onConnect, addToast, onMakeOffer }) {
+export default function TraitBidPanel({ traitKey, traitValue, matchCount, sampled, wallet, onMakeOffer }) {
   const { data: traitOffers = {}, isLoading: loading } = useTraitOffers();
 
   const offerData = traitOffers?.[traitKey]?.[traitValue];
