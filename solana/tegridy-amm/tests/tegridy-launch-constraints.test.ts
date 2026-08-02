@@ -684,4 +684,180 @@ describe("tegridy-launch security constraints", () => {
       );
     });
   });
+
+  // ─── The creator wallet must never be able to block trading ────────────────
+
+  describe("a drained creator wallet cannot brick the curve", () => {
+    /**
+     * The HIGH finding from the 2026-08-02 adversarial review of the split.
+     *
+     * Crediting a 0-lamport creator wallet less than the rent-exempt minimum
+     * (890,880 lamports for a 0-byte account) moves it into the rent-paying
+     * band, which the runtime rejects at end-of-instruction — failing the WHOLE
+     * trade. At a 1% fee and a 50% share that is every trade under ~0.178 SOL,
+     * INCLUDING sells, which design note 2 promises can never be blocked. It was
+     * also profitable and repeatable: anyone could unbrick by donating the
+     * minimum, and the creator could pocket it and re-drain.
+     *
+     * The fix folds an undeliverable creator credit into the protocol leg. This
+     * test drains the creator to EXACTLY zero and asserts small trades still
+     * work both ways, with the protocol receiving the whole fee.
+     */
+    const creator = Keypair.generate();
+    let mint: PublicKey;
+    let traderAta: PublicKey;
+
+    const lamports = async (k: PublicKey) =>
+      (await provider.connection.getAccountInfo(k))?.lamports ?? 0;
+
+    const tradeAccounts = () => ({
+      trader: deployer.publicKey,
+      global: globalPda(program.programId),
+      feeRecipient,
+      creator: creator.publicKey,
+      mint,
+      curve: curvePda(program.programId, mint),
+      curveVault: vaultPda(program.programId, mint),
+      traderTokenAccount: traderAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    });
+
+    before(async () => {
+      await fund(provider, creator.publicKey, 5);
+      mint = await makeMint(provider, creator, null);
+      await program.methods
+        .createLaunch()
+        .accountsPartial({
+          creator: creator.publicKey,
+          global: globalPda(program.programId),
+          mint,
+          curve: curvePda(program.programId, mint),
+          curveVault: vaultPda(program.programId, mint),
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([creator])
+        .rpc();
+      traderAta = await createAssociatedTokenAccount(
+        provider.connection,
+        deployer,
+        mint,
+        deployer.publicKey
+      );
+
+      // Drain the creator to EXACTLY zero, paying the tx fee from another
+      // wallet — 0 is the Uninitialized rent state and an allowed transition,
+      // which is what makes this attack available at all.
+      const balance = await lamports(creator.publicKey);
+      const drain = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: creator.publicKey,
+          toPubkey: deployer.publicKey,
+          lamports: balance,
+        })
+      );
+      drain.feePayer = deployer.publicKey;
+      await provider.sendAndConfirm!(drain, [creator]);
+      assert.equal(await lamports(creator.publicKey), 0, "creator must be at exactly 0");
+    });
+
+    it("still fills a small BUY, folding the creator's share to the protocol", async () => {
+      const protocolBefore = await lamports(feeRecipient);
+      // 0.01 SOL: the creator leg would be 50,000 lamports — deep inside the
+      // forbidden band, so pre-fix code reverts this whole transaction.
+      await program.methods
+        .buy(new BN(10_000_000), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      assert.equal(await lamports(creator.publicKey), 0, "creator must stay at 0 — nothing delivered");
+      assert.equal(
+        (await lamports(feeRecipient)) - protocolBefore,
+        100_000,
+        "the protocol must absorb the whole fee when the creator cannot be paid"
+      );
+    });
+
+    it("still fills a small SELL — the holders' exit stays open", async () => {
+      const held = BigInt(
+        (await provider.connection.getTokenAccountBalance(traderAta)).value.amount
+      );
+      assert.isTrue(held > 0n, "precondition: the buy delivered tokens");
+      const protocolBefore = await lamports(feeRecipient);
+
+      await program.methods
+        .sell(new BN((held / 2n).toString()), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      assert.equal(await lamports(creator.publicKey), 0, "creator must stay at 0");
+      assert.isAbove(
+        (await lamports(feeRecipient)) - protocolBefore,
+        0,
+        "the protocol absorbs the sell fee too"
+      );
+    });
+
+    it("pays the creator again once their wallet is rent-exempt — self-healing", async () => {
+      // POSITIVE CONTROL for the fold: it must be a deliverability check, not a
+      // permanent forfeiture of that creator's stream.
+      await fund(provider, creator.publicKey, 1);
+      const creatorBefore = await lamports(creator.publicKey);
+
+      await program.methods
+        .buy(new BN(10_000_000), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      assert.equal(
+        (await lamports(creator.publicKey)) - creatorBefore,
+        50_000,
+        "a funded creator must receive their half of the fee again"
+      );
+    });
+  });
+
+  // ─── The creator-share setter ──────────────────────────────────────────────
+
+  describe("creator_fee_share_bps is settable and bounded", () => {
+    /**
+     * Every other updateGlobal call in this suite passes null in the 10th slot,
+     * so without this the setter and its bound would have zero runtime coverage
+     * — and an arg-order drift between the 9th and 10th parameters would leave
+     * the whole suite green while operators silently wrote the share into
+     * virtual SOL. Flagged by the 2026-08-02 review.
+     */
+    it("rejects a share above 100% of the fee", async () => {
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(10_001))
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "InvalidParameter"
+      );
+    });
+
+    it("stores a legal share, and it lands in the 10th slot not the 9th", async () => {
+      await program.methods
+        .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(3_000))
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.creatorFeeShareBps.toString(), "3000", "the share must persist");
+      assert.equal(
+        g.initialVirtualSol.toString(),
+        V_SOL.toString(),
+        "virtual SOL must be untouched — catches an arg-position swap"
+      );
+
+      // Restore the suite default for anything ordered after this.
+      await program.methods
+        .updateGlobal(null, null, null, null, null, null, null, null, null, CREATOR_FEE_SHARE_BPS)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+    });
+  });
 });
