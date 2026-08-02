@@ -36,6 +36,7 @@ const CANONICAL_SOURCE = join(API_DIR, "_lib", "launcher-outcomes.js");
 // Every other handler that carries its own copy of the prod origin set.
 const MIRRORS = [
   "alchemy.js",
+  "analytics.js",
   "etherscan.js",
   "opensea.js",
   "orderbook.js",
