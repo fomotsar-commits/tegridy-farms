@@ -170,6 +170,60 @@ fn check_launch_economics(
     Ok(())
 }
 
+/// Decide what the creator can actually be paid on this trade, folding the
+/// remainder into the protocol leg.
+///
+/// ## Why this exists — the creator wallet is otherwise a kill switch on SELLS
+///
+/// `curve.creator` is an arbitrary key the creator chose, and paying it makes it
+/// a WRITABLE account of every trade. Solana verifies the rent state of every
+/// writable account at the end of the instruction and REJECTS a transition into
+/// the rent-paying band: an account at 0 lamports that receives less than
+/// `minimum_balance(data_len)` (890,880 for a 0-byte account) fails the whole
+/// transaction with `InsufficientFundsForRent`.
+///
+/// So a creator who drains their wallet to 0 — legal, since 0 is the
+/// Uninitialized state — makes EVERY trade whose creator leg lands under that
+/// floor revert. At a 1% fee and a 50% share that is every trade below ~0.178
+/// SOL, **including sells**, which is the holders' only exit and the one thing
+/// design note 2 promises can never be blocked. Worse, it is profitable and
+/// repeatable: anyone can unbrick the curve by donating the rent-exempt minimum
+/// to the creator address, and the creator can pocket it and re-drain.
+///
+/// Folding is the fix that keeps the trade path total-conserving and
+/// non-custodial. We never hold a creator's money for later (that is the
+/// Believe-style custody failure), we never revert their holders' exit, and the
+/// protocol leg absorbs what could not be delivered — which is exactly where the
+/// whole fee went before the split existed, so this can never be worse than the
+/// pre-split behaviour for `fee_recipient`.
+///
+/// Self-healing: the moment the creator's wallet is rent-exempt (it was, when
+/// they paid rent for `create_launch`), every trade pays them again in full.
+fn payable_creator_split(
+    creator_ai: &AccountInfo,
+    fs: crate::curve::FeeSplit,
+) -> Result<(u64, u64)> {
+    if fs.creator_lamports == 0 {
+        return Ok((0, fs.protocol_lamports));
+    }
+    // Measured against the creator account's OWN data length: a data-carrying
+    // account (another program's PDA can sign `create_launch` via CPI) has a
+    // proportionally higher floor.
+    let floor = Rent::get()?.minimum_balance(creator_ai.data_len());
+    let after = creator_ai
+        .lamports()
+        .checked_add(fs.creator_lamports)
+        .ok_or(LaunchError::Overflow)?;
+    if after < floor {
+        let protocol = fs
+            .protocol_lamports
+            .checked_add(fs.creator_lamports)
+            .ok_or(LaunchError::Overflow)?;
+        return Ok((0, protocol));
+    }
+    Ok((fs.creator_lamports, fs.protocol_lamports))
+}
+
 #[program]
 pub mod tegridy_launch {
     use super::*;
@@ -515,6 +569,11 @@ pub mod tegridy_launch {
         // principal leg and the total charged are identical to the unsplit case.
         let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
             .map_err(LaunchError::from)?;
+        // A credit that would strand the creator account in the rent-paying band
+        // folds into the protocol leg rather than reverting the trade. See
+        // `payable_creator_split`.
+        let (creator_pay, protocol_pay) =
+            payable_creator_split(&ctx.accounts.creator.to_account_info(), fs)?;
 
         // Move SOL first: buyer -> curve (principal), buyer -> creator (their
         // fee share), buyer -> treasury (the rest). All plain system transfers
@@ -530,7 +589,7 @@ pub mod tegridy_launch {
             ),
             q.lamports_to_curve,
         )?;
-        if fs.creator_lamports > 0 {
+        if creator_pay > 0 {
             system_program::transfer(
                 CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
@@ -539,10 +598,10 @@ pub mod tegridy_launch {
                         to: ctx.accounts.creator.to_account_info(),
                     },
                 ),
-                fs.creator_lamports,
+                creator_pay,
             )?;
         }
-        if fs.protocol_lamports > 0 {
+        if protocol_pay > 0 {
             system_program::transfer(
                 CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
@@ -551,7 +610,7 @@ pub mod tegridy_launch {
                         to: ctx.accounts.fee_recipient.to_account_info(),
                     },
                 ),
-                fs.protocol_lamports,
+                protocol_pay,
             )?;
         }
 
@@ -588,7 +647,9 @@ pub mod tegridy_launch {
             sol_amount: q.lamports_to_curve,
             token_amount: q.tokens_out,
             fee_lamports: q.fee_lamports,
-            creator_fee_lamports: fs.creator_lamports,
+            // What the creator was ACTUALLY paid, not what the share implies —
+            // a folded credit must not be reported to indexers as earnings.
+            creator_fee_lamports: creator_pay,
             real_sol_reserves: curve.real_sol_reserves,
             real_token_reserves: curve.real_token_reserves,
         });
@@ -658,6 +719,12 @@ pub mod tegridy_launch {
         // `migrate_to_amm`; the split adds a third credit, not a new hazard.
         let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
             .map_err(LaunchError::from)?;
+        // Fold a rent-band-stranding creator credit into the protocol leg. On
+        // THIS path the fold is what keeps design note 2 true: without it a
+        // creator who drains their wallet to zero blocks every small sell, and
+        // sells are the holders' only exit. See `payable_creator_split`.
+        let (creator_pay, protocol_pay) =
+            payable_creator_split(&ctx.accounts.creator.to_account_info(), fs)?;
 
         **curve_ai.try_borrow_mut_lamports()? = balance
             .checked_sub(q.gross_lamports)
@@ -672,7 +739,7 @@ pub mod tegridy_launch {
         // Creator first, then protocol — each read-then-write completes before
         // the next begins, so the sums stay correct even when creator aliases
         // trader or fee_recipient (the same account passed under two names).
-        if fs.creator_lamports > 0 {
+        if creator_pay > 0 {
             **ctx
                 .accounts
                 .creator
@@ -682,10 +749,10 @@ pub mod tegridy_launch {
                 .creator
                 .to_account_info()
                 .lamports()
-                .checked_add(fs.creator_lamports)
+                .checked_add(creator_pay)
                 .ok_or(LaunchError::Overflow)?;
         }
-        if fs.protocol_lamports > 0 {
+        if protocol_pay > 0 {
             **ctx
                 .accounts
                 .fee_recipient
@@ -695,7 +762,7 @@ pub mod tegridy_launch {
                 .fee_recipient
                 .to_account_info()
                 .lamports()
-                .checked_add(fs.protocol_lamports)
+                .checked_add(protocol_pay)
                 .ok_or(LaunchError::Overflow)?;
         }
 
@@ -716,7 +783,7 @@ pub mod tegridy_launch {
             sol_amount: q.lamports_out,
             token_amount: tokens_in,
             fee_lamports: q.fee_lamports,
-            creator_fee_lamports: fs.creator_lamports,
+            creator_fee_lamports: creator_pay,
             real_sol_reserves: curve.real_sol_reserves,
             real_token_reserves: curve.real_token_reserves,
         });
