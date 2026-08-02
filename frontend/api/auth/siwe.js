@@ -53,13 +53,16 @@ const TOKEN_EXPIRY_HOURS = 24;
 // nonce already expires in 5 min so anything longer has no use.
 const MAX_MESSAGE_TTL_MS = 15 * 60 * 1000;
 
-// AUDIT R050 MED + R052 M-076-2: env-driven allowlist; no hardcoded
-// `nakamigos.gallery` fallback. Production hosts are in the default set;
-// `ALLOWED_ORIGINS=foo,bar` extends without redeploy.
+// AUDIT R050 MED + R052 M-076-2: env-driven allowlist. Production hosts are in
+// the default set; `ALLOWED_ORIGINS=foo,bar` extends without redeploy.
+//
+// 2026-08-02: `nakamigos.gallery` removed. The R050 fix dropped it as the
+// *fallback* but left it as an *allowlist entry*, which this comment then
+// wrongly described as absent. The project does not control that domain, so it
+// has no place in a credentialed origin set. Do NOT re-add it —
+// `canonical-origin.test.js` fails the build if you do.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
     "https://memetics.finance",

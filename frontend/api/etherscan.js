@@ -36,18 +36,19 @@ function authHeaders(extra = {}) {
 //         credentialed CORS. If owned, the asymmetry is drift the rest of the
 //         credentialed surface rejects. Removing aligns all proxies on one
 //         origin set.
-// AUDIT FIX FRESH-2026: F11 — add nakamigos.gallery to match alchemy.js,
+// AUDIT FIX FRESH-2026: F11 — align this origin set with alchemy.js,
 //         opensea.js, orderbook.js, supabase-proxy.js. The Nakamigos UI uses
-//         /api/etherscan for tx history rendering (HistoryPage.tsx); without
-//         this entry, browser CORS preflight fails from that origin.
+//         /api/etherscan for tx history rendering (HistoryPage.tsx), and it is
+//         served from the production origins below, not a separate domain.
+// 2026-08-02: the `nakamigos.gallery` entry this note originally added was
+//         removed — the project does not control that domain. See auth/siwe.js.
+//         Do NOT re-add it.
 const ALLOWED_ORIGINS = [
   "https://memetic.fun",
   "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
-  "https://nakamigos.gallery",
-  "https://www.nakamigos.gallery",
 ];
 // AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
 if (process.env.NODE_ENV === "development") {

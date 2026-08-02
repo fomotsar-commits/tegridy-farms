@@ -81,7 +81,7 @@ const CONTRACT_ARRAY_ENDPOINTS = new Set([
   "getNFTsForOwner",
 ]);
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery";
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
 
 // AUDIT R049 H-5: resolve "latest" to a numeric block tip via eth_blockNumber
 // so the same delta cap applies whether the client sends numeric blocks or
@@ -104,8 +104,6 @@ async function resolveChainTip() {
 export default async function handler(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
     "https://memetics.finance",

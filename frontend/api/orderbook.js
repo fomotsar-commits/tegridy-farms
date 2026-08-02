@@ -305,7 +305,7 @@ const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPAB
  *   CREATE INDEX idx_orders_price ON native_orders(price_eth ASC) WHERE status = 'active';
  */
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery";
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
 
 // ── Shared validation helpers ──
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -318,7 +318,7 @@ function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.tes
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
-    "https://nakamigos.gallery", "https://www.nakamigos.gallery",
+    
     "https://memetic.fun",
     "https://www.memetic.fun",
     "https://memetics.finance",
