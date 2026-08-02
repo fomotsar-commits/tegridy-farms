@@ -611,7 +611,17 @@ export async function fetchMyOffers(wallet, contract = CONTRACT) {
 
 // ═══ FETCH MY LISTINGS ═══
 // Paginates through all pages using cursor to avoid truncation at 20 results.
-
+//
+// Returns `{ listings, fallback }`, NOT a bare array. This used to `return []`
+// on failure, which made an OpenSea outage indistinguishable from "this wallet
+// has nothing listed" — the caller rendered both as no listings at all, so a
+// seller whose listings were merely unreachable was told they had none. That is
+// the same conflation `fetchTopHolders` carries `fallback: true` to prevent
+// (api.js:638, "'zero sales' and 'we couldn't ask' must not render as the same
+// claim"), applied here to the seller's own listings.
+//
+// `fallback: true` means WE COULD NOT ASK. `listings: []` with `fallback: false`
+// means genuinely nothing listed. Callers must branch on the two separately.
 export async function fetchMyListings(wallet, contract = CONTRACT) {
   try {
     const allOrders = [];
@@ -636,7 +646,7 @@ export async function fetchMyListings(wallet, contract = CONTRACT) {
     }
 
     const now = Math.floor(Date.now() / 1000);
-    return allOrders
+    const listings = allOrders
       .filter(o => !o.cancelled && !o.finalized)
       .filter(o => {
         const endSec = parseInt(o.protocol_data?.parameters?.endTime);
@@ -660,9 +670,10 @@ export async function fetchMyListings(wallet, contract = CONTRACT) {
           rawOrder: o,
         };
       });
+    return { listings, fallback: false };
   } catch (err) {
     console.warn("Fetch my listings failed:", err.message);
-    return [];
+    return { listings: [], fallback: true };
   }
 }
 

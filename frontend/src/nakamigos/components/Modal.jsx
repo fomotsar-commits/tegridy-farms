@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from "react";
+import { useEffect, useState, useRef, useMemo, lazy, Suspense } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import OfferPanel from "./OfferPanel";
@@ -151,7 +151,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
   const modalRef = useRef(null);
   const showOfferModalRef = useRef(false);
   const { ensName: ownerEns } = useEns(nft?.owner);
-  const { startTransaction, closeProgress, progressProps } = useTransactionProgress({ collectionName: collection.name });
+  const { startTransaction, progressProps } = useTransactionProgress({ collectionName: collection.name });
 
   // F794: reset the purchased latch when the modal switches to a different
   // token/order so reopening on another NFT shows its Buy button.
@@ -497,7 +497,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                     onExecute: () => nft.isNative && nft.nativeOrder
                       ? fulfillNativeOrder(nft.nativeOrder)
                       : fulfillSeaportOrder(nft, { buyerAddress: wallet }),
-                    onSuccess: ({ hash, gasUsed }) => {
+                    onSuccess: ({ hash }) => {
                       recordTransaction({ type: "buy", nft, price: nft.price, hash, wallet, slug: collection.slug });
                       addToast?.(`Success! Bought #${nft.id}`, "success");
                       setBuying(false);

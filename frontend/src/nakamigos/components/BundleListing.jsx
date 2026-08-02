@@ -26,7 +26,7 @@ function computeFees(priceEth) {
 
 const MIN_BUNDLE_SIZE = 2;
 
-export default function BundleListing({ nfts, onClose, wallet, tokens, collection: collectionProp, onListingCreated, stats }) {
+export default function BundleListing({ nfts, onClose, wallet, tokens, collection: collectionProp, onListingCreated }) {
   const collectionCtx = useActiveCollection();
   const collection = collectionProp || collectionCtx;
   const { addToast } = useToast();

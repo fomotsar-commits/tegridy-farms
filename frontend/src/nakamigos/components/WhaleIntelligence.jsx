@@ -166,7 +166,6 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
   // fall back to collection config supply, then 20000 as last resort
   const SUPPLY = stats?.supply || collection.supply || 20000;
   const [totalOwners, setTotalOwners] = useState(0);
-  const [apiTotalHeld, setApiTotalHeld] = useState(0);
   const [expandedNfts, setExpandedNfts] = useState([]);
   const [loadingNfts, setLoadingNfts] = useState(false);
   // Distinguish an outage from a genuinely-empty wallet in the expanded view (F724).
@@ -186,7 +185,6 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
       const list = data.holders || [];
       setHolders(list);
       setTotalOwners(data.totalOwners || 0);
-      setApiTotalHeld(data.totalHeld || 0);
       setHoldersLive(!data.fallback);
       // fetchTopHolders never rejects — an outage surfaces as fallback:true with
       // ZERO rows, which used to render as a silently blank panel. The
@@ -231,7 +229,6 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     setHolders([]);
     setActivities([]);
     setTotalOwners(0);
-    setApiTotalHeld(0);
     setLoadingHolders(true);
     setLoadingActivity(true);
     setHoldersLive(false);
@@ -460,7 +457,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     }
     resolveAll();
     return () => { mounted = false; };
-  }, [holders, whaleTransactions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [holders, whaleTransactions]);
 
   /* ── Helper: get display name for an address (ENS or shortened) ── */
   const getDisplayName = useCallback((fullAddress, shortAddress) => {

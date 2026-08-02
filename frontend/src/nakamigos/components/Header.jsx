@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { Eth } from "./Icons";
 import { shortenAddress } from "../api";
 import { useTradingMode, LITE_HIDDEN_PRIMARY, LITE_HIDDEN_MORE } from "../contexts/TradingModeContext";
 import { useSiweAuth } from "../hooks/useSiweAuth";
@@ -313,7 +312,6 @@ export default memo(function Header({
   lastRefresh,
   collectionName,
   collectionImage,
-  collectionSlug,
   collectionPixelated,
   isLanding,
   notificationCenter,
@@ -344,16 +342,6 @@ export default memo(function Header({
   const visibleAll = useMemo(() => [...visiblePrimary, ...visibleMore], [visiblePrimary, visibleMore]);
 
   const siwe = useSiweAuth();
-
-  const handleSignIn = useCallback(async () => {
-    try {
-      await siwe.signIn();
-    } catch (err) {
-      if (err.message !== "Sign-in cancelled") {
-        console.warn("SIWE sign-in failed:", err.message);
-      }
-    }
-  }, [siwe.signIn]);
 
   const repositionMore = useCallback(() => {
     if (moreBtnRef.current) {

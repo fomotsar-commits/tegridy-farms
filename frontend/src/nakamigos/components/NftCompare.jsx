@@ -74,7 +74,7 @@ const tradeButtonStyle = {
   transition: "opacity 0.2s, transform 0.15s",
 };
 
-function NftSlot({ nft, label, searchValue, onSearchChange, searchResults, onSelect, onClear, placeholder }) {
+function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, onClear, placeholder }) {
   if (nft) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
@@ -160,7 +160,7 @@ function NftSlot({ nft, label, searchValue, onSearchChange, searchResults, onSel
   );
 }
 
-export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast, setTab }) {
+export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab }) {
   const collection = useActiveCollection();
   const { isWrongNetwork } = useWalletState();
   const { switchChain } = useWalletActions();

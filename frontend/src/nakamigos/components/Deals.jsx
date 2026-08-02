@@ -10,15 +10,6 @@ import NftImage from "./NftImage";
 /* ── Discount threshold: listing must be at least 10% below max trait floor ── */
 const DEAL_THRESHOLD = 0.9;
 
-/* ── Format time ago ── */
-function formatTimeAgo(ms) {
-  if (!ms) return "";
-  const diff = Date.now() - ms;
-  if (diff < 60000) return "just now";
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return `${Math.floor(diff / 86400000)}d ago`;
-}
 
 /* ── Styles ── */
 const S = {
@@ -445,12 +436,10 @@ export default function Deals({
   tokens,
   listings,
   listingsLoading,
-  stats,
   onPick,
   wallet,
   onConnect,
   addToast,
-  onAddToCart,
   onRefresh,
   loadAll,
   hasMore,

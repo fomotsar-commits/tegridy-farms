@@ -198,7 +198,7 @@ const STATUS_COLOR = {
   cancelled: "var(--text-muted)", expired: "var(--text-muted)", countered: "var(--gold)",
 };
 
-function TradeCard({ trade, direction, wallet, addToast, onChanged, onCounter, onPickProfile, onMessage }) {
+function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickProfile, onMessage }) {
   const [busy, setBusy] = useState(null); // "accept" | "decline" | "cancel" | "revoke"
   const [confirming, setConfirming] = useState(false);
   const isIncoming = direction === "incoming";

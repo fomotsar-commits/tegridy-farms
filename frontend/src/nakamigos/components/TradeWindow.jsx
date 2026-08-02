@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Eth } from "./Icons";
+import { useState, useEffect, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
 import { COLLECTIONS } from "../constants";
 import { fetchWalletNfts } from "../api";

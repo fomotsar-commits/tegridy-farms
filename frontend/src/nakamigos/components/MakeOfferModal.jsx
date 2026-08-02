@@ -111,7 +111,7 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
           contract: collectionContract,
         });
       }
-    } catch (err) {
+    } catch {
       setStep("input");
       addToast?.("Offer failed. Please try again or check your wallet connection.", "error");
       return;

@@ -119,7 +119,7 @@ function ValueChart({ snapshots }) {
 }
 
 // ── Main Component ─────────────────────────────────────────────
-export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }) {
+export default function PortfolioTracker({ wallet, onConnect, onPick }) {
   const collection = useActiveCollection();
   // This tab mounts outside AppLayout's PriceProvider (App.tsx routes
   // nakamigos/* as a sibling of the AppLayout route), so the context rate is
@@ -133,7 +133,6 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
   const [error, setError] = useState(null);
   const [pnlData, setPnlData] = useState(null);
   const [tokens, setTokens] = useState([]);
-  const [stats, setStats] = useState(null);
   const [expandedCollection, setExpandedCollection] = useState(false);
   const [snapshots, setSnapshots] = useState(() => wallet ? loadSnapshots(wallet, collection.contract) : []);
   const genRef = useRef(0);
@@ -171,7 +170,6 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
       }
 
       setTokens(nftData.tokens);
-      setStats(statsData);
 
       if (nftData.tokens.length === 0) {
         setPnlData(null);

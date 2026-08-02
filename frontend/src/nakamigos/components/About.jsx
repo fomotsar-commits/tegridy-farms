@@ -1,7 +1,6 @@
 import { useActiveCollection } from "../contexts/CollectionContext";
 import {
-  CONTRACT, COLLECTIONS, COLLECTION_LORE, CHARACTER_TYPES,
-  GNSS_SPECIES, JB_LEGENDARIES, TRAIT_LORE, FUN_FACTS,
+  CONTRACT, COLLECTIONS, COLLECTION_LORE, CHARACTER_TYPES, FUN_FACTS,
 } from "../constants";
 import SpeciesEncyclopedia from "./SpeciesEncyclopedia";
 import JungleBayShowcase from "./JungleBayShowcase";

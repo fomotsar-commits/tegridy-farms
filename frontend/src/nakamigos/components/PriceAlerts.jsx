@@ -28,7 +28,9 @@ function saveAlerts(alerts, slug = "nakamigos", wallet = "") {
 // Price alerts monitor the collection floor price.
 // Individual token prices aren't available from the NFT metadata API,
 // so alerts trigger based on floor price changes fetched from Alchemy.
-export function usePriceAlerts(tokens = [], addToast, { active = true } = {}) {
+// `_tokens` is unused but kept to preserve the positional signature — callers
+// pass it (see PriceAlertPanel below); alerts key off floor price, not tokens.
+export function usePriceAlerts(_tokens = [], addToast, { active = true } = {}) {
   const collection = useActiveCollection();
   const { address: wallet } = useWallet();
   const [alerts, setAlerts] = useState(() => loadAlerts(collection.slug, wallet));

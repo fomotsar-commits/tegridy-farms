@@ -360,7 +360,7 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
   );
 }
 
-function StepReview({ selectedNfts, getPrice, duration, collection }) {
+function StepReview({ selectedNfts, getPrice, duration }) {
   const durationLabel = DURATION_OPTIONS.find((d) => d.hours === duration)?.label || `${duration}h`;
 
   let totalPrice = 0;

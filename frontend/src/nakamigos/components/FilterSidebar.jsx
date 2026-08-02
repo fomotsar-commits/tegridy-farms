@@ -384,7 +384,6 @@ export default memo(function FilterSidebar({
   traitFilters,
   activeFilters,
   onFilterChange,
-  listings,
   totalTokens,
   loadedCount,
   onClose,

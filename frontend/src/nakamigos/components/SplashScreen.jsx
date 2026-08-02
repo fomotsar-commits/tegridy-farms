@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { m, AnimatePresence } from "framer-motion";
+import { m } from "framer-motion";
 import { COLLECTIONS, DEFAULT_COLLECTION, LOADING_MESSAGES } from "../constants";
 
 const IS_MOBILE = typeof window !== "undefined" && window.innerWidth < 768;
@@ -1157,7 +1157,6 @@ export default function SplashScreen({ onComplete }) {
       {positions.map((pos, i) => {
         const piece = ART_PIECES[i];
         const glowIntensity = pos.glow;
-        const velocityChroma = Math.min(pos.speed * 2, 1);
         // Disabled depth blur for performance — was causing per-frame filter recalc
         const depthBlur = 0;
         const holoAngle = (pos.x + pos.y + pos.holo * 360) % 360;
