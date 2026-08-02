@@ -103,6 +103,20 @@ const INTRO_DISMISSED_KEY = 'tegridy-nft-finance-intro-dismissed';
 
 const VALID_SECTIONS: Section[] = ['lending', 'nftlending', 'amm', 'launchpad'];
 
+/**
+ * The tab a bare /nft-finance lands on.
+ *
+ * NOT 'lending': Token Lending is the ONE section here whose contracts are not
+ * deployed (it renders a "will be deployed soon" wall gated on a TWAP oracle that
+ * reverts). /nft-finance is a primary nav destination, so defaulting to it meant the
+ * headline NFT-finance surface opened on the only thing you cannot use, while
+ * NFT Lending, NFT AMM and Launchpad — all live — sat one click away.
+ *
+ * `handleSectionChange` clears ?section= for this value, so the two MUST agree;
+ * changing one alone makes the tab for the other unreachable.
+ */
+const DEFAULT_SECTION: Section = 'nftlending';
+
 // Per-section contract-deploy state. Every NFT-Finance contract is currently the
 // zero address (constants.ts, ZEROED 2026-05-31), so each surface renders its
 // honest pre-deploy state. This map drives the amber "Soon" chips on the tab row
@@ -126,11 +140,11 @@ export default function LendingPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // R007 Pattern A — derive `section` directly from ?section=. URL is the
   // source of truth, so deep-links resolve to the right tab without an effect.
-  const section: Section = sectionFromQuery(searchParams.get('section')) ?? 'lending';
+  const section: Section = sectionFromQuery(searchParams.get('section')) ?? DEFAULT_SECTION;
 
   const handleSectionChange = (next: Section) => {
     const params = new URLSearchParams(searchParams);
-    if (next === 'lending') params.delete('section');
+    if (next === DEFAULT_SECTION) params.delete('section');
     else params.set('section', next);
     // F278: tab clicks use `replace` (not push), so Back/Forward step over tab
     // changes rather than walking through them — deep links still resolve, but

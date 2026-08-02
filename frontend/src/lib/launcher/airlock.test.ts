@@ -12,6 +12,7 @@ import {
   type TegridyLaunchConfig,
 } from './airlock';
 import type { FeeConstitutionLine } from './factSheet';
+import { LAUNCH_TIERS } from './config';
 
 const CREATOR = '0x1111111111111111111111111111111111111111' as Address;
 const ATTENTION = '0x2222222222222222222222222222222222222222' as Address;
@@ -318,5 +319,53 @@ describe('buildTegridyLaunchParams — auction-band round-trip guard', () => {
       const theirs = tickToMarketCap({ tick, tokenSupply: supply, numerairePriceUSD: 1881 });
       expect(Math.abs(mine - theirs) / Math.max(theirs, 1e-9)).toBeLessThan(1e-9);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE ADVERTISED CURVE MUST BE THE CURVE WE BUILD
+//
+// The wizard's tier card and its final Review step — the screen directly above the
+// signature button — print `LAUNCH_TIERS[].curve`. That string is a claim about an
+// IRREVERSIBLE action, and it drifted: the Community tier advertised "Static /
+// multicurve (Doppler V4)" while `buildTegridyLaunchParams` called
+// `.buildDynamicAuction()` for every tier. Two rows further down the same Review
+// panel said "Market cap (Dutch) … (descends)".
+//
+// These tests pin the RELATIONSHIP, not the wording, so a future copy edit is free
+// but a copy/builder divergence is not.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('tier labels describe the auction that is actually built', () => {
+  it('builds a DYNAMIC auction for every offered tier', () => {
+    // The mock SDK exposes ONLY buildDynamicAuction. If any tier ever routed to
+    // buildStaticAuction this throws "is not a function" rather than silently passing.
+    for (const tier of LAUNCH_TIERS) {
+      const { sdk, calls } = recordingSdk();
+      expect(() => buildTegridyLaunchParams(sdk, config(tier.id))).not.toThrow();
+      expect(calls.built).toBe(true);
+    }
+  });
+
+  it('never advertises a static curve while the builder is dynamic', () => {
+    for (const tier of LAUNCH_TIERS) {
+      expect(tier.curve.toLowerCase()).not.toMatch(/static|multicurve/);
+    }
+  });
+
+  it('gives every tier the SAME curve, because the builder is tier-independent', () => {
+    // Nothing in buildTegridyLaunchParams varies the auction shape by tier, so two
+    // different curve strings can only be a lie about one of them.
+    const curves = new Set(LAUNCH_TIERS.map((t) => t.curve));
+    expect(curves.size).toBe(1);
+  });
+
+  it('varies governance by tier — the one thing the tier really does select', () => {
+    const flagship = recordingSdk();
+    buildTegridyLaunchParams(flagship.sdk, config('flagship'));
+    const community = recordingSdk();
+    buildTegridyLaunchParams(community.sdk, config('listable'));
+    expect(flagship.calls.governance).toEqual({ type: 'default' });
+    expect(community.calls.governance).toEqual({ type: 'noOp' });
+    expect(flagship.calls.governance).not.toEqual(community.calls.governance);
   });
 });

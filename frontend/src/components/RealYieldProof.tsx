@@ -59,7 +59,12 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
     >
       <div className="mb-4">
         <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          Real Yield, Proven On-Chain
+          {/* "Proven On-Chain" is a claim that has to be EARNED by a distribution. In the
+              showWhenEmpty state (the Farm loop) nothing has been distributed, so the
+              heading said "Proven" over an empty panel while the note under it correctly
+              explained that no epoch had settled. Matches the wording /premium already
+              chose for the same zero ("ETH yield — not yet paid"). */}
+          {isEmpty ? 'Real Yield — Not Yet Paid' : 'Real Yield, Proven On-Chain'}
         </h2>
         <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
           Not emissions. Not IOUs. ETH from protocol fees, distributed to stakers —{' '}
