@@ -20,10 +20,14 @@
     "analyze": "ANALYZE=true vite build"
   },
   "dependencies": {
+    "@base-org/account": "^2.5.8",
     "@irys/web-upload": "^0.0.15",
     "@irys/web-upload-ethereum": "^0.0.16",
+    "@metamask/connect-evm": "^2.1.1",
     "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.10",
     "@rainbow-me/rainbowkit": "^2.2.11",
+    "@safe-global/safe-apps-provider": "^0.18.6",
+    "@safe-global/safe-apps-sdk": "^9.1.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",
@@ -35,6 +39,7 @@
     "@types/papaparse": "^5.5.2",
     "@upstash/ratelimit": "^2.0.5",
     "@upstash/redis": "^1.38.0",
+    "@walletconnect/ethereum-provider": "^2.23.10",
     "@whetstone-research/doppler-sdk": "^1.0.33",
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
