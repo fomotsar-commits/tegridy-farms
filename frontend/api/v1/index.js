@@ -152,12 +152,22 @@ export default async function handler(req, res) {
         try { info = JSON.parse(infoText); } catch { info = {}; }
         try { top = JSON.parse(topText); } catch { top = {}; }
         // The holder list comes from getTopTokenHolders. If THAT read failed —
-        // non-2xx, non-JSON, or an Ethplorer {error:{code}} envelope (200-with-error
-        // is common for rate-limit / bad key) — we must NOT degrade into a cached
-        // 200 with empty holders. That told users a valid token had zero holders
-        // and cached the lie for 2 minutes. Fail loudly, uncached, instead.
+        // non-2xx, non-JSON, no `holders` list at all, or an Ethplorer {error:{code}}
+        // envelope (200-with-error is common for rate-limit / bad key) — we must NOT
+        // degrade into a cached 200 with empty holders. That told users a valid token
+        // had zero holders and cached the lie for 2 minutes. Fail loudly, uncached.
+        //
+        // The `holders` check is what covers the unparsable body above: `catch { top =
+        // {} }` used to be indistinguishable from a 200 that genuinely carried no
+        // holders, because `(top.holders || [])` produced `[]` either way. A 200
+        // carrying a CDN interstitial or a gateway HTML page is the ordinary way an
+        // upstream fails WITHOUT a non-2xx, and it got cached as a finding about
+        // somebody's token. A `holders: []` that IS present stays a success — that is
+        // the read working and the answer being nobody. Only an absent or non-array
+        // list is a failed read.
         const epError = top && typeof top === "object" ? top.error : null;
-        const topFailed = !topRes.ok || !!epError;
+        const topUnreadable = !epError && !Array.isArray(top && top.holders);
+        const topFailed = !topRes.ok || !!epError || topUnreadable;
         if (topFailed) {
           // Ethplorer code 1 = invalid API key. Map auth failures to 403, which
           // the client renders as the honest "scanner not enabled on this
