@@ -401,7 +401,9 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
             searchResults={theirResults}
             onSelect={(n) => { setTheirNft(n); setTheirSearch(""); }}
             onClear={() => setTheirNft(null)}
-            placeholder={`Search any ${collection.name}...`}
+            placeholder={tokens.length
+              ? `Search ${tokens.length.toLocaleString()} loaded ${collection.name}...`
+              : `Loading ${collection.name}...`}
           />
 
           {/* ETH request */}
@@ -443,7 +445,7 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
             INCOMING &amp; SENT TRADES
           </div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", maxWidth: 460, lineHeight: 1.5 }}>
-            Review, accept, counter, or cancel your trade offers in the Trades tab \u2014 the same on-chain order book your sent offers post to.
+            Review, accept, counter, or cancel offers in the Trades tab &mdash; the same book your sent offers post to. Offers are wallet-signed Seaport orders, held off-chain until someone fills them; the swap itself settles atomically on-chain.
           </div>
         </div>
         <button

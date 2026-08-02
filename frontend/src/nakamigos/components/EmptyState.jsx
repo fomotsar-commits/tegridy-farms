@@ -79,7 +79,7 @@ const EMPTY_STATES = {
   myListings: {
     icon: "\uD83D\uDCCB",
     title: "No active listings",
-    description: "You don't have any active listings for this collection. List your NFTs on OpenSea to see them here.",
+    description: "You don't have any active listings on the Tegridy order book for this collection. This page shows only orders created here — a listing you made on OpenSea won't appear. List from the My NFTs tab to see it here.",
   },
 
   // --- Bids & trading ---

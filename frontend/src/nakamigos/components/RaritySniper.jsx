@@ -282,9 +282,6 @@ export default function RaritySniper({
         const rank = token ? (token.rarityRank ?? token.rarity_rank ?? token.rank) : null;
         const hasRank = rank != null && rank > 0;
 
-        // When rarity data exists for the collection, require it per-token
-        if (hasRarity && !hasRank) return null;
-
         // Price percentile: 0 = cheapest, 1 = most expensive (stable across re-sorts)
         const pricePercentile = totalListings > 1 ? priceIndex / (totalListings - 1) : 0.5;
 
@@ -300,11 +297,19 @@ export default function RaritySniper({
           rank: hasRank ? rank : null,
           price: listing.price || 0,
           score,
+          scoredBy: hasRank ? "rarity" : "price",
         };
       })
-      .filter(Boolean)
-      .sort((a, b) => b.score - a.score);
-  }, [listings, tokenMap, effectiveSupply, hasRarity]);
+      // Rarity-scored and price-scored rows sit on different scales, so they are
+      // never interleaved: ranked rows first, each group by its own score.
+      .sort((a, b) => (a.rank == null) - (b.rank == null) || b.score - a.score);
+  }, [listings, tokenMap, effectiveSupply]);
+
+  // The sniper only has ranks for the tokens the gallery has paged in so far.
+  const rankedCount = useMemo(
+    () => opportunities.reduce((n, o) => n + (o.rank != null ? 1 : 0), 0),
+    [opportunities],
+  );
 
   // Apply filters
   const filtered = useMemo(() => {
@@ -322,7 +327,7 @@ export default function RaritySniper({
 
   const best = filtered[0] || null;
   // Guard: ensure maxScoreInList is never 0 or NaN to prevent division issues in bar width
-  const maxScoreInList = (filtered.length > 0 && filtered[0].score > 0) ? filtered[0].score : 1;
+  const maxScoreInList = filtered.reduce((m, o) => (o.score > m ? o.score : m), 0) || 1;
 
   const handleAddToCart = (e, item) => {
     e.stopPropagation();
@@ -396,9 +401,14 @@ export default function RaritySniper({
             (no trait data for {collectionName} — ranked by price)
           </span>
         )}
+        {hasRarity && opportunities.length > 0 && rankedCount < opportunities.length && (
+          <span style={{ color: "var(--gold)", marginLeft: 8, fontSize: 11 }}>
+            (rarity ranks known for {rankedCount} of {opportunities.length} listed tokens — the rest are scored on price only)
+          </span>
+        )}
         {isApproximate && (
           <span style={{ color: "var(--gold)", marginLeft: 8, fontSize: 11 }}>
-            (ranks approximate — loading more {collectionName} data)
+            (ranks approximate — computed from the {tokens.length} {collectionName} tokens loaded so far)
           </span>
         )}
         {best && (
@@ -462,16 +472,20 @@ export default function RaritySniper({
       {/* Table */}
       {filtered.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">{opportunities.length === 0 ? "\u{1F50D}" : "\u{1F50E}"}</div>
+          <div className="empty-state-icon">{listings.length === 0 ? "\u{1F50D}" : "\u{1F50E}"}</div>
           <div className="empty-state-title">
-            {opportunities.length === 0
+            {listings.length === 0
               ? `No ${collectionName} listings available`
-              : "No matches for current filters"}
+              : opportunities.length === 0
+                ? `${listings.length} ${collectionName} listings loaded, but none could be scored`
+                : "No matches for current filters"}
           </div>
           <div className="empty-state-text">
-            {opportunities.length === 0
+            {listings.length === 0
               ? `Waiting for ${collectionName} listings to appear.${onRefresh ? " Hit Refresh or they will show automatically as the market updates." : ""}`
-              : `Try increasing the max price${hasRarity ? ", raising the max rank," : ""} or lowering the minimum snipe score.`}
+              : opportunities.length === 0
+                ? "No price could be read from these listings, so no snipe score can be computed."
+                : `Try increasing the max price${hasRarity ? ", raising the max rank," : ""} or lowering the minimum snipe score.`}
           </div>
         </div>
       ) : (
@@ -498,7 +512,7 @@ export default function RaritySniper({
                     onClick={() => onPick?.(item.token)}
                   >
                     <td style={s.td}>
-                      <NftImage nft={item.token} style={s.thumb} />
+                      <NftImage nft={item.token} style={s.thumb} noSelfFetch={item.token?.image == null} />
                     </td>
                     <td style={{ ...s.td, fontWeight: 700 }}>#{item.tokenId}</td>
                     {hasRarity && (
@@ -516,6 +530,14 @@ export default function RaritySniper({
                         <span style={{ fontWeight: 700, minWidth: 36 }}>
                           {item.score.toFixed(1)}
                         </span>
+                        {item.scoredBy === "price" && (
+                          <span
+                            style={{ fontSize: 9, color: "var(--text-dim)", whiteSpace: "nowrap" }}
+                            title="No rarity rank loaded for this token — scored on price alone"
+                          >
+                            price only
+                          </span>
+                        )}
                         <div
                           style={{
                             ...s.scoreBar,

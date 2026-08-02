@@ -53,22 +53,29 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
   const [totalOwners, setTotalOwners] = useState(0);
   const [totalHeldAll, setTotalHeldAll] = useState(0);
   const [loading, setLoading] = useState(true);
+  // fetchTopHolders never rejects — an outage arrives as `fallback: true` with an
+  // empty owner set, so the empty state has to name the outage rather than imply
+  // the collection simply has no holders yet.
+  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     setHolders([]);
     setTotalOwners(0);
     setTotalHeldAll(0);
+    setUnavailable(false);
     fetchTopHolders({ contract: collection.contract, limit: 100 })
       .then((data) => {
         setHolders(data.holders || []);
         setTotalOwners(data.totalOwners || 0);
         setTotalHeldAll(data.totalHeld || 0);
+        setUnavailable(!!data.fallback);
       })
       .catch(() => {
         setHolders([]);
         setTotalOwners(0);
         setTotalHeldAll(0);
+        setUnavailable(true);
       })
       .finally(() => setLoading(false));
   }, [collection.contract]);
@@ -115,9 +122,11 @@ export default function HolderAnalytics({ supply: suppliedSupply } = {}) {
       ) : !holders.length ? (
         <div className="empty-state" style={{ borderRadius: 12, background: "var(--surface-glass)", border: "1px solid var(--border)" }}>
           <div className="empty-state-icon">{"\uD83D\uDCCA"}</div>
-          <div className="empty-state-title">No Holder Data</div>
+          <div className="empty-state-title">{unavailable ? "Holder Data Unavailable" : "No Holder Data"}</div>
           <div className="empty-state-text">
-            Holder distribution for {collection.name} will populate once data is loaded.
+            {unavailable
+              ? `The holder API isn't responding. Nothing is shown for ${collection.name} rather than an estimate \u2014 reload once it recovers.`
+              : `Holder distribution for ${collection.name} will populate once data is loaded.`}
           </div>
         </div>
       ) : (

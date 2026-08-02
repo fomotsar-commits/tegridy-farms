@@ -230,16 +230,10 @@ export const FALLBACK_STATS = {
   supply: 20000,
 };
 
-// Sample data shown ONLY when live endpoints are unavailable (the DEMO badge is
-// up). Uses obviously-synthetic ENS handles — not real, named collectors — so a
-// fallback render never fabricates activity by an identifiable person (F540).
-export const FALLBACK_WHALES = [
-  { addr: "0xd8dA...6045", ens: "sample-whale-1.eth", held: 12, act: "Bought 3", time: "—", d: "+3" },
-  { addr: "0x1234...aBcD", ens: "sample-whale-2.eth", held: 47, act: "Listed 2", time: "—", d: "-2" },
-  { addr: "0xBEEF...c0de", ens: "sample-whale-3.eth", held: 89, act: "Swept 8", time: "—", d: "+8" },
-  { addr: "0xCAFE...bAbE", ens: "sample-whale-4.eth", held: 156, act: "Transferred 5", time: "—", d: "5" },
-  { addr: "0xDEAD...F00D", ens: "sample-whale-5.eth", held: 34, act: "Bid on #7762", time: "—", d: "bid" },
-];
+// NOTE: there is deliberately no fallback holder roster here. Holder counts feed
+// derived statistics (average held, whale count, top-10 concentration) that the
+// analytics surfaces render as measured facts, so an outage must produce an
+// explicit "unavailable" state, never a synthetic owner list.
 
 // Anchored to a FIXED timestamp (not Date.now() - offset) so sample sales don't
 // perpetually re-render as "2 minutes ago" and masquerade as fresh live trades.
