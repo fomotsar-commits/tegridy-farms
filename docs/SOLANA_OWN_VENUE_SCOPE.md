@@ -24,17 +24,27 @@ launched tokens **graduate into a venue we own**.
 - Ships with `AUDIT_RFQ.md`, `MAINNET_RUNBOOK.md`, `SECURITY.md`, and a devnet deploy script.
 - **Status: Phase 0. Devnet. NOT audited. NOT on mainnet. Holds no real funds.**
 
-**What does NOT exist: the bonding curve.** `programs/` contains only `cp-swap`. There is no
-launch curve, no graduation instruction, and nothing that mints or bonds a new token.
+**The bonding curve now EXISTS.** ⚠️ Corrected 2026-08-02: this section previously read *"What
+does NOT exist: the bonding curve. `programs/` contains only `cp-swap`."* That was written
+before `tegridy-launch` landed and was never updated. It is false on this branch and has been
+false since 2026-07-30. Telling an auditor a fund-holding program does not exist is the
+wrong direction to be wrong in, so it is corrected here rather than left to the RFQ.
 
-## So the remaining work is the curve, not the AMM
+`programs/` contains **both** `cp-swap` and `tegridy-launch`. The latter is real Anchor code
+under `programs/tegridy-launch/src/` — `lib.rs` (1,501 lines), `curve.rs` (750), `state.rs`,
+`errors.rs` — with a `MIGRATE_DESIGN.md` and a graduation path. It is **unaudited and
+undeployed**, which is a different claim from not existing.
+
+## So the remaining work is auditing and deploying the curve, not writing it
 
 | Piece | State | Remaining |
 | --- | --- | --- |
 | AMM to graduate into | **Built** (4-constant fork) | Diff-audit + mainnet deploy per the existing runbook |
-| Bonding curve program | **Does not exist** | ~700–1,100 LoC Anchor, from scratch |
-| Curve → AMM graduation | **Does not exist** | ~150–250 LoC; the highest-risk instruction in the design |
+| Bonding curve program | **Built, CI-green, UNAUDITED, UNDEPLOYED** | Full from-scratch audit of ~2,250 LoC; no audited upstream to diff against |
+| Curve → AMM graduation | **Built** (`migrate_to_amm`) | Still the highest-risk instruction in the design; audit it as such |
+| Creator fee split | **Not on this branch** — built on `claude/launcher-own-venue`, diverges from `programs/tegridy-launch/CREATOR_FEE_SPEC.md` §1 | Reconcile spec vs code, then land, then audit. It changes BOTH trade paths, so it must be settled **before** the RFQ is priced |
 | Fee/treasury routing | Config-driven in the AMM | Curve-side claim path, Squads-vault-only |
+| `create_pool_fee_reveiver` WSOL ATA | **Does not exist on mainnet** (verified 2026-08-02) | ~0.00204 SOL to create; until it does, every cp-swap `create_pool` fails |
 
 ### Corrected cost
 
