@@ -1,4 +1,4 @@
-import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, FALLBACK_WHALES, SEAPORT_DOMAIN } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
@@ -630,17 +630,12 @@ export async function fetchTopHolders({ contract = CONTRACT, limit = 10 } = {}) 
     };
   } catch (err) {
     console.warn("Holders API unavailable:", err.message);
-    if (contract.toLowerCase() !== CONTRACT.toLowerCase()) return { holders: [], totalOwners: 0, totalHeld: 0, fallback: true };
-    return {
-      holders: FALLBACK_WHALES.map(w => ({
-        address: w.addr,
-        ens: w.ens,
-        count: w.held,
-      })),
-      totalOwners: 0,
-      totalHeld: 0,
-      fallback: true,
-    };
+    // Never substitute invented owners. HolderAnalytics and CollectionHealth
+    // derive avg-held, whale counts and top-10 concentration from this list and
+    // render them as measured facts, so a synthetic roster fabricates statistics
+    // rather than merely illustrating a UI. Consumers gate on an empty `holders`
+    // plus `fallback` to show an explicit unavailable state.
+    return { holders: [], totalOwners: 0, totalHeld: 0, fallback: true };
   }
 }
 

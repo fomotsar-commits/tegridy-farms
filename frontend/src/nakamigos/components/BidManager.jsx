@@ -548,6 +548,8 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     <div style={styles.container}>
       <div style={styles.title}>Bid Manager</div>
 
+      <CollectionOffersPanel wallet={wallet} onConnect={onConnect} addToast={addToast} />
+
       <div style={styles.refreshNote}>Auto-refreshes every 30s</div>
 
       {/* Tab bar */}
