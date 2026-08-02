@@ -31,6 +31,137 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 > runs are attributed to the commit that recorded them. They are internally
 > consistent but are **not** reproducible from the repository.
 
+### Fixed — The token scanner turned failed reads into verdicts, and rebuilt balances from a rounded percentage (2026-08-01)
+
+`/scan` is live and the Ethereum holder route behind it is serving real data —
+probed today against USDC and SHIB through `memetic.fun/api/v1?route=erc20scan`, so
+none of the below is latent.
+
+**A payload we could not read is not a finding about somebody's token.** Every read
+has three outcomes and only two are answers: *read it, the answer is no*; *read it,
+the answer is yes*; *could not read it*. Both adapters and the route collapsed the
+third into the first:
+
+- `parseSolanaScan` read a missing `supply.value.amount` as "No SPL token supply
+  found at that address — is it a valid mint?", took `largest.value ?? []` as an
+  empty holder set, and — the flattering direction — read a mint account that did
+  not come back in `jsonParsed` form as **authority renounced**, silently removing
+  the `concentrated` floor a live mint authority imposes.
+- `parseEthereumScan` did the same with `Array.isArray(json.holders) ? … : []`: a
+  body with no holder list became `ScanError('empty')`, which renders as "No holder
+  data for this token — double-check the address is a token (not a wallet or an
+  NFT)" — byte-identical to what a genuinely holder-less token produces.
+- The `erc20scan` route completed the pattern at the one end that can **cache** its
+  mistake. The 2026-07-24 fix caught non-2xx and `{error}` envelopes but not a 200
+  carrying a CDN interstitial or a gateway HTML page — the ordinary way an upstream
+  fails *without* a status code. `catch { top = {} }` plus `(top.holders || [])`
+  made that a 200 with `holders: []`, stamped `s-maxage=120` and served to everyone
+  who scanned that token for the next two minutes.
+
+**The value-level half is worse, because it does not fail — it succeeds and renders
+a report.** `toBig` stripped a decimal tail and then every remaining non-digit, so a
+`totalSupply` that was not a plain decimal became a *different* integer. `"1e+21"` —
+exactly what `String(n)` yields for any JSON number ≥ 1e21, the size a meme-coin
+supply actually is — became `121n`. Nothing throws: `classifyHolders` only
+substitutes the enumerated sum when the total is `0n`, so a wrong-but-nonzero
+denominator is used as-is and `ratio()` clamps at `part >= whole`. Measured on a
+healthy 100-holder fixture whose largest holds 3% of a 1e33 supply:
+`top1ShareOfTotal` **0.03 → 1**, band **"mixed" → "concentrated"**, and the
+`single-holder-majority` gate **fired**. A maximum-severity red flag about a clean
+token, computed from a field the scan never read. The same coercion one field down
+points the other way: a holder reported as `"9.9e32"` parsed as `9n`, and a wallet
+that really holds 99% of supply was published at `top1ShareOfTotal` 0.001,
+effectiveHolders 99, band **"well-distributed"**, no gate fired.
+
+**And the balances were never the balances.** Ethplorer hands over the exact
+base-unit integer in `rawBalance`. The route ignored that field and rebuilt every
+balance as `totalSupply × round(share × 1e4) / 1e6` — and `share` is a percentage
+rounded to **two decimals**, a fixed ±0.005pp error whose *relative* size explodes as
+holdings shrink. Measured against the live route on TOWELI, our own token: one
+holder published as `700000000000000000000000` against an actual
+`744733489701014745728907` — **6.01% light, 44,733 TOWELI** — and the top holder
+reads 27.4700% today against an exact 27.4657%. At the tail it is not merely
+imprecise: any holder under 0.005% rounds to a zero balance and **drops out of the
+enumerated set**, understating concentration.
+
+Now: unreadable throws `ScanError('network')`, which renders "Couldn't complete the
+scan" with a retry — a statement about the READ. The codes deliberately *not* used
+for it were checked against what each caller renders first: `'empty'`/`'not-found'`
+emit the "double-check the address is a token" copy, and `'unavailable'` renders
+deployment copy that literally reads "Solana token scans work today". Both would
+launder a failed read into a finding. The route reads `rawBalance` (falling back to
+`balance` only when that number is an exact integer), treats an unparsable
+`getTokenInfo`, a present-but-unreadable `totalSupply`, and an unreadable holder row
+as failed reads, and takes the uncached 502 path. What stays an ANSWER also stays: an
+**absent** `totalSupply` is the route's documented gap, `holders: []` is still a
+cached 200, a zero balance and a non-address row are still dropped, and an auth
+failure is still the 403 the client renders as the honest deployment gap.
+
+An adversarial review of the above caught two cases the first pass missed, both now
+closed. **The info leg was never checked at all** — only `getTopTokenHolders` was —
+and a typeof-object test cannot see an Ethplorer `{error:{code:429}}` envelope,
+because an envelope *is* an object. The two calls race one API key in parallel, so
+exactly one being throttled is routine rather than exotic (reproduced live on
+`freekey`). That published `totalSupply: null`, which is not a missing label: the
+core then substitutes the enumerated top-100 sum as the denominator, inflating every
+share by 1/coverage — **1.216× measured on UNI's live top-100** — under a stat tile
+captioned "of total supply", and a large enough holder crosses the 50%
+`single-holder-majority` gate and floors the band at `concentrated`, cached 120s,
+reading clean again once the quota resets. `infoRes.ok` and the info-side error
+envelope are now part of the same failure test. Second: rows arriving but **none**
+being attributable derived `holders: []` by discarding every one of them — the same
+laundering in slow motion. Non-empty in, empty out, is now drift.
+
+Reading `rawBalance` was verified before it was relied on: across 500 real rows
+(TOWELI/USDC/DAI/UNI/WBTC, top 100 each) it was a valid digit string in **100%**,
+while `balance` was an unsafe float in **80%** — the old fallback was the fabricating
+path, not the safe one. The `share` reconstruction and its `totalBig` are deleted.
+Two guards were written and then deleted rather than kept, because no mutation could
+kill them: a body-level object guard on the client and a parse-failure flag on the
+server, both already subsumed by the holder-list check.
+
+Verified against the live upstream rather than fixtures alone: the real handler
+driven through real Ethplorer responses returns 200 with 100 holders for all five
+tokens (TOWELI 27.4657%, USDC 8.4430%, DAI 17.3775%, UNI 26.7247%, WBTC 27.8745%),
+enumerated sum never exceeding total supply. An unspaced run of the same probe 502s
+on the freekey rate limit — the hardening doing its job, failing closed on a
+transient upstream instead of caching a token with no holders.
+
+Tests mutation-checked individually, not just in bulk: reverting the client source
+turns 9 red and the server source 3; each remaining guard then kills only its own
+tests (holders-array 3, base-unit digits 4, safe-integer 1, body narrowing 1,
+rawBalance preference 5, unparsable info 1, unreadable row 5, fail-vs-drop 2). The
+preserved-behaviour tests stay green both ways, which is what shows the hardening did
+not blunt the real answers. Frontend suite green — 169 files, 2411 tests — `tsc -b`
+and ESLint clean.
+
+**And the exclusion pass was inert on Ethereum the whole time.** The detection core
+removes structural holders — LP pairs, CEX wallets, bridges, lockers, vaults — from
+the person-held distribution, and its only generic input is `isContract`. Ethplorer
+does not send that field, so `!!h.isContract` was `false` for every row: the pass ran
+and matched nothing. Measured against the live route, 15 of TOWELI's top 100 holders
+have code — including the LARGEST at 27.47%, which is the **Uniswap V2 pair itself**,
+and the staking contract at 5.1% — so the headline read "largest holder 27.47%" where
+the largest PERSON holds 3.71%, and 6.0 effective holders against a real 23.1. WBTC is
+worse: **40 of its top 100 have code**, top holder 27.87% against a top person of
+**1.47%**, a 19x overstatement on the one number the page exists to report.
+
+The route now reads it, batching `eth_getCode` over the enumerated holders through a
+configured Alchemy key then the three keyless public nodes the repo already trusts
+(`_lib/eth-code.js`, mirroring the roster and per-attempt timeout in
+`_lib/seaport-verify.js`). A batch that answers only some of its ids, answers one
+twice, or returns a non-hex result is rejected rather than partially trusted — partial
+trust would silently mark the unanswered addresses EOAs, which is the same defect one
+level down. An unreadable batch fails closed: a distribution verdict whose exclusion
+pass did not run is exactly what this route has spent three commits removing. The
+upstream's own `isContract` is no longer consulted at all; a value we never read is
+not a classification.
+
+**Operator note:** this changes numbers on a live surface. Balances become exact, so
+published shares shift slightly and sub-0.005% holders reappear in the set. It also
+fails closed where it used to degrade: if the upstream changes shape or drops
+`rawBalance`, scans 502 rather than publishing approximations.
+
 ### Security — Solana partner config went live against a custody gate that could not see a 1-of-1 (2026-08-01)
 
 The operator ran `create-config --send`, so a **Meteora DBC partner config now exists
