@@ -17,6 +17,7 @@ import { jwtVerify } from "jose";
 import { createClient } from "@supabase/supabase-js";
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { validateBody } from "./_lib/proxy-schemas.js";
+import { assertChatHolder } from "./_lib/holder-gate.js";
 // AUDIT FIX 2026-05-26 [H-21]: bound Supabase response reads — a hostile
 // PostgREST or rogue gateway upstream could otherwise OOM the lambda with a
 // large payload or gzip-bomb. Parity with aggregator-proxy + orderbook hardening.
@@ -255,6 +256,19 @@ export default async function handler(req, res) {
     const result = validateBody(table, method, body, jwtClaims);
     if (!result.ok) return res.status(400).json({ error: result.error });
     body = result.data;
+  }
+
+  // SECURITY: the chat UI advertises this room as holder-exclusive
+  // (CommunityChat.jsx:925-932) but the only gate was a hidden textarea
+  // (CommunityChat.jsx:885). Enforce ownership here, where the SIWE-verified
+  // wallet is available. Scoped strictly to chat INSERTs — DMs, profiles,
+  // favorites, watchlist, votes, push and the like/reaction RPCs are
+  // deliberately NOT holder-gated.
+  // Placement is load-bearing: it runs AFTER validateBody so `body` is already
+  // normalized, `slug` is bounded, and `author === verifiedWallet`.
+  if (table === "messages" && method === "INSERT") {
+    const gate = await assertChatHolder(verifiedWallet, body);
+    if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
   }
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
