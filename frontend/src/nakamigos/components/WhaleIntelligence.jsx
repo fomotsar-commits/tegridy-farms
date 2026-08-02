@@ -457,7 +457,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     }
     resolveAll();
     return () => { mounted = false; };
-  }, [holders, whaleTransactions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [holders, whaleTransactions]);
 
   /* ── Helper: get display name for an address (ENS or shortened) ── */
   const getDisplayName = useCallback((fullAddress, shortAddress) => {

@@ -133,12 +133,34 @@ export default defineConfig([
       //
       // Demoting the React Compiler-enforcement rules to `warn` keeps
       // them in the lint signal (devs see them) without blocking CI.
-      // The two CLASSIC react-hooks rules (`rules-of-hooks` for
-      // conditional hook calls, `exhaustive-deps` for stale-closure
-      // dep arrays) remain ERRORS — those ARE correctness bugs.
+      //
+      // CORRECTED 2026-08-02 — this block used to claim: "The two CLASSIC
+      // react-hooks rules (`rules-of-hooks`, `exhaustive-deps`) remain ERRORS
+      // — those ARE correctness bugs." NEITHER IS AN ERROR, and one never was:
+      //   - `exhaustive-deps`: the preset ships it as "warn" and nothing here
+      //     raises it, so it has been a warning the whole time.
+      //   - `rules-of-hooks`: the preset ships it as "error", but it is
+      //     explicitly demoted to 'warn' ~30 lines below this comment.
+      // Read literally, the old text told a reader that stale-closure dep
+      // arrays fail CI. They do not. Verify severity with
+      // `npx eslint --print-config <file>`, not with this comment.
       //
       // Follow-up task tracked: refactor each warning to the React
-      // Compiler-friendly pattern, then flip these back to `error`.
+      // Compiler-friendly pattern, then flip these to `error` — note that
+      // would be a RAISE for all of them, not a restore.
+      //
+      // 2026-08-02: all 164 `.jsx` warnings were triaged once the `.jsx` glob
+      // above started linting them. NO live correctness bug was found, which
+      // holds up the 05-18 "none are CORRECTNESS bugs" call. Specifically, the
+      // 11 `exhaustive-deps` are 6 over-invalidations (perf), 3 where the
+      // "missing" dep co-varies with one already listed (e.g.
+      // `collection.metadataBase` always changes with `collection.contract`),
+      // 1 false positive (OnChainProfile's cleanup increments a generation ref
+      // rather than reading a captured one), and 1 same-length-different-content
+      // window in ShoppingCart that gates a pre-flight check only — the actual
+      // purchase path re-derives from full `purchasableItems` and re-validates
+      // against live listings. Do not mass-refactor these to clear the report;
+      // that trades real robustness in a marketplace UI for a green count.
       // ─────────────────────────────────────────────────────────────────
       'react-hooks/preserve-manual-memoization': 'warn',
       'react-hooks/purity': 'warn',
