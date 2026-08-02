@@ -90,8 +90,16 @@ export type ScanTokenFn = (
   signal?: AbortSignal,
 ) => Promise<DistributionAnalysis | null>;
 
+// No forward-looking promise in here. This one string is reached by three paths
+// the code cannot tell apart — a scan that threw (transient), a scanner that
+// resolved `null` because its source does not cover the token (not transient),
+// and the no-scanner default (nothing to retry at all). Nothing re-runs the scan
+// either: the hook's effect is keyed on the holding SET (see useWalletExposure),
+// so a failed read stays failed until the holdings change. Copy that says
+// otherwise is a claim the code does not honour. See useWalletExposure.test.ts,
+// which pins that no-retry behaviour alongside this wording.
 export const UNMEASURED_REASON =
-  'Concentration, bundle and sniper scoring needs this token’s holder distribution, which could not be read right now (the holder source was unavailable, rate-limited, or does not cover this token). Your position size below is exact; the distribution read will retry.';
+  'Concentration, bundle and sniper scoring needs this token’s holder distribution, which could not be read (the holder source was unavailable, rate-limited, or does not cover this token). Your position size below is exact; the distribution read is not available for this token right now.';
 
 const NO_HOLDERS_REASON =
   'No holders remained to measure after structural exclusions (pools, CEX, bridges, burns, contracts) — not enough real-holder data for a distribution read.';
