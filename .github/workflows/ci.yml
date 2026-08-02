@@ -72,6 +72,15 @@ jobs:
         # be re-checked before porting to main.
         run: npm test
 
+      # The pre-deploy guard is the only control on the Vercel CLI path, and it
+      # runs on an operator's laptop where nothing verifies it still works. Its
+      # decision table is pure, so prove it here on every push instead of
+      # discovering it is broken during an incident. `working-directory` is
+      # overridden because the script lives at the repo root, not in frontend/.
+      - name: Pre-deploy guard self-test
+        working-directory: .
+        run: node scripts/predeploy-check.mjs --self-test
+
   build:
     name: Build
     runs-on: ubuntu-latest
