@@ -197,7 +197,7 @@ export default function WalletExposurePage() {
   // scoring never rendered — even though /scan already had the wired holder
   // source. Each held token now runs through the same scanTokenLive path the
   // Scanner page uses; a failed scan falls back to null (still `unmeasured`).
-  const { isWrongNetwork, isLoading, error, holdings, exposures, scanning } = useWalletExposure({
+  const { isWrongNetwork, isLoading, error, holdings, unreadableBalances, exposures, scanning } = useWalletExposure({
     extraTokens,
     scanToken: (t, signal) =>
       scanTokenLive(t.address, { signal, chainOverride: t.chain })
@@ -297,6 +297,15 @@ export default function WalletExposurePage() {
               <span>{holdings.length} position{holdings.length === 1 ? '' : 's'}</span>
               <span>{summary.measured} measured</span>
               {summary.unmeasured > 0 && <span>{summary.unmeasured} not measured</span>}
+              {/* Distinct from "not measured": those are positions we DO show whose
+                  distribution could not be read. These are positions missing from the
+                  list entirely because their balance read failed — so the count below
+                  is what keeps their absence from being silent. */}
+              {unreadableBalances.length > 0 && (
+                <span className="text-amber-300/80">
+                  {unreadableBalances.length} balance{unreadableBalances.length === 1 ? '' : 's'} unreadable
+                </span>
+              )}
               {summary.worstBand && (
                 <span className="inline-flex items-center gap-1.5">
                   Worst read: <BandPill band={summary.worstBand} />
@@ -341,8 +350,17 @@ export default function WalletExposurePage() {
               is kept but lowers confidence, never assumed hostile.
             </p>
             <p>
+              Distribution comes from the same read the scanner uses, which enumerates the largest holders — the
+              top ~100 on Ethereum, the top 20 on Solana. Where a token has more holders than that, the
+              un-enumerated tail can only dilute concentration, so a concentrated band is an upper bound rather
+              than an exact figure.
+            </p>
+            <p>
               Distribution scoring is shown only for tokens whose holder distribution could be read. Where it
               couldn’t, the read is marked not measured — the position size stays exact and nothing is inferred.
+              A token whose <em>balance</em> read fails has no size to show, so it is left out of the list and
+              counted as unreadable above rather than dropped silently: an omitted position would understate the
+              concentration on this page.
             </p>
           </footer>
         </>
