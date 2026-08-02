@@ -100,3 +100,25 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    ignore:
+      # foundry-toolchain 1.9.x turns ALL NINE forge test slices red, plus the
+      # `all-tests-pass` aggregator — i.e. it takes out the repo's only real
+      # contracts gate. Held at 1.3.1 until someone does the migration properly.
+      #
+      # The failure is NOT the solmate remapping story recorded in #205. Measured
+      # on that PR's own Contracts CI run (30721651775) on 2026-08-01:
+      #   * `CreateContractSizeLimit` / "create initcode size limit"  -> 224 hits
+      #   * "Unable to resolve imports"                               ->   1 hit (v4 slice only)
+      # and the doubled-`src/src/` remapping error that #205 blames appears
+      # 70 times in a GREEN 1.3.1 run (30724913602), so it is pre-existing and
+      # benign. Eight of the nine slices COMPILE FINE under 1.9 and die at
+      # RUNTIME on the size limit — e.g. r-series reports "0 tests passed,
+      # 10 failed" with `[FAIL: EvmError: CreateContractSizeLimit] constructor()`.
+      #
+      # So fixing remappings turns one slice green and leaves eight red. The
+      # untried lever is contracts/foundry.toml's `code_size_limit = 24576`,
+      # which 1.9 appears to apply to the TEST harness and not just deployables.
+      #
+      # Dependabot re-opened this as #190 after it was closed once. LIFT this
+      # ignore only together with a run where all nine slices are green.
+      - dependency-name: "foundry-rs/foundry-toolchain"
