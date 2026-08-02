@@ -181,7 +181,22 @@ export default async function handler(req, res) {
         // disclosed as an upper bound); a PRESENT one we cannot read is neither, and
         // must not go out as a mangled string — the client's `toBig` turned "1e+21"
         // into 121n and published 100% concentration off it.
+        //
+        // BOTH legs are checked, not just the holder one. Ethplorer reports a
+        // rate-limit or a bad key as an {error:{code}} envelope under HTTP 429/200,
+        // and `typeof envelope === "object"` is TRUE — so a typeof-object test alone
+        // reads a throttled getTokenInfo as "the explorer did not report a total".
+        // The two calls race one key in parallel, so exactly one of them being
+        // rejected is routine (reproduced live on `freekey`). The consequence is not
+        // a missing label: with no total, the core substitutes the enumerated
+        // top-100 sum as the denominator, so every published share is inflated by
+        // 1/coverage — measured at 1.216x on UNI's live top-100 — under a stat tile
+        // captioned "of total supply", and a large-enough holder crosses the 50%
+        // single-holder-majority gate and floors the band at `concentrated`. Cached
+        // for 120s, then the same token reads clean once the quota resets.
         const infoOk = !!info && typeof info === "object";
+        const infoError = infoOk ? info.error : null;
+        const infoUnreadable = !infoOk || !!infoError || !infoRes.ok;
         const rawTotal = infoOk ? info.totalSupply : null;
         const totalSupply = rawTotal == null ? null : baseUnits(rawTotal);
 
@@ -206,6 +221,12 @@ export default async function handler(req, res) {
           if (balance === null) { holders = null; break; }
           holders.push({ address, balance, isContract: !!(h && h.isContract) });
         }
+        // Rows arrived but NONE of them were attributable. An empty `holders: []` is
+        // only an answer when the upstream itself said "nobody"; deriving one by
+        // discarding every row it did send is the same laundering in slow motion —
+        // the client reads it as "No holder data for this token" and the CDN keeps
+        // that for 120s. Non-empty in, empty out, is drift.
+        if (rows && rows.length > 0 && holders !== null && holders.length === 0) holders = null;
 
         // A 200 carrying a CDN interstitial or a gateway HTML page is the ordinary
         // way an upstream fails WITHOUT a non-2xx, and an Ethplorer {error:{code}}
@@ -214,7 +235,7 @@ export default async function handler(req, res) {
         // carrying `holders: []`. A `holders: []` that IS present still succeeds —
         // that is the read working and the answer being nobody.
         const epError = top && typeof top === "object" ? top.error : null;
-        const unreadable = !infoOk || (rawTotal != null && totalSupply === null) || holders === null;
+        const unreadable = infoUnreadable || (rawTotal != null && totalSupply === null) || holders === null;
         if (!topRes.ok || epError || unreadable) {
           // Ethplorer code 1 = invalid API key. Map auth failures to 403, which
           // the client renders as the honest "scanner not enabled on this

@@ -145,9 +145,11 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
 
   afterEach(() => { delete globalThis.fetch; });
 
+  /** `info`/`top` may be a body string, or a pre-built response to control ok/status. */
   function serve({ info = INFO, top }) {
+    const wrap = (v) => (typeof v === "string" ? upstream(v) : v);
     globalThis.fetch = vi.fn(async (url) =>
-      String(url).includes("getTopTokenHolders") ? upstream(top) : upstream(info),
+      String(url).includes("getTopTokenHolders") ? wrap(top) : wrap(info),
     );
   }
 
@@ -249,6 +251,49 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
     const { body, statusSpy } = await scan({ info: JSON.stringify({ name: "T", symbol: "T" }), top });
     expect(statusSpy).not.toHaveBeenCalledWith(502);
     expect(body.totalSupply).toBeNull();
+  });
+
+  it("does NOT read a throttled getTokenInfo as 'the explorer reported no total'", async () => {
+    // ⚠ The defect a typeof-object check cannot see. Ethplorer reports a rate-limit
+    // as an {error:{code}} envelope — which IS an object — and the two calls race
+    // one API key in parallel, so exactly one of them being rejected is routine
+    // (reproduced live on `freekey`). Publishing `totalSupply: null` here makes the
+    // core substitute the enumerated top-100 sum as the denominator, inflating every
+    // share by 1/coverage under a tile captioned "of total supply", and a big enough
+    // holder then crosses the 50% single-holder-majority gate — cached for 120s.
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    const throttled = upstream(JSON.stringify({ error: { code: 429, message: "Request limit is reached" } }), {
+      ok: false,
+      status: 429,
+    });
+    const { statusSpy, headers, body } = await scan({ info: throttled, top });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
+    expect(body).not.toHaveProperty("totalSupply");
+  });
+
+  it("catches a 200-with-error-envelope on the info leg too", async () => {
+    // The same envelope under HTTP 200 — `infoRes.ok` alone would miss this one.
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    const { statusSpy } = await scan({ info: JSON.stringify({ error: { code: 429 } }), top });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+
+  it("catches a non-2xx info leg that still parses as JSON", async () => {
+    const top = JSON.stringify({ holders: [{ address: `0x${"a".repeat(40)}`, rawBalance: "100" }] });
+    const { statusSpy } = await scan({ info: upstream(JSON.stringify({ ok: false }), { ok: false, status: 500 }), top });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+
+  it("does not manufacture an empty holder set by discarding every row", async () => {
+    // Rows arrived; none were attributable. Deriving `holders: []` from that is the
+    // same laundering in slow motion — the client renders it as "No holder data for
+    // this token" and the CDN keeps it for 120s. Non-empty in, empty out, is drift.
+    const { statusSpy, headers } = await scan({
+      top: JSON.stringify({ holders: [{ address: "not-an-address", rawBalance: "5" }, { address: "0xzz", rawBalance: "6" }] }),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
   });
 
   it("treats an unparsable token-info body as a failed read, not as five nulls", async () => {

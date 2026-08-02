@@ -97,6 +97,21 @@ as failed reads, and takes the uncached 502 path. What stays an ANSWER also stay
 cached 200, a zero balance and a non-address row are still dropped, and an auth
 failure is still the 403 the client renders as the honest deployment gap.
 
+An adversarial review of the above caught two cases the first pass missed, both now
+closed. **The info leg was never checked at all** — only `getTopTokenHolders` was —
+and a typeof-object test cannot see an Ethplorer `{error:{code:429}}` envelope,
+because an envelope *is* an object. The two calls race one API key in parallel, so
+exactly one being throttled is routine rather than exotic (reproduced live on
+`freekey`). That published `totalSupply: null`, which is not a missing label: the
+core then substitutes the enumerated top-100 sum as the denominator, inflating every
+share by 1/coverage — **1.216× measured on UNI's live top-100** — under a stat tile
+captioned "of total supply", and a large enough holder crosses the 50%
+`single-holder-majority` gate and floors the band at `concentrated`, cached 120s,
+reading clean again once the quota resets. `infoRes.ok` and the info-side error
+envelope are now part of the same failure test. Second: rows arriving but **none**
+being attributable derived `holders: []` by discarding every one of them — the same
+laundering in slow motion. Non-empty in, empty out, is now drift.
+
 Reading `rawBalance` was verified before it was relied on: across 500 real rows
 (TOWELI/USDC/DAI/UNI/WBTC, top 100 each) it was a valid digit string in **100%**,
 while `balance` was an unsafe float in **80%** — the old fallback was the fabricating
