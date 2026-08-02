@@ -37,6 +37,33 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 probed today against USDC and SHIB through `memetic.fun/api/v1?route=erc20scan`, so
 none of the below is latent.
 
+> **Correction (2026-08-02).** An adversarial review of this entry caught three of its
+> own measurements overstated. Recorded here rather than edited away, because an entry
+> about read-honesty that inflates its evidence is self-refuting.
+>
+> 1. **"`balance` was an unsafe float in 80%" is wrong — it is 60%.** Re-surveyed the
+>    same five tokens (TOWELI/USDC/DAI/UNI/WBTC, top 100 each): **300 of 500 rows**.
+>    Three tokens are ~100% unsafe and two are 0%, so "4 of 5 tokens" and "80% of rows"
+>    got conflated. `rawBalance` valid in 100% of 500 rows re-confirms unchanged, and
+>    that is the claim the fix actually rests on.
+> 2. **"none of the below is latent" over-reaches for ONE sub-case.** The shape defects
+>    — unparsable body, absent `holders`, the throttled info leg — are live-reachable.
+>    The `"1e+21" → 121n` denominator path is NOT: Ethplorer returns `totalSupply` as a
+>    plain digit string for every token probed, so that guard is defense-in-depth
+>    against a shape this upstream does not currently emit. The hazard is real (the
+>    route does `String(info.totalSupply)`, so a numeric total ≥ 1e21 would produce it)
+>    but it is latent, and the entry presents it as the headline.
+> 3. **"any holder under 0.005% rounds to a zero balance and drops out" was an
+>    inference, not an observation.** It follows from the arithmetic, but no surveyed
+>    holder actually rounded away — TOWELI's top 100 has **zero** `share == 0` rows and
+>    a minimum share of 0.06%. Correct as a property of the old code; not something
+>    that was measured happening.
+>
+> The `share`-quantization error itself (6.01% light on one TOWELI holder, 27.4700%
+> vs an exact 27.4657%) and the exclusion measurements (15 of TOWELI's top 100 have
+> code; 40 of WBTC's; top holder 27.87% against a top person 1.47%) were re-checked
+> and stand.
+
 **A payload we could not read is not a finding about somebody's token.** Every read
 has three outcomes and only two are answers: *read it, the answer is no*; *read it,
 the answer is yes*; *could not read it*. Both adapters and the route collapsed the
@@ -114,7 +141,8 @@ laundering in slow motion. Non-empty in, empty out, is now drift.
 
 Reading `rawBalance` was verified before it was relied on: across 500 real rows
 (TOWELI/USDC/DAI/UNI/WBTC, top 100 each) it was a valid digit string in **100%**,
-while `balance` was an unsafe float in **80%** — the old fallback was the fabricating
+while `balance` was an unsafe float in **60%** (300 of 500 rows; see the correction
+note at the head of this entry) — the old fallback was the fabricating
 path, not the safe one. The `share` reconstruction and its `totalBig` are deleted.
 Two guards were written and then deleted rather than kept, because no mutation could
 kill them: a body-level object guard on the client and a parse-failure flag on the
