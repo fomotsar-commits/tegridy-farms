@@ -74,7 +74,7 @@ export function browserRpc(fetchImpl: typeof fetch = fetch): SolanaRpc {
     try {
       body = await res.json();
     } catch (e) {
-      throw new Error(`${method}: the response was not JSON (${clipDetail(e)})`);
+      throw new Error(`${method}: the response was not JSON (${clipDetail(e)})`, { cause: e });
     }
     if (typeof body !== 'object' || body === null) {
       throw new Error(`${method}: the response was not a JSON-RPC object`);
@@ -82,9 +82,6 @@ export function browserRpc(fetchImpl: typeof fetch = fetch): SolanaRpc {
 
     const b = body as { result?: unknown; error?: { message?: string } };
     if (b.error) throw new Error(`${method}: ${b.error.message ?? 'unknown RPC error'}`);
-    // `'result' in b` rather than `b.result !== undefined`: an explicit
-    // `"result": null` is a real answer and must survive, while a body with no
-    // `result` member at all is a non-answer and must not be mistaken for one.
     // `'result' in b` rather than `b.result !== undefined`: an explicit
     // `"result": null` is a real answer and must survive, while a body with no
     // `result` member at all is a non-answer and must not be mistaken for one.
