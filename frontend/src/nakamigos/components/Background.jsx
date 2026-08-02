@@ -316,24 +316,29 @@ function DustMotes({ color }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 1, overflow: "hidden" }}>
-      {motes.map((m, i) => (
+      {/* The callback param is `mote`, NOT `m`: `m` is the framer-motion import
+          on line 3, and shadowing it here made `<m.div>` resolve to the plain
+          mote object, whose `.div` is undefined. React threw "Element type is
+          invalid" on every render and BackgroundErrorBoundary swallowed it, so
+          this whole layer silently never drew. */}
+      {motes.map((mote, i) => (
         <m.div
           key={i}
           animate={{
-            y: [0, m.driftY],
-            x: [0, m.driftX],
+            y: [0, mote.driftY],
+            x: [0, mote.driftX],
             opacity: [0, 0.6, 0.8, 0.4, 0],
           }}
-          transition={{ duration: m.dur, delay: m.delay, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ duration: mote.dur, delay: mote.delay, repeat: Infinity, ease: "easeInOut" }}
           style={{
             position: "absolute",
-            left: `${m.x}%`,
-            top: `${m.y}%`,
-            width: m.size,
-            height: m.size,
+            left: `${mote.x}%`,
+            top: `${mote.y}%`,
+            width: mote.size,
+            height: mote.size,
             borderRadius: "50%",
             background: color,
-            boxShadow: `0 0 ${m.size * 3}px ${color}`,
+            boxShadow: `0 0 ${mote.size * 3}px ${color}`,
           }}
         />
       ))}
