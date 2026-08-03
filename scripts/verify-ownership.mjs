@@ -61,6 +61,12 @@ const SEL = {
   guardian: '0x452a9320',
   pendingFeeToSetter: '0xe496994e',
   gaugeController: '0x99eecb3b',
+  getThreshold: '0xe75235b8',
+  getOwners: '0xa0e67e2b',
+  // 0x24a3d622, NOT 0x8456cb59 — the latter is `pause()`. An earlier revision of
+  // this file used it by guessing instead of deriving, and the guardian Safe was
+  // then SILENTLY absent from the report. Derive selectors; never recall them.
+  pauseGuardian: '0x24a3d622',
 };
 
 // The 19 contracts from SAFE_REHOME_RUNBOOK.md, plus how each is owned.
@@ -102,6 +108,16 @@ const CONTRACTS = [
   // the opposite of fine. It must be REDEPLOYED if the V4 rail ever unfreezes.
   ['TegridyFeeHook',        '0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044', 'stranded'],
 ];
+
+// The three Safes. GUARDIAN is resolved from the chain rather than hardcoded —
+// `pauseGuardian()` on a live contract is the authority on which Safe can pause,
+// and a doc can drift from it.
+const SAFES = [
+  ['GOVERNANCE', '0xA36053477568Fb5382492F3A5970D35Fe896b7F8', 2],
+  ['TREASURY',   '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d', 2],
+];
+/** Read pauseGuardian() from here to discover the guardian Safe. */
+const GUARDIAN_PROBE = '0xcaDc93E96De58EA554c71ca609974625615E046D';
 
 /** The stateless CREATE2 factory. Anything it "owns" is unreachable forever. */
 const CREATE2_PROXY = '0x4e59b44847b379578588920ca78fbf26c0b4956c';
@@ -188,6 +204,68 @@ export function assess(row, expectOwner) {
   return { problems, notes };
 }
 
+/**
+ * Assess one Safe. Pure, so --self-test can exercise the collapse logic without a chain.
+ *
+ * The check that matters is NOT "is any signer delegated" — it is whether the set of
+ * signers sharing a single delegation target is ITSELF large enough to meet the
+ * threshold. Two independent delegations to two different wallets is a different
+ * (and much weaker) finding than two delegations to the SAME wallet.
+ */
+export function assessSafe(safe) {
+  const problems = [];
+  const notes = [];
+  const { name, threshold, owners, minThreshold } = safe;
+
+  if (typeof threshold !== 'number') {
+    problems.push(`${name}: could not read getThreshold()`);
+    return { problems, notes };
+  }
+  if (minThreshold && threshold < minThreshold) {
+    problems.push(`${name}: threshold ${threshold} is below the required ${minThreshold}`);
+  }
+  if (threshold >= owners.length && owners.length > 1) {
+    notes.push(`${name}: ${threshold}-of-${owners.length} — NO key-loss redundancy; losing one key bricks it`);
+  }
+
+  // Group owners by shared EIP-7702 delegation target.
+  const byTarget = new Map();
+  for (const o of owners) {
+    if (o.kind !== 'eip7702') continue;
+    const list = byTarget.get(o.delegateTo) || [];
+    list.push(o.address);
+    byTarget.set(o.delegateTo, list);
+  }
+  for (const [target, addrs] of byTarget) {
+    if (addrs.length >= threshold) {
+      problems.push(
+        `${name}: ${addrs.length} signer(s) share EIP-7702 delegate ${target}, which MEETS the ` +
+        `${threshold}-of-${owners.length} threshold — that delegate alone controls this Safe`,
+      );
+    } else if (addrs.length > 1) {
+      problems.push(`${name}: ${addrs.length} signers share delegate ${target} (below threshold, still a correlated failure)`);
+    } else {
+      notes.push(`${name}: ${addrs[0]} is 7702-delegated to ${target}`);
+    }
+  }
+  return { problems, notes };
+}
+
+/** Owner sets across Safes must be DISJOINT; overlap defeats the separation. */
+export function assessDisjoint(safes) {
+  const problems = [];
+  for (let i = 0; i < safes.length; i++) {
+    for (let j = i + 1; j < safes.length; j++) {
+      const a = new Set(safes[i].owners.map((o) => o.address.toLowerCase()));
+      const shared = safes[j].owners.map((o) => o.address.toLowerCase()).filter((x) => a.has(x));
+      if (shared.length) {
+        problems.push(`${safes[i].name} and ${safes[j].name} share ${shared.length} signer(s): ${shared.join(', ')}`);
+      }
+    }
+  }
+  return problems;
+}
+
 // ── rpc ───────────────────────────────────────────────────────────────────
 async function rpc(url, method, params) {
   const res = await fetch(url, {
@@ -226,6 +304,30 @@ async function readContract(url, [name, address, kind]) {
     row.extra.gaugeController = decodeAddress(await call(url, address, SEL.gaugeController));
   }
   return row;
+}
+
+/** Decode an ABI `address[]` return into lowercase addresses. */
+export function decodeAddressArray(hex) {
+  if (typeof hex !== 'string' || hex.length < 130) return [];
+  const body = hex.slice(2);
+  const len = Number(BigInt('0x' + body.slice(64, 128)));
+  const out = [];
+  for (let i = 0; i < len; i++) {
+    const w = body.slice(128 + i * 64, 128 + (i + 1) * 64);
+    if (w.length < 64) break;
+    out.push('0x' + w.slice(24).toLowerCase());
+  }
+  return out;
+}
+
+async function readSafe(url, name, address, minThreshold) {
+  const threshold = decodeUint(await call(url, address, SEL.getThreshold));
+  const addrs = decodeAddressArray(await call(url, address, SEL.getOwners));
+  const owners = [];
+  for (const a of addrs) {
+    owners.push({ address: a, ...classifyCode(await rpc(url, 'eth_getCode', [a, 'latest'])) });
+  }
+  return { name, address, threshold, owners, minThreshold };
 }
 
 // ── self-test ─────────────────────────────────────────────────────────────
@@ -268,6 +370,43 @@ function selfTest() {
   ok('an unreadable owner is a problem, never a silent pass',
     assess({ ...base, owner: null }, null).problems.length === 1);
 
+  // --- Safe assessment ---
+  const eoa = (a) => ({ address: a, kind: 'eoa' });
+  const del = (a, t) => ({ address: a, kind: 'eip7702', delegateTo: t });
+  const A = '0x' + '11'.repeat(20), B = '0x' + '22'.repeat(20), C = '0x' + '33'.repeat(20);
+  const X = '0x' + 'ff'.repeat(20), Y = '0x' + 'ee'.repeat(20);
+
+  ok('a clean 2-of-3 of plain EOAs is fine',
+    assessSafe({ name: 'S', threshold: 2, owners: [eoa(A), eoa(B), eoa(C)], minThreshold: 2 }).problems.length === 0);
+  ok('TWO signers sharing ONE delegate at threshold 2 = that delegate owns the Safe',
+    assessSafe({ name: 'S', threshold: 2, owners: [eoa(A), del(B, X), del(C, X)], minThreshold: 2 })
+      .problems.some((p) => /alone controls this Safe/.test(p)));
+  ok('two signers delegated to DIFFERENT wallets is NOT a quorum collapse',
+    !assessSafe({ name: 'S', threshold: 2, owners: [eoa(A), del(B, X), del(C, Y)], minThreshold: 2 })
+      .problems.some((p) => /alone controls/.test(p)));
+  ok('threshold below the minimum is reported',
+    assessSafe({ name: 'G', threshold: 1, owners: [eoa(A), eoa(B)], minThreshold: 2 })
+      .problems.some((p) => /below the required/.test(p)));
+  ok('a single delegated signer at threshold 1 controls the Safe',
+    assessSafe({ name: 'G', threshold: 1, owners: [eoa(A), del(B, X)], minThreshold: 2 })
+      .problems.some((p) => /alone controls this Safe/.test(p)));
+  ok('2-of-2 is flagged as having no key-loss redundancy',
+    assessSafe({ name: 'T', threshold: 2, owners: [eoa(A), eoa(B)], minThreshold: 2 })
+      .notes.some((n) => /NO key-loss redundancy/.test(n)));
+  ok('overlapping owner sets across Safes are reported',
+    assessDisjoint([
+      { name: 'P', owners: [eoa(A), eoa(B)] },
+      { name: 'Q', owners: [eoa(B), eoa(C)] },
+    ]).some((x) => /share 1 signer/.test(x)));
+  ok('disjoint Safes are clean',
+    assessDisjoint([{ name: 'P', owners: [eoa(A)] }, { name: 'Q', owners: [eoa(B)] }]).length === 0);
+  ok('decodeAddressArray reads a 2-element array', (() => {
+    const hex = '0x' + '00'.repeat(31) + '20' + '00'.repeat(31) + '02'
+      + '00'.repeat(12) + '11'.repeat(20) + '00'.repeat(12) + '22'.repeat(20);
+    const r = decodeAddressArray(hex);
+    return r.length === 2 && r[0] === A && r[1] === B;
+  })());
+
   let failed = 0;
   for (const [n, pass] of cases) {
     if (pass) console.log(`  ✅ ${n}`);
@@ -305,6 +444,28 @@ async function main(argv) {
     report.push({ ...row, problems: p, notes });
   }
 
+  // The Safes themselves. Checked separately from the contracts because a Safe
+  // can be perfectly wired as an owner and still be controlled by a single key.
+  // GUARDIAN is resolved from `pauseGuardian()` on a live contract rather than
+  // hardcoded — the chain is the authority on which Safe can pause, and a doc
+  // can drift from it.
+  const safeSpecs = [...SAFES];
+  const guardianAddr = decodeAddress(await call(url, GUARDIAN_PROBE, SEL.pauseGuardian));
+  if (guardianAddr && guardianAddr !== ZERO) {
+    safeSpecs.push(['GUARDIAN', guardianAddr, 2]);
+  } else {
+    // LOUD, not silent. A guardian missing from a custody report reads as "there
+    // isn't one", when in fact it is the Safe that can pause the whole protocol.
+    problems += 1;
+    console.error(`❌ could not resolve the guardian Safe via pauseGuardian() on ${GUARDIAN_PROBE} — it is NOT being checked`);
+  }
+
+  const safes = [];
+  for (const [n, a, min] of safeSpecs) safes.push(await readSafe(url, n, a, min));
+  const safeVerdicts = safes.map((sf) => ({ safe: sf, ...assessSafe(sf) }));
+  const disjoint = assessDisjoint(safes);
+  problems += safeVerdicts.reduce((n, v) => n + v.problems.length, 0) + disjoint.length;
+
   // Signer independence. Checked separately because it is about the Safe, not
   // the contracts — and because it can regress at any time without any of the
   // ownership state changing at all.
@@ -341,6 +502,20 @@ async function main(argv) {
     for (const n of r.notes) console.log(`     · ${n}`);
     for (const p of r.problems) console.log(`     ❌ ${p}`);
   }
+
+  console.log('\nSafes:');
+  for (const v of safeVerdicts) {
+    const sf = v.safe;
+    console.log(`  ${v.problems.length ? '❌' : '  '} ${sf.name.padEnd(11)} ${sf.address}  ${sf.threshold}-of-${sf.owners.length}`);
+    for (const o of sf.owners) {
+      const tag = o.kind === 'eoa' ? 'EOA'
+        : o.kind === 'eip7702' ? `7702 -> ${o.delegateTo}` : `contract (${o.bytes}B)`;
+      console.log(`       ${o.address}  ${tag}`);
+    }
+    for (const n of v.notes) console.log(`       · ${n}`);
+    for (const pr of v.problems) console.log(`       ❌ ${pr}`);
+  }
+  for (const d of disjoint) console.log(`     ❌ ${d}`);
 
   if (signerReport.length) {
     console.log('\nSafe signer independence (EIP-7702):');
