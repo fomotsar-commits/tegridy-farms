@@ -81,6 +81,12 @@ jobs:
         working-directory: .
         run: node scripts/predeploy-check.mjs --self-test
 
+      # Same reasoning: the ownership verifier runs on an operator's laptop
+      # during the custody sprint, so its decision table is proven here.
+      - name: Ownership verifier self-test
+        working-directory: .
+        run: node scripts/verify-ownership.mjs --self-test
+
   build:
     name: Build
     runs-on: ubuntu-latest
