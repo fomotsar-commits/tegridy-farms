@@ -625,6 +625,22 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
   return (
     <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
       <div className="font-semibold mb-1">Launched.</div>
+
+      {/* THE HAND-OFF. The permalink at /launch/:token is the only artifact here that
+          is ours and is worth sharing — it renders the Fact Sheet, provenance and
+          graduation state from live on-chain reads. Until this link existed the flow
+          ended at Etherscan at the exact moment a creator most wants something to post,
+          and the page they had just earned was reachable only from the Explorer. */}
+      <Link
+        to={`/launch/${result.tokenAddress}`}
+        className="mt-2 mb-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/90 px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-emerald-400"
+      >
+        View your token’s page →
+      </Link>
+      <p className="text-emerald-200/60 text-xs mb-3 -mt-1">
+        Permanent, shareable, and generated from on-chain reads — not from what you typed here.
+      </p>
+
       <div className="text-emerald-200/90 space-y-0.5 break-all">
         <div>
           Token:{' '}

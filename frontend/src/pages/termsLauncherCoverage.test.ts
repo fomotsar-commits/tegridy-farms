@@ -148,4 +148,20 @@ describe('the launch flow surfaces the Terms', () => {
     expect(review).toMatch(/to="\/terms"/);
     expect(review).toMatch(/issuer/i);
   });
+
+  // The success panel is the one moment a creator is guaranteed to be looking, and the
+  // permalink is the only artifact in it that belongs to us. It shipped linking ONLY to
+  // Etherscan, which handed the most engaged moment in the funnel to a block explorer and
+  // left /launch/:token reachable from a single Explorer row. Pin the hand-off.
+  it('the launch success panel links to the token permalink, not just Etherscan', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'pages', 'LaunchPage.tsx'), 'utf8');
+    // Slice from the banner COMPONENT, not from the "Launched." string: `txUrl` is
+    // built above that literal, so a narrower slice silently drops the Etherscan
+    // assertion below and passes for the wrong reason.
+    const panel = src.slice(src.indexOf('function LaunchStatusBanner'));
+    expect(panel).toMatch(/to=\{`\/launch\/\$\{result\.tokenAddress\}`\}/);
+    // And it must still surface the on-chain records — the permalink replaces neither.
+    expect(panel).toMatch(/etherscan\.io\/tx\//);
+    expect(panel).toMatch(/etherscan\.io\/token\//);
+  });
 });
