@@ -62,12 +62,18 @@ import { SOL_MINT, USDC_MINT } from '../../solana';
 // to call (tests exercise them); the *operator submit path* — and any wired UI —
 // must guard on isSolanaLauncherEnabled().
 //
-// ENABLED 2026-07-27 (operator confirmed the Squads v4 vault is set up). This makes the
-// /solana-launch PREVIEW page live — a config preview only; there is NO in-app submit or
-// signer (verified: SolanaLaunchPage has no sendTransaction/createConfig path). Real
-// launches still go through the operator's out-of-band CLI wrapper (dbcClient.ts / README),
-// which verifies the feeClaimer IS the derived Squads vault PDA on-chain (squads.ts
-// verifySquadsVault).
+// ENABLED 2026-07-27 (operator confirmed the Squads v4 vault is set up).
+//
+// 🔄 UPDATED 2026-08-04 — /solana-launch now HAS an in-app submit path. A member of
+// the public signs and broadcasts their own `createPool` against the operator's live
+// config (`submitLaunch.ts` → `dbcClient.launchToken`); the wallet is both payer and
+// pool creator, and we never take custody. What has NOT changed: CONFIG CREATION is
+// still operator-only and out-of-band, because `createPartnerConfig` is what verifies
+// the feeClaimer IS the derived Squads vault PDA on-chain (squads.ts
+// verifySquadsVault). A launch inherits its fee authority from the config it names,
+// so the vault guarantee holds only for configs created through that wrapper — which
+// is exactly why the submit path takes its config from build-time configuration and
+// never from user input.
 //
 // 🔴 CORRECTED 2026-07-30 — this comment previously ended "...and enforces multisig
 // threshold >= 2 before the first real create." THAT IS FALSE, and it sat directly above

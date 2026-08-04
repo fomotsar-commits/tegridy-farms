@@ -55,13 +55,31 @@ describe('Terms of Service — launcher coverage', () => {
     expect(section(2)?.body).toMatch(/paired against either native ETH or TOWELI/);
   });
 
-  it('§2 describes the Solana rail as preview-only, which is what it is today', () => {
+  // The Solana rail STOPPED being preview-only when the browser submit path shipped.
+  // §2 previously stated, as a binding term, that the interface "does not submit any
+  // Solana transaction on your behalf" — shipping the signer without amending that
+  // sentence would have falsified the live Terms on the exact action that moves a
+  // user's funds. These assertions moved in the SAME commit as the signer, which is
+  // the whole point of this file.
+  it('§2 describes the Solana rail as user-submitted and non-custodial', () => {
     expect(isSolanaLauncherEnabled()).toBe(true);
     const s2 = section(2)?.body ?? '';
     expect(s2).toMatch(/Meteora/);
-    expect(s2).toMatch(/PREVIEW only/);
-    // The Solana page has no signer; claiming otherwise would overstate the rail.
-    expect(s2).toMatch(/does not submit any Solana transaction/i);
+    expect(s2).toMatch(/sign the launch transaction yourself/i);
+    expect(s2).toMatch(/never takes custody/i);
+    expect(s2).toMatch(/cannot submit a launch without your signature/i);
+    // The stale preview language must be GONE, not merely supplemented.
+    expect(s2).not.toMatch(/PREVIEW only/);
+    expect(s2).not.toMatch(/does not submit any Solana transaction/i);
+  });
+
+  it('§2 discloses the two things a Solana launcher cannot undo', () => {
+    const s2 = section(2)?.body ?? '';
+    // The config is immutable, so the curve/fees/split are fixed before launch —
+    // a launcher who believes they can retune later has been misled.
+    expect(s2).toMatch(/IMMUTABLE/);
+    expect(s2).toMatch(/anti-snipe/i);
+    expect(s2).toMatch(/irreversible/i);
   });
 
   it('§7 Fees renders the launch fee tier and the full constitution from the constants', () => {
