@@ -62,7 +62,13 @@ jobs:
           SOL_RPC="${SOL_RPC:-https://api.mainnet-beta.solana.com}"
 
           EARNED=""   # rails that are non-zero
-          UNKNOWN=""  # rails we could not read — NEVER silently "zero"
+          UNKNOWN=""       # rails we TRIED to read and could not — never silently "zero"
+          # Distinct from UNKNOWN on purpose. "We have not configured this rail yet"
+          # is a decision; "we looked and could not see" is a fault. Conflating them
+          # made this workflow red on every run for an unset repo variable — and a
+          # permanently-red check is one this repo has already learned to ignore
+          # (see the chronically-red Slither workflow). Reported, never fatal.
+          UNCONFIGURED=""
 
           # --- EVM: eth_call returning a uint256 ---------------------------------
           eth_call() { # name to selector
@@ -133,13 +139,20 @@ jobs:
           if [ -n "${SOLANA_FEE_ACCOUNT:-}" ]; then
             sol_tokens "Solana swap-fee wallet" "$SOLANA_FEE_ACCOUNT"
           else
-            UNKNOWN="$UNKNOWN\n- Solana swap-fee wallet: repo variable SOLANA_FEE_ACCOUNT is not set, so this rail is NOT being watched"
+            UNCONFIGURED="$UNCONFIGURED\n- Solana swap-fee wallet: set the SOLANA_FEE_ACCOUNT repo variable to watch this rail"
           fi
 
           {
             printf 'earned<<EOF\n%b\nEOF\n' "$EARNED"
             printf 'unknown<<EOF\n%b\nEOF\n' "$UNKNOWN"
+            printf 'unconfigured<<EOF\n%b\nEOF\n' "$UNCONFIGURED"
           } >> "$GITHUB_OUTPUT"
+
+          # Surfaced on every run so it cannot be forgotten, but never fatal —
+          # an unwatched rail is a decision, not a fault.
+          if [ -n "$UNCONFIGURED" ]; then
+            printf '::warning::Rails not configured, and therefore NOT watched:%b\n' "$UNCONFIGURED"
+          fi
 
           if [ -n "$EARNED" ]; then
             printf 'state=earned\n' >> "$GITHUB_OUTPUT"
