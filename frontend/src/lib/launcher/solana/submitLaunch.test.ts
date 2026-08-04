@@ -19,7 +19,7 @@ vi.mock('./dbc', async (importOriginal) => {
 vi.mock('./dbcClient', () => ({ launchToken: vi.fn() }));
 
 import { launchToken } from './dbcClient';
-import { submitLaunch, confirmSignature, ConfirmationTimeout } from './submitLaunch';
+import { submitLaunch, confirmSignature, ConfirmationTimeout, LaunchFailedOnChain, wasBroadcast } from './submitLaunch';
 
 const CONFIG = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const WALLET = 'EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK';
@@ -123,6 +123,81 @@ describe('submitLaunch', () => {
     expect(err).toBeInstanceOf(ConfirmationTimeout);
     expect((err as ConfirmationTimeout).signature).toBe('SIG_STRANDED');
     expect((err as Error).message).toMatch(/may have succeeded/i);
+  });
+});
+
+describe('the post-broadcast contract', () => {
+  // THE invariant this module exists to hold: once sendTransaction resolves, the
+  // transaction is on the network, so NOTHING may surface as a plain Error — that is
+  // how the UI identifies "never submitted" and tells the user retrying is safe.
+  // A confirmed CRITICAL: /api/solrpc rewrites any non-ok upstream status to 502, and
+  // web3.js retries 429 but NOT 502, so a flaky poll was the dominant path into that
+  // false claim.
+  it('survives a flaky confirm poll instead of reporting a landed tx as never-sent', async () => {
+    let calls = 0;
+    const connection = {
+      getSignatureStatuses: vi.fn(async () => {
+        calls += 1;
+        if (calls <= 2) throw new Error('502 Bad Gateway');
+        return { value: [{ err: null, confirmationStatus: 'confirmed' }] };
+      }),
+    } as unknown as Connection;
+
+    const res = await submitLaunch({
+      connection, sendTransaction: vi.fn(async () => 'SIG_FLAKY'), walletAddress: WALLET,
+      config: CONFIG, mintKeypair: Keypair.generate(), ...META, confirmTimeoutMs: 30_000,
+    });
+    expect(res.signature).toBe('SIG_FLAKY');
+    expect(calls).toBeGreaterThan(2); // it kept polling rather than giving up
+  });
+
+  it('a persistently failing RPC still ends as ConfirmationTimeout, never a plain Error', async () => {
+    const connection = {
+      getSignatureStatuses: vi.fn(async () => { throw new Error('502 Bad Gateway'); }),
+    } as unknown as Connection;
+
+    const err = await submitLaunch({
+      connection, sendTransaction: vi.fn(async () => 'SIG_RPC_DEAD'), walletAddress: WALLET,
+      config: CONFIG, mintKeypair: Keypair.generate(), ...META, confirmTimeoutMs: 10,
+    }).catch((e) => e);
+
+    expect(wasBroadcast(err)).toBe(true);
+    expect(err).toBeInstanceOf(ConfirmationTimeout);
+    expect((err as ConfirmationTimeout).signature).toBe('SIG_RPC_DEAD');
+  });
+
+  it('an on-chain failure is definitive, carries the signature, and counts as broadcast', async () => {
+    const err = await submitLaunch({
+      connection: connectionWith([{ err: { InstructionError: [0, 'Custom'] }, confirmationStatus: 'confirmed' }]),
+      sendTransaction: vi.fn(async () => 'SIG_FAILED'), walletAddress: WALLET, config: CONFIG,
+      mintKeypair: Keypair.generate(), ...META,
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(LaunchFailedOnChain);
+    expect((err as LaunchFailedOnChain).signature).toBe('SIG_FAILED');
+    expect(wasBroadcast(err)).toBe(true);
+  });
+
+  it('reports the signature the moment it is broadcast, before confirmation', async () => {
+    // Without this the UI cannot tell "waiting for your wallet" from "already on the
+    // network", so it keeps saying "confirm in your wallet" — which is what makes a
+    // user reload, losing the mint keypair and making the next attempt a SECOND token.
+    const seen: string[] = [];
+    await submitLaunch({
+      connection: connectionWith([{ err: null, confirmationStatus: 'confirmed' }]),
+      sendTransaction: vi.fn(async () => 'SIG_EARLY'), walletAddress: WALLET, config: CONFIG,
+      mintKeypair: Keypair.generate(), ...META,
+      onBroadcast: (sig) => seen.push(sig),
+    });
+    expect(seen).toEqual(['SIG_EARLY']);
+  });
+
+  it('a pre-broadcast failure is NOT flagged as broadcast — retrying really is safe there', async () => {
+    const err = await submitLaunch({
+      connection: connectionWith([]), sendTransaction: vi.fn(async () => { throw new Error('User rejected'); }),
+      walletAddress: WALLET, config: CONFIG, mintKeypair: Keypair.generate(), ...META,
+    }).catch((e) => e);
+    expect(wasBroadcast(err)).toBe(false);
   });
 });
 

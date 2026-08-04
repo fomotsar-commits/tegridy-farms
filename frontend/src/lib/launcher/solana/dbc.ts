@@ -15,8 +15,9 @@
 //     vault PDA from the multisig + index and confirms the fee address equals it
 //     (see squads.ts `verifySquadsVault` + README §Squads-vault invariant).
 //   • Sub-brand: SOLANA_LAUNCHER_ENABLED is TRUE since 2026-07-27 (see the block at the
-//     flag itself) — /solana-launch renders a config PREVIEW with no in-app signer; the operator submit
-//     path is unreachable until an operator flips it AND supplies a real vault.
+//     flag itself). Since 2026-08-04 /solana-launch ALSO carries an in-app signer: the
+//     public submits its own `createPool` against the operator's existing config. CONFIG
+//     CREATION stays operator-only and out-of-band — that is the step the vault rule guards.
 //
 // This file is a PURE PARAM BUILDER. It never opens a Connection, never signs,
 // never imports the SDK at runtime — it only produces typed descriptors that the
@@ -121,6 +122,8 @@ export function isSolanaSubmitReady(): boolean {
 // the user has already approved and paid, with an error that names neither field.
 export const MAX_TOKEN_NAME_CHARS = 32;
 export const MAX_TOKEN_SYMBOL_CHARS = 10;
+/** Metaplex caps the metadata URI too — same failure mode, same fix. */
+export const MAX_TOKEN_URI_CHARS = 200;
 
 // ── Canonical program / mint constants (verified against SDK index.js) ────────
 //
@@ -597,6 +600,9 @@ export function buildLaunchParams(opts: BuildLaunchParamsOpts, tokenMeta: TokenM
   }
   if (symbol.length > MAX_TOKEN_SYMBOL_CHARS) {
     throw new Error(`token symbol must be ${MAX_TOKEN_SYMBOL_CHARS} characters or fewer (got ${symbol.length})`);
+  }
+  if (uri.length > MAX_TOKEN_URI_CHARS) {
+    throw new Error(`token metadata uri must be ${MAX_TOKEN_URI_CHARS} characters or fewer (got ${uri.length})`);
   }
   for (const [label, addr] of [
     ['config', opts.config],

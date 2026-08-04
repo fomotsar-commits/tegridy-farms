@@ -55,11 +55,28 @@ export async function confirmSignature(
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const { value } = await connection.getSignatureStatuses([signature]);
-    const st = value[0];
-    if (st) {
-      if (st.err) throw new Error('The launch transaction failed on-chain.');
-      if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return;
+    try {
+      const { value } = await connection.getSignatureStatuses([signature]);
+      const st = value[0];
+      if (st) {
+        if (st.err) throw new LaunchFailedOnChain(signature);
+        if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return;
+      }
+    } catch (e) {
+      // A DEFINITIVE outcome must propagate; a transport blip must not.
+      if (e instanceof LaunchFailedOnChain) throw e;
+      // Swallow and keep polling. This is the load-bearing line in the module.
+      //
+      // The transaction is ALREADY BROADCAST by the time we poll, so letting an RPC
+      // error escape here would surface a landed transaction as a generic failure —
+      // and the caller, correctly, treats generic failures as "never submitted".
+      // A user would then be told in writing that nothing happened, for a token that
+      // exists on mainnet, with the signature discarded.
+      //
+      // This is not hypothetical on this stack: /api/solrpc rewrites ANY non-ok
+      // upstream status to 502 (frontend/api/solrpc.js), and web3.js retries 429 but
+      // NOT 502 — so the single most likely transient failure lands right here. The
+      // loop deadline is the real timeout; one bad poll is not an answer.
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
@@ -84,6 +101,26 @@ export class ConfirmationTimeout extends Error {
     this.name = 'ConfirmationTimeout';
     this.signature = signature;
   }
+}
+
+/**
+ * The transaction landed and FAILED on-chain. Definitive, and it carries the
+ * signature because "it failed" is not the same as "it never happened": the mint
+ * account may now be initialized, so the same keypair cannot be reused, and the
+ * user is owed the signature to see why.
+ */
+export class LaunchFailedOnChain extends Error {
+  readonly signature: string;
+  constructor(signature: string) {
+    super('The launch transaction was submitted but failed on-chain.');
+    this.name = 'LaunchFailedOnChain';
+    this.signature = signature;
+  }
+}
+
+/** True for every error that means the transaction REACHED the network. */
+export function wasBroadcast(err: unknown): err is ConfirmationTimeout | LaunchFailedOnChain {
+  return err instanceof ConfirmationTimeout || err instanceof LaunchFailedOnChain;
 }
 
 /** The wallet-adapter surface this module needs — kept minimal so tests can fake it. */
@@ -115,6 +152,18 @@ export interface SubmitLaunchInput {
    * important one in this module to have covered.
    */
   confirmTimeoutMs?: number;
+  /**
+   * Called the instant the transaction is broadcast, before confirmation begins.
+   *
+   * Not a convenience. Without it the UI cannot tell "waiting for the user to
+   * approve" from "approved, broadcast, waiting on chain", so it keeps saying
+   * "confirm in your wallet" for the whole confirmation window — which is exactly
+   * what makes someone reload the page. A reload destroys the in-memory mint
+   * keypair, and the next attempt generates a NEW one, so a launch that had already
+   * landed becomes a genuine second token. Surfacing the signature the moment it
+   * exists is what makes that window survivable.
+   */
+  onBroadcast?: (signature: string) => void;
 }
 
 export interface SubmitLaunchResult {
@@ -151,6 +200,10 @@ export async function submitLaunch(input: SubmitLaunchInput): Promise<SubmitLaun
   const tx = await launchToken(client, params, undefined, input.mintKeypair);
 
   const signature = await input.sendTransaction(tx, input.connection);
+  // From here on, EVERY exit carries the signature: ConfirmationTimeout or
+  // LaunchFailedOnChain. No path past this line may throw a plain Error, because a
+  // plain Error is how the caller identifies "never submitted".
+  input.onBroadcast?.(signature);
   await confirmSignature(input.connection, signature, input.confirmTimeoutMs);
   return { signature, mint };
 }

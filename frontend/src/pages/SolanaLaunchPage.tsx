@@ -20,6 +20,7 @@ import {
   LIVE_DBC_CONFIG,
   MAX_TOKEN_NAME_CHARS,
   MAX_TOKEN_SYMBOL_CHARS,
+  MAX_TOKEN_URI_CHARS,
   asSquadsVault,
   buildDbcPartnerConfig,
   buildLaunchParams,
@@ -36,7 +37,7 @@ import {
   splitAtFee,
   type LivePoolConfig,
 } from '../lib/launcher/solana/liveConfig';
-import { submitLaunch, ConfirmationTimeout } from '../lib/launcher/solana/submitLaunch';
+import { submitLaunch, ConfirmationTimeout, LaunchFailedOnChain } from '../lib/launcher/solana/submitLaunch';
 
 // The Solana leg is a fee-capture SUB-BRAND, deliberately separate from the EVM
 // flagship launcher. This page is GATED: while isSolanaLauncherEnabled() is false
@@ -217,12 +218,25 @@ function LiveTerms({ state, cfg }: { state: LiveConfigState; cfg: LivePoolConfig
   );
 }
 
+/** Explicit escape from a terminal state — never automatic; see `reset`. */
+function ResetButton({ onReset, label }: { onReset: () => void; label: string }) {
+  return (
+    <button type="button" onClick={onReset} className="mt-2 underline text-white/60 hover:text-white text-[10px]">
+      {label}
+    </button>
+  );
+}
+
 type SubmitPhase =
   | { phase: 'idle' }
   | { phase: 'signing' }
   | { phase: 'confirming'; signature: string }
   | { phase: 'done'; signature: string; mint: string }
+  /** Broadcast, outcome unknown. May have succeeded — never invite a retry. */
   | { phase: 'stranded'; signature: string }
+  /** Broadcast, landed, failed. Definitive; the mint keypair is spent. */
+  | { phase: 'failedOnChain'; signature: string }
+  /** Failed BEFORE broadcast. Nothing landed, so retrying is genuinely safe. */
   | { phase: 'error'; message: string };
 
 /**
@@ -267,11 +281,31 @@ function SubmitPanel({
   // See the doc comment: stable across retries, regenerated only after success.
   const mintRef = useRef<Keypair | null>(null);
 
+  /**
+   * Leave a terminal state and start a genuinely NEW launch.
+   *
+   * Clears the mint so the next attempt mints a different token — which is the whole
+   * point, and the reason this is an explicit button rather than an automatic reset.
+   * Every caller sits behind a state where the previous transaction is settled or
+   * has been surfaced for the user to check.
+   */
+  const reset = useCallback(() => {
+    mintRef.current = null;
+    setAck(false);
+    setStatus({ phase: 'idle' });
+  }, []);
+
   const trimmed = { name: name.trim(), symbol: symbol.trim(), uri: uri.trim() };
   const missing = !trimmed.name || !trimmed.symbol || !trimmed.uri;
   const busy = status.phase === 'signing' || status.phase === 'confirming';
-  // A stranded launch must never offer a one-click retry — it may already exist.
-  const terminal = status.phase === 'done' || status.phase === 'stranded';
+  // Every state in which the transaction reached the network. None of them may offer
+  // a one-click retry: 'done' and 'failedOnChain' are settled, and 'stranded' may
+  // already have succeeded.
+  const terminal =
+    status.phase === 'done' || status.phase === 'stranded' || status.phase === 'failedOnChain';
+  // The opening fee is the single most expensive surprise on this rail. If the config
+  // could not be read we cannot state it, so we do not let the launch proceed blind.
+  const termsUnknown = cfgState !== 'ok' || !cfg;
 
   const openingFeePct = cfg ? (feeBpsAtSeconds(cfg, 0) / 100).toFixed(2) : null;
 
@@ -287,15 +321,29 @@ function SubmitPanel({
         config: LIVE_DBC_CONFIG,
         mintKeypair: mintRef.current,
         ...trimmed,
+        // The moment it is on the network, say so and show the signature. Until this
+        // existed the button read "confirm in your wallet" for the whole confirmation
+        // window, which is what makes someone reload — and a reload loses the mint ref
+        // that stops the next attempt being a second token.
+        onBroadcast: (signature) => setStatus({ phase: 'confirming', signature }),
       });
       mintRef.current = null; // launched — a further launch is a NEW token
       setStatus({ phase: 'done', signature: res.signature, mint: res.mint });
       toast.success('Launched on Solana', { description: `${trimmed.symbol} is live` });
     } catch (err) {
-      // Broadcast-but-unconfirmed is NOT a failure we may invite a retry on.
+      // ANY error carrying a signature means it reached the network. Never invite a
+      // retry on those, and never claim nothing was submitted.
       if (err instanceof ConfirmationTimeout) {
         setStatus({ phase: 'stranded', signature: err.signature });
         toast.warning('Broadcast, not confirmed', { description: 'Check the transaction before trying again.' });
+        return;
+      }
+      if (err instanceof LaunchFailedOnChain) {
+        // Definitive: it landed and failed. The mint may now be initialized, so the
+        // same keypair cannot be reused — force a fresh one for any next attempt.
+        mintRef.current = null;
+        setStatus({ phase: 'failedOnChain', signature: err.signature });
+        toast.error('Launch failed on-chain', { description: 'The transaction was submitted but did not succeed.' });
         return;
       }
       // Everything that is NOT a ConfirmationTimeout failed BEFORE broadcast — the
@@ -341,9 +389,11 @@ function SubmitPanel({
           Early buyers pay materially more than the resting rate.
         </p>
       )}
-      {cfgState === 'failed' && (
-        <p className="text-amber-300/90 text-[10px]">
-          The live config could not be read just now, so the terms above are unverified. Launching anyway is not advised.
+      {termsUnknown && (
+        <p className="text-amber-300/90 text-[10px] leading-relaxed">
+          {cfgState === 'loading'
+            ? 'Reading the live config…'
+            : 'The live config could not be read, so the fee you would pay cannot be shown. Launching is disabled until it reads — retry in a moment.'}
         </p>
       )}
 
@@ -366,6 +416,7 @@ function SubmitPanel({
           <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
             View the transaction
           </a>
+          <ResetButton onReset={reset} label="Launch another token" />
         </div>
       ) : status.phase === 'stranded' ? (
         <div className="space-y-1 text-amber-200/90 break-all">
@@ -376,19 +427,43 @@ function SubmitPanel({
           <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
             Check the transaction
           </a>
+          <ResetButton onReset={reset} label="It did not land — start a new launch" />
+        </div>
+      ) : status.phase === 'failedOnChain' ? (
+        <div className="space-y-1 text-rose-200/90 break-all">
+          <p className="font-semibold">Submitted, but it failed on-chain.</p>
+          <p className="text-rose-200/70">
+            Your token was not created. The transaction is on the network, so its error explains why.
+          </p>
+          <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+            View the transaction
+          </a>
+          <ResetButton onReset={reset} label="Start a new launch" />
         </div>
       ) : (
         <>
           <button
             type="button"
             onClick={onSubmit}
-            disabled={missing || busy || !ack}
+            disabled={missing || busy || !ack || termsUnknown}
             className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-40"
           >
             {status.phase === 'signing' ? 'Confirm in your wallet…'
               : status.phase === 'confirming' ? 'Confirming…'
               : 'Launch on Solana'}
           </button>
+          {/* Once it is on the network the signature is shown IMMEDIATELY, with an
+              explicit do-not-reload. A reload discards the in-memory mint keypair, and
+              the next attempt would mint a different token — so this window is the one
+              place where losing page state actually costs the user something. */}
+          {status.phase === 'confirming' && (
+            <div className="text-amber-200/90 text-[10px] break-all space-y-0.5">
+              <p>Submitted — waiting for the network to confirm. Do not reload this page.</p>
+              <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+                {status.signature.slice(0, 8)}…{status.signature.slice(-8)}
+              </a>
+            </div>
+          )}
           {missing && <p className="text-white/40 text-[10px]">Name, symbol and metadata URI are required.</p>}
           {status.phase === 'error' && (
             <>
@@ -523,7 +598,7 @@ function SolanaLaunchInner() {
             <input className={inputCls} style={inputStyle} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="TICKER" spellCheck={false} maxLength={MAX_TOKEN_SYMBOL_CHARS} />
           </Field>
           <Field label="Metadata URI" hint="ipfs:// or https:// pointing at the token metadata JSON.">
-            <input className={inputCls} style={inputStyle} value={uri} onChange={(e) => setUri(e.target.value)} placeholder="ipfs://…" spellCheck={false} />
+            <input className={inputCls} style={inputStyle} value={uri} onChange={(e) => setUri(e.target.value)} placeholder="ipfs://…" spellCheck={false} maxLength={MAX_TOKEN_URI_CHARS} />
           </Field>
 
           <Field label="Quote token" hint="SOL/USDC are the vetted, deep-liquidity pairs. A custom mint is an exotic pair.">
@@ -725,9 +800,9 @@ function SolanaLauncherExplainer() {
       </ExplainerCard>
 
       <p className="text-center text-white/40 text-[10px] leading-relaxed px-2">
-        This page is a configuration preview and nothing more: there is no in-app submit path and no signer. Real
-        launches go through the operator&apos;s out-of-band wrapper, which refuses to build a transaction unless the
-        fee claimer is the derived Squads vault.
+        You sign and submit your own launch here, against a partner config the operator created out of band. That
+        separation is the point: creating a config is what requires the fee claimer to be the derived Squads vault,
+        and that step never runs in your browser.
       </p>
     </div>
   );
