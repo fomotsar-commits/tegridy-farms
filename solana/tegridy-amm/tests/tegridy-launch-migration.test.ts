@@ -90,11 +90,10 @@ const V_SOL = new BN(5_329_495_216);
 const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
 const TRADE_FEE_BPS = new BN(100);
-/** Creator's share OF THE FEE (bps of the fee, not the trade): 50/50 with the
- *  protocol — the reference config from the 2026-08-02 launcher economics
- *  synthesis. A curve that pays creators zero loses every launch to the rails
- *  that pay (pump.fun 0.30%/vol, Meteora-partner 0.48%/vol). */
-const CREATOR_FEE_SHARE_BPS = new BN(5000);
+/** Creator's share OF THE FEE (bps of the fee, not the trade). 4,800 = exact
+ *  parity with the live Meteora partner config's 48 bps (CREATOR_FEE_SPEC.md §1).
+ *  A curve that pays creators zero loses every launch to the rails that pay. */
+const CREATOR_FEE_SHARE_BPS = new BN(4800);
 const GRAD_TARGET = new BN(2).mul(new BN(LAMPORTS_PER_SOL));
 /** Must cover cp-swap's create_pool_fee + rent on the five accounts it creates. */
 const MIGRATION_RESERVE = new BN(LAMPORTS_PER_SOL).div(new BN(4));
@@ -237,14 +236,19 @@ describe("tegridy-launch full migration rehearsal", () => {
       .buy(new BN(LAMPORTS_PER_SOL).div(new BN(2)), new BN(0))
       .accountsPartial(tradeAccounts)
       .rpc();
-    // The protocol must receive exactly its HALF of the 1% fee — 2,500,000 of the
-    // 5,000,000 lamports charged on a 0.5 SOL buy. Pre-split code sent the full
-    // fee here, so this assertion fails on it (the mutation check).
-    assert.equal(
-      (await provider.connection.getAccountInfo(g.feeRecipient))?.lamports ?? 0,
-      2_500_000,
-      "protocol fee leg must be the fee minus the creator's share"
-    );
+    // The protocol must receive exactly the fee MINUS the creator's share — a
+    // 0.5 SOL buy at the 1% fee charges 5,000,000 lamports. Derived from the share
+    // constant, not typed in. Pre-split code sent the FULL fee here, so this
+    // assertion fails on it (the mutation check).
+    {
+      const fee = (LAMPORTS_PER_SOL / 2) * (TRADE_FEE_BPS.toNumber() / 10_000);
+      const creatorLeg = Math.floor((fee * CREATOR_FEE_SHARE_BPS.toNumber()) / 10_000);
+      assert.equal(
+        (await provider.connection.getAccountInfo(g.feeRecipient))?.lamports ?? 0,
+        fee - creatorLeg,
+        "protocol fee leg must be the fee minus the creator's share"
+      );
+    }
     const tokensBeforeSell = BigInt(
       (await provider.connection.getTokenAccountBalance(buyerAta)).value.amount
     );

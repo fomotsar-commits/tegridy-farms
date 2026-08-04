@@ -58,9 +58,12 @@ const V_SOL = new BN(30).mul(new BN(LAMPORTS_PER_SOL));
 const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
 const TRADE_FEE_BPS = new BN(100);
-/** Creator's share OF THE FEE (bps of the fee): 50/50 with the protocol, the
- *  reference config from the 2026-08-02 launcher economics synthesis. */
-const CREATOR_FEE_SHARE_BPS = new BN(5000);
+/** Creator's share OF THE FEE, in bps of the fee. 4,800 = EXACT PARITY with the
+ *  live Meteora partner config's 48 bps, per CREATOR_FEE_SPEC.md §1 — so the
+ *  creator-facing claim is checkable against something public rather than taken
+ *  on trust, and our own net rises from 32 bps (DBC, after Meteora's 20% leg) to
+ *  52 bps here because there is no third party to pay. */
+const CREATOR_FEE_SHARE_BPS = new BN(4800);
 /** V_s*S/V_t is ~27.9 SOL here, so 10 SOL is safely under the ceiling. */
 // The continuity target for V_SOL=30 with a 0.5 SOL reserve: the launch lists at
 // the price its last curve buyer paid. Deliberately not a round number — a +-5%
@@ -631,8 +634,12 @@ describe("tegridy-launch security constraints", () => {
       const creatorBefore = await lamports(creator.publicKey);
       const protocolBefore = await lamports(feeRecipient);
 
-      // A 1 SOL buy at the 1% fee charges exactly 10,000,000 lamports; at the
-      // 50/50 share each leg is exactly 5,000,000.
+      // A 1 SOL buy at the 1% fee charges exactly 10,000,000 lamports. Both legs
+      // are DERIVED from the share constant, not typed in, so re-tuning the share
+      // cannot leave a stale literal asserting the old economics.
+      const buyFee = LAMPORTS_PER_SOL * (TRADE_FEE_BPS.toNumber() / 10_000);
+      const expectCreator = Math.floor((buyFee * CREATOR_FEE_SHARE_BPS.toNumber()) / 10_000);
+      const expectProtocol = buyFee - expectCreator;
       await program.methods
         .buy(new BN(LAMPORTS_PER_SOL), new BN(0))
         .accountsPartial(tradeAccounts())
@@ -640,13 +647,13 @@ describe("tegridy-launch security constraints", () => {
 
       assert.equal(
         (await lamports(creator.publicKey)) - creatorBefore,
-        5_000_000,
-        "creator must receive exactly half the buy fee"
+        expectCreator,
+        `creator must receive ${CREATOR_FEE_SHARE_BPS.toNumber() / 100}% of the buy fee`
       );
       assert.equal(
         (await lamports(feeRecipient)) - protocolBefore,
-        5_000_000,
-        "protocol must receive exactly the other half"
+        expectProtocol,
+        "protocol must receive exactly the remainder"
       );
     });
 
@@ -667,10 +674,15 @@ describe("tegridy-launch security constraints", () => {
       const creatorDelta = (await lamports(creator.publicKey)) - creatorBefore;
       const protocolDelta = (await lamports(feeRecipient)) - protocolBefore;
       assert.isAbove(creatorDelta, 0, "creator must earn on sells too");
-      // At a 50/50 share the legs differ by at most the 1-lamport rounding
-      // remainder, and the PROTOCOL keeps it (creator rounds down).
-      assert.isAtLeast(protocolDelta - creatorDelta, 0, "rounding must favour the protocol");
-      assert.isAtMost(protocolDelta - creatorDelta, 1, "legs must be a 50/50 split");
+      // Pin the RATIO, not an amount: the sell size (and so the fee) depends on
+      // curve state, but the split of whatever fee was charged must be exact, with
+      // the creator rounding DOWN and the protocol keeping the remainder.
+      const sellFee = creatorDelta + protocolDelta;
+      assert.equal(
+        creatorDelta,
+        Math.floor((sellFee * CREATOR_FEE_SHARE_BPS.toNumber()) / 10_000),
+        "sell fee must split at exactly the configured share, creator rounding down"
+      );
     });
 
     it("rejects a substituted creator account", async () => {
@@ -811,10 +823,13 @@ describe("tegridy-launch security constraints", () => {
         .accountsPartial(tradeAccounts())
         .rpc();
 
+      // 0.01 SOL at the 1% fee = 100,000 lamports of fee; the creator's leg is
+      // derived from the share so re-tuning it cannot strand a literal here.
+      const fee = 10_000_000 * (TRADE_FEE_BPS.toNumber() / 10_000);
       assert.equal(
         (await lamports(creator.publicKey)) - creatorBefore,
-        50_000,
-        "a funded creator must receive their half of the fee again"
+        Math.floor((fee * CREATOR_FEE_SHARE_BPS.toNumber()) / 10_000),
+        "a funded creator must receive their configured share again"
       );
     });
   });
