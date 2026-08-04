@@ -68,21 +68,42 @@ remappings = [
     "forge-std/=lib/forge-std/src/",
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
-    "solmate/=lib/solmate/src/",
+    # ONE solmate rule, no context scoping.
+    #
+    # This used to be `solmate/=lib/solmate/src/` plus two context-scoped overrides,
+    # because the vendored V4 libs import `solmate/src/...` (solmate's real layout)
+    # while our own code used a shortened `solmate/...`. foundry-toolchain 1.9 stops
+    # honouring context-scoped remappings, so every V4 import resolved to a doubled
+    # `lib/solmate/src/src/...` and all nine test slices went red.
+    #
+    # The fix is to stop needing the context at all: the base rule now points at the
+    # package root, and our two importers were migrated to solmate's own
+    # `solmate/src/...` convention — the one the V4 libs, and solmate's own README,
+    # already use. Every consumer now resolves through the same rule.
+    #
+    # Do NOT "fix" this by re-adding `solmate/src/=lib/solmate/src/` alongside a
+    # `solmate/=` rule. That was tried (04ce2c59) and made things worse: the
+    # overlapping prefix SUPPRESSES the plain rule rather than losing to it, and
+    # `solmate/utils/FixedPointMathLib.sol` stopped resolving entirely. Forge does not
+    # pick these by longest prefix.
+    "solmate/=lib/solmate/",
     "solady/=lib/solady/src/",
-    # Context-scoped: inside the V4 libs, solmate is imported as `solmate/src/...`
-    # (vs. our V2 convention `solmate/...`). Scoping the override leaves the V2 build
-    # untouched. Needed for the V4 test harness (Deployers pulls in solmate mocks).
-    "lib/v4-core/:solmate/=lib/solmate/",
-    "lib/v4-periphery/:solmate/=lib/solmate/",
 ]
 
 [lint]
-# The forge linter does not honor the context-scoped solmate remapping above, so
-# during build-lint it fails to RESOLVE v4-core's internal `solmate/src/...` imports
-# (which the compiler resolves fine). That turned a green compile into "Lint failed".
-# Disable lint-on-build to keep `forge build` exit-0; lint our own code on demand
-# with `forge lint src/v4`. Compilation + tests are unaffected.
+# Kept off, but the ORIGINAL reason no longer applies and this is worth re-testing.
+#
+# It was disabled because the forge linter did not honour the context-scoped solmate
+# remapping, so build-lint failed to resolve v4-core's internal `solmate/src/...`
+# imports (which the compiler resolved fine) and turned a green compile into "Lint
+# failed". Those contexts are gone as of this change — every consumer now resolves
+# through one plain `solmate/=lib/solmate/` rule, which the linter has no reason to
+# treat differently.
+#
+# NOT flipped here on purpose: this change already has one hypothesis under test (the
+# 1.9 bump), and turning lint back on at the same time would make a red build
+# ambiguous between the two. Flip it in its own change and read the result cleanly.
+# Lint our own code on demand meanwhile: `forge lint src/v4`.
 lint_on_build = false
 
 [etherscan]
