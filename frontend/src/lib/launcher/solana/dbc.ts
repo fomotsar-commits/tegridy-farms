@@ -94,6 +94,34 @@ export function isSolanaLauncherEnabled(): boolean {
   return SOLANA_LAUNCHER_ENABLED;
 }
 
+/**
+ * The operator's live partner config, or undefined.
+ *
+ * Left UNSET by default: publishing the address also publishes the Squads vault it
+ * names as feeClaimer, which is the operator's call and not a default. Lives here
+ * rather than in the page because the NAV needs the same answer — a "Soon" pill and
+ * a working submit button must never disagree about whether this rail can launch.
+ */
+export const LIVE_DBC_CONFIG =
+  (import.meta.env.VITE_SOLANA_DBC_CONFIG as string | undefined)?.trim() || undefined;
+
+/**
+ * Can a member of the public actually complete a launch right now?
+ *
+ * BOTH conditions are required and neither implies the other: the feature gate can be
+ * on while no config is published (nothing to launch against), which is exactly the
+ * state that made the nav advertise a launch surface that could not launch.
+ */
+export function isSolanaSubmitReady(): boolean {
+  return SOLANA_LAUNCHER_ENABLED && !!LIVE_DBC_CONFIG;
+}
+
+// Metaplex Token Metadata field limits. Enforced in `buildLaunchParams` because the
+// alternative is discovering them ON-CHAIN: the pool-creation transaction fails after
+// the user has already approved and paid, with an error that names neither field.
+export const MAX_TOKEN_NAME_CHARS = 32;
+export const MAX_TOKEN_SYMBOL_CHARS = 10;
+
 // ── Canonical program / mint constants (verified against SDK index.js) ────────
 //
 // Meteora deploys the SAME DBC program id on mainnet-beta AND devnet.
@@ -563,6 +591,13 @@ export function buildLaunchParams(opts: BuildLaunchParamsOpts, tokenMeta: TokenM
   if (!name) throw new Error('token name is required');
   if (!symbol) throw new Error('token symbol is required');
   if (!uri) throw new Error('token metadata uri is required');
+  // Metaplex truncates nothing — it rejects. Catch it here, before a signature.
+  if (name.length > MAX_TOKEN_NAME_CHARS) {
+    throw new Error(`token name must be ${MAX_TOKEN_NAME_CHARS} characters or fewer (got ${name.length})`);
+  }
+  if (symbol.length > MAX_TOKEN_SYMBOL_CHARS) {
+    throw new Error(`token symbol must be ${MAX_TOKEN_SYMBOL_CHARS} characters or fewer (got ${symbol.length})`);
+  }
   for (const [label, addr] of [
     ['config', opts.config],
     ['baseMint', opts.baseMint],

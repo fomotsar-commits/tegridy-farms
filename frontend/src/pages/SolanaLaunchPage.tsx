@@ -17,6 +17,9 @@ import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SOL_MINT, USDC_MINT } from '../lib/solana';
 import {
   isSolanaLauncherEnabled,
+  LIVE_DBC_CONFIG,
+  MAX_TOKEN_NAME_CHARS,
+  MAX_TOKEN_SYMBOL_CHARS,
   asSquadsVault,
   buildDbcPartnerConfig,
   buildLaunchParams,
@@ -37,11 +40,17 @@ import { submitLaunch, ConfirmationTimeout } from '../lib/launcher/solana/submit
 
 // The Solana leg is a fee-capture SUB-BRAND, deliberately separate from the EVM
 // flagship launcher. This page is GATED: while isSolanaLauncherEnabled() is false
-// it renders the standard "SOON" placeholder and never mounts the wizard, so no
-// submit path exists. Behind the gate it PREVIEWS the descriptors the pure
-// builders emit (fee split, anti-snipe decay, LP lock) — it does NOT submit;
-// submission is the operator's out-of-band signing wrapper (dbcClient.ts), and
-// only once the flag is flipped AND a real Squads v4 vault is verified on-chain.
+// it renders the standard "SOON" placeholder and never mounts the wizard.
+//
+// 🔄 2026-08-04 — IT NOW SUBMITS. Behind the gate the page does two distinct things,
+// and conflating them is the mistake to avoid when editing it:
+//   1. PREVIEW of the config the OPERATOR would create (vault, quote, market caps).
+//      Nobody launching here chooses any of it — a DBC config is immutable.
+//   2. SUBMIT (SubmitPanel), which launches against the operator's EXISTING live
+//      config. It needs only name/symbol/uri; the curve, fee schedule and fee split
+//      come from the config account and are shown as read from chain.
+// CONFIG CREATION remains operator-only and out-of-band (dbcClient.createPartnerConfig),
+// because that is what verifies the feeClaimer IS the derived Squads v4 vault on-chain.
 
 interface PreviewInputs {
   name: string;
@@ -121,11 +130,9 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-// The live partner config on mainnet. Left UNSET by default: publishing the
-// address also publishes the Squads vault it names as feeClaimer, and that is
-// the operator's call, not a default. When unset the page behaves exactly as
-// before — builder previews, labelled as previews.
-const LIVE_DBC_CONFIG = (import.meta.env.VITE_SOLANA_DBC_CONFIG as string | undefined)?.trim();
+// LIVE_DBC_CONFIG now lives in dbc.ts so the NAV can read the same answer — a
+// "Soon" pill and a working submit button must never disagree about whether this
+// rail can launch.
 
 /**
  * Terms read from the LIVE config account, or nothing.
@@ -510,10 +517,10 @@ function SolanaLaunchInner() {
                 Tegridy-branded examples read as "Tegridy is launching its own
                 Solana coin", which is exactly the impression the fee-capture-only
                 doctrine exists to avoid (no TOWELI on Solana, ever). */}
-            <input className={inputCls} style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your token name" spellCheck={false} maxLength={64} />
+            <input className={inputCls} style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your token name" spellCheck={false} maxLength={MAX_TOKEN_NAME_CHARS} />
           </Field>
           <Field label="Symbol">
-            <input className={inputCls} style={inputStyle} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="TICKER" spellCheck={false} maxLength={12} />
+            <input className={inputCls} style={inputStyle} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="TICKER" spellCheck={false} maxLength={MAX_TOKEN_SYMBOL_CHARS} />
           </Field>
           <Field label="Metadata URI" hint="ipfs:// or https:// pointing at the token metadata JSON.">
             <input className={inputCls} style={inputStyle} value={uri} onChange={(e) => setUri(e.target.value)} placeholder="ipfs://…" spellCheck={false} />

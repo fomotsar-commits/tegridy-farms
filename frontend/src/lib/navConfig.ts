@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { isSolanaConfigured } from './solana';
 import { isLauncherEnabled } from './launcher/config';
+import { isSolanaSubmitReady } from './launcher/solana/dbc';
 
 export interface NavItem {
   to: string;
@@ -117,14 +118,16 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // operator (who sees the live wizard, not the explainer) had no path to it.
       // Surfaced here for parity with Solana Swap.
       //
-      // Pilled "Soon" UNCONDITIONALLY, like /curve-launch below. This was
-      // `soon: !isSolanaLauncherEnabled()`, which keyed the pill to a feature flag
-      // rather than to the only question a visitor cares about — can I launch from
-      // this page? SolanaLaunchPage has NO signer and NO submit path by design (it
-      // says so itself: "this page never submits"), so with the flag on, the pill
-      // cleared and the nav advertised a launch surface that cannot launch. Flip
-      // this to a flag only when a submit path actually ships.
-      { to: '/solana-launch', label: 'Solana Launch', soon: true },
+      // The pill answers ONE question: can I launch from this page? It was once
+      // `soon: !isSolanaLauncherEnabled()`, which keyed it to a feature flag instead
+      // — with the flag on and no signer, the pill cleared and the nav advertised a
+      // launch surface that could not launch. It was then pilled unconditionally.
+      //
+      // 🔄 2026-08-04 — the submit path shipped, so the pill now tracks the honest
+      // condition: `isSolanaSubmitReady()` is the flag AND a published live config.
+      // Both are required and neither implies the other — the flag can be on with no
+      // config, which is precisely the state that produced the original bug.
+      { to: '/solana-launch', label: 'Solana Launch', soon: !isSolanaSubmitReady() },
       // Our OWN Solana curve (tegridy-launch + our cp-swap fork), as opposed to
       // the Meteora rail above. Permanently pilled "Soon": the program is not
       // deployed on any cluster, and the page proves that from a live read of
