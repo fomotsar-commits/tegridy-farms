@@ -49,6 +49,14 @@ jobs:
           # variable. Unset simply skips that leg, loudly.
           SOLANA_FEE_ACCOUNT: ${{ vars.SOLANA_FEE_ACCOUNT }}
         run: |
+          # GitHub runs `run:` under `bash -e -o pipefail`. This script is a PROBE:
+          # a non-zero from any single read is DATA (record it as UNKNOWN), not a
+          # reason to abort. Under -e the first empty `[ -n ... ] &&` guard returned
+          # 1 and killed the step BEFORE GITHUB_OUTPUT was written, so both
+          # downstream steps skipped — a real first-revenue event would have been
+          # silently missed. Caught by dispatching the workflow for real; `bash -n`
+          # checks syntax, not runtime semantics under errexit.
+          set +e
           set -uo pipefail
           ETH_RPC="${ETH_RPC:-https://ethereum-rpc.publicnode.com}"
           SOL_RPC="${SOL_RPC:-https://api.mainnet-beta.solana.com}"
@@ -74,6 +82,7 @@ jobs:
             if [ -n "$stripped" ]; then
               EARNED="$EARNED\n- **$name**: \`$hex\`"
             fi
+            return 0
           }
 
           eth_balance() { # name address
@@ -85,7 +94,8 @@ jobs:
             hex="$(jq -r '.result // empty' <<<"$out")"
             [ -z "$hex" ] && { UNKNOWN="$UNKNOWN\n- $name: no result"; return; }
             stripped="$(sed 's/^0*//' <<<"${hex#0x}")"
-            [ -n "$stripped" ] && EARNED="$EARNED\n- **$name**: \`$hex\` wei"
+            if [ -n "$stripped" ]; then EARNED="$EARNED\n- **$name**: \`$hex\` wei"; fi
+            return 0
           }
 
           # Selectors derived with `cast sig`, not recalled:
@@ -113,7 +123,8 @@ jobs:
                  | select((.account.data.parsed.info.tokenAmount.amount // "0") != "0")
                  | "\(.account.data.parsed.info.mint):\(.account.data.parsed.info.tokenAmount.uiAmountString)"]
                  | join(", ")' <<<"$out")"
-            [ -n "$n" ] && EARNED="$EARNED\n- **$name** (SPL): $n"
+            if [ -n "$n" ]; then EARNED="$EARNED\n- **$name** (SPL): $n"; fi
+            return 0
           }
 
           # Already public in solana/tegridy-amm/MAINNET_RUNBOOK.md.
