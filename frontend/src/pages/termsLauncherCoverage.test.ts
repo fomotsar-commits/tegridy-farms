@@ -159,9 +159,16 @@ describe('the launch flow surfaces the Terms', () => {
     // built above that literal, so a narrower slice silently drops the Etherscan
     // assertion below and passes for the wrong reason.
     const panel = src.slice(src.indexOf('function LaunchStatusBanner'));
-    expect(panel).toMatch(/to=\{`\/launch\/\$\{result\.tokenAddress\}`\}/);
+    expect(panel).toContain('to={`/launch/${result.tokenAddress}`}');
     // And it must still surface the on-chain records — the permalink replaces neither.
-    expect(panel).toMatch(/etherscan\.io\/tx\//);
-    expect(panel).toMatch(/etherscan\.io\/token\//);
+    //
+    // `toContain` on the exact URL PREFIX, deliberately not a regex: CodeQL's
+    // js/regex/missing-regexp-anchor flags an unanchored URL-shaped pattern as a
+    // high-severity finding, because that shape is a real bypass primitive WHEN it
+    // guards a trust decision. It does not here — this greps source text — but an
+    // exact substring is both immune to the class and a stricter assertion, so
+    // there is nothing to trade off. Do not "simplify" these back into regexes.
+    expect(panel).toContain('https://etherscan.io/tx/');
+    expect(panel).toContain('https://etherscan.io/token/');
   });
 });
