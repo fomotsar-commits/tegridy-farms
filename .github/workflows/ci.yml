@@ -87,6 +87,12 @@ jobs:
         working-directory: .
         run: node scripts/verify-ownership.mjs --self-test
 
+      # Guards an IRREVERSIBLE broadcast. Its decision table has to be right the
+      # first time — there is no second call to fix a wrong one.
+      - name: One-shot guard self-test
+        working-directory: .
+        run: node scripts/oneshot-guard.mjs --self-test
+
   build:
     name: Build
     runs-on: ubuntu-latest

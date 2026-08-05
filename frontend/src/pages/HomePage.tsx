@@ -50,7 +50,13 @@ const CORE_LOOP_STEPS = [
   // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
   // rather than hardcode a number that can drift.
   { label: 'Every swap skims a fee',  sub: 'taken at the router, in ETH' },
-  { label: 'Fees flow to stakers',    sub: 'on-chain, paid in ETH' },
+  // 2026-08-04: was 'on-chain, paid in ETH'. Verified on-chain the same day:
+  // RevenueDistributor holds 0 wei and SwapFeeRouter.totalETHFees() is 0, so nothing
+  // has ever been PAID. The route is real; the payment is not. This diagram explains
+  // the DESIGN, so it now describes the route — true today and still true after the
+  // first distribution, which is why it is a literal and not a conditional. The
+  // history claim belongs on /premium, where it IS conditioned on the live read.
+  { label: 'Fees flow to stakers',    sub: 'routed on-chain, in ETH' },
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
@@ -126,8 +132,17 @@ export default function HomePage() {
   // disconnected visitors get a share affordance. Mirrors ReferralWidget's
   // tweet-URL construction with the SITE_URL origin (F64 single source).
   const shareUrl = SITE_URL;
+  // 2026-08-04: was 'Real yield, paid in ETH, on @TegridyFarms'. Verified on-chain the
+  // same day — RevenueDistributor holds 0 wei, SwapFeeRouter.totalETHFees() is 0, so no
+  // yield has ever been paid to anyone.
+  //
+  // This one is worse than an overclaim on a page: it is a PREWRITTEN tweet the visitor
+  // posts under THEIR OWN name. An on-page claim embarrasses us; this one makes a
+  // stranger vouch for something untrue to their own followers, and it survives any
+  // later correction we make to the site. So it describes what the protocol IS rather
+  // than what it has paid.
   const shareTweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    'Real yield, paid in ETH, on @TegridyFarms \u{1F33F}',
+    'Fee-routed staking, on-chain and in ETH, on @TegridyFarms \u{1F33F}',
   )}&url=${encodeURIComponent(shareUrl)}`;
 
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,

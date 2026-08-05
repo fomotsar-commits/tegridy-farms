@@ -53,6 +53,27 @@ export function goldCardSubhead({ ethDistributed, isLoading }: EthYieldState): s
     : 'Back the protocol in TOWELI. The ETH swap-fee rail is live on-chain but has distributed nothing yet — today this buys access, not yield.';
 }
 
+/**
+ * The "Revenue Sharing" section subhead on /premium.
+ *
+ * The 2026-08-01 pass conditioned the hero and the benefit card and left this one:
+ * a flat "100% of protocol fees distributed to stakers", rendered DIRECTLY ABOVE the
+ * live figures it contradicts — `0.0000 ETH` and `0 epochs`. Verified on-chain
+ * 2026-08-04: `RevenueDistributor` holds 0 wei and `SwapFeeRouter.totalETHFees()` is
+ * 0, as it always has been.
+ *
+ * The split itself is real and on-chain; what has never happened is a distribution.
+ * So this states the policy in the tense that is true — a rule that governs fees when
+ * they arrive — rather than a history that does not exist.
+ */
+export function revenueSharingSubhead({ ethDistributed, isLoading }: EthYieldState): string {
+  if (isLoading) return 'Reading what the fee rail has distributed…';
+  const paid = Number.isFinite(ethDistributed) && ethDistributed > 0;
+  return paid
+    ? '100% of protocol fees are distributed to stakers'
+    : '100% of protocol fees are routed to stakers — none have been distributed yet';
+}
+
 export function goldCardBenefits({ ethDistributed, isLoading }: EthYieldState): GoldCardBenefit[] {
   const paid = Number.isFinite(ethDistributed) && ethDistributed > 0;
   const ethYield: GoldCardBenefit = {
