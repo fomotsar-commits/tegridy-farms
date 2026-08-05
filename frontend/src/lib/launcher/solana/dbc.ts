@@ -15,8 +15,9 @@
 //     vault PDA from the multisig + index and confirms the fee address equals it
 //     (see squads.ts `verifySquadsVault` + README §Squads-vault invariant).
 //   • Sub-brand: SOLANA_LAUNCHER_ENABLED is TRUE since 2026-07-27 (see the block at the
-//     flag itself) — /solana-launch renders a config PREVIEW with no in-app signer; the operator submit
-//     path is unreachable until an operator flips it AND supplies a real vault.
+//     flag itself). Since 2026-08-04 /solana-launch ALSO carries an in-app signer: the
+//     public submits its own `createPool` against the operator's existing config. CONFIG
+//     CREATION stays operator-only and out-of-band — that is the step the vault rule guards.
 //
 // This file is a PURE PARAM BUILDER. It never opens a Connection, never signs,
 // never imports the SDK at runtime — it only produces typed descriptors that the
@@ -62,12 +63,18 @@ import { SOL_MINT, USDC_MINT } from '../../solana';
 // to call (tests exercise them); the *operator submit path* — and any wired UI —
 // must guard on isSolanaLauncherEnabled().
 //
-// ENABLED 2026-07-27 (operator confirmed the Squads v4 vault is set up). This makes the
-// /solana-launch PREVIEW page live — a config preview only; there is NO in-app submit or
-// signer (verified: SolanaLaunchPage has no sendTransaction/createConfig path). Real
-// launches still go through the operator's out-of-band CLI wrapper (dbcClient.ts / README),
-// which verifies the feeClaimer IS the derived Squads vault PDA on-chain (squads.ts
-// verifySquadsVault).
+// ENABLED 2026-07-27 (operator confirmed the Squads v4 vault is set up).
+//
+// 🔄 UPDATED 2026-08-04 — /solana-launch now HAS an in-app submit path. A member of
+// the public signs and broadcasts their own `createPool` against the operator's live
+// config (`submitLaunch.ts` → `dbcClient.launchToken`); the wallet is both payer and
+// pool creator, and we never take custody. What has NOT changed: CONFIG CREATION is
+// still operator-only and out-of-band, because `createPartnerConfig` is what verifies
+// the feeClaimer IS the derived Squads vault PDA on-chain (squads.ts
+// verifySquadsVault). A launch inherits its fee authority from the config it names,
+// so the vault guarantee holds only for configs created through that wrapper — which
+// is exactly why the submit path takes its config from build-time configuration and
+// never from user input.
 //
 // 🔴 CORRECTED 2026-07-30 — this comment previously ended "...and enforces multisig
 // threshold >= 2 before the first real create." THAT IS FALSE, and it sat directly above
@@ -87,6 +94,36 @@ export const SOLANA_LAUNCHER_ENABLED = true;
 export function isSolanaLauncherEnabled(): boolean {
   return SOLANA_LAUNCHER_ENABLED;
 }
+
+/**
+ * The operator's live partner config, or undefined.
+ *
+ * Left UNSET by default: publishing the address also publishes the Squads vault it
+ * names as feeClaimer, which is the operator's call and not a default. Lives here
+ * rather than in the page because the NAV needs the same answer — a "Soon" pill and
+ * a working submit button must never disagree about whether this rail can launch.
+ */
+export const LIVE_DBC_CONFIG =
+  (import.meta.env.VITE_SOLANA_DBC_CONFIG as string | undefined)?.trim() || undefined;
+
+/**
+ * Can a member of the public actually complete a launch right now?
+ *
+ * BOTH conditions are required and neither implies the other: the feature gate can be
+ * on while no config is published (nothing to launch against), which is exactly the
+ * state that made the nav advertise a launch surface that could not launch.
+ */
+export function isSolanaSubmitReady(): boolean {
+  return SOLANA_LAUNCHER_ENABLED && !!LIVE_DBC_CONFIG;
+}
+
+// Metaplex Token Metadata field limits. Enforced in `buildLaunchParams` because the
+// alternative is discovering them ON-CHAIN: the pool-creation transaction fails after
+// the user has already approved and paid, with an error that names neither field.
+export const MAX_TOKEN_NAME_CHARS = 32;
+export const MAX_TOKEN_SYMBOL_CHARS = 10;
+/** Metaplex caps the metadata URI too — same failure mode, same fix. */
+export const MAX_TOKEN_URI_CHARS = 200;
 
 // ── Canonical program / mint constants (verified against SDK index.js) ────────
 //
@@ -557,6 +594,16 @@ export function buildLaunchParams(opts: BuildLaunchParamsOpts, tokenMeta: TokenM
   if (!name) throw new Error('token name is required');
   if (!symbol) throw new Error('token symbol is required');
   if (!uri) throw new Error('token metadata uri is required');
+  // Metaplex truncates nothing — it rejects. Catch it here, before a signature.
+  if (name.length > MAX_TOKEN_NAME_CHARS) {
+    throw new Error(`token name must be ${MAX_TOKEN_NAME_CHARS} characters or fewer (got ${name.length})`);
+  }
+  if (symbol.length > MAX_TOKEN_SYMBOL_CHARS) {
+    throw new Error(`token symbol must be ${MAX_TOKEN_SYMBOL_CHARS} characters or fewer (got ${symbol.length})`);
+  }
+  if (uri.length > MAX_TOKEN_URI_CHARS) {
+    throw new Error(`token metadata uri must be ${MAX_TOKEN_URI_CHARS} characters or fewer (got ${uri.length})`);
+  }
   for (const [label, addr] of [
     ['config', opts.config],
     ['baseMint', opts.baseMint],

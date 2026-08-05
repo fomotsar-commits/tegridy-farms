@@ -1,12 +1,13 @@
 // Polyfill MUST load before any @solana/* import — keep this the very first
 // import in this lazy chunk's entry (mirrors SolanaSwapPage).
 import '../lib/solanaPolyfill';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Keypair } from '@solana/web3.js';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
@@ -16,6 +17,10 @@ import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SOL_MINT, USDC_MINT } from '../lib/solana';
 import {
   isSolanaLauncherEnabled,
+  LIVE_DBC_CONFIG,
+  MAX_TOKEN_NAME_CHARS,
+  MAX_TOKEN_SYMBOL_CHARS,
+  MAX_TOKEN_URI_CHARS,
   asSquadsVault,
   buildDbcPartnerConfig,
   buildLaunchParams,
@@ -32,14 +37,21 @@ import {
   splitAtFee,
   type LivePoolConfig,
 } from '../lib/launcher/solana/liveConfig';
+import { submitLaunch, ConfirmationTimeout, LaunchFailedOnChain } from '../lib/launcher/solana/submitLaunch';
 
 // The Solana leg is a fee-capture SUB-BRAND, deliberately separate from the EVM
 // flagship launcher. This page is GATED: while isSolanaLauncherEnabled() is false
-// it renders the standard "SOON" placeholder and never mounts the wizard, so no
-// submit path exists. Behind the gate it PREVIEWS the descriptors the pure
-// builders emit (fee split, anti-snipe decay, LP lock) — it does NOT submit;
-// submission is the operator's out-of-band signing wrapper (dbcClient.ts), and
-// only once the flag is flipped AND a real Squads v4 vault is verified on-chain.
+// it renders the standard "SOON" placeholder and never mounts the wizard.
+//
+// 🔄 2026-08-04 — IT NOW SUBMITS. Behind the gate the page does two distinct things,
+// and conflating them is the mistake to avoid when editing it:
+//   1. PREVIEW of the config the OPERATOR would create (vault, quote, market caps).
+//      Nobody launching here chooses any of it — a DBC config is immutable.
+//   2. SUBMIT (SubmitPanel), which launches against the operator's EXISTING live
+//      config. It needs only name/symbol/uri; the curve, fee schedule and fee split
+//      come from the config account and are shown as read from chain.
+// CONFIG CREATION remains operator-only and out-of-band (dbcClient.createPartnerConfig),
+// because that is what verifies the feeClaimer IS the derived Squads v4 vault on-chain.
 
 interface PreviewInputs {
   name: string;
@@ -119,11 +131,9 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-// The live partner config on mainnet. Left UNSET by default: publishing the
-// address also publishes the Squads vault it names as feeClaimer, and that is
-// the operator's call, not a default. When unset the page behaves exactly as
-// before — builder previews, labelled as previews.
-const LIVE_DBC_CONFIG = (import.meta.env.VITE_SOLANA_DBC_CONFIG as string | undefined)?.trim();
+// LIVE_DBC_CONFIG now lives in dbc.ts so the NAV can read the same answer — a
+// "Soon" pill and a working submit button must never disagree about whether this
+// rail can launch.
 
 /**
  * Terms read from the LIVE config account, or nothing.
@@ -134,8 +144,19 @@ const LIVE_DBC_CONFIG = (import.meta.env.VITE_SOLANA_DBC_CONFIG as string | unde
  * falls back to the builder defaults, because a default dressed as a live value
  * is precisely the confusion this panel exists to remove.
  */
-function LiveTerms() {
-  const [state, setState] = useState<'idle' | 'loading' | 'ok' | 'failed'>(LIVE_DBC_CONFIG ? 'loading' : 'idle');
+type LiveConfigState = 'idle' | 'loading' | 'ok' | 'failed';
+
+/**
+ * One read of the live config account, shared by the terms panel and the submit
+ * panel.
+ *
+ * Lifted out of `LiveTerms` when the submit path landed: the button that signs a
+ * launch must disclose the SAME opening fee the terms panel shows, and two
+ * independent fetches could disagree (one succeeds, one fails) — which is exactly
+ * the kind of split-brain a launcher must not have at the moment of signing.
+ */
+function useLiveConfig(): { state: LiveConfigState; cfg: LivePoolConfig | null } {
+  const [state, setState] = useState<LiveConfigState>(LIVE_DBC_CONFIG ? 'loading' : 'idle');
   const [cfg, setCfg] = useState<LivePoolConfig | null>(null);
 
   useEffect(() => {
@@ -148,6 +169,10 @@ function LiveTerms() {
     return () => { alive = false; ac.abort(); };
   }, []);
 
+  return { state, cfg };
+}
+
+function LiveTerms({ state, cfg }: { state: LiveConfigState; cfg: LivePoolConfig | null }) {
   if (state === 'idle') return null;
 
   const pctOf = (bps: number) => (bps / 100).toFixed(2);
@@ -187,6 +212,267 @@ function LiveTerms() {
               real cost of trading in that window, not a headline rate.
             </p>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Explicit escape from a terminal state — never automatic; see `reset`. */
+function ResetButton({ onReset, label }: { onReset: () => void; label: string }) {
+  return (
+    <button type="button" onClick={onReset} className="mt-2 underline text-white/60 hover:text-white text-[10px]">
+      {label}
+    </button>
+  );
+}
+
+type SubmitPhase =
+  | { phase: 'idle' }
+  | { phase: 'signing' }
+  | { phase: 'confirming'; signature: string }
+  | { phase: 'done'; signature: string; mint: string }
+  /** Broadcast, outcome unknown. May have succeeded — never invite a retry. */
+  | { phase: 'stranded'; signature: string }
+  /** Broadcast, landed, failed. Definitive; the mint keypair is spent. */
+  | { phase: 'failedOnChain'; signature: string }
+  /** Failed BEFORE broadcast. Nothing landed, so retrying is genuinely safe. */
+  | { phase: 'error'; message: string };
+
+/**
+ * The submit path: sign and broadcast a launch against the operator's LIVE config.
+ *
+ * ## Why this panel takes only name/symbol/uri
+ *
+ * The form above previews the config the OPERATOR would create — vault, quote token,
+ * market caps. None of those are yours to choose when launching: a DBC config is
+ * IMMUTABLE once created, so a launch inherits the live config's curve, its fee
+ * schedule and its fee split wholesale. Rendering those inputs beside a live submit
+ * button would imply you are choosing them. You are not, and the terms panel above
+ * shows what you actually get, read from the account itself.
+ *
+ * ## The mint keypair lifetime is the safety-critical part
+ *
+ * The token's mint must co-sign its own creation, so we hold a keypair. It is created
+ * ONCE per attempt and kept in a ref: if the first broadcast fails and the user
+ * retries, the retry must reuse the SAME mint, or the retry is a second, different
+ * token. That is precisely the double-launch defect the EVM rail shipped and fixed in
+ * #125. The keypair is only regenerated after a CONFIRMED success, when starting a
+ * genuinely new launch. It never leaves the page and is never persisted.
+ */
+function SubmitPanel({
+  cfg,
+  cfgState,
+  name,
+  symbol,
+  uri,
+}: {
+  cfg: LivePoolConfig | null;
+  cfgState: LiveConfigState;
+  name: string;
+  symbol: string;
+  uri: string;
+}) {
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction } = useWallet();
+  const [status, setStatus] = useState<SubmitPhase>({ phase: 'idle' });
+  const [ack, setAck] = useState(false);
+
+  // See the doc comment: stable across retries, regenerated only after success.
+  const mintRef = useRef<Keypair | null>(null);
+
+  /**
+   * Leave a terminal state and start a genuinely NEW launch.
+   *
+   * Clears the mint so the next attempt mints a different token — which is the whole
+   * point, and the reason this is an explicit button rather than an automatic reset.
+   * Every caller sits behind a state where the previous transaction is settled or
+   * has been surfaced for the user to check.
+   */
+  const reset = useCallback(() => {
+    mintRef.current = null;
+    setAck(false);
+    setStatus({ phase: 'idle' });
+  }, []);
+
+  const trimmed = { name: name.trim(), symbol: symbol.trim(), uri: uri.trim() };
+  const missing = !trimmed.name || !trimmed.symbol || !trimmed.uri;
+  const busy = status.phase === 'signing' || status.phase === 'confirming';
+  // Every state in which the transaction reached the network. None of them may offer
+  // a one-click retry: 'done' and 'failedOnChain' are settled, and 'stranded' may
+  // already have succeeded.
+  const terminal =
+    status.phase === 'done' || status.phase === 'stranded' || status.phase === 'failedOnChain';
+  // The opening fee is the single most expensive surprise on this rail. If the config
+  // could not be read we cannot state it, so we do not let the launch proceed blind.
+  const termsUnknown = cfgState !== 'ok' || !cfg;
+
+  const openingFeePct = cfg ? (feeBpsAtSeconds(cfg, 0) / 100).toFixed(2) : null;
+
+  const onSubmit = useCallback(async () => {
+    if (!publicKey || !LIVE_DBC_CONFIG || missing || busy || terminal) return;
+    if (!mintRef.current) mintRef.current = Keypair.generate();
+    setStatus({ phase: 'signing' });
+    try {
+      const res = await submitLaunch({
+        connection,
+        sendTransaction,
+        walletAddress: publicKey.toBase58(),
+        config: LIVE_DBC_CONFIG,
+        mintKeypair: mintRef.current,
+        ...trimmed,
+        // The moment it is on the network, say so and show the signature. Until this
+        // existed the button read "confirm in your wallet" for the whole confirmation
+        // window, which is what makes someone reload — and a reload loses the mint ref
+        // that stops the next attempt being a second token.
+        onBroadcast: (signature) => setStatus({ phase: 'confirming', signature }),
+      });
+      mintRef.current = null; // launched — a further launch is a NEW token
+      setStatus({ phase: 'done', signature: res.signature, mint: res.mint });
+      toast.success('Launched on Solana', { description: `${trimmed.symbol} is live` });
+    } catch (err) {
+      // ANY error carrying a signature means it reached the network. Never invite a
+      // retry on those, and never claim nothing was submitted.
+      if (err instanceof ConfirmationTimeout) {
+        setStatus({ phase: 'stranded', signature: err.signature });
+        toast.warning('Broadcast, not confirmed', { description: 'Check the transaction before trying again.' });
+        return;
+      }
+      if (err instanceof LaunchFailedOnChain) {
+        // Definitive: it landed and failed. The mint may now be initialized, so the
+        // same keypair cannot be reused — force a fresh one for any next attempt.
+        mintRef.current = null;
+        setStatus({ phase: 'failedOnChain', signature: err.signature });
+        toast.error('Launch failed on-chain', { description: 'The transaction was submitted but did not succeed.' });
+        return;
+      }
+      // Everything that is NOT a ConfirmationTimeout failed BEFORE broadcast — the
+      // build threw, the wallet was declined, or the node refused it. Nothing landed,
+      // so a retry is safe, and it reuses the same mint because the ref survives.
+      const raw = err instanceof Error ? err.message : 'Could not submit the launch.';
+      // The signed blockhash is fetched at `finalized` and the window is ~60-90s, so
+      // a slow wallet approval expires it. The RPC says "Blockhash not found", which
+      // reads like a fault; it is just a stopwatch, and retrying is the fix.
+      const message = /blockhash not found|block height exceeded/i.test(raw)
+        ? 'The transaction expired before it was approved (they are only valid for about a minute). Nothing was submitted — launch again.'
+        : raw;
+      setStatus({ phase: 'error', message });
+      toast.error('Launch failed', { description: message });
+    }
+  }, [publicKey, missing, busy, terminal, connection, sendTransaction, trimmed]);
+
+  // Nothing to launch against: the honest gate, and the honest reason.
+  if (!LIVE_DBC_CONFIG) {
+    return (
+      <div className="mt-3 rounded-xl p-3.5 text-[11px]" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+        <p className="text-white/50 text-[10px] uppercase tracking-wide mb-1.5">Launch</p>
+        <p className="text-white/50 text-[11px]">
+          No live config is published for this deployment, so there is nothing to launch against here yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-xl p-3.5 text-[11px] space-y-2.5" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+      <p className="text-white/50 text-[10px] uppercase tracking-wide">Launch this token</p>
+      <p className="text-white/50 text-[10px] leading-relaxed">
+        Your wallet pays the network fee and signs. You are the issuer of the token you create here — the curve,
+        fee schedule and fee split come from the live config above and cannot be changed after launch.
+      </p>
+
+      {/* The opening fee is the single most surprising thing about this rail, so it is
+          stated at the point of signing rather than only in the terms panel. */}
+      {openingFeePct && (
+        <p className="text-amber-300/90 text-[10px] leading-relaxed">
+          Anti-snipe: trading opens at a <strong>{openingFeePct}% fee</strong> and decays on the schedule above.
+          Early buyers pay materially more than the resting rate.
+        </p>
+      )}
+      {termsUnknown && (
+        <p className="text-amber-300/90 text-[10px] leading-relaxed">
+          {cfgState === 'loading'
+            ? 'Reading the live config…'
+            : 'The live config could not be read, so the fee you would pay cannot be shown. Launching is disabled until it reads — retry in a moment.'}
+        </p>
+      )}
+
+      {status.phase !== 'done' && status.phase !== 'stranded' && (
+        <label className="flex items-start gap-2 text-white/60 text-[10px] leading-relaxed cursor-pointer">
+          <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
+          <span>
+            I am the issuer of this token, I have read the <Link to="/terms" className="underline hover:text-white">Terms</Link>,
+            and I understand this is irreversible.
+          </span>
+        </label>
+      )}
+
+      {!publicKey ? (
+        <p className="text-white/40 text-[10px]">Connect a Solana wallet above to launch.</p>
+      ) : status.phase === 'done' ? (
+        <div className="space-y-1 text-emerald-200/90 break-all">
+          <p className="font-semibold text-emerald-100">Launched.</p>
+          <p>Mint: {status.mint}</p>
+          <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+            View the transaction
+          </a>
+          <ResetButton onReset={reset} label="Launch another token" />
+        </div>
+      ) : status.phase === 'stranded' ? (
+        <div className="space-y-1 text-amber-200/90 break-all">
+          <p className="font-semibold">Broadcast, but not confirmed in time.</p>
+          <p className="text-amber-200/70">
+            It may have succeeded. Check before launching again — retrying could create a second token.
+          </p>
+          <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+            Check the transaction
+          </a>
+          <ResetButton onReset={reset} label="It did not land — start a new launch" />
+        </div>
+      ) : status.phase === 'failedOnChain' ? (
+        <div className="space-y-1 text-rose-200/90 break-all">
+          <p className="font-semibold">Submitted, but it failed on-chain.</p>
+          <p className="text-rose-200/70">
+            Your token was not created. The transaction is on the network, so its error explains why.
+          </p>
+          <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+            View the transaction
+          </a>
+          <ResetButton onReset={reset} label="Start a new launch" />
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={missing || busy || !ack || termsUnknown}
+            className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-40"
+          >
+            {status.phase === 'signing' ? 'Confirm in your wallet…'
+              : status.phase === 'confirming' ? 'Confirming…'
+              : 'Launch on Solana'}
+          </button>
+          {/* Once it is on the network the signature is shown IMMEDIATELY, with an
+              explicit do-not-reload. A reload discards the in-memory mint keypair, and
+              the next attempt would mint a different token — so this window is the one
+              place where losing page state actually costs the user something. */}
+          {status.phase === 'confirming' && (
+            <div className="text-amber-200/90 text-[10px] break-all space-y-0.5">
+              <p>Submitted — waiting for the network to confirm. Do not reload this page.</p>
+              <a href={`https://solscan.io/tx/${status.signature}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
+                {status.signature.slice(0, 8)}…{status.signature.slice(-8)}
+              </a>
+            </div>
+          )}
+          {missing && <p className="text-white/40 text-[10px]">Name, symbol and metadata URI are required.</p>}
+          {status.phase === 'error' && (
+            <>
+              <p className="text-rose-300 text-[10px] break-words">{status.message}</p>
+              <p className="text-white/40 text-[10px]">
+                Nothing was submitted, so launching again is safe — it will reuse the same token address.
+              </p>
+            </>
+          )}
         </>
       )}
     </div>
@@ -237,8 +523,9 @@ function SolanaLaunchInner() {
   const { publicKey, connecting } = useWallet();
   const { setVisible } = useWalletModal();
 
-  // Fresh ephemeral keys for the PREVIEW only — the operator generates the real
-  // config / base-mint keypairs in the signing wrapper. Stable across renders.
+  // Fresh ephemeral keys for the CONFIG PREVIEW only — they stand in for accounts
+  // the operator would create when configuring a new partner config. The mint a
+  // real launch uses is generated inside SubmitPanel, which owns its lifetime.
   const [configPubkey] = useState(() => Keypair.generate().publicKey.toBase58());
   const [baseMintPubkey] = useState(() => Keypair.generate().publicKey.toBase58());
   // A stand-in payer used only so the preview builders validate when no wallet is
@@ -257,6 +544,8 @@ function SolanaLaunchInner() {
 
   const payer = publicKey?.toBase58() ?? previewPayer;
   const quoteLabel = quote === 'custom' ? 'quote' : quote;
+  // ONE read, shared by the terms panel and the submit panel — see useLiveConfig.
+  const live = useLiveConfig();
 
   const preview = useMemo(
     () =>
@@ -288,12 +577,14 @@ function SolanaLaunchInner() {
           <div className="flex items-center justify-between mb-1">
             <h1 className="heading-luxury text-[18px] text-white">Solana Launch</h1>
             <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              PREVIEW
+              {LIVE_DBC_CONFIG ? 'LIVE' : 'PREVIEW'}
             </span>
           </div>
           <p className="text-white/60 text-[11px] mb-4">
-            Fee-capture sub-brand over Meteora&apos;s Dynamic Bonding Curve. This is a configuration preview — nothing is
-            signed or submitted here.
+            Fee-capture sub-brand over Meteora&apos;s Dynamic Bonding Curve.{' '}
+            {LIVE_DBC_CONFIG
+              ? 'You sign and submit your own launch; we never take custody of your token or your funds.'
+              : 'This is a configuration preview — nothing is signed or submitted here.'}
           </p>
 
           <Field label="Token name">
@@ -301,13 +592,13 @@ function SolanaLaunchInner() {
                 Tegridy-branded examples read as "Tegridy is launching its own
                 Solana coin", which is exactly the impression the fee-capture-only
                 doctrine exists to avoid (no TOWELI on Solana, ever). */}
-            <input className={inputCls} style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your token name" spellCheck={false} maxLength={64} />
+            <input className={inputCls} style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Your token name" spellCheck={false} maxLength={MAX_TOKEN_NAME_CHARS} />
           </Field>
           <Field label="Symbol">
-            <input className={inputCls} style={inputStyle} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="TICKER" spellCheck={false} maxLength={12} />
+            <input className={inputCls} style={inputStyle} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="TICKER" spellCheck={false} maxLength={MAX_TOKEN_SYMBOL_CHARS} />
           </Field>
           <Field label="Metadata URI" hint="ipfs:// or https:// pointing at the token metadata JSON.">
-            <input className={inputCls} style={inputStyle} value={uri} onChange={(e) => setUri(e.target.value)} placeholder="ipfs://…" spellCheck={false} />
+            <input className={inputCls} style={inputStyle} value={uri} onChange={(e) => setUri(e.target.value)} placeholder="ipfs://…" spellCheck={false} maxLength={MAX_TOKEN_URI_CHARS} />
           </Field>
 
           <Field label="Quote token" hint="SOL/USDC are the vetted, deep-liquidity pairs. A custom mint is an exotic pair.">
@@ -375,12 +666,14 @@ function SolanaLaunchInner() {
 
           {/* Outside the preview ternary on purpose: the live config is a fact
               about mainnet, not about whether this draft validates. */}
-          <LiveTerms />
+          <LiveTerms state={live.state} cfg={live.cfg} />
+
+          <SubmitPanel cfg={live.cfg} cfgState={live.state} name={name} symbol={symbol} uri={uri} />
 
           <p className="mt-4 text-center text-white/40 text-[10px] leading-relaxed">
             Solana leg is fee-capture only — no TOWELI on Solana, no custom program. Launch parameters are disclosed, not a
-            hidden dial. This page never submits: it has no signer by design, so there is no state in which a launch
-            starts here. Real launches are signed out of band by the operator.
+            hidden dial. The form above previews the config the operator would create; a launch you submit runs against
+            the live config, whose terms are immutable and shown as read from the account.
           </p>
         </div>
       </m.div>
@@ -507,9 +800,9 @@ function SolanaLauncherExplainer() {
       </ExplainerCard>
 
       <p className="text-center text-white/40 text-[10px] leading-relaxed px-2">
-        This page is a configuration preview and nothing more: there is no in-app submit path and no signer. Real
-        launches go through the operator&apos;s out-of-band wrapper, which refuses to build a transaction unless the
-        fee claimer is the derived Squads vault.
+        You sign and submit your own launch here, against a partner config the operator created out of band. That
+        separation is the point: creating a config is what requires the fee claimer to be the derived Squads vault,
+        and that step never runs in your browser.
       </p>
     </div>
   );

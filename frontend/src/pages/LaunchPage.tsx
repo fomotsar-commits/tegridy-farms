@@ -1064,7 +1064,7 @@ function LauncherExplainer() {
           action. Fee capture only — no TOWELI on Solana. */}
       <p className="text-white/40 text-xs leading-relaxed">
         There is also a Solana leg — a separate fee-capture sub-brand over Meteora&rsquo;s Dynamic Bonding Curve, with no
-        TOWELI on Solana and no AMM of our own there. That page previews a launch config; it does not submit one.{' '}
+        TOWELI on Solana and no AMM of our own there. You sign and submit that launch yourself.{' '}
         <Link to="/solana-launch" className="text-white/60 hover:text-white underline transition-colors">
           See the Solana rail
         </Link>

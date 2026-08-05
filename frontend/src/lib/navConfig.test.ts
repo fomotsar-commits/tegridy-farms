@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PRIMARY_NAV, POINTS_NAV, ALL_NAV, MORE_NAV, MORE_NAV_SECTIONS, NFT_FINANCE_LIVE, COMMUNITY_LIVE } from './navConfig';
+import { isSolanaSubmitReady } from './launcher/solana/dbc';
 
 // Session 1 consolidated the navigation from 21 routes to a tight primary set.
 // MORE_PATHS was removed; MORE_NAV is the flattened "More" destinations and
@@ -81,16 +82,33 @@ describe('navConfig', () => {
   });
 
   // The "Soon" pill answers one question for a visitor: can I do the thing this
-  // entry names? Both pages below are previews with NO signer and NO submit path,
-  // so both must stay pilled regardless of any feature flag. /solana-launch was
-  // `soon: !isSolanaLauncherEnabled()` — with the flag on, the pill cleared and the
-  // nav advertised a launch surface that cannot launch. Unpill either one only when
-  // a submit path actually ships.
-  it('pills the launch pages that have no submit path', () => {
-    for (const path of ['/solana-launch', '/curve-launch']) {
-      const entry = ALL_NAV.find((n) => n.to === path);
-      expect(entry, `${path} missing from nav`).toBeTruthy();
-      expect(entry?.soon, `${path} must be pilled Soon`).toBe(true);
-    }
+  // entry names? /solana-launch was `soon: !isSolanaLauncherEnabled()` — with the
+  // flag on and no signer, the pill cleared and the nav advertised a launch surface
+  // that could not launch. It was then pilled unconditionally, with the standing
+  // instruction to unpill it only when a submit path actually shipped.
+  //
+  // 🔄 2026-08-04 — it shipped. The pill now tracks `isSolanaSubmitReady()`, which is
+  // the feature flag AND a published live config, so the nav and the submit button
+  // read the SAME condition and cannot disagree.
+  it('pills /solana-launch exactly when it cannot actually launch', () => {
+    // Asserted as a CONCRETE value, not as `!isSolanaSubmitReady()`. Comparing the
+    // pill to the same function navConfig calls is a tautology — it passes for any
+    // implementation, including a hardcoded `soon: true`. So pin the precondition
+    // (no VITE_SOLANA_DBC_CONFIG in this environment, so the rail cannot launch)
+    // and then pin the value that must follow from it. If someone ever publishes a
+    // config into the test environment, the first assertion fails loudly and forces
+    // this test to be re-read rather than silently inverting.
+    expect(isSolanaSubmitReady(), 'no live config should be published in tests').toBe(false);
+    const entry = ALL_NAV.find((n) => n.to === '/solana-launch');
+    expect(entry, '/solana-launch missing from nav').toBeTruthy();
+    expect(entry?.soon, 'unlaunchable rail must stay pilled Soon').toBe(true);
+  });
+
+  // /curve-launch is the OWN-curve page and stays pilled unconditionally: its program
+  // is not deployed on any cluster, so no flag or config can make it launchable.
+  it('keeps /curve-launch pilled — its program is not deployed anywhere', () => {
+    const entry = ALL_NAV.find((n) => n.to === '/curve-launch');
+    expect(entry, '/curve-launch missing from nav').toBeTruthy();
+    expect(entry?.soon).toBe(true);
   });
 });
