@@ -192,10 +192,23 @@ jobs:
       - name: Fail only when the watch itself is blind
         if: steps.read.outputs.state == 'partial'
         shell: bash
+        # BOUND AS AN ENV VAR, NEVER SPLICED. A `${{ }}` inside a `run:` block is
+        # substituted into the script TEXT before bash ever parses it, so any shell
+        # metacharacter in the value executes. This value is built from
+        # `jq -c '.error'` on a PUBLIC RPC's response body — attacker-influenceable
+        # by anyone controlling or MITM-ing that endpoint — and this job holds
+        # `issues: write` plus GITHUB_TOKEN. An `env:` binding is passed through the
+        # environment and is never parsed as script.
+        #
+        # Note the two steps below/above already did this correctly; this one step
+        # did not, which is exactly how it survived review.
+        env:
+          UNREADABLE: ${{ steps.read.outputs.unknown }}
         run: |
           # A rail we cannot READ is the one failure mode worth a red check: it is
           # indistinguishable from zero, and a watch that cannot see is worse than
           # no watch because it looks green.
           printf 'Some rails were unreadable — this run does NOT prove revenue is still zero.\n'
-          printf '%b\n' "${{ steps.read.outputs.unknown }}"
+          # %s not %b: the value is untrusted text, not a format string.
+          printf '%s\n' "$UNREADABLE"
           exit 1
