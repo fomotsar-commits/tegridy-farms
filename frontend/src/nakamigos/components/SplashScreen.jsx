@@ -7,14 +7,33 @@ const IS_MOBILE = typeof window !== "undefined" && window.innerWidth < 768;
 // Which collection is the visitor entering? Match a slug segment in the path
 // (e.g. /nakamigos/junglebay/...) against COLLECTIONS so the splash shows that
 // collection's stats + loading copy instead of always the default (F546).
-function resolveSplashCollection() {
+// Exported for tests: the path -> collection decision is the whole bug surface,
+// and it is not reachable through the component without a DOM and a splash timer.
+export function resolveSplashCollectionFromPath(pathname) {
   try {
-    const segs = (typeof window !== "undefined" ? window.location.pathname : "")
-      .split("/").filter(Boolean);
-    for (const seg of segs) {
+    const segs = String(pathname || "").split("/").filter(Boolean);
+    // LAST match wins, not the first. `/nakamigos` is BOTH the route mount prefix
+    // AND a collection key, so scanning forwards made every collection under it
+    // resolve to `nakamigos`: entering /nakamigos/gnssart reported Nakamigos'
+    // 20,000 supply as fact about a 9,696-piece collection — on the first screen
+    // a visitor sees, wrong by more than 2x.
+    //
+    // Scanning backwards takes the deepest, i.e. most specific, segment, and
+    // still returns `nakamigos` for a bare /nakamigos where it is the only match.
+    for (let i = segs.length - 1; i >= 0; i--) {
+      const seg = segs[i];
       if (COLLECTIONS[seg]) return seg;
     }
-  } catch { /* SSR / malformed path — fall through to default */ }
+  } catch { /* malformed path — fall through to default */ }
+  return DEFAULT_COLLECTION;
+}
+
+function resolveSplashCollection() {
+  try {
+    return resolveSplashCollectionFromPath(
+      typeof window !== "undefined" ? window.location.pathname : "",
+    );
+  } catch { /* SSR — fall through to default */ }
   return DEFAULT_COLLECTION;
 }
 
