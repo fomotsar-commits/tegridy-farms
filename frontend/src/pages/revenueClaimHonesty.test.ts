@@ -15,8 +15,8 @@
 // after the first payment.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { revenueSharingSubhead, goldCardSubhead } from '../lib/premiumBenefits';
 
 const page = (f: string) => readFileSync(join(process.cwd(), 'src', 'pages', f), 'utf8');
@@ -90,5 +90,71 @@ describe('the timelock claim agrees across every page that makes it', () => {
     // Matching /risks: sensitive params are delayed; some setters and pause are not.
     expect(src).toMatch(/immediately/i);
     expect(src).toMatch(/emergency pause/i);
+  });
+});
+
+// ── BREADTH GUARD ──────────────────────────────────────────────────────────
+//
+// The original version of this file checked a hardcoded list of PAGES. That is
+// only ever able to catch what someone already thought to look at, and it
+// missed two live surfaces making the same claim: Footer.tsx (on EVERY page)
+// and OnboardingModal.tsx (the first thing a new visitor reads). Both were
+// found by driving the live site, not by this suite.
+//
+// So this walks the whole of src/ instead of trusting a list. A new component
+// cannot make the claim without failing here.
+describe('no surface anywhere in src/ claims fees ARE paid', () => {
+  const SRC = join(process.cwd(), 'src');
+
+  function walk(dir: string, acc: string[] = []): string[] {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p, acc);
+      else if (/\.(tsx?|jsx?)$/.test(e.name) && !/\.test\./.test(e.name)) acc.push(p);
+    }
+    return acc;
+  }
+
+  // Present-tense assertions that fees HAVE reached stakers. `routed`/`route`
+  // are deliberately absent — describing the mechanism is true and allowed.
+  const CLAIMS = [
+    /\bfees go to (?:TOWELI )?stakers\b/i,
+    /\bfees flow to stakers\b/i,
+    /\bfees (?:are )?distributed to stakers\b/i,
+    /\breal yield, paid in\b/i,
+  ];
+
+  // Occurrences that are CORRECT because they render only when a distribution
+  // has actually happened. Both were checked by hand; neither is a literal.
+  // ⚠ MAY ONLY SHRINK — a new entry needs the same justification.
+  const CONDITIONAL_AND_CHECKED = [
+    // the `paid` branch of revenueSharingSubhead(), gated on ethDistributed > 0
+    'lib/premiumBenefits.ts',
+    // an event title rendered only when nEpochs distributions exist on-chain
+    'lib/protocolEvents/onchainDeltas.ts',
+  ];
+
+  it('walks every source file and finds no paid-yield claim', () => {
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      const src = readFileSync(file, 'utf8');
+      // Strip line comments — the correction notes quote the old wording.
+      const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+      const rel = file.split(sep).join('/');
+      if (CONDITIONAL_AND_CHECKED.some((x) => rel.endsWith(x))) continue;
+      for (const re of CLAIMS) {
+        if (re.test(code)) offenders.push(`${rel.slice(rel.indexOf('/src/') + 1)} :: ${re}`);
+      }
+    }
+    expect(offenders, `paid-yield claims found:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('the walker actually reaches the files that were missed', () => {
+    // Guard the guard: if walk() silently returned nothing, the test above
+    // would pass having checked zero files — the exact defect it exists for.
+    const files = walk(SRC).map((f) => f.split(sep).join('/'));
+    expect(files.length).toBeGreaterThan(100);
+    expect(files.some((f) => f.endsWith('components/layout/Footer.tsx'))).toBe(true);
+    expect(files.some((f) => f.endsWith('components/ui/OnboardingModal.tsx'))).toBe(true);
   });
 });

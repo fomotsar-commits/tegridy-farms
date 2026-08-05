@@ -56,7 +56,7 @@ const CORE_LOOP_STEPS = [
   // the DESIGN, so it now describes the route — true today and still true after the
   // first distribution, which is why it is a literal and not a conditional. The
   // history claim belongs on /premium, where it IS conditioned on the live read.
-  { label: 'Fees flow to stakers',    sub: 'routed on-chain, in ETH' },
+  { label: 'Fees route to stakers',   sub: 'on-chain, in ETH' },
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
