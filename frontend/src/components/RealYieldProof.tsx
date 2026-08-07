@@ -80,8 +80,13 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
       </div>
       {isEmpty ? (
         <div className="rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
+          {/* 2026-08-07: dropped "100% of protocol swap fees". AUDIT R073 — swap fees
+              split 5/6 to LPs and 1/6 to the protocol, and the protocol's share then
+              splits again between stakers, liquidity and operations. Same correction
+              as ConnectPrompt.tsx:30 (F109), OnboardingModal.tsx and Footer.tsx. The
+              routing claim is true and checkable; the percentage was not. */}
           <p className="text-[13px] leading-relaxed" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            ETH distributions to stakers begin as native-pool swap volume comes online — 100% of protocol swap fees route here on-chain. This panel fills with the live cumulative the moment the first epoch settles.
+            ETH distributions to stakers begin as native-pool swap volume comes online — the protocol&apos;s share of swap fees routes here on-chain. This panel fills with the live cumulative the moment the first epoch settles.
           </p>
         </div>
       ) : (
