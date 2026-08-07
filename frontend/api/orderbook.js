@@ -315,6 +315,30 @@ const MAX_BODY_SIZE = 10 * 1024; // 10 KB
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
 
+// SECURITY: `parameters` + `signature` together are a BEARER CAPABILITY — they are
+// the complete input to Seaport.fulfillOrder/fulfillAdvancedOrder. Flipping a row's
+// status to cancelled/declined/countered here is a SOFT cancel: it removes the row
+// from our UI but does nothing on-chain, and the app never auto-revokes (see the
+// note above cancelTradeOnChain in src/nakamigos/lib/trades.js). The signature stays
+// fillable until endTime.
+//
+// Both read paths are public — GET takes no cookie — and both used `.select("*")`
+// with cancelled/filled/declined/countered in their allowed status filters. So a
+// stranger could enumerate a seller's superseded listings, lift the old signature,
+// and fill at the OLD (pre-relist) price. That is a direct, unrecoverable loss for
+// the seller, and the only place it can be stopped is here.
+//
+// Project the response: a row we report as anything other than "active" ships
+// without those two fields. Active rows keep them — buy, accept and the on-chain
+// hard-cancel all need them, and every UI control that consumes them is already
+// gated on status === "active". Nothing about what the WRITE/fill paths read
+// server-side changes; this is purely what leaves the process.
+function redactInactiveOrder(row) {
+  if (!row || typeof row !== "object" || row.status === "active") return row;
+  const { signature: _signature, parameters: _parameters, ...safe } = row;
+  return safe;
+}
+
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
@@ -407,11 +431,14 @@ export default async function handler(req, res) {
         // Surface expiry without a write: callers treat expired-but-active
         // rows as dead; the row itself sunsets via expires_at.
         const nowIso = new Date().toISOString();
-        const trades = (data || []).map(t =>
+        // Redact AFTER the expiry relabel so the projection keys off the status the
+        // caller actually sees — an expired-but-stored-active row must not ship a
+        // fill capability either.
+        const trades = (data || []).map(t => redactInactiveOrder(
           t.status === "active" && t.expires_at && t.expires_at < nowIso
             ? { ...t, status: "expired" }
             : t
-        );
+        ));
         res.setHeader("Cache-Control", "no-store");
         return res.json({ trades, count: trades.length });
       } catch (err) {
@@ -539,7 +566,8 @@ export default async function handler(req, res) {
     } else {
       res.setHeader("Cache-Control", "s-maxage=20, stale-while-revalidate=60");
     }
-    return res.json({ orders: data || [], count: (data || []).length });
+    const orders = (data || []).map(redactInactiveOrder);
+    return res.json({ orders, count: orders.length });
   }
 
   // ── POST: Create or cancel orders ──

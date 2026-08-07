@@ -261,24 +261,26 @@ describe("validateBody — votes", () => {
   });
 });
 
-describe("validateBody — pass-through cases", () => {
-  it("unknown table is passed through (proxy allowlist will reject)", () => {
+// AUDIT SIWE-RESTORE: these three used to assert the FAIL-OPEN contract
+// (`ok: true`, body forwarded unvalidated). That contract was the defect —
+// nothing gates the (table, method) PAIR, so an unmapped method skipped the
+// strict schema, the length bounds AND the JWT ownership refinement. The
+// schema map is now itself the allowlist; these assertions are inverted to
+// match. Deeper coverage lives in proxy-schemas-failclosed.test.js.
+describe("validateBody — fail-closed cases", () => {
+  it("unknown table is rejected", () => {
     const r = validateBody("unknown_table", "INSERT", { x: 1 }, CLAIMS_A);
-    expect(r.ok).toBe(true);
-    expect(r.data).toEqual({ x: 1 });
+    expect(r.ok).toBe(false);
   });
 
-  it("DELETE has no schema entry — passes through", () => {
+  it("DELETE has no schema entry — rejected", () => {
     const r = validateBody("messages", "DELETE", undefined, CLAIMS_A);
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
   });
 
-  it("messages has no UPDATE entry — passes through", () => {
-    // messages only has INSERT configured. UPDATE/UPSERT would pass through
-    // (but the handler only calls this for INSERT/UPSERT/UPDATE). Callers
-    // who hit this path bypass validation — documented in the schema map.
+  it("messages has no UPDATE entry — rejected", () => {
     const r = validateBody("messages", "UPDATE", { text: "x" }, CLAIMS_A);
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
   });
 });
 

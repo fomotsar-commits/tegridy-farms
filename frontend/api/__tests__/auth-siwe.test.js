@@ -19,6 +19,15 @@ vi.mock("../_lib/ratelimit.js", () => ({
 }));
 
 // Stub @supabase/supabase-js — chainable thenable that resolves to {data, error}.
+//
+// AUDIT SIWE-RESTORE: this double used to expose `catch: vi.fn(() => chain)`.
+// A real postgrest-js builder (PostgrestBuilder / PostgrestFilterBuilder) is
+// PromiseLike — it implements `then` and NOTHING ELSE promise-shaped. It has
+// never had a `.catch()`. The fabricated stub made `builder.catch(...)` look
+// valid in the suite while it threw `TypeError: ... .catch is not a function`
+// in production, which is how a total login outage stayed green for months.
+// The shape of this double is verified against the real library in
+// "postgrest builder shape" below — do not add methods it does not have.
 function makeQueryResult(data = [], error = null) {
   // Build a chain object whose every method returns itself, except await
   // resolves to {data, error}.
@@ -30,16 +39,23 @@ function makeQueryResult(data = [], error = null) {
     gt: vi.fn(() => chain),
     lt: vi.fn(() => chain),
     maybeSingle: vi.fn(() => chain),
-    then: (resolve) => resolve({ data, error }),
-    catch: vi.fn(() => chain),
+    // Dispatch happens in `then` — a builder that is never `then`'d never
+    // issues its HTTP request. Spying on it lets tests prove a fire-and-
+    // forget query was actually sent rather than silently dropped.
+    then: vi.fn((resolve) => resolve({ data, error })),
   };
   return chain;
+}
+
+// `supabase.rpc(fn)` also returns a postgrest builder: thenable, no `.catch`.
+function makeRpcResult(data = null, error = null) {
+  return { then: vi.fn((resolve) => resolve({ data, error })) };
 }
 
 // nonce row for DELETE-claim
 const claimedNonceRow = [{ nonce: "abc", expires_at: new Date(Date.now() + 60000).toISOString() }];
 let supabaseFromHandler = vi.fn(() => makeQueryResult(claimedNonceRow));
-let supabaseRpcHandler = vi.fn(() => ({ catch: () => {} }));
+let supabaseRpcHandler = vi.fn(() => makeRpcResult());
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({
@@ -108,6 +124,101 @@ function buildValidSiweMessageObject(overrides = {}) {
     ...overrides,
   };
 }
+
+// AUDIT SIWE-RESTORE: the doubles above are only trustworthy if they match
+// the library the handler actually talks to at runtime. postgrest-js is NOT
+// mocked in this file (only @supabase/supabase-js is), so we can compare
+// against the genuine builder.
+describe("postgrest builder shape — the test double may not invent methods", () => {
+  it("every method on the query double exists on a real postgrest-js builder", async () => {
+    const { PostgrestClient } = await import("@supabase/postgrest-js");
+    // No request is issued — postgrest builders are lazy until `then`.
+    const queryBuilder = new PostgrestClient("http://127.0.0.1:1/rest/v1").from("t");
+    const filterBuilder = queryBuilder.delete().lt("a", "b");
+    const realHas = (k) =>
+      typeof queryBuilder[k] === "function" || typeof filterBuilder[k] === "function";
+
+    for (const method of Object.keys(makeQueryResult())) {
+      // Asserting the INVARIANT (double ⊆ real library), not a fixed list:
+      // postgrest gaining methods never breaks this, but a stub for a method
+      // the library lacks — like `.catch()` — fails immediately.
+      expect(realHas(method), `double exposes \`${method}\`, real builder does not`).toBe(true);
+    }
+  });
+
+  it("every method on the rpc double exists on a real postgrest-js rpc builder", async () => {
+    const { PostgrestClient } = await import("@supabase/postgrest-js");
+    const rpcBuilder = new PostgrestClient("http://127.0.0.1:1/rest/v1").rpc("fn");
+    for (const method of Object.keys(makeRpcResult())) {
+      expect(typeof rpcBuilder[method], `rpc double exposes \`${method}\``).toBe("function");
+    }
+  });
+});
+
+// AUDIT SIWE-RESTORE: the nonce endpoint is the entry point of every login.
+// It was unreachable in production for two independent reasons:
+//   1. `siwe_nonces` did not exist (PGRST205) → the INSERT errored → 500.
+//      Fixed by migration 014_siwe_nonces.sql.
+//   2. The opportunistic cleanup called `.catch()` on a postgrest builder,
+//      which is a TypeError → the handler rejected → 500, even once the
+//      table existed. Fixed here.
+describe("auth/siwe — GET ?action=nonce (SIWE-RESTORE)", () => {
+  let handler;
+
+  beforeEach(async () => {
+    rateLimitMock.mockClear();
+    rateLimitMock.mockImplementation(async () => true);
+    supabaseFromHandler = vi.fn(() => makeQueryResult([]));
+    vi.resetModules();
+    handler = (await import("../auth/siwe.js")).default;
+  });
+
+  it("issues a nonce without throwing on a real-shaped postgrest builder", async () => {
+    const { req, res, statusSpy, jsonSpy } = makeReqRes({
+      method: "GET",
+      query: { action: "nonce" },
+    });
+    await expect(handler(req, res)).resolves.not.toThrow();
+    expect(statusSpy).not.toHaveBeenCalledWith(500);
+    expect(jsonSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce: expect.any(String), expiresAt: expect.any(String) }),
+    );
+  });
+
+  it("actually dispatches the expired-nonce cleanup DELETE (not a dropped thenable)", async () => {
+    const chains = [];
+    supabaseFromHandler = vi.fn(() => {
+      const c = makeQueryResult([]);
+      chains.push(c);
+      return c;
+    });
+    vi.resetModules();
+    handler = (await import("../auth/siwe.js")).default;
+
+    const { req, res } = makeReqRes({ method: "GET", query: { action: "nonce" } });
+    await handler(req, res);
+
+    const cleanup = chains.find((c) => c.delete.mock.calls.length > 0);
+    expect(cleanup, "no cleanup DELETE chain was built").toBeDefined();
+    expect(cleanup.lt).toHaveBeenCalledWith("expires_at", expect.any(String));
+    // A postgrest builder only issues its request when `then` is called.
+    expect(cleanup.then).toHaveBeenCalled();
+  });
+
+  it("surfaces a 500 when the nonce INSERT errors (e.g. PGRST205 missing table)", async () => {
+    // This is the exact production failure migration 014 fixes: the table is
+    // absent, PostgREST 404s the insert, login cannot start.
+    supabaseFromHandler = vi.fn(() =>
+      makeQueryResult(null, { message: "Could not find the table 'public.siwe_nonces'" }),
+    );
+    vi.resetModules();
+    handler = (await import("../auth/siwe.js")).default;
+
+    const { req, res, statusSpy } = makeReqRes({ method: "GET", query: { action: "nonce" } });
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(500);
+  });
+});
 
 describe("auth/siwe — POST hardening (R052)", () => {
   let handler;
@@ -228,7 +339,7 @@ describe("auth/siwe — DELETE hardening (R052/L-076-4)", () => {
     rateLimitMock.mockClear();
     rateLimitMock.mockImplementation(async () => true);
     supabaseFromHandler = vi.fn(() => makeQueryResult([]));
-    supabaseRpcHandler = vi.fn(() => ({ catch: () => {} }));
+    supabaseRpcHandler = vi.fn(() => makeRpcResult());
     jwtVerifyImpl = vi.fn(async () => ({
       payload: { jti: "j-1", exp: Math.floor(Date.now() / 1000) + 3600 },
     }));
@@ -291,6 +402,28 @@ describe("auth/siwe — DELETE hardening (R052/L-076-4)", () => {
     await handler(req, res);
     expect(insertSpy).toHaveBeenCalledTimes(1);
     expect(insertSpy.mock.calls[0][0]).toMatchObject({ jti: "j-1" });
+    expect(jsonSpy).toHaveBeenCalledWith({ ok: true });
+  });
+
+  // AUDIT SIWE-RESTORE: `supabase.rpc(...).catch(() => {})` threw a TypeError
+  // that the surrounding try/catch swallowed, so prune_revoked_jwts never ran
+  // — the revocation list grew without bound and nobody could tell. Assert the
+  // builder is actually dispatched (`then` called), not merely constructed.
+  it("SIWE-RESTORE: DELETE dispatches prune_revoked_jwts", async () => {
+    const rpcBuilders = [];
+    supabaseRpcHandler = vi.fn(() => {
+      const b = makeRpcResult();
+      rpcBuilders.push(b);
+      return b;
+    });
+    const { req, res, jsonSpy } = makeReqRes({
+      method: "DELETE",
+      headers: { cookie: "siwe_jwt=valid.token.value" },
+    });
+    await handler(req, res);
+    expect(supabaseRpcHandler).toHaveBeenCalledWith("prune_revoked_jwts");
+    expect(rpcBuilders).toHaveLength(1);
+    expect(rpcBuilders[0].then).toHaveBeenCalled();
     expect(jsonSpy).toHaveBeenCalledWith({ ok: true });
   });
 });

@@ -47,7 +47,10 @@ describe("v1 erc20scan — an unreadable holder payload is a failed read, not an
   beforeEach(async () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
-    vi.doMock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
+    vi.doMock("../_lib/ratelimit.js", () => ({
+      checkRateLimit: vi.fn(async () => true),
+      checkGlobalLimit: vi.fn(async () => true),
+    }));
     handler = (await import("../v1/index.js")).default;
   });
 
@@ -148,7 +151,10 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
   beforeEach(async () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
-    vi.doMock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
+    vi.doMock("../_lib/ratelimit.js", () => ({
+      checkRateLimit: vi.fn(async () => true),
+      checkGlobalLimit: vi.fn(async () => true),
+    }));
     handler = (await import("../v1/index.js")).default;
   });
 

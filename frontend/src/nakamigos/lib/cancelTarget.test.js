@@ -19,12 +19,18 @@ vi.mock("./seaportCancel", () => ({ cancelSeaportOrder }));
 
 // api-offers reaches for a wallet, then reads the wallet's chain through its OWN
 // local assertOnExpectedChain, so the ethers mock has to answer getNetwork too.
+// `getActiveWalletProvider` / `assertSameWallet` are the wallet-binding guard
+// (a signer must be the connected account before anything is signed). This file
+// is about cancel TARGETING, so the guard is stubbed to a pass here; it has its
+// own coverage in ../walletProvider.test.js.
 vi.mock("../api", () => ({
   getProvider: () => ({}),
+  getActiveWalletProvider: async () => ({ provider: {}, address: null }),
+  assertSameWallet: () => null,
   SEAPORT_FULFILLMENT_FUNCTIONS: new Set(),
 }));
 class FakeBrowserProvider {
-  async getSigner() { return {}; }
+  async getSigner() { return { getAddress: async () => "0x1111111111111111111111111111111111111111" }; }
   async getNetwork() { return { chainId: 1 }; }
 }
 vi.mock("ethers", () => ({
