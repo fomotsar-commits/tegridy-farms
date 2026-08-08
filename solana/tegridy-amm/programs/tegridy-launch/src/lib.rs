@@ -1591,7 +1591,7 @@ pub struct InitializeGlobal<'info> {
         seeds = [GLOBAL_SEED],
         bump
     )]
-    pub global: Account<'info, GlobalConfig>,
+    pub global: Box<Account<'info, GlobalConfig>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1666,7 +1666,11 @@ pub struct CreateLaunch<'info> {
         seeds = [CURVE_SEED, mint.key().as_ref()],
         bump
     )]
-    pub curve: Account<'info, BondingCurve>,
+    // BOXED, and it has to be. `BondingCurve` carries a 16-entry segment table, and
+    // Anchor's generated `try_accounts` deserializes accounts onto the STACK — which
+    // pushed this struct's frame to 4,288 bytes against SBF's 4,096 limit. Boxing
+    // moves it to the heap. If you add another sizeable account here, box it too.
+    pub curve: Box<Account<'info, BondingCurve>>,
 
     #[account(
         init,
@@ -1850,7 +1854,7 @@ pub struct Trade<'info> {
     pub trader: Signer<'info>,
 
     #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
-    pub global: Account<'info, GlobalConfig>,
+    pub global: Box<Account<'info, GlobalConfig>>,
 
     /// CHECK: must be the address the config designates; enforced below.
     #[account(mut, address = global.fee_recipient @ LaunchError::Unauthorized)]
@@ -1864,7 +1868,11 @@ pub struct Trade<'info> {
         bump = curve.bump,
         has_one = mint @ LaunchError::InvalidParameter
     )]
-    pub curve: Account<'info, BondingCurve>,
+    // BOXED, and it has to be. `BondingCurve` carries a 16-entry segment table, and
+    // Anchor's generated `try_accounts` deserializes accounts onto the STACK — which
+    // pushed this struct's frame to 4,288 bytes against SBF's 4,096 limit. Boxing
+    // moves it to the heap. If you add another sizeable account here, box it too.
+    pub curve: Box<Account<'info, BondingCurve>>,
 
     /// CHECK: must be the creator recorded on the curve at `create_launch`;
     /// receives the creator's share of the trade fee, instantly and
