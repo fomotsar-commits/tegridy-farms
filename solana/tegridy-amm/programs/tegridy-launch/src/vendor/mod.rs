@@ -43,15 +43,15 @@
 
 #![allow(clippy::all, dead_code)]
 
-pub mod big_num;
-pub mod fixed_point_64;
-pub mod full_math;
-pub mod liquidity_math;
-pub mod sqrt_price_math;
-pub mod tick_math;
-pub mod unsafe_math;
+pub(crate) mod big_num;
+pub(crate) mod fixed_point_64;
+pub(crate) mod full_math;
+pub(crate) mod liquidity_math;
+pub(crate) mod sqrt_price_math;
+pub(crate) mod tick_math;
+pub(crate) mod unsafe_math;
 
-pub use big_num::{U128, U256};
+pub(crate) use big_num::{U128, U256};
 
 /// Error shim.
 ///

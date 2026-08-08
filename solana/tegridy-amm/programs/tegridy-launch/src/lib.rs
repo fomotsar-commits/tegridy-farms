@@ -90,7 +90,13 @@ pub mod segmented;
 /// Vendored Raydium CLMM concentrated-liquidity math (Apache-2.0) — the segmented
 /// curve's arithmetic. See `vendor/mod.rs` for provenance and the exact upstream
 /// commit an auditor should diff against.
-pub mod vendor;
+///
+/// `pub(crate)`, NOT `pub`, and that is load-bearing rather than tidiness. As `pub`
+/// every macro-generated method on U512 stays externally reachable through the `lib`
+/// target, so LTO cannot drop the ones nothing calls — and `U512::overflowing_pow`
+/// needs a 4,544-byte stack frame against SBF's hard 4,096-byte limit, which fails
+/// the on-chain build. Crate-private lets it be eliminated. Do not widen this.
+pub(crate) mod vendor;
 pub mod state;
 
 use crate::curve::{
