@@ -14,7 +14,7 @@ pub mod create_support_mint_associated_owner {
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set Squads multisig
+    pub const ID: Pubkey = pubkey!("EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK");
 }
 
 #[derive(Accounts)]

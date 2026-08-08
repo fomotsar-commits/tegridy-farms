@@ -21,20 +21,33 @@ import { PublicKey } from '@solana/web3.js';
 
 // ── identity ─────────────────────────────────────────────────────────────────
 
-/** `declare_id!`, lib.rs:101 — a PLACEHOLDER. Corresponds to no key anybody holds. */
-export const PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
+/**
+ * `declare_id!` — **DEPLOYED TO SOLANA MAINNET 2026-08-08**, slot 438055726, sig
+ * `V7yjphDTzQDgPTH2bk5kSaMytN1T1DUgQaGnQcehzx8gyeU3c4EFiiT1Gdpo1vqQeGBT22D7wPBrZQgoHtcH3Pv`.
+ * The on-chain bytecode's sha256 matches the CI artifact it was built from.
+ */
+export const PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
 
-/** The cp-swap fork a launch graduates into. Also a placeholder — cp-swap/src/lib.rs:42-44. */
-export const CP_SWAP_PROGRAM_ID = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+/** The pre-deploy throwaway. Kept so the predicate below has something to compare against. */
+export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
+
+/** The cp-swap fork a launch graduates into. Mainnet id — NOT yet deployed. */
+export const CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
- * True while `PROGRAM_ID` is still the throwaway id the crate was written
- * against. A surface MUST NOT present a launch as live while this holds — but it
- * is also not sufficient on its own: an operator could set a real id and still
- * not have deployed. The authoritative check is `getAccountInfo(PROGRAM_ID)`.
+ * True while an id is still the throwaway the crate was written against.
+ *
+ * ⚠️ This compares against `PLACEHOLDER_PROGRAM_ID`, not `PROGRAM_ID`. It used to be
+ * `id.equals(PROGRAM_ID)`, which was self-referential: called with its default
+ * argument it could only ever return `true`, and once a real id was set it would
+ * have reported the LIVE program as a placeholder. Harmless while the two were the
+ * same value; actively wrong the moment they diverged, which is now.
+ *
+ * Still not sufficient on its own — an operator could set a real id and not have
+ * deployed. The authoritative check remains `getAccountInfo(PROGRAM_ID)`.
  */
 export function isPlaceholderProgramId(id: PublicKey = PROGRAM_ID): boolean {
-  return id.equals(PROGRAM_ID);
+  return id.equals(PLACEHOLDER_PROGRAM_ID);
 }
 
 /** Well-known addresses the instruction builders need. */
