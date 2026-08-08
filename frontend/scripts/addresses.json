@@ -1,0 +1,204 @@
+{
+  "$comment": [
+    "CANONICAL ADDRESS REGISTRY — the one place every Tegridy address is written down in full.",
+    "",
+    "WHY THIS EXISTS. On 2026-08-08 an operator wallet holding 0.496 SOL nearly could not be found,",
+    "because it had only ever been recorded in a session note as a TRUNCATED string ('5hNA2MXk…927v').",
+    "Worse, a later session INVENTED a full address to fit that truncation — 45 characters decoding to",
+    "33 bytes, not a valid Solana pubkey at all. Had anyone funded it, the money would have been gone.",
+    "",
+    "THE RULES THIS FILE ENFORCES (see verify-addresses.mjs, which fails CI on each):",
+    "  1. Addresses are stored in FULL. Never a '…', never a '0x1234…abcd' shorthand.",
+    "  2. Every address is structurally validated — EVM to EIP-55 checksum, Solana to exactly 32 bytes.",
+    "  3. Nothing in this file may collide with the denylist below.",
+    "  4. Every non-zero address in src/lib/constants.ts must appear here, so a new deploy cannot",
+    "     enter the codebase without being registered and explained.",
+    "",
+    "WHAT MUST NEVER GO IN THIS FILE: private keys, seed phrases, or the FILESYSTEM PATHS of keyfiles.",
+    "This repository is PUBLIC. Key custody is tracked in an operator-local file that is not committed;",
+    "the 'custody' field here says WHO controls a key, never WHERE it is stored."
+  ],
+
+  "denylist": [
+    {
+      "address": "5hNA2MXkoHo1Vf1c3ZE7cAsxsB4tCyahLcJnJ5NsD927v",
+      "chain": "solana",
+      "reason": "FABRICATED. Invented by an AI session to fit the truncation '5hNA2MXk…927v'. 45 chars, decodes to 33 bytes — not a valid pubkey. Never fund or reference.",
+      "skipValidation": true
+    },
+    {
+      "address": "67od2ENmfmrG9fhwwbXQ9gJ7tCwb1zEVSDyK1UFqC1or",
+      "chain": "solana",
+      "reason": "BURNED 2026-08-08. Its seed phrase was pasted into a chat transcript within minutes of generation. Confirmed 0 SOL, never funded. Keyfile quarantined, not deleted."
+    }
+  ],
+
+  "solana": [
+    {
+      "id": "operator-payer",
+      "address": "5hNA2MXkUQwXX8QPnXdiuue1CnMinYcLkXfEvCCf927v",
+      "role": "Operator payer. Signed the create-config that put the live Meteora DBC partner config on mainnet (2026-08-01), so it is that config's authority.",
+      "custody": "single key, operator-held",
+      "status": "live",
+      "expect": { "type": "wallet", "funded": true }
+    },
+    {
+      "id": "deploy-authority",
+      "address": "Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7",
+      "role": "Program deploy authority for the own-venue mainnet deploy. Pays rent for cp-swap + tegridy-launch, then MUST hand upgrade authority to the Squads multisig (MAINNET_RUNBOOK §4).",
+      "custody": "single key, operator-held. No seed phrase — generated --no-bip39-passphrase --silent, so the keyfile IS the backup.",
+      "status": "awaiting funding (~12 SOL float)",
+      "expect": { "type": "wallet" }
+    },
+    {
+      "id": "cp-swap-program",
+      "address": "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y",
+      "role": "cp-swap program address (Raydium CPMM fork). Keypair claims the address at first deploy; inert afterwards.",
+      "custody": "single key, operator-held",
+      "status": "NOT DEPLOYED — verified null on mainnet and devnet",
+      "expect": { "type": "wallet" }
+    },
+    {
+      "id": "tegridy-launch-program",
+      "address": "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED",
+      "role": "tegridy-launch bonding-curve program address. Separate program, separate deploy.",
+      "custody": "single key, operator-held",
+      "status": "NOT DEPLOYED — verified null on mainnet and devnet",
+      "expect": { "type": "wallet" }
+    },
+    {
+      "id": "squads-multisig",
+      "address": "EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK",
+      "role": "Squads v4 multisig. The intended destination for program upgrade authority and for fee custody.",
+      "custody": "multisig, threshold 2 (read on-chain at data offset 72)",
+      "status": "live",
+      "expect": { "type": "program-owned" }
+    },
+    {
+      "id": "squads-vault",
+      "address": "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
+      "role": "Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID. Re-derive from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
+      "custody": "PDA of the Squads multisig — no private key exists",
+      "status": "live",
+      "expect": { "type": "wallet" }
+    },
+    {
+      "id": "cpswap-fee-receiver-wsol-ata",
+      "address": "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa",
+      "role": "cp-swap create_pool_fee_reveiver::ID — the Squads vault's WSOL associated-token-account. An SPL token account, NOT a wallet.",
+      "custody": "owned by the Squads vault",
+      "status": "DOES NOT EXIST YET — must be created (~0.00204 SOL) before any pool, or every create_pool fails",
+      "expect": { "type": "absent" }
+    },
+    {
+      "id": "swap-fee-account",
+      "address": "DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER",
+      "role": "VITE_SOLANA_FEE_ACCOUNT — the live Jupiter platform-fee receiver for /solana. Verified present in the deployed bundle.",
+      "custody": "SINGLE KEY, not a Squads vault. Proven on-curve and by transaction-level signing. This is a known custody gap.",
+      "status": "live, has never collected a fee",
+      "expect": { "type": "wallet" }
+    },
+    {
+      "id": "swap-fee-ata-wsol",
+      "address": "7H4wVGcpycjoAwNoMb8aRu2pk1Ao5pkMzfc9nqcCSKpw",
+      "role": "WSOL fee ATA owned by swap-fee-account.",
+      "custody": "owned by swap-fee-account",
+      "status": "live, balance 0",
+      "expect": { "type": "token-account" }
+    },
+    {
+      "id": "swap-fee-ata-usdc",
+      "address": "Ca5ASzyVgVQkQHWJKv6aUCA4Wib6WWQu8D8sCUfptcxw",
+      "role": "USDC fee ATA owned by swap-fee-account.",
+      "custody": "owned by swap-fee-account",
+      "status": "live, balance 0",
+      "expect": { "type": "token-account" }
+    },
+    {
+      "id": "meteora-dbc-program",
+      "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN",
+      "role": "Meteora Dynamic Bonding Curve program. Third-party, not ours.",
+      "custody": "Meteora",
+      "status": "live third-party program",
+      "expect": { "type": "executable" }
+    },
+    {
+      "id": "meteora-locker-program",
+      "address": "LocpQgucEQHbqNABEYvBvwoxCPsSbG91A1QaQhQQqjn",
+      "role": "Meteora locker program. Third-party, not ours.",
+      "custody": "Meteora",
+      "status": "live third-party program",
+      "expect": { "type": "executable" }
+    },
+    {
+      "id": "devnet-admin",
+      "address": "GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a",
+      "role": "Devnet admin / the Solana CLI's configured default signer. Devnet only.",
+      "custody": "single key, operator-held",
+      "status": "devnet only — 0 on mainnet",
+      "expect": { "type": "wallet" }
+    },
+    {
+      "id": "devnet-throwaway-program",
+      "address": "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL",
+      "role": "The placeholder in declare_id! on both cfg arms. declare_id! is NOT fail-closed — ship without replacing it and you deploy to an address someone else may hold.",
+      "custody": "throwaway",
+      "status": "must be replaced before any mainnet deploy",
+      "expect": { "type": "wallet" }
+    }
+  ],
+
+  "ethereum": [
+    { "id": "toweli",                  "address": "0x420698CFdEDdEa6bc78D59bC17798113ad278F9D", "role": "TOWELI token. Fixed supply, no mint function.", "status": "live" },
+    { "id": "tegridy-lp-native",       "address": "0x55875887B43C2E23aE424AF0FC8606Fdb058a481", "role": "OUR OWN TOWELI/WETH pair on the Tegridy DEX. This is the shallow one (~$14) — do not confuse it with the Uniswap pair.", "status": "live, effectively empty" },
+    { "id": "toweli-weth-lp-uniswap",  "address": "0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D", "role": "Uniswap V2 TOWELI/WETH pair. Where all real trading happens. ~99.9997% of the LP is UNCX-locked until ~2093.", "status": "live, ~7.4 WETH" },
+    { "id": "swap-fee-router",         "address": "0x6d5791A660e79175F74C6D639584C98422d5956E", "role": "Skims the protocol fee on swaps routed through our own router.", "status": "live, has earned 0 wei lifetime" },
+    { "id": "revenue-distributor",     "address": "0xF993316E2fC079de4358c489A935E01e03E23E17", "role": "Pays ETH fee-share to veTOWELI stakers. MIN_DISTRIBUTE_AMOUNT is 1 full ETH.", "status": "live, holds 0" },
+    { "id": "treasury",                "address": "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d", "role": "Treasury Safe. Destination of the launcher's protocol fee line.", "status": "live, holds 0 ETH" },
+    { "id": "launcher-integrator",     "address": "0xD355A072d6bBbA275DBD83A3149f6347b06d1051", "role": "Doppler integrator fee receiver (withIntegrator). Gates the two-role /admin fees panel.", "custody": "single-key EOA, chosen over a Safe by the operator", "status": "live, holds 0 ETH" },
+    { "id": "tegridy-factory",         "address": "0xa24C7287eC56A7DEFDc70033803451240e267a52", "role": "Tegridy DEX factory.", "status": "live" },
+    { "id": "tegridy-router",          "address": "0xE9F83A07b071748E795d2489651d5310fA098Db8", "role": "Tegridy DEX router.", "status": "live" },
+    { "id": "tegridy-staking",         "address": "0xcaDc93E96De58EA554c71ca609974625615E046D", "role": "veTOWELI staking. Positions are ERC-721.", "status": "live" },
+    { "id": "tegridy-staking-admin",   "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3", "role": "Staking admin.", "status": "live" },
+    { "id": "swap-fee-router-admin",   "address": "0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060", "role": "SwapFeeRouter admin.", "status": "live" },
+    { "id": "staking-monitor-view",    "address": "0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC", "role": "Read-only staking monitor view.", "status": "live" },
+    { "id": "pol-accumulator",         "address": "0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2", "role": "Protocol-owned-liquidity accumulator. Gated on a warm oracle.", "status": "live" },
+    { "id": "lp-farming",              "address": "0x1171268AE5B69791c47Fd589b7825932c957e149", "role": "LP farming. Emissions ended 2026-06-15; 0 LP staked.", "status": "live, idle" },
+    { "id": "referral-splitter",       "address": "0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c", "role": "Referral reward splitter.", "status": "live" },
+    { "id": "premium-access",          "address": "0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5", "role": "Premium tier access (10k TOWELI).", "status": "live" },
+    { "id": "nft-pool-factory",        "address": "0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B", "role": "NFT AMM pool factory. 50bps fee to treasury.", "status": "live" },
+    { "id": "token-uri-reader",        "address": "0x5cfEe751eAf274F68b05267012b85a867dfCd326", "role": "Tolerant tokenURI reader.", "status": "live" },
+    { "id": "nft-lending",             "address": "0x89BeB6cc0255B7465c01aA38a6f937efd345f14F", "role": "P2P NFT lending.", "status": "live" },
+    { "id": "tegridy-twap",            "address": "0xdFdd6D72539A425dC917F49FB834901105cA98c9", "role": "TWAP oracle. DEFAULT_MIN_RESERVE_FLOOR_WEI is 10 ether per side.", "status": "live, floor not cleared by any pool" },
+    { "id": "tegridy-fee-hook",        "address": "0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044", "role": "Uniswap V4 fee hook.", "status": "live" },
+    { "id": "launchpad-v2",            "address": "0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7", "role": "NFT launchpad V2.", "status": "live" },
+    { "id": "locker-claimer",          "address": "0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7", "role": "Claims streamed fees from the Doppler locker, which pays msg.sender only.", "status": "live" },
+    { "id": "jbac-nft",                "address": "0xd37264c71e9af940e49795F0d3a8336afAaFDdA9", "role": "Jungle Bay Ape Club, ERC-721, 5555 supply. IS one of the 13 Heat-measured tokens — counted as NFTs held / 5555, time-weighted.", "custody": "third-party community collection", "status": "live" },
+    { "id": "jbay-gold",               "address": "0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3", "role": "JBAY Gold Card.", "custody": "third-party", "status": "live" },
+    { "id": "weth",                    "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "role": "Canonical WETH.", "custody": "third-party", "status": "live" },
+    { "id": "uniswap-v2-router",       "address": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", "role": "Uniswap V2 router.", "custody": "third-party", "status": "live" },
+    { "id": "uniswap-v2-factory",      "address": "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f", "role": "Uniswap V2 factory.", "custody": "third-party", "status": "live" },
+    { "id": "eth-usd-feed",            "address": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419", "role": "Chainlink ETH/USD. ~3600s heartbeat — the launcher uses its own staleness window, not the swap path's 300s.", "custody": "Chainlink", "status": "live" }
+  ],
+
+  "heatRegistry": {
+    "$comment": "The 13 tokens Jungle Bay Island measures for Heat. Enumerated empirically 2026-08-08 by reading breakdown[] across 49 wallets — the island publishes no registry endpoint, so this list is a SAMPLE-DERIVED FLOOR, not a guarantee of completeness. TOWELI appears on both chains.",
+    "base": [
+      { "symbol": "JBM",    "address": "0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d", "note": "Jungle Bay Memes, 100B supply" },
+      { "symbol": "RIZZ",   "address": "0x58d6e314755c2668f3d7358cc7a7a06c4314b238" },
+      { "symbol": "BNKR",   "address": "0x22af33fe49fd1fa80c7149773dde5890d3c76f3b" },
+      { "symbol": "BOBO",   "address": "0x570b1533f6daa82814b25b62b5c7c4c55eb83947" },
+      { "symbol": "MFER",   "address": "0xe3086852a4b125803c815a158249ae468a3254ca" },
+      { "symbol": "DRB",    "address": "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2" },
+      { "symbol": "TOWELI", "address": "0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca", "note": "OUR TOKEN on Base — already measured" },
+      { "symbol": "ALPHA",  "address": "0x3d01fe5a38ddbd307fdd635b4cb0e29681226d6f" },
+      { "symbol": "QR",     "address": "0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf" }
+    ],
+    "ethereum": [
+      { "symbol": "TOWELI", "address": "0x420698cfdeddea6bc78d59bc17798113ad278f9d", "note": "OUR TOKEN on mainnet — already measured" },
+      { "symbol": "BOBO",   "address": "0xb90b2a35c65dbc466b04240097ca756ad2005295" },
+      { "symbol": "JBAC",   "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9", "note": "ERC-721 — the NFT is measured by count/5555" },
+      { "symbol": "PEPE",   "address": "0x6982508145454ce325ddbe47a25d4ec3d2311933" }
+    ]
+  }
+}
