@@ -69,8 +69,23 @@ function sanitize(str) {
     const doc = new DOMParser().parseFromString(str, "text/html");
     str = doc.body.textContent || "";
   } catch {
-    // Fallback: strip tags via regex if DOMParser unavailable (e.g. SSR)
-    str = str.replace(/<[^>]*>?/g, "");
+    // Fallback for when DOMParser is unavailable (SSR).
+    //
+    // Was `str.replace(/<[^>]*>?/g, "")`, which CodeQL flags HIGH as incomplete
+    // multi-character sanitization (js/incomplete-multi-character-sanitization).
+    //
+    // HONEST NOTE ON THE OLD CODE: I could not construct an input that actually
+    // defeats it. The usual bypass — `<scr<script>ipt>`, where one pass deletes the
+    // inner tag and splices a new one out of the remains — does not work here,
+    // because `[^>]*` is greedy and swallows the inner `<` along with it. So this is
+    // a fix for a pattern CodeQL cannot prove safe, not for a demonstrated hole.
+    //
+    // It is still the better code, and worth taking either way: stripping the angle
+    // brackets is complete BY CONSTRUCTION rather than by an argument about greedy
+    // matching that a future edit could quietly invalidate. There is no second pass
+    // to exploit, and no adversarial input that makes it quadratic the way a
+    // loop-until-stable version would.
+    str = str.replace(/[<>]/g, "");
   }
   // Collapse control chars. The control characters ARE the point here — this is
   // the sanitizer's last step, stripping bytes that would otherwise smuggle
