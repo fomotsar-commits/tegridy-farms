@@ -1288,6 +1288,24 @@ pub mod tegridy_launch {
         // rent-band hazard the seed top-up guards against cannot bite here. Keep
         // that top-up anyway: it is what makes this safe if the sweep is ever
         // removed.
+        //
+        // ── WHO GETS THE RESIDUAL, AND WHY IT IS NOT THE CALLER ──────────────
+        // This used to pay `payer`. It is NOT the caller's money: `move_lamports`
+        // is `deposit + reserve` (above) and only `deposit` goes into the pool, so
+        // `residual` is the unspent migration reserve — which buyers funded, because
+        // the reserve is raised ON TOP of the graduation target and `buy` caps the
+        // raise at `target + reserve`.
+        //
+        // Migration is deliberately permissionless, so paying it to `payer` made
+        // graduation a standing MEV bounty: watch for `real_sol_reserves == target +
+        // reserve`, call this instruction, collect the surplus. With the runbook's
+        // recommended 0.25 SOL reserve that is roughly 0.06 SOL of traders' money per
+        // graduation to whoever wins the race, and ~0.21 SOL if the operator ever
+        // sets `create_pool_fee = 0`.
+        //
+        // `payer` is still made whole and then some: the three `close_account` calls
+        // above return 3x ATA rent to it, against the 2x ATA rent + seed top-up it
+        // fronted. It does not need — and must not get — the reserve as well.
         let residual = auth_ai.lamports();
         if residual > 0 {
             system_program::transfer(
@@ -1295,7 +1313,7 @@ pub mod tegridy_launch {
                     ctx.accounts.system_program.to_account_info(),
                     system_program::Transfer {
                         from: auth_ai.clone(),
-                        to: ctx.accounts.payer.to_account_info(),
+                        to: ctx.accounts.fee_recipient.to_account_info(),
                     },
                     auth_signer,
                 ),
@@ -1464,13 +1482,29 @@ pub struct CreateLaunch<'info> {
 /// its logic with no added safety and a real chance of drifting from it.
 #[derive(Accounts)]
 pub struct MigrateToAmm<'info> {
-    /// Funds rent for the accounts created along the way. Any caller may pay;
-    /// this is the only thing a caller contributes and it buys them nothing.
+    /// Funds rent for the accounts created along the way. Any caller may pay.
+    ///
+    /// It buys them the rent back and nothing more. That used to be untrue: the
+    /// residual sweep below sent the ENTIRE unspent migration reserve here, and since
+    /// the reserve is raised from buyers on top of the graduation target
+    /// (`state.rs` / lib.rs:245), a bot watching for funded curves could call this and
+    /// take ~0.06 SOL of traders' money per graduation for a ~5,000-lamport fee. The
+    /// comment that used to sit here — "it buys them nothing" — is why nobody caught
+    /// it, and MAINNET_RUNBOOK then advised over-provisioning the reserve BECAUSE the
+    /// surplus came back to the caller, which made the leak bigger. The surplus now
+    /// goes to `fee_recipient`.
     #[account(mut)]
     pub payer: Signer<'info>,
 
     #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
     pub global: Box<Account<'info, GlobalConfig>>,
+
+    /// CHECK: receives the unspent migration reserve. Pinned to the config so the
+    /// caller cannot name themselves. Declared AFTER `global` because Anchor
+    /// evaluates constraints in field order and this one reads back into it — the
+    /// same ordering requirement `Trade::creator` documents.
+    #[account(mut, address = global.fee_recipient @ LaunchError::Unauthorized)]
+    pub fee_recipient: UncheckedAccount<'info>,
 
     pub launch_mint: Box<Account<'info, Mint>>,
 

@@ -128,6 +128,9 @@ describe("tegridy-launch full migration rehearsal", () => {
   let cpSwap: AnyProgram;
   let ammConfig: PublicKey;
   let feeReceiver: PublicKey;
+  // The config's fee recipient. Also the destination of the unspent migration
+  // reserve since 2026-08-08 — see `migrate_to_amm`'s residual sweep.
+  let cfgFeeRecipient: PublicKey;
 
   let launchMint: PublicKey;
   let curve: PublicKey;
@@ -211,6 +214,7 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     const globalKey = pda([GLOBAL_SEED], launch.programId);
     const g: any = await (launch.account as any).globalConfig.fetch(globalKey);
+    cfgFeeRecipient = g.feeRecipient;
 
     // ── exercise `sell` once, while the curve is still open ──────────────────
     // `sell` is the holders' ONLY exit, and it carries the same direct
@@ -431,6 +435,16 @@ describe("tegridy-launch full migration rehearsal", () => {
     const feeReceiverBefore = BigInt(
       (await provider.connection.getTokenAccountBalance(feeReceiver)).value.amount
     );
+    // AUDIT 2026-08-08: the unspent migration reserve used to be swept to `payer`,
+    // and migration is permissionless — so any bot could call this and pocket the
+    // surplus, which is money BUYERS raised (the reserve sits on top of the
+    // graduation target). Capture both balances so the regression assertions below
+    // can prove the surplus goes to the protocol and not to the caller.
+    const payerLamportsPre =
+      (await provider.connection.getAccountInfo(wallet.publicKey))!.lamports;
+    const cfgFeeRecipientPre =
+      (await provider.connection.getAccountInfo(cfgFeeRecipient))?.lamports ?? 0;
+
     const curveInfoPre = await provider.connection.getAccountInfo(curve);
     const curveLamportsPre = curveInfoPre!.lamports;
     const curveRentFloor = await provider.connection.getMinimumBalanceForRentExemption(
@@ -448,6 +462,7 @@ describe("tegridy-launch full migration rehearsal", () => {
       .accountsPartial({
         payer: wallet.publicKey,
         global: globalKey,
+        feeRecipient: cfgFeeRecipient,
         launchMint,
         curve,
         curveVault,
@@ -480,6 +495,36 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     const poolAccount = await provider.connection.getAccountInfo(poolState);
     assert.isNotNull(poolAccount, "the pool must exist on-chain");
+
+    // ── the migration reserve must not be MEV ────────────────────────────────
+    // Regression test for the audit finding. The unspent reserve belongs to the
+    // protocol, not to whoever won the race to call a permissionless instruction.
+    const cfgFeeRecipientPost =
+      (await provider.connection.getAccountInfo(cfgFeeRecipient))?.lamports ?? 0;
+    const payerLamportsPost =
+      (await provider.connection.getAccountInfo(wallet.publicKey))!.lamports;
+
+    const residualToProtocol = cfgFeeRecipientPost - cfgFeeRecipientPre;
+    assert.isAbove(
+      residualToProtocol,
+      0,
+      "the unspent migration reserve must reach the config's fee recipient"
+    );
+
+    // The caller fronts a seed top-up plus two ATA rents and gets three ATA rents
+    // back, so it ends slightly up — but by RENT, not by a share of the reserve.
+    // Anything near the reserve size means the sweep is paying the caller again.
+    const payerDelta = payerLamportsPost - payerLamportsPre;
+    assert.isBelow(
+      payerDelta,
+      residualToProtocol,
+      "the caller must never gain more than the protocol does — that is the leak"
+    );
+    assert.isBelow(
+      payerDelta,
+      MIGRATION_RESERVE.toNumber() / 2,
+      "the caller's gain must be rent-scale, not reserve-scale"
+    );
 
     // ── report the REAL compute cost ─────────────────────────────────────────
     // A green run prints no program logs, so pinning an explicit CU limit above
@@ -600,6 +645,7 @@ describe("tegridy-launch full migration rehearsal", () => {
         .accountsPartial({
           payer: wallet.publicKey,
           global: pda([GLOBAL_SEED], launch.programId),
+          feeRecipient: cfgFeeRecipient,
           launchMint,
           curve,
           curveVault,

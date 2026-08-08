@@ -173,8 +173,20 @@ Raised from traders on top of the target, and it pays cp-swap's costs at migrati
 0.15 SOL `create_pool_fee` plus 42,156,720 lamports of rent for the five accounts
 cp-swap creates (`observation_state` alone is 29.25M — 70% of the rent). Derived
 from cp-swap's own `LEN` constants, not estimated. **Recommended: 0.25 SOL** for
-headroom; the surplus is swept back to whoever calls migration, so
-over-provisioning costs nothing but a slightly larger raise.
+headroom.
+
+> ⚠️ **Corrected 2026-08-08 — the previous advice made a real leak bigger.**
+> This used to read *"the surplus is swept back to whoever calls migration, so
+> over-provisioning costs nothing but a slightly larger raise."* Wrong twice over.
+> Migration is **permissionless**, so "whoever calls migration" meant any bot, not
+> the operator; and the surplus is **traders' money**, because the reserve is raised
+> on top of the graduation target. Over-provisioning did not cost nothing — it sized
+> a standing MEV bounty paid out of buyers' funds at every graduation.
+>
+> The residual now goes to `global.fee_recipient` (lib.rs, the sweep at the end of
+> `migrate_to_amm`), so over-provisioning is no longer exploitable. It is still
+> charged to buyers and banked by the protocol rather than returned to them, so
+> **size this to the real cost plus a modest margin, not generously.**
 
 Too small and migration fails *after* the pool exists — the worst possible moment.
 
