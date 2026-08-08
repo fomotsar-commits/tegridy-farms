@@ -41,7 +41,7 @@ solana_security_txt::security_txt! {
 #[cfg(feature = "devnet")]
 declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
 #[cfg(not(feature = "devnet"))]
-declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL"); // OPERATOR: replace with mainnet program ID
+declare_id!("3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y");
 
 pub mod admin {
     use super::{pubkey, Pubkey};
@@ -51,7 +51,7 @@ pub mod admin {
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set Squads multisig
+    pub const ID: Pubkey = pubkey!("EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK");
 }
 
 pub mod create_pool_fee_reveiver {
@@ -64,7 +64,7 @@ pub mod create_pool_fee_reveiver {
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set treasury's WSOL ATA
+    pub const ID: Pubkey = pubkey!("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
 }
 
 pub const AUTH_SEED: &str = "vault_and_lp_mint_auth_seed";

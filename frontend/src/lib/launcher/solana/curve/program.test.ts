@@ -13,6 +13,7 @@ import {
   AWAITING_MIGRATION_CODE,
   BONDING_CURVE_SIZE,
   CP_SWAP_PROGRAM_ID,
+  PLACEHOLDER_PROGRAM_ID,
   DEFAULT_PUBKEY,
   EVENT_DISCRIMINATOR,
   GLOBAL_CONFIG_SIZE,
@@ -102,21 +103,26 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
 describe('PDA derivation', () => {
   // Pinned base58, so a seed typo (or a stray null terminator) fails loudly
   // instead of silently pointing every read at a different address.
+  //
+  // RE-PINNED 2026-08-08 when PROGRAM_ID and CP_SWAP_PROGRAM_ID moved off their
+  // placeholders to the real mainnet addresses. Every one of these derives FROM a
+  // program id, so they all moved together — which is exactly what the
+  // 'an alternate program id changes every derived address' case below asserts.
   it('tegridy-launch PDAs', () => {
-    expect(globalPda().toBase58()).toBe('AS1dDKPm8mkLuZYmmkpecWyLo8AbQbqtndnsjCEVZuP');
-    expect(curvePda(MINT).toBase58()).toBe('DcoKqujtsSywo8HpsqJMuVUz3anRqhAKR5FTP8dwxJ3V');
-    expect(curveVaultPda(MINT).toBase58()).toBe('K4CPsmL4LKmfnUNSdAZ3WqxS7WZyt1GfayscRNa9PPu');
-    expect(migrationAuthorityPda(MINT).toBase58()).toBe('5FAWnGuMXuPYR7fxGgko4WETaJLBDogtaBxqLVfwPZCs');
-    expect(poolStatePda(MINT).toBase58()).toBe('DMcEfXV2MNrW2BNYKDcQRj9UevZDd5b1yAK9mA1LvvrA');
+    expect(globalPda().toBase58()).toBe('7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e');
+    expect(curvePda(MINT).toBase58()).toBe('4LaVwaxeQDWQLQk98E7JnZzqZXttBADsH9q3osPDCsqH');
+    expect(curveVaultPda(MINT).toBase58()).toBe('8CSq1f5LHCfAv73WEb34zUpeyCyJKXNjmC5znFfyww5R');
+    expect(migrationAuthorityPda(MINT).toBase58()).toBe('4URospGA9UuXnqPp74MHTrexf8erjgnyGsF11d8ABhRM');
+    expect(poolStatePda(MINT).toBase58()).toBe('hFBoCWt59BriJ8b5ZSXFGtZM5vLsTW19nB2Fum5wie6');
   });
 
   it('cp-swap PDAs', () => {
-    expect(cpAmmAuthorityPda().toBase58()).toBe('2AyD575Z28PbcmLAwk8aFpRL6jwuhxHNHwdds7uMZb4F');
-    expect(cpAmmConfigPda(0).toBase58()).toBe('D43XTC9kJnmuCkYm5dR7jtXTzh72pvHZ6kdkE992kJ7Y');
+    expect(cpAmmAuthorityPda().toBase58()).toBe('39TE29rvRbuT3DLri3LwQWUYLwjFKJE4UoHarhTKqFGP');
+    expect(cpAmmConfigPda(0).toBase58()).toBe('DpaUiYQPRk6WNqmGVPZB4LPCMQUSoUxGmc8XXto9FGMk');
   });
 
   it('amm_config uses BIG-endian u16, so index 1 is not index 256', () => {
-    expect(cpAmmConfigPda(1).toBase58()).toBe('BWsLvg8WeE78B83qrKH1xDboeCH2xpr8ErkEN5sXLhfb');
+    expect(cpAmmConfigPda(1).toBase58()).toBe('4gaXxch5n5mE7XEESzMc7KXx86R352PkYGPpFKZX1C7y');
     expect(cpAmmConfigPda(1).equals(cpAmmConfigPda(256))).toBe(false);
     expect(() => cpAmmConfigPda(65_536)).toThrow(RangeError);
     expect(() => cpAmmConfigPda(-1)).toThrow(RangeError);
@@ -409,9 +415,23 @@ describe('error table', () => {
 });
 
 describe('deployment honesty', () => {
-  it('the shipped program id is the placeholder — this must stay true until a real deploy', () => {
-    expect(isPlaceholderProgramId()).toBe(true);
-    expect(PROGRAM_ID.toBase58()).toBe('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
+  // FLIPPED 2026-08-08. This previously read "the shipped program id is the
+  // placeholder — this must stay true until a real deploy". That deploy happened,
+  // so the tripwire did its job and now pins the opposite: the id we ship must be
+  // the one actually on mainnet.
+  it('the shipped program id is the DEPLOYED mainnet address', () => {
+    expect(PROGRAM_ID.toBase58()).toBe('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
+    expect(isPlaceholderProgramId()).toBe(false);
+  });
+
+  // Without this, `isPlaceholderProgramId` could be hardcoded `false` and the
+  // assertion above would still pass.
+  it('the placeholder is still recognised, so the predicate is not vacuous', () => {
+    expect(isPlaceholderProgramId(PLACEHOLDER_PROGRAM_ID)).toBe(true);
+  });
+
+  it('cp-swap points at the mainnet fork id', () => {
+    expect(CP_SWAP_PROGRAM_ID.toBase58()).toBe('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
   });
 
   it('the default pubkey is the System Program address', () => {
