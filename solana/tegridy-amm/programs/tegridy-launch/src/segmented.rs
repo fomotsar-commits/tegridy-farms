@@ -48,6 +48,32 @@ use crate::vendor::{liquidity_math, sqrt_price_math, tick_math};
 /// (see the compute test in tests/).
 pub const MAX_SEGMENTS: usize = 16;
 
+/// Hard ceiling on a segment's liquidity: 2^48.
+///
+/// A SAFETY bound, not a product preference, and the number is MEASURED rather than
+/// derived. The vendored `MulDiv for U256` no longer widens to U512 on overflow — it
+/// fails closed (see `vendor/full_math.rs`), because U512's macro-generated `pow` blew
+/// SBF's 4 KB stack frame. So the segment math must never form a product that
+/// overflows U256, or a legitimate trade would revert instead of computing.
+///
+/// I first reasoned my way to `u64::MAX` from the widest product the walk forms, and
+/// it was WRONG — a probe across the liquidity/amount space showed overflow at 2^56
+/// liquidity once a trade exceeds ~2^50 lamports. The measured result:
+///
+/// ```text
+///   liquidity 2^40 .. 2^48  ->  no overflow at ANY u64 amount
+///   liquidity 2^56 and up   ->  overflows once the trade exceeds ~2^50 lamports
+/// ```
+///
+/// 2^48 is the largest power of two the probe cleared across the whole u64 amount
+/// range, so it is the cap. Enforcing it at config time turns "the overflow path is
+/// unreachable" from an argument into an invariant, checked once and off the hot path.
+///
+/// ⚠️ This IS a real constraint on configuration: 2^48 is ~2.8e14. Launches around
+/// 1e12-1e14 liquidity are unaffected; anything at 1e15 or above will be rejected and
+/// must be expressed with a different sqrt-price span instead.
+pub const MAX_SEGMENT_LIQUIDITY: u128 = 1u128 << 48;
+
 /// One liquidity segment: constant `liquidity` up to `sqrt_price_upper_x64`.
 ///
 /// Q64.64 sqrt price, matching the vendored math's representation exactly so no
@@ -122,7 +148,7 @@ pub fn validate_segments(
     }
     let mut prev = sqrt_price_start_x64;
     for s in segments {
-        if s.liquidity == 0 {
+        if s.liquidity == 0 || s.liquidity > MAX_SEGMENT_LIQUIDITY {
             return Err(SegmentError::BadSegments);
         }
         // Strictly ascending: equal bounds would be a zero-width segment that can
@@ -712,5 +738,50 @@ mod tests {
             "the curve must keep a rounding margin: in {} out {}",
             b.lamports_in, s.lamports_out
         );
+    }
+    /// The vendored `MulDiv for U256` now FAILS CLOSED where upstream widened to
+    /// U512 (U512 was deleted — its macro-generated `pow` blew SBF's 4 KB stack
+    /// frame). That is a real behavioural difference, so it needs to be shown inert
+    /// for the inputs this curve actually produces.
+    ///
+    /// The removed branch runs only when `self.overflowing_mul(num)` overflows U256.
+    /// The largest product the segment math forms is
+    /// `(liquidity << 64) * (sqrt_b - sqrt_a)`, and U256::MAX is ~1.16e77. This walks
+    /// a maximal curve — 16 segments, the largest liquidity we permit, the widest
+    /// legal sqrt-price span — and asserts every quote still succeeds. A hit on the
+    /// removed path would surface as `Overflow`, not a wrong number, because
+    /// `mul_div_*` returning None maps to `CalculateOverflow` and reverts.
+    #[test]
+    fn realistic_inputs_never_reach_the_removed_u512_path() {
+        // Liquidity far above anything a launch would configure, across 16 segments
+        // spanning most of the supported sqrt-price range.
+        let start = sp(4000);
+        let segs: Vec<Segment> = (0..MAX_SEGMENTS)
+            .map(|i| Segment {
+                sqrt_price_upper_x64: sp(3900 - (i as u128) * 240),
+                liquidity: MAX_SEGMENT_LIQUIDITY,
+            })
+            .collect();
+        assert_eq!(validate_segments(&segs, start), Ok(()));
+
+        // Every amount a real trade could carry. Solana's entire supply is ~6e17
+        // lamports, so u64::MAX/4 (4.6e18) is already beyond physically possible —
+        // included anyway, because the bound should hold for any u64 a caller can pass.
+        for sol in [1u64, 1_000, 1_000_000_000, u64::MAX / 4, u64::MAX / 2] {
+            let b = quote_buy(&segs, start, sol);
+            assert!(
+                !matches!(b, Err(SegmentError::Overflow)),
+                "buy of {} lamports hit an overflow — the fail-closed U256 path is REACHABLE                  with realistic inputs, so removing U512 is not safe",
+                sol
+            );
+            if let Ok(q) = b {
+                let s = quote_sell(&segs, q.sqrt_price_after_x64, start, q.tokens_out);
+                assert!(
+                    !matches!(s, Err(SegmentError::Overflow)),
+                    "sell after a {} lamport buy hit an overflow",
+                    sol
+                );
+            }
+        }
     }
 }

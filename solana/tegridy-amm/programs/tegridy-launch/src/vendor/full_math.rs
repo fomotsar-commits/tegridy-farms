@@ -3,7 +3,7 @@
 //! and supports U128 operations.
 //!
 
-use super::big_num::{U128, U256, U512};
+use super::big_num::{U128, U256};
 
 /// Trait for calculating `val * num / denom` with different rounding modes and overflow
 /// protection.
@@ -103,25 +103,7 @@ impl Downcast256 for U256 {
     }
 }
 
-pub trait Upcast512 {
-    fn as_u512(self) -> U512;
-}
-impl Upcast512 for U256 {
-    fn as_u512(self) -> U512 {
-        U512([self.0[0], self.0[1], self.0[2], self.0[3], 0, 0, 0, 0])
-    }
-}
 
-pub trait Downcast512 {
-    /// Unsafe cast to U256
-    /// Bits beyond the 256th position are lost
-    fn as_u256(self) -> U256;
-}
-impl Downcast512 for U512 {
-    fn as_u256(self) -> U256 {
-        U256([self.0[0], self.0[1], self.0[2], self.0[3]])
-    }
-}
 
 impl MulDiv for u64 {
     type Output = u64;
@@ -212,12 +194,11 @@ impl MulDiv for U256 {
         if !overflow {
             return Some(prod / denom);
         }
-        let r = (self.as_u512() * num.as_u512()) / denom.as_u512();
-        if r > U256::MAX.as_u512() {
-            None
-        } else {
-            Some(r.as_u256())
-        }
+        // DELTA FROM UPSTREAM — fail closed instead of widening to U512.
+        // Upstream widens to 512 bits here to compute a product that overflowed U256,
+        // then returns None anyway if the quotient does not fit back into U256. We
+        // return None directly. See the module note on U512 for why.
+        None
     }
 
     fn mul_div_ceil(self, num: Self, denom: Self) -> Option<Self::Output> {
@@ -230,12 +211,8 @@ impl MulDiv for U256 {
                 return Some(numerator / denom);
             }
         }
-        let r = (self.as_u512() * num.as_u512() + (denom - 1).as_u512()) / denom.as_u512();
-        if r > U256::MAX.as_u512() {
-            None
-        } else {
-            Some(r.as_u256())
-        }
+        // DELTA FROM UPSTREAM — see mul_div_floor above.
+        None
     }
 
     fn to_underflow_u64(self) -> u64 {

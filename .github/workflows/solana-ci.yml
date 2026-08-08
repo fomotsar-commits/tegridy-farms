@@ -161,7 +161,7 @@ jobs:
             exit 1
           fi
 
-          EXPECTED_CLMM_DELTA_SHA256=e119fef2673d27ec59494c6d01adbf107d62c5b614a3a846c121ee460a714a83
+          EXPECTED_CLMM_DELTA_SHA256=3572d8d767f5a808a757339d491f6d280f3c3a77c8d75edc08b10c26bdea75ec
 
           {
             for f in big_num.rs fixed_point_64.rs full_math.rs liquidity_math.rs sqrt_price_math.rs tick_math.rs unsafe_math.rs; do
@@ -178,7 +178,7 @@ jobs:
             echo "::error::Vendored CLMM math DIVERGED from pinned upstream."
             echo "  expected $EXPECTED_CLMM_DELTA_SHA256"
             echo "  actual   $ACTUAL"
-            echo "The delta must stay import rewrites + the documented U1024 deletion."
+            echo "The delta must stay import rewrites + the documented U1024/U512 deletions and the fail-closed MulDiv branch."
             echo "If you changed a FORMULA or a ROUNDING DIRECTION here, stop: that is"
             echo "novel math wearing a vendored file's name, and it voids the diff-review"
             echo "scoping we give auditors. Otherwise re-pin the hash IN THE SAME PR."

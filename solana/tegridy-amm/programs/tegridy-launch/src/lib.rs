@@ -91,11 +91,11 @@ pub mod segmented;
 /// curve's arithmetic. See `vendor/mod.rs` for provenance and the exact upstream
 /// commit an auditor should diff against.
 ///
-/// `pub(crate)`, NOT `pub`, and that is load-bearing rather than tidiness. As `pub`
-/// every macro-generated method on U512 stays externally reachable through the `lib`
-/// target, so LTO cannot drop the ones nothing calls — and `U512::overflowing_pow`
-/// needs a 4,544-byte stack frame against SBF's hard 4,096-byte limit, which fails
-/// the on-chain build. Crate-private lets it be eliminated. Do not widen this.
+/// `pub(crate)`, not `pub`. This was originally an attempt to let LTO drop U512's
+/// unused `pow` family, which blew SBF's stack frame — it did NOT work (the symbol
+/// was still emitted, and the real fix was deleting U512 outright, see
+/// `vendor/big_num.rs`). Kept anyway: this is vendored third-party math and nothing
+/// outside the crate has any business calling it directly.
 pub(crate) mod vendor;
 pub mod state;
 
