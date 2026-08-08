@@ -52,21 +52,25 @@ function curveBytes(over: { realSol?: bigint; complete?: boolean } = {}): Uint8A
  * reached.
  */
 function globalBytes(): Uint8Array {
-  const b = new Uint8Array(186);
+  // 723, not 186: the struct carries a fixed 16-slot segment array (state.rs:159-173)
+  // and `creator_fee_share_bps` sits second, shifting every offset below it by 8.
+  const b = new Uint8Array(723);
   b.set([149, 8, 156, 202, 160, 252, 176, 217], 0);
   b.set(new PublicKey(MINT).toBytes(), 8); // authority
   b.set(new PublicKey(MINT).toBytes(), 40); // fee_recipient
   const v = new DataView(b.buffer);
   v.setBigUint64(72, 100n, true); // trade_fee_bps
-  v.setBigUint64(80, 30_000_000_000n, true); // initial_virtual_sol
-  v.setBigUint64(88, 1_073_000_000_000_000n, true); // initial_virtual_token
-  v.setBigUint64(96, 1_000_000_000_000_000n, true); // token_total_supply
-  v.setBigUint64(104, 85_000_000_000n, true); // graduation_target_lamports
-  v.setBigUint64(112, 1_000_000_000n, true); // migration_reserve_lamports
-  b.set(new PublicKey(MINT).toBytes(), 120); // cp_swap_program
-  b.set(new PublicKey(MINT).toBytes(), 152); // amm_config
-  b[184] = 0; // paused
-  b[185] = 254; // bump
+  v.setBigUint64(80, 4_800n, true); // creator_fee_share_bps
+  v.setBigUint64(88, 30_000_000_000n, true); // initial_virtual_sol
+  v.setBigUint64(96, 1_073_000_000_000_000n, true); // initial_virtual_token
+  v.setBigUint64(104, 1_000_000_000_000_000n, true); // token_total_supply
+  v.setBigUint64(112, 85_000_000_000n, true); // graduation_target_lamports
+  v.setBigUint64(120, 1_000_000_000n, true); // migration_reserve_lamports
+  b.set(new PublicKey(MINT).toBytes(), 128); // cp_swap_program
+  b.set(new PublicKey(MINT).toBytes(), 160); // amm_config
+  b[192] = 0; // paused
+  b[193] = 254; // bump
+  // 194..209 sqrt_price_start_x64, 210 segment_count, 211.. segments — all zero.
   return b;
 }
 

@@ -70,7 +70,8 @@
  *
  *   SOLANA_RPC_URL=… OPERATOR_KEYPAIR=/abs/path/authority.json \
  *   node scripts/tegridy-launch-operator.mjs init-global \
- *     --fee-bps 100 --virtual-sol 30000000000 --virtual-token 1073000000000000 \
+ *     --fee-bps 100 --creator-fee-share-bps 4800 \
+ *     --virtual-sol 30000000000 --virtual-token 1073000000000000 \
  *     --supply 1000000000000000 --target 11685689681 --reserve 42156720 \
  *     --fee-recipient <base58>
  *
@@ -251,10 +252,51 @@ function sol(lamports) {
   return `${whole}${frac ? `.${frac}` : ''} SOL`;
 }
 
-const PLACEHOLDER_PROGRAM_ID = L.PROGRAM_ID.toBase58();
+// The id used when `--program-id` is not given. This is `PROGRAM_ID` — the address we
+// actually deployed to — NOT the placeholder. It was previously named
+// PLACEHOLDER_PROGRAM_ID and set to `L.PROGRAM_ID`, which made the two synonymous;
+// once PROGRAM_ID was pointed at the live deploy, `status` began labelling the REAL
+// mainnet program "(PLACEHOLDER from lib.rs:101)". Same self-referential shape as the
+// `isPlaceholderProgramId` bug in curve/program.ts, and it reads as reassuring in
+// exactly the case where it is wrong.
+const DEFAULT_PROGRAM_ID = L.PROGRAM_ID.toBase58();
+const PLACEHOLDER_PROGRAM_ID = L.PLACEHOLDER_PROGRAM_ID.toBase58();
 
 function programId(flags) {
-  return flags['program-id'] ? String(flags['program-id']).trim() : PLACEHOLDER_PROGRAM_ID;
+  return flags['program-id'] ? String(flags['program-id']).trim() : DEFAULT_PROGRAM_ID;
+}
+
+/**
+ * Is `key` present in the deployed program's bytecode?
+ *
+ * `deployer::ID` is a `pubkey!` constant baked in at build time, so no account holds
+ * it and no RPC exposes it. But a 32-byte pubkey constant is stored literally in the
+ * program's read-only data, so fetching the executable and searching for those bytes
+ * answers the question the operator actually has: "will this key pass the gate?"
+ *
+ * Returns `null` when the bytecode could not be fetched — an inconclusive check must
+ * not read as a pass. A `true` is strong evidence but not proof: it says the bytes
+ * appear somewhere, not that they appear at `deployer::ID`. A `false` IS conclusive —
+ * a constant that is not in the binary cannot be the one the gate compares against.
+ */
+async function deployerIsBakedIntoProgram(connection, programPubkey, key) {
+  try {
+    const info = await connection.getAccountInfo(programPubkey);
+    if (!info) return null;
+    // A BPFLoaderUpgradeable program account is a 36-byte pointer to a separate
+    // ProgramData account; the bytecode lives there, 45 bytes in. Anything else is a
+    // v2 program whose account holds the ELF directly.
+    let elf = info.data;
+    if (info.data.length === 36) {
+      const dataAddr = new PublicKey(info.data.subarray(4, 36));
+      const pd = await connection.getAccountInfo(dataAddr);
+      if (!pd) return null;
+      elf = pd.data.subarray(45);
+    }
+    return Buffer.from(elf).includes(Buffer.from(key.toBytes()));
+  } catch {
+    return null;
+  }
 }
 
 /** `globalPda` takes a `PublicKey`; every call site here has a base58 string. */
@@ -330,6 +372,10 @@ function printGlobal(g, address, programKind) {
   console.log(`    authority             : ${c.authority.toBase58()}`);
   console.log(`    fee_recipient         : ${c.feeRecipient.toBase58()}`);
   console.log(`    trade_fee_bps         : ${c.tradeFeeBps}`);
+  console.log(
+    `    creator_fee_share_bps : ${c.creatorFeeShareBps}` +
+      ` (creator ${Number(c.creatorFeeShareBps) / 100}% / protocol ${(10_000 - Number(c.creatorFeeShareBps)) / 100}% of the fee)`,
+  );
   console.log(`    initial_virtual_sol   : ${c.initialVirtualSol} (${sol(c.initialVirtualSol)})`);
   console.log(`    initial_virtual_token : ${c.initialVirtualToken}`);
   console.log(`    token_total_supply    : ${c.tokenTotalSupply}`);
@@ -495,6 +541,29 @@ function cmdDerive(flags) {
   console.log('\n  Pure derivation — no chain access, so this says NOTHING about what is deployed.');
 }
 
+/**
+ * `creator_fee_share_bps` — the SECOND argument to `initialize_global`, and the one
+ * this harness silently omitted until 2026-08-08. Borsh is positional with no field
+ * names on the wire, so leaving it out did not fail: every later argument shifted one
+ * slot earlier and `initial_virtual_sol` (30 SOL) would have been read as the creator
+ * share. That is a total misconfiguration of the curve that REVERTS NOTHING and reads
+ * back as a successfully initialized singleton.
+ *
+ * There is deliberately NO default. The split of trading revenue between the protocol
+ * and the token's creator is an economic decision, `global` is a singleton that
+ * `initialize_global` runs against exactly once, and a default here would let the
+ * most consequential number in the config be chosen by omission.
+ */
+function requireCreatorFeeShareBps(flags) {
+  const v = requireU64Flag(flags, 'creator-fee-share-bps');
+  // Mirrors lib.rs:383-386. It is a share OF THE FEE, so 100% is the natural bound:
+  // above it the creator is paid more than the trade actually charged.
+  if (v > 10_000n) {
+    fail(`--creator-fee-share-bps is ${v}, above the 10000 (=100%) ceiling the program enforces.`);
+  }
+  return v;
+}
+
 /** Pure pre-flight of the economics, with no RPC and no key. */
 function cmdCheckConfig(flags) {
   const params = {
@@ -538,6 +607,13 @@ async function cmdInitGlobal(flags) {
   // Economics pre-flight BEFORE any key is touched.
   const report = cmdCheckConfig(flags);
   if (report.problems.length > 0) fail('config rejected by the pre-flight above — nothing was built.');
+  // Validated HERE, before the key is loaded, so a bad value costs nothing. Echoed
+  // because it is the one number an operator cannot read back off the help text.
+  const creatorFeeShareBps = requireCreatorFeeShareBps(flags);
+  console.log(
+    `  creator fee share      : ${creatorFeeShareBps} bps ` +
+      `(creator ${Number(creatorFeeShareBps) / 100}% / protocol ${(10_000 - Number(creatorFeeShareBps)) / 100}% of each trade fee)`,
+  );
 
   const feeRecipient = optionalPubkeyFlag(flags, 'fee-recipient');
   if (!feeRecipient) fail('missing required --fee-recipient <base58> (mainnet: the treasury Squads vault)');
@@ -553,14 +629,23 @@ async function cmdInitGlobal(flags) {
   // on how the deployed binary was BUILT, which cannot be read from chain.
   console.log('\n[operator] initialize_global');
   console.log(`  authority (signer)  : ${authority.toBase58()}`);
-  if (authority.toBase58() !== DEVNET_DEPLOYER_ID) {
-    console.log('  ⚠️  This key is NOT the devnet deployer::ID. `initialize_global` is gated on');
-    console.log(`      \`address = deployer::ID\` (lib.rs:1226). A --features devnet build expects`);
-    console.log(`      ${DEVNET_DEPLOYER_ID};`);
-    console.log(`      a NON-devnet build embeds ${SYSTEM_SENTINEL}`);
-    console.log('      (the System Program sentinel), which NOBODY can sign for — so a mainnet');
-    console.log('      binary cannot be initialized until an operator sets a real key and rebuilds.');
-    console.log('      Expect NotDeployAuthority (6012) unless you know this binary matches.');
+  // `deployer::ID` is a compile-time constant, so it cannot be read from an account.
+  // It CAN be read out of the bytecode, though — it is 32 raw bytes sitting in the
+  // program's rodata — and `solana program dump` gives us exactly that. This checks
+  // the key against the binary that is actually deployed rather than against a
+  // hardcoded guess, which is the only version of this check that survives a rebuild.
+  const bakedIn = await deployerIsBakedIntoProgram(connection, pid, authority);
+  if (bakedIn === false) {
+    console.log('  ⚠️  This key does NOT appear in the deployed bytecode, so it is almost');
+    console.log('      certainly not `deployer::ID`. `initialize_global` is gated on');
+    console.log('      `address = deployer::ID` (lib.rs:1226); expect NotDeployAuthority (6012).');
+    console.log(`      A --features devnet build expects ${DEVNET_DEPLOYER_ID}; an unpatched`);
+    console.log(`      mainnet build embeds ${SYSTEM_SENTINEL} (the System Program`);
+    console.log('      sentinel), which NOBODY can sign for.');
+  } else if (bakedIn === true) {
+    console.log('  deployer::ID        : ✅ this key is present in the deployed bytecode');
+  } else {
+    console.log('  deployer::ID        : (could not fetch bytecode to check — proceeding)');
   }
   if (cpSwapProgram === ZERO || ammConfig === ZERO) {
     console.log('  note: AMM addresses left zero — this is the NORMAL path (lib.rs:184-187).');
@@ -575,6 +660,7 @@ async function cmdInitGlobal(flags) {
       { authority, feeRecipient: new PublicKey(feeRecipient) },
       {
         tradeFeeBps: requireU64Flag(flags, 'fee-bps'),
+        creatorFeeShareBps: requireCreatorFeeShareBps(flags),
         initialVirtualSol: requireU64Flag(flags, 'virtual-sol'),
         initialVirtualToken: requireU64Flag(flags, 'virtual-token'),
         tokenTotalSupply: requireU64Flag(flags, 'supply'),
@@ -705,6 +791,8 @@ GLOBAL FLAGS
 
 CONFIG FLAGS (init-global / check-config; all values are RAW integers, not decimals)
   --fee-bps <n>          trade fee, <= 1000 (MAX_FEE_BPS)
+  --creator-fee-share-bps <n>  REQUIRED, no default. Share OF THE FEE paid to the
+                         token's creator, <= 10000. 4800 = 48% (Meteora parity).
   --virtual-sol <lamports>
   --virtual-token <base units>
   --supply <base units>

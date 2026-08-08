@@ -299,8 +299,22 @@ export const ALREADY_COMPLETE_CODE = 6005;
 // as `bigint`: `token_total_supply` in the program's own tests is
 // 1_000_000_000_000_000, far past `Number.MAX_SAFE_INTEGER`.
 
-/** `8 + InitSpace(178)`. state.rs:77-120. */
-export const GLOBAL_CONFIG_SIZE = 186;
+/**
+ * `8 + InitSpace(715)`. state.rs:107-174.
+ *
+ * 715 = 186 for the fee/curve scalars + 529 for the segmented (Meteora-shaped)
+ * curve — `sqrt_price_start_x64` (16) + `segment_count` (1) + `[Segment; 16]`
+ * (16 x 32). This constant sat at 186 after the segmented fields were added to the
+ * Rust struct, which made `decodeGlobalConfig` return `bad-length` for EVERY real
+ * account: the live mainnet `global` is 723 bytes. Nothing caught it, because the
+ * unit tests build their fixtures from this same constant — so the encoder and the
+ * decoder agreed with each other and disagreed with the chain. Found by reading the
+ * account back after `initialize_global` rather than trusting the send.
+ */
+export const GLOBAL_CONFIG_SIZE = 723;
+
+/** `segmented.rs:MAX_SEGMENTS`. The array is fixed-width, so this bounds the count byte. */
+export const MAX_SEGMENTS = 16;
 /** `8 + InitSpace(154)`. state.rs:123-166. */
 export const BONDING_CURVE_SIZE = 162;
 
@@ -310,6 +324,13 @@ export interface GlobalConfig {
   authority: PublicKey;
   feeRecipient: PublicKey;
   tradeFeeBps: bigint;
+  /**
+   * Share OF THE TRADE FEE paid to the token's creator, in bps. The SECOND field of
+   * the struct — it was missing from this interface, so every field below it decoded
+   * from the wrong offset (`initialVirtualSol` returned the creator share, and so on
+   * down). Borsh is positional, so a missing field is a silent shift, not an error.
+   */
+  creatorFeeShareBps: bigint;
   initialVirtualSol: bigint;
   initialVirtualToken: bigint;
   /** Raw base units — divide by the MINT's decimals, which are not stored here. */
@@ -324,6 +345,12 @@ export interface GlobalConfig {
   /** Blocks buys and graduation. Sells stay open (state.rs:116-118). */
   paused: boolean;
   bump: number;
+  /** Opening price of the segmented curve, Q64.64. Zero until `set_curve_segments`. */
+  sqrtPriceStartX64: bigint;
+  /** How many of the 16 segment slots are live. Zero => segmented mode unconfigured. */
+  segmentCount: number;
+  /** Exactly `segmentCount` entries; the unused tail slots are not returned. */
+  segments: readonly { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
 }
 
 /** `BondingCurve`, state.rs:123-166. One per launched token. */
@@ -369,6 +396,15 @@ function readU64(v: DataView, offset: number): bigint {
   return v.getBigUint64(offset, true); // little-endian
 }
 
+/**
+ * Borsh `u128` — two little-endian `u64` halves, low first. `DataView` has no
+ * `getBigUint128`, and the halves must be recombined rather than added as Numbers:
+ * a Q64.64 sqrt price routinely exceeds 2^53.
+ */
+function readU128(v: DataView, offset: number): bigint {
+  return v.getBigUint64(offset, true) | (v.getBigUint64(offset + 8, true) << 64n);
+}
+
 function readPubkey(bytes: Uint8Array, offset: number): PublicKey {
   return new PublicKey(bytes.subarray(offset, offset + 32));
 }
@@ -396,23 +432,37 @@ export function decodeGlobalConfig(data: Uint8Array | null | undefined): Decoded
     return { ok: false, reason: 'wrong-discriminator' };
   }
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const paused = readBool(data, 184);
+  // Offsets are +8 from where they were: `creator_fee_share_bps` sits between
+  // `trade_fee_bps` and `initial_virtual_sol` in the Rust struct (state.rs:117-125).
+  const paused = readBool(data, 192);
   if (paused === null) return { ok: false, reason: 'malformed' };
+  const segmentCount = data[210]!;
+  // A count past the fixed 16 slots would read off the end of the segment array.
+  // Refuse rather than return a truncated curve that quotes plausible-looking prices.
+  if (segmentCount > MAX_SEGMENTS) return { ok: false, reason: 'malformed' };
+  const segments = Array.from({ length: segmentCount }, (_, i) => ({
+    sqrtPriceUpperX64: readU128(v, 211 + i * 32),
+    liquidity: readU128(v, 211 + i * 32 + 16),
+  }));
   return {
     ok: true,
     value: {
       authority: readPubkey(data, 8),
       feeRecipient: readPubkey(data, 40),
       tradeFeeBps: readU64(v, 72),
-      initialVirtualSol: readU64(v, 80),
-      initialVirtualToken: readU64(v, 88),
-      tokenTotalSupply: readU64(v, 96),
-      graduationTargetLamports: readU64(v, 104),
-      migrationReserveLamports: readU64(v, 112),
-      cpSwapProgram: readPubkey(data, 120),
-      ammConfig: readPubkey(data, 152),
+      creatorFeeShareBps: readU64(v, 80),
+      initialVirtualSol: readU64(v, 88),
+      initialVirtualToken: readU64(v, 96),
+      tokenTotalSupply: readU64(v, 104),
+      graduationTargetLamports: readU64(v, 112),
+      migrationReserveLamports: readU64(v, 120),
+      cpSwapProgram: readPubkey(data, 128),
+      ammConfig: readPubkey(data, 160),
       paused,
-      bump: data[185]!,
+      bump: data[193]!,
+      sqrtPriceStartX64: readU128(v, 194),
+      segmentCount,
+      segments,
     },
   };
 }
