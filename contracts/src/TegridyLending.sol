@@ -63,6 +63,14 @@ interface ITegridyStaking {
     ///         a prior holder, then re-read at settlement to compute the delta
     ///         the current loan actually earned. Public mapping in TegridyStaking.
     function unsettledRewardsByTokenId(uint256 tokenId) external view returns (uint256);
+    /// @notice AUDIT FIX [staking-attribution] 2026-08: the per-(tokenId, holder)
+    ///         entry — what `claimUnsettledForTokenId` would actually drain for
+    ///         `holder`. `unsettledRewardsByTokenId` above is the AGGREGATE over all
+    ///         tracked holders, so it over-states this contract's own slice whenever
+    ///         another tracked holder has undrained residue on the same tokenId.
+    ///         Every "MY residue" read in this file uses THIS view with
+    ///         `holder = address(this)`.
+    function unsettledByTokenIdHolder(uint256 tokenId, address holder) external view returns (uint256);
 }
 
 /// @dev Minimal interface for TegridyPair reserve queries (used by the ETH-floor check).
@@ -1287,10 +1295,23 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // bucket) is attributed to THIS loan's delta, not to the prior
         // holder. Without this snapshot, a borrower whose loan opens after a
         // prior loan deferred its settlement (paused staking) would drain
-        // the prior loan's slice. Reads via the staking interface's
-        // `unsettledRewardsByTokenId` getter (now in ITegridyStaking) —
-        // public mapping in TegridyStaking.sol:174.
-        loanRewardsSnapshot[loanId] = staking.unsettledRewardsByTokenId(_tokenId);
+        // the prior loan's slice.
+        //
+        // AUDIT FIX [staking-attribution] 2026-08 [MEDIUM — borrower/lender
+        // UNDER-PAYMENT]: this read THE AGGREGATE `unsettledRewardsByTokenId`,
+        // which under the per-(tokenId, holder) ledger also counts a FOREIGN
+        // tracked holder's undrained residue on this same tokenId (e.g.
+        // TegridyRestaking's, from a pre-loan restake cycle that exited against a
+        // short pool). Settlement pays out `totalDrained - min(snapshot,
+        // totalDrained)`, and `totalDrained` is now strictly THIS contract's own
+        // ledger entry — so every wei of foreign residue inflated `snapshot`,
+        // was subtracted as if it were a "prior holder's" slice, and silently
+        // suppressed the borrower's payout. With foreign residue >= what the loan
+        // earned, `myShare` collapsed to ZERO. Reading our OWN entry makes the
+        // snapshot and the drain the same quantity, which is what the delta
+        // arithmetic assumes. `address(this)` is the tracked holder here because
+        // the NFT is escrowed to this contract (transfer on the next line).
+        loanRewardsSnapshot[loanId] = staking.unsettledByTokenIdHolder(_tokenId, address(this));
 
         // Transfer NFT from borrower to this contract (collateral escrow)
         staking.transferFrom(msg.sender, address(this), _tokenId);
@@ -1536,7 +1557,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // bucket (try/catch absorbed). Account for what's STILL in the bucket
         // beyond our snapshot — that's our slice the borrower can recover via
         // `pullEscrowRewards` once staking is unpaused.
-        uint256 remainingInBucket = staking.unsettledRewardsByTokenId(tokenId);
+        // AUDIT FIX [staking-attribution] 2026-08: OUR OWN entry, not the aggregate.
+        // This is differenced against `snapshot` (also our own entry now), and it
+        // sizes `escrowRewardsOwed` — a real liability. Reading the aggregate would
+        // book a foreign holder's residue as debt this contract owes the borrower,
+        // against tokens it can never drain.
+        uint256 remainingInBucket = staking.unsettledByTokenIdHolder(tokenId, address(this));
         if (remainingInBucket > snapshot) {
             uint256 myDeferred = remainingInBucket - snapshot;
             escrowRewardsOwed[_loanId] += myDeferred;
@@ -1697,7 +1723,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             emit EscrowRewardsAttributed(_loanId, myShare);
         }
 
-        uint256 remainingInBucket = staking.unsettledRewardsByTokenId(tokenId);
+        // AUDIT FIX [staking-attribution] 2026-08: OUR OWN entry — same reasoning as
+        // the repay path above (differenced against `snapshot`, sizes a real liability).
+        uint256 remainingInBucket = staking.unsettledByTokenIdHolder(tokenId, address(this));
         if (remainingInBucket > snapshot) {
             uint256 myDeferred = remainingInBucket - snapshot;
             escrowRewardsOwed[_loanId] += myDeferred;

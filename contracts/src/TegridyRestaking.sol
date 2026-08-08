@@ -40,6 +40,13 @@ interface ITegridyStaking {
     ///      residual-reservation path in unrestake/emergencyWithdraw* to detect
     ///      pool-shortfall residue.
     function unsettledRewardsByTokenId(uint256 tokenId) external view returns (uint256);
+    /// @dev AUDIT FIX [staking-attribution] 2026-08: the per-(tokenId, holder) entry.
+    ///      `unsettledRewardsByTokenId` above is the AGGREGATE across every tracked
+    ///      holder, so it reports residue this contract cannot drain (e.g.
+    ///      TegridyLending's, while the NFT sat in loan escrow). Every residual-path
+    ///      read below uses THIS view with `holder = address(this)`, because
+    ///      `claimUnsettledForTokenId` drains exactly this contract's own entry.
+    function unsettledByTokenIdHolder(uint256 tokenId, address holder) external view returns (uint256);
     function earned(uint256 tokenId) external view returns (uint256);
     function revalidateBoost(uint256 tokenId) external; // M-26
     /// @dev AUDIT FIX 2026-05-16 H2: permissionless kick triggers
@@ -839,8 +846,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // AUDIT FIX (BATCH-M2 M28): only block if residue is non-zero. Pre-fix
         // a stale-but-not-cleared zero-residue record locked re-restake by anyone
         // but the original claimant.
+        // AUDIT FIX [staking-attribution] 2026-08: OUR OWN entry. This gate must ask
+        // the same question `_reserveResidual` used to arm the claim ("is there residue
+        // the claimant can still recover?"), and that is this contract's own entry.
+        // On the aggregate it would keep blocking re-restake on foreign residue that
+        // no `claimResidualForTokenId` call can ever drain — an unclearable lock.
         if (claimant != address(0) && claimant != msg.sender
-            && staking.unsettledRewardsByTokenId(_tokenId) > 0) revert TokenIdHasPendingResidual();
+            && staking.unsettledByTokenIdHolder(_tokenId, address(this)) > 0) revert TokenIdHasPendingResidual();
 
         // Verify caller owns the NFT
         if (stakingNFT.ownerOf(_tokenId) != msg.sender) revert NotNFTOwner();
@@ -1431,14 +1443,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         fully drained during the exit.
     /// @dev Called from unrestake / emergencyWithdrawNFT / emergencyForceReturn
     ///      AFTER both pre-transfer and post-transfer pulls. If
-    ///      `staking.unsettledRewardsByTokenId(tokenId) > 0`, mark `claimant`
+    ///      `staking.unsettledByTokenIdHolder(tokenId, address(this)) > 0`, mark `claimant`
     ///      as the only entity allowed to recover that residue. Restake() of
     ///      the same tokenId by anyone else is then blocked until either the
     ///      claimant calls `claimResidualForTokenId` (and drains it) or the
     ///      claimant themselves restakes the same NFT again (preserves their
     ///      claim through the next exit cycle).
     function _reserveResidual(uint256 tokenId, address claimant) internal {
-        uint256 residue = staking.unsettledRewardsByTokenId(tokenId);
+        // AUDIT FIX [staking-attribution] 2026-08 [LOW — over-long reservation]:
+        // this read THE AGGREGATE, so a reservation was armed (and, at the sites
+        // below, kept alive) whenever ANY tracked holder had residue on `tokenId` —
+        // including residue belonging entirely to TegridyLending, which this contract
+        // can never drain. That let a reservation outlive the residue it exists to
+        // protect and needlessly block re-restake via `TokenIdHasPendingResidual`.
+        // OUR OWN entry is the exact quantity `claimResidualForTokenId` can recover.
+        uint256 residue = staking.unsettledByTokenIdHolder(tokenId, address(this));
         if (residue == 0) {
             // AUDIT FIX (2026-06-05 deep-audit, HIGH — residual-claimant reward theft):
             // a FULL-DRAIN exit (the pre/post-transfer drains in _returnNftSettleResidual
@@ -1480,7 +1499,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     function claimResidualForTokenId(uint256 tokenId) external nonReentrant whenNotPaused returns (uint256 paid) {
         if (_residualClaimant[tokenId] != msg.sender) revert NotResidualClaimant();
 
-        uint256 residueBefore = staking.unsettledRewardsByTokenId(tokenId);
+        // AUDIT FIX [staking-attribution] 2026-08: OUR OWN entry — the pull below
+        // drains exactly this, so gating on the aggregate would take the slow path
+        // (and leave the claim live) for residue belonging to another holder.
+        uint256 residueBefore = staking.unsettledByTokenIdHolder(tokenId, address(this));
         if (residueBefore == 0) {
             // Already drained (e.g. by a self-re-restake + unrestake cycle).
             // Clear the stale claim so the tokenId is reopened.
@@ -1536,7 +1558,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
         // If the staking-side residue is fully drained, clear the claim so
         // any future owner of the NFT can restake without being blocked.
-        if (staking.unsettledRewardsByTokenId(tokenId) == 0) {
+        // AUDIT FIX [staking-attribution] 2026-08: OUR OWN entry. On the aggregate a
+        // fully-repaid claimant would never get the claim cleared while an unrelated
+        // holder held residue on the same tokenId, permanently bricking re-restake.
+        if (staking.unsettledByTokenIdHolder(tokenId, address(this)) == 0) {
             delete _residualClaimant[tokenId];
         }
     }

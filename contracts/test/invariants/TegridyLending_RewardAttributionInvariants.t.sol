@@ -173,10 +173,27 @@ contract TegridyLending_RewardAttributionInvariants is Test {
 
         // (I1) Snapshot equals exactly the value the staking contract reported
         //      at the moment of acceptOffer. NO transformation, NO offset.
+        //
+        //      AUDIT FIX [staking-attribution] 2026-08: the quantity being pinned is
+        //      LENDING'S OWN per-(tokenId, holder) ledger entry — the same entry
+        //      `claimUnsettledForTokenId` drains, which is what makes the
+        //      `priorShare / myShare` split at settlement coherent. Asserted against
+        //      the per-holder view, NOT the aggregate: this suite has a single tracked
+        //      holder, so the two happen to be equal here, and pinning the aggregate
+        //      would silently re-bless the MEDIUM under-payment bug (a foreign holder's
+        //      residue inflating the snapshot and suppressing the borrower's payout)
+        //      that StakingAttribution_LendingUnderpay.t.sol exists to catch.
         assertEq(
             snapshot,
+            staking.unsettledByTokenIdHolder(aliceTokenId, address(lending)),
+            "I1: loanRewardsSnapshot[loanId] must equal LENDING'S OWN per-tokenId entry at acceptOffer"
+        );
+        //      Corollary, true only because this suite has exactly one tracked holder:
+        //      with no foreign entry on the tokenId the aggregate coincides with it.
+        assertEq(
             perTokenIdAtOpen,
-            "I1: loanRewardsSnapshot[loanId] must equal unsettledRewardsByTokenId(tokenId) at acceptOffer"
+            snapshot,
+            "I1b: single-holder corollary - aggregate coincides with the sole holder's entry"
         );
 
         // (I2) Snapshot survives through the full settlement lifecycle

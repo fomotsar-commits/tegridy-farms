@@ -53,6 +53,26 @@ library StakingRewardLib {
     // ─── Events (topics identical to TegridyStaking's) ──────────────────
     event UnsettledClaimed(address indexed user, uint256 amount);
     event UnsettledClaimedForTokenId(uint256 indexed tokenId, address indexed recipient, uint256 amount);
+    /// @notice AUDIT FIX [staking-attribution] 2026-08 (observability): the ledger
+    ///         debit, carrying the HOLDER whose entry was debited.
+    /// @dev    `UnsettledClaimedForTokenId` above carries the RECIPIENT — an
+    ///         arbitrary payout address chosen by the caller, NOT the holder whose
+    ///         `_unsettledByTokenIdHolder[tokenId][holder]` entry actually moved. So
+    ///         the ledger could not be reconstructed off-chain from the debit side.
+    ///         This is a NEW event emitted ALONGSIDE the old one, never a change to
+    ///         it: the old topic0 and its arg layout are untouched, so every already
+    ///         deployed indexer keeps decoding exactly what it does today. (Adding an
+    ///         indexed param to the EXISTING event would have changed its topic0 and
+    ///         silently blinded those indexers — hence a new event, not an edit.)
+    event UnsettledClaimedForTokenIdHolder(
+        uint256 indexed tokenId, address indexed holder, address indexed recipient, uint256 amount
+    );
+    /// @notice AUDIT FIX [staking-attribution] 2026-08 (observability): the L-16
+    ///         zombie-cleanup write-off — an entry zeroed with NO payout.
+    /// @dev    Without this, the cleanup branch mutates the ledger (entry -> 0, and
+    ///         the aggregate down by that entry) while emitting nothing at all, which
+    ///         would leave any off-chain reconstruction permanently over-stated.
+    event UnsettledZombieEntryCleared(uint256 indexed tokenId, address indexed holder, uint256 amount);
     event RewardPaid(address indexed user, uint256 indexed tokenId, uint256 reward);
     event RewardsForfeited(address indexed user, uint256 amount);
     event TransferRewardPoolShortfall(address indexed holder, uint256 expected, uint256 available);
@@ -126,13 +146,35 @@ library StakingRewardLib {
     /// @notice Body of `TegridyStaking.claimUnsettledForTokenId`. The caller-side
     ///         guards (`_isTrackedHolder(msg.sender)`, `recipient != 0`) remain in the
     ///         host wrapper; `holder` is the host's `msg.sender` (a tracked holder).
-    ///         Pulls `min(per-tokenId credit, holder bucket, reward pool)` and transfers
-    ///         it to `recipient`, decrementing the per-tokenId mapping, the holder
-    ///         bucket, and `totalUnsettledRewards` in lockstep (AUDIT FIX C-1 / D-LD-H1).
+    ///         Pulls `min(the CALLER'S OWN per-(tokenId, holder) entry, holder bucket,
+    ///         reward pool)` and transfers it to `recipient`, decrementing the
+    ///         per-(tokenId, holder) entry, the per-tokenId AGGREGATE, the holder
+    ///         bucket, and `totalUnsettledRewards` in lockstep (AUDIT FIX C-1 /
+    ///         D-LD-H1 / staking-attribution).
+    ///
+    /// @dev    AUDIT FIX [staking-attribution] 2026-08. Pre-fix this read the SHARED
+    ///         `unsettledRewardsByTokenId[tokenId]` aggregate, so the host's
+    ///         "is msg.sender *A* tracked holder?" gate was the only protection and
+    ///         any tracked holder could act on any other's slice:
+    ///           (1) DESTRUCTION — an EMPTY-bucket tracked holder fell into the L-16
+    ///               zombie-cleanup branch below and zeroed the VICTIM's attribution,
+    ///               with no drain path left anywhere (tracked holders are barred from
+    ///               `claimUnsettled` / `claimUnsettledFor`).
+    ///           (2) DIVERSION — a funded tracked holder drained the victim's slice to
+    ///               an arbitrary `recipient`.
+    ///         Reading `unsettledByTokenIdHolder[tokenId][holder]` closes both by
+    ///         construction — there is no code path here that can read or write another
+    ///         holder's entry, so no gate to bypass and no conflict class to arbitrate.
+    ///
+    /// @dev    A zero entry stays a SILENT NO-OP (return 0), NOT a revert: the
+    ///         "unattributed tokenId is a no-op" contract that every try-wrapped caller
+    ///         in TegridyRestaking / TegridyLending relies on is preserved verbatim.
+    ///
     /// @return paid the amount transferred to `recipient` (0 if nothing claimable / pool dry).
     /// @return newTotalUnsettledRewards updated `totalUnsettledRewards` to write back.
     function claimUnsettledForTokenId(
         mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
+        mapping(uint256 => mapping(address => uint256)) storage unsettledByTokenIdHolder,
         mapping(address => uint256) storage unsettledRewards,
         uint256 tokenId,
         address holder,
@@ -143,19 +185,27 @@ library StakingRewardLib {
     ) public returns (uint256 paid, uint256 newTotalUnsettledRewards) {
         newTotalUnsettledRewards = totalUnsettledRewards;
 
-        uint256 amount = unsettledRewardsByTokenId[tokenId];
+        // [staking-attribution] the CALLER'S OWN entry — never the shared aggregate.
+        uint256 amount = unsettledByTokenIdHolder[tokenId][holder];
         if (amount == 0) return (0, newTotalUnsettledRewards);
 
         // Defensive cap: holder bucket must be at least `amount`. Under normal
-        // accounting the per-tokenId mapping is always <= holder bucket because
-        // every per-tokenId credit was paired with a holder-bucket credit.
+        // accounting the per-(tokenId, holder) entry is always <= holder bucket
+        // because every entry credit was paired with a holder-bucket credit.
         uint256 holderUnsettled = unsettledRewards[holder];
-        // AUDIT FIX 2026-05-26 [L-16]: if the per-tokenId mapping is non-zero
-        // but the holder bucket is fully drained (invariant break — should not
-        // happen in normal flow; defensive cleanup path), zero the slot so it
-        // doesn't persist as a perma-zombie. No value lost (paid stays 0).
-        if (amount > 0 && holderUnsettled == 0) {
-            unsettledRewardsByTokenId[tokenId] = 0;
+        // AUDIT FIX 2026-05-26 [L-16]: if the entry is non-zero but the holder
+        // bucket is fully drained (invariant break — should not happen in normal
+        // flow; defensive cleanup path), zero the slot so it doesn't persist as a
+        // perma-zombie. No value lost (paid stays 0).
+        // [staking-attribution]: the cleanup is now SCOPED TO THE CALLER'S OWN entry
+        // and the aggregate is decremented by exactly that entry, so the branch can
+        // no longer erase a third party's attribution — it was that erasure, not the
+        // cleanup itself, that made this branch a destruction primitive.
+        if (holderUnsettled == 0) {
+            unsettledByTokenIdHolder[tokenId][holder] = 0;
+            uint256 aggZombie = unsettledRewardsByTokenId[tokenId];
+            unsettledRewardsByTokenId[tokenId] = aggZombie > amount ? aggZombie - amount : 0;
+            emit UnsettledZombieEntryCleared(tokenId, holder, amount);
             return (0, newTotalUnsettledRewards);
         }
         if (amount > holderUnsettled) amount = holderUnsettled;
@@ -169,11 +219,18 @@ library StakingRewardLib {
         paid = amount > rewardPool ? rewardPool : amount;
 
         if (paid > 0) {
-            unsettledRewardsByTokenId[tokenId] -= paid;
+            // LOCKSTEP: entry, aggregate, holder bucket, global total.
+            unsettledByTokenIdHolder[tokenId][holder] -= paid;
+            uint256 agg = unsettledRewardsByTokenId[tokenId];
+            unsettledRewardsByTokenId[tokenId] = agg > paid ? agg - paid : 0;
             unsettledRewards[holder] = holderUnsettled - paid;
             newTotalUnsettledRewards = totalUnsettledRewards > paid ? totalUnsettledRewards - paid : 0;
             rewardToken.safeTransfer(recipient, paid);
             emit UnsettledClaimedForTokenId(tokenId, recipient, paid);
+            // [staking-attribution] observability: same debit, but naming the HOLDER
+            // whose ledger entry moved. Emitted in addition to — never instead of —
+            // the line above, so deployed indexers are unaffected.
+            emit UnsettledClaimedForTokenIdHolder(tokenId, holder, recipient, paid);
         }
     }
 
@@ -188,6 +245,45 @@ library StakingRewardLib {
     function _safeInt256(uint256 value) internal pure returns (int256) {
         if (value > uint256(type(int256).max)) revert IntOverflow();
         return int256(value);
+    }
+
+    /// @notice AUDIT FIX [staking-attribution] 2026-08: the SINGLE choke-point for
+    ///         every `unsettledRewardsByTokenId[tokenId] +=` in this library. Credits
+    ///         the per-(tokenId, holder) LEDGER ENTRY and the per-tokenId AGGREGATE by
+    ///         the same amount, so `sum(unsettledByTokenIdHolder[tokenId][*]) ==
+    ///         unsettledRewardsByTokenId[tokenId]` holds by construction.
+    ///
+    /// @dev    UNCONDITIONAL on both. There is deliberately NO conflict case, no skip,
+    ///         and no re-point rule: a second tracked holder crediting the same tokenId
+    ///         gets its OWN entry alongside the incumbent's, which is why this design
+    ///         has no way to strand value. A prior attempt that SKIPPED the per-tokenId
+    ///         credit when another holder already had a live balance was rejected: the
+    ///         skipped amount still landed in `unsettledRewards[holder]` with no entry
+    ///         backing it, and since tracked holders are barred from `claimUnsettled` /
+    ///         `claimUnsettledFor` it became permanently undrainable — which in turn
+    ///         permanently reverted `PendingLendingResidue` / `PendingRestakingResidue`
+    ///         (blocking lending retirement and restaking rotation forever) and pinned
+    ///         the amount inside `totalUnsettledRewards`, shrinking `rewardPool =
+    ///         balance - totalStaked - totalUnsettledRewards` for EVERY user. The
+    ///         sibling "re-point only when unset or stale" rule was equally rejected:
+    ///         1 wei of undrained residue permanently denied the slot to every future
+    ///         holder — a 1-wei griefing DoS. A per-holder ledger has neither failure
+    ///         mode because no two holders ever contend for one slot.
+    ///
+    /// @dev    Every call site is already inside an `_isTrackedHolder(holder)` branch
+    ///         and `holder` is always the same address `_settleUnsettled` credited in
+    ///         the same call (resolved host-side from `ownerOf` / the transfer's
+    ///         `from`), so entry and bucket can never disagree. That pairing is what
+    ///         makes `sum_tokenIds(entry[*][holder]) <= unsettledRewards[holder]` hold.
+    function _creditByTokenId(
+        mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
+        mapping(uint256 => mapping(address => uint256)) storage unsettledByTokenIdHolder,
+        uint256 tokenId,
+        address holder,
+        uint256 amount
+    ) internal {
+        unsettledByTokenIdHolder[tokenId][holder] += amount;
+        unsettledRewardsByTokenId[tokenId] += amount;
     }
 
     /// @dev Mirror of `TegridyStaking._isTrackedHolder`.
@@ -322,6 +418,7 @@ library StakingRewardLib {
         address recipient,
         mapping(address => uint256) storage unsettledRewards,
         mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
+        mapping(uint256 => mapping(address => uint256)) storage unsettledByTokenIdHolder,
         mapping(address => Checkpoints.Trace208) storage checkpoints,
         Checkpoints.Trace208 storage totalBoostedStakeCheckpoints,
         mapping(address => EnumerableSetLib.Uint256Set) storage positionsByOwner,
@@ -358,6 +455,7 @@ library StakingRewardLib {
                 uint256(diff),
                 unsettledRewards,
                 unsettledRewardsByTokenId,
+                unsettledByTokenIdHolder,
                 isLendingContract,
                 cfg
             );
@@ -388,6 +486,7 @@ library StakingRewardLib {
         uint256 pending,
         mapping(address => uint256) storage unsettledRewards,
         mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
+        mapping(uint256 => mapping(address => uint256)) storage unsettledByTokenIdHolder,
         mapping(address => bool) storage isLendingContract,
         Cfg memory cfg
     ) internal returns (uint256 cappedPending, RewardState memory) {
@@ -411,7 +510,9 @@ library StakingRewardLib {
             (rs, actualSettled) = _settleUnsettled(rs, unsettledRewards, recipient, shortfall, cfg.maxUnsettledRewards);
             // AUDIT FIX L1: per-tokenId attribution for tracked holders.
             if (actualSettled > 0 && _isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
-                unsettledRewardsByTokenId[tokenId] += actualSettled;
+                _creditByTokenId(
+                    unsettledRewardsByTokenId, unsettledByTokenIdHolder, tokenId, recipient, actualSettled
+                );
             }
             totalCredited += actualSettled;
             uint256 forfeited = shortfall - actualSettled;
@@ -450,7 +551,9 @@ library StakingRewardLib {
                     rs.totalUnsettledRewards += forfeited;
                     emit RewardSettledToUnsettled(recipient, tokenId, forfeited);
                     if (_isTrackedHolder(recipient, cfg.restakingContract, isLendingContract)) {
-                        unsettledRewardsByTokenId[tokenId] += forfeited;
+                        _creditByTokenId(
+                            unsettledRewardsByTokenId, unsettledByTokenIdHolder, tokenId, recipient, forfeited
+                        );
                     }
                     totalCredited += forfeited;
                 } else {
@@ -484,6 +587,7 @@ library StakingRewardLib {
         address from,
         mapping(address => uint256) storage unsettledRewards,
         mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
+        mapping(uint256 => mapping(address => uint256)) storage unsettledByTokenIdHolder,
         mapping(address => bool) storage isLendingContract,
         mapping(address => uint256) storage lastActivityAt,
         Cfg memory cfg
@@ -520,7 +624,9 @@ library StakingRewardLib {
             if (actualSettled > 0) {
                 emit RewardSettledToUnsettled(from, tokenId, actualSettled);
                 if (_isTrackedHolder(from, cfg.restakingContract, isLendingContract)) {
-                    unsettledRewardsByTokenId[tokenId] += actualSettled;
+                    _creditByTokenId(
+                        unsettledRewardsByTokenId, unsettledByTokenIdHolder, tokenId, from, actualSettled
+                    );
                 }
             }
             // AUDIT FIX FRESH-2026 M-1 [F-02-K-02]: route the rewardPool shortfall
@@ -532,7 +638,9 @@ library StakingRewardLib {
                 if (shortfallSettled > 0) {
                     emit RewardSettledToUnsettled(from, tokenId, shortfallSettled);
                     if (_isTrackedHolder(from, cfg.restakingContract, isLendingContract)) {
-                        unsettledRewardsByTokenId[tokenId] += shortfallSettled;
+                        _creditByTokenId(
+                            unsettledRewardsByTokenId, unsettledByTokenIdHolder, tokenId, from, shortfallSettled
+                        );
                     }
                 }
                 uint256 shortfallForfeited = shortfall - shortfallSettled;
@@ -589,6 +697,7 @@ library StakingRewardLib {
         uint256 prior,
         mapping(address => uint256) storage unsettledRewards,
         mapping(uint256 => uint256) storage unsettledRewardsByTokenId,
+        mapping(uint256 => mapping(address => uint256)) storage unsettledByTokenIdHolder,
         mapping(address => bool) storage isLendingContract,
         mapping(address => uint256) storage lastActivityAt,
         Cfg memory cfg
@@ -622,7 +731,9 @@ library StakingRewardLib {
                     totalSettled += actualSettled;
                     // C-1 / D-LD-H1: per-tokenId attribution for tracked holders.
                     if (_isTrackedHolder(holder, cfg.restakingContract, isLendingContract)) {
-                        unsettledRewardsByTokenId[tokenId] += actualSettled;
+                        _creditByTokenId(
+                            unsettledRewardsByTokenId, unsettledByTokenIdHolder, tokenId, holder, actualSettled
+                        );
                     }
                 }
             }
@@ -634,7 +745,13 @@ library StakingRewardLib {
                 if (actualSettledShortfall > 0) {
                     totalSettled += actualSettledShortfall;
                     if (_isTrackedHolder(holder, cfg.restakingContract, isLendingContract)) {
-                        unsettledRewardsByTokenId[tokenId] += actualSettledShortfall;
+                        _creditByTokenId(
+                            unsettledRewardsByTokenId,
+                            unsettledByTokenIdHolder,
+                            tokenId,
+                            holder,
+                            actualSettledShortfall
+                        );
                     }
                 }
             }
@@ -676,8 +793,18 @@ library StakingRewardLib {
                 rs.totalUnsettledRewards += residual;
                 emit RewardSettledToUnsettled(holder, tokenId, residual);
                 // C-1 / D-LD-H1: per-tokenId attribution for tracked holders.
+                // MUST route through `_creditByTokenId` — a bare `+=` here would
+                // credit the AGGREGATE without the per-(tokenId, holder) ledger
+                // entry, and `claimUnsettledForTokenId` pays from the ENTRY. The
+                // residual would be unreachable by anyone, pinning it inside
+                // `totalUnsettledRewards` forever and permanently blocking the
+                // `PendingLendingResidue` / `PendingRestakingResidue` retirement
+                // gates. That is the exact stranding class the ledger exists to
+                // close, and it is why every credit site funnels through here.
                 if (_isTrackedHolder(holder, cfg.restakingContract, isLendingContract)) {
-                    unsettledRewardsByTokenId[tokenId] += residual;
+                    _creditByTokenId(
+                        unsettledRewardsByTokenId, unsettledByTokenIdHolder, tokenId, holder, residual
+                    );
                 }
                 totalSettled += residual;
             }
