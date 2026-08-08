@@ -10,32 +10,38 @@ Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external subm
 
 ## 0. Prereqs
 
-### ⚠️ DEPLOY FLOAT — **~17.3 SOL**, not the ~12 this runbook used to say
+### DEPLOY FLOAT — **~8.4 SOL**, MEASURED
 
-Corrected 2026-08-08 by measuring the actual binaries rather than estimating.
-`solana program deploy` reserves **2× the binary size**, and rent scales with that:
+Corrected twice on 2026-08-08. Get this from a measurement, not from arithmetic:
 
-| program | binary | account (2×) | rent |
+| program | binary | on-chain account | rent |
 |---|---|---|---|
-| `tegridy_launch` | 514,320 B | 1,028,640 B | **7.1602 SOL** |
-| `raydium_cp_swap` | 691,640 B | 1,383,280 B | **9.6285 SOL** |
-| | | **subtotal** | **16.789 SOL** |
-| fee-receiver WSOL ATA | | | 0.002 SOL |
-| tx fees + headroom | | | ~0.5 SOL |
-| | | **TOTAL** | **~17.3 SOL** |
+| `tegridy_launch` | 514,320 B | 514,320 B | **3.5809 SOL** ← measured on devnet |
+| `raydium_cp_swap` | 691,640 B | 691,640 B | **4.8154 SOL** (same rate) |
+| fee-receiver WSOL ATA | | | 0.0020 SOL |
+| tx fees | | | ~0.0100 SOL |
+| | | **TOTAL** | **~8.4 SOL** |
 
-The old "~5 SOL rent" per program was a guess and it was low by 2–4×. Sizes come
-from real CI artifacts; rent from `solana rent <bytes> --url mainnet-beta`.
+**Two wrong numbers preceded this one, both from reasoning instead of measuring:**
 
-**Re-measure before deploying.** The binaries grow: `tegridy_launch` gained ~40 KB
-when the segmented curve landed, which is ~0.5 SOL of rent on its own.
+1. *"~5 SOL rent"* per program — a guess written before the binaries existed.
+2. *"~17.3 SOL"* — I assumed `solana program deploy` reserves **2× the binary**, doubled
+   the rent, and wrote it down. It does not. A real devnet deploy of the 514,320-byte
+   binary produced `Data Length: 514320` and `Balance: 3.58087128 SOL` — **exact size**.
+   The 2× reservation happens only when you pass `--max-len`.
+
+So: deploy at the default, and if a later build is larger, grow the account with
+`solana program extend <PROGRAM_ID> <additional_bytes>` rather than paying for
+headroom up front.
+
+Verify before spending, on the artifact you are actually deploying:
 
 ```bash
-solana rent $(( $(stat -c%s target/deploy/tegridy_launch.so) * 2 )) --url mainnet-beta
+solana rent $(stat -c%s target/deploy/tegridy_launch.so) --url mainnet-beta
 ```
 
-Program rent is **recoverable** if the program is later closed — but NOT if the
-upgrade authority is burned for immutability, which §4 offers. Decide knowing that.
+Rent is **recoverable** by closing the program — but NOT if §4's burn-the-upgrade-
+authority option is taken. Decide knowing that.
 
 - Diff-audit passed; findings (if any) fixed and re-diffed (CI `diff-guard` still green).
 - `solana` CLI installed; `solana config set --url mainnet-beta`.
