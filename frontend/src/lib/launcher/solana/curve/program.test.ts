@@ -89,9 +89,27 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
   const U8 = 1;
   const DISC = 8;
 
-  it('GlobalConfig = 186 (state.rs:77-120)', () => {
-    // authority, fee_recipient | 6 × u64 | cp_swap_program, amm_config | paused, bump
-    expect(DISC + 2 * PUBKEY + 6 * U64 + 2 * PUBKEY + BOOL + U8).toBe(GLOBAL_CONFIG_SIZE);
+  it('GlobalConfig = 723 (state.rs:107-174)', () => {
+    const U128 = 16;
+    const SEGMENT = 2 * U128; // sqrt_price_upper_x64 + liquidity
+    const MAX_SEGMENTS = 16; // the array is FIXED-width, used slots or not
+    // authority, fee_recipient | 7 × u64 | cp_swap_program, amm_config | paused, bump
+    // | sqrt_price_start_x64 | segment_count | [Segment; 16]
+    expect(
+      DISC +
+        2 * PUBKEY +
+        7 * U64 +
+        2 * PUBKEY +
+        BOOL +
+        U8 +
+        U128 +
+        U8 +
+        MAX_SEGMENTS * SEGMENT,
+    ).toBe(GLOBAL_CONFIG_SIZE);
+    // Independently: the size of the account the program actually allocated on
+    // mainnet. The sum above is a re-derivation of the same belief that was wrong
+    // before; this number was measured.
+    expect(GLOBAL_CONFIG_SIZE).toBe(723);
   });
 
   it('BondingCurve = 162 (state.rs:123-166)', () => {
@@ -207,12 +225,42 @@ const byte = (n: number): Uint8Array => Uint8Array.from([n]);
 const AUTHORITY = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const FEE_RECIPIENT = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 
-function encodeGlobal(over: Partial<{ paused: number; cpSwap: PublicKey; ammConfig: PublicKey }> = {}) {
+const u128le = (n: bigint): Uint8Array =>
+  cat(u64le(n & ((1n << 64n) - 1n)), u64le(n >> 64n));
+
+/**
+ * `GlobalConfig` as the PROGRAM writes it (state.rs:107-174), including the
+ * segmented-curve tail: `sqrt_price_start_x64` (u128), `segment_count` (u8), and a
+ * FIXED 16-slot `[Segment; 16]` array that is always present regardless of how many
+ * slots are used. Total 723 bytes.
+ *
+ * This fixture previously stopped at `bump` (186 bytes) and omitted
+ * `creator_fee_share_bps` entirely. Because the tests encode and decode with the same
+ * mistaken layout, they agreed with each other and disagreed with the chain — the
+ * decoder returned `bad-length` for the real mainnet account while CI stayed green.
+ * `decodes the byte layout of a REAL mainnet account` below pins this against actual
+ * on-chain bytes so the pair cannot drift together again.
+ */
+function encodeGlobal(
+  over: Partial<{
+    paused: number;
+    cpSwap: PublicKey;
+    ammConfig: PublicKey;
+    creatorFeeShareBps: bigint;
+    sqrtPriceStartX64: bigint;
+    segments: { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
+  }> = {},
+) {
+  const segments = over.segments ?? [];
+  const slots = Array.from({ length: 16 }, (_, i) =>
+    cat(u128le(segments[i]?.sqrtPriceUpperX64 ?? 0n), u128le(segments[i]?.liquidity ?? 0n)),
+  );
   return cat(
     ACCOUNT_DISCRIMINATOR.GlobalConfig,
     key(AUTHORITY),
     key(FEE_RECIPIENT),
     u64le(100n),
+    u64le(over.creatorFeeShareBps ?? 4_800n),
     u64le(30_000_000_000n),
     u64le(1_073_000_000_000_000n),
     u64le(1_000_000_000_000_000n),
@@ -222,6 +270,9 @@ function encodeGlobal(over: Partial<{ paused: number; cpSwap: PublicKey; ammConf
     key(over.ammConfig ?? AUTHORITY),
     byte(over.paused ?? 0),
     byte(254),
+    u128le(over.sqrtPriceStartX64 ?? 0n),
+    byte(segments.length),
+    ...slots,
   );
 }
 
@@ -276,6 +327,7 @@ describe('decodeGlobalConfig', () => {
       key(AUTHORITY),
       key(FEE_RECIPIENT),
       u64le(100n),
+      u64le(4_800n), // creator_fee_share_bps
       u64le(a),
       u64le(b),
       u64le(1n),
@@ -285,6 +337,9 @@ describe('decodeGlobalConfig', () => {
       key(AUTHORITY),
       byte(0),
       byte(254),
+      u128le(0n), // sqrt_price_start_x64
+      byte(0), // segment_count
+      new Uint8Array(512), // [Segment; 16]
     );
     const d = decodeGlobalConfig(withMax);
     expect(d.ok).toBe(true);
@@ -307,6 +362,75 @@ describe('decodeGlobalConfig', () => {
     // Half-configured is still not configured.
     expect(configured({ ammConfig: DEFAULT_PUBKEY }).configured).toBe(false);
     expect(configured().configured).toBe(true);
+  });
+
+  // The regression guard. Every other test here encodes with `encodeGlobal` and
+  // decodes with `decodeGlobalConfig`, so a layout mistake made in BOTH cancels out —
+  // which is exactly what happened: the pair agreed on a 186-byte struct while the
+  // program wrote 723, and `decodeGlobalConfig` rejected the real account as
+  // `bad-length`. These bytes came off mainnet (`global` PDA
+  // 7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e, initialized 2026-08-08), so this
+  // test is anchored to the program's actual output rather than to our idea of it.
+  it('decodes the byte layout of a REAL mainnet account', () => {
+    const HEAD_B64 =
+      'lQicyqD8sNm7c+Aqo3S9kOE+Z402zTfNZXq5lfIBei5HU0hDn0H6UuUc3D/p5bgRyaiS88h1kuJ5K7gQGxKo' +
+      'QO+dTnYct/FIZAAAAAAAAADAEgAAAAAAAACsI/wGAAAAABDYR+PPAwAAgMakfo0DACTEuLQCAAAAgLLmDgAA' +
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+      'AAAAAP8AAAAAAAAAAAAAAAAAAAAAAA==';
+    const head = Uint8Array.from(atob(HEAD_B64), (c) => c.charCodeAt(0));
+    // The 16 segment slots are fixed-width and were all zero at initialization.
+    const real = cat(head, new Uint8Array(512));
+    expect(real.length).toBe(723);
+    expect(real.length).toBe(GLOBAL_CONFIG_SIZE);
+
+    const d = decodeGlobalConfig(real);
+    expect(d.ok).toBe(true);
+    if (!d.ok) return;
+    expect(d.value.authority.toBase58()).toBe('Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7');
+    expect(d.value.feeRecipient.toBase58()).toBe('GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd');
+    expect(d.value.tradeFeeBps).toBe(100n);
+    // The field whose absence shifted every value below it by one slot.
+    expect(d.value.creatorFeeShareBps).toBe(4_800n);
+    expect(d.value.initialVirtualSol).toBe(30_000_000_000n);
+    expect(d.value.initialVirtualToken).toBe(1_073_000_000_000_000n);
+    expect(d.value.tokenTotalSupply).toBe(1_000_000_000_000_000n);
+    expect(d.value.graduationTargetLamports).toBe(11_621_942_308n);
+    expect(d.value.migrationReserveLamports).toBe(250_000_000n);
+    // Zero at init and set later by `update_global` — see lib.rs:184-187.
+    expect(isDefaultPubkey(d.value.cpSwapProgram)).toBe(true);
+    expect(isDefaultPubkey(d.value.ammConfig)).toBe(true);
+    expect(d.value.paused).toBe(false);
+    expect(d.value.bump).toBe(255);
+    // Segmented mode is unconfigured until `set_curve_segments` runs.
+    expect(d.value.sqrtPriceStartX64).toBe(0n);
+    expect(d.value.segmentCount).toBe(0);
+    expect(d.value.segments).toEqual([]);
+  });
+
+  it('reads the segmented-curve tail and refuses an out-of-range count', () => {
+    const segs = [
+      { sqrtPriceUpperX64: (1n << 70n) + 7n, liquidity: (1n << 65n) + 3n },
+      { sqrtPriceUpperX64: (1n << 71n) + 9n, liquidity: (1n << 66n) + 5n },
+    ];
+    const d = decodeGlobalConfig(
+      encodeGlobal({ sqrtPriceStartX64: (1n << 64n) + 1n, segments: segs }),
+    );
+    expect(d.ok).toBe(true);
+    if (!d.ok) return;
+    // Values past 2^53 must survive — these are Q64.64, so Number would round them.
+    expect(d.value.sqrtPriceStartX64).toBe((1n << 64n) + 1n);
+    expect(d.value.segmentCount).toBe(2);
+    expect(d.value.segments).toEqual(segs);
+
+    // A count beyond the 16 fixed slots would read past the array; refuse it rather
+    // than hand back a curve that quotes prices from whatever follows in memory.
+    const bad = encodeGlobal({ segments: segs });
+    bad[210] = 17;
+    expect(decodeGlobalConfig(bad)).toEqual({ ok: false, reason: 'malformed' });
+    // The boundary itself is legal.
+    const edge = encodeGlobal({ segments: segs });
+    edge[210] = 16;
+    expect(decodeGlobalConfig(edge).ok).toBe(true);
   });
 
   it('reports WHY it failed and never returns a zeroed struct', () => {
