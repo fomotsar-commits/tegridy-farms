@@ -45,8 +45,9 @@ import "../src/TegridyStakingAdmin.sol";
                   unsettled cap clips; top-up + claimUnsettled recovers exactly.
     3. kick()   — funded kick credits the EXACT pre-expiry pending, decays
                   boostedAmount, decrements totalBoostedStake EXACTLY;
-                  under-funded forfeiting kick reverts KickWouldForfeit
-                  (all-or-nothing).
+                  under-funded kick credits the pending in FULL (2026-08
+                  [KICK-DoS] replaced the all-or-nothing KickWouldForfeit
+                  revert) and still decays the boost.
     4. _settleRewardsOnTransfer — settles EXACT pending to `from`, advances new
                   owner's rewardDebt to accumulated; under-funded books shortfall
                   to unsettledRewards[from]; AlreadyHasPosition / cooldown /
@@ -485,9 +486,10 @@ contract C1RewardClusterRegressionTest is Test {
     ///         decayed boost. (Deep_Staking pins the settle loosely; this pins
     ///         the exact credit + the exact totalBoostedStake decrement.)
     function test_kick_funded_creditsExact_decaysBoost_decrementsTotalExact() public {
-        // Raise the unsettled cap so alice's full pre-expiry pending books (the
-        // default 100k cap would clip a multi-day accrual and force the
-        // all-or-nothing KickWouldForfeit revert — covered separately below).
+        // Raise the unsettled cap so alice's full pre-expiry pending books
+        // through `_settleUnsettled` alone. The default 100k cap would clip a
+        // multi-day accrual into the force-settle residual branch — that is the
+        // cap-exceeding case, covered separately below.
         _raiseUnsettledCap(10_000_000 ether);
         _fund(50_000_000 ether);
 
@@ -540,41 +542,57 @@ contract C1RewardClusterRegressionTest is Test {
         assertEq(token.balanceOf(alice) - aliceBefore, credited, "alice reclaims EXACT credit");
     }
 
-    /// @notice All-or-nothing forfeit guard: when a kick would forfeit ANY
-    ///         portion of pending (pool shortfall + unsettled cap collectively
-    ///         block full credit), kick reverts KickWouldForfeit and leaves the
-    ///         position's boost intact (anti-dilution weakens, value preserved).
-    function test_kick_underFunded_revertsKickWouldForfeit_boostIntact() public {
+    /// @notice UPDATED 2026-08 [KICK-DoS]. This test used to pin the
+    ///         all-or-nothing `KickWouldForfeit` revert. That revert was the bug:
+    ///         `kick` is the ONLY expiry-decay path, so aborting left the expired
+    ///         boost in `totalBoostedStake` forever and diluted honest stakers —
+    ///         permanently for any position whose pending exceeded the GLOBAL
+    ///         unsettled-cap room, and protocol-wide once that cap saturated.
+    ///         The value-preservation intent is UNCHANGED and still pinned here:
+    ///         the kick now credits the pending in FULL (cap bypassed on the
+    ///         already-expired path, mirroring `_creditGetReward`'s [M5] branch)
+    ///         AND decays the boost. Deep coverage: KickForfeitDoS_2026_08.t.sol.
+    function test_kick_underFunded_creditsFullPending_stillDecaysBoost() public {
         _fund(50_000_000 ether);
 
         // alice big position so pending dwarfs both the pool sliver AND the cap.
         uint256 aliceId = _stake(alice, 5_000_000 ether, 7 days);
-        _stake(bob, 50_000 ether, 365 days); // keeps totalBoostedStake non-zero post-decay
+        uint256 bobId = _stake(bob, 50_000 ether, 365 days); // keeps totalBoostedStake non-zero post-decay
 
         vm.warp(block.timestamp + 5 days);
         _fund(1_000 ether); // bake accrual at healthy pool
         vm.warp(block.timestamp + 2 days + 1); // expire alice
 
-        uint256 pending = monitor.earned(aliceId);
-        uint256 cap = staking.maxUnsettledRewards();
-        // Drain pool to a sliver; ensure pending - pool > cap so even the cap
-        // can't absorb the shortfall => a forfeit WOULD occur => revert.
+        // Drain BEFORE reading earned() so earned() and kick() price the same pool.
         _drainPoolTo(1_000 ether);
         uint256 poolNow = _rewardPool();
-        assertGt(pending - poolNow, cap, "shortfall must exceed cap to force forfeit");
+        uint256 pending = monitor.earned(aliceId);
+        uint256 cap = staking.maxUnsettledRewards();
+        assertGt(pending - poolNow, cap, "shortfall exceeds cap (pre-fix: reverted)");
 
-        // Snapshot boost + total to prove they are untouched after the revert.
-        (, uint256 aliceBoostBefore, ) = _pos(aliceId);
+        (, uint256 aliceBoostBefore, int256 debtBefore) = _pos(aliceId);
+        (, uint256 bobBoost, ) = _pos(bobId);
         uint256 totalBefore = staking.totalBoostedStake();
+        uint256 unsettledBefore = staking.unsettledRewards(alice);
 
-        vm.expectRevert(TegridyStaking.KickWouldForfeit.selector);
         vm.prank(carol);
         staking.kick(aliceId);
 
-        // State unchanged by the reverted kick.
-        (, uint256 aliceBoostAfter, ) = _pos(aliceId);
-        assertEq(aliceBoostAfter, aliceBoostBefore, "boost intact after KickWouldForfeit");
-        assertEq(staking.totalBoostedStake(), totalBefore, "totalBoosted intact after revert");
+        // Value preserved IN FULL — nothing forfeited, cap deliberately exceeded.
+        uint256 credited = staking.unsettledRewards(alice) - unsettledBefore;
+        assertApproxEqAbs(credited, pending, 1, "kick credits the FULL pre-expiry pending");
+        assertGt(staking.totalUnsettledRewards(), cap, "expiry path bypasses the flow-control cap");
+
+        // rewardDebt advanced by EXACTLY the credited slice (no silent write-off).
+        (, uint256 aliceBoostAfter, int256 debtAfter) = _pos(aliceId);
+        assertEq(uint256(debtAfter - debtBefore), credited, "rewardDebt advance == credit");
+
+        // And the dilution is actually cured (this is what the revert prevented).
+        assertGt(aliceBoostBefore, 0, "sanity: alice had boost");
+        assertEq(aliceBoostAfter, 0, "boostedAmount decayed to 0");
+        assertEq(staking.totalBoostedStake(), totalBefore - aliceBoostBefore,
+            "totalBoostedStake decremented by EXACTLY the decayed boost");
+        assertEq(staking.totalBoostedStake(), bobBoost, "only bob's boost remains");
     }
 
     // ════════════════════════════════════════════════════════════════════

@@ -96,6 +96,24 @@ contract StakingR061Handler is Test {
         try staking.extendLock(tokenId, lock) {} catch {}
         vm.stopPrank();
     }
+
+    /// @notice ADDED 2026-08 [KICK-DoS]. The handler never exercised `kick`, so
+    ///         the expiry-decay path had ZERO fuzz coverage — and the 2026-08 fix
+    ///         makes that path CREDIT the residual to `unsettledRewards[holder]`
+    ///         while deliberately bypassing `maxUnsettledRewards`. A cap bypass is
+    ///         only safe if a harder bound still holds, and it does:
+    ///         `invariant_accruedLEUnclaimedPool` pins `totalUnsettledRewards <=
+    ///         totalRewardsFunded`, because every wei of pending traces back to a
+    ///         `rewardPerTokenStored` bump that `accumulateRewards` already capped
+    ///         to the unreserved pool. This action is what makes that invariant
+    ///         actually reach the force-settle branch.
+    ///         Permissionless by design — kicked from a non-actor address.
+    function doKick() external {
+        uint256 tokenId = staking.userTokenId(actor);
+        if (tokenId == 0) return;
+        vm.prank(address(0xC1CC)); // arbitrary third-party kicker
+        try staking.kick(tokenId) {} catch {}
+    }
 }
 
 contract StakingInvariantsTest is Test {

@@ -1371,10 +1371,20 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         (c) `_touch(holder)` runs whenever `unsettledRewards[holder]` was
     ///         written, mirroring DS-04 in `_settleRewardsOnTransfer` so the R014
     ///         M-9 inactivity-gate invariant is preserved on the kick path too.
+    /// @dev    AUDIT FIX 2026-08 [KICK-DoS]: the library's all-or-nothing
+    ///         `KickWouldForfeit` revert is REMOVED. It made `kick` — the only
+    ///         expiry-decay path — permanently unreachable for any position whose
+    ///         pending exceeded the GLOBAL `maxUnsettledRewards` room, and
+    ///         protocol-wide unreachable once that cap saturated, so expired boost
+    ///         stayed in `totalBoostedStake` and diluted honest stakers. Because the
+    ///         `NoOpKick` guard below already proves the position is EXPIRED, the
+    ///         residual is now force-settled to the holder's unsettled bucket (the
+    ///         same [M5] cap-bypassing construction `_creditGetReward` uses on its
+    ///         expiry branch). Nothing is forfeited; only the DoS is gone.
     /// @dev    CALLER NOTICE (per DS2-06): Kick MOVES the holder's pre-expiry rewards
     ///         from "directly claimable via getReward" to "unsettled, claimable via
-    ///         claimUnsettled" (paused-blockable, capped, may forfeit if either the
-    ///         rewardPool or unsettled cap saturates). Holders who want full control
+    ///         claimUnsettled" (paused-blockable; credited in FULL — the unsettled cap
+    ///         is bypassed on this expiry path rather than forfeiting). Holders who want full control
     ///         should call `getReward` BEFORE their lock expires. This function exists
     ///         to close the C3/C4 stale-checkpoint window when the holder is
     ///         unreachable or unwilling to act.

@@ -75,6 +75,18 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     bytes32 public constant EMERGENCY_WITHDRAW_EXCESS = keccak256("EMERGENCY_WITHDRAW_EXCESS");
     bytes32 public constant TOKEN_SWEEP = keccak256("TOKEN_SWEEP");
+    /// @notice AUDIT FIX 2026-08 [REV-SWEEP-01] (HIGH): timelock key for `sweepDust`.
+    ///         Pre-fix `sweepDust()` was a byte-for-byte clone of
+    ///         `executeEmergencyWithdrawExcess()` MINUS the `_execute()` call — same
+    ///         reserved expression, same quantity, same destination, same helper —
+    ///         so the owner moved the identical amount to the identical destination
+    ///         with delay 0 and no per-call or lifetime cap. Because its reserve
+    ///         excludes UNDISTRIBUTED revenue (`balance - (totalEarmarked - totalClaimed)`),
+    ///         that meant the entire pre-distribution float in one transaction. The
+    ///         contract's own docs already claimed this path was 48h-timelocked; it
+    ///         now actually is, via the same `_propose`/`_execute` shape as its three
+    ///         siblings (EMERGENCY_WITHDRAW_EXCESS / TOKEN_SWEEP / FORFEIT_RECLAIM).
+    bytes32 public constant DUST_SWEEP = keccak256("DUST_SWEEP");
     /// @notice AUDIT R014 H-5: Per-(user,epoch) admin recovery for users whose staking
     ///         checkpoint was zeroed (e.g. NFT transferred out, position corrupted) and
     ///         who now revert with NoLockedTokens(). Each proposal is keyed by the
@@ -322,6 +334,11 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // AUDIT R014 M-8: Auto-reconcile errors
     error NoEpochToReconcile();
     error GracePeriodActive();
+    /// @notice AUDIT FIX 2026-08 [REV-AUTORECONCILE-01] (HIGH): `autoReconcileDust`
+    ///         is permanently retired — see the "Auto Dust Reconcile" section header.
+    ///         Use the owner-only, 48h-timelocked, 1%-lifetime-capped
+    ///         `proposeForfeitReclaim` → `executeForfeitReclaim` path instead.
+    error AutoReconcileDisabled();
     // AUDIT REV-H-02: propose-time guard for already-reconciled epochs.
     error EpochAlreadyReconciled();
     /// @notice AUDIT FIX F-12-K-4 (LOW / liveness): typed error emitted when both the
@@ -453,7 +470,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         if (_isStakingPaused()) revert StakingPaused();
         // AUDIT FIX M-12: Prevent distribution at low stake levels to avoid concentration attacks
         require(votingEscrow.totalBoostedStake() >= MIN_DISTRIBUTE_STAKE, "STAKE_TOO_LOW");
-        uint256 reserved = (totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0) + totalPendingWithdrawals;
+        // AUDIT FIX 2026-08 [REV-RESERVE-01]: no `+ totalPendingWithdrawals` — see `_distribute`.
+        uint256 reserved = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         uint256 balance = address(this).balance;
         bool hasNewETH = balance > reserved;
         // H-06 FIX: Removed msg.value check — function is no longer payable to prevent
@@ -466,7 +484,28 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function _distribute() internal {
         if (block.timestamp < lastDistributeTime + MIN_DISTRIBUTE_INTERVAL) revert DistributeTooSoon();
 
-        uint256 reserved = (totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0) + totalPendingWithdrawals;
+        // ─── AUDIT FIX 2026-08 [REV-RESERVE-01] (MEDIUM) ──────────────────
+        // `totalPendingWithdrawals` used to be ADDED on top of
+        // `(totalEarmarked - totalClaimed)` here and at four sibling sites. That
+        // double-counted every queued payee's wei:
+        //   • `claim`/`claimUpTo`/`executeClaimRecovery` bump `epochClaimed[i]`
+        //     and, when the 10k-stipend push FAILS, credit `pendingWithdrawals`
+        //     + `totalPendingWithdrawals` — but deliberately do NOT bump
+        //     `totalClaimed` (SECURITY FIX C5 moved that into `withdrawPending`).
+        //   • So the queued wei is still inside `(totalEarmarked - totalClaimed)`.
+        //   • `withdrawPending` then moves it across atomically
+        //     (`totalPendingWithdrawals -= amount; totalClaimed += amount`).
+        // Invariant (holds by construction, since every forfeit path bumps
+        // `epochClaimed[i]` by exactly what it decrements from `totalEarmarked`):
+        //     totalEarmarked - totalClaimed
+        //       == totalPendingWithdrawals + Σ_i (epoch[i].totalETH - epochClaimed[i])
+        //       >= totalPendingWithdrawals
+        // so the single term still fully reserves the pending queue. The stale
+        // double count only ever OVER-reserved, which silently stranded an amount
+        // of genuinely new revenue equal to the pending queue: `_distribute` saw
+        // `newETH = balance - reserved` short by `totalPendingWithdrawals` and
+        // could revert `AMOUNT_TOO_SMALL` on revenue that was fully distributable.
+        uint256 reserved = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         uint256 balance = address(this).balance;
         uint256 newETH = balance > reserved ? balance - reserved : 0;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
@@ -598,7 +637,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function emergencyWithdraw() external onlyOwner nonReentrant {
         if (votingEscrow.totalBoostedStake() != 0) revert StillHasLockedTokens();
 
-        uint256 unclaimed = (totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0) + totalPendingWithdrawals;
+        // AUDIT FIX 2026-08 [REV-RESERVE-01]: no `+ totalPendingWithdrawals` — see `_distribute`.
+        uint256 unclaimed = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         uint256 balance = address(this).balance;
         uint256 withdrawable = balance > unclaimed ? balance - unclaimed : 0;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
@@ -627,8 +667,8 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     function executeEmergencyWithdrawExcess() external onlyOwner nonReentrant whenNotPaused {
         _execute(EMERGENCY_WITHDRAW_EXCESS);
 
-        uint256 unclaimed = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
-        uint256 reserved = unclaimed + totalPendingWithdrawals;
+        // AUDIT FIX 2026-08 [REV-RESERVE-01]: no `+ totalPendingWithdrawals` — see `_distribute`.
+        uint256 reserved = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         uint256 balance = address(this).balance;
         uint256 excess = balance > reserved ? balance - reserved : 0;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
@@ -1079,13 +1119,46 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
 
     // ─── Dust Sweep ─────────────────────────────────────────────────
 
-    /// @notice Sweep rounding dust to treasury.
+    /// @notice AUDIT FIX 2026-08 [REV-SWEEP-01] (HIGH): 48h delay on the dust sweep.
+    ///         Matches EMERGENCY_WITHDRAW_DELAY / TOKEN_SWEEP_DELAY / FORFEIT_RECLAIM_DELAY.
+    uint256 public constant DUST_SWEEP_DELAY = 48 hours;
+
+    event DustSweepProposed(uint256 executeAfter);
+    event DustSweepCancelled();
+
+    /// @notice Propose a dust sweep to treasury (takes effect after a 48h delay).
+    /// @dev AUDIT FIX 2026-08 [REV-SWEEP-01]: `whenNotPaused` mirrors
+    ///      `proposeForfeitReclaim`'s 2026-05-26 [M-17] fix — a captured owner must
+    ///      not be able to pre-queue a sweep during a pause and fire it the instant
+    ///      the multisig unpauses.
+    function proposeDustSweep() external onlyOwner whenNotPaused {
+        _propose(DUST_SWEEP, DUST_SWEEP_DELAY);
+        emit DustSweepProposed(_executeAfter[DUST_SWEEP]);
+    }
+
+    /// @notice Cancel a pending dust-sweep proposal.
+    function cancelDustSweep() external onlyOwner {
+        _cancel(DUST_SWEEP);
+        emit DustSweepCancelled();
+    }
+
+    /// @notice Sweep rounding dust to treasury. Requires `proposeDustSweep()` + 48h.
     ///         Only callable by owner. Sends any balance beyond unclaimed + pending withdrawal amounts to treasury.
     /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so the universal kill-switch
     ///      freezes owner-side mutators alongside user claims (M-7 sibling-search).
+    /// @dev AUDIT FIX 2026-08 [REV-SWEEP-01] (HIGH): routed through the timelock.
+    ///      Signature intentionally unchanged (selector is already referenced by
+    ///      deployed tooling); the gate is the added `_execute` below.
     function sweepDust() external onlyOwner nonReentrant whenNotPaused {
-        uint256 unclaimed = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
-        uint256 reserved = unclaimed + totalPendingWithdrawals;
+        _execute(DUST_SWEEP);
+
+        // AUDIT FIX 2026-08 [REV-RESERVE-01]: `totalPendingWithdrawals` is NOT added
+        // on top here. A queued payee's ETH is already inside
+        // `(totalEarmarked - totalClaimed)`: the claim path bumps `epochClaimed[i]`
+        // and credits `pendingWithdrawals`, but only bumps `totalClaimed` on a
+        // SUCCESSFUL push (`withdrawPending` does it later). Adding it again
+        // reserved the same wei twice. See the sibling note in `_distribute`.
+        uint256 reserved = totalEarmarked > totalClaimed ? (totalEarmarked - totalClaimed) : 0;
         uint256 balance = address(this).balance;
         uint256 dust = balance > reserved ? balance - reserved : 0;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
@@ -1457,7 +1530,36 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         emit ForfeitReclaimCancelled();
     }
 
-    // ─── Auto Dust Reconcile (AUDIT R014 M-8) ─────────────────────────
+    // ─── Auto Dust Reconcile (AUDIT R014 M-8) — RETIRED 2026-08 ───────
+    //
+    // AUDIT FIX 2026-08 [REV-AUTORECONCILE-01] (HIGH): `autoReconcileDust()` is
+    // permanently disabled. Rationale, in full, because the constants and getters
+    // below are deliberately LEFT IN PLACE (they are part of the deployed ABI and
+    // removing them would break indexers):
+    //
+    //   1. It was PERMISSIONLESS and reclaimed the whole unclaimed remainder of any
+    //      epoch older than AUTO_RECLAIM_ABANDONED_AGE (180d) REGARDLESS OF ACTIVE
+    //      LOCKS. Its own comments claimed the opposite ("Newer epochs are still
+    //      claimable by active stakers (no deadline)") but that reasoning only ever
+    //      covered epochs INSIDE the 180d window. Active locks have no claim
+    //      deadline, so any staker who simply had not claimed in six months had
+    //      their share taken by an arbitrary caller.
+    //   2. It sat ENTIRELY OUTSIDE the 1% lifetime forfeit cap: it bumped
+    //      `totalForfeited` but never `totalForfeitedReclaimed`, which is the figure
+    //      `_proposeForfeitReclaimCore` / `executeForfeitReclaim` bound against
+    //      `MAX_LIFETIME_FORFEIT_BPS`. Unbounded, per-call and lifetime.
+    //   3. It is not repairable in place: the write that takes the ETH
+    //      (`epochClaimed[i] += dust`) is the same write that closes the only
+    //      channel that could give it back — `proposeClaimRecovery` fast-fails with
+    //      `EpochAlreadyReconciled` once `epochClaimed[epoch] >= epoch.totalETH`.
+    //
+    // The capability is not lost: `proposeForfeitReclaim(Paged)` /
+    // `executeForfeitReclaim` already reclaims abandoned per-epoch dust, applies the
+    // SAME `epochClaimed[i]` bump via `_consumeEligibleAndBumpClaimed`, respects
+    // `pendingRecoveryCount`, and is 48h-timelocked, ≤10 ETH per call and capped at
+    // 1% of `totalDistributed` for life. Per the protocol's minimal-attack-surface
+    // rule, the redundant uncapped duplicate is deleted rather than patched.
+    //
     /// @notice Minimum per-epoch dust threshold to consider for auto-reconcile.
     uint256 public constant MIN_DUST_RECONCILE = 0.01 ether;
     /// @notice Grace period after epoch creation before its unclaimed dust can be auto-reclaimed.
@@ -1484,163 +1586,36 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     /// @notice Cursor tracking the next epoch index to attempt auto-reconcile for.
     uint256 public lastReconciledEpoch;
 
-    /// @notice AUDIT FIX F-12-K-3 (LOW / fairness): cumulative dust collected
-    ///         from `autoReconcileDust` across the protocol's lifetime.
-    ///         Pre-fix, dust was mutated into `epochs[length-1].totalETH` —
-    ///         which created a perverse incentive: users who already claimed
-    ///         the destination epoch (`claimedAtEpoch[user][destEpoch] == true`)
-    ///         were locked out of the redirected dust, while patient claimers
-    ///         who delayed their latest-epoch claim until after `autoReconcileDust`
-    ///         captured a disproportionate share. By routing dust into this
-    ///         protocol-wide pool, all active stakers are treated symmetrically
-    ///         and the dust is swept to treasury via the existing
-    ///         48h-timelocked `executeForfeitReclaim` → `sweepDust` cycle.
-    /// @dev AUDIT CLEANUP 2026-05-31 [INFO-12]: comment corrected. `protocolDustPool`
-    ///      is a WRITE-ONLY lifetime accumulator (a metric of total dust ever reclaimed)
-    ///      — it is only ever incremented (`+= dust` below) and is never decremented or
-    ///      read for logic. The actual fund movement is on `totalEarmarked`: when dust is
-    ///      reclaimed, `totalEarmarked` is decremented so the dust falls out of `reserved`
-    ///      (= unclaimed + pending). `sweepDust` then reads `address(this).balance -
-    ///      reserved`, sees the freed dust in the sweepable surplus, and timelock-routes
-    ///      it to treasury. The pool total itself is not spent down.
+    /// @notice FROZEN — AUDIT FIX 2026-08 [REV-AUTORECONCILE-01]. This was the
+    ///         write-only lifetime accumulator for dust collected by
+    ///         `autoReconcileDust`. That function is retired, so this value is now
+    ///         permanently 0 on a fresh deploy. The getter is kept because it is
+    ///         part of the deployed ABI.
+    /// @dev    HISTORICAL NOTE (AUDIT CLEANUP 2026-05-31 [INFO-12]): the surrounding
+    ///         comment used to assert that reclaimed dust was "swept to treasury via
+    ///         the existing 48h-timelocked `executeForfeitReclaim` → `sweepDust`
+    ///         cycle". That was FALSE on two counts, both fixed in this pass:
+    ///         `autoReconcileDust` needed no timelock and no owner at all, and
+    ///         `sweepDust` had no timelock either (REV-SWEEP-01).
     uint256 public protocolDustPool;
 
-    /// @notice AUDIT R014 M-8: Auto-reclaim per-epoch dust (epoch.totalETH - epochClaimed[i])
-    ///         from finalized epochs whose 14-day grace period has elapsed. Dust above
-    ///         MIN_DUST_RECONCILE is routed into a protocol-wide dust pool that is
-    ///         eventually swept to treasury via the existing 48h-timelocked
-    ///         `executeForfeitReclaim` → `sweepDust` cycle.
+    /// @notice RETIRED — AUDIT FIX 2026-08 [REV-AUTORECONCILE-01] (HIGH).
+    ///         Permanently disabled; always reverts `AutoReconcileDisabled`.
+    ///         See the section header above for the full rationale (permissionless
+    ///         drain of active stakers' epochs, outside the 1% lifetime forfeit cap,
+    ///         and self-closing of the `proposeClaimRecovery` return channel).
     ///
-    ///         AUDIT FIX F-12-K-3 (LOW / fairness): the prior shape mutated
-    ///         `epochs[length-1].totalETH += dust` which locked-out already-claimed
-    ///         users from the redirected dust and gave patient claimers a perverse
-    ///         timing advantage. Routing dust into a generic pool eliminates the
-    ///         race condition; all stakers are treated symmetrically and the dust
-    ///         is timelock-routed to treasury via the same path as
-    ///         `executeForfeitReclaim`. The change ALSO eliminates the unbounded
-    ///         `epochs[length-1].totalETH` growth that would otherwise inflate
-    ///         `_calculateClaim` per-epoch math past `epoch.totalLocked`-cap math
-    ///         (a 4-year-old protocol with significant straggler dust could see
-    ///         the latest epoch's `totalETH` reach 5-10x its native value).
-    ///
-    ///         Bounded loop — at most MAX_AUTO_RECONCILE_EPOCHS (10) per call. The
-    ///         lastReconciledEpoch cursor advances even when an epoch is skipped (e.g.
-    ///         dust below threshold) so subsequent calls make forward progress without
-    ///         re-scanning.
-    ///
-    ///         Permissionless — anyone may call. The grace period + threshold + cursor
-    ///         together prevent griefing: a caller cannot reclaim dust that stragglers
-    ///         could still rightfully claim, and cannot replay reclamations.
-    /// @dev AUDIT FIX: DEEP-DR-M-02 — `whenNotPaused` so this permissionless mutator
-    ///      cannot advance state while the universal kill-switch is engaged.
-    function autoReconcileDust() external nonReentrant whenNotPaused returns (uint256 totalReclaimed, uint256 epochsProcessed) {
-        uint256 totalEpochs = epochs.length;
-        if (totalEpochs == 0) revert NoEpochToReconcile();
-
-        uint256 cursor = lastReconciledEpoch;
-        if (cursor >= totalEpochs) revert NoEpochToReconcile();
-
-        // Auto-reconcile routes dust forward into the most recent epoch. We must NOT
-        // touch the current (latest) epoch as both source and destination, and we must
-        // leave at least one epoch as the destination.
-        uint256 destEpoch = totalEpochs - 1;
-        if (cursor >= destEpoch) revert NoEpochToReconcile();
-
-        uint256 endEpoch = cursor + MAX_AUTO_RECONCILE_EPOCHS;
-        if (endEpoch > destEpoch) endEpoch = destEpoch;
-
-        bool anyEligible = false;
-        uint256 lastTouched = cursor;
-
-        // AUDIT FIX (autoReconcileDust hardening; re-hardened 2026-05-25 2nd pass): this
-        // PERMISSIONLESS path must NOT reclaim revenue an active staker can still claim.
-        // The original code drained epochs at the 14-day mark; the first fix raised that
-        // to 44 days (still exposed quarterly claimers and late-discovered corruption
-        // victims). It now reclaims ONLY epochs older than AUTO_RECLAIM_ABANDONED_AGE
-        // (180d). Active locks have NO claim deadline, so this gives quarterly/semi-annual
-        // claimers a long headroom, and a corruption victim a generous window in which
-        // `proposeClaimRecovery` still sees a FUNDED epoch (the funds-based recovery gate
-        // keys off `epochClaimed`, not this cursor). The owner-forfeit path (timelocked +
-        // 1% lifetime cap) still cleans the 44d→180d window, so dust is not left unbounded.
-        uint256 abandonBoundary = block.timestamp > AUTO_RECLAIM_ABANDONED_AGE
-            ? block.timestamp - AUTO_RECLAIM_ABANDONED_AGE
-            : 0;
-
-        for (uint256 i = cursor; i < endEpoch; i++) {
-            Epoch memory epoch = epochs[i];
-
-            // Reclaim gate — only epochs OLDER than AUTO_RECLAIM_ABANDONED_AGE (180d) are
-            // eligible. Newer epochs are still claimable by active stakers (no deadline),
-            // so we stop scanning and do NOT advance the cursor past them; subsequent
-            // calls retry once they age past 180d.
-            if (epoch.timestamp >= abandonBoundary) {
-                if (!anyEligible) revert GracePeriodActive();
-                break;
-            }
-
-            // AUDIT FIX: DEEP-DR-M-03 — pending-recovery epochs HALT the cursor.
-            // Previously the loop `continue`'d past pending-recovery epochs (skipping
-            // their dust) but `lastTouched` had already been updated, so the cursor
-            // advanced past them anyway. After the recovery executed, the residual
-            // dust on those epochs was permanently orphaned (no replay path).
-            //
-            // New semantics: STOP at the first pending-recovery epoch. The cursor
-            // does NOT advance past it. Subsequent calls retry from this epoch
-            // once the recovery resolves (cancel or execute clears the count).
-            // This preserves dust auto-reclaim for the residual portion of the
-            // epoch that the recovery did not consume.
-            if (pendingRecoveryCount[i] > 0) {
-                if (!anyEligible) revert NoEpochToReconcile();
-                break;
-            }
-
-            anyEligible = true;
-            lastTouched = i;
-
-            // Epoch is older than 44d → genuinely abandoned; reclaim the full unclaimed
-            // remainder. Bump (NOT set-to-total) the per-epoch high-water mark by exactly
-            // the reclaimed amount so the funds-based recovery gate reads it correctly
-            // (epochClaimed[i] reaches epoch.totalETH only once truly drained).
-            uint256 dust = epoch.totalETH > epochClaimed[i] ? epoch.totalETH - epochClaimed[i] : 0;
-            if (dust >= MIN_DUST_RECONCILE) {
-                epochClaimed[i] += dust;
-                // ─── AUDIT FIX F-12-K-3 (LOW / fairness) ─────────────────────
-                // Pre-fix: `epochs[destEpoch].totalETH += dust` mutated the
-                // latest epoch's pool, locking out already-claimed users from
-                // the redirected dust and giving patient claimers a perverse
-                // timing advantage.
-                //
-                // New shape: route the dust into the protocol-wide
-                // `protocolDustPool`, decrement `totalEarmarked` (the dust is
-                // no longer earmarked for stakers), and bump `totalForfeited`
-                // to keep the `totalDistributed = totalClaimed + totalEarmarked +
-                // totalForfeited` invariant intact. The dust then becomes
-                // sweepable via the existing 48h-timelocked owner sweep path
-                // (sweepDust reads `balance - reserved` and `reserved` is
-                // `unclaimed + pending`, so once `totalEarmarked` is decremented
-                // the dust falls into the sweepable surplus).
-                //
-                // This eliminates the racing-claimer fairness issue AND caps
-                // unbounded growth of `epochs[destEpoch].totalETH` over the
-                // protocol's lifetime.
-                if (totalEarmarked >= dust) {
-                    totalEarmarked -= dust;
-                } else {
-                    totalEarmarked = 0;
-                }
-                totalForfeited += dust;
-                protocolDustPool += dust;
-                totalReclaimed += dust;
-                emit DustRoutedToProtocolPool(i, destEpoch, dust);
-            }
-        }
-
-        if (!anyEligible) revert NoEpochToReconcile();
-
-        epochsProcessed = lastTouched + 1 - cursor;
-        lastReconciledEpoch = lastTouched + 1;
-
-        emit DustAutoReconciled(cursor, lastTouched, totalReclaimed, destEpoch);
+    ///         Use `proposeForfeitReclaim` / `proposeForfeitReclaimPaged` +
+    ///         `executeForfeitReclaim` instead: same per-epoch dust, same
+    ///         `epochClaimed[i]` bump, but owner-only, 48h-timelocked, ≤10 ETH per
+    ///         call, capped at MAX_LIFETIME_FORFEIT_BPS (1%) of `totalDistributed`
+    ///         for life, and `pendingRecoveryCount`-aware.
+    /// @dev    The selector, the `(uint256,uint256)` return shape, and the
+    ///         `lastReconciledEpoch` / `protocolDustPool` getters are intentionally
+    ///         preserved so no already-deployed caller or indexer is silently
+    ///         bricked by an ABI change — the call now fails LOUDLY instead.
+    function autoReconcileDust() external pure returns (uint256, uint256) {
+        revert AutoReconcileDisabled();
     }
 
     // ─── Claim Recovery (AUDIT R014 H-5) ───────────────────────────────
@@ -1985,6 +1960,12 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
             pendingForfeitStartEpoch = 0;
             pendingForfeitEndEpoch = 0;
             emit ForfeitReclaimCancelled();
+        }
+        // AUDIT FIX 2026-08 [REV-SWEEP-01]: flush the new DUST_SWEEP key too, so an
+        // outgoing owner cannot leave an executable sweep booby-trap for the new one.
+        if (_executeAfter[DUST_SWEEP] != 0) {
+            _cancel(DUST_SWEEP);
+            emit DustSweepCancelled();
         }
     }
 }

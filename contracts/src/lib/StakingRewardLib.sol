@@ -442,8 +442,9 @@ library StakingRewardLib {
                 // Synthetix "no silent forfeiture" — the operator commits to
                 // backfilling earned-but-unbacked debt; bounded cap inflation
                 // on the expire path is the accepted operational surface.
-                // Sister `kick` path (L597-668) maintains the same property
-                // via the `KickWouldForfeit` revert, preserving symmetry.
+                // Sister `kick` path now maintains the same property via the
+                // SAME force-settle construction (2026-08 [KICK-DoS] replaced
+                // its `KickWouldForfeit` revert), preserving symmetry.
                 if (p.lockEnd > 0 && block.timestamp >= p.lockEnd) {
                     unsettledRewards[recipient] += forfeited;
                     rs.totalUnsettledRewards += forfeited;
@@ -575,9 +576,11 @@ library StakingRewardLib {
     ///         `whenNotPaused` modifiers and the NoPosition/NoOpKick guards, capturing
     ///         `prior` (the pre-decay boostedAmount) and `holder` (= ownerOf(tokenId)).
     ///         Settles the holder's pre-expiry rewards to `unsettled` BEFORE decay
-    ///         (DEEP-DS-02), reverts `KickWouldForfeit` if any pending slice cannot be
-    ///         fully credited (BATCH-J2 H8 — never destroy user value silently), then
-    ///         decays the boost and writes the post-state checkpoint.
+    ///         (DEEP-DS-02), force-settles any slice the global unsettled cap cannot
+    ///         absorb (BATCH-J2 H8 — never destroy user value silently; 2026-08
+    ///         [KICK-DoS]: this used to `revert KickWouldForfeit()`, which bricked the
+    ///         only expiry-decay path — see the inline note below), then decays the
+    ///         boost and writes the post-state checkpoint.
     function kick(
         RewardState memory rs,
         Position storage p,
@@ -635,8 +638,49 @@ library StakingRewardLib {
                     }
                 }
             }
-            // BATCH-J2 H8: never forfeit silently — abort if any pending slice is uncredited.
-            if (totalSettled < pending) revert KickWouldForfeit();
+            // BATCH-J2 H8 (never forfeit silently) — RE-IMPLEMENTED 2026-08 [KICK-DoS].
+            //
+            // WAS: `if (totalSettled < pending) revert KickWouldForfeit();`
+            //
+            // That guard preserved value by ABORTING, but `kick()` is the ONLY
+            // expiry-decay path and it is permissionless, so aborting is itself the
+            // harm: the reward-pool balance is irrelevant here — only the GLOBAL
+            // `maxUnsettledRewards` room binds — so
+            //   (a) a position whose pending exceeds the cap became PERMANENTLY
+            //       un-kickable: its expired boost stayed in `totalBoostedStake`
+            //       forever and `accumulateRewards` kept dividing emission by an
+            //       inflated denominator, diluting every honest staker; and
+            //   (b) once ANY flow saturated the cap (a single large
+            //       `transferFrom` routes `min(pending, room)` into the bucket),
+            //       `unsettledRoom` hit 0 and EVERY `kick()` reverted
+            //       protocol-wide, after burning ~300k gas.
+            //
+            // FIX: credit instead of reverting. The host wrapper
+            // (`TegridyStaking.kick`) reverts `NoOpKick` unless
+            // `p.lockEnd != 0 && block.timestamp >= p.lockEnd`, so the position is
+            // ALWAYS already expired here — the exact precondition
+            // `_creditGetReward` tests before its [M5] force-settle. Reuse that
+            // same "never destroy value" construction: push the uncredited residual
+            // into the holder's unsettled bucket, bypassing the cap. The bypass is
+            // intentional and identical in kind to `_creditGetReward` L447-454:
+            // these are already-earned tokens and `maxUnsettledRewards` is a
+            // flow-control guard, NOT a loss gate (Synthetix "no silent
+            // forfeiture"). `totalSettled <= pending` always (each slice is capped
+            // by its own input), so the subtraction cannot underflow.
+            //
+            // `KickWouldForfeit` is retained in the ABI (unused) — removing the
+            // declaration would drift the error surface for already-deployed callers.
+            uint256 residual = pending - totalSettled;
+            if (residual > 0) {
+                unsettledRewards[holder] += residual;
+                rs.totalUnsettledRewards += residual;
+                emit RewardSettledToUnsettled(holder, tokenId, residual);
+                // C-1 / D-LD-H1: per-tokenId attribution for tracked holders.
+                if (_isTrackedHolder(holder, cfg.restakingContract, isLendingContract)) {
+                    unsettledRewardsByTokenId[tokenId] += residual;
+                }
+                totalSettled += residual;
+            }
             // DS2-01: advance p.rewardDebt by ONLY the actually-credited slice.
             if (totalSettled > 0) {
                 p.rewardDebt = p.rewardDebt + _safeInt256(totalSettled);
