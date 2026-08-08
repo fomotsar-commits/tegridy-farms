@@ -304,15 +304,64 @@ describe('operator-only instructions', () => {
     ]);
   });
 
-  it('update_global writes nine None bytes when nothing is supplied', () => {
+  // `update_global` takes TEN Options (lib.rs:467-476). This asserted NINE, which is
+  // what the encoder wrote — test and encoder shared one wrong belief, so CI was
+  // green while EVERY update_global reverted: a trailing Option that is never
+  // written leaves the buffer one byte under the minimum and Borsh refuses it. That
+  // silently blocked setting the AMM addresses and handing over authority.
+  //
+  // The count is the invariant, so it is stated once here and reused.
+  const UPDATE_GLOBAL_OPTION_COUNT = 10;
+
+  it('update_global writes one None byte per Option — all ten of them', () => {
     const ix = updateGlobalIx({ authority }, {});
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.updateGlobal);
-    expect(ix.data.length).toBe(8 + 9);
-    expect(Array.from(ix.data.subarray(8))).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(ix.data.length).toBe(8 + UPDATE_GLOBAL_OPTION_COUNT);
+    expect(Array.from(ix.data.subarray(8))).toEqual(
+      new Array(UPDATE_GLOBAL_OPTION_COUNT).fill(0),
+    );
     expect(keyTable(ix)).toEqual([
       [globalPda().toBase58(), false, true],
       [authority.toBase58(), true, false],
     ]);
+  });
+
+  it('update_global encodes EVERY field it accepts — no arg may be silently dropped', () => {
+    // Set all ten, so a field present in UpdateGlobalArgs but missing from the
+    // Writer chain changes the length and fails here. A None-only test cannot catch
+    // that: it would just count one byte fewer and look self-consistent.
+    const ix = updateGlobalIx(
+      { authority },
+      {
+        tradeFeeBps: 100n,
+        graduationTargetLamports: 11_621_942_308n,
+        paused: false,
+        newAuthority: MINT,
+        newFeeRecipient: MINT,
+        migrationReserveLamports: 250_000_000n,
+        newCpSwapProgram: MINT,
+        newAmmConfig: MINT,
+        newInitialVirtualSol: 30_000_000_000n,
+        newCreatorFeeShareBps: 4_800n,
+      },
+    );
+    // tag+payload per field: u64 -> 9, bool -> 2, Pubkey -> 33.
+    const SOME_U64 = 9;
+    const SOME_BOOL = 2;
+    const SOME_PUBKEY = 33;
+    expect(ix.data.length).toBe(8 + 5 * SOME_U64 + SOME_BOOL + 4 * SOME_PUBKEY);
+  });
+
+  it('update_global puts creator_fee_share_bps LAST, after initial_virtual_sol', () => {
+    // Order matters as much as presence: Borsh is positional, so encoding this
+    // value in the wrong slot would reprice something else instead.
+    const ix = updateGlobalIx({ authority }, { newCreatorFeeShareBps: 4_800n });
+    // nine leading Nones, then Some(4800) as 1 tag byte + 8 LE bytes.
+    expect(ix.data.length).toBe(8 + 9 + 1 + 8);
+    expect(Array.from(ix.data.subarray(8, 17))).toEqual(new Array(9).fill(0));
+    expect(ix.data[17]).toBe(1);
+    const v = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
+    expect(v.getBigUint64(18, true)).toBe(4_800n);
   });
 
   it('update_global encodes Some in field order, and false is Some(false) not None', () => {

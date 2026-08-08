@@ -701,9 +701,19 @@ async function cmdUpdateGlobal(flags) {
     newCpSwapProgram: optionalPubkeyFlag(flags, 'cp-swap-program'),
     newAmmConfig: optionalPubkeyFlag(flags, 'amm-config'),
     newInitialVirtualSol: optionalU64Flag(flags, 'virtual-sol'),
+    // The tenth Option. Unlike `init-global` this one has no bound check of its own
+    // because the program enforces `<= 10000` on the update path too — but a value
+    // over it fails the whole ceremony, so reject it here rather than after signing.
+    newCreatorFeeShareBps: (() => {
+      const v = optionalU64Flag(flags, 'creator-fee-share-bps');
+      if (v !== undefined && v > 10_000n) {
+        fail(`--creator-fee-share-bps is ${v}, above the 10000 (=100%) ceiling the program enforces.`);
+      }
+      return v;
+    })(),
   };
   if (Object.values(args).every((v) => v === undefined)) {
-    fail('nothing to update — pass at least one of --fee-bps --target --reserve --virtual-sol\n  --pause/--unpause --new-authority --fee-recipient --cp-swap-program --amm-config');
+    fail('nothing to update — pass at least one of --fee-bps --creator-fee-share-bps --target --reserve --virtual-sol\n  --pause/--unpause --new-authority --fee-recipient --cp-swap-program --amm-config');
   }
 
   // `has_one = authority` (lib.rs:1248). Check it against CHAIN state rather than
@@ -803,7 +813,7 @@ CONFIG FLAGS (init-global / check-config; all values are RAW integers, not decim
   --amm-config <base58>        optional at init — zero is the NORMAL case
 
 UPDATE FLAGS (update-global; pass only what changes)
-  --fee-bps --target --reserve --virtual-sol
+  --fee-bps --target --reserve --virtual-sol --creator-fee-share-bps
   --pause | --unpause          pause blocks BUYS and migration; SELLS STAY OPEN
   --new-authority <base58>     --fee-recipient <base58>
   --cp-swap-program <base58>   --amm-config <base58>

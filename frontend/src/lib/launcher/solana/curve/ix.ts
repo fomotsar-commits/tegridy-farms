@@ -445,6 +445,15 @@ export interface UpdateGlobalArgs {
   newCpSwapProgram?: PublicKey | null;
   newAmmConfig?: PublicKey | null;
   newInitialVirtualSol?: bigint | null;
+  /**
+   * The TENTH and last `Option` (lib.rs:476). Omitting it did not produce a
+   * mis-shifted argument the way a missing REQUIRED field does — a trailing
+   * `Option` that is never written simply leaves the buffer one byte short of the
+   * minimum, so Borsh cannot deserialize and the program rejects the instruction
+   * outright. Every `update_global` reverted, which meant the AMM addresses could
+   * not be set and authority could not be handed over.
+   */
+  newCreatorFeeShareBps?: bigint | null;
 }
 
 export function updateGlobalIx(
@@ -467,6 +476,7 @@ export function updateGlobalIx(
       .optPubkey(args.newCpSwapProgram)
       .optPubkey(args.newAmmConfig)
       .optU64(args.newInitialVirtualSol, 'newInitialVirtualSol')
+      .optU64(args.newCreatorFeeShareBps, 'newCreatorFeeShareBps')
       .finish(),
   });
 }
