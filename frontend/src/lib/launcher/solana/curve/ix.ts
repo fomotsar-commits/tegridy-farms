@@ -39,7 +39,7 @@ import {
   poolStatePda,
   sortMints,
 } from './program';
-import { U64_MAX, isU64 } from './math';
+import { U128_MAX, U64_MAX, isU64 } from './math';
 
 /**
  * `migrate_to_amm` measured at **264,128 CU** off the confirmed CI rehearsal
@@ -94,6 +94,28 @@ class Writer {
 
   pubkey(k: PublicKey): this {
     this.bytes.push(...k.toBytes());
+    return this;
+  }
+
+  /** Borsh `u32` — used for `Vec` length prefixes, which are always u32 LE. */
+  u32(v: number, label: string): this {
+    if (!Number.isInteger(v) || v < 0 || v > 0xff_ff_ff_ff) {
+      throw new RangeError(`${label} must be an integer in 0..2^32-1, got ${v}`);
+    }
+    for (let i = 0; i < 4; i++) this.bytes.push((v >>> (8 * i)) & 0xff);
+    return this;
+  }
+
+  /**
+   * Borsh `u128`, little-endian. Range-checked for the same reason `u64` is: a
+   * silently truncated Q64.64 sqrt price is not a smaller price, it is a
+   * completely different one, and the curve would quote against it without error.
+   */
+  u128(v: bigint, label: string): this {
+    if (typeof v !== 'bigint' || v < 0n || v > U128_MAX) {
+      throw new RangeError(`${label} must fit in a u128 (0..${U128_MAX}), got ${v}`);
+    }
+    for (let i = 0n; i < 16n; i++) this.bytes.push(Number((v >> (8n * i)) & 0xffn));
     return this;
   }
 
@@ -478,5 +500,59 @@ export function updateGlobalIx(
       .optU64(args.newInitialVirtualSol, 'newInitialVirtualSol')
       .optU64(args.newCreatorFeeShareBps, 'newCreatorFeeShareBps')
       .finish(),
+  });
+}
+
+// ── set_curve_segments ───────────────────────────────────────────────────────
+
+/**
+ * One segment of the segmented ("Meteora-shaped") curve. Mirrors
+ * `segmented.rs:94-100` — two `u128`s, 32 bytes, no padding.
+ */
+export interface CurveSegment {
+  /** Upper sqrt-price bound, Q64.64. Must be STRICTLY greater than the previous. */
+  sqrtPriceUpperX64: bigint;
+  /** Liquidity active inside this segment. Non-zero, `<= MAX_SEGMENT_LIQUIDITY`. */
+  liquidity: bigint;
+}
+
+/**
+ * `set_curve_segments` (lib.rs:598-623) — publishes the segmented curve's shape.
+ *
+ * The operator publishes ONE shape for the whole venue; creators choose a mode, not
+ * a curve. Re-runnable: the program validates the whole table before writing, so a
+ * rejected table cannot leave a half-updated config for `create_launch` to snapshot.
+ *
+ * ⚠️ ACCOUNT ORDER IS THE REVERSE OF `update_global`. `SetCurveSegments` is
+ * `authority, global` (lib.rs:1613-1621); `UpdateGlobal` is `global, authority`
+ * (lib.rs:1599-1607). Both are `has_one = authority`, so swapping them does not
+ * fail a signer check — it hands the program a `Signer` where it expects the config
+ * account, which is a confusing deserialize error rather than an obvious one.
+ *
+ * Validation is NOT duplicated here. `segmented::validate_segments` rejects an empty
+ * or over-long table, a start price outside `[MIN_SQRT_PRICE, MAX_SQRT_PRICE)`, zero
+ * or oversized liquidity, and any bound not strictly above its predecessor. Copying
+ * those bounds into TypeScript would be a second source of truth for the same rules;
+ * the range checks below are only the ones Borsh itself imposes.
+ */
+export function setCurveSegmentsIx(
+  accounts: { authority: PublicKey },
+  args: { sqrtPriceStartX64: bigint; segments: readonly CurveSegment[] },
+  ids: ProgramIds = {},
+): TransactionInstruction {
+  const programId = ids.programId ?? PROGRAM_ID;
+  const w = new Writer()
+    .disc(IX_DISCRIMINATOR.setCurveSegments)
+    .u128(args.sqrtPriceStartX64, 'sqrtPriceStartX64')
+    // `Vec<Segment>` — u32 LE length prefix, then the elements packed.
+    .u32(args.segments.length, 'segments.length');
+  args.segments.forEach((s, i) => {
+    w.u128(s.sqrtPriceUpperX64, `segments[${i}].sqrtPriceUpperX64`);
+    w.u128(s.liquidity, `segments[${i}].liquidity`);
+  });
+  return new TransactionInstruction({
+    programId,
+    keys: [acc(accounts.authority, true, false), acc(globalPda(programId), false, true)],
+    data: w.finish(),
   });
 }

@@ -224,6 +224,9 @@ export const IX_DISCRIMINATOR = {
   buy: Uint8Array.from([102, 6, 61, 18, 1, 218, 235, 234]),
   sell: Uint8Array.from([51, 230, 133, 164, 1, 127, 131, 173]),
   migrateToAmm: Uint8Array.from([207, 82, 192, 145, 254, 207, 145, 223]),
+  // sha256("global:set_curve_segments")[..8]. Derived with the same routine that
+  // reproduces all six values above byte-for-byte, so it is checked, not guessed.
+  setCurveSegments: Uint8Array.from([87, 209, 71, 218, 186, 34, 79, 1]),
 } as const;
 
 export const ACCOUNT_DISCRIMINATOR = {
