@@ -33,6 +33,11 @@ anchor-spl = { version = "0.32.1", features = ["memo", "metadata"] }
 # modify it. Verified: diff-guard passes with this dependency in place.
 raydium-cp-swap = { path = "../cp-swap", features = ["cpi"], default-features = false }
 
+# Required by the vendored Raydium CLMM math (`src/vendor/big_num.rs` builds U128/U256
+# with `construct_uint!`). Same version cp-swap already pins in this workspace, so the
+# lockfile resolves to one copy.
+uint = "0.10.0"
+
 # No dev-dependencies on purpose. `curve.rs` is dependency-free so its tests run
 # under a bare `rustc --test`, with no cargo, no build scripts, and no validator
 # — which is what lets the math be verified even when the SBF toolchain is

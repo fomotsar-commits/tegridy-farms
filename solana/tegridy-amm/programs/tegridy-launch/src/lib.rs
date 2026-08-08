@@ -85,6 +85,10 @@ use anchor_spl::token::spl_token::instruction::AuthorityType;
 
 pub mod curve;
 pub mod errors;
+/// Vendored Raydium CLMM concentrated-liquidity math (Apache-2.0) — the segmented
+/// curve's arithmetic. See `vendor/mod.rs` for provenance and the exact upstream
+/// commit an auditor should diff against.
+pub mod vendor;
 pub mod state;
 
 use crate::curve::{
