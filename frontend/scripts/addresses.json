@@ -47,24 +47,32 @@
       "address": "Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7",
       "role": "Program deploy authority for the own-venue mainnet deploy. Pays rent for cp-swap + tegridy-launch, then MUST hand upgrade authority to the Squads multisig (MAINNET_RUNBOOK §4).",
       "custody": "single key, operator-held. No seed phrase — generated --no-bip39-passphrase --silent, so the keyfile IS the backup.",
-      "status": "awaiting funding (~12 SOL float)",
-      "expect": { "type": "wallet" }
+      "status": "live, funded. Deployed both programs 2026-08-08 (8.41 SOL of rent) and called initialize_global; 3.53 SOL left. Upgrade authority has since moved to squads-vault, but this key is STILL the deployer::ID baked into the tegridy-launch binary — verified by searching the deployed bytecode — so it remains the ONLY signer that can call initialize_global. Keep it funded and backed up.",
+      "expect": { "type": "wallet", "funded": true }
     },
     {
       "id": "cp-swap-program",
       "address": "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y",
       "role": "cp-swap program address (Raydium CPMM fork). Keypair claims the address at first deploy; inert afterwards.",
-      "custody": "single key, operator-held",
-      "status": "NOT DEPLOYED — verified null on mainnet and devnet",
-      "expect": { "type": "wallet" }
+      "custody": "single key, operator-held. Upgrade authority is squads-vault as of the 2026-08-08 deploy.",
+      "status": "live, DEPLOYED to mainnet 2026-08-08 (4.815 SOL rent). Bytecode sha256 matches its CI artifact. Its AmmConfig does NOT exist yet — creating one is admin-gated, so it needs a Squads transaction before any pool can be created.",
+      "expect": { "type": "executable" }
     },
     {
       "id": "tegridy-launch-program",
       "address": "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED",
       "role": "tegridy-launch bonding-curve program address. Separate program, separate deploy.",
-      "custody": "single key, operator-held",
-      "status": "NOT DEPLOYED — verified null on mainnet and devnet",
-      "expect": { "type": "wallet" }
+      "custody": "single key, operator-held. Upgrade authority is squads-vault as of the 2026-08-08 deploy.",
+      "status": "live, DEPLOYED to mainnet 2026-08-08 (3.581 SOL rent) and INITIALIZED. Bytecode sha256 matches its CI artifact. Graduation venue is still unset, so migrate_to_amm fails AmmNotConfigured (6015) until update_global names the cp-swap program and its AmmConfig.",
+      "expect": { "type": "executable" }
+    },
+    {
+      "id": "tegridy-launch-global",
+      "address": "7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e",
+      "role": "The tegridy-launch `global` singleton PDA, seeds [\"global\"]. Holds the parameters every FUTURE launch is created from: 1% trade fee, creator 48% / protocol 52%, 30 SOL virtual reserve, graduation target 11.621942308 SOL (the continuity target — it lists at 9999 bps of the final curve price), 0.25 SOL migration reserve. fee_recipient is squads-vault.",
+      "custody": "program-derived — nobody holds a key for it. Its `authority` FIELD is the mutable admin and is currently deploy-authority; hand it to squads-vault with `update-global --new-authority`.",
+      "status": "live, initialized 2026-08-08. 723 bytes.",
+      "expect": { "type": "program-owned" }
     },
     {
       "id": "squads-multisig",
@@ -87,8 +95,8 @@
       "address": "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa",
       "role": "cp-swap create_pool_fee_reveiver::ID — the Squads vault's WSOL associated-token-account. An SPL token account, NOT a wallet.",
       "custody": "owned by the Squads vault",
-      "status": "DOES NOT EXIST YET — must be created (~0.00204 SOL) before any pool, or every create_pool fails",
-      "expect": { "type": "absent" }
+      "status": "live, created 2026-08-08 (0.00204 SOL). cp-swap's create_pool fails if it is missing, so it had to exist before the first graduation.",
+      "expect": { "type": "token-account" }
     },
     {
       "id": "swap-fee-account",
