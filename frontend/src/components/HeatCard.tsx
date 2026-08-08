@@ -19,8 +19,12 @@ import {
   isStale,
   nextTier,
   shareForDegrees,
+  launchIneligibility,
+  heldDays,
   TIER_FLOORS,
   HEAT_K,
+  TWAB_WINDOW_DAYS,
+  LAUNCH_MIN_HELD_DAYS,
   type HeatReading,
   type HeatTier,
 } from '../lib/heat/heatOracle';
@@ -252,6 +256,12 @@ function Reading({
         {stale && <span className="font-semibold">Stale — older than 7 days, so it decides nothing</span>}
       </div>
 
+      {/* LAUNCH ELIGIBILITY. Held TIME, not degrees — a large bag cannot shortcut the
+          wait, which is the whole point of gating on tenure. Rendered from the same
+          primitive the launch path uses, so what a wallet is told here and what
+          happens at submit cannot drift. */}
+      <Eligibility reading={reading} now={now} />
+
       {next && !reading.isCold && (
         <div className="mb-4">
           <div className="flex justify-between text-[11px] text-white/50 mb-1">
@@ -325,6 +335,47 @@ function Reading({
   );
 }
 
+function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
+  const verdict = launchIneligibility(reading, now);
+  const days = heldDays(reading, now);
+  const eligible = verdict === null;
+  const pct = days === null ? 0 : Math.min(100, (days / LAUNCH_MIN_HELD_DAYS) * 100);
+
+  return (
+    <div
+      className="rounded-lg px-3 py-2.5 mb-4"
+      style={{
+        background: eligible ? 'rgba(76,175,80,0.10)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${eligible ? 'var(--color-kyle-40)' : 'var(--color-purple-25)'}`,
+      }}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1.5">
+        <span className="text-[12.5px] font-semibold" style={{ color: eligible ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
+          {eligible ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
+        </span>
+        <span className="text-[11px] text-white/45">
+          needs {LAUNCH_MIN_HELD_DAYS} days of held history
+        </span>
+      </div>
+
+      {days !== null && (
+        <div className="h-1 rounded-full overflow-hidden mb-1.5" style={{ background: 'rgba(255,255,255,0.10)' }}>
+          <div
+            className="h-full rounded-full transition-[width] duration-700"
+            style={{ width: `${pct}%`, background: eligible ? 'var(--color-kyle)' : 'var(--color-purple-70)' }}
+          />
+        </div>
+      )}
+
+      <p className="text-[11.5px] text-white/55 leading-relaxed">
+        {eligible
+          ? `${days} days of held history — comfortably past the floor.`
+          : verdict.detail}
+      </p>
+    </div>
+  );
+}
+
 function Maths({ degrees }: { degrees: number }) {
   const examples = [0.001, 0.005, 0.01, 0.02, 0.05];
   return (
@@ -332,8 +383,8 @@ function Maths({ degrees }: { degrees: number }) {
       <p className="text-white/75 mb-3">
         For each measured token you hold, the island works out your{' '}
         <strong className="text-white">time-weighted average balance</strong> — your balance at every
-        moment, averaged over time — as a share of that token&apos;s total supply. It puts that share
-        through one curve:
+        moment, averaged over the last <strong className="text-white">{TWAB_WINDOW_DAYS} days</strong> — as a
+        share of that token&apos;s total supply. It puts that share through one curve:
       </p>
 
       <div className="rounded-lg px-3 py-2.5 mb-3 font-mono text-[12px] overflow-x-auto" style={{ background: 'rgba(0,0,0,0.55)', color: 'var(--color-kyle)' }}>
@@ -378,6 +429,12 @@ function Maths({ degrees }: { degrees: number }) {
         <strong className="text-white/75">{((shareForDegrees(30) ?? 0) * 100).toFixed(2)}% of its whole supply</strong>,
         held for the entire measurement window. Most wallets get there by holding several
         measured tokens instead.
+      </p>
+
+      <p className="text-white/50 text-[11.5px] mb-2">
+        Because the window <em>rolls</em>, warmth is not banked. A wallet that sells decays out of
+        the average over the following {TWAB_WINDOW_DAYS} days rather than keeping its degrees —
+        held time has to stay held.
       </p>
 
       <p className="text-white/40 text-[11px]">

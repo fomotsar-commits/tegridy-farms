@@ -11,8 +11,12 @@ import {
   nextTier,
   heatDegreesFor,
   shareForDegrees,
+  launchIneligibility,
+  heldDays,
   TIER_FLOORS,
   HEAT_K,
+  TWAB_WINDOW_DAYS,
+  LAUNCH_MIN_HELD_DAYS,
 } from './heatOracle';
 
 // A real Elder: 12 measured tokens, island_heat 195.54. Trimmed to 4 rows for size;
@@ -120,6 +124,78 @@ describe('isStale — the freshness law', () => {
   });
 });
 
+describe('launchIneligibility — the gate primitive, fail-closed', () => {
+  const asOf = 1786104024;
+  const DAY = 86_400;
+  // A wallet whose first measured holding was exactly N days before `now`.
+  const heldFor = (days: number) =>
+    parseHeatReading({ ...WARM, held_since_unix: asOf - days * DAY, as_of_unix: asOf });
+
+  it('DENIES when there is no reading at all — an outage is not a pass', () => {
+    expect(launchIneligibility(null, asOf)).toMatchObject({ reason: 'unreadable' });
+  });
+
+  it('DENIES on a stale reading, even for a wallet that would otherwise sail through', () => {
+    // 5 years of history — but the ruler has not been read in a month.
+    const ancient = parseHeatReading({ ...WARM, held_since_unix: asOf - 1825 * DAY, as_of_unix: asOf });
+    expect(launchIneligibility(ancient, asOf + 30 * DAY)).toMatchObject({ reason: 'stale' });
+  });
+
+  it('DENIES a cold wallet with no held history', () => {
+    expect(launchIneligibility(parseHeatReading(COLD), asOf)).toMatchObject({ reason: 'no-history' });
+  });
+
+  it('DENIES a wallet one day short, and says how long is left', () => {
+    const v = launchIneligibility(heldFor(179), asOf);
+    expect(v).toMatchObject({ reason: 'too-new', heldDays: 179, requiredDays: 180 });
+    // Exact string, so "1 more days" cannot slip through as a substring match.
+    expect(v!.detail).toBe('179 days of held history — 1 more day to go.');
+  });
+
+  it('pluralises correctly at the other end too', () => {
+    expect(launchIneligibility(heldFor(1), asOf)!.detail).toBe('1 day of held history — 179 more days to go.');
+  });
+
+  it('ALLOWS exactly at the 180-day boundary', () => {
+    expect(launchIneligibility(heldFor(180), asOf)).toBeNull();
+  });
+
+  it('ALLOWS a long-held wallet', () => {
+    expect(launchIneligibility(heldFor(400), asOf)).toBeNull();
+  });
+
+  it('a huge bag cannot shortcut the wait — tenure is the gate, not degrees', () => {
+    // 100° on a single token (a whale), but only 10 days of history.
+    const whale = parseHeatReading({
+      ...WARM, degrees: 100, tier: 'Resident',
+      held_since_unix: asOf - 10 * DAY, as_of_unix: asOf,
+    });
+    expect(launchIneligibility(whale, asOf)).toMatchObject({ reason: 'too-new' });
+  });
+
+  it('the floor is configurable, not baked in', () => {
+    expect(launchIneligibility(heldFor(30), asOf, 30)).toBeNull();
+    expect(launchIneligibility(heldFor(30), asOf, 90)).toMatchObject({ reason: 'too-new' });
+  });
+
+  it('checks freshness BEFORE tenure — a stale reading may not fail anyone either', () => {
+    // Too new AND stale. The spec forbids failing someone on a stale reading, so the
+    // verdict must be 'stale' (retryable) and never 'too-new' (a judgement).
+    const v = launchIneligibility(heldFor(5), asOf + 30 * DAY);
+    expect(v).toMatchObject({ reason: 'stale' });
+  });
+});
+
+describe('heldDays', () => {
+  it('counts whole days since the first measured holding', () => {
+    const r = parseHeatReading({ ...WARM, held_since_unix: 1786104024 - 200 * 86_400 });
+    expect(heldDays(r, 1786104024)).toBe(200);
+  });
+  it('is null for a wallet with no history', () => {
+    expect(heldDays(parseHeatReading(COLD), 1786104024)).toBeNull();
+  });
+});
+
 describe('tiers', () => {
   it.each([
     [0, 'Drifter'], [29.99, 'Drifter'],
@@ -190,6 +266,13 @@ describe('the curve (display only — the oracle is the ruler)', () => {
     const share = shareForDegrees(0.72)!;
     expect(share).toBeGreaterThan(0);
     expect(share).toBeLessThan(0.0002); // ~0.012% of supply, time-weighted
+  });
+
+  it('pins the island-confirmed constants', () => {
+    // Both were told to us rather than derived; if either moves, that is a decision
+    // someone made, and it should break a test rather than slip through.
+    expect(TWAB_WINDOW_DAYS).toBe(180);
+    expect(LAUNCH_MIN_HELD_DAYS).toBe(180);
   });
 
   it('the published floors are ordered and start at Drifter/0', () => {

@@ -35,6 +35,34 @@ export const TIER_FLOORS: readonly { tier: HeatTier; floor: number; meaning: str
 /** The steepness constant in the island's formula. */
 export const HEAT_K = 60;
 
+/**
+ * The averaging window for TWAB, in days. CONFIRMED BY THE ISLAND 2026-08-07.
+ *
+ * The published spec says TWAB is "continuous, zero-anchored and velocity-blind" but
+ * never states the period the average is taken over — and without it the curve cannot
+ * be reproduced, so previews were impossible. It is 180 days.
+ *
+ * Consequence worth knowing: the window ROLLS. Warmth is not banked forever — a wallet
+ * that sells decays out of the average over the following 180 days rather than keeping
+ * its degrees. Held time has to stay held.
+ */
+export const TWAB_WINDOW_DAYS = 180;
+
+/**
+ * The venue's launch-eligibility floor, in days of held history.
+ * OPERATOR DECISION 2026-08-07: "someone with at least 180 days of history should be
+ * the only people that should be able to deploy."
+ *
+ * Deliberately a TENURE floor, not a degrees floor. Degrees mix tenure with size — a
+ * whale can out-score a long-time small holder — whereas the stated intent is that
+ * launching is earned by having been here. `held_since_unix` measures exactly that and
+ * a large bag cannot shortcut it.
+ *
+ * Config, never a constant at the call site: pass it in so the number can move without
+ * touching the gate.
+ */
+export const LAUNCH_MIN_HELD_DAYS = 180;
+
 /** A single measured token's contribution to island_heat. */
 export interface HeatBreakdownRow {
   tokenAddress: string;
@@ -142,6 +170,62 @@ export function parseHeatReading(payload: unknown): HeatReading {
 export function isStale(reading: HeatReading, nowUnix: number, maxAgeDays = 7): boolean {
   if (reading.asOfUnix === null) return false;
   return nowUnix - reading.asOfUnix > maxAgeDays * 86_400;
+}
+
+/** Why a wallet may not launch, or null when it may. */
+export type LaunchIneligibility =
+  | { reason: 'unreadable'; detail: string }
+  | { reason: 'stale'; detail: string }
+  | { reason: 'no-history'; detail: string }
+  | { reason: 'too-new'; heldDays: number; requiredDays: number; detail: string };
+
+/**
+ * THE LAUNCH GATE PRIMITIVE. Every launch and vote criterion composes from this one
+ * function, so the rule is auditable in exactly one place (spec §3, "Gate primitive").
+ *
+ * FAIL-CLOSED, in this order — the absence of a positive answer denies, never merely
+ * the presence of a negative one:
+ *   1. no reading at all            -> deny (we could not ask; that is not a pass)
+ *   2. reading older than maxAgeDays -> deny (the freshness law: a stale ruler
+ *                                      certifies nothing, so it may not pass ANYONE)
+ *   3. no held history               -> deny (cold wallet, nothing to measure)
+ *   4. history shorter than the floor-> deny, and say how much longer to wait
+ *
+ * Returns null when the wallet MAY launch. Callers must treat a thrown error or a
+ * missing reading as denial — see the `reading === null` branch.
+ */
+export function launchIneligibility(
+  reading: HeatReading | null,
+  nowUnix: number,
+  minHeldDays: number = LAUNCH_MIN_HELD_DAYS,
+  maxAgeDays = 7,
+): LaunchIneligibility | null {
+  if (!reading) {
+    return { reason: 'unreadable', detail: 'The instrument is unreachable, so eligibility cannot be checked. Try again shortly.' };
+  }
+  if (isStale(reading, nowUnix, maxAgeDays)) {
+    return { reason: 'stale', detail: `This reading is older than ${maxAgeDays} days, so it cannot pass or fail anyone.` };
+  }
+  if (reading.heldSinceUnix === null) {
+    return { reason: 'no-history', detail: 'This wallet holds none of the measured tokens, so it has no held history yet.' };
+  }
+  const heldDays = Math.floor((nowUnix - reading.heldSinceUnix) / 86_400);
+  if (heldDays < minHeldDays) {
+    const left = minHeldDays - heldDays;
+    return {
+      reason: 'too-new',
+      heldDays,
+      requiredDays: minHeldDays,
+      detail: `${heldDays} day${heldDays === 1 ? '' : 's'} of held history — ${left} more day${left === 1 ? '' : 's'} to go.`,
+    };
+  }
+  return null;
+}
+
+/** Days of held history, or null when the wallet has none. */
+export function heldDays(reading: HeatReading, nowUnix: number): number | null {
+  if (reading.heldSinceUnix === null) return null;
+  return Math.max(0, Math.floor((nowUnix - reading.heldSinceUnix) / 86_400));
 }
 
 /** The tier a given island_heat falls in. Mirrors the island's floors; display only. */
