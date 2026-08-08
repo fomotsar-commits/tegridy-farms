@@ -9,6 +9,34 @@ Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external subm
 ---
 
 ## 0. Prereqs
+
+### ⚠️ DEPLOY FLOAT — **~17.3 SOL**, not the ~12 this runbook used to say
+
+Corrected 2026-08-08 by measuring the actual binaries rather than estimating.
+`solana program deploy` reserves **2× the binary size**, and rent scales with that:
+
+| program | binary | account (2×) | rent |
+|---|---|---|---|
+| `tegridy_launch` | 514,320 B | 1,028,640 B | **7.1602 SOL** |
+| `raydium_cp_swap` | 691,640 B | 1,383,280 B | **9.6285 SOL** |
+| | | **subtotal** | **16.789 SOL** |
+| fee-receiver WSOL ATA | | | 0.002 SOL |
+| tx fees + headroom | | | ~0.5 SOL |
+| | | **TOTAL** | **~17.3 SOL** |
+
+The old "~5 SOL rent" per program was a guess and it was low by 2–4×. Sizes come
+from real CI artifacts; rent from `solana rent <bytes> --url mainnet-beta`.
+
+**Re-measure before deploying.** The binaries grow: `tegridy_launch` gained ~40 KB
+when the segmented curve landed, which is ~0.5 SOL of rent on its own.
+
+```bash
+solana rent $(( $(stat -c%s target/deploy/tegridy_launch.so) * 2 )) --url mainnet-beta
+```
+
+Program rent is **recoverable** if the program is later closed — but NOT if the
+upgrade authority is burned for immutability, which §4 offers. Decide knowing that.
+
 - Diff-audit passed; findings (if any) fixed and re-diffed (CI `diff-guard` still green).
 - `solana` CLI installed; `solana config set --url mainnet-beta`.
 
@@ -88,7 +116,7 @@ compiles fine and then makes **every `create_pool` fail**. As of 2026-08-01 the 
 ```bash
 spl-token create-account So11111111111111111111111111111111111111112   --owner GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd --url mainnet-beta
 ```
-Costs ~0.00204 SOL of rent — this is **not** part of the ~12 SOL deploy float. Verify it
+Costs ~0.00204 SOL of rent — this is **not** part of the deploy float (see §0). Verify it
 landed and is a token account:
 ```bash
 solana account 2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa --url mainnet-beta
@@ -103,7 +131,7 @@ Confirm the built program-id matches step 1 and that the sentinels are gone.
 
 ## 4. 🔑💰 Deploy + lock down the upgrade authority
 ```bash
-solana program deploy <artifact>.so --program-id keys/mainnet-program.json   # ~5 SOL rent
+solana program deploy <artifact>.so --program-id keys/mainnet-program.json   # see §0 for real rent
 # Move upgrade authority to the multisig (or burn it if you want immutability):
 solana program set-upgrade-authority <PROGRAM_ID> --new-upgrade-authority <MULTISIG>
 solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
