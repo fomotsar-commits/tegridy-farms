@@ -54,7 +54,13 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: solana/tegridy-amm
+        # The PROGRAM directory, matching solana-ci's `build` and `launch-curve`.
+        # From the workspace root, cargo resolves every member — including `client` —
+        # and one of those pulls a crate the SBF toolchain's bundled rustc (1.84.1-dev)
+        # will not compile: "rustc 1.84.1-dev is not supported by the following
+        # package". Building from the member directory keeps the graph to what the
+        # program actually needs.
+        working-directory: solana/tegridy-amm/programs/tegridy-launch
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -93,7 +99,7 @@ jobs:
       - name: Pin the operator's identities into the source
         run: |
           set -euo pipefail
-          python3 - programs/tegridy-launch/src/lib.rs "${{ inputs.program_id }}" "${{ inputs.deployer }}" "${{ inputs.cluster }}" <<'PY'
+          python3 - src/lib.rs "${{ inputs.program_id }}" "${{ inputs.deployer }}" "${{ inputs.cluster }}" <<'PY'
           import re, sys
           path, program_id, deployer, cluster = sys.argv[1:5]
           src = open(path).read()
@@ -119,7 +125,7 @@ jobs:
           print(f"  patched deployer arm[{idx}] -> {deployer}  (cluster={cluster})")
           PY
           # Anchor.toml must agree or `anchor build` rewrites the id back.
-          sed -i "s/^tegridy_launch = \".*\"/tegridy_launch = \"${{ inputs.program_id }}\"/" Anchor.toml || true
+          sed -i "s/^tegridy_launch = \".*\"/tegridy_launch = \"${{ inputs.program_id }}\"/" ../../Anchor.toml || true
 
       - name: Build
         run: |
@@ -136,13 +142,13 @@ jobs:
             grep -B3 "exceeded max offset" /tmp/build.log || true
             exit 1
           fi
-          SO=target/deploy/tegridy_launch.so
+          SO=../../target/deploy/tegridy_launch.so
           test -f "$SO" || { echo "::error::no $SO — the program was NOT compiled"; exit 1; }
 
       - name: Report what a deployer must check
         run: |
           set -euo pipefail
-          SO=target/deploy/tegridy_launch.so
+          SO=../../target/deploy/tegridy_launch.so
           echo "### Deployable artifact" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| field | value |" >> $GITHUB_STEP_SUMMARY
@@ -155,7 +161,7 @@ jobs:
           echo "| sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Rent for this binary is roughly \`size * 2 * 0.00000696\` SOL." >> $GITHUB_STEP_SUMMARY
-          sha256sum "$SO" | tee target/deploy/tegridy_launch.so.sha256
+          sha256sum "$SO" | tee ../../target/deploy/tegridy_launch.so.sha256
 
       - uses: actions/upload-artifact@v4
         with:
