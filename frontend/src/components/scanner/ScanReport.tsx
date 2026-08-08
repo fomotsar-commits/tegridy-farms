@@ -187,7 +187,16 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
         </p>
         <ul className="space-y-2">
           {analysis.gate.findings.map((f) => {
-            const unknown = /unknown|not measured|not present|renounced|locked\.$/i.test(f.detail) && !f.fired;
+            // Split deliberately, not golfed into one regex. CodeQL flagged the
+            // original `/unknown|not measured|not present|renounced|locked\.$/i` HIGH
+            // for misleading operator precedence, and it was right: `$` binds only to
+            // the final alternative, so four of the five matched ANYWHERE while the
+            // fifth had to be at the END. That is what the author meant, but nothing
+            // in the source said so, and the next person to add an alternative would
+            // have had to rediscover it. Behaviour here is identical.
+            const hasUnknownPhrase = /unknown|not measured|not present|renounced/i.test(f.detail);
+            const endsWithLocked = /locked\.$/i.test(f.detail);
+            const unknown = (hasUnknownPhrase || endsWithLocked) && !f.fired;
             const dotColor = f.fired ? 'var(--color-danger)' : unknown ? 'var(--color-text-muted)' : 'var(--color-success)';
             return (
               <li key={f.id} className="flex items-start gap-2">
