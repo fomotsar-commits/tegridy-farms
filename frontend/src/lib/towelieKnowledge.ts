@@ -229,13 +229,30 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     keywords: ['hardware', 'ledger', 'trezor'],
     answer: "Hardware wallets work via MetaMask or Rainbow's hardware-wallet integration. Plug in, connect, sign on the device.",
   },
+  // 2026-08-07: the assistant is the surface a confused user asks "what chain is
+  // this?" on — and it answered, flatly, Ethereum-only, with no Solana entry anywhere
+  // in this file. Asking about Solana, SOL or Jupiter fell through to a generic reply
+  // on a site that has a live Solana swap. Fixed here, plus the three new entries
+  // below so the keywords actually match what someone would type.
   {
-    keywords: ['network', 'chain', 'switch', 'mainnet'],
-    answer: "Tegridy Farms runs on Ethereum mainnet. Wrong chain → your wallet shows a 'Switch' button. Hit it.",
+    keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
+    answer: "Two chains. TOWELI staking, farming and the Doppler launcher are on Ethereum mainnet — wrong chain there and your wallet shows a 'Switch' button, hit it. Solana has its own swap (routed through Jupiter) and its own launch rail; connect a Solana wallet for those. The token scanner reads both.",
+  },
+  {
+    keywords: ['solana', 'sol', 'phantom', 'spl'],
+    answer: "Solana's live. /solana swaps SPL tokens through Jupiter with limit orders and SOL liquid-staking, and /solana-launch launches tokens on Meteora's bonding curve. TOWELI itself is never deployed on Solana — that's deliberate, Solana is a separate rail, not a second home for the token.",
+  },
+  {
+    keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
+    answer: "Jupiter is the router behind /solana — it shops your trade across Solana's DEXes for the best price. Our platform fee is shown before you sign, every time.",
+  },
+  {
+    keywords: ['meteora', 'dbc', 'bonding curve', 'solana launch'],
+    answer: "The Solana launch rail runs on Meteora's Dynamic Bonding Curve — their audited program, not ours. Fees, the anti-snipe schedule and the LP lock are written into the Fact Sheet before you sign.",
   },
   {
     keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base'],
-    answer: "Mainnet only for now. L2 deployment is on the roadmap if community votes for it.",
+    answer: "No L2 yet — the second chain we actually run on is Solana, not a rollup. L2 deployment stays on the roadmap if the community votes for it.",
   },
   {
     keywords: ['gas', 'expensive', 'cost'],

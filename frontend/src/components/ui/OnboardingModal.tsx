@@ -17,9 +17,27 @@ const STORAGE_KEY = 'tegridy-onboarding-seen';
 // each slide is an art-studio surface (seeded to card01–04 in artOverrides).
 
 const steps = [
+  // 2026-08-07, two corrections in one line — this is the FIRST sentence a new
+  // visitor reads, and it was wrong twice:
+  //
+  //  1. "on Ethereum" full stop. We run on two chains. The Solana swap is live and
+  //     routed through Jupiter, and /scan reads both. Saying one chain on the
+  //     welcome screen is how a two-chain product gets remembered as one.
+  //  2. "100% of protocol swap fees are routed to TOWELI stakers" is FALSE, and the
+  //     repo already knew: HomePage.tsx's own H1 comment cites AUDIT R073 (swap fees
+  //     split 5/6 to LPs, 1/6 to the protocol), and the protocol's own share then
+  //     splits again between stakers, the liquidity engine, and operations — which
+  //     is what the hero paragraph on that same page says. So the claim is wrong on
+  //     BOTH readings of "protocol swap fees". ConnectPrompt.tsx:30 already softened
+  //     the identical sentence (F109) and left the reason in a comment; this surface
+  //     and the Footer were simply missed by that pass.
+  //
+  // Replacement claims only what routes on-chain, names no percentage that can drift
+  // when governance retunes the split, and does not promise yield that has not been
+  // paid (RevenueDistributor still holds 0 wei).
   {
     title: 'Welcome to Tegridy Farms',
-    body: 'An art-first yield farming protocol on Ethereum. 100% of protocol swap fees are routed to TOWELI stakers as ETH.',
+    body: 'An art-first protocol on Ethereum and Solana. Stake TOWELI on Ethereum and protocol swap fees route on-chain to stakers in ETH; on Solana, swap through Jupiter and scan any token on either chain.',
   },
   {
     title: 'How It Works',
