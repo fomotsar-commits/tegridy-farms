@@ -1365,4 +1365,98 @@ contract TegridyLendingTest is Test {
         assertEq(lending.pendingLendingAdmin(), address(0), "pending cleared");
         assertEq(lending.owner(), newOwner, "ownership transferred");
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT FIX 2026-08 (round 2) — LEND-PAUSE-INFLIGHT
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @dev Non-destructive probe: does `claimDefaultedCollateral` revert RIGHT
+    ///      NOW? State (including the warped timestamp) is restored before
+    ///      returning. bob is the lender in this fixture.
+    function _claimDefaultedReverts(uint256 loanId) internal returns (bool) {
+        uint256 snap = vm.snapshotState();
+        vm.prank(bob);
+        (bool ok, ) = address(lending).call(
+            abi.encodeWithSelector(TegridyLending.claimDefaultedCollateral.selector, loanId)
+        );
+        vm.revertToState(snap);
+        return !ok;
+    }
+
+    /// @notice LEND-PAUSE-INFLIGHT — the identical defect to
+    ///         TegridyNFTLending's, in this contract's single shared
+    ///         `effectiveDeadline`.
+    ///
+    ///         `effectiveDeadline` adds the WHOLE in-flight pause
+    ///         (`block.timestamp - pauseStartTime`), so in
+    ///         `claimDefaultedCollateral`'s gate
+    ///           `block.timestamp <= effectiveDeadline + GRACE_PERIOD + buffer`
+    ///         the `block.timestamp` terms CANCEL. Any pause begun before
+    ///         `deadline + grace` blocked the lender's claim FOREVER, however
+    ///         long the pause ran, while `repayLoan` stayed open — making
+    ///         `MAX_PAUSE_BLOCK_LIQUIDATION` (7 days) inert, the opposite of
+    ///         what its NatSpec promises.
+    ///
+    ///         Because `effectiveDeadline` is the ONE place this contract
+    ///         computes the fact, bounding the in-flight term there keeps
+    ///         `isDefaulted()`, `repayLoan` and `claimDefaultedCollateral` in
+    ///         exact agreement — which is the invariant asserted here.
+    function test_AUDIT2026R2_isDefaultedAgreesWithClaimAcrossPause() public {
+        uint256 loanId = _createAndAcceptLoan();
+        uint256 start = vm.getBlockTimestamp(); // deadline = start + 30 days
+
+        vm.warp(start + 1 days);
+        lending.pause();
+
+        uint256 cap = lending.MAX_PAUSE_BLOCK_LIQUIDATION();
+        uint256 grace = lending.GRACE_PERIOD();
+        uint256 boundary = 30 days + cap + grace; // derived, not hard-coded
+
+        uint256[9] memory samples = [
+            uint256(5 days),
+            20 days,
+            29 days,
+            31 days,
+            boundary - 1,
+            boundary,
+            boundary + 1,
+            60 days,
+            120 days
+        ];
+
+        for (uint256 i = 0; i < samples.length; i++) {
+            vm.warp(start + samples[i]);
+            bool viewSaysDefaulted = lending.isDefaulted(loanId);
+            bool claimReverts = _claimDefaultedReverts(loanId);
+            assertEq(
+                viewSaysDefaulted,
+                !claimReverts,
+                "isDefaulted() must agree with claimDefaultedCollateral() at every instant"
+            );
+        }
+
+        // ...and the bound must actually BITE.
+        vm.warp(start + 120 days);
+        assertTrue(lending.isDefaulted(loanId), "view must report defaulted past the cap");
+        vm.prank(bob);
+        lending.claimDefaultedCollateral(loanId);
+        assertEq(staking.ownerOf(aliceTokenId), bob, "lender seized the collateral");
+    }
+
+    /// @notice LEND-PAUSE-INFLIGHT (companion): bounding the in-flight pause
+    ///         term must NEVER let a lender claim before the loan's own base
+    ///         deadline.
+    function test_AUDIT2026R2_pauseBoundDoesNotEnableEarlyClaim() public {
+        uint256 loanId = _createAndAcceptLoan();
+        uint256 start = vm.getBlockTimestamp();
+
+        vm.warp(start + 1 days);
+        lending.pause();
+        vm.warp(start + 11 days); // 10 days paused, base 30-day deadline not reached
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyLending.DeadlineNotReached.selector);
+        lending.claimDefaultedCollateral(loanId);
+        assertFalse(lending.isDefaulted(loanId), "view agrees: not defaulted yet");
+    }
 }

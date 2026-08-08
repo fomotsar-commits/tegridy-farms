@@ -2265,6 +2265,40 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice Pause-extended deadline for a loan.
     /// @dev    AUDIT FIX: DEEP-LD2-M4 — subtract per-loan `pausedDurationAtStart`
     ///         snapshot so pre-loan pauses cannot retroactively extend deadlines.
+    /// @dev    AUDIT FIX 2026-08 (LEND-PAUSE-INFLIGHT): the IN-FLIGHT pause term
+    ///         is bounded by `MAX_PAUSE_BLOCK_LIQUIDATION`.
+    ///
+    ///         Pre-fix this function added the whole open-ended in-flight pause
+    ///         (`block.timestamp - pauseStartTime`), so in the gate used by
+    ///         `claimDefaultedCollateral`
+    ///           `block.timestamp <= effectiveDeadline + GRACE_PERIOD + buffer`
+    ///         the `block.timestamp` terms CANCELLED. Any pause that began
+    ///         before `deadline + grace` therefore blocked the lender's claim
+    ///         FOREVER — however long the pause ran — while `repayLoan` (which
+    ///         carries no `whenNotPaused`) stayed open the entire time. That
+    ///         made the 7-day cap checked at the top of
+    ///         `claimDefaultedCollateral` completely inert, the opposite of what
+    ///         its NatSpec promises, and turned an ordinary incident-response
+    ///         pause into a permanent liquidation block.
+    ///
+    ///         The bound is deliberately NARROW: only the in-flight term is
+    ///         clamped. The ACCUMULATED term (`totalPausedDuration -
+    ///         pausedDurationAtStart`) is left untouched — it is real elapsed
+    ///         downtime the borrower is owed back, and it cannot produce the
+    ///         `block.timestamp`-cancellation above because it does not grow
+    ///         with `block.timestamp`.
+    ///
+    ///         The clamp lives HERE, in the single place this contract computes
+    ///         the fact, so `repayLoan`, `claimDefaultedCollateral` and the
+    ///         public `isDefaulted` view all keep reading the SAME value. That
+    ///         preserves the repay/claim symmetry this contract documents at
+    ///         `claimDefaultedCollateral` ("both sides wait through pause
+    ///         symmetrically") and prevents the UI from ever reporting a loan as
+    ///         defaulted while the claim path refuses it. Clamping only the
+    ///         lender's gate would have broken both properties.
+    ///
+    ///         The clamp is an upper bound on an ADDITION, so it can never make
+    ///         a loan claimable earlier than its own base deadline.
     function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
@@ -2273,7 +2307,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             ? totalPausedDuration - loan.pausedDurationAtStart
             : 0;
         if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
-            pauseExt += block.timestamp - pauseStartTime;
+            // AUDIT FIX 2026-08 (LEND-PAUSE-INFLIGHT): bound the in-flight term.
+            uint256 inFlight = block.timestamp - pauseStartTime;
+            if (inFlight > MAX_PAUSE_BLOCK_LIQUIDATION) inFlight = MAX_PAUSE_BLOCK_LIQUIDATION;
+            pauseExt += inFlight;
         }
         return base + pauseExt;
     }

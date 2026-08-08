@@ -494,8 +494,19 @@ export const TEGRIDY_NFT_POOL_ABI = [
   // ─── Trading (public) ──────────────────────────────────────────
   { type: 'function', name: 'swapETHForNFTs', inputs: [{ name: 'tokenIds', type: 'uint256[]' }, { name: 'maxTotalCost', type: 'uint256' }, { name: 'deadline', type: 'uint256' }], outputs: [], stateMutability: 'payable' },
   { type: 'function', name: 'swapNFTsForETH', inputs: [{ name: 'tokenIds', type: 'uint256[]' }, { name: 'minOutput', type: 'uint256' }, { name: 'deadline', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  // AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY): `getBuyQuote.inputAmount` is now
+  // ROYALTY-INCLUSIVE and `getSellQuote.outputAmount` is now ROYALTY-NET. Same
+  // selectors, same tuple shapes — only the numbers moved, and they moved to
+  // match what the swap actually charges/pays. So `inputAmount` stays the right
+  // thing to send as `msg.value`/`maxTotalCost`, and `outputAmount` stays the
+  // right basis for `minOutput`. DO NOT add or subtract a royalty on top of
+  // either: read `get{Buy,Sell}QuoteWithRoyalty` below if you need the split.
   { type: 'function', name: 'getBuyQuote', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'inputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getSellQuote', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'outputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }], stateMutability: 'view' },
+  // Reconciliation views: identical `inputAmount`/`outputAmount` to the two
+  // above, plus the ERC-2981 component so a fee breakdown can show it.
+  { type: 'function', name: 'getBuyQuoteWithRoyalty', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'inputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }, { name: 'lpFee', type: 'uint256' }, { name: 'royaltyReceiver', type: 'address' }, { name: 'royalty', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'getSellQuoteWithRoyalty', inputs: [{ name: 'numItems', type: 'uint256' }], outputs: [{ name: 'outputAmount', type: 'uint256' }, { name: 'protocolFee', type: 'uint256' }, { name: 'lpFee', type: 'uint256' }, { name: 'royaltyReceiver', type: 'address' }, { name: 'royalty', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getHeldTokenIds', inputs: [], outputs: [{ name: '', type: 'uint256[]' }], stateMutability: 'view' },
   { type: 'function', name: 'getPoolInfo', inputs: [], outputs: [{ name: '_nftCollection', type: 'address' }, { name: '_poolType', type: 'uint8' }, { name: '_spotPrice', type: 'uint256' }, { name: '_delta', type: 'uint256' }, { name: '_feeBps', type: 'uint256' }, { name: '_protocolFeeBps', type: 'uint256' }, { name: '_owner', type: 'address' }, { name: '_numNFTs', type: 'uint256' }, { name: '_ethBalance', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'spotPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },

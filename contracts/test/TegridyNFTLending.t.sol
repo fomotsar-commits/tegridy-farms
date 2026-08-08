@@ -1160,4 +1160,424 @@ contract TegridyNFTLendingTest is Test {
         vm.expectRevert(TegridyNFTLending.CollateralBurnedSinceOffer.selector);
         lending.acceptOffer(offerId);
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUDIT FIX 2026-08 (round 2) — NFTLEND-PAUSE-INFLIGHT /
+    // NFTLEND-ESCROW-INDEX / NFTLEND-STRANDED-*
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @dev Non-destructive probe: does `claimDefault` revert RIGHT NOW?
+    ///      State (including the warped timestamp, which is captured by the
+    ///      snapshot taken after the warp) is restored before returning, so
+    ///      the probe can be run at many sample times inside one test.
+    function _claimDefaultReverts(uint256 loanId) internal returns (bool) {
+        uint256 snap = vm.snapshotState();
+        vm.prank(alice);
+        (bool ok, ) = address(lending).call(
+            abi.encodeWithSelector(TegridyNFTLending.claimDefault.selector, loanId)
+        );
+        vm.revertToState(snap);
+        return !ok;
+    }
+
+    /// @notice ROUND-2 BLOCKER PIN — view/logic agreement across the pause
+    ///         boundary.
+    ///
+    ///         Two defects are pinned by one invariant:
+    ///
+    ///         (1) NFTLEND-PAUSE-INFLIGHT. `_effectiveDeadlineStrict` adds the
+    ///             WHOLE in-flight pause (`block.timestamp - pauseStartTime`)
+    ///             to the deadline, so in `claimDefault`'s gate
+    ///               `block.timestamp <= effDeadline + grace + buffer`
+    ///             the `block.timestamp` terms CANCEL. Any pause begun before
+    ///             `deadline + grace` blocked the lender's claim FOREVER, however
+    ///             long the pause ran — while `repayLoan` stayed open the whole
+    ///             time. That made `MAX_PAUSE_BLOCK_LIQUIDATION` (7 days) inert,
+    ///             the opposite of what its NatSpec promises.
+    ///
+    ///         (2) The round-1 patch clamped ONLY the internal strict helper, so
+    ///             `isDefaulted()` / `effectiveDeadline()` kept reporting the
+    ///             UNCLAMPED fact — the UI would show "not defaulted" while
+    ///             `claimDefault` succeeded. The clamp must live where the fact
+    ///             is COMPUTED so every reader of that fact agrees.
+    ///
+    ///         The invariant asserted here — `isDefaulted(id)` is true exactly
+    ///         when `claimDefault(id)` would succeed — is what both fixes must
+    ///         jointly satisfy, and it is not a literal, so it survives a change
+    ///         to the cap's value.
+    function test_AUDIT2026R2_isDefaultedAgreesWithClaimDefaultAcrossPause() public {
+        uint256 loanId = _createAndAcceptLoan();
+        uint256 start = vm.getBlockTimestamp(); // loan deadline = start + 30 days
+
+        // Owner pauses for incident response BEFORE the loan's deadline.
+        vm.warp(start + 1 days);
+        lending.pause();
+
+        uint256 cap = lending.MAX_PAUSE_BLOCK_LIQUIDATION();
+        uint256 grace = lending.GRACE_PERIOD();
+        // Derived, not hard-coded: the instant the bounded deadline + the
+        // maximum pause-extended grace elapses.
+        uint256 boundary = 30 days + cap + 2 * grace;
+
+        uint256[9] memory samples = [
+            uint256(5 days),
+            20 days,
+            29 days,
+            31 days,
+            boundary - 1,
+            boundary,
+            boundary + 1,
+            60 days,
+            120 days
+        ];
+
+        for (uint256 i = 0; i < samples.length; i++) {
+            vm.warp(start + samples[i]);
+            bool viewSaysDefaulted = lending.isDefaulted(loanId);
+            bool claimReverts = _claimDefaultReverts(loanId);
+            assertEq(
+                viewSaysDefaulted,
+                !claimReverts,
+                "isDefaulted() must agree with claimDefault() at every instant"
+            );
+        }
+
+        // ...and the bound must actually BITE: 119 days into a continuous pause
+        // the lender can seize, and the view says so.
+        vm.warp(start + 120 days);
+        assertTrue(lending.isDefaulted(loanId), "view must report defaulted past the cap");
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+        assertEq(nft.ownerOf(bobTokenId), alice, "lender seized the collateral");
+    }
+
+    /// @notice NFTLEND-PAUSE-INFLIGHT (companion): bounding the in-flight pause
+    ///         term must NEVER let a lender claim before the loan's own base
+    ///         deadline. Guards against over-correcting the fix.
+    function test_AUDIT2026R2_pauseBoundDoesNotEnableEarlyClaim() public {
+        uint256 loanId = _createAndAcceptLoan();
+        uint256 start = vm.getBlockTimestamp();
+
+        vm.warp(start + 1 days);
+        lending.pause();
+        // 10 days paused, but the loan's base 30-day deadline has not passed.
+        vm.warp(start + 11 days);
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.LoanNotDefaulted.selector);
+        lending.claimDefault(loanId);
+        assertFalse(lending.isDefaulted(loanId), "view agrees: not defaulted yet");
+    }
+
+    /// @notice NFTLEND-PAUSE-INFLIGHT (symmetry): this contract's own NatSpec
+    ///         says "both repay and claim see the same effectiveDeadline + grace
+    ///         + outage" window. Clamping inside the deadline computation keeps
+    ///         that promise — the borrower's repay window and the lender's claim
+    ///         window flip at the SAME instant. Clamping only the lender's gate
+    ///         (round 1) would have opened a window where BOTH are live.
+    ///
+    ///         `repayLoan` carries no `whenNotPaused`, so the borrower is never
+    ///         blocked from repaying during the pause; only the extension is
+    ///         bounded.
+    function test_AUDIT2026R2_repayAndClaimWindowsStaySymmetricUnderPause() public {
+        uint256 loanId = _createAndAcceptLoan();
+        uint256 start = vm.getBlockTimestamp();
+
+        vm.warp(start + 1 days);
+        lending.pause();
+
+        // Well inside the bounded window: borrower may still repay, lender may not claim.
+        vm.warp(start + 35 days);
+        assertTrue(_claimDefaultReverts(loanId), "claim still closed inside the bound");
+        uint256 owed = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, owed);
+        uint256 snap = vm.snapshotState();
+        vm.prank(bob);
+        lending.repayLoan{value: owed}(loanId);
+        vm.revertToState(snap);
+
+        // Past the bound: the claim window is open, so the repay window must be
+        // CLOSED. Pre-fix the repay window stayed open forever (the asymmetry).
+        vm.warp(start + 60 days);
+        assertFalse(_claimDefaultReverts(loanId), "claim open past the bound");
+        uint256 owed2 = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, owed2);
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.LoanNotDefaulted.selector);
+        lending.repayLoan{value: owed2}(loanId);
+    }
+
+    /// @notice NFTLEND-STRANDED-CUSTODY: `applySweepUnsolicitedNFT` wrote a
+    ///         PERMANENT, custody-unvalidated `strandedNFTRecipient` grant.
+    ///         Pre-fix the owner could grant a token this contract does not
+    ///         hold; the grant survives forever, so once that token later
+    ///         arrives as REAL loan collateral the grantee walks off with the
+    ///         lender's collateral via `claimStrandedNFT`.
+    function test_AUDIT2026R2_strandedGrant_requiresCustodyAtGrantTime() public {
+        // bob holds bobTokenId — the lending contract does NOT hold it, and no
+        // loan exists, so the active-collateral guard passes.
+        assertEq(nft.ownerOf(bobTokenId), bob, "precondition: bob holds it");
+
+        nftLendingAdmin.proposeSweepUnsolicitedNFT(address(nft), bobTokenId, carol);
+        vm.warp(vm.getBlockTimestamp() + 25 hours);
+
+        vm.expectRevert(TegridyNFTLending.NFTNotHeldByContract.selector);
+        nftLendingAdmin.executeSweepUnsolicitedNFT();
+
+        bytes32 key = keccak256(abi.encode(address(nft), bobTokenId));
+        assertEq(lending.strandedNFTRecipient(key), address(0), "no grant written");
+    }
+
+    /// @notice NFTLEND-STRANDED-RECHECK: `claimStrandedNFT` re-validated
+    ///         NOTHING. Even a grant that was legitimate when written must not
+    ///         be redeemable once the same (collection, tokenId) has become live
+    ///         loan collateral. Reachable whenever the collection can move its
+    ///         own tokens out of escrow (hostile / upgradeable ERC-721) — the
+    ///         threat model this file already defends against elsewhere.
+    function test_AUDIT2026R2_claimStranded_refusesLiveLoanCollateral() public {
+        // 1. bob donates the NFT to the contract (unsolicited transfer).
+        vm.prank(bob);
+        nft.transferFrom(bob, address(lending), bobTokenId);
+        assertEq(nft.ownerOf(bobTokenId), address(lending), "donated");
+
+        // 2. Owner legitimately sweeps it to carol. Custody holds, no loan.
+        nftLendingAdmin.proposeSweepUnsolicitedNFT(address(nft), bobTokenId, carol);
+        vm.warp(vm.getBlockTimestamp() + 25 hours);
+        nftLendingAdmin.executeSweepUnsolicitedNFT();
+        bytes32 key = keccak256(abi.encode(address(nft), bobTokenId));
+        assertEq(lending.strandedNFTRecipient(key), carol, "grant recorded");
+
+        // 3. carol sits on the grant. The collection moves the token back out of
+        //    escrow (simulating a hostile / upgradeable collection).
+        vm.prank(address(lending));
+        nft.transferFrom(address(lending), bob, bobTokenId);
+
+        // 4. bob now takes a REAL loan against that exact token.
+        vm.prank(bob);
+        nft.approve(address(lending), bobTokenId);
+        uint256 loanId = _createAndAcceptLoan();
+        assertEq(nft.ownerOf(bobTokenId), address(lending), "escrowed as collateral");
+
+        // 5. carol tries to redeem the stale grant against LIVE collateral.
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NFTIsActiveCollateral.selector);
+        lending.claimStrandedNFT(address(nft), bobTokenId);
+
+        // Collateral is untouched and the loan still settles normally.
+        assertEq(nft.ownerOf(bobTokenId), address(lending), "collateral intact");
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+        assertEq(nft.ownerOf(bobTokenId), alice, "lender got the collateral");
+    }
+
+    /// @notice NFTLEND-STRANDED-OVERWRITE: a second sweep of the same
+    ///         (collection, tokenId) silently clobbered the first grantee.
+    ///         The overwrite stays PERMITTED (the grant has no revocation path,
+    ///         so refusing it would make a mistyped recipient an unrecoverable
+    ///         NFT lock) but it is no longer silent.
+    function test_AUDIT2026R2_strandedGrant_overwriteEmitsDistinctEvent() public {
+        vm.prank(bob);
+        nft.transferFrom(bob, address(lending), bobTokenId);
+
+        nftLendingAdmin.proposeSweepUnsolicitedNFT(address(nft), bobTokenId, carol);
+        vm.warp(vm.getBlockTimestamp() + 25 hours);
+        nftLendingAdmin.executeSweepUnsolicitedNFT();
+
+        nftLendingAdmin.proposeSweepUnsolicitedNFT(address(nft), bobTokenId, bob);
+        vm.warp(vm.getBlockTimestamp() + 25 hours);
+        vm.expectEmit(true, true, true, true, address(lending));
+        emit TegridyNFTLending.StrandedNFTGrantOverwritten(address(nft), bobTokenId, carol, bob);
+        nftLendingAdmin.executeSweepUnsolicitedNFT();
+
+        bytes32 key = keccak256(abi.encode(address(nft), bobTokenId));
+        assertEq(lending.strandedNFTRecipient(key), bob, "grant retargeted");
+    }
+
+    /// @notice NFTLEND-ESCROW-INDEX: `applySweepUnsolicitedNFT` walked the
+    ///         append-only `loans[]` array TWICE, an O(lifetime-loans) scan that
+    ///         gas-bricks the stranded-NFT recovery path once the array grows.
+    ///         Replaced by the sibling's O(1) `collateralEscrowLoanIdPlus1`
+    ///         reverse-index, which must track real custody EXACTLY — set on
+    ///         confirmed escrow, cleared only when the NFT physically leaves.
+    function test_AUDIT2026R2_escrowIndex_tracksCustody() public {
+        assertEq(lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId), 0, "clean");
+
+        uint256 loanId = _createAndAcceptLoan();
+        assertEq(
+            lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId),
+            loanId + 1,
+            "set on escrow"
+        );
+
+        vm.warp(vm.getBlockTimestamp() + 10 days);
+        uint256 owed = lending.getRepaymentAmount(loanId);
+        vm.deal(bob, owed);
+        vm.prank(bob);
+        lending.repayLoan{value: owed}(loanId);
+
+        assertEq(nft.ownerOf(bobTokenId), bob, "NFT returned");
+        assertEq(lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId), 0, "cleared on exit");
+    }
+
+    /// @notice NFTLEND-ESCROW-INDEX (stuck branch): when the outbound transfer
+    ///         no-ops/reverts the NFT is still HERE, so the index must SURVIVE
+    ///         — the sweep must keep refusing it — and clear only once
+    ///         `claimStuckCollateral` actually moves it.
+    function test_AUDIT2026R2_escrowIndex_survivesStuckCollateral() public {
+        (uint256 loanId, uint256 hostileTokenId) = _setupHostileLoan();
+        address hostileAddr = address(hostile);
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        hostile.setFrozen(true);
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+
+        assertEq(lending.stuckCollateralRecipient(loanId), alice, "stuck recorded");
+        assertEq(
+            lending.collateralEscrowLoanIdPlus1(hostileAddr, hostileTokenId),
+            loanId + 1,
+            "index survives the stuck branch"
+        );
+
+        hostile.setFrozen(false);
+        vm.prank(alice);
+        lending.claimStuckCollateral(loanId);
+        assertEq(lending.collateralEscrowLoanIdPlus1(hostileAddr, hostileTokenId), 0, "cleared");
+    }
+
+    /// @notice NFTLEND-ESCROW-INDEX (clear on the claimDefault SUCCESS branch).
+    ///         Dropping this `delete` would permanently jam the index against
+    ///         that (collection, tokenId), bricking every later sweep AND every
+    ///         later loan on that NFT after one ordinary liquidation.
+    function test_AUDIT2026R2_escrowIndex_clearedOnDefaultClaim() public {
+        uint256 loanId = _createAndAcceptLoan();
+        assertEq(lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId), loanId + 1, "set");
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+
+        assertEq(nft.ownerOf(bobTokenId), alice, "lender got collateral");
+        assertEq(lending.stuckCollateralRecipient(loanId), address(0), "not stuck");
+        assertEq(
+            lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId),
+            0,
+            "index must clear on the claimDefault success branch"
+        );
+    }
+
+    /// @notice NFTLEND-ESCROW-INDEX (replacement for the retired FIRST
+    ///         `loans[]` scan): the admin sweep must still refuse a token
+    ///         escrowed as LIVE collateral. Nothing in the suite covered this
+    ///         guard before, so a replacement that never fired would look green.
+    function test_AUDIT2026R2_sweep_refusesLiveCollateral() public {
+        _createAndAcceptLoan();
+        assertEq(nft.ownerOf(bobTokenId), address(lending), "escrowed");
+
+        vm.expectRevert(TegridyNFTLending.NFTIsActiveCollateral.selector);
+        nftLendingAdmin.proposeSweepUnsolicitedNFT(address(nft), bobTokenId, carol);
+    }
+
+    /// @notice NFTLEND-ESCROW-INDEX (replacement for the retired SECOND
+    ///         `loans[]` scan — the 2026-05-16 M9 stuck-collateral re-check):
+    ///         once a settlement leg fails and the NFT is reserved for a
+    ///         `claimStuckCollateral` recipient, the admin sweep must not
+    ///         front-run that recipient. The loan is `defaultClaimed` by then,
+    ///         so the FIRST scan would have let this through.
+    function test_AUDIT2026R2_sweep_refusesStuckCollateral() public {
+        (uint256 loanId, uint256 hostileTokenId) = _setupHostileLoan();
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        hostile.setFrozen(true);
+        vm.prank(alice);
+        lending.claimDefault(loanId);
+        assertEq(lending.stuckCollateralRecipient(loanId), alice, "stuck recorded");
+
+        vm.expectRevert(TegridyNFTLending.NFTIsActiveCollateral.selector);
+        nftLendingAdmin.proposeSweepUnsolicitedNFT(address(hostile), hostileTokenId, carol);
+    }
+
+    /// @notice The patch adds new reverts inside the grant write AND inside
+    ///         `claimStrandedNFT`. Nothing in the suite drives the sweep happy
+    ///         path end-to-end, so a fix that ALWAYS reverted would still look
+    ///         green. This is that pin.
+    function test_AUDIT2026R2_strandedSweepHappyPathStillWorks() public {
+        vm.prank(bob);
+        nft.transferFrom(bob, address(lending), bobTokenId);
+
+        nftLendingAdmin.proposeSweepUnsolicitedNFT(address(nft), bobTokenId, carol);
+        vm.warp(vm.getBlockTimestamp() + 25 hours);
+        nftLendingAdmin.executeSweepUnsolicitedNFT();
+
+        bytes32 key = keccak256(abi.encode(address(nft), bobTokenId));
+        assertEq(lending.strandedNFTRecipient(key), carol, "grant recorded");
+        assertEq(lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId), 0, "never escrowed");
+
+        vm.prank(carol);
+        lending.claimStrandedNFT(address(nft), bobTokenId);
+
+        assertEq(nft.ownerOf(bobTokenId), carol, "stranded NFT delivered");
+        assertEq(lending.strandedNFTRecipient(key), address(0), "grant consumed");
+    }
+
+    /// @notice NFTLEND-ESCROW-INDEX (clobber guard). The single-slot index must
+    ///         be clobber-proof, exactly as in the sibling
+    ///         `TegridyLending.acceptLoanOffer` which pairs the same index with a
+    ///         `CollateralInUse` guard. A hostile / upgradeable whitelisted
+    ///         collection can yank an escrowed token back out to the borrower; if
+    ///         the borrower could then re-escrow it under a SECOND loan, settling
+    ///         loan #1 would delete loan #2's entry and re-open the sweep /
+    ///         stranded-claim path onto LIVE collateral.
+    function test_AUDIT2026R2_escrowIndex_cannotBeClobberedBySecondLoan() public {
+        uint256 loanId = _createAndAcceptLoan();
+        assertEq(lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId), loanId + 1, "loan 1");
+
+        vm.prank(address(lending));
+        nft.transferFrom(address(lending), bob, bobTokenId);
+        assertEq(nft.ownerOf(bobTokenId), bob, "yanked out of escrow");
+
+        vm.prank(bob);
+        nft.approve(address(lending), bobTokenId);
+        uint256 offerId2 = _createDefaultOffer();
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.NFTIsActiveCollateral.selector);
+        lending.acceptOffer(offerId2);
+
+        assertEq(
+            lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId),
+            loanId + 1,
+            "index still belongs to loan 1"
+        );
+    }
+
+    /// @notice NFTLEND-SELFDEAL: `acceptOffer` never checked
+    ///         `msg.sender != offer.lender`. Raises the cost of pushing rows
+    ///         onto the append-only `loans[]` array (a self-dealt
+    ///         create->accept->repay cycle round-trips the attacker's own
+    ///         principal, so it costs only gas + the protocol fee).
+    ///
+    ///         NOT a DoS fix on its own — it is trivially sidestepped with a
+    ///         second address. The array-growth DoS is closed by the O(1)
+    ///         `collateralEscrowLoanIdPlus1` index above, which removes the
+    ///         unbounded `loans[]` walks entirely.
+    function test_AUDIT2026R2_acceptOffer_revertsOnSelfDeal() public {
+        uint256 aliceToken = nft.mint(alice);
+        vm.prank(alice);
+        nft.approve(address(lending), aliceToken);
+
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), aliceToken, uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(alice);
+        vm.expectRevert(TegridyNFTLending.SelfDeal.selector);
+        lending.acceptOffer(offerId);
+
+        // The offer is untouched — alice can still cancel and get her ETH back.
+        vm.prank(alice);
+        lending.cancelOffer(offerId);
+    }
 }

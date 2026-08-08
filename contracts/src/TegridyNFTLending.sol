@@ -368,6 +368,23 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         transferFrom is fixed.
     mapping(uint256 => address) public stuckCollateralRecipient;
 
+    /// @notice AUDIT FIX 2026-08 (NFTLEND-ESCROW-INDEX): O(1) reverse index
+    ///         `(collection, tokenId) => loanId + 1`, non-zero exactly while
+    ///         this contract holds that NFT on behalf of the protocol — either
+    ///         as live collateral for an open loan, or reserved for a
+    ///         `claimStuckCollateral` recovery after a failed outbound transfer.
+    ///         The `+1` makes `0` unambiguously mean "not held as collateral"
+    ///         (the Seaport / Sudoswap sentinel idiom). Set in `acceptOffer`
+    ///         once escrow is CONFIRMED and cleared only when the NFT physically
+    ///         leaves, so it can never diverge from real custody. Unsolicited
+    ///         (donated) NFTs are never registered, so they stay sweepable.
+    /// @dev    Copied verbatim in shape from the sibling
+    ///         `TegridyLending.collateralEscrowLoanIdPlus1` (see its NatSpec).
+    ///         Replaces the two unbounded walks of the append-only `loans[]`
+    ///         array in `applySweepUnsolicitedNFT`, which gas-brick the
+    ///         stranded-NFT recovery path once `loans[]` grows large.
+    mapping(address => mapping(uint256 => uint256)) public collateralEscrowLoanIdPlus1;
+
     // ─── Events ──────────────────────────────────────────────────────
 
     event LoanOfferCreated(
@@ -442,6 +459,18 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         address indexed collection,
         uint256 indexed tokenId,
         address indexed recipient
+    );
+    /// @notice AUDIT FIX 2026-08 (NFTLEND-STRANDED-OVERWRITE): a sweep that
+    ///         replaces an existing, unclaimed grant for the same
+    ///         (collection, tokenId). The overwrite stays PERMITTED — the grant
+    ///         has no revocation path, so refusing it would make a mistyped
+    ///         recipient an unrecoverable NFT lock — but it is no longer silent:
+    ///         the clobbered grantee is emitted so off-chain monitors can alarm.
+    event StrandedNFTGrantOverwritten(
+        address indexed collection,
+        uint256 indexed tokenId,
+        address indexed oldRecipient,
+        address newRecipient
     );
 
     // ─── Errors ──────────────────────────────────────────────────────
@@ -520,6 +549,21 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///      not the recorded recipient (or no entry).
     error NotStrandedRecipient();
     error NoStrandedNFT();
+    /// @dev AUDIT FIX 2026-08 (NFTLEND-STRANDED-CUSTODY): the stranded-NFT grant
+    ///      must never be written for a token this contract does not actually
+    ///      hold. Pre-fix the grant was custody-unvalidated AND permanent, so a
+    ///      grant issued for a token that later arrived as real loan collateral
+    ///      let the grantee walk off with a lender's collateral. Mirrors
+    ///      `TegridyLending.NotHeldByContract`.
+    error NFTNotHeldByContract();
+    /// @dev AUDIT FIX 2026-08 (NFTLEND-SELFDEAL): `acceptOffer` caller is the
+    ///      offer's own lender. A self-dealt create->accept->repay cycle
+    ///      round-trips the lender's own principal, so it pushes a row onto the
+    ///      append-only `loans[]` array at gas-plus-protocol-fee cost. NOTE: the
+    ///      guard raises cost, it does not close the vector — a second address
+    ///      sidesteps it trivially. The array-growth DoS is closed by
+    ///      `collateralEscrowLoanIdPlus1`, which removes the unbounded walks.
+    error SelfDeal();
     // ─── Legacy View Helpers ─────────────────────────────────────────
     // AUDIT FIX: EIP170-01 — protocolFeeChangeReadyAt / treasuryChangeReadyAt
     // (and the origination/min-APR readyAt helpers) moved to
@@ -762,6 +806,14 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 principal = offer.principal;
         uint256 aprBps = offer.aprBps;
         address lender = offer.lender;
+        // AUDIT FIX 2026-08 (NFTLEND-SELFDEAL): reject a lender accepting their
+        // own offer. `loans[]` is append-only and never popped, and a self-dealt
+        // create->accept->repay cycle round-trips the lender's own principal, so
+        // the only cost is gas plus the protocol fee on their own interest.
+        // There is no legitimate use for lending to yourself against your own
+        // NFT, so the guard is free. It is NOT the DoS fix — a second address
+        // sidesteps it; see `collateralEscrowLoanIdPlus1`.
+        if (msg.sender == lender) revert SelfDeal();
         uint256 duration = offer.duration;
         address collateralContract = offer.collateralContract;
         uint256 _tokenId = offer.tokenId;
@@ -866,6 +918,28 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (IERC721(collateralContract).ownerOf(_tokenId) != address(this)) {
             revert CollateralNotEscrowed();
         }
+
+        // AUDIT FIX 2026-08 (NFTLEND-ESCROW-INDEX): register the O(1) escrow
+        // reverse-index now that custody is CONFIRMED. Cleared only when the NFT
+        // physically leaves (repay / default success branch, or
+        // claimStuckCollateral).
+        //
+        // The in-use guard is part of the ported shape, not an extra: the
+        // sibling `TegridyLending.acceptLoanOffer` pairs the identical index
+        // with `if (collateralEscrowLoanIdPlus1[...] != 0) revert CollateralInUse();`
+        // before writing it. Against an honest ERC721 this slot is ALWAYS 0 here
+        // — the inbound transferFrom above cannot succeed if this contract
+        // already holds `_tokenId` — so it never trips in normal operation.
+        // Without the pair the index is CLOBBERABLE: a hostile/upgradeable
+        // whitelisted collection can yank an escrowed token back out to the
+        // borrower, who re-escrows it under a second loan; settling the FIRST
+        // loan would then delete an index entry belonging to the SECOND, live
+        // loan, re-opening the admin sweep / stranded-claim path onto live
+        // collateral. The guard can only fire when this contract already holds
+        // that exact token for a live-or-stuck loan, so no honest borrower is
+        // blocked.
+        if (collateralEscrowLoanIdPlus1[collateralContract][_tokenId] != 0) revert NFTIsActiveCollateral();
+        collateralEscrowLoanIdPlus1[collateralContract][_tokenId] = loanId + 1;
 
         // AUDIT NEW-L3: register this loan against the collection.
         activeLoansOfCollection[collateralContract] += 1;
@@ -1007,6 +1081,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (!nftMoved) {
             stuckCollateralRecipient[_loanId] = borrower;
             emit CollateralStuck(_loanId, borrower, tokenId, collateralContract);
+        } else {
+            // AUDIT FIX 2026-08 (NFTLEND-ESCROW-INDEX): the NFT physically left
+            // — release the escrow reverse-index. The stuck branch deliberately
+            // KEEPS it: the NFT is still here, reserved for claimStuckCollateral.
+            delete collateralEscrowLoanIdPlus1[collateralContract][tokenId];
         }
 
         WETHFallbackLib.safeTransferETHOrWrap(weth, lender, lenderAmount);
@@ -1107,6 +1186,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (!nftMoved) {
             stuckCollateralRecipient[_loanId] = lender;
             emit CollateralStuck(_loanId, lender, tokenId, collateralContract);
+        } else {
+            // AUDIT FIX 2026-08 (NFTLEND-ESCROW-INDEX): see repayLoan above.
+            delete collateralEscrowLoanIdPlus1[collateralContract][tokenId];
         }
 
         emit DefaultClaimed(_loanId, lender, tokenId);
@@ -1151,6 +1233,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         bool moved = _safeOutboundTransfer(collateralContract, address(this), recipient, tokenId);
         if (!moved) revert StuckCollateralStillStuck();
 
+        // AUDIT FIX 2026-08 (NFTLEND-ESCROW-INDEX): the NFT has now physically
+        // left — release the escrow reverse-index so an admin can later sweep
+        // this (collection, tokenId) if it is ever re-donated unsolicited. On
+        // the revert branch above nothing is cleared, preserving BOTH the
+        // recipient's recovery right and the "in use" sweep guard.
+        delete collateralEscrowLoanIdPlus1[collateralContract][tokenId];
         delete stuckCollateralRecipient[_loanId];
         emit StuckCollateralClaimed(_loanId, recipient, tokenId);
     }
@@ -1346,12 +1434,31 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     /// @notice Check whether a loan has defaulted.
     /// @dev    AUDIT FIX: DEEP-LD-M3 — read effectiveDeadline + GRACE_PERIOD.
+    /// @dev    AUDIT FIX 2026-08 (NFTLEND-PAUSE-INFLIGHT): read the SAME grace
+    ///         term `claimDefault` and `repayLoan` read —
+    ///         `_graceWithPauseExtension`, not the bare `GRACE_PERIOD` constant.
+    ///         F-71-2 extended the grace by any pause overlapping the
+    ///         [deadline, deadline + GRACE_PERIOD] interval on both
+    ///         state-changing paths but left this view on the constant, so a
+    ///         pause landing mid-grace made the UI report a loan as defaulted
+    ///         for up to GRACE_PERIOD while `claimDefault` still reverted
+    ///         `LoanNotDefaulted`. Together with the bounded in-flight pause in
+    ///         `effectiveDeadline`, this view now reports exactly the fact the
+    ///         claim path acts on.
+    ///
+    ///         Deliberately NOT modelled here: the sequencer-uptime gate and the
+    ///         `PausedShortOfBound` cumulative-pause gate at the top of
+    ///         `claimDefault`. Those are liveness gates on the CLAIMANT, not
+    ///         statements about whether the loan defaulted, and folding them in
+    ///         would make this view revert on a stale feed. The
+    ///         `getSequencerOutageBuffer` term is likewise omitted: it is zero
+    ///         except during an in-flight outage.
     function isDefaulted(uint256 _loanId) external view returns (bool) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan memory l = loans[_loanId];
         return !l.repaid
             && !l.defaultClaimed
-            && block.timestamp > effectiveDeadline(_loanId) + GRACE_PERIOD;
+            && block.timestamp > effectiveDeadline(_loanId) + _graceWithPauseExtension(_loanId);
     }
 
     function offerCount() external view returns (uint256) {
@@ -1481,6 +1588,11 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @dev    AUDIT FIX FRESH-2026: F-72-6 — VIEW path now silent-clamps on
     ///         the pause invariant. Strict revert preserved on
     ///         state-changing paths via `_effectiveDeadlineStrict`.
+    /// @dev    AUDIT FIX 2026-08 (NFTLEND-PAUSE-INFLIGHT): the IN-FLIGHT pause
+    ///         term is bounded by `MAX_PAUSE_BLOCK_LIQUIDATION`. See
+    ///         `_boundedInFlightPause` for the full rationale. Applied here as
+    ///         well as in the strict twin so `isDefaulted()` and this public
+    ///         view report exactly the fact `claimDefault` acts on.
     function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
@@ -1489,24 +1601,60 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 pauseExt = totalPausedDuration > loan.pausedDurationAtStart
             ? totalPausedDuration - loan.pausedDurationAtStart
             : 0;
-        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
-            pauseExt += block.timestamp - pauseStartTime;
-        }
-        return base + pauseExt;
+        return base + pauseExt + _boundedInFlightPause();
     }
 
     /// @notice AUDIT FIX FRESH-2026: F-72-6 — strict variant for
     ///         state-changing paths.
+    /// @dev    AUDIT FIX 2026-08 (NFTLEND-PAUSE-INFLIGHT): shares
+    ///         `_boundedInFlightPause` with the public view above so the two can
+    ///         never diverge on the in-flight term.
     function _effectiveDeadlineStrict(uint256 _loanId) internal view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
         uint256 base = loan.deadline;
         if (loan.pausedDurationAtStart > totalPausedDuration) revert PauseInvariantViolated();
         uint256 pauseExt = totalPausedDuration - loan.pausedDurationAtStart;
-        if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
-            pauseExt += block.timestamp - pauseStartTime;
-        }
-        return base + pauseExt;
+        return base + pauseExt + _boundedInFlightPause();
+    }
+
+    /// @notice AUDIT FIX 2026-08 (NFTLEND-PAUSE-INFLIGHT): the deadline
+    ///         extension contributed by the CURRENTLY-OPEN pause, bounded by
+    ///         `MAX_PAUSE_BLOCK_LIQUIDATION`.
+    /// @dev    Pre-fix both deadline helpers added the whole open-ended
+    ///         in-flight pause (`block.timestamp - pauseStartTime`), so in
+    ///         `claimDefault`'s gate
+    ///           `block.timestamp <= effDeadline + grace + buffer`
+    ///         the `block.timestamp` terms CANCELLED. Any pause that began
+    ///         before `deadline + grace` therefore blocked the lender's claim
+    ///         FOREVER — however long the pause ran — while `repayLoan` (no
+    ///         `whenNotPaused`) stayed open the entire time. That made the
+    ///         cumulative 7-day cap checked at the top of `claimDefault`
+    ///         completely inert, the opposite of what its NatSpec promises, and
+    ///         turned an ordinary incident-response pause into a permanent
+    ///         liquidation block.
+    ///
+    ///         The bound is deliberately NARROW: only the in-flight term is
+    ///         clamped. The ACCUMULATED term (`totalPausedDuration -
+    ///         pausedDurationAtStart`) is left untouched — it is real elapsed
+    ///         downtime the borrower is owed back, and being independent of
+    ///         `block.timestamp` it cannot produce the cancellation above.
+    ///
+    ///         Factored into ONE helper, used by both `effectiveDeadline` (which
+    ///         `isDefaulted` reads) and `_effectiveDeadlineStrict` (which
+    ///         `repayLoan` and `claimDefault` read), so on-chain logic and every
+    ///         public view necessarily agree. Clamping only the lender's gate
+    ///         would report a loan as not-yet-defaulted while `claimDefault`
+    ///         succeeded, and would break the repay/claim symmetry this file
+    ///         documents at `claimDefault` ("both repay and claim see the same
+    ///         effectiveDeadline + grace + outage").
+    ///
+    ///         The clamp is an upper bound on an ADDITION, so it can never make
+    ///         a loan claimable earlier than its own base deadline.
+    function _boundedInFlightPause() internal view returns (uint256) {
+        if (!paused() || pauseStartTime == 0 || block.timestamp <= pauseStartTime) return 0;
+        uint256 inFlight = block.timestamp - pauseStartTime;
+        return inFlight > MAX_PAUSE_BLOCK_LIQUIDATION ? MAX_PAUSE_BLOCK_LIQUIDATION : inFlight;
     }
 
     /// @notice AUDIT FIX FRESH-2026: F-71-2 — pause-extended grace.
@@ -1610,35 +1758,39 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ) external onlyAdmin {
         if (collection == address(0)) revert ZeroAddress();
         // Refuse to seize active collateral.
-        uint256 lenLoans = loans.length;
-        for (uint256 i = 0; i < lenLoans; i++) {
-            Loan storage l = loans[i];
-            if (
-                l.collateralContract == collection &&
-                l.tokenId == tokenId &&
-                !l.repaid &&
-                !l.defaultClaimed
-            ) revert NFTIsActiveCollateral();
-        }
-        // AUDIT FIX 2026-05-16 M9: also re-check stuck-collateral mapping.
-        // claimStuckCollateral is the right path for that case. Mirroring the
-        // propose-side loop closes the propose/execute asymmetry: during the
-        // 24h timelock a loan against the same (collection, tokenId) could
-        // settle with a transfer-failure that creates a stuck entry, and an
-        // admin-controlled claim path must not front-run the stuck-recipient.
-        for (uint256 i = 0; i < lenLoans; i++) {
-            if (stuckCollateralRecipient[i] != address(0)) {
-                Loan storage l = loans[i];
-                if (l.collateralContract == collection && l.tokenId == tokenId) {
-                    revert NFTIsActiveCollateral();
-                }
-            }
-        }
+        // AUDIT FIX 2026-08 (NFTLEND-ESCROW-INDEX): O(1) reverse-index lookup
+        // replaces the former DOUBLE unbounded walk of the append-only `loans[]`
+        // array (active-collateral scan + the 2026-05-16 M9 stuck-collateral
+        // scan), which gas-bricks this recovery path once `loans[]` grows large.
+        // `collateralEscrowLoanIdPlus1[collection][tokenId] != 0` is true iff
+        // this exact NFT is currently escrowed for a live loan OR is
+        // stuck-reserved for a `claimStuckCollateral` recovery — precisely the
+        // two cases the retired scans reverted on. Ported from
+        // `TegridyLending.sweepUnsolicitedNFT`.
+        if (collateralEscrowLoanIdPlus1[collection][tokenId] != 0) revert NFTIsActiveCollateral();
 
         // Propose-time pre-check: guard only, no state write.
         if (recipient == address(0)) return;
 
+        // AUDIT FIX 2026-08 (NFTLEND-STRANDED-CUSTODY): the grant is PERMANENT
+        // and `claimStrandedNFT` re-validated nothing, so writing one for a
+        // token this contract does not hold created a standing licence over
+        // whatever later arrives under that (collection, tokenId) — including a
+        // borrower's real collateral. Assert custody before writing. Bounded
+        // `ownerOf` so a hostile collection cannot returndata-bomb this path.
+        (bool ownerOk, address currentOwner) = SafeERC721Call.safeOwnerOfBounded(collection, tokenId);
+        if (!ownerOk || currentOwner != address(this)) revert NFTNotHeldByContract();
+
         bytes32 key = keccak256(abi.encode(collection, tokenId));
+        // AUDIT FIX 2026-08 (NFTLEND-STRANDED-OVERWRITE): a repeat sweep used to
+        // clobber an unclaimed grant SILENTLY. The overwrite stays permitted —
+        // there is no revocation path, so refusing it would make a mistyped
+        // recipient an unrecoverable NFT lock — but it is now distinctly evented
+        // so the displaced grantee is on-chain visible.
+        address existing = strandedNFTRecipient[key];
+        if (existing != address(0) && existing != recipient) {
+            emit StrandedNFTGrantOverwritten(collection, tokenId, existing, recipient);
+        }
         strandedNFTRecipient[key] = recipient;
         emit SweepUnsolicitedNFTExecuted(collection, tokenId, recipient);
     }
@@ -1653,6 +1805,17 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         address recipient = strandedNFTRecipient[key];
         if (recipient == address(0)) revert NoStrandedNFT();
         if (msg.sender != recipient) revert NotStrandedRecipient();
+
+        // AUDIT FIX 2026-08 (NFTLEND-STRANDED-RECHECK): re-run the
+        // active-collateral guard at REDEMPTION time, not just at grant time.
+        // The grant is permanent and unrevocable, so a token that was genuinely
+        // stranded when swept can still have become live loan collateral (or
+        // stuck-collateral reserved for someone else) before the grantee shows
+        // up — e.g. a hostile or upgradeable collection that moves its own
+        // tokens out of escrow, which is exactly the threat model this file
+        // already defends against elsewhere. Without this the grant drains a
+        // lender's collateral. O(1) via the escrow reverse-index.
+        if (collateralEscrowLoanIdPlus1[_collection][_tokenId] != 0) revert NFTIsActiveCollateral();
 
         bool moved = _safeOutboundTransfer(_collection, address(this), recipient, _tokenId);
         if (!moved) revert StuckCollateralStillStuck();

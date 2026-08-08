@@ -100,6 +100,25 @@ contract Audit20260712_RoyaltySlippageTest is Test {
         ids[0] = id;
     }
 
+    /// @dev DE-DRIFT FRESH-2026 (NFTPOOL-ROYALTY-SELL-QUOTE): `getSellQuote` used
+    ///      to return the PRE-royalty gross, so these tests read it as `gross` and
+    ///      derived the net themselves. It now returns the NET (the whole point of
+    ///      the fix: the quote must equal what the seller receives). The invariant
+    ///      under test is UNCHANGED — `minOutput` gates the amount that actually
+    ///      lands — only the way we obtain `gross` moves, from "the quote" to
+    ///      "the quote plus its disclosed royalty component".
+    function _quoteGrossAndNet(TegridyNFTPool p)
+        internal
+        view
+        returns (uint256 gross, uint256 net, uint256 royalty)
+    {
+        (net, , , , royalty) = p.getSellQuoteWithRoyalty(1);
+        // The reconciliation view must agree with the plain one.
+        (uint256 plainNet,) = p.getSellQuote(1);
+        require(plainNet == net, "QUOTE_VIEWS_DISAGREE");
+        gross = net + royalty;
+    }
+
     /// @notice Core regression. `minOutput == gross curve payout` passes the OLD
     ///         (pre-fix) gross check, but the seller would only net
     ///         `gross - royalty`. With the fix the swap MUST revert
@@ -110,10 +129,10 @@ contract Audit20260712_RoyaltySlippageTest is Test {
 
         uint256 tokenId = nft.mint(carol);
 
-        // `outputAmount` = gross curve payout AFTER protocol/LP fees but BEFORE
-        // royalty (royalty is not part of the quote). This is the exact value
-        // the pre-fix check compared against.
-        (uint256 grossOutput,) = p.getSellQuote(1);
+        // Gross curve payout AFTER protocol/LP fees but BEFORE royalty — the
+        // exact value the pre-fix check compared against.
+        (uint256 grossOutput, , uint256 royalty) = _quoteGrossAndNet(p);
+        assertGt(royalty, 0, "the 20% royalty must actually be priced");
 
         vm.startPrank(carol);
         nft.approve(address(p), tokenId);
@@ -132,9 +151,8 @@ contract Audit20260712_RoyaltySlippageTest is Test {
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
         uint256 tokenId = nft.mint(carol);
-        (uint256 grossOutput,) = p.getSellQuote(1);
-        uint256 expectedRoyalty = grossOutput * ROYALTY_BPS / 10_000;
-        uint256 expectedNet = grossOutput - expectedRoyalty;
+        (uint256 grossOutput, uint256 expectedNet, uint256 expectedRoyalty) = _quoteGrossAndNet(p);
+        assertEq(expectedRoyalty, grossOutput * ROYALTY_BPS / 10_000, "royalty rate");
 
         uint256 carolBefore = carol.balance;
         uint256 receiverBefore = royaltyReceiver.balance;
@@ -158,8 +176,7 @@ contract Audit20260712_RoyaltySlippageTest is Test {
         TegridyNFTPool p = TegridyNFTPool(payable(pool));
 
         uint256 tokenId = nft.mint(carol);
-        (uint256 grossOutput,) = p.getSellQuote(1);
-        uint256 expectedNet = grossOutput - (grossOutput * ROYALTY_BPS / 10_000);
+        (, uint256 expectedNet, ) = _quoteGrossAndNet(p);
 
         vm.startPrank(carol);
         nft.approve(address(p), tokenId);
