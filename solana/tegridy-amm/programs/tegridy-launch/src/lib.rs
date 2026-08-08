@@ -85,6 +85,8 @@ use anchor_spl::token::spl_token::instruction::AuthorityType;
 
 pub mod curve;
 pub mod errors;
+/// The Meteora-shaped segmented curve. Pure; all arithmetic delegates to `vendor`.
+pub mod segmented;
 /// Vendored Raydium CLMM concentrated-liquidity math (Apache-2.0) — the segmented
 /// curve's arithmetic. See `vendor/mod.rs` for provenance and the exact upstream
 /// commit an auditor should diff against.

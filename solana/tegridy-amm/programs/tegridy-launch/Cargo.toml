@@ -38,10 +38,20 @@ raydium-cp-swap = { path = "../cp-swap", features = ["cpi"], default-features = 
 # lockfile resolves to one copy.
 uint = "0.10.0"
 
-# No dev-dependencies on purpose. `curve.rs` is dependency-free so its tests run
-# under a bare `rustc --test`, with no cargo, no build scripts, and no validator
-# — which is what lets the math be verified even when the SBF toolchain is
-# unavailable. Do not add a test crate here without a reason that survives that.
+# `curve.rs` stays dependency-free so its tests run under a bare `rustc --test`,
+# with no cargo, no build scripts and no validator — which is what lets the
+# constant-product math be verified even when the SBF toolchain is unavailable.
+# Do not add a runtime dependency that breaks that.
+#
+# These dev-dependencies exist for ONE reason: the vendored Raydium CLMM files in
+# src/vendor/ carry upstream's OWN property tests, and these are the crates they
+# need. Keeping them means `cargo test` runs Raydium's audited test-suite against
+# our vendored copy — the strongest cheap assurance available that the vendor is
+# faithful. Versions match upstream's Cargo.toml at the pinned commit.
+[dev-dependencies]
+quickcheck = "0.9"
+proptest = "1.0"
+rand = "0.8.5"
 
 # NO [profile.release] here. Cargo ignores profiles on non-root workspace members
 # and warns about it; the real settings (lto = "fat", codegen-units = 1,
