@@ -1,0 +1,168 @@
+name: solana-deploy-artifact
+
+# Build a DEPLOYABLE tegridy-launch binary against identities the operator actually
+# holds, and publish it as an artifact.
+#
+# WHY THIS EXISTS
+# ---------------
+# The `solana-ci` build jobs deliberately patch in FRESHLY GENERATED throwaway keys
+# (`solana-keygen new` for both the program id and the devnet deployer). That is
+# correct for CI — it proves the program compiles and its constraints reject — but it
+# means those artifacts can never be deployed by us: nobody holds the keys they were
+# built against.
+#
+# And the SBF toolchain cannot be installed on the operator's Windows machine
+# (`Failed to install platform-tools: A required privilege is not held by the client`,
+# os error 1314 — it needs the symlink privilege). So there is NO local path to a
+# deployable `.so` at all. This workflow is it.
+#
+# It is arguably better than a local build anyway: a clean-checkout build on a
+# disposable runner is closer to something a third party can reproduce.
+#
+# WHAT IT DOES NOT DO
+# -------------------
+# It does not deploy. It builds and publishes; the operator runs
+# `solana program deploy` with the keys, so no signing key ever touches CI.
+# `workflow_dispatch` only — this never runs on push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster:
+        description: "Which cfg arm to build (devnet uses the devnet feature)"
+        required: true
+        default: devnet
+        type: choice
+        options: [devnet, mainnet]
+      program_id:
+        description: "Program address this binary will be deployed to (base58 pubkey)"
+        required: true
+        type: string
+      deployer:
+        description: "Pubkey allowed to call initialize_global (base58)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  SOLANA_VERSION: v2.3.0
+
+jobs:
+  build-deployable:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana/tegridy-amm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate the identities BEFORE building
+        run: |
+          set -euo pipefail
+          # A malformed pubkey here produces a binary pinned to an address nobody
+          # controls — and that only surfaces at deploy time, after the artifact
+          # looks fine. Reject up front. base58, 32 bytes, no ambiguous characters.
+          for pair in "program_id:${{ inputs.program_id }}" "deployer:${{ inputs.deployer }}"; do
+            name="${pair%%:*}"; val="${pair#*:}"
+            if ! printf '%s' "$val" | grep -qE '^[1-9A-HJ-NP-Za-km-z]{32,44}$'; then
+              echo "::error::$name is not a plausible base58 pubkey: $val"
+              exit 1
+            fi
+          done
+          python3 - "${{ inputs.program_id }}" "${{ inputs.deployer }}" <<'PY'
+          import sys
+          A = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+          for label, v in (("program_id", sys.argv[1]), ("deployer", sys.argv[2])):
+              n = 0
+              for c in v:
+                  n = n * 58 + A.index(c)
+              b = n.to_bytes((n.bit_length() + 7) // 8, "big")
+              b = b"\x00" * (len(v) - len(v.lstrip("1"))) + b
+              assert len(b) == 32, f"{label} decodes to {len(b)} bytes, not 32 — NOT a pubkey"
+              print(f"  {label}: {v} -> 32 bytes OK")
+          PY
+
+      - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Pin the operator's identities into the source
+        run: |
+          set -euo pipefail
+          python3 - programs/tegridy-launch/src/lib.rs "${{ inputs.program_id }}" "${{ inputs.deployer }}" "${{ inputs.cluster }}" <<'PY'
+          import re, sys
+          path, program_id, deployer, cluster = sys.argv[1:5]
+          src = open(path).read()
+
+          # declare_id! is the crate's single program address.
+          src, n = re.subn(r'declare_id!\("[^"]+"\)', f'declare_id!("{program_id}")', src)
+          assert n == 1, f"expected exactly 1 declare_id!, patched {n}"
+
+          # deployer::ID is a `pubkey!` constant inside `mod deployer`, with one arm
+          # per cfg. Patch ONLY the arm this build selects, so the other stays a
+          # fail-closed sentinel rather than silently becoming live too.
+          marker = "pub mod deployer {"
+          head, sep, tail = src.partition(marker)
+          assert sep, "could not locate `pub mod deployer` — lib.rs layout changed"
+          arms = re.findall(r'pubkey!\("[^"]+"\)', tail)
+          assert len(arms) >= 1, "no pubkey! arms found in mod deployer"
+          # devnet arm is the one under #[cfg(feature = "devnet")]; it appears first.
+          idx = 0 if cluster == "devnet" else len(arms) - 1
+          target = arms[idx]
+          tail = tail.replace(target, f'pubkey!("{deployer}")', 1)
+          open(path, "w").write(head + sep + tail)
+          print(f"  patched declare_id! -> {program_id}")
+          print(f"  patched deployer arm[{idx}] -> {deployer}  (cluster={cluster})")
+          PY
+          # Anchor.toml must agree or `anchor build` rewrites the id back.
+          sed -i "s/^tegridy_launch = \".*\"/tegridy_launch = \"${{ inputs.program_id }}\"/" Anchor.toml || true
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.cluster }}" = "devnet" ]; then
+            cargo build-sbf --features devnet 2>&1 | tee /tmp/build.log
+          else
+            cargo build-sbf 2>&1 | tee /tmp/build.log
+          fi
+          # Same gate solana-ci applies: a frame overflow is undefined behaviour
+          # on-chain, and cargo-build-sbf reports it without failing the command.
+          if grep -q "exceeded max offset" /tmp/build.log; then
+            echo "::error::SBF stack frame overflow — refusing to publish a deployable artifact"
+            grep -B3 "exceeded max offset" /tmp/build.log || true
+            exit 1
+          fi
+          SO=target/deploy/tegridy_launch.so
+          test -f "$SO" || { echo "::error::no $SO — the program was NOT compiled"; exit 1; }
+
+      - name: Report what a deployer must check
+        run: |
+          set -euo pipefail
+          SO=target/deploy/tegridy_launch.so
+          echo "### Deployable artifact" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| field | value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| cluster | \`${{ inputs.cluster }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| program id | \`${{ inputs.program_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| deployer | \`${{ inputs.deployer }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| size | $(stat -c%s "$SO") bytes |" >> $GITHUB_STEP_SUMMARY
+          echo "| sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Rent for this binary is roughly \`size * 2 * 0.00000696\` SOL." >> $GITHUB_STEP_SUMMARY
+          sha256sum "$SO" | tee target/deploy/tegridy_launch.so.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tegridy-launch-${{ inputs.cluster }}-${{ github.sha }}
+          path: |
+            solana/tegridy-amm/target/deploy/tegridy_launch.so
+            solana/tegridy-amm/target/deploy/tegridy_launch.so.sha256
+            solana/tegridy-amm/target/idl/tegridy_launch.json
+          if-no-files-found: error
+          retention-days: 30
