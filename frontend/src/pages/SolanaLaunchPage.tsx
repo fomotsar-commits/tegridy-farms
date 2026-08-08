@@ -18,6 +18,7 @@ import { SOL_MINT, USDC_MINT } from '../lib/solana';
 import { isLauncherEnabled } from '../lib/launcher/config';
 import {
   isSolanaLauncherEnabled,
+  isSolanaSubmitReady,
   LIVE_DBC_CONFIG,
   MAX_TOKEN_NAME_CHARS,
   MAX_TOKEN_SYMBOL_CHARS,
@@ -822,7 +823,19 @@ function SolanaLauncherExplainer() {
 }
 
 export default function SolanaLaunchPage() {
-  usePageTitle('Solana Launch', 'Preview the Tegridy Solana fee-capture launch config (Meteora DBC).');
+  // 2026-08-07: the description was the unconditional string "Preview the Tegridy
+  // Solana fee-capture launch config (Meteora DBC)" — written before this page had a
+  // submit path. It has one now (see the submitLaunch import and call above), so the
+  // one page that could counterbalance the site's Ethereum-only framing was describing
+  // itself as a preview in the exact field crawlers and link-unfurlers read.
+  // Derived from the same predicate the page's own LIVE/PREVIEW badge uses, so the
+  // meta and the badge can never disagree.
+  usePageTitle(
+    'Solana Launch',
+    isSolanaSubmitReady()
+      ? 'Launch an SPL token on Solana mainnet through Meteora’s Dynamic Bonding Curve — disclosed fees, anti-snipe schedule and locked liquidity, published before you sign.'
+      : 'Preview the Tegridy Solana launch config (Meteora DBC) — fees, anti-snipe schedule and LP lock, disclosed up front.',
+  );
   useEffect(() => {
     trackPageView('solana-launch');
   }, []);
