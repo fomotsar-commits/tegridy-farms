@@ -32,6 +32,8 @@ import { Connection, Keypair, Transaction } from '@solana/web3.js';
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
 import { launchToken } from './dbcClient';
 import { buildLaunchParams, type DbcLaunchParams } from './dbc';
+import { assertMayLaunch } from '../../heat/launchGate';
+import { isHeatGateEnabled, heatMinHeldDays } from '../../heat/heatGateConfig';
 
 /** Commitment used for the client and for confirmation. */
 const COMMITMENT = 'confirmed' as const;
@@ -180,6 +182,19 @@ export interface SubmitLaunchResult {
  */
 export async function submitLaunch(input: SubmitLaunchInput): Promise<SubmitLaunchResult> {
   const mint = input.mintKeypair.publicKey.toBase58();
+
+  // ── The island's Heat gate ────────────────────────────────────────────────
+  //
+  // FIRST, before the descriptor is built and long before anything is signed or sent.
+  // `HeatGateDenied` is a plain Error subclass, so `wasBroadcast()` is false and the
+  // caller correctly reports "nothing was submitted" — which is the literal truth here.
+  // Keep it above `sendTransaction`; below it, the post-broadcast contract applies and
+  // a denial would be indistinguishable from a landed transaction that failed.
+  //
+  // ADVISORY: the wallet signs client-side, so this raises the floor on our path only.
+  if (isHeatGateEnabled()) {
+    await assertMayLaunch(input.walletAddress, { minHeldDays: heatMinHeldDays() });
+  }
 
   const params: DbcLaunchParams = buildLaunchParams(
     {

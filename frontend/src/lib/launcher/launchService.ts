@@ -20,6 +20,8 @@ import {
   type TegridyLaunchConfig,
 } from './airlock';
 import { DOPPLER_MAINNET } from './doppler.constants';
+import { checkLaunchEligibility } from '../heat/launchGate';
+import { isHeatGateEnabled, heatMinHeldDays } from '../heat/heatGateConfig';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCHER_INTEGRATOR_ADDRESS,
@@ -96,6 +98,7 @@ export interface LaunchResult {
 /** Discriminated failure reasons, so the UI can render a specific message. */
 export type LaunchErrorCode =
   | 'launcher-disabled' // gate is shut (isLauncherEnabled() === false)
+  | 'heat-denied' // the island's held-time floor was not met, or could not be read
   | 'invalid-integrator' // integrator is the zero address (defense in depth)
   | 'invalid-config' // params could not be built from the config (bad tier/fee/tick input)
   | 'simulation-failed' // simulateCreateDynamicAuction reverted (bad config / on-chain preconditions)
@@ -523,6 +526,28 @@ export async function launchToken(
   }
   if (cfg.integrator === ZERO) {
     throw new LaunchError('invalid-integrator', 'No integrator address is configured; refusing to launch.');
+  }
+
+  // ── The island's Heat gate ────────────────────────────────────────────────
+  //
+  // Certification attaches AT LAUNCH, so the check belongs here and NOT in `runGate()`:
+  // that function is pure and synchronous across 5 prod + 29 test call sites (one a
+  // sync `useMemo` in a render path), so an `await` inside it would be a rewrite. This
+  // function is already async and already fail-closed.
+  //
+  // Placed before any SDK work, so a denial costs no RPC round-trip and — decisively —
+  // happens long before a signature is requested. `broadcast` stays false, so the UI
+  // may safely offer a retry.
+  //
+  // ADVISORY: launches sign client-side, so this raises the floor on the path we
+  // control and proves nothing about a direct Airlock call. Never call it "enforced".
+  if (isHeatGateEnabled()) {
+    const launcher = walletClient.account?.address;
+    if (!launcher) {
+      throw new LaunchError('heat-denied', 'No wallet account is connected, so held time cannot be checked.');
+    }
+    const denial = await checkLaunchEligibility(launcher, { minHeldDays: heatMinHeldDays() });
+    if (denial) throw new LaunchError('heat-denied', denial.detail);
   }
 
   const { DopplerSDK } = await import('@whetstone-research/doppler-sdk/evm');

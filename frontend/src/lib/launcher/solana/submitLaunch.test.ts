@@ -18,6 +18,16 @@ vi.mock('./dbc', async (importOriginal) => {
 
 vi.mock('./dbcClient', () => ({ launchToken: vi.fn() }));
 
+// The Heat gate is DISABLED for the contract suite below. These cases are about what
+// happens after a transaction reaches the network, and coupling every one of them to
+// a live oracle would test the wrong thing — with no network the gate fails closed and
+// nothing past it ever runs. The gate has its own suite (heat/launchGate.test.ts), and
+// its POSITION in this sequence is pinned by the dedicated describe at the bottom.
+vi.mock('../../heat/heatGateConfig', () => ({
+  isHeatGateEnabled: vi.fn(() => false),
+  heatMinHeldDays: vi.fn(() => 180),
+}));
+
 import { launchToken } from './dbcClient';
 import { submitLaunch, confirmSignature, ConfirmationTimeout, LaunchFailedOnChain, wasBroadcast } from './submitLaunch';
 
@@ -216,5 +226,26 @@ describe('confirmSignature', () => {
 
   it('times out into ConfirmationTimeout rather than hanging or resolving', async () => {
     await expect(confirmSignature(connectionWith([null]), 'S', 10)).rejects.toBeInstanceOf(ConfirmationTimeout);
+  });
+});
+
+describe('the Heat gate sits BEFORE anything irreversible', () => {
+  it('denies without building, signing or sending — and never looks broadcast', async () => {
+    // Re-enable the gate for this case only, with an oracle that cannot be read: the
+    // fail-closed path. Nothing may be signed or sent, and `wasBroadcast` must be false
+    // so the caller reports "nothing was submitted", which is the literal truth.
+    const cfg = await import('../../heat/heatGateConfig');
+    (cfg.isHeatGateEnabled as unknown as Mock).mockReturnValueOnce(true);
+
+    const send = vi.fn();
+    const err = await submitLaunch({
+      connection: connectionWith([]), sendTransaction: send, walletAddress: WALLET,
+      config: CONFIG, mintKeypair: Keypair.generate(), ...META,
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(wasBroadcast(err)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(launchToken).not.toHaveBeenCalled();
   });
 });
