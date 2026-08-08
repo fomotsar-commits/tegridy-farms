@@ -84,12 +84,25 @@ is **not present in this checkout**. Forget this one and the build succeeds and 
 to a throwaway address someone else may hold the key to. Replace it explicitly.
 - `programs/cp-swap/src/lib.rs`
   - `declare_id!(…)` → the pubkey from step 1
-  - `admin::ID` → **Squads multisig**
+  - `admin::ID` → the Squads **VAULT PDA**, or any plain wallet. ⚠️ **NOT the multisig
+    account.** This line previously said "Squads multisig", it was followed literally, and
+    the result shipped to mainnet on 2026-08-08 and **bricked graduation**:
+    `create_amm_config` takes this address as `Signer` *and* `payer`, and the multisig
+    account is a Squads-owned data account that can do neither (Squads v4 signs CPIs as
+    the **vault**; the System Program can only debit a data-less account it owns). Fixing
+    it cost a program upgrade. Sanity-check before building — the vault reads
+    `owner: 11111111111111111111111111111111`, `space: 0`; the multisig reads
+    `owner: SQDS4ep65T…` with a few hundred bytes:
+    ```
+    solana account <the-address-you-are-about-to-bake-in> -u m
+    ```
   - `create_pool_fee_reveiver::ID` → the treasury's **WSOL associated-token-account** (a
     native-SOL *token account*, NOT the treasury wallet — the create path consumes it as a
     `TokenAccount`; derive it with `spl-token address --token So111…112 --owner <treasury>`)
 - `programs/cp-swap/src/instructions/admin/create_support_mint_associated.rs`
-  - `create_support_mint_associated_owner::ID` → **Squads multisig**
+  - `create_support_mint_associated_owner::ID` → a **system-owned** account (vault PDA or
+    wallet), same rule as `admin::ID`. It is an OR-fallback alongside `admin::ID`, so it may
+    be left at its current unsignable value without blocking anything.
 
 ⚠️ **CI will FAIL on this commit, by design.** The old guard only checked *which files*
 differed; since #202 it canonicalises the delta and compares
@@ -145,8 +158,19 @@ solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
 > Optionally publish a verifiable build so explorers show source == bytecode.
 
 ## 5. 🔑 Create the AmmConfig (this is where Tegridy's fee is set)
-Use the repo's `client/` tooling (point it at mainnet + the multisig signer). `create_config`
-is **admin-only**. All fee rates use denominator **1_000_000** (`curve/fees.rs`):
+
+> ⚠️ **`create_config` is signed by `admin::ID` and PAYS the AmmConfig rent from it.**
+> Whoever you baked in at step 2 must therefore be a system-owned, funded account. If
+> `admin::ID` is a Squads **vault**, this is a 2-of-N vault transaction and the vault needs
+> ~0.0026 SOL. If it is a plain wallet, it is an ordinary single-key transaction. If it is
+> the multisig **account**, this step is impossible and the only fix is a program upgrade —
+> which is exactly what happened here on 2026-08-08.
+>
+> Note the repo's `client/` crate can only *decode* `CreateAmmConfig`
+> (`client/src/instructions/events_instructions_parse.rs`); it has **no builder**. Building
+> and sending this instruction needs tooling that does not exist yet.
+
+`create_config` is **admin-only**. All fee rates use denominator **1_000_000** (`curve/fees.rs`):
 - `trade_fee_rate` — total swap fee, e.g. `2500` = 0.25%.
 - `protocol_fee_rate` — the protocol's **share of the trade fee**, out of 1_000_000
   (Raydium default `120000` = **12% of the trade fee** ≈ 0.03% of volume at a 0.25% trade fee).
