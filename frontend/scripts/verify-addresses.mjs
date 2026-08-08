@@ -172,6 +172,24 @@ try {
 async function onchain() {
   const SOL_RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
   const ETH_RPC = process.env.ETH_RPC || 'https://ethereum-rpc.publicnode.com';
+  // Re-validate immediately before the request, not only at load time.
+  //
+  // CodeQL flags file data reaching an outbound network request, and the point
+  // stands even though every address was validated above: that happens in a
+  // different function, and nothing structurally stops a later edit from reordering
+  // or short-circuiting it. This makes the network path unreachable with anything
+  // that is not a well-formed address, independent of what ran earlier.
+  // Self-contained on purpose: inlining the patterns rather than reaching for a
+  // shared constant keeps this guard true even if the validation above is edited.
+  const safeAddress = (a) => {
+    const v = String(a);
+    const evm = /^0x[a-fA-F0-9]{40}$/.test(v);
+    const sol = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v);
+    if (!evm && !sol) {
+      throw new Error(`refusing to send a malformed address in a network request: ${v}`);
+    }
+    return v;
+  };
   const post = async (url, body) => {
     const r = await fetch(url, {
       method: 'POST',
@@ -183,7 +201,7 @@ async function onchain() {
   console.log('\n── live chain state ─────────────────────────────────────────');
   for (const e of reg.solana ?? []) {
     try {
-      const j = await post(SOL_RPC, { jsonrpc: '2.0', id: 1, method: 'getAccountInfo', params: [e.address, { encoding: 'base64' }] });
+      const j = await post(SOL_RPC, { jsonrpc: '2.0', id: 1, method: 'getAccountInfo', params: [safeAddress(e.address), { encoding: 'base64' }] });
       const v = j?.result?.value;
       const state = v ? `${(v.lamports / 1e9).toFixed(6)} SOL${v.executable ? ' [program]' : ''}` : 'DOES NOT EXIST';
       const want = e.expect?.type;
@@ -196,7 +214,7 @@ async function onchain() {
   }
   for (const e of reg.ethereum ?? []) {
     try {
-      const j = await post(ETH_RPC, { jsonrpc: '2.0', id: 1, method: 'eth_getCode', params: [e.address, 'latest'] });
+      const j = await post(ETH_RPC, { jsonrpc: '2.0', id: 1, method: 'eth_getCode', params: [safeAddress(e.address), 'latest'] });
       const code = j?.result ?? '0x';
       console.log(`  ${e.id.padEnd(30)} ${code && code !== '0x' ? `contract (${(code.length - 2) / 2} bytes)` : 'EOA / no code'}`);
     } catch { console.log(`  ${e.id.padEnd(30)} (unreadable)`); }
@@ -204,8 +222,19 @@ async function onchain() {
 }
 
 function markdown() {
-  const rows = (list, chain) =>
-    list.map((e) => `| \`${e.address}\` | ${e.id} | ${e.role.replace(/\|/g, '\\|')} | ${e.custody ?? '—'} | ${e.status} |`).join('\n');
+  // Escape the BACKSLASH first, then the pipe.
+  //
+  // The original escaped only the pipe, which CodeQL flagged HIGH as incomplete
+  // string escaping — correctly. A field containing a backslash would emit a stray
+  // escape that swallows the next character, and a literal `\|` already in the text
+  // would survive as a live table delimiter, breaking the row.
+  //
+  // Order is load-bearing: escaping the pipe first would then have ITS OWN backslash
+  // escaped by the second pass, turning `\|` into `\\|` — a literal backslash
+  // followed by a live delimiter, i.e. the bug it was meant to fix.
+  const cell = (v) => String(v ?? '—').replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+  const rows = (list) =>
+    list.map((e) => `| \`${e.address}\` | ${cell(e.id)} | ${cell(e.role)} | ${cell(e.custody)} | ${cell(e.status)} |`).join('\n');
   console.log(`## Solana\n\n| Address | ID | Role | Custody | Status |\n|---|---|---|---|---|\n${rows(reg.solana, 'solana')}\n`);
   console.log(`## Ethereum\n\n| Address | ID | Role | Custody | Status |\n|---|---|---|---|---|\n${rows(reg.ethereum, 'ethereum')}\n`);
 }
