@@ -48,10 +48,35 @@ pub mod admin {
     // Admin authority: create_config / update_config / update_pool_status AND a
     // fallback collector on collect_protocol_fee / collect_fund_fee (can sweep accrued
     // protocol+fund fees to any recipient) — a fund-touching, top-tier key.
+    //
+    // ⚠️ THIS IS THE SQUADS **VAULT** PDA, NOT THE MULTISIG ACCOUNT. They are
+    // different addresses and only one of them works. Getting this wrong does not
+    // fail at build time or at deploy time — it fails the first time you try to
+    // administer the program, permanently, and only a program upgrade fixes it.
+    //
+    // The mainnet deploy of 2026-08-08 shipped the MULTISIG account
+    // (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK) here, because the operator
+    // note in this file said "set Squads multisig". Every one of the nine admin
+    // instructions declares `owner: Signer` with `address = admin::ID`, and the
+    // create_* ones additionally use it as `payer`. The multisig account can do
+    // NEITHER:
+    //   - it cannot sign — Squads v4 executes CPIs signed by the VAULT PDA
+    //     (seeds ["multisig", multisig, "vault", index]); the multisig account is
+    //     inert data and is never a CPI signer; and
+    //   - it cannot pay — it is a 495-byte Squads-owned account, and a System
+    //     transfer requires a data-less, System-owned source. The runtime rejects
+    //     it outright (simulated: InvalidAccountForFee).
+    //
+    // So no AmmConfig could be created, and `tegridy_launch::migrate_to_amm`
+    // returned AmmNotConfigured (6015) forever: no launch could graduate.
+    //
+    // Verify a BUILT ARTIFACT before spending deploy rent — the value is baked
+    // into the binary and cannot be read back from any account:
+    //     node scripts/verify-program-constants.mjs --so target/deploy/raydium_cp_swap.so --program cp-swap
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK");
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
 pub mod create_pool_fee_reveiver {

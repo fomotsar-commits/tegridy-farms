@@ -8,13 +8,20 @@ use std::ops::DerefMut;
 // Token-2022 support-mint allowlist was a Raydium-controlled key. Pointed at the
 // Tegridy admin so NO external party retains any authority on this program. This
 // is the 4th (and final) hardcoded-authority change; the other three are in lib.rs.
-// ⚠️ OPERATOR: replace the mainnet value with the Squads multisig before mainnet.
+//
+// ⚠️ OPERATOR: the mainnet value is the Squads **VAULT** PDA, NOT the multisig
+// account. This note used to say "the Squads multisig", and the 2026-08-08 deploy
+// followed it literally — which bricked every admin instruction on the program.
+// `owner` below is a `Signer` and is also `payer` for the init; the multisig
+// account can be neither (Squads v4 signs with the vault PDA, and a Squads-owned
+// 495-byte account cannot source a System transfer). See the long note on
+// `admin::ID` in lib.rs.
 pub mod create_support_mint_associated_owner {
     use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK");
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
 #[derive(Accounts)]

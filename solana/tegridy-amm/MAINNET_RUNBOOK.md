@@ -135,6 +135,25 @@ For mainnet, do a local **verifiable build** (`solana-verify build`, default/non
 so it picks up your step-2 mainnet values) so the on-chain bytecode is provably this source.
 Confirm the built program-id matches step 1 and that the sentinels are gone.
 
+### ⛔ AUDIT THE BAKED CONSTANTS BEFORE YOU SPEND RENT
+```bash
+node scripts/verify-program-constants.mjs --so target/deploy/raydium_cp_swap.so --program cp-swap
+node scripts/verify-program-constants.mjs --deployed          # and what is live right now
+```
+A verifiable build proves the bytecode matches **this source**. It does not prove the source
+holds the right addresses — a reproducible build of a wrong constant reproduces the wrong
+constant, and the hash matches either way. These are compile-time `pubkey!()` values: they
+cannot be read from any account, seen in an explorer, or changed by any transaction. The only
+way to know what a program trusts is to search its bytecode.
+
+**That gap ate the 2026-08-08 deploy.** `admin::ID` shipped as the Squads *multisig account*
+instead of the *vault PDA*, because the operator note in `lib.rs` said "set Squads multisig".
+Deploy succeeded, tests passed, bytecode hash matched CI — and all nine admin instructions
+were permanently uncallable, because the multisig account can neither sign (Squads v4 signs
+with the vault PDA) nor pay (a 495-byte program-owned account cannot source a System
+transfer). No AmmConfig could be created, so no launch could graduate. Only a full redeploy
+fixed it. The command above fails on exactly that binary.
+
 ## 4. 🔑💰 Deploy + lock down the upgrade authority
 ```bash
 solana program deploy <artifact>.so --program-id keys/mainnet-program.json   # see §0 for real rent
@@ -145,8 +164,18 @@ solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
 > Optionally publish a verifiable build so explorers show source == bytecode.
 
 ## 5. 🔑 Create the AmmConfig (this is where Tegridy's fee is set)
-Use the repo's `client/` tooling (point it at mainnet + the multisig signer). `create_config`
-is **admin-only**. All fee rates use denominator **1_000_000** (`curve/fees.rs`):
+Use the repo's `client/` tooling (point it at mainnet). `create_config` is **admin-only** and
+`admin::ID` is the Squads **vault PDA** `GRMtSxgs…`, so this is a Squads 2-of-N transaction and
+the vault both signs and pays. **Fund the vault first** — it pays ~0.0025 SOL of rent for the
+AmmConfig account, and 0.001 SOL is not enough.
+
+> ⚠️ Sign as the **vault**, never the multisig account. Squads v4 executes inner instructions
+> signed by the vault PDA; the multisig account is inert data that can neither sign nor pay.
+> Pointing `admin::ID` at it is what bricked the 2026-08-08 deploy (see §3). If this step
+> fails with `InvalidOwner`, re-run the §3 audit before touching anything else — the deployed
+> binary is trusting the wrong key and no amount of retrying will help.
+
+All fee rates use denominator **1_000_000** (`curve/fees.rs`):
 - `trade_fee_rate` — total swap fee, e.g. `2500` = 0.25%.
 - `protocol_fee_rate` — the protocol's **share of the trade fee**, out of 1_000_000
   (Raydium default `120000` = **12% of the trade fee** ≈ 0.03% of volume at a 0.25% trade fee).

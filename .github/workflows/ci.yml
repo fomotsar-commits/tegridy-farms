@@ -93,6 +93,20 @@ jobs:
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
 
+      # The baked-constant auditor. cp-swap pins its authorities as compile-time
+      # constants, so they cannot be read back from any account or seen in an
+      # explorer — the only way to know which keys a deployed program trusts is to
+      # search its bytecode. Nobody did, and the 2026-08-08 deploy shipped the
+      # Squads MULTISIG account where the VAULT PDA belonged, bricking all nine
+      # admin instructions and every future graduation.
+      #
+      # Only the decision table runs here: it is pure, and it must be right BEFORE
+      # an operator spends ~4.8 SOL of deploy rent on an artifact nobody audited.
+      # The chain-reading modes (--deployed / --so) are operator commands.
+      - name: Program constants self-test
+        working-directory: .
+        run: node scripts/verify-program-constants.mjs --self-test
+
   build:
     name: Build
     runs-on: ubuntu-latest
