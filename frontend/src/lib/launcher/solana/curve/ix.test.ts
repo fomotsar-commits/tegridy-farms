@@ -15,11 +15,14 @@ import {
   sellIx,
   updateGlobalIx,
   setCurveSegmentsIx,
+  createAmmConfigIx,
 } from './ix';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   CP_SWAP_PROGRAM_ID,
   IX_DISCRIMINATOR,
+  CP_SWAP_IX_DISCRIMINATOR,
+  cpAmmConfigPda,
   PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   SYSVAR_RENT_PUBKEY,
@@ -462,5 +465,74 @@ describe('program-id override', () => {
     expect(ix.keys[1]!.pubkey.equals(globalPda(alt))).toBe(true);
     expect(ix.keys[4]!.pubkey.equals(curvePda(MINT, alt))).toBe(true);
     expect(ix.keys[1]!.pubkey.equals(globalPda())).toBe(false);
+  });
+});
+
+describe('cp-swap create_amm_config', () => {
+  const owner = new PublicKey('Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7');
+  const PARAMS = {
+    index: 0,
+    tradeFeeRate: 2_500n,
+    protocolFeeRate: 120_000n,
+    fundFeeRate: 0n,
+    createPoolFee: 150_000_000n,
+    creatorFeeRate: 0n,
+  };
+
+  it('is addressed to CP-SWAP, not tegridy-launch', () => {
+    // Both programs derive discriminators the same way, so a mis-addressed
+    // instruction finds no handler and fails obscurely rather than obviously.
+    const ix = createAmmConfigIx({ owner }, PARAMS);
+    expect(ix.programId.equals(CP_SWAP_PROGRAM_ID)).toBe(true);
+    expect(ix.programId.equals(PROGRAM_ID)).toBe(false);
+    expect(disc(ix)).toEqual(CP_SWAP_IX_DISCRIMINATOR.createAmmConfig);
+  });
+
+  it('owner is BOTH signer and writable — it pays the rent', () => {
+    // `payer = owner` (create_config.rs:24). This is why the address must be
+    // system-owned: a Squads multisig CONFIG account can neither sign nor be
+    // debited, which is exactly what bricked the first mainnet deploy.
+    const ix = createAmmConfigIx({ owner }, PARAMS);
+    expect(keyTable(ix)).toEqual([
+      [owner.toBase58(), true, true],
+      [cpAmmConfigPda(PARAMS.index).toBase58(), false, true],
+      [SYSTEM_PROGRAM_ID.toBase58(), false, false],
+    ]);
+  });
+
+  it('encodes index LITTLE-endian while the PDA seed uses BIG-endian', () => {
+    // The same u16 is serialised two different ways in one instruction
+    // (create_config.rs:20-22 vs the Borsh arg). 0x0102 makes them distinguishable.
+    const ix = createAmmConfigIx({ owner }, { ...PARAMS, index: 0x0102 });
+    expect(Array.from(ix.data.subarray(8, 10))).toEqual([0x02, 0x01]); // LE arg
+    // and the account it targets is derived big-endian
+    expect(ix.keys[1]!.pubkey.equals(cpAmmConfigPda(0x0102))).toBe(true);
+    expect(ix.keys[1]!.pubkey.equals(cpAmmConfigPda(0x0201))).toBe(false);
+  });
+
+  it('encodes the five rates in declaration order', () => {
+    const ix = createAmmConfigIx({ owner }, PARAMS);
+    expect(ix.data.length).toBe(8 + 2 + 5 * 8);
+    expect(u64At(ix, 10)).toBe(2_500n); // trade_fee_rate
+    expect(u64At(ix, 18)).toBe(120_000n); // protocol_fee_rate
+    expect(u64At(ix, 26)).toBe(0n); // fund_fee_rate
+    expect(u64At(ix, 34)).toBe(150_000_000n); // create_pool_fee
+    expect(u64At(ix, 42)).toBe(0n); // creator_fee_rate
+  });
+
+  it('the recommended create_pool_fee sits under the migration-reserve ceiling', () => {
+    // Not a program check — the program never validates this. The reserve is
+    // snapshotted onto every curve at creation, so exceeding it makes every launch
+    // made beforehand permanently unmigratable (state.rs:40-50).
+    const MIGRATION_RESERVE = 250_000_000n;
+    const MIN_MIGRATION_RESERVE = 42_156_720n;
+    const ceiling = MIGRATION_RESERVE - MIN_MIGRATION_RESERVE;
+    expect(ceiling).toBe(207_843_280n);
+    expect(PARAMS.createPoolFee).toBeLessThanOrEqual(ceiling);
+  });
+
+  it('refuses an index outside u16 rather than wrapping it', () => {
+    expect(() => createAmmConfigIx({ owner }, { ...PARAMS, index: 65_536 })).toThrow(RangeError);
+    expect(() => createAmmConfigIx({ owner }, { ...PARAMS, index: -1 })).toThrow(RangeError);
   });
 });

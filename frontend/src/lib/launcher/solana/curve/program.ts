@@ -229,6 +229,20 @@ export const IX_DISCRIMINATOR = {
   setCurveSegments: Uint8Array.from([87, 209, 71, 218, 186, 34, 79, 1]),
 } as const;
 
+/**
+ * cp-swap instructions. A SEPARATE program, so a separate table — Anchor namespaces
+ * discriminators per program only by accident (both use `sha256("global:<name>")`),
+ * and mixing them in one object invites sending a cp-swap instruction to
+ * tegridy-launch, which would find no handler and fail obscurely.
+ *
+ * Derived with the routine that reproduces every `IX_DISCRIMINATOR` entry above
+ * byte-for-byte.
+ */
+export const CP_SWAP_IX_DISCRIMINATOR = {
+  createAmmConfig: Uint8Array.from([137, 52, 237, 212, 215, 117, 108, 104]),
+  updateAmmConfig: Uint8Array.from([49, 60, 174, 136, 154, 28, 116, 200]),
+} as const;
+
 export const ACCOUNT_DISCRIMINATOR = {
   GlobalConfig: Uint8Array.from([149, 8, 156, 202, 160, 252, 176, 217]),
   BondingCurve: Uint8Array.from([23, 183, 248, 55, 96, 216, 172, 96]),

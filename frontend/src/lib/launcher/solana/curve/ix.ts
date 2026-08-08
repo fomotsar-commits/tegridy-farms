@@ -23,12 +23,14 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   CP_SWAP_PROGRAM_ID,
   IX_DISCRIMINATOR,
+  CP_SWAP_IX_DISCRIMINATOR,
   PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   SYSVAR_RENT_PUBKEY,
   TOKEN_PROGRAM_ID,
   WSOL_MINT,
   cpAmmAuthorityPda,
+  cpAmmConfigPda,
   cpLpMintPda,
   cpObservationPda,
   cpPoolVaultPda,
@@ -94,6 +96,17 @@ class Writer {
 
   pubkey(k: PublicKey): this {
     this.bytes.push(...k.toBytes());
+    return this;
+  }
+
+  /** Borsh `u16`, little-endian. NOTE the AmmConfig PDA seed uses BIG-endian for
+   *  the same value — the instruction arg and the seed disagree on purpose
+   *  (cp-swap `create_config.rs:20-22`), so they are encoded by different helpers. */
+  u16(v: number, label: string): this {
+    if (!Number.isInteger(v) || v < 0 || v > 0xff_ff) {
+      throw new RangeError(`${label} must be an integer in 0..65535, got ${v}`);
+    }
+    this.bytes.push(v & 0xff, (v >>> 8) & 0xff);
     return this;
   }
 
@@ -554,5 +567,74 @@ export function setCurveSegmentsIx(
     programId,
     keys: [acc(accounts.authority, true, false), acc(globalPda(programId), false, true)],
     data: w.finish(),
+  });
+}
+
+// ── cp-swap: create_amm_config ───────────────────────────────────────────────
+
+/**
+ * The six numbers baked into an AmmConfig. All the `*_rate` fields are **out of
+ * 1,000,000**, not basis points (`cp-swap curve/fees.rs`).
+ */
+export interface AmmConfigParams {
+  /** Config slot. PERMANENT — it is a PDA seed, so a wrong index is a new config. */
+  index: number;
+  /** Total swap fee on the graduated pool. `2500` = 0.25%. */
+  tradeFeeRate: bigint;
+  /** Our share OF THE TRADE FEE. `120000` = 12% of the fee (Raydium's default). */
+  protocolFeeRate: bigint;
+  /** A second treasury share of the fee. */
+  fundFeeRate: bigint;
+  /**
+   * Flat lamports charged once at pool creation, paid by the migrating curve out of
+   * `global.migration_reserve_lamports`.
+   *
+   * ⚠️ CEILING: `migration_reserve - MIN_MIGRATION_RESERVE_LAMPORTS`. With the live
+   * reserve of 250,000,000 and 42,156,720 of account rent, that is **207,843,280
+   * lamports**. Above it, migration cannot pay, and because the reserve is
+   * snapshotted onto every curve at creation, EVERY launch made before the change
+   * becomes permanently unmigratable — discovered at the finish line with the pool
+   * half-built (state.rs:40-50). Raydium's usual 150,000,000 fits.
+   */
+  createPoolFee: bigint;
+  /** Pool-creator cut. Distinct from the launch creator split in `global`. */
+  creatorFeeRate: bigint;
+}
+
+/**
+ * cp-swap `create_amm_config` — the graduated pool's fee schedule. Runs ONCE per
+ * index; the AmmConfig is a PDA, so an index cannot be reused.
+ *
+ * `owner` must equal cp-swap's compile-time `admin::ID` AND is the `payer` for the
+ * account (`create_config.rs:10-27`), so it has to be an address that can both sign
+ * and be debited by the System Program. The multisig CONFIG account can do neither;
+ * only a vault PDA or a plain wallet works. Getting this wrong is what made the
+ * instruction uncallable on the first mainnet deploy.
+ *
+ * It also sets `protocol_owner = fund_owner = owner`, so whoever calls this becomes
+ * the fee collector until `update_config` params 3 and 4 move it.
+ */
+export function createAmmConfigIx(
+  accounts: { owner: PublicKey },
+  params: AmmConfigParams,
+  ids: ProgramIds = {},
+): TransactionInstruction {
+  const cpSwapProgram = ids.cpSwapProgram ?? CP_SWAP_PROGRAM_ID;
+  return new TransactionInstruction({
+    programId: cpSwapProgram,
+    keys: [
+      acc(accounts.owner, true, true),
+      acc(cpAmmConfigPda(params.index, cpSwapProgram), false, true),
+      acc(SYSTEM_PROGRAM_ID, false, false),
+    ],
+    data: new Writer()
+      .disc(CP_SWAP_IX_DISCRIMINATOR.createAmmConfig)
+      .u16(params.index, 'index')
+      .u64(params.tradeFeeRate, 'tradeFeeRate')
+      .u64(params.protocolFeeRate, 'protocolFeeRate')
+      .u64(params.fundFeeRate, 'fundFeeRate')
+      .u64(params.createPoolFee, 'createPoolFee')
+      .u64(params.creatorFeeRate, 'creatorFeeRate')
+      .finish(),
   });
 }
