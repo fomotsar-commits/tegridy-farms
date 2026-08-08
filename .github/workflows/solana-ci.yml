@@ -83,7 +83,13 @@ jobs:
           # CRLF is stripped on BOTH sides: the fork carries CRLF for some files, and
           # without normalising, every line reads as changed (736 lines of noise for an
           # 86-line real delta).
-          EXPECTED_DELTA_SHA256=9b06a1c8636c275a6fd78c3f69856b07fd9197a58ff4c7e7c9c27c6b594cbc60
+          # RE-PINNED 2026-08-08. The delta gained one functional line and a block of
+          # comments: `admin::ID` moved off the Squads MULTISIG ACCOUNT
+          # (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK) — which can neither sign a CPI
+          # nor pay rent, and therefore made `create_amm_config` permanently uncallable —
+          # onto the deploy authority. Diffing the old delta against the new one shows
+          # exactly one changed `pubkey!` line; everything else added is comment.
+          EXPECTED_DELTA_SHA256=d754bab20b61d2e7c9ce1ff91f2876efca41f38ee6b4b45c796b49043f9c69b3
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched
