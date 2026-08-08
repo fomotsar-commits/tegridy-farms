@@ -91,7 +91,7 @@ pub struct SellQuote {
 /// Rounding up is the correct direction here: rounding down would let a trader
 /// split one order into many sub-fee-sized orders and pay nothing at all.
 #[inline]
-fn fee_up(amount: u64, fee_bps: u64) -> Result<u64, CurveError> {
+pub fn fee_up(amount: u64, fee_bps: u64) -> Result<u64, CurveError> {
     if fee_bps > MAX_FEE_BPS {
         return Err(CurveError::FeeTooHigh);
     }

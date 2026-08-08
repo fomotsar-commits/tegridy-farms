@@ -45,6 +45,11 @@ import { assert } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 
+// create_launch now takes a curve mode: 0 = ConstantProduct (pump.fun shape),
+// 1 = Segmented (Meteora shape). These tests exercise the constant-product path,
+// which is the pre-existing behaviour they were written against.
+const CURVE_MODE_CONSTANT_PRODUCT = 0;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyProgram = Program<Idl>;
 
@@ -210,7 +215,7 @@ describe("tegridy-launch security constraints", () => {
 
       await expectAnchorError(
         program.methods
-          .createLaunch()
+          .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
           .accountsPartial({
             creator: creator.publicKey,
             global: globalPda(program.programId),
@@ -235,7 +240,7 @@ describe("tegridy-launch security constraints", () => {
       const mint = await makeMint(provider, creator, null);
 
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),
@@ -268,7 +273,7 @@ describe("tegridy-launch security constraints", () => {
       const mint = await makeMint(provider, creator, null);
 
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),
@@ -537,7 +542,7 @@ describe("tegridy-launch security constraints", () => {
 
       await expectAnchorError(
         program.methods
-          .createLaunch()
+          .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
           .accountsPartial({
             creator: creator.publicKey,
             global: globalKey,
@@ -560,7 +565,7 @@ describe("tegridy-launch security constraints", () => {
         .rpc();
 
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalKey,
@@ -611,7 +616,7 @@ describe("tegridy-launch security constraints", () => {
       await fund(provider, creator.publicKey, 5);
       mint = await makeMint(provider, creator, null);
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),
@@ -739,7 +744,7 @@ describe("tegridy-launch security constraints", () => {
       await fund(provider, creator.publicKey, 5);
       mint = await makeMint(provider, creator, null);
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),

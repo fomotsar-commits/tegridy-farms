@@ -59,6 +59,11 @@ import { assert } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 
+// create_launch now takes a curve mode: 0 = ConstantProduct (pump.fun shape),
+// 1 = Segmented (Meteora shape). These tests exercise the constant-product path,
+// which is the pre-existing behaviour they were written against.
+const CURVE_MODE_CONSTANT_PRODUCT = 0;
+
 type AnyProgram = Program<Idl>;
 
 const GLOBAL_SEED = Buffer.from("global");
@@ -195,7 +200,7 @@ describe("tegridy-launch full migration rehearsal", () => {
     curveVault = pda([VAULT_SEED, launchMint.toBuffer()], launch.programId);
 
     await launch.methods
-      .createLaunch()
+      .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
       .accountsPartial({
         creator: wallet.publicKey,
         global: pda([GLOBAL_SEED], launch.programId),

@@ -37,6 +37,13 @@
 //! sell rounds DOWN, SOL required to cross a segment rounds UP. A trader can therefore
 //! never profit by splitting one order into many.
 
+// TARGETED imports, not `prelude::*`. The glob exports Anchor's own `Result<T>`
+// (one generic parameter), which shadows `core::result::Result<T, E>` and breaks
+// every signature in this file. Only the derives need Anchor at all; the math below
+// touches nothing from it.
+use anchor_lang::prelude::borsh;
+use anchor_lang::{AnchorDeserialize, AnchorSerialize, InitSpace};
+
 use crate::vendor::{liquidity_math, sqrt_price_math, tick_math};
 
 /// Hard ceiling on segments per curve.
@@ -78,11 +85,12 @@ pub const MAX_SEGMENT_LIQUIDITY: u128 = 1u128 << 48;
 ///
 /// Q64.64 sqrt price, matching the vendored math's representation exactly so no
 /// conversion is ever needed at the boundary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(
-    feature = "anchor",
-    derive(anchor_lang::AnchorSerialize, anchor_lang::AnchorDeserialize)
-)]
+/// Serialization is derived UNCONDITIONALLY. It used to sit behind
+/// `#[cfg_attr(feature = "anchor", ...)]`, which never fired — this crate has no
+/// `anchor` feature, so the derives were silently absent and the type could not have
+/// been stored on-chain at all. `anchor_lang` is a hard dependency here; there is
+/// nothing to gate on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct Segment {
     /// Upper sqrt-price bound of this segment, Q64.64. Strictly greater than the
     /// previous segment's bound.
@@ -783,5 +791,57 @@ mod tests {
                 );
             }
         }
+    }
+    // ── Properties the WIRING depends on ──────────────────────────────────────
+    // These pin behaviour the instruction layer now relies on. They live here
+    // because they are properties of the curve, not of Anchor.
+
+    /// The dispatcher persists `sqrt_price_after_x64` back onto the curve after every
+    /// trade. If that write were ever dropped, each trade would re-price from the
+    /// opening price and a buyer could drain the curve at launch price. This pins the
+    /// precondition that makes the write meaningful: consecutive buys MUST return
+    /// strictly increasing prices, so a stalled price is observable.
+    #[test]
+    fn consecutive_buys_strictly_advance_the_price() {
+        let (segs, start) = curve3();
+        let mut price = start;
+        for i in 0..6 {
+            let q = quote_buy(&segs, price, 20_000_000).expect("buy");
+            assert!(
+                q.sqrt_price_after_x64 > price,
+                "buy {} did not advance the price ({} -> {})",
+                i, price, q.sqrt_price_after_x64
+            );
+            price = q.sqrt_price_after_x64;
+        }
+    }
+
+    /// The dispatcher refuses a partial fill rather than reconciling it against a fee
+    /// already computed on the full amount. This pins that a partial fill is a real,
+    /// reachable outcome — so the refusal is doing something, not guarding a case
+    /// that cannot happen.
+    #[test]
+    fn a_partial_fill_is_reachable_and_reports_less_than_offered() {
+        let (segs, start) = curve3();
+        let huge = u64::MAX / 2;
+        let q = quote_buy(&segs, start, huge).expect("buy");
+        assert!(
+            q.lamports_in < huge,
+            "expected a partial fill so the dispatcher's refusal has something to catch"
+        );
+    }
+
+    /// A launch snapshots its opening price and sells price down to THAT, never
+    /// below. Pins that the floor is honoured even when the sell is larger than the
+    /// curve holds.
+    #[test]
+    fn sells_stop_at_the_opening_price_not_below_it() {
+        let (segs, start) = curve3();
+        let b = quote_buy(&segs, start, 600_000_000).expect("buy");
+        let s = quote_sell(&segs, b.sqrt_price_after_x64, start, u64::MAX / 2).expect("dump");
+        assert_eq!(
+            s.sqrt_price_after_x64, start,
+            "a full dump must land exactly on the opening price"
+        );
     }
 }

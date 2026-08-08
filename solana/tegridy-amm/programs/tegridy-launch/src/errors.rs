@@ -66,3 +66,23 @@ impl From<CurveError> for LaunchError {
         }
     }
 }
+
+/// Map the segmented curve's pure errors onto the program's error space, so the
+/// trade path handles both curve modes identically. Deliberately explicit rather
+/// than a blanket catch-all: a new `SegmentError` variant must be classified here
+/// by whoever adds it, not silently absorbed into `InvalidParameter`.
+impl From<crate::segmented::SegmentError> for LaunchError {
+    fn from(e: crate::segmented::SegmentError) -> Self {
+        use crate::segmented::SegmentError as S;
+        match e {
+            S::Overflow => LaunchError::Overflow,
+            S::ZeroAmount => LaunchError::ZeroAmount,
+            S::InsufficientLiquidity => LaunchError::InsufficientLiquidity,
+            // A malformed or out-of-range segment table can only come from config,
+            // never from trade input — surface it as a parameter fault.
+            S::BadSegmentCount | S::BadSegments | S::SqrtPriceOutOfRange => {
+                LaunchError::InvalidParameter
+            }
+        }
+    }
+}

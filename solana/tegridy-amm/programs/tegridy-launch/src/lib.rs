@@ -87,6 +87,7 @@ pub mod curve;
 pub mod errors;
 /// The Meteora-shaped segmented curve. Pure; all arithmetic delegates to `vendor`.
 pub mod segmented;
+use segmented::{Segment, MAX_SEGMENTS};
 /// Vendored Raydium CLMM concentrated-liquidity math (Apache-2.0) — the segmented
 /// curve's arithmetic. See `vendor/mod.rs` for provenance and the exact upstream
 /// commit an auditor should diff against.
@@ -234,6 +235,121 @@ fn payable_creator_split(
         return Ok((0, protocol));
     }
     Ok((fs.creator_lamports, fs.protocol_lamports))
+}
+
+
+// ── Curve-mode dispatch ───────────────────────────────────────────────────────
+//
+// Both modes return the SAME quote shapes, so everything downstream — the fee
+// split, the creator payout, the lamport moves, the slippage checks — is written
+// once and is identical for both. The only thing that differs is pricing.
+//
+// The segmented adapters take the fee off the top first, exactly as the
+// constant-product path does, so "fee is charged on the gross" holds in both modes
+// and the Fact Sheet's fee statement stays true regardless of which curve a
+// creator picked.
+
+/// Price a buy in whichever mode this curve runs on. `sqrt_after` is the new
+/// segmented price (`None` on constant-product, which has no such state).
+fn quote_buy_for(
+    curve: &BondingCurve,
+    lamports_in: u64,
+    fee_bps: u64,
+) -> Result<(curve::BuyQuote, Option<u128>)> {
+    match CurveMode::from_u8(curve.mode).ok_or(LaunchError::InvalidParameter)? {
+        CurveMode::ConstantProduct => {
+            let q = quote_buy(
+                curve.effective_sol()?,
+                curve.effective_tokens()?,
+                lamports_in,
+                fee_bps,
+            )
+            .map_err(LaunchError::from)?;
+            Ok((q, None))
+        }
+        CurveMode::Segmented => {
+            let fee = curve::fee_up(lamports_in, fee_bps).map_err(LaunchError::from)?;
+            let to_curve = lamports_in
+                .checked_sub(fee)
+                .ok_or(LaunchError::Overflow)?;
+            require!(to_curve > 0, LaunchError::ZeroAmount);
+
+            let n = curve.segment_count as usize;
+            require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+            let q = segmented::quote_buy(&curve.segments[..n], curve.sqrt_price_x64, to_curve)
+                .map_err(LaunchError::from)?;
+
+            // The segmented curve may consume LESS than offered when it tops out.
+            // Rather than reconcile a partial fill against a fee already computed on
+            // the full amount — which would either overcharge the buyer or under-pay
+            // the protocol — refuse the trade. The buy is already capped at the raise
+            // ceiling upstream, so a well-sized curve never reaches this; an
+            // undersized one fails closed instead of charging for a partial fill.
+            require!(
+                q.lamports_in == to_curve,
+                LaunchError::InsufficientLiquidity
+            );
+
+            Ok((
+                curve::BuyQuote {
+                    fee_lamports: fee,
+                    lamports_to_curve: to_curve,
+                    tokens_out: q.tokens_out,
+                },
+                Some(q.sqrt_price_after_x64),
+            ))
+        }
+    }
+}
+
+/// Price a sell in whichever mode this curve runs on.
+fn quote_sell_for(
+    curve: &BondingCurve,
+    tokens_in: u64,
+    fee_bps: u64,
+) -> Result<(curve::SellQuote, Option<u128>)> {
+    match CurveMode::from_u8(curve.mode).ok_or(LaunchError::InvalidParameter)? {
+        CurveMode::ConstantProduct => {
+            let q = quote_sell(
+                curve.effective_sol()?,
+                curve.effective_tokens()?,
+                tokens_in,
+                fee_bps,
+            )
+            .map_err(LaunchError::from)?;
+            Ok((q, None))
+        }
+        CurveMode::Segmented => {
+            let n = curve.segment_count as usize;
+            require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+
+            // Sells price down to the launch's OPENING price and no further.
+            let q = segmented::quote_sell(
+                &curve.segments[..n],
+                curve.sqrt_price_x64,
+                curve.sqrt_price_start_x64,
+                tokens_in,
+            )
+            .map_err(LaunchError::from)?;
+
+            // Same reasoning as the buy side: a partial fill would desynchronise the
+            // tokens debited from the lamports paid, so refuse instead.
+            require!(q.tokens_in == tokens_in, LaunchError::InsufficientLiquidity);
+
+            let fee = curve::fee_up(q.lamports_out, fee_bps).map_err(LaunchError::from)?;
+            let out = q.lamports_out.checked_sub(fee).ok_or(LaunchError::Overflow)?;
+            require!(out > 0, LaunchError::ZeroAmount);
+
+            Ok((
+                curve::SellQuote {
+                    gross_lamports: q.lamports_out,
+                    fee_lamports: fee,
+                    lamports_out: out,
+                },
+                Some(q.sqrt_price_after_x64),
+            ))
+        }
+    }
 }
 
 #[program]
@@ -465,7 +581,48 @@ pub mod tegridy_launch {
 
     /// Open a launch: mint the whole supply onto a fresh curve and permanently
     /// revoke the mint authority.
-    pub fn create_launch(ctx: Context<CreateLaunch>) -> Result<()> {
+    /// `mode` selects the pricing curve: 0 = ConstantProduct (pump.fun shape),
+    /// 1 = Segmented (Meteora shape). The creator picks the MODE; the operator owns
+    /// the segmented SHAPE (see `GlobalConfig.segments`), so a creator can never
+    /// hand-craft a curve that defeats the config-time economic gates.
+
+    /// Publish the segmented curve's shape. Authority-only.
+    ///
+    /// Separate from `update_global` because it is a different KIND of change: the
+    /// other dials are scalars validated against each other, this is a table with its
+    /// own well-formedness rules. Keeping it apart also means the segment validation
+    /// runs on exactly one path.
+    ///
+    /// Publishing a new shape NEVER touches a live launch — every segmented curve
+    /// snapshots the table at `create_launch`. It only affects launches created after.
+    pub fn set_curve_segments(
+        ctx: Context<SetCurveSegments>,
+        sqrt_price_start_x64: u128,
+        segments: Vec<Segment>,
+    ) -> Result<()> {
+        let n = segments.len();
+        require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+
+        // Validate BEFORE writing, so a rejected table cannot leave the config in a
+        // half-updated state that `create_launch` would then snapshot.
+        segmented::validate_segments(&segments, sqrt_price_start_x64)
+            .map_err(|e| error!(LaunchError::from(e)))?;
+
+        let g = &mut ctx.accounts.global;
+        let mut table = [Segment::default(); MAX_SEGMENTS];
+        table[..n].copy_from_slice(&segments);
+        g.segments = table;
+        g.segment_count = n as u8;
+        g.sqrt_price_start_x64 = sqrt_price_start_x64;
+
+        emit!(CurveSegmentsSet {
+            segment_count: n as u8,
+            sqrt_price_start_x64,
+        });
+        Ok(())
+    }
+
+    pub fn create_launch(ctx: Context<CreateLaunch>, mode: u8) -> Result<()> {
         let g = &ctx.accounts.global;
         require!(!g.paused, LaunchError::Paused);
 
@@ -515,6 +672,41 @@ pub mod tegridy_launch {
         c.complete = false;
         c.bump = ctx.bumps.curve;
 
+        // ── Curve mode ────────────────────────────────────────────────────────
+        let mode = CurveMode::from_u8(mode).ok_or(LaunchError::InvalidParameter)?;
+        c.mode = mode as u8;
+        match mode {
+            CurveMode::ConstantProduct => {
+                // Leave the segment fields zeroed. `segment_count == 0` is what the
+                // trade path keys off, so a stale table could never be read.
+                c.sqrt_price_x64 = 0;
+                c.sqrt_price_start_x64 = 0;
+                c.segment_count = 0;
+                c.segments = [Segment::default(); MAX_SEGMENTS];
+            }
+            CurveMode::Segmented => {
+                // Refuse rather than launch an unpriceable curve: a config with no
+                // published segments would mint a token whose every buy reverts.
+                require!(g.segment_count > 0, LaunchError::InvalidParameter);
+                let n = g.segment_count as usize;
+                require!(n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+
+                // Re-validate the operator's shape HERE, not just when it was set.
+                // `update_global` could have written it before this program version
+                // added a bound, and the trade path must never meet a shape it has
+                // not checked.
+                segmented::validate_segments(&g.segments[..n], g.sqrt_price_start_x64)
+                    .map_err(|_| error!(LaunchError::InvalidParameter))?;
+
+                // SNAPSHOT. From here the launch prices off its own copy, so a later
+                // `update_global` cannot reprice a curve people have bought into.
+                c.sqrt_price_x64 = g.sqrt_price_start_x64;
+                c.sqrt_price_start_x64 = g.sqrt_price_start_x64;
+                c.segment_count = g.segment_count;
+                c.segments = g.segments;
+            }
+        }
+
         emit!(LaunchCreated {
             mint: c.mint,
             creator: c.creator,
@@ -562,13 +754,7 @@ pub mod tegridy_launch {
             };
         require!(capped_in > 0, LaunchError::ZeroAmount);
 
-        let q = quote_buy(
-            curve.effective_sol()?,
-            curve.effective_tokens()?,
-            capped_in,
-            fee_bps,
-        )
-        .map_err(LaunchError::from)?;
+        let (q, sqrt_after) = quote_buy_for(curve, capped_in, fee_bps)?;
 
         require!(q.tokens_out >= min_tokens_out, LaunchError::SlippageExceeded);
         require!(
@@ -652,6 +838,14 @@ pub mod tegridy_launch {
             .checked_sub(q.tokens_out)
             .ok_or(LaunchError::Overflow)?;
 
+        // Advance the segmented curve. WITHOUT THIS every trade would price from the
+        // opening sqrt-price forever — the curve would never move, so a buyer could
+        // drain it at the launch price. `None` on constant-product, whose state lives
+        // entirely in the reserves updated above.
+        if let Some(next) = sqrt_after {
+            curve.sqrt_price_x64 = next;
+        }
+
         emit!(Traded {
             mint: curve.mint,
             trader: ctx.accounts.trader.key(),
@@ -677,13 +871,7 @@ pub mod tegridy_launch {
         require!(!curve.complete, LaunchError::AlreadyComplete);
         require!(tokens_in > 0, LaunchError::ZeroAmount);
 
-        let q = quote_sell(
-            curve.effective_sol()?,
-            curve.effective_tokens()?,
-            tokens_in,
-            curve.trade_fee_bps,
-        )
-        .map_err(LaunchError::from)?;
+        let (q, sqrt_after) = quote_sell_for(curve, tokens_in, curve.trade_fee_bps)?;
 
         require!(
             q.lamports_out >= min_lamports_out,
@@ -787,6 +975,14 @@ pub mod tegridy_launch {
             .real_token_reserves
             .checked_add(tokens_in)
             .ok_or(LaunchError::Overflow)?;
+
+        // Advance the segmented curve. WITHOUT THIS every trade would price from the
+        // opening sqrt-price forever — the curve would never move, so a buyer could
+        // drain it at the launch price. `None` on constant-product, whose state lives
+        // entirely in the reserves updated above.
+        if let Some(next) = sqrt_after {
+            curve.sqrt_price_x64 = next;
+        }
 
         emit!(Traded {
             mint: curve.mint,
@@ -1409,6 +1605,20 @@ pub struct UpdateGlobal<'info> {
     )]
     pub global: Account<'info, GlobalConfig>,
     pub authority: Signer<'info>,
+}
+
+
+/// Authority-gated. Mirrors `UpdateGlobal`'s shape — same seeds, same `has_one`.
+#[derive(Accounts)]
+pub struct SetCurveSegments<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [GLOBAL_SEED],
+        bump = global.bump,
+        has_one = authority @ LaunchError::Unauthorized
+    )]
+    pub global: Account<'info, GlobalConfig>,
 }
 
 #[derive(Accounts)]
