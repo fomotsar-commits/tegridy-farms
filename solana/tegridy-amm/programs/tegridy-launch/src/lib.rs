@@ -85,11 +85,24 @@ use anchor_spl::token::spl_token::instruction::AuthorityType;
 
 pub mod curve;
 pub mod errors;
+/// The Meteora-shaped segmented curve. Pure; all arithmetic delegates to `vendor`.
+pub mod segmented;
+use segmented::{Segment, MAX_SEGMENTS};
+/// Vendored Raydium CLMM concentrated-liquidity math (Apache-2.0) — the segmented
+/// curve's arithmetic. See `vendor/mod.rs` for provenance and the exact upstream
+/// commit an auditor should diff against.
+///
+/// `pub(crate)`, not `pub`. This was originally an attempt to let LTO drop U512's
+/// unused `pow` family, which blew SBF's stack frame — it did NOT work (the symbol
+/// was still emitted, and the real fix was deleting U512 outright, see
+/// `vendor/big_num.rs`). Kept anyway: this is vendored third-party math and nothing
+/// outside the crate has any business calling it directly.
+pub(crate) mod vendor;
 pub mod state;
 
 use crate::curve::{
     graduation_price_ratio_bps, lamports_until_target, max_reachable_real_sol, quote_buy,
-    quote_sell, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
+    quote_sell, split_fee, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
 };
 use crate::errors::LaunchError;
 use crate::state::*;
@@ -170,6 +183,175 @@ fn check_launch_economics(
     Ok(())
 }
 
+/// Decide what the creator can actually be paid on this trade, folding the
+/// remainder into the protocol leg.
+///
+/// ## Why this exists — the creator wallet is otherwise a kill switch on SELLS
+///
+/// `curve.creator` is an arbitrary key the creator chose, and paying it makes it
+/// a WRITABLE account of every trade. Solana verifies the rent state of every
+/// writable account at the end of the instruction and REJECTS a transition into
+/// the rent-paying band: an account at 0 lamports that receives less than
+/// `minimum_balance(data_len)` (890,880 for a 0-byte account) fails the whole
+/// transaction with `InsufficientFundsForRent`.
+///
+/// So a creator who drains their wallet to 0 — legal, since 0 is the
+/// Uninitialized state — makes EVERY trade whose creator leg lands under that
+/// floor revert. At a 1% fee and a 50% share that is every trade below ~0.178
+/// SOL, **including sells**, which is the holders' only exit and the one thing
+/// design note 2 promises can never be blocked. Worse, it is profitable and
+/// repeatable: anyone can unbrick the curve by donating the rent-exempt minimum
+/// to the creator address, and the creator can pocket it and re-drain.
+///
+/// Folding is the fix that keeps the trade path total-conserving and
+/// non-custodial. We never hold a creator's money for later (that is the
+/// Believe-style custody failure), we never revert their holders' exit, and the
+/// protocol leg absorbs what could not be delivered — which is exactly where the
+/// whole fee went before the split existed, so this can never be worse than the
+/// pre-split behaviour for `fee_recipient`.
+///
+/// Self-healing: the moment the creator's wallet is rent-exempt (it was, when
+/// they paid rent for `create_launch`), every trade pays them again in full.
+fn payable_creator_split(
+    creator_ai: &AccountInfo,
+    fs: crate::curve::FeeSplit,
+) -> Result<(u64, u64)> {
+    if fs.creator_lamports == 0 {
+        return Ok((0, fs.protocol_lamports));
+    }
+    // Measured against the creator account's OWN data length: a data-carrying
+    // account (another program's PDA can sign `create_launch` via CPI) has a
+    // proportionally higher floor.
+    let floor = Rent::get()?.minimum_balance(creator_ai.data_len());
+    let after = creator_ai
+        .lamports()
+        .checked_add(fs.creator_lamports)
+        .ok_or(LaunchError::Overflow)?;
+    if after < floor {
+        let protocol = fs
+            .protocol_lamports
+            .checked_add(fs.creator_lamports)
+            .ok_or(LaunchError::Overflow)?;
+        return Ok((0, protocol));
+    }
+    Ok((fs.creator_lamports, fs.protocol_lamports))
+}
+
+
+// ── Curve-mode dispatch ───────────────────────────────────────────────────────
+//
+// Both modes return the SAME quote shapes, so everything downstream — the fee
+// split, the creator payout, the lamport moves, the slippage checks — is written
+// once and is identical for both. The only thing that differs is pricing.
+//
+// The segmented adapters take the fee off the top first, exactly as the
+// constant-product path does, so "fee is charged on the gross" holds in both modes
+// and the Fact Sheet's fee statement stays true regardless of which curve a
+// creator picked.
+
+/// Price a buy in whichever mode this curve runs on. `sqrt_after` is the new
+/// segmented price (`None` on constant-product, which has no such state).
+fn quote_buy_for(
+    curve: &BondingCurve,
+    lamports_in: u64,
+    fee_bps: u64,
+) -> Result<(curve::BuyQuote, Option<u128>)> {
+    match CurveMode::from_u8(curve.mode).ok_or(LaunchError::InvalidParameter)? {
+        CurveMode::ConstantProduct => {
+            let q = quote_buy(
+                curve.effective_sol()?,
+                curve.effective_tokens()?,
+                lamports_in,
+                fee_bps,
+            )
+            .map_err(LaunchError::from)?;
+            Ok((q, None))
+        }
+        CurveMode::Segmented => {
+            let fee = curve::fee_up(lamports_in, fee_bps).map_err(LaunchError::from)?;
+            let to_curve = lamports_in
+                .checked_sub(fee)
+                .ok_or(LaunchError::Overflow)?;
+            require!(to_curve > 0, LaunchError::ZeroAmount);
+
+            let n = curve.segment_count as usize;
+            require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+            let q = segmented::quote_buy(&curve.segments[..n], curve.sqrt_price_x64, to_curve)
+                .map_err(LaunchError::from)?;
+
+            // The segmented curve may consume LESS than offered when it tops out.
+            // Rather than reconcile a partial fill against a fee already computed on
+            // the full amount — which would either overcharge the buyer or under-pay
+            // the protocol — refuse the trade. The buy is already capped at the raise
+            // ceiling upstream, so a well-sized curve never reaches this; an
+            // undersized one fails closed instead of charging for a partial fill.
+            require!(
+                q.lamports_in == to_curve,
+                LaunchError::InsufficientLiquidity
+            );
+
+            Ok((
+                curve::BuyQuote {
+                    fee_lamports: fee,
+                    lamports_to_curve: to_curve,
+                    tokens_out: q.tokens_out,
+                },
+                Some(q.sqrt_price_after_x64),
+            ))
+        }
+    }
+}
+
+/// Price a sell in whichever mode this curve runs on.
+fn quote_sell_for(
+    curve: &BondingCurve,
+    tokens_in: u64,
+    fee_bps: u64,
+) -> Result<(curve::SellQuote, Option<u128>)> {
+    match CurveMode::from_u8(curve.mode).ok_or(LaunchError::InvalidParameter)? {
+        CurveMode::ConstantProduct => {
+            let q = quote_sell(
+                curve.effective_sol()?,
+                curve.effective_tokens()?,
+                tokens_in,
+                fee_bps,
+            )
+            .map_err(LaunchError::from)?;
+            Ok((q, None))
+        }
+        CurveMode::Segmented => {
+            let n = curve.segment_count as usize;
+            require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+
+            // Sells price down to the launch's OPENING price and no further.
+            let q = segmented::quote_sell(
+                &curve.segments[..n],
+                curve.sqrt_price_x64,
+                curve.sqrt_price_start_x64,
+                tokens_in,
+            )
+            .map_err(LaunchError::from)?;
+
+            // Same reasoning as the buy side: a partial fill would desynchronise the
+            // tokens debited from the lamports paid, so refuse instead.
+            require!(q.tokens_in == tokens_in, LaunchError::InsufficientLiquidity);
+
+            let fee = curve::fee_up(q.lamports_out, fee_bps).map_err(LaunchError::from)?;
+            let out = q.lamports_out.checked_sub(fee).ok_or(LaunchError::Overflow)?;
+            require!(out > 0, LaunchError::ZeroAmount);
+
+            Ok((
+                curve::SellQuote {
+                    gross_lamports: q.lamports_out,
+                    fee_lamports: fee,
+                    lamports_out: out,
+                },
+                Some(q.sqrt_price_after_x64),
+            ))
+        }
+    }
+}
+
 #[program]
 pub mod tegridy_launch {
     use super::*;
@@ -188,6 +370,7 @@ pub mod tegridy_launch {
     pub fn initialize_global(
         ctx: Context<InitializeGlobal>,
         trade_fee_bps: u64,
+        creator_fee_share_bps: u64,
         initial_virtual_sol: u64,
         initial_virtual_token: u64,
         token_total_supply: u64,
@@ -197,6 +380,12 @@ pub mod tegridy_launch {
         amm_config: Pubkey,
     ) -> Result<()> {
         require!(trade_fee_bps <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
+        // A share of the FEE, so 100% is the natural bound — anything above it
+        // would pay the creator more than the trade charged.
+        require!(
+            creator_fee_share_bps <= BPS_DENOMINATOR,
+            LaunchError::InvalidParameter
+        );
         // Zero virtual reserves would make the opening price undefined (division
         // by zero in the curve); zero supply or target would make a launch that
         // can never trade or never graduate.
@@ -251,6 +440,7 @@ pub mod tegridy_launch {
         g.authority = ctx.accounts.authority.key();
         g.fee_recipient = ctx.accounts.fee_recipient.key();
         g.trade_fee_bps = trade_fee_bps;
+        g.creator_fee_share_bps = creator_fee_share_bps;
         g.initial_virtual_sol = initial_virtual_sol;
         g.initial_virtual_token = initial_virtual_token;
         g.token_total_supply = token_total_supply;
@@ -283,11 +473,18 @@ pub mod tegridy_launch {
         new_cp_swap_program: Option<Pubkey>,
         new_amm_config: Option<Pubkey>,
         new_initial_virtual_sol: Option<u64>,
+        new_creator_fee_share_bps: Option<u64>,
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
             require!(f <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
             g.trade_fee_bps = f;
+        }
+        // Future launches only — every live curve snapshotted its own share at
+        // creation, exactly like the fee itself.
+        if let Some(s) = new_creator_fee_share_bps {
+            require!(s <= BPS_DENOMINATOR, LaunchError::InvalidParameter);
+            g.creator_fee_share_bps = s;
         }
 
         // Target and reserve are validated TOGETHER, and either may change here.
@@ -384,7 +581,48 @@ pub mod tegridy_launch {
 
     /// Open a launch: mint the whole supply onto a fresh curve and permanently
     /// revoke the mint authority.
-    pub fn create_launch(ctx: Context<CreateLaunch>) -> Result<()> {
+    /// `mode` selects the pricing curve: 0 = ConstantProduct (pump.fun shape),
+    /// 1 = Segmented (Meteora shape). The creator picks the MODE; the operator owns
+    /// the segmented SHAPE (see `GlobalConfig.segments`), so a creator can never
+    /// hand-craft a curve that defeats the config-time economic gates.
+
+    /// Publish the segmented curve's shape. Authority-only.
+    ///
+    /// Separate from `update_global` because it is a different KIND of change: the
+    /// other dials are scalars validated against each other, this is a table with its
+    /// own well-formedness rules. Keeping it apart also means the segment validation
+    /// runs on exactly one path.
+    ///
+    /// Publishing a new shape NEVER touches a live launch — every segmented curve
+    /// snapshots the table at `create_launch`. It only affects launches created after.
+    pub fn set_curve_segments(
+        ctx: Context<SetCurveSegments>,
+        sqrt_price_start_x64: u128,
+        segments: Vec<Segment>,
+    ) -> Result<()> {
+        let n = segments.len();
+        require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+
+        // Validate BEFORE writing, so a rejected table cannot leave the config in a
+        // half-updated state that `create_launch` would then snapshot.
+        segmented::validate_segments(&segments, sqrt_price_start_x64)
+            .map_err(|e| error!(LaunchError::from(e)))?;
+
+        let g = &mut ctx.accounts.global;
+        let mut table = [Segment::default(); MAX_SEGMENTS];
+        table[..n].copy_from_slice(&segments);
+        g.segments = table;
+        g.segment_count = n as u8;
+        g.sqrt_price_start_x64 = sqrt_price_start_x64;
+
+        emit!(CurveSegmentsSet {
+            segment_count: n as u8,
+            sqrt_price_start_x64,
+        });
+        Ok(())
+    }
+
+    pub fn create_launch(ctx: Context<CreateLaunch>, mode: u8) -> Result<()> {
         let g = &ctx.accounts.global;
         require!(!g.paused, LaunchError::Paused);
 
@@ -428,10 +666,46 @@ pub mod tegridy_launch {
         c.real_sol_reserves = 0;
         c.real_token_reserves = supply;
         c.trade_fee_bps = g.trade_fee_bps;
+        c.creator_fee_share_bps = g.creator_fee_share_bps;
         c.graduation_target_lamports = g.graduation_target_lamports;
         c.migration_reserve_lamports = g.migration_reserve_lamports;
         c.complete = false;
         c.bump = ctx.bumps.curve;
+
+        // ── Curve mode ────────────────────────────────────────────────────────
+        let mode = CurveMode::from_u8(mode).ok_or(LaunchError::InvalidParameter)?;
+        c.mode = mode as u8;
+        match mode {
+            CurveMode::ConstantProduct => {
+                // Leave the segment fields zeroed. `segment_count == 0` is what the
+                // trade path keys off, so a stale table could never be read.
+                c.sqrt_price_x64 = 0;
+                c.sqrt_price_start_x64 = 0;
+                c.segment_count = 0;
+                c.segments = [Segment::default(); MAX_SEGMENTS];
+            }
+            CurveMode::Segmented => {
+                // Refuse rather than launch an unpriceable curve: a config with no
+                // published segments would mint a token whose every buy reverts.
+                require!(g.segment_count > 0, LaunchError::InvalidParameter);
+                let n = g.segment_count as usize;
+                require!(n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
+
+                // Re-validate the operator's shape HERE, not just when it was set.
+                // `update_global` could have written it before this program version
+                // added a bound, and the trade path must never meet a shape it has
+                // not checked.
+                segmented::validate_segments(&g.segments[..n], g.sqrt_price_start_x64)
+                    .map_err(|_| error!(LaunchError::InvalidParameter))?;
+
+                // SNAPSHOT. From here the launch prices off its own copy, so a later
+                // `update_global` cannot reprice a curve people have bought into.
+                c.sqrt_price_x64 = g.sqrt_price_start_x64;
+                c.sqrt_price_start_x64 = g.sqrt_price_start_x64;
+                c.segment_count = g.segment_count;
+                c.segments = g.segments;
+            }
+        }
 
         emit!(LaunchCreated {
             mint: c.mint,
@@ -480,13 +754,7 @@ pub mod tegridy_launch {
             };
         require!(capped_in > 0, LaunchError::ZeroAmount);
 
-        let q = quote_buy(
-            curve.effective_sol()?,
-            curve.effective_tokens()?,
-            capped_in,
-            fee_bps,
-        )
-        .map_err(LaunchError::from)?;
+        let (q, sqrt_after) = quote_buy_for(curve, capped_in, fee_bps)?;
 
         require!(q.tokens_out >= min_tokens_out, LaunchError::SlippageExceeded);
         require!(
@@ -494,8 +762,21 @@ pub mod tegridy_launch {
             LaunchError::InsufficientLiquidity
         );
 
-        // Move SOL first: buyer -> curve (principal), buyer -> treasury (fee).
-        // Both are plain system transfers signed by the buyer.
+        // The fee splits creator/protocol per the share snapshotted on the curve.
+        // Splitting the FEE (not the trade) keeps the curve math untouched: the
+        // principal leg and the total charged are identical to the unsplit case.
+        let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
+            .map_err(LaunchError::from)?;
+        // A credit that would strand the creator account in the rent-paying band
+        // folds into the protocol leg rather than reverting the trade. See
+        // `payable_creator_split`.
+        let (creator_pay, protocol_pay) =
+            payable_creator_split(&ctx.accounts.creator.to_account_info(), fs)?;
+
+        // Move SOL first: buyer -> curve (principal), buyer -> creator (their
+        // fee share), buyer -> treasury (the rest). All plain system transfers
+        // signed by the buyer — non-custodial by construction: the creator's cut
+        // never rests in a protocol-controlled account.
         system_program::transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -506,7 +787,19 @@ pub mod tegridy_launch {
             ),
             q.lamports_to_curve,
         )?;
-        if q.fee_lamports > 0 {
+        if creator_pay > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.trader.to_account_info(),
+                        to: ctx.accounts.creator.to_account_info(),
+                    },
+                ),
+                creator_pay,
+            )?;
+        }
+        if protocol_pay > 0 {
             system_program::transfer(
                 CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
@@ -515,7 +808,7 @@ pub mod tegridy_launch {
                         to: ctx.accounts.fee_recipient.to_account_info(),
                     },
                 ),
-                q.fee_lamports,
+                protocol_pay,
             )?;
         }
 
@@ -545,6 +838,14 @@ pub mod tegridy_launch {
             .checked_sub(q.tokens_out)
             .ok_or(LaunchError::Overflow)?;
 
+        // Advance the segmented curve. WITHOUT THIS every trade would price from the
+        // opening sqrt-price forever — the curve would never move, so a buyer could
+        // drain it at the launch price. `None` on constant-product, whose state lives
+        // entirely in the reserves updated above.
+        if let Some(next) = sqrt_after {
+            curve.sqrt_price_x64 = next;
+        }
+
         emit!(Traded {
             mint: curve.mint,
             trader: ctx.accounts.trader.key(),
@@ -552,6 +853,9 @@ pub mod tegridy_launch {
             sol_amount: q.lamports_to_curve,
             token_amount: q.tokens_out,
             fee_lamports: q.fee_lamports,
+            // What the creator was ACTUALLY paid, not what the share implies —
+            // a folded credit must not be reported to indexers as earnings.
+            creator_fee_lamports: creator_pay,
             real_sol_reserves: curve.real_sol_reserves,
             real_token_reserves: curve.real_token_reserves,
         });
@@ -567,13 +871,7 @@ pub mod tegridy_launch {
         require!(!curve.complete, LaunchError::AlreadyComplete);
         require!(tokens_in > 0, LaunchError::ZeroAmount);
 
-        let q = quote_sell(
-            curve.effective_sol()?,
-            curve.effective_tokens()?,
-            tokens_in,
-            curve.trade_fee_bps,
-        )
-        .map_err(LaunchError::from)?;
+        let (q, sqrt_after) = quote_sell_for(curve, tokens_in, curve.trade_fee_bps)?;
 
         require!(
             q.lamports_out >= min_lamports_out,
@@ -613,6 +911,21 @@ pub mod tegridy_launch {
             LaunchError::InsufficientRentExemptBalance
         );
 
+        // The debit below is `gross = lamports_out + fee`, and the fee splits
+        // creator/protocol. All four touched accounts are instruction accounts
+        // and NO CPI follows these writes, so route (a) — the end-of-instruction
+        // flush — reconciles every half together. Appending any CPI after this
+        // block reintroduces the UnbalancedInstruction defect documented in
+        // `migrate_to_amm`; the split adds a third credit, not a new hazard.
+        let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
+            .map_err(LaunchError::from)?;
+        // Fold a rent-band-stranding creator credit into the protocol leg. On
+        // THIS path the fold is what keeps design note 2 true: without it a
+        // creator who drains their wallet to zero blocks every small sell, and
+        // sells are the holders' only exit. See `payable_creator_split`.
+        let (creator_pay, protocol_pay) =
+            payable_creator_split(&ctx.accounts.creator.to_account_info(), fs)?;
+
         **curve_ai.try_borrow_mut_lamports()? = balance
             .checked_sub(q.gross_lamports)
             .ok_or(LaunchError::Overflow)?;
@@ -623,7 +936,23 @@ pub mod tegridy_launch {
             .lamports()
             .checked_add(q.lamports_out)
             .ok_or(LaunchError::Overflow)?;
-        if q.fee_lamports > 0 {
+        // Creator first, then protocol — each read-then-write completes before
+        // the next begins, so the sums stay correct even when creator aliases
+        // trader or fee_recipient (the same account passed under two names).
+        if creator_pay > 0 {
+            **ctx
+                .accounts
+                .creator
+                .to_account_info()
+                .try_borrow_mut_lamports()? = ctx
+                .accounts
+                .creator
+                .to_account_info()
+                .lamports()
+                .checked_add(creator_pay)
+                .ok_or(LaunchError::Overflow)?;
+        }
+        if protocol_pay > 0 {
             **ctx
                 .accounts
                 .fee_recipient
@@ -633,7 +962,7 @@ pub mod tegridy_launch {
                 .fee_recipient
                 .to_account_info()
                 .lamports()
-                .checked_add(q.fee_lamports)
+                .checked_add(protocol_pay)
                 .ok_or(LaunchError::Overflow)?;
         }
 
@@ -647,6 +976,14 @@ pub mod tegridy_launch {
             .checked_add(tokens_in)
             .ok_or(LaunchError::Overflow)?;
 
+        // Advance the segmented curve. WITHOUT THIS every trade would price from the
+        // opening sqrt-price forever — the curve would never move, so a buyer could
+        // drain it at the launch price. `None` on constant-product, whose state lives
+        // entirely in the reserves updated above.
+        if let Some(next) = sqrt_after {
+            curve.sqrt_price_x64 = next;
+        }
+
         emit!(Traded {
             mint: curve.mint,
             trader: ctx.accounts.trader.key(),
@@ -654,6 +991,7 @@ pub mod tegridy_launch {
             sol_amount: q.lamports_out,
             token_amount: tokens_in,
             fee_lamports: q.fee_lamports,
+            creator_fee_lamports: creator_pay,
             real_sol_reserves: curve.real_sol_reserves,
             real_token_reserves: curve.real_token_reserves,
         });
@@ -1146,6 +1484,24 @@ pub mod tegridy_launch {
         // rent-band hazard the seed top-up guards against cannot bite here. Keep
         // that top-up anyway: it is what makes this safe if the sweep is ever
         // removed.
+        //
+        // ── WHO GETS THE RESIDUAL, AND WHY IT IS NOT THE CALLER ──────────────
+        // This used to pay `payer`. It is NOT the caller's money: `move_lamports`
+        // is `deposit + reserve` (above) and only `deposit` goes into the pool, so
+        // `residual` is the unspent migration reserve — which buyers funded, because
+        // the reserve is raised ON TOP of the graduation target and `buy` caps the
+        // raise at `target + reserve`.
+        //
+        // Migration is deliberately permissionless, so paying it to `payer` made
+        // graduation a standing MEV bounty: watch for `real_sol_reserves == target +
+        // reserve`, call this instruction, collect the surplus. With the runbook's
+        // recommended 0.25 SOL reserve that is roughly 0.06 SOL of traders' money per
+        // graduation to whoever wins the race, and ~0.21 SOL if the operator ever
+        // sets `create_pool_fee = 0`.
+        //
+        // `payer` is still made whole and then some: the three `close_account` calls
+        // above return 3x ATA rent to it, against the 2x ATA rent + seed top-up it
+        // fronted. It does not need — and must not get — the reserve as well.
         let residual = auth_ai.lamports();
         if residual > 0 {
             system_program::transfer(
@@ -1153,7 +1509,7 @@ pub mod tegridy_launch {
                     ctx.accounts.system_program.to_account_info(),
                     system_program::Transfer {
                         from: auth_ai.clone(),
-                        to: ctx.accounts.payer.to_account_info(),
+                        to: ctx.accounts.fee_recipient.to_account_info(),
                     },
                     auth_signer,
                 ),
@@ -1235,7 +1591,7 @@ pub struct InitializeGlobal<'info> {
         seeds = [GLOBAL_SEED],
         bump
     )]
-    pub global: Account<'info, GlobalConfig>,
+    pub global: Box<Account<'info, GlobalConfig>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1249,6 +1605,20 @@ pub struct UpdateGlobal<'info> {
     )]
     pub global: Account<'info, GlobalConfig>,
     pub authority: Signer<'info>,
+}
+
+
+/// Authority-gated. Mirrors `UpdateGlobal`'s shape — same seeds, same `has_one`.
+#[derive(Accounts)]
+pub struct SetCurveSegments<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [GLOBAL_SEED],
+        bump = global.bump,
+        has_one = authority @ LaunchError::Unauthorized
+    )]
+    pub global: Account<'info, GlobalConfig>,
 }
 
 #[derive(Accounts)]
@@ -1296,7 +1666,11 @@ pub struct CreateLaunch<'info> {
         seeds = [CURVE_SEED, mint.key().as_ref()],
         bump
     )]
-    pub curve: Account<'info, BondingCurve>,
+    // BOXED, and it has to be. `BondingCurve` carries a 16-entry segment table, and
+    // Anchor's generated `try_accounts` deserializes accounts onto the STACK — which
+    // pushed this struct's frame to 4,288 bytes against SBF's 4,096 limit. Boxing
+    // moves it to the heap. If you add another sizeable account here, box it too.
+    pub curve: Box<Account<'info, BondingCurve>>,
 
     #[account(
         init,
@@ -1322,13 +1696,29 @@ pub struct CreateLaunch<'info> {
 /// its logic with no added safety and a real chance of drifting from it.
 #[derive(Accounts)]
 pub struct MigrateToAmm<'info> {
-    /// Funds rent for the accounts created along the way. Any caller may pay;
-    /// this is the only thing a caller contributes and it buys them nothing.
+    /// Funds rent for the accounts created along the way. Any caller may pay.
+    ///
+    /// It buys them the rent back and nothing more. That used to be untrue: the
+    /// residual sweep below sent the ENTIRE unspent migration reserve here, and since
+    /// the reserve is raised from buyers on top of the graduation target
+    /// (`state.rs` / lib.rs:245), a bot watching for funded curves could call this and
+    /// take ~0.06 SOL of traders' money per graduation for a ~5,000-lamport fee. The
+    /// comment that used to sit here — "it buys them nothing" — is why nobody caught
+    /// it, and MAINNET_RUNBOOK then advised over-provisioning the reserve BECAUSE the
+    /// surplus came back to the caller, which made the leak bigger. The surplus now
+    /// goes to `fee_recipient`.
     #[account(mut)]
     pub payer: Signer<'info>,
 
     #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
     pub global: Box<Account<'info, GlobalConfig>>,
+
+    /// CHECK: receives the unspent migration reserve. Pinned to the config so the
+    /// caller cannot name themselves. Declared AFTER `global` because Anchor
+    /// evaluates constraints in field order and this one reads back into it — the
+    /// same ordering requirement `Trade::creator` documents.
+    #[account(mut, address = global.fee_recipient @ LaunchError::Unauthorized)]
+    pub fee_recipient: UncheckedAccount<'info>,
 
     pub launch_mint: Box<Account<'info, Mint>>,
 
@@ -1464,7 +1854,7 @@ pub struct Trade<'info> {
     pub trader: Signer<'info>,
 
     #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
-    pub global: Account<'info, GlobalConfig>,
+    pub global: Box<Account<'info, GlobalConfig>>,
 
     /// CHECK: must be the address the config designates; enforced below.
     #[account(mut, address = global.fee_recipient @ LaunchError::Unauthorized)]
@@ -1478,7 +1868,20 @@ pub struct Trade<'info> {
         bump = curve.bump,
         has_one = mint @ LaunchError::InvalidParameter
     )]
-    pub curve: Account<'info, BondingCurve>,
+    // BOXED, and it has to be. `BondingCurve` carries a 16-entry segment table, and
+    // Anchor's generated `try_accounts` deserializes accounts onto the STACK — which
+    // pushed this struct's frame to 4,288 bytes against SBF's 4,096 limit. Boxing
+    // moves it to the heap. If you add another sizeable account here, box it too.
+    pub curve: Box<Account<'info, BondingCurve>>,
+
+    /// CHECK: must be the creator recorded on the curve at `create_launch`;
+    /// receives the creator's share of the trade fee, instantly and
+    /// non-custodially, on every buy and sell. Pinned to the curve's snapshot so
+    /// neither the trader nor the protocol can redirect a creator's income.
+    /// Declared AFTER `curve` — Anchor evaluates constraints in field order, so
+    /// the reference must point backwards.
+    #[account(mut, address = curve.creator @ LaunchError::CreatorMismatch)]
+    pub creator: UncheckedAccount<'info>,
 
     #[account(
         mut,

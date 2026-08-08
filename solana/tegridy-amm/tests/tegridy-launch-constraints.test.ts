@@ -26,6 +26,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
+  createAssociatedTokenAccount,
   createInitializeMintInstruction,
   createMint,
   getMinimumBalanceForRentExemptMint,
@@ -44,6 +45,11 @@ import { assert } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 
+// create_launch now takes a curve mode: 0 = ConstantProduct (pump.fun shape),
+// 1 = Segmented (Meteora shape). These tests exercise the constant-product path,
+// which is the pre-existing behaviour they were written against.
+const CURVE_MODE_CONSTANT_PRODUCT = 0;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyProgram = Program<Idl>;
 
@@ -57,6 +63,12 @@ const V_SOL = new BN(30).mul(new BN(LAMPORTS_PER_SOL));
 const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
 const TRADE_FEE_BPS = new BN(100);
+/** Creator's share OF THE FEE, in bps of the fee. 4,800 = EXACT PARITY with the
+ *  live Meteora partner config's 48 bps, per CREATOR_FEE_SPEC.md §1 — so the
+ *  creator-facing claim is checkable against something public rather than taken
+ *  on trust, and our own net rises from 32 bps (DBC, after Meteora's 20% leg) to
+ *  52 bps here because there is no third party to pay. */
+const CREATOR_FEE_SHARE_BPS = new BN(4800);
 /** V_s*S/V_t is ~27.9 SOL here, so 10 SOL is safely under the ceiling. */
 // The continuity target for V_SOL=30 with a 0.5 SOL reserve: the launch lists at
 // the price its last curve buyer paid. Deliberately not a round number — a +-5%
@@ -155,7 +167,7 @@ describe("tegridy-launch security constraints", () => {
 
     await expectAnchorError(
       program.methods
-        .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+        .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
         .accountsPartial({
           authority: impostor.publicKey,
           feeRecipient,
@@ -173,7 +185,7 @@ describe("tegridy-launch security constraints", () => {
     // is built with --features devnet, whose `deployer` key is the local wallet; a
     // default build embeds a fail-closed sentinel and cannot be initialized at all.
     await program.methods
-      .initializeGlobal(TRADE_FEE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+      .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
       .accountsPartial({
         authority: deployer.publicKey,
         feeRecipient,
@@ -203,7 +215,7 @@ describe("tegridy-launch security constraints", () => {
 
       await expectAnchorError(
         program.methods
-          .createLaunch()
+          .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
           .accountsPartial({
             creator: creator.publicKey,
             global: globalPda(program.programId),
@@ -228,7 +240,7 @@ describe("tegridy-launch security constraints", () => {
       const mint = await makeMint(provider, creator, null);
 
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),
@@ -261,7 +273,7 @@ describe("tegridy-launch security constraints", () => {
       const mint = await makeMint(provider, creator, null);
 
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalPda(program.programId),
@@ -296,7 +308,7 @@ describe("tegridy-launch security constraints", () => {
       const unreachable = new BN(1000).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, unreachable, null, null, null, null, null, null, null)
+          .updateGlobal(null, unreachable, null, null, null, null, null, null, null, null)
           .accountsPartial({
             global: globalPda(program.programId),
             authority: deployer.publicKey,
@@ -310,7 +322,7 @@ describe("tegridy-launch security constraints", () => {
     it("accepts a target below the ceiling", async () => {
       const reachable = GRAD_TARGET; // under the ceiling AND price-continuous
       await program.methods
-        .updateGlobal(null, reachable, null, null, null, null, null, null, null)
+        .updateGlobal(null, reachable, null, null, null, null, null, null, null, null)
         .accountsPartial({
           global: globalPda(program.programId),
           authority: deployer.publicKey,
@@ -322,7 +334,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for any later test.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -347,7 +359,7 @@ describe("tegridy-launch security constraints", () => {
       const cpProgram = Keypair.generate().publicKey;
       const cfg = Keypair.generate().publicKey;
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null)
+        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -360,7 +372,7 @@ describe("tegridy-launch security constraints", () => {
     it("refuses to ZERO them — that reads as misconfiguration; `paused` is the switch", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null, null)
+          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "InvalidParameter"
@@ -384,7 +396,7 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(10).mul(new BN(LAMPORTS_PER_SOL)); // sum 30: over
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, target, null, null, null, reserve, null, null, null)
+          .updateGlobal(null, target, null, null, null, reserve, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
@@ -395,7 +407,7 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(25).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, reserve, null, null, null)
+          .updateGlobal(null, null, null, null, null, reserve, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
@@ -412,7 +424,7 @@ describe("tegridy-launch security constraints", () => {
     it("rejects a migration reserve below cp-swap's rent floor", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null)
+          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "MigrationReserveTooLow"
@@ -426,7 +438,7 @@ describe("tegridy-launch security constraints", () => {
       const target = new BN(10_039_591_158);
       const reserve = new BN(5).mul(new BN(LAMPORTS_PER_SOL));
       await program.methods
-        .updateGlobal(null, target, null, null, null, reserve, null, null, null)
+        .updateGlobal(null, target, null, null, null, reserve, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -437,7 +449,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for the tests that follow.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -462,7 +474,7 @@ describe("tegridy-launch security constraints", () => {
       const gapping = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, gapping, null, null, null, null, null, null, null)
+          .updateGlobal(null, gapping, null, null, null, null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationPriceGap"
@@ -472,7 +484,7 @@ describe("tegridy-launch security constraints", () => {
     /** POSITIVE CONTROL — the continuity target for these reserves is accepted. */
     it("accepts the continuity target", async () => {
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -492,7 +504,7 @@ describe("tegridy-launch security constraints", () => {
       const target = new BN(6).mul(new BN(LAMPORTS_PER_SOL));
       const vsol = new BN(15_784_562_498); // continuity partner for 6 SOL + 0.5 reserve
       await program.methods
-        .updateGlobal(null, target, null, null, null, MIGRATION_RESERVE, null, null, vsol)
+        .updateGlobal(null, target, null, null, null, MIGRATION_RESERVE, null, null, vsol, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -503,7 +515,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore the suite's baseline for anything that follows.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, V_SOL)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, V_SOL, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -520,7 +532,7 @@ describe("tegridy-launch security constraints", () => {
     it("blocks create_launch while paused, and allows it again when unpaused", async () => {
       const globalKey = globalPda(program.programId);
       await program.methods
-        .updateGlobal(null, null, true, null, null, null, null, null, null)
+        .updateGlobal(null, null, true, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
@@ -530,7 +542,7 @@ describe("tegridy-launch security constraints", () => {
 
       await expectAnchorError(
         program.methods
-          .createLaunch()
+          .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
           .accountsPartial({
             creator: creator.publicKey,
             global: globalKey,
@@ -548,12 +560,12 @@ describe("tegridy-launch security constraints", () => {
 
       // POSITIVE CONTROL: unpause and the identical call goes through.
       await program.methods
-        .updateGlobal(null, null, false, null, null, null, null, null, null)
+        .updateGlobal(null, null, false, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
       await program.methods
-        .createLaunch()
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
         .accountsPartial({
           creator: creator.publicKey,
           global: globalKey,
@@ -565,6 +577,306 @@ describe("tegridy-launch security constraints", () => {
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([creator])
+        .rpc();
+    });
+  });
+
+  // ─── The creator/protocol fee split ────────────────────────────────────────
+
+  describe("the trade fee splits creator/protocol", () => {
+    /**
+     * The volume-magnet invariant from the 2026-08-02 economics synthesis: the
+     * creator earns their share of the fee on every trade, instantly and
+     * non-custodially. Exercised with a creator who is NEITHER the trader NOR
+     * the fee recipient, so each balance delta isolates exactly one leg.
+     * Pre-split code sent the WHOLE fee to the protocol, so the exact-amount
+     * assertions below fail on it — the mutation check.
+     */
+    const creator = Keypair.generate();
+    let mint: PublicKey;
+    let traderAta: PublicKey;
+
+    const lamports = async (k: PublicKey) =>
+      (await provider.connection.getAccountInfo(k))?.lamports ?? 0;
+
+    const tradeAccounts = () => ({
+      trader: deployer.publicKey,
+      global: globalPda(program.programId),
+      feeRecipient,
+      creator: creator.publicKey,
+      mint,
+      curve: curvePda(program.programId, mint),
+      curveVault: vaultPda(program.programId, mint),
+      traderTokenAccount: traderAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    });
+
+    it("pays the creator exactly half the fee on a buy, and the protocol the rest", async () => {
+      await fund(provider, creator.publicKey, 5);
+      mint = await makeMint(provider, creator, null);
+      await program.methods
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
+        .accountsPartial({
+          creator: creator.publicKey,
+          global: globalPda(program.programId),
+          mint,
+          curve: curvePda(program.programId, mint),
+          curveVault: vaultPda(program.programId, mint),
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([creator])
+        .rpc();
+      traderAta = await createAssociatedTokenAccount(
+        provider.connection,
+        deployer,
+        mint,
+        deployer.publicKey
+      );
+
+      const creatorBefore = await lamports(creator.publicKey);
+      const protocolBefore = await lamports(feeRecipient);
+
+      // A 1 SOL buy at the 1% fee charges exactly 10,000,000 lamports. Both legs
+      // are DERIVED from the share constant, not typed in, so re-tuning the share
+      // cannot leave a stale literal asserting the old economics.
+      const buyFee = LAMPORTS_PER_SOL * (TRADE_FEE_BPS.toNumber() / 10_000);
+      const expectCreator = Math.floor((buyFee * CREATOR_FEE_SHARE_BPS.toNumber()) / 10_000);
+      const expectProtocol = buyFee - expectCreator;
+      await program.methods
+        .buy(new BN(LAMPORTS_PER_SOL), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      assert.equal(
+        (await lamports(creator.publicKey)) - creatorBefore,
+        expectCreator,
+        `creator must receive ${CREATOR_FEE_SHARE_BPS.toNumber() / 100}% of the buy fee`
+      );
+      assert.equal(
+        (await lamports(feeRecipient)) - protocolBefore,
+        expectProtocol,
+        "protocol must receive exactly the remainder"
+      );
+    });
+
+    it("splits the sell fee the same way, remainder to the protocol", async () => {
+      const held = BigInt(
+        (await provider.connection.getTokenAccountBalance(traderAta)).value.amount
+      );
+      assert.isTrue(held > 0n, "precondition: the buy delivered tokens to sell");
+
+      const creatorBefore = await lamports(creator.publicKey);
+      const protocolBefore = await lamports(feeRecipient);
+
+      await program.methods
+        .sell(new BN((held / 2n).toString()), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      const creatorDelta = (await lamports(creator.publicKey)) - creatorBefore;
+      const protocolDelta = (await lamports(feeRecipient)) - protocolBefore;
+      assert.isAbove(creatorDelta, 0, "creator must earn on sells too");
+      // Pin the RATIO, not an amount: the sell size (and so the fee) depends on
+      // curve state, but the split of whatever fee was charged must be exact, with
+      // the creator rounding DOWN and the protocol keeping the remainder.
+      const sellFee = creatorDelta + protocolDelta;
+      assert.equal(
+        creatorDelta,
+        Math.floor((sellFee * CREATOR_FEE_SHARE_BPS.toNumber()) / 10_000),
+        "sell fee must split at exactly the configured share, creator rounding down"
+      );
+    });
+
+    it("rejects a substituted creator account", async () => {
+      // POSITIVE CONTROL is the successful buy above with identical scaffolding.
+      await expectAnchorError(
+        program.methods
+          .buy(new BN(1_000_000), new BN(0))
+          .accountsPartial({ ...tradeAccounts(), creator: Keypair.generate().publicKey })
+          .rpc(),
+        "CreatorMismatch"
+      );
+    });
+  });
+
+  // ─── The creator wallet must never be able to block trading ────────────────
+
+  describe("a drained creator wallet cannot brick the curve", () => {
+    /**
+     * The HIGH finding from the 2026-08-02 adversarial review of the split.
+     *
+     * Crediting a 0-lamport creator wallet less than the rent-exempt minimum
+     * (890,880 lamports for a 0-byte account) moves it into the rent-paying
+     * band, which the runtime rejects at end-of-instruction — failing the WHOLE
+     * trade. At a 1% fee and a 50% share that is every trade under ~0.178 SOL,
+     * INCLUDING sells, which design note 2 promises can never be blocked. It was
+     * also profitable and repeatable: anyone could unbrick by donating the
+     * minimum, and the creator could pocket it and re-drain.
+     *
+     * The fix folds an undeliverable creator credit into the protocol leg. This
+     * test drains the creator to EXACTLY zero and asserts small trades still
+     * work both ways, with the protocol receiving the whole fee.
+     */
+    const creator = Keypair.generate();
+    let mint: PublicKey;
+    let traderAta: PublicKey;
+
+    const lamports = async (k: PublicKey) =>
+      (await provider.connection.getAccountInfo(k))?.lamports ?? 0;
+
+    const tradeAccounts = () => ({
+      trader: deployer.publicKey,
+      global: globalPda(program.programId),
+      feeRecipient,
+      creator: creator.publicKey,
+      mint,
+      curve: curvePda(program.programId, mint),
+      curveVault: vaultPda(program.programId, mint),
+      traderTokenAccount: traderAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    });
+
+    before(async () => {
+      await fund(provider, creator.publicKey, 5);
+      mint = await makeMint(provider, creator, null);
+      await program.methods
+        .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
+        .accountsPartial({
+          creator: creator.publicKey,
+          global: globalPda(program.programId),
+          mint,
+          curve: curvePda(program.programId, mint),
+          curveVault: vaultPda(program.programId, mint),
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([creator])
+        .rpc();
+      traderAta = await createAssociatedTokenAccount(
+        provider.connection,
+        deployer,
+        mint,
+        deployer.publicKey
+      );
+
+      // Drain the creator to EXACTLY zero, paying the tx fee from another
+      // wallet — 0 is the Uninitialized rent state and an allowed transition,
+      // which is what makes this attack available at all.
+      const balance = await lamports(creator.publicKey);
+      const drain = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: creator.publicKey,
+          toPubkey: deployer.publicKey,
+          lamports: balance,
+        })
+      );
+      drain.feePayer = deployer.publicKey;
+      await provider.sendAndConfirm!(drain, [creator]);
+      assert.equal(await lamports(creator.publicKey), 0, "creator must be at exactly 0");
+    });
+
+    it("still fills a small BUY, folding the creator's share to the protocol", async () => {
+      const protocolBefore = await lamports(feeRecipient);
+      // 0.01 SOL: the creator leg would be 50,000 lamports — deep inside the
+      // forbidden band, so pre-fix code reverts this whole transaction.
+      await program.methods
+        .buy(new BN(10_000_000), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      assert.equal(await lamports(creator.publicKey), 0, "creator must stay at 0 — nothing delivered");
+      assert.equal(
+        (await lamports(feeRecipient)) - protocolBefore,
+        100_000,
+        "the protocol must absorb the whole fee when the creator cannot be paid"
+      );
+    });
+
+    it("still fills a small SELL — the holders' exit stays open", async () => {
+      const held = BigInt(
+        (await provider.connection.getTokenAccountBalance(traderAta)).value.amount
+      );
+      assert.isTrue(held > 0n, "precondition: the buy delivered tokens");
+      const protocolBefore = await lamports(feeRecipient);
+
+      await program.methods
+        .sell(new BN((held / 2n).toString()), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      assert.equal(await lamports(creator.publicKey), 0, "creator must stay at 0");
+      assert.isAbove(
+        (await lamports(feeRecipient)) - protocolBefore,
+        0,
+        "the protocol absorbs the sell fee too"
+      );
+    });
+
+    it("pays the creator again once their wallet is rent-exempt — self-healing", async () => {
+      // POSITIVE CONTROL for the fold: it must be a deliverability check, not a
+      // permanent forfeiture of that creator's stream.
+      await fund(provider, creator.publicKey, 1);
+      const creatorBefore = await lamports(creator.publicKey);
+
+      await program.methods
+        .buy(new BN(10_000_000), new BN(0))
+        .accountsPartial(tradeAccounts())
+        .rpc();
+
+      // 0.01 SOL at the 1% fee = 100,000 lamports of fee; the creator's leg is
+      // derived from the share so re-tuning it cannot strand a literal here.
+      const fee = 10_000_000 * (TRADE_FEE_BPS.toNumber() / 10_000);
+      assert.equal(
+        (await lamports(creator.publicKey)) - creatorBefore,
+        Math.floor((fee * CREATOR_FEE_SHARE_BPS.toNumber()) / 10_000),
+        "a funded creator must receive their configured share again"
+      );
+    });
+  });
+
+  // ─── The creator-share setter ──────────────────────────────────────────────
+
+  describe("creator_fee_share_bps is settable and bounded", () => {
+    /**
+     * Every other updateGlobal call in this suite passes null in the 10th slot,
+     * so without this the setter and its bound would have zero runtime coverage
+     * — and an arg-order drift between the 9th and 10th parameters would leave
+     * the whole suite green while operators silently wrote the share into
+     * virtual SOL. Flagged by the 2026-08-02 review.
+     */
+    it("rejects a share above 100% of the fee", async () => {
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(10_001))
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "InvalidParameter"
+      );
+    });
+
+    it("stores a legal share, and it lands in the 10th slot not the 9th", async () => {
+      await program.methods
+        .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(3_000))
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.creatorFeeShareBps.toString(), "3000", "the share must persist");
+      assert.equal(
+        g.initialVirtualSol.toString(),
+        V_SOL.toString(),
+        "virtual SOL must be untouched — catches an arg-position swap"
+      );
+
+      // Restore the suite default for anything ordered after this.
+      await program.methods
+        .updateGlobal(null, null, null, null, null, null, null, null, null, CREATOR_FEE_SHARE_BPS)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
   });

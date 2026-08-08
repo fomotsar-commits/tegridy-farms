@@ -139,14 +139,54 @@ A **separate program** from cp-swap, deliberately — folding it in would break
 2. Call `initialize_global`. **Three parameters are not free choices — get them
    wrong and the launcher misbehaves in ways nothing will warn you about later.**
 
+### `creator_fee_share_bps` — the volume magnet; recommended **4_800** (48% of the fee)
+
+The creator's share OF THE TRADE FEE, paid instantly and non-custodially to the
+launch creator on every buy and sell (2026-08-02 economics synthesis). Every
+surviving launchpad pays creators a streaming cut — pump.fun 0.30%/vol on-curve,
+the Meteora-partner rail 0.48%/vol — and a curve that pays zero loses its
+launches to the rails that pay.
+
+**Why 4,800 and not a round 5,000** (`CREATOR_FEE_SPEC.md` §1): at
+`trade_fee_bps = 100` it is **exact parity with the live Meteora partner config's
+48 bps**, so the creator-facing claim is checkable against something public rather
+than taken on trust. The protocol nets **52 bps** here versus **32 bps** on the DBC
+rail — because there is no Meteora leg to pay — so moving a creator from our DBC
+rail to our own curve is **+62.5% revenue per trade at zero cost to the creator**.
+That argument only exists while the share is held AT parity rather than bid above
+it; raising it to 5,000 buys 2 bps of creator goodwill and forfeits the
+like-for-like comparison.
+
+Snapshotted per launch like the fee itself; `update_global` moves future launches
+only. Bounded at 10_000 (100% of the fee).
+
+⚠️ **Divergence from the spec, deliberate and reconciled 2026-08-04.**
+`CREATOR_FEE_SPEC.md` §1 prescribed a *compile-time constant*; the implementation
+uses a governable `GlobalConfig` field. The field is kept because the per-curve
+snapshot already delivers the spec's actual goal — no signature can reprice a
+launch people have bought into — while leaving the ratio tunable for FUTURE
+launches without a program upgrade. The spec's value (4,800) is adopted verbatim.
+
 ### ⚠️ `migration_reserve_lamports` — minimum **192,156,720** (~0.1922 SOL)
 
 Raised from traders on top of the target, and it pays cp-swap's costs at migration:
 0.15 SOL `create_pool_fee` plus 42,156,720 lamports of rent for the five accounts
 cp-swap creates (`observation_state` alone is 29.25M — 70% of the rent). Derived
 from cp-swap's own `LEN` constants, not estimated. **Recommended: 0.25 SOL** for
-headroom; the surplus is swept back to whoever calls migration, so
-over-provisioning costs nothing but a slightly larger raise.
+headroom.
+
+> ⚠️ **Corrected 2026-08-08 — the previous advice made a real leak bigger.**
+> This used to read *"the surplus is swept back to whoever calls migration, so
+> over-provisioning costs nothing but a slightly larger raise."* Wrong twice over.
+> Migration is **permissionless**, so "whoever calls migration" meant any bot, not
+> the operator; and the surplus is **traders' money**, because the reserve is raised
+> on top of the graduation target. Over-provisioning did not cost nothing — it sized
+> a standing MEV bounty paid out of buyers' funds at every graduation.
+>
+> The residual now goes to `global.fee_recipient` (lib.rs, the sweep at the end of
+> `migrate_to_amm`), so over-provisioning is no longer exploitable. It is still
+> charged to buyers and banked by the protocol rather than returned to them, so
+> **size this to the real cost plus a modest margin, not generously.**
 
 Too small and migration fails *after* the pool exists — the worst possible moment.
 
