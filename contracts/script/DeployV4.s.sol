@@ -53,12 +53,7 @@ contract DeployV4Script is Script {
     uint24 internal constant MAX_FEE = 30_000; // 3%
     uint24 internal constant BASE_FEE = 3_000; // 0.30%
     uint16 internal constant MAX_POL_BPS = 1_000; // 10% ceiling
-    // 0.25% initial skim (2026-08-02 economics synthesis). Trader all-in early is
-    // LP fee + skim; at 100 bps the mature all-in (0.30% + 1%) would sit 4x above
-    // the canonical 0.30% pool rate and invite a parallel vanilla-V4 pool to
-    // drain routing. 25 bps launches inside pump.fun's 1.25% early envelope and
-    // steps DOWN to ~10 via the timelocked setter as a pool matures.
-    uint16 internal constant POL_BPS = 25;
+    uint16 internal constant POL_BPS = 100; // 1% initial
 
     function run() external {
         address poolManager = vm.envAddress("POOL_MANAGER");
