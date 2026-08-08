@@ -28,6 +28,12 @@ name: solana-deploy-artifact
 on:
   workflow_dispatch:
     inputs:
+      program:
+        description: "Which program to build"
+        required: true
+        default: tegridy-launch
+        type: choice
+        options: [tegridy-launch, cp-swap]
       cluster:
         description: "Which cfg arm to build (devnet uses the devnet feature)"
         required: true
@@ -35,12 +41,14 @@ on:
         type: choice
         options: [devnet, mainnet]
       program_id:
-        description: "Program address this binary will be deployed to (base58 pubkey)"
-        required: true
+        description: "tegridy-launch ONLY: program address to pin (base58). Ignored for cp-swap, whose identities are committed."
+        required: false
+        default: ""
         type: string
       deployer:
-        description: "Pubkey allowed to call initialize_global (base58)"
-        required: true
+        description: "tegridy-launch ONLY: pubkey allowed to call initialize_global (base58)."
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -60,12 +68,13 @@ jobs:
         # will not compile: "rustc 1.84.1-dev is not supported by the following
         # package". Building from the member directory keeps the graph to what the
         # program actually needs.
-        working-directory: solana/tegridy-amm/programs/tegridy-launch
+        working-directory: solana/tegridy-amm/programs/${{ inputs.program }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Validate the identities BEFORE building
+        if: inputs.program == 'tegridy-launch'
         run: |
           set -euo pipefail
           # A malformed pubkey here produces a binary pinned to an address nobody
@@ -96,7 +105,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
+      # cp-swap deliberately has NO patch step. Its four identity constants are
+      # COMMITTED and covered by solana-ci's diff-guard hash; patching them here
+      # would build something the guard never saw.
       - name: Pin the operator's identities into the source
+        if: inputs.program == 'tegridy-launch'
         run: |
           set -euo pipefail
           python3 - src/lib.rs "${{ inputs.program_id }}" "${{ inputs.deployer }}" "${{ inputs.cluster }}" <<'PY'
@@ -142,33 +155,33 @@ jobs:
             grep -B3 "exceeded max offset" /tmp/build.log || true
             exit 1
           fi
-          SO=../../target/deploy/tegridy_launch.so
+          SO=../../target/deploy/${{ inputs.program == 'cp-swap' && 'raydium_cp_swap' || 'tegridy_launch' }}.so
           test -f "$SO" || { echo "::error::no $SO — the program was NOT compiled"; exit 1; }
 
       - name: Report what a deployer must check
         run: |
           set -euo pipefail
-          SO=../../target/deploy/tegridy_launch.so
+          SO=../../target/deploy/${{ inputs.program == 'cp-swap' && 'raydium_cp_swap' || 'tegridy_launch' }}.so
           echo "### Deployable artifact" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| field | value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| cluster | \`${{ inputs.cluster }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| program id | \`${{ inputs.program_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| program | \`${{ inputs.program }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| program id | \`${{ inputs.program_id || 'committed in source' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| deployer | \`${{ inputs.deployer }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| size | $(stat -c%s "$SO") bytes |" >> $GITHUB_STEP_SUMMARY
           echo "| sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Rent for this binary is roughly \`size * 2 * 0.00000696\` SOL." >> $GITHUB_STEP_SUMMARY
-          sha256sum "$SO" | tee ../../target/deploy/tegridy_launch.so.sha256
+          sha256sum "$SO" | tee "$SO.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tegridy-launch-${{ inputs.cluster }}-${{ github.sha }}
+          name: ${{ inputs.program }}-${{ inputs.cluster }}-${{ github.sha }}
           path: |
-            solana/tegridy-amm/target/deploy/tegridy_launch.so
-            solana/tegridy-amm/target/deploy/tegridy_launch.so.sha256
-            solana/tegridy-amm/target/idl/tegridy_launch.json
+            solana/tegridy-amm/target/deploy/*.so
+            solana/tegridy-amm/target/deploy/*.sha256
           if-no-files-found: error
           retention-days: 30
