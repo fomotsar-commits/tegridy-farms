@@ -6,6 +6,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { CURRENT_SEASON } from '../lib/constants';
 import { seasonStatus } from '../lib/season';
 import { TegridyScore } from '../components/TegridyScore';
+import { HeatCard } from '../components/HeatCard';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageSkeleton } from '../components/PageSkeleton';
@@ -70,6 +71,21 @@ export default function LeaderboardPage() {
             <TegridyScore />
           </m.div>
         )}
+
+        {/* HEAT (2026-08-07) — Jungle Bay Island's held-time reading, and a plain
+            account of how it was arrived at.
+            Placed on this page because it is the reputation surface, and directly
+            BELOW the Tegridy Score so the two are visibly separate instruments:
+            Tegridy Score is ours and is earned by on-chain activity; Heat is the
+            island's and is earned only by holding measured tokens over time. The
+            card repeats that distinction in its own copy — do not merge them into a
+            single "score" panel, and never sum them.
+            Rendered for everyone, not just connected wallets: the card takes any
+            Ethereum or Solana address, so a visitor can read a wallet before
+            connecting one. */}
+        <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.07 }}>
+          <HeatCard />
+        </m.div>
 
         {/* Your Stats */}
         {isConnected && points.data && (

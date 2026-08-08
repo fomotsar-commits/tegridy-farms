@@ -9,6 +9,7 @@ import {
   associatedTokenAddress,
   buyIx,
   createLaunchIx,
+  CurveMode,
   initializeGlobalIx,
   migrateToAmmIx,
   sellIx,
@@ -118,9 +119,25 @@ describe('create_launch', () => {
   const creator = TRADER;
   const ix = createLaunchIx({ creator, mint: MINT });
 
-  it('takes no args — every term comes from global and is snapshotted', () => {
-    expect(ix.data.length).toBe(8);
+  // The client used to send only the discriminator, which was right until
+  // `create_launch` gained `mode: u8`. An 8-byte payload against a handler
+  // expecting 9 fails to deserialize — EVERY launch would have reverted.
+  it('encodes the curve mode; every other term comes from global and is snapshotted', () => {
+    expect(ix.data.length).toBe(9);
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.createLaunch);
+    expect(ix.data[8]).toBe(CurveMode.ConstantProduct);
+  });
+
+  it('the mode byte actually changes with the argument', () => {
+    const seg = createLaunchIx({ creator, mint: MINT }, CurveMode.Segmented);
+    expect(seg.data[8]).toBe(1);
+    expect(seg.data[8]).not.toBe(ix.data[8]);
+  });
+
+  it('rejects a mode that would not fit a u8 rather than truncating it', () => {
+    // Truncation would silently select a DIFFERENT curve than the caller asked for.
+    expect(() => createLaunchIx({ creator, mint: MINT }, 256 as never)).toThrow(RangeError);
+    expect(() => createLaunchIx({ creator, mint: MINT }, -1 as never)).toThrow(RangeError);
   });
 
   it('lists the eight accounts in declaration order (lib.rs:1254-1314)', () => {
@@ -246,13 +263,19 @@ describe('associatedTokenAddress', () => {
 describe('operator-only instructions', () => {
   const authority = TRADER;
 
-  it('initialize_global encodes six u64s then two pubkeys (lib.rs:189-197)', () => {
+  // Was "six u64s" and omitted `creator_fee_share_bps`, which the program takes as
+  // its SECOND argument. Borsh is positional, so every field after `tradeFeeBps` was
+  // landing one slot early: `initial_virtual_sol` would have been read as the creator
+  // fee share, and so on down the line. Silent, total mis-configuration of the
+  // protocol — not a revert. This is why the layout is asserted offset by offset.
+  it('initialize_global encodes SEVEN u64s then two pubkeys, creatorFeeShareBps second', () => {
     const cpSwapProgram = CP_SWAP_PROGRAM_ID;
     const ammConfig = MINT;
     const ix = initializeGlobalIx(
       { authority, feeRecipient: FEE_RECIPIENT },
       {
         tradeFeeBps: 100n,
+        creatorFeeShareBps: 4_800n,
         initialVirtualSol: 30_000_000_000n,
         initialVirtualToken: 1_073_000_000_000_000n,
         tokenTotalSupply: 1_000_000_000_000_000n,
@@ -263,15 +286,16 @@ describe('operator-only instructions', () => {
       },
     );
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.initializeGlobal);
-    expect(ix.data.length).toBe(8 + 6 * 8 + 2 * 32);
-    expect(u64At(ix, 8)).toBe(100n);
-    expect(u64At(ix, 16)).toBe(30_000_000_000n);
-    expect(u64At(ix, 24)).toBe(1_073_000_000_000_000n);
-    expect(u64At(ix, 32)).toBe(1_000_000_000_000_000n);
-    expect(u64At(ix, 40)).toBe(85_000_000_000n);
-    expect(u64At(ix, 48)).toBe(250_000_000n);
-    expect(new PublicKey(ix.data.subarray(56, 88)).equals(cpSwapProgram)).toBe(true);
-    expect(new PublicKey(ix.data.subarray(88, 120)).equals(ammConfig)).toBe(true);
+    expect(ix.data.length).toBe(8 + 7 * 8 + 2 * 32);
+    expect(u64At(ix, 8)).toBe(100n);                        // trade_fee_bps
+    expect(u64At(ix, 16)).toBe(4_800n);                     // creator_fee_share_bps
+    expect(u64At(ix, 24)).toBe(30_000_000_000n);            // initial_virtual_sol
+    expect(u64At(ix, 32)).toBe(1_073_000_000_000_000n);     // initial_virtual_token
+    expect(u64At(ix, 40)).toBe(1_000_000_000_000_000n);     // token_total_supply
+    expect(u64At(ix, 48)).toBe(85_000_000_000n);            // graduation_target_lamports
+    expect(u64At(ix, 56)).toBe(250_000_000n);               // migration_reserve_lamports
+    expect(new PublicKey(ix.data.subarray(64, 96)).equals(cpSwapProgram)).toBe(true);
+    expect(new PublicKey(ix.data.subarray(96, 128)).equals(ammConfig)).toBe(true);
     expect(keyTable(ix)).toEqual([
       [authority.toBase58(), true, true],
       [FEE_RECIPIENT.toBase58(), false, false],
@@ -280,15 +304,64 @@ describe('operator-only instructions', () => {
     ]);
   });
 
-  it('update_global writes nine None bytes when nothing is supplied', () => {
+  // `update_global` takes TEN Options (lib.rs:467-476). This asserted NINE, which is
+  // what the encoder wrote — test and encoder shared one wrong belief, so CI was
+  // green while EVERY update_global reverted: a trailing Option that is never
+  // written leaves the buffer one byte under the minimum and Borsh refuses it. That
+  // silently blocked setting the AMM addresses and handing over authority.
+  //
+  // The count is the invariant, so it is stated once here and reused.
+  const UPDATE_GLOBAL_OPTION_COUNT = 10;
+
+  it('update_global writes one None byte per Option — all ten of them', () => {
     const ix = updateGlobalIx({ authority }, {});
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.updateGlobal);
-    expect(ix.data.length).toBe(8 + 9);
-    expect(Array.from(ix.data.subarray(8))).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(ix.data.length).toBe(8 + UPDATE_GLOBAL_OPTION_COUNT);
+    expect(Array.from(ix.data.subarray(8))).toEqual(
+      new Array(UPDATE_GLOBAL_OPTION_COUNT).fill(0),
+    );
     expect(keyTable(ix)).toEqual([
       [globalPda().toBase58(), false, true],
       [authority.toBase58(), true, false],
     ]);
+  });
+
+  it('update_global encodes EVERY field it accepts — no arg may be silently dropped', () => {
+    // Set all ten, so a field present in UpdateGlobalArgs but missing from the
+    // Writer chain changes the length and fails here. A None-only test cannot catch
+    // that: it would just count one byte fewer and look self-consistent.
+    const ix = updateGlobalIx(
+      { authority },
+      {
+        tradeFeeBps: 100n,
+        graduationTargetLamports: 11_621_942_308n,
+        paused: false,
+        newAuthority: MINT,
+        newFeeRecipient: MINT,
+        migrationReserveLamports: 250_000_000n,
+        newCpSwapProgram: MINT,
+        newAmmConfig: MINT,
+        newInitialVirtualSol: 30_000_000_000n,
+        newCreatorFeeShareBps: 4_800n,
+      },
+    );
+    // tag+payload per field: u64 -> 9, bool -> 2, Pubkey -> 33.
+    const SOME_U64 = 9;
+    const SOME_BOOL = 2;
+    const SOME_PUBKEY = 33;
+    expect(ix.data.length).toBe(8 + 5 * SOME_U64 + SOME_BOOL + 4 * SOME_PUBKEY);
+  });
+
+  it('update_global puts creator_fee_share_bps LAST, after initial_virtual_sol', () => {
+    // Order matters as much as presence: Borsh is positional, so encoding this
+    // value in the wrong slot would reprice something else instead.
+    const ix = updateGlobalIx({ authority }, { newCreatorFeeShareBps: 4_800n });
+    // nine leading Nones, then Some(4800) as 1 tag byte + 8 LE bytes.
+    expect(ix.data.length).toBe(8 + 9 + 1 + 8);
+    expect(Array.from(ix.data.subarray(8, 17))).toEqual(new Array(9).fill(0));
+    expect(ix.data[17]).toBe(1);
+    const v = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
+    expect(v.getBigUint64(18, true)).toBe(4_800n);
   });
 
   it('update_global encodes Some in field order, and false is Some(false) not None', () => {

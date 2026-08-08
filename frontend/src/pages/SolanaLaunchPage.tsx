@@ -15,8 +15,10 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SOL_MINT, USDC_MINT } from '../lib/solana';
+import { isLauncherEnabled } from '../lib/launcher/config';
 import {
   isSolanaLauncherEnabled,
+  isSolanaSubmitReady,
   LIVE_DBC_CONFIG,
   MAX_TOKEN_NAME_CHARS,
   MAX_TOKEN_SYMBOL_CHARS,
@@ -791,10 +793,22 @@ function SolanaLauncherExplainer() {
             rejected. This used to be an out-of-band operator check that this page could not prove to you; it is now a
             fail-closed gate in the signing path.
           </li>
+          {/* 2026-08-07: this sentence was a hardcoded string claiming "The partner
+              config is now live on Solana mainnet, so the rail is armed" — rendered
+              unconditionally, on BOTH the live and the gated path. In any build without
+              VITE_SOLANA_DBC_CONFIG (which is the state of production today) the page
+              therefore showed, on one screen: a PREVIEW badge, a submit panel reading
+              "No live config is published for this deployment", and this claim that the
+              config is live and the rail armed. Three statements, one screen, two of
+              them contradicting the third.
+              Now derived from the same LIVE_DBC_CONFIG the badge and the submit panel
+              read, so the three can never disagree again. */}
           <li>
             <span className="text-white/80">Sequencing.</span> Solana is deliberately behind the Ethereum rail — a
-            later, smaller phase. The partner config is now live on Solana mainnet, so the rail is armed; we are still
-            not naming a date for the first launch through it.
+            later, smaller phase.{' '}
+            {LIVE_DBC_CONFIG
+              ? 'The partner config is live on Solana mainnet, so the rail is armed; we are still not naming a date for the first launch through it.'
+              : 'No partner config is published for this deployment yet, so nothing can launch through this rail today — the page above is a configuration preview.'}
           </li>
         </ul>
       </ExplainerCard>
@@ -809,7 +823,19 @@ function SolanaLauncherExplainer() {
 }
 
 export default function SolanaLaunchPage() {
-  usePageTitle('Solana Launch', 'Preview the Tegridy Solana fee-capture launch config (Meteora DBC).');
+  // 2026-08-07: the description was the unconditional string "Preview the Tegridy
+  // Solana fee-capture launch config (Meteora DBC)" — written before this page had a
+  // submit path. It has one now (see the submitLaunch import and call above), so the
+  // one page that could counterbalance the site's Ethereum-only framing was describing
+  // itself as a preview in the exact field crawlers and link-unfurlers read.
+  // Derived from the same predicate the page's own LIVE/PREVIEW badge uses, so the
+  // meta and the badge can never disagree.
+  usePageTitle(
+    'Solana Launch',
+    isSolanaSubmitReady()
+      ? 'Launch an SPL token on Solana mainnet through Meteora’s Dynamic Bonding Curve — disclosed fees, anti-snipe schedule and locked liquidity, published before you sign.'
+      : 'Preview the Tegridy Solana launch config (Meteora DBC) — fees, anti-snipe schedule and LP lock, disclosed up front.',
+  );
   useEffect(() => {
     trackPageView('solana-launch');
   }, []);
@@ -829,10 +855,16 @@ export default function SolanaLaunchPage() {
             dates, no metrics, no simulated activity — and it states plainly that this
             rail launches OTHER people's tokens: TOWELI is never deployed on Solana. */}
         <SolanaLauncherExplainer />
-        {/* Reciprocal cross-link back to the EVM flagship rail. Also gated
-            (LAUNCHER_ENABLED = false in lib/launcher/config.ts), so keep it secondary. */}
+        {/* Reciprocal cross-link back to the EVM flagship rail.
+            2026-08-07: this arm renders only when the Solana kill switch
+            (SOLANA_LAUNCHER_ENABLED in lib/launcher/solana/dbc.ts) is pulled, so it is
+            not on screen today — but its copy had gone stale and would have been wrong
+            the moment it WAS shown. Both the comment and the sentence claimed the EVM
+            rail "is gated as well"; LAUNCHER_ENABLED has been true since the 2026-07-22
+            go-live. Now derived from isLauncherEnabled() rather than asserted. */}
         <p className="text-white/40 text-xs leading-relaxed mt-6 text-center">
-          The flagship rail is on Ethereum mainnet, built on Doppler V4. It is gated as well.{' '}
+          The flagship rail is on Ethereum mainnet, built on Doppler V4.
+          {isLauncherEnabled() ? ' It is live.' : ' It is gated as well.'}{' '}
           <Link to="/launch" className="text-white/60 hover:text-white underline transition-colors">
             See the mainnet rail
           </Link>

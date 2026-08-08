@@ -68,6 +68,7 @@ function globalBytes(o: { paused?: boolean; ammConfigured?: boolean } = {}): Uin
     CREATOR.toBytes(),
     CREATOR.toBytes(),
     u64le(100n),
+    u64le(4_800n), // creator_fee_share_bps — the 2nd field, not the last
     u64le(30n * SOL),
     u64le(1_073_000_000_000_000n),
     u64le(1_000_000_000_000_000n),
@@ -77,6 +78,11 @@ function globalBytes(o: { paused?: boolean; ammConfigured?: boolean } = {}): Uin
     (o.ammConfigured === false ? DEFAULT_PUBKEY : CREATOR).toBytes(),
     byte(o.paused ? 1 : 0),
     byte(254),
+    // The segmented-curve tail: sqrt_price_start_x64 (u128), segment_count (u8), and
+    // the FIXED 16-slot segment array — present at full width even when unused.
+    new Uint8Array(16),
+    byte(0),
+    new Uint8Array(16 * 32),
   );
 }
 
@@ -588,7 +594,10 @@ describe('migrationEligibility', () => {
 
 describe('the account sizes the rent reads use', () => {
   it('match the layouts', () => {
-    expect(GLOBAL_CONFIG_SIZE).toBe(186);
+    // 723 is the size of the account the program allocated on mainnet, measured —
+    // not re-derived. It was 186 here while the chain held 723, which made
+    // `decodeGlobalConfig` reject the live account as `bad-length`.
+    expect(GLOBAL_CONFIG_SIZE).toBe(723);
     expect(BONDING_CURVE_SIZE).toBe(162);
   });
 });

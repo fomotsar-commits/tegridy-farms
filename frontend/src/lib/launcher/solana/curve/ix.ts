@@ -57,6 +57,20 @@ import { U64_MAX, isU64 } from './math';
  */
 export const MIGRATE_COMPUTE_UNITS = 400_000;
 
+/**
+ * Which pricing curve a launch runs on — mirrors `CurveMode` in state.rs.
+ * Anchor serialises a fieldless enum as its u8 discriminant, in declaration order.
+ */
+// A const object, not a TS `enum`: this project sets `erasableSyntaxOnly`, under
+// which `enum` emits runtime code and is rejected.
+export const CurveMode = {
+  /** Constant product over virtual reserves — the pump.fun shape. */
+  ConstantProduct: 0,
+  /** Up to 16 (sqrt_price, liquidity) segments — the Meteora shape. */
+  Segmented: 1,
+} as const;
+export type CurveMode = (typeof CurveMode)[keyof typeof CurveMode];
+
 // ── encoding ─────────────────────────────────────────────────────────────────
 
 /**
@@ -80,6 +94,16 @@ class Writer {
 
   pubkey(k: PublicKey): this {
     this.bytes.push(...k.toBytes());
+    return this;
+  }
+
+  /** A bare `u8`. Range-checked for the same reason `u64` is: a silently truncated
+   *  discriminant would select a DIFFERENT curve mode than the caller asked for. */
+  u8(v: number, label: string): this {
+    if (!Number.isInteger(v) || v < 0 || v > 255) {
+      throw new RangeError(`${label} must be an integer in 0..255, got ${v}`);
+    }
+    this.bytes.push(v);
     return this;
   }
 
@@ -244,6 +268,8 @@ export function sellIx(
  */
 export function createLaunchIx(
   accounts: { creator: PublicKey; mint: PublicKey },
+  /** 0 = ConstantProduct (pump.fun shape), 1 = Segmented (Meteora shape). */
+  mode: CurveMode = CurveMode.ConstantProduct,
   ids: ProgramIds = {},
 ): TransactionInstruction {
   const programId = ids.programId ?? PROGRAM_ID;
@@ -259,7 +285,7 @@ export function createLaunchIx(
       acc(SYSTEM_PROGRAM_ID, false, false),
       acc(SYSVAR_RENT_PUBKEY, false, false),
     ],
-    data: new Writer().disc(IX_DISCRIMINATOR.createLaunch).finish(),
+    data: new Writer().disc(IX_DISCRIMINATOR.createLaunch).u8(mode, 'mode').finish(),
   });
 }
 
@@ -360,6 +386,12 @@ export function initializeGlobalIx(
   accounts: { authority: PublicKey; feeRecipient: PublicKey },
   args: {
     tradeFeeBps: bigint;
+    /**
+     * The creator's share OF THE TRADE FEE, in bps of the fee. SECOND argument,
+     * not last — Borsh is positional, so its place in this object is irrelevant
+     * but its place in the Writer chain below is everything.
+     */
+    creatorFeeShareBps: bigint;
     initialVirtualSol: bigint;
     initialVirtualToken: bigint;
     tokenTotalSupply: bigint;
@@ -382,6 +414,7 @@ export function initializeGlobalIx(
     data: new Writer()
       .disc(IX_DISCRIMINATOR.initializeGlobal)
       .u64(args.tradeFeeBps, 'tradeFeeBps')
+      .u64(args.creatorFeeShareBps, 'creatorFeeShareBps')
       .u64(args.initialVirtualSol, 'initialVirtualSol')
       .u64(args.initialVirtualToken, 'initialVirtualToken')
       .u64(args.tokenTotalSupply, 'tokenTotalSupply')
@@ -412,6 +445,15 @@ export interface UpdateGlobalArgs {
   newCpSwapProgram?: PublicKey | null;
   newAmmConfig?: PublicKey | null;
   newInitialVirtualSol?: bigint | null;
+  /**
+   * The TENTH and last `Option` (lib.rs:476). Omitting it did not produce a
+   * mis-shifted argument the way a missing REQUIRED field does — a trailing
+   * `Option` that is never written simply leaves the buffer one byte short of the
+   * minimum, so Borsh cannot deserialize and the program rejects the instruction
+   * outright. Every `update_global` reverted, which meant the AMM addresses could
+   * not be set and authority could not be handed over.
+   */
+  newCreatorFeeShareBps?: bigint | null;
 }
 
 export function updateGlobalIx(
@@ -434,6 +476,7 @@ export function updateGlobalIx(
       .optPubkey(args.newCpSwapProgram)
       .optPubkey(args.newAmmConfig)
       .optU64(args.newInitialVirtualSol, 'newInitialVirtualSol')
+      .optU64(args.newCreatorFeeShareBps, 'newCreatorFeeShareBps')
       .finish(),
   });
 }

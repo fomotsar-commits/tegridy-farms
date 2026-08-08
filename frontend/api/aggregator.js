@@ -268,6 +268,21 @@ export default async function handler(req, res) {
     return handleLaunchCohort(req, res);
   }
 
+  // `?resource=heat` proxies Jungle Bay Island's held-time oracle at memetics.wtf.
+  // This one is not an optimisation: the upstream answers with
+  // `Access-Control-Allow-Origin: https://junglebayisland.lat`, so a browser fetch
+  // from our origin is CORS-blocked and there is no client-side workaround. Going
+  // through here also keeps the browser talking only to `'self'`, so vercel.json's
+  // connect-src needs no new host. Lazy import: the swap hot path never pays for it.
+  // See _lib/heat.js header.
+  //
+  // MUST stay above the `const provider` line below — a ?resource= call carries no
+  // provider, so a branch placed after it never runs and falls into the 404.
+  if (req.query.resource === "heat") {
+    const { handleHeat } = await import("./_lib/heat.js");
+    return handleHeat(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

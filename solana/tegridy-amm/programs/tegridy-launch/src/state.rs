@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::segmented::{Segment, MAX_SEGMENTS};
+
 /// PDA seed prefixes. Changing any of these is an account-layout break.
 pub const GLOBAL_SEED: &[u8] = b"global";
 pub const CURVE_SEED: &[u8] = b"curve";
@@ -74,15 +76,51 @@ pub const LAUNCH_POOL_SEED: &[u8] = b"launchpool";
 /// changing this config never retroactively alters a live launch's economics.
 /// That is deliberate: a launch's terms must not be mutable by governance after
 /// people have bought into it.
+
+/// Which pricing curve a launch runs on. Stored as `u8` so an unknown value from a
+/// future version deserializes rather than corrupting the account.
+///
+/// ONE PROGRAM, TWO MODES — deliberately. The migration path, the fee split, the
+/// creator payout, the mint constraints and the graduation gate are identical for
+/// both; only the pricing differs. Two programs would mean two deploys, two audits,
+/// and two chances for the shared 90% to drift apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
+pub enum CurveMode {
+    /// Constant product over virtual reserves — the pump.fun shape. Prices from
+    /// `virtual_*_reserves`; `segments` is unused.
+    ConstantProduct,
+    /// Up to 16 `(sqrt_price, liquidity)` segments — the Meteora shape. Prices from
+    /// `segments` + `sqrt_price_x64`; the virtual reserves are unused.
+    Segmented,
+}
+
+impl CurveMode {
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(CurveMode::ConstantProduct),
+            1 => Some(CurveMode::Segmented),
+            _ => None,
+        }
+    }
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct GlobalConfig {
     /// Admin. Mainnet: the Squads multisig, threshold >= 2.
     pub authority: Pubkey,
-    /// Where trade fees accrue. Mainnet: the treasury's Squads vault.
+    /// Where the PROTOCOL's share of trade fees accrues (the creator's share
+    /// goes straight to `BondingCurve.creator`). Mainnet: the treasury's Squads
+    /// vault.
     pub fee_recipient: Pubkey,
     /// Trade fee in basis points, bounded by `curve::MAX_FEE_BPS`.
     pub trade_fee_bps: u64,
+    /// The creator's share OF THE TRADE FEE, in bps of the fee (5_000 = half the
+    /// fee), paid instantly and non-custodially to `BondingCurve.creator` on
+    /// every buy and sell. This is the launcher's volume magnet: every surviving
+    /// launchpad pays creators a streaming cut, and one that pays zero loses its
+    /// launches to the rails that do. The protocol keeps the remainder.
+    pub creator_fee_share_bps: u64,
     /// Virtual reserves every new curve opens with — these set the opening price.
     pub initial_virtual_sol: u64,
     pub initial_virtual_token: u64,
@@ -117,6 +155,22 @@ pub struct GlobalConfig {
     /// never trap holders in a position they cannot exit.
     pub paused: bool,
     pub bump: u8,
+
+    // ── The segmented (Meteora-shaped) curve, defined by the OPERATOR ──────────
+    //
+    // The shape lives here, not in `create_launch`, on purpose. Letting a creator
+    // supply arbitrary segments would let them craft a curve — a near-vertical first
+    // segment, say — and every config-time economic gate would be checking numbers
+    // the creator chose. The operator publishes ONE shape; creators pick which mode
+    // to launch on, not what the curve looks like.
+    /// Opening sqrt-price for segmented launches, Q64.64.
+    pub sqrt_price_start_x64: u128,
+    /// How many of `segments` are live. Zero means the segmented mode is not
+    /// configured yet and `create_launch` must refuse it.
+    pub segment_count: u8,
+    /// The segment table. Fixed-size rather than a `Vec` so the account layout never
+    /// moves; unused entries are zeroed and ignored.
+    pub segments: [Segment; MAX_SEGMENTS],
 }
 
 /// One bonding curve per launched token. PDA at [`CURVE_SEED`, mint].
@@ -136,6 +190,9 @@ pub struct BondingCurve {
     /// Fee snapshotted at creation, so a later governance change cannot alter the
     /// terms of a launch that is already trading.
     pub trade_fee_bps: u64,
+    /// Creator's share of the fee, snapshotted for the same reason — a creator's
+    /// income stream must not be governance-mutable after people bought in.
+    pub creator_fee_share_bps: u64,
     /// Graduation target, snapshotted for the same reason.
     pub graduation_target_lamports: u64,
     /// Migration reserve, snapshotted for the same reason.
@@ -154,6 +211,29 @@ pub struct BondingCurve {
     /// permanently locked every lamport raised, because `buy` and `sell` both
     /// require `!complete` and `sell` was the only exit. A flag that closes the
     /// only exit must be written by the instruction that opens the new one.
+    // ── Curve mode, snapshotted at creation ───────────────────────────────────
+    //
+    // Snapshotted for the same reason the fee and target are: `update_global` must
+    // never be able to reprice a launch people have already bought into. A launch
+    // created as Segmented keeps ITS segments even if the operator republishes a
+    // different shape the next block.
+    /// `CurveMode` as `u8`. See `CurveMode::from_u8`.
+    pub mode: u8,
+    /// Current sqrt-price, Q64.64. Segmented mode only; zero on constant-product.
+    pub sqrt_price_x64: u128,
+    /// The price this launch OPENED at, Q64.64. Immutable, and the floor a sell may
+    /// never price below. Kept separate from `sqrt_price_x64` because that one moves
+    /// with every trade — using it as its own floor would let the floor ratchet up
+    /// behind sellers.
+    pub sqrt_price_start_x64: u128,
+    /// Live segment count. Zero on constant-product.
+    pub segment_count: u8,
+    /// The snapshot. Costs ~0.0036 SOL of extra rent on EVERY launch, including
+    /// constant-product ones that leave it zeroed. That is deliberate: a `Vec` would
+    /// save the rent but make the account size depend on an instruction argument,
+    /// and a fixed layout is worth $0.27 in a program that holds other people's SOL.
+    pub segments: [Segment; MAX_SEGMENTS],
+
     pub complete: bool,
 
     /// The cp-swap pool this curve graduated into. Zero until migration.
@@ -199,7 +279,12 @@ pub struct Traded {
     pub is_buy: bool,
     pub sol_amount: u64,
     pub token_amount: u64,
+    /// TOTAL fee charged on the trade (creator + protocol).
     pub fee_lamports: u64,
+    /// The slice of `fee_lamports` paid to the launch creator. The protocol's
+    /// slice is the difference — emitted so indexers and the Fact Sheet can
+    /// report both without re-deriving the split.
+    pub creator_fee_lamports: u64,
     pub real_sol_reserves: u64,
     pub real_token_reserves: u64,
 }
@@ -211,4 +296,12 @@ pub struct Graduated {
     pub sol_reserves: u64,
     /// Tokens handed to the AMM pool seeding.
     pub token_reserves: u64,
+}
+
+/// Emitted when the operator publishes a new segmented-curve shape. Indexers need
+/// this to explain why launches created after a given slot price differently.
+#[event]
+pub struct CurveSegmentsSet {
+    pub segment_count: u8,
+    pub sqrt_price_start_x64: u128,
 }

@@ -102,8 +102,12 @@ export function Footer() {
                 <span>FARMS</span>
               </span>
             </div>
+            {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
+                there for the reasoning. This blurb renders on EVERY page, so it was the
+                widest-reach copy of both the single-chain framing and the "100% of
+                protocol swap fees" claim that AUDIT R073 contradicts. */}
             <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
-              Art-first yield farming on Ethereum. Stake TOWELI & LP tokens to earn rewards. 100% of protocol swap fees are routed to stakers.
+              Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
             </p>
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Contract</p>

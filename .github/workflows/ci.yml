@@ -72,6 +72,22 @@ jobs:
         # be re-checked before porting to main.
         run: npm test
 
+      # Every protocol address, decoded rather than eyeballed.
+      #
+      # 2026-08-08: an operator wallet was recorded in notes only as a truncated
+      # "5hNA2MXk…927v", and a later session INVENTED a full address to fit that
+      # pattern — 45 characters decoding to 33 bytes, which is not a Solana pubkey
+      # at all. It looked completely plausible sitting next to the real one. Nobody
+      # funded it, so nothing was lost; that was luck.
+      #
+      # A wrong address is visually indistinguishable from a right one, so review
+      # cannot catch this class of error and a markdown table would not have
+      # helped. Decoding catches it every time. This step also fails when a new
+      # contract lands in constants.ts without being registered, so an address can
+      # never enter the codebase unexplained.
+      - name: Address registry
+        run: node scripts/verify-addresses.mjs
+
       # The pre-deploy guard is the only control on the Vercel CLI path, and it
       # runs on an operator's laptop where nothing verifies it still works. Its
       # decision table is pure, so prove it here on every push instead of

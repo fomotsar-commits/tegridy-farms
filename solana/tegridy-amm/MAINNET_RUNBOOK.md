@@ -9,6 +9,40 @@ Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external subm
 ---
 
 ## 0. Prereqs
+
+### DEPLOY FLOAT — **~8.4 SOL**, MEASURED
+
+Corrected twice on 2026-08-08. Get this from a measurement, not from arithmetic:
+
+| program | binary | on-chain account | rent |
+|---|---|---|---|
+| `tegridy_launch` | 514,320 B | 514,320 B | **3.5809 SOL** ← measured on devnet |
+| `raydium_cp_swap` | 691,640 B | 691,640 B | **4.8154 SOL** (same rate) |
+| fee-receiver WSOL ATA | | | 0.0020 SOL |
+| tx fees | | | ~0.0100 SOL |
+| | | **TOTAL** | **~8.4 SOL** |
+
+**Two wrong numbers preceded this one, both from reasoning instead of measuring:**
+
+1. *"~5 SOL rent"* per program — a guess written before the binaries existed.
+2. *"~17.3 SOL"* — I assumed `solana program deploy` reserves **2× the binary**, doubled
+   the rent, and wrote it down. It does not. A real devnet deploy of the 514,320-byte
+   binary produced `Data Length: 514320` and `Balance: 3.58087128 SOL` — **exact size**.
+   The 2× reservation happens only when you pass `--max-len`.
+
+So: deploy at the default, and if a later build is larger, grow the account with
+`solana program extend <PROGRAM_ID> <additional_bytes>` rather than paying for
+headroom up front.
+
+Verify before spending, on the artifact you are actually deploying:
+
+```bash
+solana rent $(stat -c%s target/deploy/tegridy_launch.so) --url mainnet-beta
+```
+
+Rent is **recoverable** by closing the program — but NOT if §4's burn-the-upgrade-
+authority option is taken. Decide knowing that.
+
 - Diff-audit passed; findings (if any) fixed and re-diffed (CI `diff-guard` still green).
 - `solana` CLI installed; `solana config set --url mainnet-beta`.
 
@@ -50,12 +84,25 @@ is **not present in this checkout**. Forget this one and the build succeeds and 
 to a throwaway address someone else may hold the key to. Replace it explicitly.
 - `programs/cp-swap/src/lib.rs`
   - `declare_id!(…)` → the pubkey from step 1
-  - `admin::ID` → **Squads multisig**
+  - `admin::ID` → the Squads **VAULT PDA**, or any plain wallet. ⚠️ **NOT the multisig
+    account.** This line previously said "Squads multisig", it was followed literally, and
+    the result shipped to mainnet on 2026-08-08 and **bricked graduation**:
+    `create_amm_config` takes this address as `Signer` *and* `payer`, and the multisig
+    account is a Squads-owned data account that can do neither (Squads v4 signs CPIs as
+    the **vault**; the System Program can only debit a data-less account it owns). Fixing
+    it cost a program upgrade. Sanity-check before building — the vault reads
+    `owner: 11111111111111111111111111111111`, `space: 0`; the multisig reads
+    `owner: SQDS4ep65T…` with a few hundred bytes:
+    ```
+    solana account <the-address-you-are-about-to-bake-in> -u m
+    ```
   - `create_pool_fee_reveiver::ID` → the treasury's **WSOL associated-token-account** (a
     native-SOL *token account*, NOT the treasury wallet — the create path consumes it as a
     `TokenAccount`; derive it with `spl-token address --token So111…112 --owner <treasury>`)
 - `programs/cp-swap/src/instructions/admin/create_support_mint_associated.rs`
-  - `create_support_mint_associated_owner::ID` → **Squads multisig**
+  - `create_support_mint_associated_owner::ID` → a **system-owned** account (vault PDA or
+    wallet), same rule as `admin::ID`. It is an OR-fallback alongside `admin::ID`, so it may
+    be left at its current unsignable value without blocking anything.
 
 ⚠️ **CI will FAIL on this commit, by design.** The old guard only checked *which files*
 differed; since #202 it canonicalises the delta and compares
@@ -88,7 +135,7 @@ compiles fine and then makes **every `create_pool` fail**. As of 2026-08-01 the 
 ```bash
 spl-token create-account So11111111111111111111111111111111111111112   --owner GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd --url mainnet-beta
 ```
-Costs ~0.00204 SOL of rent — this is **not** part of the ~12 SOL deploy float. Verify it
+Costs ~0.00204 SOL of rent — this is **not** part of the deploy float (see §0). Verify it
 landed and is a token account:
 ```bash
 solana account 2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa --url mainnet-beta
@@ -103,7 +150,7 @@ Confirm the built program-id matches step 1 and that the sentinels are gone.
 
 ## 4. 🔑💰 Deploy + lock down the upgrade authority
 ```bash
-solana program deploy <artifact>.so --program-id keys/mainnet-program.json   # ~5 SOL rent
+solana program deploy <artifact>.so --program-id keys/mainnet-program.json   # see §0 for real rent
 # Move upgrade authority to the multisig (or burn it if you want immutability):
 solana program set-upgrade-authority <PROGRAM_ID> --new-upgrade-authority <MULTISIG>
 solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
@@ -111,8 +158,19 @@ solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
 > Optionally publish a verifiable build so explorers show source == bytecode.
 
 ## 5. 🔑 Create the AmmConfig (this is where Tegridy's fee is set)
-Use the repo's `client/` tooling (point it at mainnet + the multisig signer). `create_config`
-is **admin-only**. All fee rates use denominator **1_000_000** (`curve/fees.rs`):
+
+> ⚠️ **`create_config` is signed by `admin::ID` and PAYS the AmmConfig rent from it.**
+> Whoever you baked in at step 2 must therefore be a system-owned, funded account. If
+> `admin::ID` is a Squads **vault**, this is a 2-of-N vault transaction and the vault needs
+> ~0.0026 SOL. If it is a plain wallet, it is an ordinary single-key transaction. If it is
+> the multisig **account**, this step is impossible and the only fix is a program upgrade —
+> which is exactly what happened here on 2026-08-08.
+>
+> Note the repo's `client/` crate can only *decode* `CreateAmmConfig`
+> (`client/src/instructions/events_instructions_parse.rs`); it has **no builder**. Building
+> and sending this instruction needs tooling that does not exist yet.
+
+`create_config` is **admin-only**. All fee rates use denominator **1_000_000** (`curve/fees.rs`):
 - `trade_fee_rate` — total swap fee, e.g. `2500` = 0.25%.
 - `protocol_fee_rate` — the protocol's **share of the trade fee**, out of 1_000_000
   (Raydium default `120000` = **12% of the trade fee** ≈ 0.03% of volume at a 0.25% trade fee).
@@ -139,14 +197,54 @@ A **separate program** from cp-swap, deliberately — folding it in would break
 2. Call `initialize_global`. **Three parameters are not free choices — get them
    wrong and the launcher misbehaves in ways nothing will warn you about later.**
 
+### `creator_fee_share_bps` — the volume magnet; recommended **4_800** (48% of the fee)
+
+The creator's share OF THE TRADE FEE, paid instantly and non-custodially to the
+launch creator on every buy and sell (2026-08-02 economics synthesis). Every
+surviving launchpad pays creators a streaming cut — pump.fun 0.30%/vol on-curve,
+the Meteora-partner rail 0.48%/vol — and a curve that pays zero loses its
+launches to the rails that pay.
+
+**Why 4,800 and not a round 5,000** (`CREATOR_FEE_SPEC.md` §1): at
+`trade_fee_bps = 100` it is **exact parity with the live Meteora partner config's
+48 bps**, so the creator-facing claim is checkable against something public rather
+than taken on trust. The protocol nets **52 bps** here versus **32 bps** on the DBC
+rail — because there is no Meteora leg to pay — so moving a creator from our DBC
+rail to our own curve is **+62.5% revenue per trade at zero cost to the creator**.
+That argument only exists while the share is held AT parity rather than bid above
+it; raising it to 5,000 buys 2 bps of creator goodwill and forfeits the
+like-for-like comparison.
+
+Snapshotted per launch like the fee itself; `update_global` moves future launches
+only. Bounded at 10_000 (100% of the fee).
+
+⚠️ **Divergence from the spec, deliberate and reconciled 2026-08-04.**
+`CREATOR_FEE_SPEC.md` §1 prescribed a *compile-time constant*; the implementation
+uses a governable `GlobalConfig` field. The field is kept because the per-curve
+snapshot already delivers the spec's actual goal — no signature can reprice a
+launch people have bought into — while leaving the ratio tunable for FUTURE
+launches without a program upgrade. The spec's value (4,800) is adopted verbatim.
+
 ### ⚠️ `migration_reserve_lamports` — minimum **192,156,720** (~0.1922 SOL)
 
 Raised from traders on top of the target, and it pays cp-swap's costs at migration:
 0.15 SOL `create_pool_fee` plus 42,156,720 lamports of rent for the five accounts
 cp-swap creates (`observation_state` alone is 29.25M — 70% of the rent). Derived
 from cp-swap's own `LEN` constants, not estimated. **Recommended: 0.25 SOL** for
-headroom; the surplus is swept back to whoever calls migration, so
-over-provisioning costs nothing but a slightly larger raise.
+headroom.
+
+> ⚠️ **Corrected 2026-08-08 — the previous advice made a real leak bigger.**
+> This used to read *"the surplus is swept back to whoever calls migration, so
+> over-provisioning costs nothing but a slightly larger raise."* Wrong twice over.
+> Migration is **permissionless**, so "whoever calls migration" meant any bot, not
+> the operator; and the surplus is **traders' money**, because the reserve is raised
+> on top of the graduation target. Over-provisioning did not cost nothing — it sized
+> a standing MEV bounty paid out of buyers' funds at every graduation.
+>
+> The residual now goes to `global.fee_recipient` (lib.rs, the sweep at the end of
+> `migrate_to_amm`), so over-provisioning is no longer exploitable. It is still
+> charged to buyers and banked by the protocol rather than returned to them, so
+> **size this to the real cost plus a modest margin, not generously.**
 
 Too small and migration fails *after* the pool exists — the worst possible moment.
 
