@@ -14,6 +14,7 @@ import {
   migrateToAmmIx,
   sellIx,
   updateGlobalIx,
+  setCurveSegmentsIx,
 } from './ix';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -384,6 +385,67 @@ describe('operator-only instructions', () => {
     expect(Array.from(ix.data.subarray(8, 12))).toEqual([0, 0, 0, 0]);
     expect(ix.data[12]).toBe(1);
     expect(new PublicKey(ix.data.subarray(13, 45)).equals(MINT)).toBe(true);
+  });
+
+  it('set_curve_segments puts AUTHORITY first — the reverse of update_global', () => {
+    // Both are `has_one = authority`, but the structs declare the accounts in
+    // OPPOSITE order (lib.rs:1613-1621 vs :1599-1607). Anchor matches POSITIONALLY,
+    // so swapping them hands the program a Signer where it wants the config account
+    // — a confusing deserialize failure rather than an obvious signer error.
+    const seg = { sqrtPriceUpperX64: (1n << 65n) + 1n, liquidity: 1_000_000n };
+    const set = setCurveSegmentsIx(
+      { authority },
+      { sqrtPriceStartX64: 1n << 64n, segments: [seg] },
+    );
+    expect(keyTable(set)).toEqual([
+      [authority.toBase58(), true, false],
+      [globalPda().toBase58(), false, true],
+    ]);
+    // ...and update_global is the other way round.
+    expect(keyTable(updateGlobalIx({ authority }, { paused: true }))).toEqual([
+      [globalPda().toBase58(), false, true],
+      [authority.toBase58(), true, false],
+    ]);
+  });
+
+  it('set_curve_segments encodes u128s and a u32 Vec prefix, little-endian', () => {
+    const segs = [
+      { sqrtPriceUpperX64: (1n << 70n) + 7n, liquidity: (1n << 65n) + 3n },
+      { sqrtPriceUpperX64: (1n << 71n) + 9n, liquidity: (1n << 66n) + 5n },
+    ];
+    const ix = setCurveSegmentsIx(
+      { authority },
+      { sqrtPriceStartX64: (1n << 64n) + 1n, segments: segs },
+    );
+    expect(disc(ix)).toEqual(IX_DISCRIMINATOR.setCurveSegments);
+    // 8 disc + 16 start + 4 Vec len + 32 per segment.
+    expect(ix.data.length).toBe(8 + 16 + 4 + segs.length * 32);
+    const view = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
+    const rd128 = (o: number) => view.getBigUint64(o, true) | (view.getBigUint64(o + 8, true) << 64n);
+    // Every value here exceeds 2^53, so a Number-based encoder would round them.
+    expect(rd128(8)).toBe((1n << 64n) + 1n);
+    expect(view.getUint32(24, true)).toBe(2);
+    segs.forEach((s, i) => {
+      expect(rd128(28 + i * 32)).toBe(s.sqrtPriceUpperX64);
+      expect(rd128(28 + i * 32 + 16)).toBe(s.liquidity);
+    });
+  });
+
+  it('set_curve_segments refuses a value that does not fit a u128', () => {
+    const tooBig = 2n ** 128n;
+    expect(() =>
+      setCurveSegmentsIx({ authority }, { sqrtPriceStartX64: tooBig, segments: [] }),
+    ).toThrow(/sqrtPriceStartX64 must fit in a u128/);
+    expect(() =>
+      setCurveSegmentsIx(
+        { authority },
+        { sqrtPriceStartX64: 1n, segments: [{ sqrtPriceUpperX64: 1n, liquidity: tooBig }] },
+      ),
+    ).toThrow(/liquidity must fit in a u128/);
+    // u128::MAX itself is legal at this layer; the PROGRAM rejects it on range.
+    expect(() =>
+      setCurveSegmentsIx({ authority }, { sqrtPriceStartX64: tooBig - 1n, segments: [] }),
+    ).not.toThrow();
   });
 });
 
