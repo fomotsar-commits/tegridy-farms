@@ -15,6 +15,7 @@ vi.mock("../_lib/ratelimit.js", () => ({
 }));
 
 import { handleRecord } from "../_lib/record.js";
+import { buildBirthRecord } from "../_lib/record-core.js";
 import { SELECTORS, ASSET_DATA_WORDS, AIRLOCK, DOPPLER_ERC20_V1_IMPL } from "../_lib/record-evm.js";
 import { decodeAbiString, decodeUint, decodeAddress, decodeUint8, wordAt } from "../_lib/abi-decode.js";
 import { decodeMintAccount } from "../_lib/record-solana.js";
@@ -518,5 +519,26 @@ describe("the Solana mint decoder", () => {
   it("reports the mint authority, which is the rail's central promise", () => {
     expect(decodeMintAccount(mintBuf({ mintAuth: 0 })).mintAuthorityPresent).toBe(false);
     expect(decodeMintAccount(mintBuf({ mintAuth: 1 })).mintAuthorityPresent).toBe(true);
+  });
+});
+
+describe("a token whose allocations cannot be enumerated publishes NO plates", () => {
+  it("does not claim 100% float for an arbitrary non-template token", () => {
+    // Verified live: USDC previously came back with a full-float plate alongside
+    // `unread: ["plates"]`. The plate reads as "no insider allocation" — an assertion
+    // about a token we just said we could not enumerate.
+    const rec = buildBirthRecord({
+      sheet: {
+        schemaVersion: 1, token: CA, chainId: 1, name: "USD Coin", symbol: "USDC",
+        totalSupply: 49481772146429344n, tokenFactory: null, templateCodehash: null,
+        knownSafeTemplate: false, residualPowers: [],
+        liquidity: { locked: false, locker: null, unlockAt: null, note: "" },
+        feeConstitution: [], vesting: [], teamAllocationBps: 0, teamAllocationVestedBps: 0,
+        tier: "none", gateChecks: [], observedAt: 1786104024,
+      },
+      chain: "ethereum", decimals: 6, liquidityReadable: false, unread: ["plates"],
+    });
+    expect(rec.plates).toEqual([]);
+    expect(rec.unread).toContain("plates");
   });
 });

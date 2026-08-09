@@ -269,6 +269,19 @@ export function buildBirthRecord(input) {
     });
   }
 
+  // PLATES WE COULD NOT ENUMERATE ARE NO PLATES AT ALL.
+  //
+  // When the caller says the allocation breakdown is unreadable — an arbitrary token
+  // whose insider holdings we cannot enumerate, or a `vestedTotalAmount()` read that
+  // failed — `teamAllocationBps` is 0, and the arithmetic above therefore produces a
+  // single "Public sale = 10000 bps" plate. That is not a gap, it is an ASSERTION that
+  // the token is 100% float, published for a token we just admitted we cannot read.
+  //
+  // Emitting nothing is the honest shape: `plates: []` alongside `unread: ["plates"]`
+  // reads as "not enumerated", which is true, and cannot be mistaken for "all float".
+  const platesUnreadable = unread.has('plates');
+  const finalPlates = platesUnreadable ? [] : plates;
+
   const fee_instruction = sheet.feeConstitution.map((l) => ({
     recipient: l.recipient,
     share_bps: l.shareBps,
@@ -311,7 +324,7 @@ export function buildBirthRecord(input) {
     symbol,
     decimals,
     total_supply: supply > 0n ? toBaseUnits(supply) : null,
-    plates,
+    plates: finalPlates,
     locks,
     fee_instruction,
     observed_at: sheet.observedAt,

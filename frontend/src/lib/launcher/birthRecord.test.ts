@@ -189,6 +189,24 @@ describe('decimals, pinned per rail — the hard law', () => {
   });
 });
 
+describe('plates we could not enumerate are NO plates', () => {
+  it('emits nothing rather than a fabricated 100%-float plate', () => {
+    // Caught on a live mainnet read: USDC came back with `plates: [Public sale = 10000
+    // bps]` AND `unread: ["plates"]`. The plate is an assertion that the token has no
+    // insider allocation — published for a token we had just said we could not read.
+    const r = buildBirthRecord({ sheet: sheet({ teamAllocationBps: 0 }), ...base, unread: ['plates'] });
+    expect(r.plates).toEqual([]);
+    expect(r.unread).toContain('plates');
+  });
+
+  it('still emits plates when they WERE enumerated', () => {
+    const r = buildBirthRecord({ sheet: sheet({ teamAllocationBps: 0 }), ...base });
+    expect(r.plates).toHaveLength(1);
+    expect(r.plates[0].share_bps).toBe(10_000);
+    expect(r.unread).not.toContain('plates');
+  });
+});
+
 describe('the liquidity lock is never ASSERTED on a rail that cannot read it', () => {
   it('makes NO claim when the locker was never queried', () => {
     // The live EVM state: `readMigrationStream` is inert against the V1 locker and
