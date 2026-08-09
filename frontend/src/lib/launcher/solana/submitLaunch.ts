@@ -32,6 +32,7 @@ import { Connection, Keypair, Transaction } from '@solana/web3.js';
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
 import { launchToken } from './dbcClient';
 import { buildLaunchParams, type DbcLaunchParams } from './dbc';
+import { assertMayLaunch } from '../../heat/launchGate';
 
 /** Commitment used for the client and for confirmation. */
 const COMMITMENT = 'confirmed' as const;
@@ -131,6 +132,17 @@ export interface SubmitLaunchInput {
   sendTransaction: SendTransaction;
   /** The connected wallet: pays fees, and is the pool creator. */
   walletAddress: string;
+  /**
+   * The address the island measures for the launch gate.
+   *
+   * An ETHEREUM address, and separate from `walletAddress` on purpose: the island's
+   * measured registry is Base + Ethereum tokens, so the Solana pubkey that pays for
+   * this launch has no standing to read. "EVM address is the qualifying identity today;
+   * SOL linking rides the island's multiwallet rail when it ships" (gate spec §3). When
+   * that rail ships, this can collapse back into `walletAddress` — until then, passing
+   * the Solana key here would deny every Solana launcher for the wrong reason.
+   */
+  heatIdentity: string;
   /** Operator's existing partner config. Build-time configuration, never user input. */
   config: string;
   /**
@@ -170,6 +182,11 @@ export interface SubmitLaunchResult {
   signature: string;
   /** The launched token's mint address. */
   mint: string;
+  /**
+   * `gate_decision_id` — the Heat gate audit row that permitted this launch, carried on
+   * the birth notify. Null when the local audit store was unavailable; never a blocker.
+   */
+  gateDecisionId: string | null;
 }
 
 /**
@@ -179,6 +196,32 @@ export interface SubmitLaunchResult {
  * Callers must not treat it as "nothing happened" and must not auto-retry.
  */
 export async function submitLaunch(input: SubmitLaunchInput): Promise<SubmitLaunchResult> {
+  // THE SEEDLING GATE, FIRST — above the descriptor build, above the SDK, and far above
+  // `sendTransaction`.
+  //
+  // Position is the whole point. `HeatGateDenied` is a plain Error subclass ON PURPOSE,
+  // so `wasBroadcast()` reads false and the refusal reports "nothing was submitted" —
+  // which is literally true from up here. Below `sendTransaction` the same throw would
+  // be indistinguishable from a landed transaction that failed, and the caller would
+  // tell someone in writing that nothing happened for a token that exists on mainnet.
+  // Never move this line down, and never give the denial a `signature`.
+  //
+  // `heatIdentity` and not `walletAddress`: an Ethereum address is the qualifying
+  // identity today (gate spec §3) — the island's registry measures Base and Ethereum
+  // tokens, so a Solana pubkey reads cold for reasons that are about the island's
+  // multiwallet rail not shipping yet, not about the launcher.
+  //
+  // An ABSENT identity gets its own message rather than being handed to the oracle as
+  // an empty string: "the instrument is unreachable" would be a lie about the island
+  // when the truth is that we have nothing to ask about. Still a plain Error, still
+  // above every side effect, so it is still provably "never submitted".
+  if (!input.heatIdentity) {
+    throw new Error(
+      'Connect the Ethereum wallet that carries your standing on Jungle Bay Island. An Ethereum address is the qualifying identity for the launch gate today — Solana linking rides the island’s multiwallet rail when it ships.',
+    );
+  }
+  const gateRow = await assertMayLaunch(input.heatIdentity);
+
   const mint = input.mintKeypair.publicKey.toBase58();
 
   const params: DbcLaunchParams = buildLaunchParams(
@@ -205,5 +248,5 @@ export async function submitLaunch(input: SubmitLaunchInput): Promise<SubmitLaun
   // plain Error is how the caller identifies "never submitted".
   input.onBroadcast?.(signature);
   await confirmSignature(input.connection, signature, input.confirmTimeoutMs);
-  return { signature, mint };
+  return { signature, mint, gateDecisionId: gateRow?.id ?? null };
 }

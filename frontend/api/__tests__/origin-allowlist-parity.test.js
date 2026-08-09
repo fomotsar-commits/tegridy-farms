@@ -49,6 +49,7 @@ const MIRRORS = [
   join("_lib", "launch-cohort.js"),
   join("_lib", "launch-radar.js"),
   join("_lib", "heat.js"),
+  join("_lib", "births.js"),
 ];
 
 function canonicalOrigins() {

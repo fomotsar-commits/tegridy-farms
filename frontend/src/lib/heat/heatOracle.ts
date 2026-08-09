@@ -49,19 +49,38 @@ export const HEAT_K = 60;
 export const TWAB_WINDOW_DAYS = 180;
 
 /**
- * The venue's launch-eligibility floor, in days of held history.
- * OPERATOR DECISION 2026-08-07: "someone with at least 180 days of history should be
- * the only people that should be able to deploy."
+ * THE LAUNCH FLOOR, in island_heat degrees. The island has set it: 80 = Resident.
+ * "Residents may plant" — the tier word carries the meaning on the door.
  *
- * Deliberately a TENURE floor, not a degrees floor. Degrees mix tenure with size — a
- * whale can out-score a long-time small holder — whereas the stated intent is that
- * launching is earned by having been here. `held_since_unix` measures exactly that and
- * a large bag cannot shortcut it.
+ * ## Why this is degrees and NOT a tenure rule (read before "improving" it back)
  *
- * Config, never a constant at the call site: pass it in so the number can move without
- * touching the gate.
+ * This venue previously gated launching on 180 days of `held_since_unix`. The island's
+ * launch-gate spec retires that, in terms it repeats twice: "There is no 180-day rule
+ * in your code, for any asset", and "NO token list, NO 180-day check, NO calendar,
+ * anywhere in this codebase."
+ *
+ * The reasoning is that a tenure floor DOUBLE-COUNTS time and reads it worse than the
+ * instrument does. Heat is TWAB-based and zero-anchored, so held time is already priced
+ * INSIDE the number: a fresh bag reads cold and cannot buy the floor however large it
+ * is, while a wallet that held through the year reads warm. A separate day-counter adds
+ * no safety the curve does not already provide, and it fails the wallet that has held
+ * several measured tokens deeply for five months while passing the wallet that has held
+ * dust for six. The instrument IS the time rule.
+ *
+ * The half-year figure that motivated the old floor is ISLAND-SIDE ENROLLMENT judgment
+ * ("arrivals prove half a year, births don't") and, per spec, never appears in venue
+ * code. See docs/HEAT_LAUNCH_GATE.md for the full record of that reversal.
+ *
+ * Config, never a constant at the call site — pass it in, so the number moves without
+ * touching the gate. `heatLaunchFloor()` in heatGateConfig.ts is the operator dial.
  */
-export const LAUNCH_MIN_HELD_DAYS = 180;
+export const LAUNCH_FLOOR = 80;
+
+/**
+ * THE FRESHNESS WINDOW, in days. A reading reckoned longer ago than this may not pass
+ * or fail anyone — the door closes and says so. Spec §3, "Freshness law".
+ */
+export const GATE_MAX_AGE_DAYS = 7;
 
 /** A single measured token's contribution to island_heat. */
 export interface HeatBreakdownRow {
@@ -167,59 +186,128 @@ export function parseHeatReading(payload: unknown): HeatReading {
  * technicality). This reading is an ASSUMPTION pending the island's ruling; if they
  * rule the other way, flip this one branch and every caller inherits it.
  */
-export function isStale(reading: HeatReading, nowUnix: number, maxAgeDays = 7): boolean {
+export function isStale(reading: HeatReading, nowUnix: number, maxAgeDays = GATE_MAX_AGE_DAYS): boolean {
   if (reading.asOfUnix === null) return false;
   return nowUnix - reading.asOfUnix > maxAgeDays * 86_400;
 }
 
-/** Why a wallet may not launch, or null when it may. */
-export type LaunchIneligibility =
-  | { reason: 'unreadable'; detail: string }
-  | { reason: 'stale'; detail: string }
-  | { reason: 'no-history'; detail: string }
-  | { reason: 'too-new'; heldDays: number; requiredDays: number; detail: string };
+/**
+ * THE THREE STATES OF THE DOOR. Exactly three, and the spec is emphatic that there are
+ * exactly three — a fourth would be a verdict the instrument never gave.
+ *
+ *   WARM   degrees >= floor            the launch lane opens
+ *   COLD   below floor                 the wallet sees its own degrees and what warmth is
+ *   STALE  old reading or oracle silent honest error + retry. NEVER a fake verdict
+ *
+ * STALE covers "we could not ask" as well as "the answer is too old", because both are
+ * the same fact from the door's side: there is no reading it is allowed to judge on.
+ * They are kept apart in `reason` for the audit row, never in the state.
+ */
+export type GateState = 'WARM' | 'COLD' | 'STALE';
+
+/** Machine-readable cause, one level finer than the state. Audit-only; UI renders `state`. */
+export type GateReason = 'qualified' | 'below-floor' | 'stale-reading' | 'unreadable';
 
 /**
- * THE LAUNCH GATE PRIMITIVE. Every launch and vote criterion composes from this one
- * function, so the rule is auditable in exactly one place (spec §3, "Gate primitive").
+ * One gate decision, in the shape the audit surface stores it.
+ *
+ * The spec names the row it wants logged — `{ address, degrees, tier, as_of, floor,
+ * verdict }` — so any outcome replays against the instrument. This carries exactly
+ * those, plus the state/reason split and the instant it was decided.
+ */
+export interface GateDecision {
+  address: string;
+  state: GateState;
+  reason: GateReason;
+  /** True ONLY for WARM. The one field a caller should branch on to allow anything. */
+  qualified: boolean;
+  /** The reading's degrees, or null when there was no reading to read. */
+  degrees: number | null;
+  tier: HeatTier | null;
+  /** `as_of_unix` from the reading — the reckoning date. Null on a cold or absent reading. */
+  asOfUnix: number | null;
+  /** The floor this decision was taken against. Logged so a moved floor cannot rewrite history. */
+  floor: number;
+  /** The door's own words, shown to the wallet. */
+  detail: string;
+  decidedAt: number;
+}
+
+/**
+ * THE GATE PRIMITIVE, pure half. `meetsHeatFloor` in launchGate.ts is the async half
+ * that fetches; this is where the rule actually lives, so the rule is auditable in
+ * exactly one place and testable without a network.
  *
  * FAIL-CLOSED, in this order — the absence of a positive answer denies, never merely
  * the presence of a negative one:
- *   1. no reading at all            -> deny (we could not ask; that is not a pass)
- *   2. reading older than maxAgeDays -> deny (the freshness law: a stale ruler
- *                                      certifies nothing, so it may not pass ANYONE)
- *   3. no held history               -> deny (cold wallet, nothing to measure)
- *   4. history shorter than the floor-> deny, and say how much longer to wait
+ *   1. no reading at all              -> STALE (we could not ask; that is not a pass)
+ *   2. reading older than maxAgeDays  -> STALE (a stale ruler certifies nothing, so it
+ *                                        may not pass ANYONE — including the wallet
+ *                                        that would otherwise sail through)
+ *   3. degrees below the floor        -> COLD (and the wallet is told its own number)
+ *   4. degrees at or above the floor  -> WARM
  *
- * Returns null when the wallet MAY launch. Callers must treat a thrown error or a
- * missing reading as denial — see the `reading === null` branch.
+ * A COLD WALLET IS NOT STALE. A wallet with no measured holdings carries
+ * `asOfUnix: null` — nothing has been reckoned, so nothing can have gone out of date.
+ * It reads 0°, fails the floor on its merits, and gets the COLD state that explains
+ * what warmth is. Routing it to STALE instead would tell a first-time visitor the
+ * instrument was broken when it was working perfectly. (This resolves the open
+ * question logged against the null `as_of_unix` on 2026-08-07.)
  */
-export function launchIneligibility(
+export function gateDecision(
+  address: string,
   reading: HeatReading | null,
   nowUnix: number,
-  minHeldDays: number = LAUNCH_MIN_HELD_DAYS,
-  maxAgeDays = 7,
-): LaunchIneligibility | null {
+  floor: number = LAUNCH_FLOOR,
+  maxAgeDays: number = GATE_MAX_AGE_DAYS,
+): GateDecision {
+  const base = { address, floor, decidedAt: nowUnix };
+
   if (!reading) {
-    return { reason: 'unreadable', detail: 'The instrument is unreachable, so eligibility cannot be checked. Try again shortly.' };
-  }
-  if (isStale(reading, nowUnix, maxAgeDays)) {
-    return { reason: 'stale', detail: `This reading is older than ${maxAgeDays} days, so it cannot pass or fail anyone.` };
-  }
-  if (reading.heldSinceUnix === null) {
-    return { reason: 'no-history', detail: 'This wallet holds none of the measured tokens, so it has no held history yet.' };
-  }
-  const heldDays = Math.floor((nowUnix - reading.heldSinceUnix) / 86_400);
-  if (heldDays < minHeldDays) {
-    const left = minHeldDays - heldDays;
     return {
-      reason: 'too-new',
-      heldDays,
-      requiredDays: minHeldDays,
-      detail: `${heldDays} day${heldDays === 1 ? '' : 's'} of held history — ${left} more day${left === 1 ? '' : 's'} to go.`,
+      ...base,
+      state: 'STALE',
+      reason: 'unreadable',
+      qualified: false,
+      degrees: null,
+      tier: null,
+      asOfUnix: null,
+      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided — try again in a moment.',
     };
   }
-  return null;
+
+  const measured = { degrees: reading.degrees, tier: reading.tier, asOfUnix: reading.asOfUnix };
+
+  if (isStale(reading, nowUnix, maxAgeDays)) {
+    return {
+      ...base,
+      ...measured,
+      state: 'STALE',
+      reason: 'stale-reading',
+      qualified: false,
+      detail: `This reading was reckoned more than ${maxAgeDays} days ago, so it cannot pass or fail anyone. Try again once the island has re-measured.`,
+    };
+  }
+
+  if (reading.degrees >= floor) {
+    return {
+      ...base,
+      ...measured,
+      state: 'WARM',
+      reason: 'qualified',
+      qualified: true,
+      detail: `${reading.degrees.toFixed(2)}° — ${reading.tier}. The launch lane is open.`,
+    };
+  }
+
+  return {
+    ...base,
+    ...measured,
+    state: 'COLD',
+    reason: 'below-floor',
+    qualified: false,
+    detail: `${reading.degrees.toFixed(2)}° — ${reading.tier}. The door opens at ${floor}°, and degrees are held time: they accrue by holding tokens the island measures, and they cannot be bought.`,
+  };
 }
 
 /** Days of held history, or null when the wallet has none. */

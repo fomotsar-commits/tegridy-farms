@@ -37,7 +37,14 @@ const HEAT_BASE = "https://memetics.wtf/api/heat";
 // The upstream is a third party we do not control and whose quota we would be
 // spending. Keep the client timeout well under Vercel's default so a hanging
 // upstream surfaces as an honest 504 from us rather than a platform timeout.
-const UPSTREAM_TIMEOUT_MS = 6000;
+//
+// AND under the BROWSER's ceiling: heatClient.ts aborts at 6000ms per the directive's
+// "hard timeout (<=6s)". If this budget were >= that, a hanging island would always be
+// the browser's abort ("unreachable, try again") and our specific 502 would be dead
+// code. 4500ms leaves ~1.5s of headroom for our own JSON round-trip so the honest
+// upstream-failure message is the one that actually reaches the user. Keep this
+// strictly below CLIENT_TIMEOUT_MS if either number moves.
+const UPSTREAM_TIMEOUT_MS = 4500;
 
 // Anchored and character-class-restricted, so no traversal, scheme or query
 // character can survive into the upstream path. Identical to the pair already used

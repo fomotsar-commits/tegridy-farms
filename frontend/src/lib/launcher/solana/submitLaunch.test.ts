@@ -18,11 +18,31 @@ vi.mock('./dbc', async (importOriginal) => {
 
 vi.mock('./dbcClient', () => ({ launchToken: vi.fn() }));
 
+// THE HEAT GATE IS MOCKED OPEN IN THIS FILE, and that is deliberate.
+//
+// This suite exists to pin the POST-BROADCAST contract: which errors carry a signature,
+// which count as broadcast, and why a retry must not mint a second token. The real gate
+// fetches the island's oracle, which in a test environment is unreachable — so it fails
+// closed and NOTHING PAST IT RUNS, and every assertion below would pass vacuously while
+// testing nothing at all.
+//
+// The gate's own behaviour (fail-closed, three states, the audit row) is covered in
+// lib/heat/launchGate.test.ts, and its POSITION on this rail — that a denial happens
+// above `sendTransaction` and can never read as broadcast — is pinned in
+// submitLaunch.gate.test.ts, which does NOT mock it. Both halves are needed: mocking it
+// here without pinning it there is how a gate silently stops being called.
+vi.mock('../../heat/launchGate', () => ({
+  assertMayLaunch: vi.fn(async () => ({ id: 'gd_test_row' })),
+  HeatGateDenied: class HeatGateDenied extends Error {},
+}));
+
 import { launchToken } from './dbcClient';
 import { submitLaunch, confirmSignature, ConfirmationTimeout, LaunchFailedOnChain, wasBroadcast } from './submitLaunch';
 
 const CONFIG = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const WALLET = 'EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK';
+/** The qualifying identity for the gate — an ETHEREUM address, not the Solana payer. */
+const EVM = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
 
 function connectionWith(statuses: unknown[]): Connection {
   let i = 0;
@@ -45,11 +65,16 @@ describe('submitLaunch', () => {
     const connection = connectionWith([{ err: null, confirmationStatus: 'confirmed' }]);
 
     const res = await submitLaunch({
-      connection, sendTransaction: send, walletAddress: WALLET,
+      connection, sendTransaction: send, walletAddress: WALLET, heatIdentity: EVM,
       config: CONFIG, mintKeypair, ...META,
     });
 
-    expect(res).toEqual({ signature: 'SIGNATURE_1', mint: mintKeypair.publicKey.toBase58() });
+    expect(res).toEqual({
+      signature: 'SIGNATURE_1',
+      mint: mintKeypair.publicKey.toBase58(),
+      // The gate row that permitted it — this is `gate_decision_id` on the birth notify.
+      gateDecisionId: 'gd_test_row',
+    });
     // The descriptor handed to launchToken must name the config we were given and
     // the wallet as BOTH payer and pool creator — never a protocol-held address.
     const params = (launchToken as Mock).mock.calls[0][1];
@@ -65,7 +90,7 @@ describe('submitLaunch', () => {
     const send = vi.fn(async () => 'SIG');
     await submitLaunch({
       connection: connectionWith([{ err: null, confirmationStatus: 'confirmed' }]),
-      sendTransaction: send, walletAddress: WALLET, config: CONFIG,
+      sendTransaction: send, walletAddress: WALLET, heatIdentity: EVM, config: CONFIG,
       mintKeypair: Keypair.generate(), ...META,
     });
     expect((launchToken as Mock).mock.calls[0][2]).toBeUndefined();
@@ -83,11 +108,11 @@ describe('submitLaunch', () => {
       .mockResolvedValueOnce('SIG_RETRY');
 
     await expect(submitLaunch({
-      connection, sendTransaction: send, walletAddress: WALLET, config: CONFIG, mintKeypair, ...META,
+      connection, sendTransaction: send, walletAddress: WALLET, heatIdentity: EVM, config: CONFIG, mintKeypair, ...META,
     })).rejects.toThrow('user rejected');
 
     const res = await submitLaunch({
-      connection, sendTransaction: send, walletAddress: WALLET, config: CONFIG, mintKeypair, ...META,
+      connection, sendTransaction: send, walletAddress: WALLET, heatIdentity: EVM, config: CONFIG, mintKeypair, ...META,
     });
     expect(res.mint).toBe(mintKeypair.publicKey.toBase58());
   });
@@ -95,7 +120,7 @@ describe('submitLaunch', () => {
   it('rejects an invalid metadata URI before anything is signed or sent', async () => {
     const send = vi.fn();
     await expect(submitLaunch({
-      connection: connectionWith([]), sendTransaction: send, walletAddress: WALLET,
+      connection: connectionWith([]), sendTransaction: send, walletAddress: WALLET, heatIdentity: EVM,
       config: CONFIG, mintKeypair: Keypair.generate(), name: 'X', symbol: 'X', uri: '   ',
     })).rejects.toThrow(/uri is required/i);
     expect(send).not.toHaveBeenCalled();
@@ -105,7 +130,7 @@ describe('submitLaunch', () => {
   it('surfaces an on-chain failure as an error, not a success', async () => {
     await expect(submitLaunch({
       connection: connectionWith([{ err: { InstructionError: [0, 'Custom'] }, confirmationStatus: 'confirmed' }]),
-      sendTransaction: vi.fn(async () => 'SIG'), walletAddress: WALLET, config: CONFIG,
+      sendTransaction: vi.fn(async () => 'SIG'), walletAddress: WALLET, heatIdentity: EVM, config: CONFIG,
       mintKeypair: Keypair.generate(), ...META,
     })).rejects.toThrow(/failed on-chain/i);
   });
@@ -115,7 +140,7 @@ describe('submitLaunch', () => {
     // be able to send the user to an explorer rather than invite a second launch.
     const err = await submitLaunch({
       connection: connectionWith([null]), // never resolves to a status
-      sendTransaction: vi.fn(async () => 'SIG_STRANDED'), walletAddress: WALLET,
+      sendTransaction: vi.fn(async () => 'SIG_STRANDED'), walletAddress: WALLET, heatIdentity: EVM,
       config: CONFIG, mintKeypair: Keypair.generate(), ...META,
       confirmTimeoutMs: 10,
     }).catch((e) => e);
@@ -144,7 +169,7 @@ describe('the post-broadcast contract', () => {
     } as unknown as Connection;
 
     const res = await submitLaunch({
-      connection, sendTransaction: vi.fn(async () => 'SIG_FLAKY'), walletAddress: WALLET,
+      connection, sendTransaction: vi.fn(async () => 'SIG_FLAKY'), walletAddress: WALLET, heatIdentity: EVM,
       config: CONFIG, mintKeypair: Keypair.generate(), ...META, confirmTimeoutMs: 30_000,
     });
     expect(res.signature).toBe('SIG_FLAKY');
@@ -157,7 +182,7 @@ describe('the post-broadcast contract', () => {
     } as unknown as Connection;
 
     const err = await submitLaunch({
-      connection, sendTransaction: vi.fn(async () => 'SIG_RPC_DEAD'), walletAddress: WALLET,
+      connection, sendTransaction: vi.fn(async () => 'SIG_RPC_DEAD'), walletAddress: WALLET, heatIdentity: EVM,
       config: CONFIG, mintKeypair: Keypair.generate(), ...META, confirmTimeoutMs: 10,
     }).catch((e) => e);
 
@@ -169,7 +194,7 @@ describe('the post-broadcast contract', () => {
   it('an on-chain failure is definitive, carries the signature, and counts as broadcast', async () => {
     const err = await submitLaunch({
       connection: connectionWith([{ err: { InstructionError: [0, 'Custom'] }, confirmationStatus: 'confirmed' }]),
-      sendTransaction: vi.fn(async () => 'SIG_FAILED'), walletAddress: WALLET, config: CONFIG,
+      sendTransaction: vi.fn(async () => 'SIG_FAILED'), walletAddress: WALLET, heatIdentity: EVM, config: CONFIG,
       mintKeypair: Keypair.generate(), ...META,
     }).catch((e) => e);
 
@@ -185,7 +210,7 @@ describe('the post-broadcast contract', () => {
     const seen: string[] = [];
     await submitLaunch({
       connection: connectionWith([{ err: null, confirmationStatus: 'confirmed' }]),
-      sendTransaction: vi.fn(async () => 'SIG_EARLY'), walletAddress: WALLET, config: CONFIG,
+      sendTransaction: vi.fn(async () => 'SIG_EARLY'), walletAddress: WALLET, heatIdentity: EVM, config: CONFIG,
       mintKeypair: Keypair.generate(), ...META,
       onBroadcast: (sig) => seen.push(sig),
     });
@@ -195,7 +220,7 @@ describe('the post-broadcast contract', () => {
   it('a pre-broadcast failure is NOT flagged as broadcast — retrying really is safe there', async () => {
     const err = await submitLaunch({
       connection: connectionWith([]), sendTransaction: vi.fn(async () => { throw new Error('User rejected'); }),
-      walletAddress: WALLET, config: CONFIG, mintKeypair: Keypair.generate(), ...META,
+      walletAddress: WALLET, heatIdentity: EVM, config: CONFIG, mintKeypair: Keypair.generate(), ...META,
     }).catch((e) => e);
     expect(wasBroadcast(err)).toBe(false);
   });

@@ -10,6 +10,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { LaunchGate } from '../components/LaunchGate';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { CurveChart } from '../components/launcher/CurveChart';
 import { PublicKey } from '@solana/web3.js';
@@ -691,6 +692,10 @@ export function CurveLaunchView({
       <PageArtBackdrop pageId="curve-launch" />
       <div className="relative z-10 max-w-xl mx-auto px-4 py-8 space-y-4">
         <DeploymentBanner probe={probe} />
+
+        {/* THE DOOR on our own curve rail. Same primitive as the other two — one rule,
+            read live, in one place. */}
+        <LaunchGate rail="solana" />
 
         <Card title="Look up a launch">
           <p>

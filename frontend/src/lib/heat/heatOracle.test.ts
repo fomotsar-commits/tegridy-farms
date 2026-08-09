@@ -11,12 +11,13 @@ import {
   nextTier,
   heatDegreesFor,
   shareForDegrees,
-  launchIneligibility,
+  gateDecision,
   heldDays,
   TIER_FLOORS,
   HEAT_K,
   TWAB_WINDOW_DAYS,
-  LAUNCH_MIN_HELD_DAYS,
+  LAUNCH_FLOOR,
+  GATE_MAX_AGE_DAYS,
 } from './heatOracle';
 
 // A real Elder: 12 measured tokens, island_heat 195.54. Trimmed to 4 rows for size;
@@ -124,65 +125,111 @@ describe('isStale — the freshness law', () => {
   });
 });
 
-describe('launchIneligibility — the gate primitive, fail-closed', () => {
+describe('gateDecision — the gate primitive, fail-closed', () => {
   const asOf = 1786104024;
   const DAY = 86_400;
-  // A wallet whose first measured holding was exactly N days before `now`.
-  const heldFor = (days: number) =>
-    parseHeatReading({ ...WARM, held_since_unix: asOf - days * DAY, as_of_unix: asOf });
+  const ADDR = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
+  /** A reading of exactly N island_heat degrees, reckoned now. */
+  const at = (degrees: number, tier = 'Resident') =>
+    parseHeatReading({ ...WARM, degrees, tier, as_of_unix: asOf });
 
-  it('DENIES when there is no reading at all — an outage is not a pass', () => {
-    expect(launchIneligibility(null, asOf)).toMatchObject({ reason: 'unreadable' });
+  it('WARM above the floor — the launch lane opens', () => {
+    const d = gateDecision(ADDR, at(195.54, 'Builder'), asOf);
+    expect(d.state).toBe('WARM');
+    expect(d.qualified).toBe(true);
+    expect(d.reason).toBe('qualified');
   });
 
-  it('DENIES on a stale reading, even for a wallet that would otherwise sail through', () => {
-    // 5 years of history — but the ruler has not been read in a month.
-    const ancient = parseHeatReading({ ...WARM, held_since_unix: asOf - 1825 * DAY, as_of_unix: asOf });
-    expect(launchIneligibility(ancient, asOf + 30 * DAY)).toMatchObject({ reason: 'stale' });
+  it('WARM exactly AT the floor — 80° is Resident, and Residents may plant', () => {
+    const d = gateDecision(ADDR, at(80), asOf);
+    expect(d.state).toBe('WARM');
+    expect(d.qualified).toBe(true);
   });
 
-  it('DENIES a cold wallet with no held history', () => {
-    expect(launchIneligibility(parseHeatReading(COLD), asOf)).toMatchObject({ reason: 'no-history' });
+  it('COLD one hundredth of a degree below the floor', () => {
+    const d = gateDecision(ADDR, at(79.99), asOf);
+    expect(d.state).toBe('COLD');
+    expect(d.qualified).toBe(false);
+    expect(d.reason).toBe('below-floor');
   });
 
-  it('DENIES a wallet one day short, and says how long is left', () => {
-    const v = launchIneligibility(heldFor(179), asOf);
-    expect(v).toMatchObject({ reason: 'too-new', heldDays: 179, requiredDays: 180 });
-    // Exact string, so "1 more days" cannot slip through as a substring match.
-    expect(v!.detail).toBe('179 days of held history — 1 more day to go.');
+  it('COLD shows the wallet its OWN degrees and says warmth is held time', () => {
+    const d = gateDecision(ADDR, at(42.5, 'Observer'), asOf);
+    expect(d.degrees).toBe(42.5);
+    expect(d.detail).toContain('42.50°');
+    expect(d.detail).toContain('Observer');
+    expect(d.detail).toContain('80°');
+    expect(d.detail).toContain('held time');
   });
 
-  it('pluralises correctly at the other end too', () => {
-    expect(launchIneligibility(heldFor(1), asOf)!.detail).toBe('1 day of held history — 179 more days to go.');
+  it('a wallet with no measured holdings is COLD, not STALE — its null reckoning date is not an outage', () => {
+    const d = gateDecision(ADDR, parseHeatReading(COLD), asOf);
+    expect(d.state).toBe('COLD');
+    expect(d.degrees).toBe(0);
+    expect(d.asOfUnix).toBeNull();
   });
 
-  it('ALLOWS exactly at the 180-day boundary', () => {
-    expect(launchIneligibility(heldFor(180), asOf)).toBeNull();
+  it('STALE when there is no reading at all — an outage is NEVER a pass', () => {
+    const d = gateDecision(ADDR, null, asOf);
+    expect(d.state).toBe('STALE');
+    expect(d.qualified).toBe(false);
+    expect(d.reason).toBe('unreadable');
+    expect(d.degrees).toBeNull();
   });
 
-  it('ALLOWS a long-held wallet', () => {
-    expect(launchIneligibility(heldFor(400), asOf)).toBeNull();
+  it('STALE past the 7-day window, even for a wallet that would otherwise sail through', () => {
+    const d = gateDecision(ADDR, at(500, 'Elder'), asOf + 8 * DAY);
+    expect(d.state).toBe('STALE');
+    expect(d.qualified).toBe(false);
+    expect(d.reason).toBe('stale-reading');
   });
 
-  it('a huge bag cannot shortcut the wait — tenure is the gate, not degrees', () => {
-    // 100° on a single token (a whale), but only 10 days of history.
-    const whale = parseHeatReading({
-      ...WARM, degrees: 100, tier: 'Resident',
-      held_since_unix: asOf - 10 * DAY, as_of_unix: asOf,
+  it('checks freshness BEFORE the floor — a stale reading may not FAIL anyone either', () => {
+    // Below floor AND stale. Failing someone on a stale reading is as forbidden as
+    // passing them, so the state must be the retryable STALE, never the verdict COLD.
+    const d = gateDecision(ADDR, at(5, 'Drifter'), asOf + 30 * DAY);
+    expect(d.state).toBe('STALE');
+  });
+
+  it('the floor is configurable, never baked in', () => {
+    expect(gateDecision(ADDR, at(100), asOf, 150).state).toBe('COLD');
+    expect(gateDecision(ADDR, at(100), asOf, 30).state).toBe('WARM');
+  });
+
+  it('the freshness window is configurable too', () => {
+    expect(gateDecision(ADDR, at(200), asOf + 10 * DAY, 80, 14).state).toBe('WARM');
+    expect(gateDecision(ADDR, at(200), asOf + 10 * DAY, 80, 7).state).toBe('STALE');
+  });
+
+  it('logs the row the spec asks for, so any outcome replays against the instrument', () => {
+    const d = gateDecision(ADDR, at(195.54, 'Builder'), asOf);
+    // { address, degrees, tier, as_of, floor, verdict } — spec §3, "Audit surface".
+    expect(d.address).toBe(ADDR);
+    expect(d.degrees).toBe(195.54);
+    expect(d.tier).toBe('Builder');
+    expect(d.asOfUnix).toBe(asOf);
+    expect(d.floor).toBe(80);
+    expect(d.state).toBe('WARM');
+  });
+
+  it('records the floor the decision was TAKEN against, so moving the floor cannot rewrite history', () => {
+    expect(gateDecision(ADDR, at(100), asOf, 150).floor).toBe(150);
+  });
+
+  it('tenure is NOT a gate: ten days of history passes on degrees alone', () => {
+    // The retired 180-day rule would have denied this wallet. The instrument is the
+    // time rule now — if the island says 195°, the door opens. See LAUNCH_FLOOR.
+    const fresh = parseHeatReading({
+      ...WARM, degrees: 195.54, held_since_unix: asOf - 10 * DAY, as_of_unix: asOf,
     });
-    expect(launchIneligibility(whale, asOf)).toMatchObject({ reason: 'too-new' });
+    expect(gateDecision(ADDR, fresh, asOf).state).toBe('WARM');
   });
 
-  it('the floor is configurable, not baked in', () => {
-    expect(launchIneligibility(heldFor(30), asOf, 30)).toBeNull();
-    expect(launchIneligibility(heldFor(30), asOf, 90)).toMatchObject({ reason: 'too-new' });
-  });
-
-  it('checks freshness BEFORE tenure — a stale reading may not fail anyone either', () => {
-    // Too new AND stale. The spec forbids failing someone on a stale reading, so the
-    // verdict must be 'stale' (retryable) and never 'too-new' (a judgement).
-    const v = launchIneligibility(heldFor(5), asOf + 30 * DAY);
-    expect(v).toMatchObject({ reason: 'stale' });
+  it('exposes exactly three states, ever', () => {
+    const seen = new Set(
+      [at(200), at(1), parseHeatReading(COLD), null].map((r) => gateDecision(ADDR, r, asOf).state),
+    );
+    expect([...seen].sort()).toEqual(['COLD', 'STALE', 'WARM']);
   });
 });
 
@@ -269,10 +316,20 @@ describe('the curve (display only — the oracle is the ruler)', () => {
   });
 
   it('pins the island-confirmed constants', () => {
-    // Both were told to us rather than derived; if either moves, that is a decision
+    // All three were told to us rather than derived; if any moves, that is a decision
     // someone made, and it should break a test rather than slip through.
     expect(TWAB_WINDOW_DAYS).toBe(180);
-    expect(LAUNCH_MIN_HELD_DAYS).toBe(180);
+    expect(LAUNCH_FLOOR).toBe(80);
+    expect(GATE_MAX_AGE_DAYS).toBe(7);
+  });
+
+  it('the launch floor is a REAL tier boundary, not a number someone typed', () => {
+    // "LAUNCH_FLOOR is config; the island has set it: 80 (Resident). The tier word
+    // carries the meaning on the door: Residents may plant." Pin the correspondence,
+    // so moving the floor off a tier boundary breaks rather than quietly de-meaning
+    // the door's copy.
+    expect(TIER_FLOORS.find((t) => t.floor === LAUNCH_FLOOR)?.tier).toBe('Resident');
+    expect(tierFor(LAUNCH_FLOOR)).toBe('Resident');
   });
 
   it('the published floors are ordered and start at Drifter/0', () => {

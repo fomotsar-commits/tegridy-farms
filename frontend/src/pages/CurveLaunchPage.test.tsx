@@ -17,6 +17,18 @@ import {
 // The page's I/O sits in the default export; `CurveLaunchView` is the
 // presentational seam, so every phase can be driven directly without a wallet
 // provider or an RPC. Mirrors the mocking style of LaunchTokenPage.test.tsx.
+
+// The page mounts <LaunchGate>, which reads the connected EVM wallet. These tests
+// render the view OUTSIDE a WagmiProvider on purpose (that is the point of the
+// presentational seam), so wagmi is stubbed the same way LaunchTokenPage.test.tsx
+// stubs it. No wallet => the gate renders its "connect a wallet" state, which asserts
+// nothing about anybody and leaves every phase assertion below untouched. The gate's
+// own behaviour is covered in lib/heat/launchGate.test.ts.
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ address: undefined }),
+  useSignMessage: () => ({ signMessageAsync: async () => '0x' }),
+}));
+
 vi.mock('framer-motion', () => {
   const passthrough = new Proxy(
     {},

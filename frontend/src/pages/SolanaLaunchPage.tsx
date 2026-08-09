@@ -7,11 +7,14 @@ import { Link } from 'react-router-dom';
 import { Keypair } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useAccount } from 'wagmi';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { LaunchGate } from '../components/LaunchGate';
+import { notifyBirth } from '../lib/launcher/notifyBirth';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SOL_MINT, USDC_MINT } from '../lib/solana';
@@ -277,6 +280,9 @@ function SubmitPanel({
 }) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
+  // The Heat gate's qualifying identity. Deliberately the EVM account, not the Solana
+  // one — see SubmitLaunchInput.heatIdentity.
+  const { address: evmAddress } = useAccount();
   const [status, setStatus] = useState<SubmitPhase>({ phase: 'idle' });
   const [ack, setAck] = useState(false);
 
@@ -320,6 +326,11 @@ function SubmitPanel({
         connection,
         sendTransaction,
         walletAddress: publicKey.toBase58(),
+        // The island measures Base + Ethereum tokens, so the qualifying identity for
+        // the launch gate is the connected ETHEREUM wallet, not the Solana one paying
+        // for this transaction. The door above explains that; submitLaunch refuses
+        // honestly (and pre-broadcast) if it is missing.
+        heatIdentity: evmAddress ?? '',
         config: LIVE_DBC_CONFIG,
         mintKeypair: mintRef.current,
         ...trimmed,
@@ -332,6 +343,27 @@ function SubmitPanel({
       mintRef.current = null; // launched — a further launch is a NEW token
       setStatus({ phase: 'done', signature: res.signature, mint: res.mint });
       toast.success('Launched on Solana', { description: `${trimmed.symbol} is live` });
+      // THE BIRTH NOTIFY, after the success state and deliberately not awaited. The slot
+      // is read from the confirmed signature — chain truth, never approximated; if it
+      // cannot be read the notify is withheld rather than sent with a guessed birth.
+      void (async () => {
+        let slot: number | null = null;
+        try {
+          const st = await connection.getSignatureStatuses([res.signature]);
+          slot = st.value[0]?.slot ?? null;
+        } catch {
+          slot = null;
+        }
+        await notifyBirth({
+          chain: 'solana',
+          ca: res.mint,
+          // The island measures the EVM identity, so that is the creator it enrols.
+          creator: evmAddress ?? '',
+          txHash: res.signature,
+          gateDecisionId: res.gateDecisionId,
+          slot,
+        });
+      })();
     } catch (err) {
       // ANY error carrying a signature means it reached the network. Never invite a
       // retry on those, and never claim nothing was submitted.
@@ -382,6 +414,13 @@ function SubmitPanel({
         Your wallet pays the network fee and signs. You are the issuer of the token you create here — the curve,
         fee schedule and fee split come from the live config above and cannot be changed after launch.
       </p>
+
+      {/* THE DOOR. Same rule, same primitive, same tier words as the EVM rail — the
+          island's standard does not change with the chain. `rail="solana"` only changes
+          the copy about which wallet carries the standing. */}
+      <div className="pt-1">
+        <LaunchGate rail="solana" />
+      </div>
 
       {/* The opening fee is the single most surprising thing about this rail, so it is
           stated at the point of signing rather than only in the terms panel. */}

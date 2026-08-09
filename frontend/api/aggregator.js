@@ -283,6 +283,15 @@ export default async function handler(req, res) {
     return handleHeat(req, res);
   }
 
+  // `?resource=births` signs a birth notify with the venue's shared secret and relays it
+  // to the island's enrollment socket. Server-side because the SECRET is the whole
+  // guarantee — a signature the browser could produce is one anybody could produce.
+  // Lazy import, same as the branches above; also above `const provider`.
+  if (req.query.resource === "births") {
+    const { handleBirths } = await import("./_lib/births.js");
+    return handleBirths(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

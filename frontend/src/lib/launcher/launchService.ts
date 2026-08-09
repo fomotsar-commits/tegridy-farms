@@ -30,6 +30,8 @@ import {
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
 import { LOCKER_CLAIMER_ADDRESS } from '../constants';
+import { assertMayLaunch, HeatGateDenied } from '../heat/launchGate';
+import type { GateAuditRow } from '../heat/gateAudit';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
@@ -91,12 +93,22 @@ export interface LaunchResult {
    * the UI show "token/ETH" vs "token/TOWELI".
    */
   numeraire: Address;
+  /**
+   * `gate_decision_id` — the id of the Heat gate audit row that permitted this launch.
+   *
+   * Carried on the birth notify so the island can replay the decision against the
+   * instrument that produced it. Null only when the local audit store was unavailable
+   * (private-mode browser); a missing id degrades the record, and is never allowed to
+   * block a launch the door already passed.
+   */
+  gateDecisionId: string | null;
 }
 
 /** Discriminated failure reasons, so the UI can render a specific message. */
 export type LaunchErrorCode =
   | 'launcher-disabled' // gate is shut (isLauncherEnabled() === false)
   | 'invalid-integrator' // integrator is the zero address (defense in depth)
+  | 'heat-denied' // the island's launch floor was not cleared (see lib/heat/launchGate.ts)
   | 'invalid-config' // params could not be built from the config (bad tier/fee/tick input)
   | 'simulation-failed' // simulateCreateDynamicAuction reverted (bad config / on-chain preconditions)
   | 'submit-failed'; // createDynamicAuction failed (user rejected / tx reverted)
@@ -525,6 +537,26 @@ export async function launchToken(
     throw new LaunchError('invalid-integrator', 'No integrator address is configured; refusing to launch.');
   }
 
+  // THE SEEDLING GATE. Read live, here, at the moment of launching — not trusted from
+  // whatever the door rendered minutes ago on a page that has since been left open.
+  //
+  // Position matters: after the cheap local guards and BEFORE any SDK work, any
+  // signature request, and any chain access. A denial at this point is provably
+  // pre-broadcast, which is why `broadcast: false` below is a fact and not a hope.
+  //
+  // `assertMayLaunch` fails closed: an unreachable oracle throws exactly as a cold
+  // wallet does. It returns the audit row, whose id becomes `gate_decision_id` on the
+  // birth notify — that is how a token is tied back to the decision that permitted it.
+  let gateRow: GateAuditRow | null = null;
+  try {
+    gateRow = await assertMayLaunch(cfg.userAddress);
+  } catch (e) {
+    if (e instanceof HeatGateDenied) {
+      throw new LaunchError('heat-denied', e.message, { cause: e, broadcast: false });
+    }
+    throw e;
+  }
+
   const { DopplerSDK } = await import('@whetstone-research/doppler-sdk/evm');
   const sdk = new DopplerSDK({ publicClient, walletClient, chainId: DOPPLER_MAINNET.chainId });
 
@@ -555,6 +587,10 @@ export async function launchToken(
       feeConstitution: cfg.feeConstitution,
       // The base pair actually used (ETH default, or TOWELI for an exotic launch).
       numeraire: cfg.numeraire ?? ETH_NUMERAIRE,
+      // The gate row that permitted this launch. Rides the birth notify so the island
+      // can replay the decision against the instrument. Null only when the audit could
+      // not be stored locally (private-mode browser) — never a reason to block a launch.
+      gateDecisionId: gateRow?.id ?? null,
     };
   } catch (e) {
     // create() broadcasts AND waits for the receipt in one step, so a throw here may
