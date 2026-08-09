@@ -100,7 +100,8 @@ stays dark. **The venue never self-declares certification.**
 
 | Piece | Where |
 |---|---|
-| Record schema + pure builder | `src/lib/launcher/birthRecord.ts` |
+| Record schema + pure builder | `frontend/api/_lib/record-core.js` (re-exported by `src/lib/launcher/birthRecord.ts`) |
+| The record route | `frontend/api/_lib/record.js` + `record-evm.js` + `record-solana.js` |
 | Signed relay to the island | `frontend/api/_lib/births.js` (`?resource=births`) |
 | Queue + visible retry | `src/lib/launcher/birthNotify.ts` |
 | Launch-path glue | `src/lib/launcher/notifyBirth.ts` |
@@ -167,25 +168,76 @@ the zero point of every degree the token will ever earn.
 4. Verify a real read: connect a warm wallet and confirm the door shows WARM, then confirm
    the audit row on `/admin`.
 
-## Open: where the record JSON is served from
+## The record route — chain-derived (operator decision, 2026-08-09)
 
-The record's **shape**, **builder** and **URL** are done and tested. What is not decided is
-which server answers `GET /record/:chain/:ca.json`, because the honest options trade off
-differently and it is an operator call:
+`GET /record/:chain/:ca.json`. Nothing is stored, so there is nothing to forge, no write
+path to defend, and no snapshot that can drift from the chain it describes. The record
+improves over time as facts become provable, which is the most literal reading of the
+stamp it carries.
 
-- **Publish at create into Supabase** (migration + `?resource=birth-record`). Serves the
-  full record including the fee instruction, which is a launch-time config input and is
-  *not* chain-readable before graduation. Cost: a public write path that must be
-  authenticated or verified on-chain, or a squatter can publish a record for a token they
-  did not launch. **Not shipped for that reason** — an unauthenticated public write is not
-  something to add without a decision.
-- **Derive from chain on read.** No storage, no trust, tamper-proof, and it improves over
-  time as facts become provable. Cost: the fee instruction reads as `unread` until
-  graduation, and it needs the Airlock/locker selectors ported to the serverless side.
-- **Publish to Irys at create.** Permanent and immutable, reuses machinery the EVM launch
-  path already has. Cost: an extra wallet-funded upload per launch, and the Solana rail
-  does not have the same uploader.
+**The rewrite is load-bearing, not cosmetic.** `vercel.json`'s SPA fallback is
+`/((?!api/).*)` — the negative lookahead only excludes `api/…`. Without the record
+rewrite sitting *above* it, `/record/…` is rewritten to `index.html` and answers **200
+with HTML forever**; a health check on `res.ok` would report it healthy. A second
+catch-all (`/record/:path*`) exists so a malformed path also reaches the function and
+gets a JSON 404 rather than an HTML 200. Any smoke check must assert
+`content-type: application/json` **and** `schema_version === 1` — never just `res.ok`.
 
-Recommendation: **derive from chain**, and let `unread: ["fee_instruction"]` be honest
-until graduation. It is the only option with no new trust assumption, and "Every lock
-verifiable onchain" is the stamp the record itself carries.
+**What is readable, per rail:**
+
+| | Ethereum | Solana |
+|---|---|---|
+| `decimals` | read, chain wins over the pinned 18 | read from the SPL mint (byte 44) |
+| `total_supply` | read | read (u64 LE, BigInt — no 2^53 loss) |
+| `name` / `symbol` | read | `unread` — Metaplex strings are NUL-puffed and our own curve rail writes no metadata account |
+| `plates` | from `vestedTotalAmount()` on the Doppler template | `unread` |
+| `birth_block` / `birth_tx` / `creator` | from the Airlock `Create` log (needs `ETHERSCAN_API_KEY`) | `unread` |
+| `fee_instruction` | `unread`, permanently — see below | `unread` |
+| `locks.liquidity` | `unread` — the V1 locker has no token → tokenId index | `unread` |
+
+**`fee_instruction` is unread in every phase on the EVM rail, and that is final.** The
+split exists only as calldata to `Airlock.create`; `getAssetData`'s ten words contain no
+fee split; and StreamableFeesLocker V1 is *verify-if-known* (`positions(uint256)`), never
+*enumerate* — there is no token → position-tokenId index on V1 at all. Do not build a
+`graduated === true` branch: it cannot fire.
+
+**`chain=base` 404s.** It is a valid `BirthChain` and the socket accepts it, but there is
+no Base address book and no Base RPC server-side. Answering with mainnet addresses would
+be a fabricated record.
+
+**Caching a failure is the lie that lasts 300 seconds.** A 200 whose fields are all null
+is honest for one request and false for the next five minutes. `TRANSIENT_UNREAD` splits
+"a read failed this time" from "this rail cannot prove this, ever", and any transient
+entry forces `Cache-Control: no-store`.
+
+### Three honesty defects this pass fixed in the shipped builder
+
+1. **A fabricated liquidity claim.** `readMigrationStream` takes `_client` (unused) and
+   returns a hardcoded `locked: false`, which `gate.ts` renders as *"Liquidity is not
+   locked; it may be withdrawable by the liquidity owner."* The builder copied that
+   sentence into `locks[0].note` — publishing an assertion about a locker nobody queried.
+   The page has its own guard (`unverifiedGateChecks`); the record now has one too
+   (`liquidityReadable`).
+2. **An inverted premine disclosure.** `collectTokenFacts` declares `vesting[]` and never
+   pushes to it, so a provably-vested premine arrived with an empty array — and the
+   builder labelled it *"no on-chain vesting schedule was read"* with `locked: false`.
+   That is an unlocked insider slice published for a token whose insider slice is locked.
+   It now reads `teamAllocationVestedBps`, which is the fact that survives.
+3. **Unknown rendered as absent.** `sheet.name || null` turned an unread name into `null`
+   with nothing in `unread`; and `RawTokenFacts.unreadFields` carries *Solidity method
+   names* while `unread` carries *record field names*, so piping one into the other would
+   publish `"totalSupply"` in a field-name list. `UNREAD_FIELD_BY_METHOD` translates, and
+   the builder auto-declares null-ish fields.
+
+### Where the shared core lives now
+
+`buildBirthRecord` and friends moved to `frontend/api/_lib/record-core.js` (plain ESM,
+zero imports, plus a co-located `.d.ts`), and `src/lib/launcher/birthRecord.ts` re-exports
+it. A lambda cannot import a `.ts` module, and the repo's existing answer to that — a
+hand-written JS port with a "keep in sync" comment, see `_lib/launcher-outcomes.js` — is
+exactly the fork the directive forbids. `cloneImplTarget` moved for the same reason: both
+rails must agree on what a Doppler clone is, and Doppler deploys the **Solady** layout, so
+a copy that parsed only EIP-1167 would make every real launch look unverified.
+
+⚠️ The core is bundled into the **browser** as well as the lambda. Keep it pure: no
+`node:` imports, no `process.env`, no `fetch`, no `Buffer`.

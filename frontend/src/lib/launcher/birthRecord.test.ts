@@ -13,6 +13,7 @@ import {
   birthRecordUrl,
   birthRecordFailure,
   railDecimals,
+  recordUnreadFrom,
   normaliseCa,
   BIRTH_RECORD_STAMP,
   BIRTH_RECORD_SCHEMA_VERSION,
@@ -109,14 +110,46 @@ describe('plates — EVERY allocation named', () => {
     expect(r.plates.find((p) => p.locked)).toMatchObject({ beneficiary: CREATOR });
   });
 
-  it('an UNVESTED insider slice is named as unlocked, not omitted', () => {
-    // The dangerous case: the sheet declares a team allocation but no vesting schedule
-    // was read. Silence would read as "there is no insider allocation".
-    const r = buildBirthRecord({ sheet: sheet({ teamAllocationBps: 2000, vesting: [] }), ...base });
-    const insider = r.plates.find((p) => p.name.includes('no on-chain vesting'));
+  it('a GENUINELY unvested insider slice is named as unlocked, not omitted', () => {
+    // teamAllocationBps 2000 with teamAllocationVestedBps 0 = a real unvested slice.
+    // Silence would read as "there is no insider allocation".
+    const r = buildBirthRecord({
+      sheet: sheet({ teamAllocationBps: 2000, teamAllocationVestedBps: 0, vesting: [] }),
+      ...base,
+    });
+    const insider = r.plates.find((p) => p.name.includes('not under an on-chain vesting schedule'));
     expect(insider).toBeTruthy();
     expect(insider!.locked).toBe(false);
     expect(insider!.share_bps).toBe(2000);
+    expect(r.plates.map((p) => p.share_bps).reduce((a, b) => a + b, 0)).toBe(10_000);
+  });
+
+  it('a VESTED premine with no schedule array is LOCKED — not labelled unvested', () => {
+    // THE INVERSION THIS GUARDS. `collectTokenFacts` declares `vesting[]` and never
+    // pushes to it on the EVM rail, so a provably-vested premine arrives with an empty
+    // array and a non-zero teamAllocationVestedBps. Reading only the array would publish
+    // an UNLOCKED insider slice for a token whose insider slice is locked.
+    const r = buildBirthRecord({
+      sheet: sheet({ teamAllocationBps: 2000, teamAllocationVestedBps: 2000, vesting: [] }),
+      ...base,
+    });
+    const insider = r.plates.find((p) => p.name.includes('Team allocation'));
+    expect(insider).toBeTruthy();
+    expect(insider!.locked).toBe(true);
+    expect(insider!.name).toContain('on-chain vested');
+    expect(r.plates.some((p) => p.name.includes('not under an on-chain'))).toBe(false);
+    // Locked, but the cliff/duration were never read — so say that rather than invent one.
+    expect(r.unread).toContain('locks.vesting');
+    expect(r.locks.find((l) => l.kind === 'vesting')?.unlock_at).toBeNull();
+  });
+
+  it('a PARTIALLY vested premine names both halves', () => {
+    const r = buildBirthRecord({
+      sheet: sheet({ teamAllocationBps: 2000, teamAllocationVestedBps: 1500, vesting: [] }),
+      ...base,
+    });
+    expect(r.plates.find((p) => p.locked)?.share_bps).toBe(1500);
+    expect(r.plates.find((p) => p.name.includes('not under an on-chain'))?.share_bps).toBe(500);
     expect(r.plates.map((p) => p.share_bps).reduce((a, b) => a + b, 0)).toBe(10_000);
   });
 
@@ -153,6 +186,59 @@ describe('decimals, pinned per rail — the hard law', () => {
     const r = buildBirthRecord({ sheet: sheet(), ...base, chain: 'solana', decimals: null });
     expect(r.decimals).toBeNull();
     expect(r.unread).toContain('decimals');
+  });
+});
+
+describe('the liquidity lock is never ASSERTED on a rail that cannot read it', () => {
+  it('makes NO claim when the locker was never queried', () => {
+    // The live EVM state: `readMigrationStream` is inert against the V1 locker and
+    // returns a hardcoded locked:false, which gate.ts renders as "Liquidity is not
+    // locked; it may be withdrawable by the liquidity owner." Copying that sentence into
+    // a machine-readable record publishes an assertion about a locker nobody asked.
+    const r = buildBirthRecord({ sheet: sheet(), ...base, liquidityReadable: false });
+    const lock = r.locks.find((l) => l.kind === 'liquidity')!;
+    expect(lock.note).not.toMatch(/not locked/i);
+    expect(lock.note).not.toMatch(/withdrawable/i);
+    expect(lock.locker).toBeNull();
+    expect(lock.unlock_at).toBeNull();
+    expect(r.unread).toContain('locks.liquidity');
+  });
+
+  it('still reports a REAL lock when the locker was queried', () => {
+    const r = buildBirthRecord({ sheet: sheet(), ...base, liquidityReadable: true });
+    const lock = r.locks.find((l) => l.kind === 'liquidity')!;
+    expect(lock.locker).toBe(LOCKER);
+    expect(lock.unlock_at).toBe(1800000000);
+    expect(r.unread).not.toContain('locks.liquidity');
+  });
+
+  it('defaults to readable, so every existing producer is unaffected', () => {
+    const r = buildBirthRecord({ sheet: sheet(), ...base });
+    expect(r.unread).not.toContain('locks.liquidity');
+  });
+});
+
+describe('unread carries RECORD field names, not Solidity method names', () => {
+  it('translates the collector’s method names', () => {
+    expect(recordUnreadFrom(['totalSupply', 'name', 'owner'])).toEqual([
+      'total_supply',
+      'name',
+      'residual_powers',
+    ]);
+  });
+
+  it('drops method names it has no record field for, rather than leaking them', () => {
+    expect(recordUnreadFrom(['isBalanceLimitActive', 'somethingElse'])).toEqual([]);
+  });
+
+  it('dedupes', () => {
+    expect(recordUnreadFrom(['name', 'name'])).toEqual(['name']);
+  });
+
+  it('never publishes a raw Solidity name into the record', () => {
+    const r = buildBirthRecord({ sheet: sheet(), ...base, unread: recordUnreadFrom(['totalSupply']) });
+    expect(r.unread).toContain('total_supply');
+    expect(r.unread).not.toContain('totalSupply');
   });
 });
 
