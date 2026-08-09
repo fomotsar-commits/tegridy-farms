@@ -77,14 +77,26 @@ afterEach(() => {
 describe("the routing contract — the SPA fallback would otherwise eat this route", () => {
   const vercel = JSON.parse(readFileSync(join(FE, "vercel.json"), "utf8"));
 
-  /** Turn a Vercel `source` into a regex the way the platform does, near enough. */
+  /**
+   * Turn a Vercel `source` into a regex the way the platform does, near enough.
+   *
+   * Splits on `:param` / `:param*` tokens and escapes EVERY regex metacharacter in the
+   * literal segments — including backslashes. Escaping only `.` (the obvious one) leaves
+   * a partial sanitizer, which is both a CodeQL high and a real correctness hole: an
+   * unescaped metacharacter in a future `source` would silently widen this matcher and
+   * make the SPA-fallback ordering test pass when it should fail.
+   */
   function sourceToRegex(source) {
-    let re = source;
     if (/^\/\(\(\?!/.test(source)) return new RegExp("^" + source + "$");
-    re = re.replace(/[.]/g, "\\.");
-    re = re.replace(/:([A-Za-z_]+)\*/g, "(.*)");
-    re = re.replace(/:([A-Za-z_]+)/g, "([^/]+?)");
-    return new RegExp("^" + re + "$");
+    const body = source
+      .split(/(:[A-Za-z_]+\*?)/)
+      .map((part) => {
+        if (/^:[A-Za-z_]+\*$/.test(part)) return "(.*)";
+        if (/^:[A-Za-z_]+$/.test(part)) return "([^/]+?)";
+        return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      })
+      .join("");
+    return new RegExp("^" + body + "$");
   }
 
   it("a record URL matches the record rewrite BEFORE the SPA fallback", () => {
@@ -260,7 +272,12 @@ describe("the handler", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url, init) => {
-        if (typeof url === "string" && url.includes("api.etherscan.io")) {
+        // Match on the parsed HOSTNAME, not a substring. `includes("api.etherscan.io")`
+        // also matches `https://evil.test/?x=api.etherscan.io`, so a stub written that
+        // way would answer for a host the code never meant to call — and the test would
+        // still pass while proving nothing about which host was contacted.
+        const host = typeof url === "string" ? new URL(url).hostname : "";
+        if (host === "api.etherscan.io") {
           return { ok: true, status: 200, json: async () => ({ status: "1", result: logs }) };
         }
         const body = JSON.parse(init.body);
