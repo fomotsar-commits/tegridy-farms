@@ -20,7 +20,7 @@
     "analyze": "ANALYZE=true vite build"
   },
   "dependencies": {
-    "@base-org/account": "^2.5.8",
+    "@base-org/account": "^2.5.9",
     "@coinbase/wallet-sdk": "^4.3.7",
     "@irys/web-upload": "^0.0.15",
     "@irys/web-upload-ethereum": "^0.0.16",
