@@ -41,7 +41,7 @@
     "@upstash/ratelimit": "^2.0.5",
     "@upstash/redis": "^1.38.0",
     "@walletconnect/ethereum-provider": "^2.23.10",
-    "@whetstone-research/doppler-sdk": "^1.0.33",
+    "@whetstone-research/doppler-sdk": "^1.0.34",
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
     "ethers": "^6.17.0",
