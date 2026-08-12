@@ -24,6 +24,10 @@ const PAGE_ROUTES: Record<string, string> = {
   'connect-prompt': '/farm',
   'token-select': '/trade',
   'typed-confirm': '/admin',
+  // Tradermigos pop-ups — the gallery is the host route for all three.
+  'wallet-modal': '/nakamigos',
+  'make-offer': '/nakamigos',
+  'nft-detail': '/nakamigos',
   // Page surfaces that rendered art but weren't registered in the studio (audit
   // 2026-07-25): trust tools, the launch rail, contracts + treasury + solana swap.
   contracts: '/contracts',
@@ -295,6 +299,14 @@ const SURFACES: Surface[] = [
   { group: 'Pop-ups / Modals', pageId: 'connect-prompt', idx: 0, label: 'PU7 — Connect-wallet gate' },
   { group: 'Pop-ups / Modals', pageId: 'token-select',   idx: 0, label: 'PU8 — Token-select modal' },
   { group: 'Pop-ups / Modals', pageId: 'typed-confirm',  idx: 0, label: 'PU9 — Type-to-confirm (admin)' },
+  // The three Tradermigos pop-ups. These rendered NO art at all until 2026-08-12
+  // — they were never a regression, they were simply never wired, so the
+  // "art on every popup" pass missed them (they live under src/nakamigos/, not
+  // src/components/). `nft-detail` backs ONLY the details column; the image side
+  // stays clean so the collection's own artwork remains the hero.
+  { group: 'Pop-ups / Modals', pageId: 'wallet-modal',   idx: 0, label: 'PU10 — Connect-wallet modal (Tradermigos)' },
+  { group: 'Pop-ups / Modals', pageId: 'make-offer',     idx: 0, label: 'PU11 — Make-offer modal (Tradermigos)' },
+  { group: 'Pop-ups / Modals', pageId: 'nft-detail',     idx: 0, label: 'PU12 — NFT detail modal, details column' },
 
   // Page surfaces found rendering art but NOT registered in the studio (coverage
   // audit 2026-07-25: pageIds used by ArtImg/PageArtBackdrop vs the SURFACES list).

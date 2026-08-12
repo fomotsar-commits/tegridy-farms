@@ -6,6 +6,7 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { sanitizeDecimalInput } from "../../lib/formatting";
+import { pageArt } from "../../lib/artConfig";
 
 const EXPIRATION_OPTIONS = [
   { label: "1 hour", hours: 1 },
@@ -196,13 +197,23 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
         className="offer-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--card)", border: "1px solid var(--border)",
+          // Art-backed panel. `--card` stays the final layer so a 404 on the art
+          // degrades to the old flat panel rather than transparent. Scrim is the
+          // heaviest of the three popups (0.86->0.9): this form shows BALANCES and
+          // an irreversible-offer warning, so legibility outranks how much of the
+          // piece reads through. `backgroundAttachment: local` keeps the art pinned
+          // to the panel while the form scrolls inside `overflowY: auto` — without
+          // it the image slides against the content on short viewports.
+          background: `linear-gradient(180deg, rgba(10,16,32,0.86) 0%, rgba(10,16,32,0.90) 100%), url(${pageArt("make-offer", 0).src}) center / cover no-repeat, var(--card)`,
+          backgroundAttachment: "local",
+          border: "1px solid var(--border)",
           borderRadius: 14, maxWidth: 420, width: "90%", margin: "auto",
           padding: "28px 24px", position: "relative",
           // Match TradeWindow / BulkListingWizard so a tall offer form (balances,
           // warnings, expiry buttons) scrolls instead of clipping the close button
           // off the top of short viewports.
           maxHeight: "90vh", overflowY: "auto",
+          textShadow: "0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)",
         }}
       >
         <button
