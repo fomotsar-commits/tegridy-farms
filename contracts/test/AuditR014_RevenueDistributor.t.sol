@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import {RevenueDistributor} from "../src/RevenueDistributor.sol";
+import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 
 /// @dev Mock voting escrow for AUDIT R014 tests. Mirrors the IVotingEscrow surface
 ///      consumed by RevenueDistributor with deterministic getters.
@@ -179,85 +180,102 @@ contract AuditR014_RevenueDistributorTest is Test {
 
     // ─── M-8 — Auto Dust Reconcile ─────────────────────────────────────
 
+    // TEST REALIGN 2026-08 [REV-AUTORECONCILE-01] (HIGH): the permissionless
+    // `autoReconcileDust` path is RETIRED. It drained the full unclaimed remainder of
+    // any epoch older than 180d regardless of ACTIVE locks (locks have no claim
+    // deadline), and it sat entirely outside the 1% lifetime forfeit cap — it bumped
+    // `totalForfeited` but never `totalForfeitedReclaimed`, which is the figure the cap
+    // is measured against. It is also not repairable in place: the write that takes the
+    // ETH (`epochClaimed[i] += dust`) is the same write that closes the only channel
+    // that could return it (`proposeClaimRecovery` → `EpochAlreadyReconciled`).
+    // The owner-only, 48h-timelocked, ≤10 ETH/call, 1%-lifetime-capped
+    // `proposeForfeitReclaim` → `executeForfeitReclaim` path covers the same dust and
+    // applies the same `epochClaimed[i]` bump; the tests below now pin THAT path.
+
     function test_autoReconcileDust_revertsWithinGracePeriod() public {
         // Need at least 2 epochs to have a destination distinct from source.
         _distribute(2 ether);
         vm.warp(block.timestamp + 4 hours + 1);
         _distribute(2 ether);
-        vm.expectRevert(RevenueDistributor.GracePeriodActive.selector);
+        // Retirement supersedes the grace gate — the path is closed unconditionally.
+        vm.expectRevert(RevenueDistributor.AutoReconcileDisabled.selector);
         dist.autoReconcileDust();
     }
 
-    function test_autoReconcileDust_routesDustForwardAfterGrace() public {
-        // FRESH-2026 TEST REALIGN: F-12-K-3 — dust no longer flows into the
-        // destination epoch's `totalETH`; it now lands in `protocolDustPool` and
-        // becomes sweepable via the 48h-timelocked owner sweep path. The fairness
-        // fix prevents racing-claimer advantages on the latest epoch.
-        // FIX REALIGN: autoReconcileDust now reclaims only epochs OLDER than the 44-day
-        // extended cutoff (DUST_RECLAIM_GRACE + 30d), so active stakers keep headroom past
-        // a monthly claim cadence. Warp past 44d so epoch 0 is fully reclaimable.
-        _distribute(2 ether); // epoch 0: 2 ETH
+    /// An ACTIVE staker's share must survive an arbitrary caller. Pre-fix this
+    /// permissionless call moved epoch 0's entire unclaimed remainder out of
+    /// `totalEarmarked` and into the owner-sweepable surplus.
+    function test_autoReconcileDust_cannotTouchAnyEpoch() public {
+        _distribute(2 ether); // epoch 0
         vm.warp(block.timestamp + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1);
-        _distribute(2 ether); // epoch 1: 2 ETH (destination)
+        _distribute(2 ether); // epoch 1
 
-        // Snapshot the destination epoch's totalETH BEFORE reconcile.
-        (uint256 destETHBefore, , ) = dist.getEpoch(1);
-        assertEq(destETHBefore, 2 ether);
-        uint256 dustPoolBefore = dist.protocolDustPool();
+        uint256 earBefore = dist.totalEarmarked();
 
-        // No claims happened on epoch 0 → entire 2 ETH is "dust" (above MIN_DUST_RECONCILE = 0.01).
-        (uint256 reclaimed, uint256 processed) = dist.autoReconcileDust();
-        assertEq(reclaimed, 2 ether, "all of epoch 0 reclaimed");
-        assertEq(processed, 1, "one epoch processed");
+        vm.prank(attacker);
+        vm.expectRevert(RevenueDistributor.AutoReconcileDisabled.selector);
+        dist.autoReconcileDust();
 
-        // Destination epoch totalETH unchanged (dust no longer routed forward).
-        (uint256 destETHAfter, , ) = dist.getEpoch(1);
-        assertEq(destETHAfter, destETHBefore, "dest epoch totalETH unchanged");
-        // Dust accumulates into the protocol dust pool instead.
-        assertEq(dist.protocolDustPool(), dustPoolBefore + 2 ether, "dust routed to protocolDustPool");
+        // Nothing moved: no accounting write, no cursor advance.
+        assertEq(dist.epochClaimed(0), 0, "epoch 0 untouched");
+        assertEq(dist.totalEarmarked(), earBefore, "earmark untouched");
+        assertEq(dist.totalForfeited(), 0, "nothing forfeited");
+        assertEq(dist.protocolDustPool(), 0, "dust pool frozen at 0");
+        assertEq(dist.lastReconciledEpoch(), 0, "cursor frozen");
 
-        // epochClaimed[0] now equals epoch 0's totalETH → no further claims possible there.
-        assertEq(dist.epochClaimed(0), 2 ether);
-
-        // Cursor advanced.
-        assertEq(dist.lastReconciledEpoch(), 1);
+        // Alice's 100_000/250_000 share of BOTH epochs is still claimable.
+        vm.prank(alice);
+        dist.claim();
+        assertEq(alice.balance, 1.6 ether, "active staker keeps 0.8 + 0.8");
     }
 
-    function test_autoReconcileDust_isBoundedTo10Epochs() public {
-        // Push 12 epochs with 4h+1 spacing (use a local cursor to avoid trace ambiguity).
-        uint256 t = block.timestamp;
-        for (uint256 i = 0; i < 12; i++) {
-            _distribute(2 ether);
-            t += 4 hours + 1;
-            vm.warp(t);
-        }
-        // Need a 13th epoch as the destination (cannot reconcile the latest into itself).
-        // Wait long enough that all earlier epochs are past their grace window AND
-        // that MIN_DISTRIBUTE_INTERVAL has elapsed since the most recent distribute.
-        // FIX REALIGN: autoReconcileDust now reclaims only epochs >44d (extended cutoff).
-        t += dist.AUTO_RECLAIM_ABANDONED_AGE() + 1;
-        vm.warp(t);
-        _distribute(2 ether); // epoch 12 destination
+    /// The replacement path: owner-only, 48h-timelocked, and counted against the 1%
+    /// lifetime forfeit cap that `autoReconcileDust` bypassed entirely.
+    function test_abandonedDust_reclaimableOnlyViaCappedTimelockedOwnerPath() public {
+        _distribute(10 ether); // epoch 0
+        vm.warp(block.timestamp + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1);
+        _distribute(10 ether); // epoch 1
+        vm.warp(block.timestamp + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1);
+        _distribute(10 ether); // epoch 2 — fresh, still in grace, must stay untouched
 
-        // First call processes at most MAX_AUTO_RECONCILE_EPOCHS = 10 epochs.
-        (uint256 reclaimed1, uint256 processed1) = dist.autoReconcileDust();
-        assertEq(processed1, 10, "first call bounded to 10 epochs");
-        assertEq(reclaimed1, 20 ether, "first call reclaims 10 epochs * 2 ETH");
-        assertEq(dist.lastReconciledEpoch(), 10);
+        // Epochs 0 and 1 are both past the extended cutoff → 20 ETH of abandoned dust.
+        assertEq(dist.reclaimEligibleAmount(), 20 ether, "epochs 0 + 1 eligible");
 
-        // Second call processes the remaining eligible epochs (10 and 11).
-        (uint256 reclaimed2, uint256 processed2) = dist.autoReconcileDust();
-        assertEq(processed2, 2, "second call processes remaining 2");
-        assertEq(reclaimed2, 4 ether);
-        assertEq(dist.lastReconciledEpoch(), 12);
+        // MAX_LIFETIME_FORFEIT_BPS (1%) caps LIFETIME owner reclaim well below the
+        // eligible dust. `autoReconcileDust` was subject to NEITHER this cap nor the
+        // timelock; the surviving path is subject to both.
+        uint256 cap = (dist.totalDistributed() * dist.MAX_LIFETIME_FORFEIT_BPS()) / 10_000;
+        assertLt(cap, 20 ether, "cap is strictly below the eligible dust");
 
-        // Third call: no more source epochs (cursor == destEpoch).
-        vm.expectRevert(RevenueDistributor.NoEpochToReconcile.selector);
-        dist.autoReconcileDust();
+        dist.proposeForfeitReclaim(10 ether); // per-call ceiling is 10 ETH
+        // Specific selector, NOT a bare `vm.expectRevert()` — under `via_ir` a bare
+        // expect can pass for the wrong reason once `vm.warp` is in play.
+        vm.expectRevert(
+            abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, dist.FORFEIT_RECLAIM())
+        );
+        dist.executeForfeitReclaim();
+
+        // `vm.getBlockTimestamp()` — see the via_ir timestamp-folding note above.
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        dist.executeForfeitReclaim();
+        assertEq(dist.epochClaimed(0), 10 ether, "epoch 0 consumed");
+
+        // Take the rest of the lifetime allowance, then the cap must bind.
+        dist.proposeForfeitReclaim(cap - 10 ether);
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        dist.executeForfeitReclaim();
+        assertEq(dist.totalForfeitedReclaimed(), cap, "lifetime allowance fully consumed");
+
+        // Epoch 1 still holds eligible dust, but — unlike the retired uncapped
+        // `autoReconcileDust` — nobody can reach it.
+        assertGe(dist.reclaimEligibleAmount(), 1 ether, "epoch 1 dust still eligible on paper");
+        vm.expectRevert(RevenueDistributor.ForfeitExceedsLifetimeCap.selector);
+        dist.proposeForfeitReclaim(1 wei);
     }
 
     function test_autoReconcileDust_revertsWhenNoEpochs() public {
-        vm.expectRevert(RevenueDistributor.NoEpochToReconcile.selector);
+        // Retirement supersedes the no-epoch gate — the path is closed unconditionally.
+        vm.expectRevert(RevenueDistributor.AutoReconcileDisabled.selector);
         dist.autoReconcileDust();
     }
 
@@ -289,11 +307,12 @@ contract AuditR014_RevenueDistributorTest is Test {
         // Attacker races autoReconcileDust DURING the 48h timelock — pre-fix this
         // would have set epochClaimed[0] = epoch[0].totalETH and bricked the
         // recovery.
-        // DEEP-DR-M-03: cursor now HALTS at the first pending-recovery epoch
-        // (instead of skipping past it). When the only eligible epoch has a
-        // pending recovery, the call reverts NoEpochToReconcile().
+        // DEEP-DR-M-03 made the cursor HALT at the first pending-recovery epoch.
+        // TEST REALIGN 2026-08 [REV-AUTORECONCILE-01]: the whole permissionless path
+        // is now retired, so the race is closed a fortiori — no caller, racing or
+        // not, can touch epoch 0.
         vm.prank(attacker);
-        vm.expectRevert(RevenueDistributor.NoEpochToReconcile.selector);
+        vm.expectRevert(RevenueDistributor.AutoReconcileDisabled.selector);
         dist.autoReconcileDust();
         // Cursor MUST NOT have advanced.
         assertEq(dist.lastReconciledEpoch(), 0, "cursor unchanged");
@@ -308,12 +327,18 @@ contract AuditR014_RevenueDistributorTest is Test {
         assertEq(carol.balance - carolBefore, 2 ether, "carol receives 2 ETH");
         assertEq(dist.pendingRecoveryCount(0), 0, "counter decremented on execute");
 
-        // After recovery resolved, autoReconcileDust can now process epoch 0's
-        // residual dust (8 ETH = 10 - 2) — DEEP-DR-M-03 prevents the orphan.
-        (uint256 reclaimed2, uint256 processed2) = dist.autoReconcileDust();
-        assertEq(reclaimed2, 8 ether, "residual dust reclaimed after recovery");
-        assertEq(processed2, 1);
-        assertEq(dist.lastReconciledEpoch(), 1);
+        // After the recovery resolved, epoch 0's residual dust (8 ETH = 10 - 2) is NOT
+        // orphaned — the owner's timelocked + 1%-capped forfeit path still reaches it.
+        // (DEEP-DR-M-03's anti-orphan intent is preserved; only the actor changed.)
+        dist.proposeForfeitReclaim(8 ether);
+        // NOTE: `vm.getBlockTimestamp()`, not `block.timestamp` — under `via_ir` the
+        // compiler folds repeated `block.timestamp` reads ACROSS `vm.warp`, so a
+        // second `warp(block.timestamp + delta)` in the same test body silently
+        // re-uses the pre-warp value and the timelock never matures.
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        dist.executeForfeitReclaim();
+        assertEq(dist.epochClaimed(0), 10 ether, "residual dust reclaimed after recovery");
+        assertEq(dist.totalForfeitedReclaimed(), 8 ether, "and it counts against the 1% cap");
     }
 
     function test_REV_H_02_proposeClaimRecovery_revertsOnReconciledEpoch() public {
@@ -321,13 +346,17 @@ contract AuditR014_RevenueDistributorTest is Test {
         // DEEP-DR-M-01: DUST_RECLAIM_GRACE was bumped from 7d → 14d.
         uint256 t0 = block.timestamp;
         _distribute(10 ether); // epoch 0
-        vm.warp(t0 + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1); // FIX REALIGN: past 180d abandoned-age (permissionless reclaim threshold)
+        vm.warp(t0 + dist.AUTO_RECLAIM_ABANDONED_AGE() + 1); // past the 180d abandoned age
         _distribute(10 ether); // epoch 1
-        dist.autoReconcileDust();
-        assertEq(dist.lastReconciledEpoch(), 1, "epoch 0 was reconciled");
-        // FIX REALIGN: with the 44d gate, epoch 0 (>44d) is FULLY reclaimed, so the
-        // funds-based recovery gate (epochClaimed >= totalETH) now applies.
-        assertEq(dist.epochClaimed(0), 10 ether, "epoch 0 fully reclaimed (>44d)");
+        // TEST REALIGN 2026-08 [REV-AUTORECONCILE-01]: epoch 0 is drained through the
+        // owner's timelocked + 1%-capped forfeit path instead of the retired
+        // permissionless one. The funds-based recovery gate is what is under test here,
+        // and it keys off `epochClaimed[epoch] >= epoch.totalETH` regardless of actor.
+        dist.proposeForfeitReclaim(10 ether);
+        // `vm.getBlockTimestamp()` — see the via_ir timestamp-folding note above.
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        dist.executeForfeitReclaim();
+        assertEq(dist.epochClaimed(0), 10 ether, "epoch 0 fully reclaimed");
 
         // Now any new recovery proposal on the drained epoch must be rejected
         // fail-fast — the source pool is empty (funds-based gate).

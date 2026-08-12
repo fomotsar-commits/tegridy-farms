@@ -1,6 +1,6 @@
 import { parseEther, formatEther } from "viem";
 import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
-import { getProvider, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
+import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
@@ -196,8 +196,10 @@ function normalizeOffer(order) {
 // ═══ CREATE OFFERS ═══
 
 export async function createItemOffer({ tokenId, priceEth, expirationHours = 168, contract = CONTRACT }) {
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: resolve the provider from the ACTIVE
+  // wagmi connector, not the fixed rdns priority walk — see getActiveWalletProvider().
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -209,6 +211,10 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
+    // The offerer signs the order AND funds it (wrap + approve + WETH). Refuse
+    // before any of that if the signing wallet is not the connected account.
+    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
 
     const priceWei = parseEther(String(priceEth));
 
@@ -340,8 +346,9 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
 
 export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
   const osSlug = openseaSlug || slug;
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -353,6 +360,8 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
+    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
     // Step 1: WETH balance & approval (reserve gas buffer)
@@ -455,8 +464,9 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
 
 export async function createTraitOffer({ traitType, traitValue, priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
   const osSlug = openseaSlug || slug;
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -468,6 +478,8 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
+    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
     // Step 1: WETH balance & approval (reserve gas buffer)
@@ -680,8 +692,9 @@ export async function fetchMyListings(wallet, contract = CONTRACT) {
 // ═══ CANCEL ORDER (listings or bids) ═══
 
 export async function cancelOrder(order) {
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -690,6 +703,10 @@ export async function cancelOrder(order) {
     const _chainErr = await assertOnExpectedChain(browserProvider);
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
+    // Only the offerer can cancel. Signing from a different wallet burns gas on
+    // a cancel that marks nothing and reports success.
+    const _walletErr = assertSameWallet(await signer.getAddress(), connectedAddress);
+    if (_walletErr) return _walletErr;
 
     const params = order.rawOrder?.protocol_data?.parameters || order.protocol_data?.parameters;
     if (!params) return { error: "failed", message: "Missing order parameters" };
@@ -729,8 +746,9 @@ export async function cancelOrder(order) {
 // ═══ ACCEPT OFFER (for token owners) ═══
 
 export async function acceptOffer(offer) {
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -745,6 +763,11 @@ export async function acceptOffer(offer) {
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const sellerAddress = await signer.getAddress();
+    // The seller signs setApprovalForAll AND delivers the NFT. If the signing
+    // wallet is not the connected account, the approval lands on the wrong
+    // wallet and the fill reverts (or hands the NFT over from the wrong one).
+    const _walletErr = assertSameWallet(sellerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
 
     // Check NFT approval for conduit (required to transfer the NFT to the buyer)
     const nftContract = offer.tokenContract || CONTRACT;

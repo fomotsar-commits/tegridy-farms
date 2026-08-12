@@ -456,13 +456,136 @@ jobs:
         continue-on-error: true
 
   # ─────────────────────────────────────────────────────────────────────
+  # Fuzz + invariant harnesses.
+  #
+  # AUDIT 2026-08 (ci-hardening): 16 `testFuzz_` and 5 `invariant_` tests ran
+  # in ZERO pipelines — among them the AMM's three core safety properties
+  # (TegridyPairInvariantTest.invariant_{kNeverDecreases,minimumLiquidityLocked,
+  # reservesMatchBalances} in test/FuzzInvariant.t.sol). Nothing was red; they
+  # simply were not selected, which is the same false-green shape the slice
+  # guard above exists to prevent, one layer up.
+  #
+  # WHY THE MATRIX CANNOT REACH THEM. Two independent filters, both by design:
+  #   * the manifest's shared `--no-match-test` is `^(invariant_|testFuzz_)`,
+  #     so every unit slice strips them BY NAME;
+  #   * the one slice that overrides it (`invariants`) narrows the override to
+  #     `^testFuzz_` — still skipping every fuzz test — and is scoped by
+  #     `--match-path test/invariants/*.t.sol`, so harnesses outside that one
+  #     directory are unreachable by PATH as well.
+  #
+  # WHY NOT JUST ADD A SLICE. The coverage guard rejects any file claimed by
+  # two slices, and every file holding these tests is already claimed
+  # (test/FuzzInvariant.t.sol → deep-fresh-final, test/v4/… → v4,
+  # test/VoteIncentives.t.sol → misc, …). One file, one slice is what keeps
+  # slice balance meaningful. A name-selected job is the right shape anyway:
+  # it carries NO path list to go stale, so a harness written in a brand-new
+  # directory is picked up the day it lands rather than the day someone
+  # remembers to widen a glob.
+  #
+  # frontend/src/test/ciFuzzInvariantGate.test.ts asserts that every
+  # `testFuzz_`/`invariant_` declared under contracts/test is matched by
+  # FUZZ_MATCH_TEST, and that this job is in all-tests-pass's `needs` AND has
+  # its result inspected there. That is what stops the selection quietly
+  # drifting away from the tree the way the matrix did.
+  #
+  # ⚠ FIRST EXECUTION. These tests have never run in any pipeline, so this job
+  # is also their first real verdict. If one is red, it is red for a reason —
+  # fix the harness or the contract. Do NOT narrow FUZZ_MATCH_TEST or add a
+  # `--no-match-test` to get green: that recreates precisely the condition the
+  # audit found. The likeliest first casualty is
+  # test/Deep_Restaking_2026_05_01.t.sol::invariant_totalActivePrincipal_consistency,
+  # which its own comment describes as a hand-rolled helper called from
+  # test_totalActivePrincipal_invariant_acrossLifecycle rather than a forge
+  # invariant — it declares no handler and no targetContract, so forge fuzzes
+  # every contract its setUp deployed. If that is what fails, the fix is to
+  # rename the helper (it keeps working as a helper) or give it a bounded
+  # handler, not to re-hide the other 20.
+  # ─────────────────────────────────────────────────────────────────────
+  fuzz-invariant:
+    name: forge test — fuzz + invariant harnesses
+    # `build` only, not `slices`: this job's selection is by TEST NAME and has
+    # no relationship to the slice manifest. The dependency exists solely so the
+    # forge cache is warm — same key as the matrix jobs.
+    needs: [build]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    env:
+      # Selected BY TEST NAME across the whole tree. Anchored, same convention
+      # as the manifest's noMatchTest: every genuine fuzz/invariant uses the
+      # `testFuzz_` / `invariant_` PREFIX, so this selects exactly those and
+      # nothing that merely happens to be spelled that way mid-name.
+      #
+      # Consumed through `env:` and never `${{ }}` inside a `run:` block —
+      # `${{ }}` is textual substitution performed BEFORE bash parses the
+      # script, which makes the value shell source rather than data. Same
+      # rule as the Test step in the matrix above; see its comment.
+      FUZZ_MATCH_TEST: "^(testFuzz_|invariant_)"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@de808b1eea699e761c404bda44ba8f21aba30b2c # v1.3.1
+        with:
+          version: stable
+
+      - name: Restore forge cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            contracts/cache
+            contracts/out
+          key: foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**') }}
+
+      # ─────────────────────────────────────────────────────────────────
+      # Non-zero-selection guard. `forge test` EXITS 0 on "No tests found in
+      # project!", so a selection that matches nothing would make this entire
+      # job a green no-op — exactly how the harnesses stayed invisible in the
+      # matrix. The count has to be asserted separately from the run's exit
+      # code, so it is, before the run below.
+      #
+      # `--list` compiles, warming the same build the run reuses; the marginal
+      # cost is one extra forge startup.
+      # ─────────────────────────────────────────────────────────────────
+      - name: Selection guard (fuzz/invariant selection is non-empty)
+        run: |
+          set -euo pipefail
+          forge test --match-test "$FUZZ_MATCH_TEST" --list --json > /tmp/fuzz-listing.txt
+          # forge can precede the payload with log lines; take the last JSON
+          # object line. `{file: {contract: [testNames]}}` -> flatten, count.
+          COUNT="$(grep '^{' /tmp/fuzz-listing.txt | tail -n 1 | jq '[.[][][]] | length')"
+          echo "fuzz/invariant tests selected: $COUNT"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error file=.github/workflows/contracts-ci.yml::FUZZ_MATCH_TEST selected ZERO tests. forge exits 0 on an empty selection, so this job would report success without executing anything — the exact false-green that hid these harnesses. Fix the regex or the harnesses it points at."
+            exit 1
+          fi
+
+      - name: Test (fuzz + invariant harnesses)
+        # No `--match-path`: the selection is by NAME, over the whole tree, so
+        # no directory can fall out of scope. No `--no-match-test` either —
+        # that filter is what hid these tests in the first place.
+        #
+        # FOUNDRY_* values are the matrix's measured ones (see the Test step
+        # above for the timing table behind 32 runs x 256 depth); stock
+        # invariant defaults cost ~59 min on a 2-core runner and do not fit.
+        run: forge test --match-test "$FUZZ_MATCH_TEST"
+        env:
+          FOUNDRY_FUZZ_RUNS: 256
+          FOUNDRY_INVARIANT_RUNS: 32
+          FOUNDRY_INVARIANT_DEPTH: 256
+
+  # ─────────────────────────────────────────────────────────────────────
   # Required-status aggregator. Branch-protection rules can point at THIS
   # check name ("Contracts CI / all-tests-pass") instead of each matrix
   # slice — adding a new slice doesn't require updating branch protection.
   # ─────────────────────────────────────────────────────────────────────
   all-tests-pass:
     name: all-tests-pass
-    needs: [build, slices, test]
+    needs: [build, slices, test, fuzz-invariant]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -481,6 +604,20 @@ jobs:
           fi
           if [ "${{ needs.test.result }}" != "success" ]; then
             echo "Test matrix: ${{ needs.test.result }} (any slice failed or was skipped)"
+            exit 1
+          fi
+          # The fuzz/invariant job runs the harnesses the matrix filters out by
+          # name. `needs` alone would not gate it — under `if: always()` a
+          # skipped or failed dependency still lets this job run, so its result
+          # has to be read explicitly like every other one above.
+          #
+          # Bracket notation because the job id contains a hyphen. Dotted
+          # dereference of a hyphenated key is the kind of thing that either
+          # works or silently evaluates to empty depending on the expression
+          # parser's mood; `needs['...']` is unambiguous, and an empty result
+          # here would read as "not success" and fail loudly anyway.
+          if [ "${{ needs['fuzz-invariant'].result }}" != "success" ]; then
+            echo "Fuzz + invariant harnesses: ${{ needs['fuzz-invariant'].result }}"
             exit 1
           fi
           echo "✅ All matrix slices passed"

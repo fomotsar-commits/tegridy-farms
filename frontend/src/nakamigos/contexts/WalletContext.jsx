@@ -3,10 +3,11 @@
  * Nakamigos components call useWallet() / useWalletState() etc. as before,
  * but under the hood this reads from the already-mounted WagmiProvider.
  */
-import { createContext, useContext, useMemo, useCallback } from "react";
+import { createContext, useContext, useMemo, useCallback, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { mainnet } from "wagmi/chains";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { getActiveWalletProvider } from "../api";
 
 // ═══ Wallet Contexts (same shape as the original) ═══
 const WalletStateContext = createContext(undefined);
@@ -36,6 +37,23 @@ export function WalletProvider({ children }) {
 
   const walletName = activeConnector?.name || null;
   const isWrongNetwork = isConnected && chain?.id !== mainnet.id;
+
+  // AUDIT FIX 2026-08-06 [wallet-provider]: prime the synchronous provider
+  // cache in api.js on every connect, account switch and disconnect.
+  // ~20 call sites — WETH wrap/unwrap, listing create, cancel, bids, trades —
+  // resolve their provider through the SYNCHRONOUS `getProvider()` and cannot
+  // await the connector. Without this, they fall through to a fixed rdns
+  // priority walk that is independent of the connector wagmi actually
+  // connected, which is how a WETH wrap could be paid by MetaMask while the
+  // order was signed by Rabby. Resolving here means those call sites see the
+  // wallet the user actually chose, from the first render onward rather than
+  // only after a buy has happened to warm the cache.
+  // Rejections are swallowed on purpose: this is a cache warm-up, and
+  // `getActiveWalletProvider()` already degrades to injected discovery and
+  // clears the cache itself when wagmi reports nothing connected.
+  useEffect(() => {
+    getActiveWalletProvider().catch(() => {});
+  }, [address, activeConnector]);
 
   const handleSwitchChain = useCallback(() => {
     switchChain({ chainId: mainnet.id });

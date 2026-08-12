@@ -244,7 +244,23 @@ export function useSwap() {
     query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const {
+    data: receipt,
+    isLoading: isConfirming,
+    isSuccess: isReceiptFetched,
+    isError: isReceiptError,
+  } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
+  // FETCHED". A swap that REVERTED on-chain still produces a receipt, so this
+  // latched true and we fired "WAGMI! Swap confirmed" + trackSwap for a trade
+  // that never executed (and, on the approve leg, told the user the token was
+  // approved when the allowance was unchanged). `receipt.status === 'success'`
+  // is the only real success. The `!!receipt` guard is defensive: at runtime
+  // wagmi always has the receipt once isSuccess is true, so it can never mask
+  // a genuine revert.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
+  const isTxError = isReceiptError || isReverted;
 
   const [fotRetryAttempted, setFotRetryAttempted] = useState(false);
 
@@ -298,6 +314,39 @@ export function useSwap() {
     const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
     return () => clearTimeout(t);
   }, [isSuccess, hash, allowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute]);
+
+  // AUDIT (receipt-status): terminal handler for a receipt that came back
+  // REVERTED. Shares `lastHandledHashRef` with the success effect so exactly
+  // one of the two ever claims a given hash.
+  useEffect(() => {
+    if (!isReverted || !hash) return;
+    if (lastHandledHashRef.current === hash) return;
+    lastHandledHashRef.current = hash;
+    const wasApprove = lastActionRef.current === 'approve';
+    // The tx is terminal — release the in-flight latch so the user can retry,
+    // and drop the submit-time snapshots so a later swap can't be tracked with
+    // this dead trade's input/route.
+    lastActionRef.current = null;
+    isPendingRef.current = false;
+    submittedInputAmountRef.current = '';
+    submittedRouteRef.current = '';
+    if (wasApprove) allowance.resetMultiStepApprove?.();
+    // Allowance/balances may have moved even though this tx failed — re-read so
+    // the CTA isn't left offering a stale next step.
+    allowance.refetchAllowance();
+    refetchFromBalance();
+    toast.error(wasApprove ? 'Approval reverted on-chain' : 'Swap reverted on-chain', {
+      id: `revert-${hash}`,
+      description: wasApprove
+        ? 'Your allowance was NOT changed (gas was still spent). Some tokens require resetting the allowance to 0 first — open it on the explorer for the reason, then try again.'
+        : 'No tokens were swapped (gas was still spent). Usually the price moved past your slippage — raise slippage or refresh the quote and try again.',
+      action: {
+        label: 'View on Explorer',
+        onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
+      },
+      duration: 10_000,
+    });
+  }, [isReverted, hash, allowance, refetchFromBalance, chainId]);
 
   useEffect(() => {
     if (!writeError) return;

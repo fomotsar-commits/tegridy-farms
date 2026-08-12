@@ -10,7 +10,7 @@
 //   GET /api/v1?route=activity&contract=0x...         → recent sales
 //   GET /api/v1?route=token&contract=0x...&tokenId=1  → token metadata
 
-import { checkRateLimit } from "../_lib/ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "../_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "../_lib/bodycap.js";
 import { logSafe } from "../_lib/logSafe.js";
 import { fetchAlchemyWithFailover } from "../_lib/alchemy-failover.js";
@@ -100,6 +100,21 @@ export default async function handler(req, res) {
     limit: 20, windowSec: 60, identifier: "v1",
   });
   if (!allowed) return;
+
+  // COST AMPLIFIER FIX 2026-08-06: global circuit-breaker. The per-IP cap above
+  // stops ONE abusive source but not a DISTRIBUTED flood — N callers each under
+  // 20/min still fan out to metered upstreams (Alchemy compute units, an OpenSea
+  // key, an Ethplorer key), and `erc20scan` accepts ANY address, so there is no
+  // allowlist narrowing the surface. api/alchemy.js and _lib/aggregator-proxy.js
+  // already sit behind this breaker; v1 was the gap. Sheds with 503 past the
+  // aggregate ceiling; raise V1_GLOBAL_RPM (env, no redeploy) if organic traffic
+  // ever reaches it.
+  const underGlobalCap = await checkGlobalLimit(res, {
+    limit: Number(process.env.V1_GLOBAL_RPM) || 600,
+    windowSec: 60,
+    identifier: "v1",
+  });
+  if (!underGlobalCap) return;
 
   const { route, slug, contract: rawContract, tokenId, limit } = req.query;
 

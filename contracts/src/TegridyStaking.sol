@@ -281,7 +281,52 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         Non-restaked transfers (e.g. NFT moving to a lending contract or
     ///         between EOAs) do NOT touch this mapping — only credits routed to
     ///         the shared restakingContract bucket need per-NFT attribution.
+    ///         AUDIT FIX [staking-attribution] 2026-08: this mapping is now the
+    ///         AGGREGATE over every tracked holder that has an undrained slice on
+    ///         `tokenId` — `sum(_unsettledByTokenIdHolder[tokenId][*])`. In the
+    ///         overwhelmingly common single-holder case that is numerically
+    ///         identical to the pre-fix value, and the getter's ABI is unchanged
+    ///         (TegridyLending / TegridyRestaking read it through
+    ///         `ITegridyStaking.unsettledRewardsByTokenId`).
     mapping(uint256 => uint256) public unsettledRewardsByTokenId;
+    /// @notice AUDIT FIX [staking-attribution] 2026-08: the per-(tokenId, holder)
+    ///         LEDGER that `claimUnsettledForTokenId` drains. Records how much of
+    ///         `unsettledRewardsByTokenId[tokenId]` is backed by EACH tracked
+    ///         holder's own `unsettledRewards[holder]` bucket.
+    ///
+    ///         THE DEFECT IT CLOSES: `claimUnsettledForTokenId`'s only gate was
+    ///         `_isTrackedHolder(msg.sender)` — "is the caller *A* tracked holder?",
+    ///         never "is the caller *THE* holder whose bucket backs THIS tokenId?".
+    ///         That was caller-asserted, with two live consequences:
+    ///           (1) DESTRUCTION — any tracked holder with an EMPTY bucket reached
+    ///               the L-16 zombie-cleanup branch in
+    ///               `StakingRewardLib.claimUnsettledForTokenId` (`amount > 0 &&
+    ///               holderUnsettled == 0` => zero the slot) and permanently erased
+    ///               ANOTHER holder's per-tokenId attribution. Unrecoverable: a
+    ///               tracked holder is barred from `claimUnsettled` /
+    ///               `claimUnsettledFor`, so the victim's backing had no drain path.
+    ///           (2) DIVERSION — a funded second tracked holder drained another
+    ///               holder's slice to an arbitrary `recipient`.
+    ///         Reading the caller's OWN entry closes both: you can only ever drain,
+    ///         or clean up, what your own bucket funded.
+    ///
+    /// @dev    Attribution is recorded at CREDIT time and never re-derived from
+    ///         `ownerOf` at drain time, so the documented C-1 POST-transfer residue
+    ///         pull keeps working (TegridyRestaking.unrestake / TegridyLending.
+    ///         repayLoan hand the NFT back FIRST and drain AFTER). An
+    ///         `ownerOf`-at-drain check is exactly what sank the reverted H-11
+    ///         attempt.
+    /// @dev    Storage lives here; ALL read/write logic lives in `StakingRewardLib`
+    ///         (`_creditByTokenId` on the write side, `claimUnsettledForTokenId` on
+    ///         the drain side). A bare slot costs no host bytecode and this contract
+    ///         has ~239 B of EIP-170 headroom, while the library has ~17 KB.
+    /// @dev    `internal`, not `public`, purely for that headroom — a nested-mapping
+    ///         getter is well over the remaining budget (same trade as
+    ///         `_emergencyExitRequests` below). The aggregate above stays public, and
+    ///         `UnsettledClaimedForTokenId` / `RewardSettledToUnsettled` already carry
+    ///         the (tokenId, holder, amount) triples an indexer needs to reconstruct
+    ///         this mapping off-chain.
+    mapping(uint256 => mapping(address => uint256)) internal _unsettledByTokenIdHolder;
     // AUDIT FIX L-06: Cap unbounded totalUnsettledRewards growth.
     // If cap is hit, excess rewards are forfeited (sent to treasury on next reconcile).
     // AUDIT FIX C-02: Made admin-adjustable via timelocked setter (was constant 100_000e18).
@@ -401,6 +446,18 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @notice AUDIT FIX C-1: emitted when the restaking contract pulls the
     ///         per-tokenId share via `claimUnsettledForTokenId`.
     event UnsettledClaimedForTokenId(uint256 indexed tokenId, address indexed recipient, uint256 amount);
+    /// @notice AUDIT FIX [staking-attribution] 2026-08 (observability): mirrors of the
+    ///         two ledger-mutation events that `StakingRewardLib` emits in THIS
+    ///         contract's context via delegatecall. Declared here so they appear in
+    ///         TegridyStaking's own ABI (what indexers and `vm.expectEmit` bind to).
+    /// @dev    Declaration-only — never emitted from this file, so they cost ZERO
+    ///         host bytecode (events are ABI metadata unless an `emit` site exists;
+    ///         measured: host size unchanged). See StakingRewardLib for why these are
+    ///         NEW events rather than edits to `UnsettledClaimedForTokenId` above.
+    event UnsettledClaimedForTokenIdHolder(
+        uint256 indexed tokenId, address indexed holder, address indexed recipient, uint256 amount
+    );
+    event UnsettledZombieEntryCleared(uint256 indexed tokenId, address indexed holder, uint256 amount);
     // AUDIT FIX (pass-8 batch-14): JbacReturned / JbacStranded events moved to
     // TegridyStakingJbacVault — the vault is the emitter post-split.
     event JbacVaultSet(address indexed vault);
@@ -1371,10 +1428,20 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         (c) `_touch(holder)` runs whenever `unsettledRewards[holder]` was
     ///         written, mirroring DS-04 in `_settleRewardsOnTransfer` so the R014
     ///         M-9 inactivity-gate invariant is preserved on the kick path too.
+    /// @dev    AUDIT FIX 2026-08 [KICK-DoS]: the library's all-or-nothing
+    ///         `KickWouldForfeit` revert is REMOVED. It made `kick` — the only
+    ///         expiry-decay path — permanently unreachable for any position whose
+    ///         pending exceeded the GLOBAL `maxUnsettledRewards` room, and
+    ///         protocol-wide unreachable once that cap saturated, so expired boost
+    ///         stayed in `totalBoostedStake` and diluted honest stakers. Because the
+    ///         `NoOpKick` guard below already proves the position is EXPIRED, the
+    ///         residual is now force-settled to the holder's unsettled bucket (the
+    ///         same [M5] cap-bypassing construction `_creditGetReward` uses on its
+    ///         expiry branch). Nothing is forfeited; only the DoS is gone.
     /// @dev    CALLER NOTICE (per DS2-06): Kick MOVES the holder's pre-expiry rewards
     ///         from "directly claimable via getReward" to "unsettled, claimable via
-    ///         claimUnsettled" (paused-blockable, capped, may forfeit if either the
-    ///         rewardPool or unsettled cap saturates). Holders who want full control
+    ///         claimUnsettled" (paused-blockable; credited in FULL — the unsettled cap
+    ///         is bypassed on this expiry path rather than forfeiting). Holders who want full control
     ///         should call `getReward` BEFORE their lock expires. This function exists
     ///         to close the C3/C4 stale-checkpoint window when the holder is
     ///         unreachable or unwilling to act.
@@ -1400,6 +1467,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             prior,
             unsettledRewards,
             unsettledRewardsByTokenId,
+            _unsettledByTokenIdHolder,
             isLendingContract,
             lastActivityAt,
             _rewardCfg()
@@ -1651,6 +1719,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             ownerOf(tokenId),
             unsettledRewards,
             unsettledRewardsByTokenId,
+            _unsettledByTokenIdHolder,
             _checkpoints,
             _totalBoostedStakeCheckpoints,
             _positionsByOwner,
@@ -1676,6 +1745,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             from,
             unsettledRewards,
             unsettledRewardsByTokenId,
+            _unsettledByTokenIdHolder,
             isLendingContract,
             lastActivityAt,
             _rewardCfg()
@@ -1792,12 +1862,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     {
         // AUDIT FIX D-LD-H1: gate by tracked-holder status (restakingContract OR
         // any whitelisted lending contract). Caller's own bucket is the drain
-        // source — no holder argument needed. Both holder types record
-        // unsettledRewardsByTokenId[tokenId] in lockstep with unsettledRewards
-        // [holder]; this caller-asserted drain is sound because a tokenId can
-        // only be in one tracked-holder location at a time (NFT transfers are
-        // atomic, and both holders ALWAYS drain on transfer-out via this same
-        // function — see TegridyRestaking.unrestake / TegridyLending.repayLoan).
+        // source — no holder argument needed.
         if (!_isTrackedHolder(msg.sender)) revert Unauthorized();
         // AUDIT FIX 2026-05-26 [H-11 REVERTED 2026-05-26 self-audit] — the
         // ownership-at-drain-time check broke the documented C-1 POST-transfer
@@ -1807,18 +1872,27 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // the restakingContract that credited the residue). The H-11 check
         // silently reverted (try/catch absorbed) and stranded user residue.
         //
-        // The original H-11 threat ("cross-lending attribution theft") is
-        // bounded by `min(perTokenId, msg.sender's bucket, pool)` so a
-        // captured lending contract can only drain UP TO ITS OWN BUCKET. That
-        // is the existing _isTrackedHolder gate behavior. The full fix
-        // requires per-tokenId attribution tracking (new storage slot) — a
-        // larger surgery deferred to a dedicated PR. The `NotEscrowedHere`
-        // error declaration is preserved for that future fix.
+        // AUDIT FIX [staking-attribution] 2026-08: the per-tokenId attribution
+        // storage this comment block deferred ("the full fix requires per-tokenId
+        // attribution tracking (new storage slot)") is now IMPLEMENTED as
+        // `_unsettledByTokenIdHolder` — see its declaration for the threat model.
+        // The gate above still only asks "is the caller *A* tracked holder?", but
+        // the library now drains the caller's OWN per-(tokenId, holder) entry
+        // instead of the shared aggregate, so the tracked-holder set is no longer
+        // mutually trusted. It is an ATTRIBUTION check recorded at CREDIT time, not
+        // an `ownerOf` check, so the C-1 post-transfer pull above keeps working —
+        // that distinction is what H-11 got wrong.
+        //
+        // An unattributed tokenId stays a SILENT NO-OP returning 0, never a revert:
+        // all ten external call sites in TegridyRestaking / TegridyLending are
+        // documented best-effort and try-wrapped, and turning "nothing of yours
+        // here" into a revert would convert a benign no-op into a swallowed error.
         if (recipient == address(0)) revert ZeroAddress();
 
         // C1 EIP-170 split: body delegated to StakingRewardLib (behaviour-identical).
         (paid, totalUnsettledRewards) = StakingRewardLib.claimUnsettledForTokenId(
             unsettledRewardsByTokenId,
+            _unsettledByTokenIdHolder,
             unsettledRewards,
             tokenId,
             msg.sender,
@@ -1827,6 +1901,37 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
             totalStaked,
             rewardToken
         );
+    }
+
+    /// @notice AUDIT FIX [staking-attribution] 2026-08: read one entry of the
+    ///         per-(tokenId, holder) ledger — "how much of `tokenId`'s residue is
+    ///         backed by `holder`'s own bucket", i.e. exactly what
+    ///         `claimUnsettledForTokenId(tokenId, ...)` would drain if `holder`
+    ///         called it (before the holder-bucket and reward-pool caps).
+    ///
+    /// @dev    THE DEFECT IT CLOSES: consumers used to read the public AGGREGATE
+    ///         `unsettledRewardsByTokenId(tokenId)` to mean "MY residue on this
+    ///         tokenId". Under the ledger the aggregate is
+    ///         `sum(_unsettledByTokenIdHolder[tokenId][*])`, so it can include a
+    ///         FOREIGN tracked holder's entry on the same tokenId. Reading it as
+    ///         "mine" over-states what the caller can actually drain and
+    ///         mis-prices every delta computed against it (TegridyLending's
+    ///         `loanRewardsSnapshot` under-paid the borrower/lender by exactly the
+    ///         foreign entry; TegridyRestaking's `_reserveResidual` kept a
+    ///         reservation live on a foreign entry).
+    ///
+    /// @dev    SIZE: +88 B of the 207 B EIP-170 headroom (24,369 -> 24,457;
+    ///         119 B left). MEASURED both ways — a hand-written getter and simply
+    ///         marking `_unsettledByTokenIdHolder` public cost EXACTLY the same 88 B
+    ///         (the compiler's nested-mapping getter compiles to the same shape), so
+    ///         this is NOT the cheaper option, it is the tie-break: the storage slot
+    ///         stays `internal` and only a read view is exported, keeping the mutable
+    ///         surface minimal and leaving room for this NatSpec.
+    /// @dev    ADDITIVE — no existing external signature is changed or removed;
+    ///         `unsettledRewardsByTokenId` stays public as the aggregate for
+    ///         indexers and any genuine aggregate use.
+    function unsettledByTokenIdHolder(uint256 tokenId, address holder) external view returns (uint256) {
+        return _unsettledByTokenIdHolder[tokenId][holder];
     }
 
     /// @notice AUDIT FIX D-LD-H1: tracked-holder predicate. A "tracked holder"

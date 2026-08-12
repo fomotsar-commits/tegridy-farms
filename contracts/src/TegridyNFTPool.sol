@@ -294,7 +294,16 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // and stuff arbitrary tokenIds into `_heldIds` — exactly the V2-fix
         // exploit shape we tried to close.
 
-        (uint256 inputAmount, uint256 protocolFee, uint256 lpFee) = _getBuyPriceFull(numItems);
+        // AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT): `inputAmount` now INCLUDES
+        // the ERC-2981 royalty, so `maxTotalCost` (the caller's slippage bound)
+        // and the `msg.value` check below both gate the royalty-inclusive price.
+        (
+            uint256 inputAmount,
+            uint256 protocolFee,
+            uint256 lpFee,
+            address royaltyReceiver,
+            uint256 royalty
+        ) = _getBuyPriceFull(numItems, tokenIds[0]);
         if (inputAmount > maxTotalCost) revert MaxCostExceeded();
         if (msg.value < inputAmount) revert InsufficientETH();
 
@@ -334,15 +343,31 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             emit LPFeesAccrued(lpFee, accumulatedLPFees);
         }
 
-        // AUDIT FIX (pass-8 batch-17): ERC-2981 royalty on the spot-revenue
-        // (the pool's NET retained piece after protocol/LP fees). Royalty is
-        // paid out of the pool's revenue, NOT out of the buyer's payment —
-        // the buyer pays `inputAmount` regardless of royalty rate. Pool's
-        // captured revenue = inputAmount − protocolFee − lpFee − royalty.
-        uint256 spotRevenue = inputAmount - protocolFee - lpFee;
-        _settleRoyalty(spotRevenue, tokenIds[0]);
+        // AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT) [CRITICAL]: pay the royalty
+        // out of the BUYER's payment. `royalty` was already added to
+        // `inputAmount` by `_getBuyPriceFull` and the buyer has funded it via the
+        // `msg.value < inputAmount` check above, so the pool's retained revenue
+        // is `baseCost + lpFee + protocolFee` — it contributes nothing.
+        //
+        // PRE-FIX this read `_settleRoyalty(inputAmount − protocolFee − lpFee)`,
+        // paying the royalty out of the POOL's spot revenue. A buy/sell round
+        // trip is curve-neutral, so an attacker-controlled royalty receiver
+        // drained the pool at gas cost (20 ETH -> 17.7 ETH in 10 loops).
+        //
+        // Paying the amount fixed during PRICING (rather than re-querying the
+        // collection) is load-bearing: a hostile `royaltyInfo` that answered
+        // differently on a second call would otherwise put the pool back on the
+        // hook for the difference.
+        uint256 unpaidRoyalty = _payRoyalty(royaltyReceiver, royalty, tokenIds[0]);
 
-        uint256 excess = msg.value - inputAmount;
+        // AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-MAKEWHOLE): when the royalty
+        // could not be delivered AND its ETH is still sitting in this pool
+        // (`_payRoyalty` mode 3), refund it to the buyer who funded it rather
+        // than letting the pool skim it. This preserves trunk's make-whole
+        // posture (`_settleRoyalty` returned 0 on a failed transfer, leaving the
+        // payer un-charged) now that the payer is the counterparty and not the
+        // pool. See `_payRoyalty` for why mode 2 is deliberately NOT refunded.
+        uint256 excess = msg.value - inputAmount + unpaidRoyalty;
         if (excess > 0) {
             _sendETH(msg.sender, excess);
         }
@@ -376,15 +401,26 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // AUDIT FIX: V2-NFTPOOL-01
         _swapCaller = msg.sender;
 
-        // AUDIT FIX 2026-07-12: the slippage floor is enforced later against the
+        // AUDIT FIX 2026-07-12: the slippage floor must be enforced against the
         // NET proceeds the seller actually receives (gross curve payout minus the
-        // ERC-2981 royalty), NOT the gross `outputAmount` here. Pre-fix the check
-        // sat on this line against the pre-royalty gross, so a collection with up
-        // to a 25% royalty could pay the seller strictly LESS than the `minOutput`
-        // they specified. Canonical Sudoswap V2 (LSSVMPair) subtracts royalty
-        // BEFORE the `minExpectedTokenOutput` comparison; we mirror that. See the
-        // net-output check just before `_sendETH` below.
-        (uint256 outputAmount, uint256 protocolFee, uint256 lpFee) = _getSellPriceFull(numItems);
+        // ERC-2981 royalty), never the pre-royalty gross. Pre-fix a collection
+        // with up to a 25% royalty could pay the seller strictly LESS than the
+        // `minOutput` they specified. Canonical Sudoswap V2 (LSSVMPair) subtracts
+        // royalty BEFORE the `minExpectedTokenOutput` comparison; we mirror that.
+        //
+        // AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-SELL-QUOTE): `outputAmount` is now
+        // ALREADY net of the royalty — `_getSellPriceFull` subtracts it during
+        // pricing so `getSellQuote` is truthful — so the 2026-07-12 invariant is
+        // preserved by checking `outputAmount` itself, right here. Do NOT
+        // re-subtract `royalty` further down: that would double-count it.
+        (
+            uint256 outputAmount,
+            uint256 protocolFee,
+            uint256 lpFee,
+            address royaltyReceiver,
+            uint256 royalty
+        ) = _getSellPriceFull(numItems, tokenIds[0]);
+        if (outputAmount < minOutput) revert InsufficientPayout();
 
         spotPrice -= delta * numItems;
 
@@ -406,18 +442,18 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         }
 
         // AUDIT FIX (pass-8 batch-17): ERC-2981 royalty on the user's payout.
-        // Royalty is computed against `outputAmount` (gross seller proceeds
-        // before royalty deduction) and forwarded to the receiver; seller
-        // gets `outputAmount − royalty`. Failed receiver = silent skip
+        // Royalty was computed against the seller's gross proceeds by
+        // `_getSellPriceFull` and already subtracted from `outputAmount`; here
+        // we forward it to the receiver. Failed receiver = silent skip
         // (royalty receiver cannot brick the sale; mirror Sudoswap V2 / OS).
-        uint256 royalty = _settleRoyalty(outputAmount, tokenIds[0]);
-
-        // AUDIT FIX 2026-07-12: enforce the slippage floor against the NET amount
-        // the seller actually receives (`outputAmount - royalty`). Reverting here
-        // rolls back the NFT inflow, fee accrual and the royalty payment above, so
-        // the seller is never forced to accept less than `minOutput`.
-        uint256 netOutput = outputAmount - royalty;
-        if (netOutput < minOutput) revert InsufficientPayout();
+        //
+        // AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-MAKEWHOLE): trunk's
+        // `_settleRoyalty` returned 0 on a failed transfer, so the seller was
+        // paid the FULL pre-royalty gross — the payer was made whole for a
+        // royalty nobody received. `_payRoyalty` reports that same condition as
+        // `unpaidRoyalty` (only when the ETH is still in this pool), and we add
+        // it back to the payout below.
+        uint256 unpaidRoyalty = _payRoyalty(royaltyReceiver, royalty, tokenIds[0]);
 
         // AUDIT FIX V4-NFTPOOL-01 (FRESH-2026 H2): clear `_swapCaller` BEFORE
         // the ETH payout. `_sendETH` reaches the seller's `receive()` (or a
@@ -430,7 +466,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // window. Same exploit shape that V3-NFTPOOL-01 already fixed in
         // the BUY direction; the SELL direction was missed.
         _swapCaller = address(0);
-        _sendETH(msg.sender, netOutput);
+        _sendETH(msg.sender, outputAmount + unpaidRoyalty);
 
         lastSwapBlock = block.timestamp;
         _swapInFlight = false;
@@ -788,12 +824,103 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // ─── View Functions ─────────────────────────────────────────────────
 
+    /// @notice Total ETH a buyer must send to take `numItems` off this pool.
+    /// @dev    ⚠️ SEMANTIC CHANGE — AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT).
+    ///         The selector and the return tuple are UNCHANGED, but the value of
+    ///         `inputAmount` is not: it now INCLUDES the ERC-2981 royalty, which
+    ///         the buyer funds. Pre-fix it was `baseCost + lpFee + protocolFee`
+    ///         and the pool paid the royalty out of its own capital (the drain
+    ///         this fix closes). `inputAmount` is, and always was, exactly the
+    ///         figure `swapETHForNFTs` charges — so a caller that forwards this
+    ///         value as `msg.value` / `maxTotalCost` is correct BOTH before and
+    ///         after. What changed is that the number is now bigger for
+    ///         royalty-bearing collections.
+    /// @dev    ⚠️ DO NOT add the royalty on top of this figure — it is already
+    ///         inside. Integrators that want the split (e.g. to show a fee
+    ///         breakdown, or to reconcile against a pre-fix cached quote) must
+    ///         read `getBuyQuoteWithRoyalty` rather than re-deriving it: that
+    ///         view returns the identical `inputAmount` plus the `royalty`
+    ///         component, so `inputAmount - royalty` recovers the old number
+    ///         exactly.
+    /// @param  numItems Number of NFTs to buy.
+    /// @return inputAmount Royalty-INCLUSIVE total the buyer must send.
+    /// @return protocolFee Protocol fee component (unchanged by this fix).
     function getBuyQuote(uint256 numItems) external view returns (uint256 inputAmount, uint256 protocolFee) {
         return _getBuyPrice(numItems);
     }
 
+    /// @notice Net ETH a seller receives for `numItems`, after every deduction.
+    /// @dev    ⚠️ SEMANTIC CHANGE — AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-SELL-QUOTE).
+    ///         Selector and tuple UNCHANGED; `outputAmount` is now NET of the
+    ///         ERC-2981 royalty. Pre-fix this view never called `royaltyInfo` at
+    ///         all while `swapNFTsForETH` deducted the royalty before paying out,
+    ///         so the quote OVERSTATED the real proceeds and `minOutput` gated a
+    ///         number the seller could not actually receive. `outputAmount` is
+    ///         now exactly what lands in the seller's wallet and exactly what
+    ///         `minOutput` is compared against.
+    /// @dev    ⚠️ DO NOT subtract a royalty from this figure — it is already
+    ///         out. Use `getSellQuoteWithRoyalty` to see the component.
+    /// @param  numItems Number of NFTs to sell.
+    /// @return outputAmount Royalty-EXCLUSIVE net payout to the seller.
+    /// @return protocolFee Protocol fee component (unchanged by this fix).
     function getSellQuote(uint256 numItems) external view returns (uint256 outputAmount, uint256 protocolFee) {
         return _getSellPrice(numItems);
+    }
+
+    /// @notice AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT): reconciliation view
+    ///         for `getBuyQuote`. Returns the SAME `inputAmount` that
+    ///         `getBuyQuote` returns, plus the components that make it up — so an
+    ///         integrator holding a pre-fix expectation can prove where the
+    ///         difference went instead of guessing (and, critically, so nobody
+    ///         double-counts the royalty by adding it on top).
+    ///         Invariant: `inputAmount == baseCurveCost + lpFee + protocolFee + royalty`
+    ///         and `getBuyQuote().inputAmount == inputAmount`.
+    /// @param  numItems Number of NFTs to buy.
+    /// @return inputAmount Royalty-INCLUSIVE total (identical to `getBuyQuote`).
+    /// @return protocolFee Protocol fee component.
+    /// @return lpFee LP fee component (TRADE pools with `feeBps > 0`).
+    /// @return royaltyReceiver ERC-2981 destination, or `address(0)` if none is owed.
+    /// @return royalty ERC-2981 amount included in `inputAmount`. Zero for
+    ///         collections without ERC-2981, and for responses rejected by the
+    ///         25%-of-sale cap.
+    function getBuyQuoteWithRoyalty(uint256 numItems)
+        external
+        view
+        returns (
+            uint256 inputAmount,
+            uint256 protocolFee,
+            uint256 lpFee,
+            address royaltyReceiver,
+            uint256 royalty
+        )
+    {
+        return _getBuyPriceFull(numItems, _quoteAnchorTokenId());
+    }
+
+    /// @notice AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-SELL-QUOTE): reconciliation
+    ///         view for `getSellQuote`. `outputAmount` is identical to
+    ///         `getSellQuote`'s (already net of `royalty`); the extra returns
+    ///         expose what was taken out.
+    ///         Invariant: `outputAmount + royalty + protocolFee + lpFee == baseCurvePayout`
+    ///         and `getSellQuote().outputAmount == outputAmount`.
+    /// @param  numItems Number of NFTs to sell.
+    /// @return outputAmount Net payout to the seller (identical to `getSellQuote`).
+    /// @return protocolFee Protocol fee component.
+    /// @return lpFee LP fee component.
+    /// @return royaltyReceiver ERC-2981 destination, or `address(0)` if none is owed.
+    /// @return royalty ERC-2981 amount ALREADY subtracted from `outputAmount`.
+    function getSellQuoteWithRoyalty(uint256 numItems)
+        external
+        view
+        returns (
+            uint256 outputAmount,
+            uint256 protocolFee,
+            uint256 lpFee,
+            address royaltyReceiver,
+            uint256 royalty
+        )
+    {
+        return _getSellPriceFull(numItems, _quoteAnchorTokenId());
     }
 
     function getHeldTokenIds() external view returns (uint256[] memory) {
@@ -883,13 +1010,54 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         view
         returns (uint256 inputAmount, uint256 protocolFee)
     {
-        (inputAmount, protocolFee, ) = _getBuyPriceFull(numItems);
+        (inputAmount, protocolFee, , , ) = _getBuyPriceFull(numItems, _quoteAnchorTokenId());
     }
 
-    function _getBuyPriceFull(uint256 numItems)
+    /// @dev AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT): royalty is now part of
+    ///      the PRICE, so the quote views need a tokenId to anchor the ERC-2981
+    ///      rate on. `getBuyQuote`/`getSellQuote` take only `numItems` (external
+    ///      signatures are frozen — deployed callers would be bricked by a
+    ///      selector change), so they anchor on the pool's first held tokenId,
+    ///      falling back to 0 when the pool is empty. This matches the anchoring
+    ///      the settlement path has always used (`tokenIds[0]`), and the
+    ///      overwhelmingly common ERC-2981 implementation (OpenZeppelin's
+    ///      `ERC2981` default-royalty, Manifold's registry) returns a per-
+    ///      COLLECTION rate that ignores the tokenId entirely. If a collection
+    ///      does price royalties per-token, a quote/settlement divergence can
+    ///      only ever cause a REVERT, never an underfunded pool: the swap paths
+    ///      recompute from the real `tokenIds[0]`, so a higher actual royalty
+    ///      trips `InsufficientETH` (buy) or `InsufficientPayout` (sell).
+    function _quoteAnchorTokenId() internal view returns (uint256) {
+        return _heldIds.length == 0 ? 0 : _heldIds[0];
+    }
+
+    /// @dev AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT) [CRITICAL]: the ERC-2981
+    ///      royalty is now ADDED to `inputAmount` so the BUYER funds it, mirroring
+    ///      Sudoswap V2 `LSSVMPair._calculateBuyInfoAndUpdatePoolParams` (royalty
+    ///      is added on top of the curve's `inputAmount`, then paid out of the
+    ///      buyer's payment in `_pay`).
+    ///
+    ///      PRE-FIX: `swapETHForNFTs` charged the buyer `baseCost + lpFee +
+    ///      protocolFee` and then paid the royalty out of the POOL's own spot
+    ///      revenue. Because a buy-then-sell round trip is exactly curve-neutral
+    ///      (spot moves +delta then −delta), each round trip bled the pool by the
+    ///      buy-side royalty at nothing but gas cost to the attacker — a
+    ///      collection whose ERC-2981 receiver is attacker-controlled could drain
+    ///      the entire pool. Test-proven at 20 ETH -> 17.7 ETH in 10 loops.
+    ///      `royalty` is the ERC-2981 amount the buyer is charged on top of the
+    ///      curve price and `royaltyReceiver` is its destination. Both are zero
+    ///      for collections without ERC-2981 (or with an out-of-bounds rate),
+    ///      which keeps those pools byte-for-byte on their old economics.
+    function _getBuyPriceFull(uint256 numItems, uint256 anchorTokenId)
         internal
         view
-        returns (uint256 inputAmount, uint256 protocolFee, uint256 lpFee)
+        returns (
+            uint256 inputAmount,
+            uint256 protocolFee,
+            uint256 lpFee,
+            address royaltyReceiver,
+            uint256 royalty
+        )
     {
         if (numItems == 0) revert EmptySwap();
 
@@ -902,7 +1070,12 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         }
 
         protocolFee = baseCost * protocolFeeBps / BPS;
-        inputAmount = baseCost + lpFee + protocolFee;
+        // Royalty is assessed on the curve's `baseCost` — the same base the
+        // pre-fix code used (`spotRevenue = inputAmount − protocolFee − lpFee`
+        // is identically `baseCost`), so the amount owed to legitimate
+        // collections is UNCHANGED. Only who pays it changes.
+        (royaltyReceiver, royalty) = _royaltyQuote(baseCost, anchorTokenId);
+        inputAmount = baseCost + lpFee + protocolFee + royalty;
     }
 
     function _getSellPrice(uint256 numItems)
@@ -910,13 +1083,31 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         view
         returns (uint256 outputAmount, uint256 protocolFee)
     {
-        (outputAmount, protocolFee, ) = _getSellPriceFull(numItems);
+        (outputAmount, protocolFee, , , ) = _getSellPriceFull(numItems, _quoteAnchorTokenId());
     }
 
-    function _getSellPriceFull(uint256 numItems)
+    /// @dev AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-SELL-QUOTE) [HIGH]: `outputAmount`
+    ///      is now NET of the ERC-2981 royalty — i.e. exactly what the seller
+    ///      receives. Pre-fix `getSellQuote` never called `royaltyInfo` at all
+    ///      while `swapNFTsForETH` deducted the royalty before paying out, so
+    ///      (a) the quoted payout overstated the real proceeds by the royalty,
+    ///      and (b) `minOutput` gated the PRE-royalty gross, silently letting a
+    ///      seller who demanded the full quote receive less than they demanded.
+    ///      Any front-end applying a slippage tolerance to the quote hard-
+    ///      reverted `InsufficientPayout` for every collection whose royalty
+    ///      exceeded that tolerance — i.e. the whole 501–2500 bps band under a
+    ///      conventional 5% default. Netting it here makes the quote truthful
+    ///      and re-arms `minOutput` on the amount that actually lands.
+    function _getSellPriceFull(uint256 numItems, uint256 anchorTokenId)
         internal
         view
-        returns (uint256 outputAmount, uint256 protocolFee, uint256 lpFee)
+        returns (
+            uint256 outputAmount,
+            uint256 protocolFee,
+            uint256 lpFee,
+            address royaltyReceiver,
+            uint256 royalty
+        )
     {
         if (numItems == 0) revert EmptySwap();
 
@@ -932,7 +1123,13 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         }
 
         protocolFee = basePayout * protocolFeeBps / BPS;
-        outputAmount = basePayout - lpFee - protocolFee;
+        // `sellerGross` is the pre-royalty figure the settlement path has always
+        // assessed the royalty against, so the amount owed to legitimate
+        // collections is UNCHANGED — it is now merely disclosed in the quote and
+        // subtracted here instead of at payout time.
+        uint256 sellerGross = basePayout - lpFee - protocolFee;
+        (royaltyReceiver, royalty) = _royaltyQuote(sellerGross, anchorTokenId);
+        outputAmount = sellerGross - royalty;
 
         // AUDIT FIX: DEEP-NFTPOOL-05/07: subtract LP-fee accumulator from solvency.
         // AUDIT FIX M-1 (LP-fee solvency): include `lpFee` in the required threshold.
@@ -944,8 +1141,17 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         // ALWAYS pay every LP fee it has booked). Tightens the per-sell
         // liquidity requirement by `lpFee`, which is the correct conservative
         // posture for a TRADE pool with a non-zero `feeBps`.
+        // AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-SELL-QUOTE): `royalty` is added
+        // back into the requirement because `outputAmount` is now NET of it.
+        // Total ETH leaving the pool on this sell is still `outputAmount +
+        // royalty`, so the threshold is byte-identical to the pre-fix one
+        // (== `basePayout`). Omitting it here would have SILENTLY WEAKENED the
+        // solvency floor by exactly the royalty.
         uint256 availableETH = _lpAvailableETH();
-        require(availableETH >= outputAmount + protocolFee + lpFee, "POOL_INSUFFICIENT_ETH");
+        require(
+            availableETH >= outputAmount + royalty + protocolFee + lpFee,
+            "POOL_INSUFFICIENT_ETH"
+        );
     }
 
     function _lpAvailableETH() internal view returns (uint256) {
@@ -1023,13 +1229,9 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
 
     // ─── AUDIT FIX (pass-8 batch-17): ERC-2981 royalty enforcement ──────
 
-    /// @dev Settle ERC-2981 royalties on a swap. Queries the collection's
-    ///      `royaltyInfo(firstTokenId, totalSale)`; if the collection
-    ///      implements ERC-2981 (try-call succeeds), forwards the royalty
-    ///      amount to the receiver via WETHFallbackLib (10k-gas-stipend
-    ///      ETH leg, falls back to WETH wrap on receiver-revert). Returns
-    ///      the amount actually paid out so the caller can deduct it from
-    ///      their swap proceeds.
+    /// @dev Price ERC-2981 royalties for a swap. Queries the collection's
+    ///      `royaltyInfo(firstTokenId, totalSale)`; the caller then pays that
+    ///      exact figure via `_payRoyalty`.
     /// @dev    Most ERC-2981 implementations use a single rate per
     ///         collection (BPS of sale price), so anchoring on the first
     ///         tokenId is faithful. Bounded sanity checks on the returned
@@ -1038,15 +1240,47 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
     /// @param  totalSale Aggregate sale value in ETH for the batch.
     /// @param  firstTokenId First token in the batch — used as the royalty
     ///         rate anchor.
-    /// @return royaltyPaid Amount of ETH (or WETH-fallback) sent to the
-    ///         royalty receiver. Zero if collection doesn't implement
-    ///         ERC-2981, or if the response is invalid (zero receiver,
-    ///         zero amount, or amount ≥ totalSale).
-    function _settleRoyalty(uint256 totalSale, uint256 firstTokenId)
+    /// @return royaltyReceiver Destination for the royalty, or `address(0)`
+    ///         when none is owed.
+    /// @return royaltyAmount Amount owed. Zero if the collection doesn't
+    ///         implement ERC-2981, or if the response is invalid (zero
+    ///         receiver, zero amount, or amount above the 25% cap).
+    /// @dev AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT): the read-only half of
+    ///      royalty settlement, split out of `_settleRoyalty` so the PRICING
+    ///      paths (`_getBuyPriceFull` / `_getSellPriceFull`, and therefore
+    ///      `getBuyQuote` / `getSellQuote`) can charge the royalty to the
+    ///      counterparty instead of the pool.
+    ///
+    ///      Splitting it is what makes the fix safe: the swap paths quote ONCE
+    ///      and pay that exact figure. If settlement re-queried the collection,
+    ///      a hostile `royaltyInfo` could return a small number to the pricing
+    ///      call and a large one to the settlement call, and the pool would eat
+    ///      the difference — reintroducing the very drain being fixed.
+    ///
+    ///      All validity rules are carried over verbatim: 50k gas cap, zero-
+    ///      receiver / zero-amount rejection, and the Sudoswap V2 25%-of-sale
+    ///      cap (`amount > totalSale >> 2`). Non-ERC-2981 collections land in
+    ///      the `catch` and pay nothing, exactly as before.
+    ///
+    ///      GAS-CAP NOTE (FRESH-2026 review item (c)): this is now reachable
+    ///      from the `view` surface (`getBuyQuote` / `getSellQuote`), which
+    ///      `TegridyNFTPoolFactory._bestBuyIn` / `_bestSellIn` call once per
+    ///      pool inside their own `try`. The `{gas: 50_000}` cap below is what
+    ///      keeps that scan bounded: a hostile `royaltyInfo` that loops forever
+    ///      OOGs inside its own 50k frame, the `catch` here absorbs it and
+    ///      prices a zero royalty, and the quote returns normally — so the pool
+    ///      is never knocked out of the factory's scan and the scan's total gas
+    ///      stays within its LOOP-01 envelope. Without the cap the callee would
+    ///      receive 63/64 of the scan's remaining gas and could burn the whole
+    ///      `eth_call` budget. Pinned by
+    ///      `test_hostileRoyaltyInfo_quoteStaysGasCapped` and
+    ///      `test_hostileRoyaltyInfo_doesNotBrickFactoryScan`.
+    function _royaltyQuote(uint256 totalSale, uint256 firstTokenId)
         internal
-        returns (uint256 royaltyPaid)
+        view
+        returns (address royaltyReceiver, uint256 royaltyAmount)
     {
-        if (totalSale == 0) return 0;
+        if (totalSale == 0) return (address(0), 0);
         // AUDIT FIX 2026-05-16 LOW: gas cap on the external royaltyInfo call.
         // Pre-fix, `try IERC2981(...).royaltyInfo(...)` forwarded `gasleft()*63/64`.
         // A hostile collection's royaltyInfo that burns all forwarded gas (infinite
@@ -1059,7 +1293,7 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
         try IERC2981(address(nftCollection)).royaltyInfo{gas: 50_000}(firstTokenId, totalSale)
             returns (address receiver, uint256 amount)
         {
-            if (receiver == address(0) || amount == 0) return 0;
+            if (receiver == address(0) || amount == 0) return (address(0), 0);
             // AUDIT FIX (BATCH-B H1, Sudoswap V2 LSSVMPair pattern):
             // Cap royalty at 25% of sale. Without a cap, a malicious or
             // collection-author-compromised ERC-2981 implementation could
@@ -1070,32 +1304,73 @@ contract TegridyNFTPool is IERC721Receiver, ReentrancyGuard, Pausable, Initializ
             // a redundant outer guard. Refs: sudoswap/lssvm2 LSSVMPair.sol
             // `_calculateRoyaltiesLogic` — "defends against a rogue Manifold
             // registry that charges extremely high royalties".
-            if (amount > totalSale >> 2) return 0;
+            //
+            // NOTE (FRESH-2026): this cap is `>` not `>=`, so a receiver
+            // parked at exactly 25% is honoured. That is retained deliberately
+            // — it matches Sudoswap V2 byte-for-byte, and post-fix a maximal
+            // royalty costs the BUYER/SELLER (who see it in the quote and can
+            // decline) rather than the pool, so it is no longer a drain lever.
+            if (amount > totalSale >> 2) return (address(0), 0);
             // (defensive — the cap above already implies this, but keeps the
             // explicit invariant readable for downstream auditors)
-            if (amount >= totalSale) return 0;
-            (bool success, uint8 mode) =
-                WETHFallbackLib.safeTransferETHOrWrapNoRevert(weth, receiver, amount);
-            if (success) {
-                royaltyPaid = amount;
-                if (mode == 1) {
-                    emit RoyaltyFallbackToWETH(receiver, amount, firstTokenId);
-                } else {
-                    emit RoyaltyPaid(receiver, amount, firstTokenId);
-                }
-            } else {
-                // AUDIT FIX (BATCH-B H3): mode == 2 means BOTH the ETH leg AND
-                // the WETH-deposit leg failed (or the WETH-transfer leg failed
-                // AFTER deposit succeeded — leaving WETH stranded in this pool).
-                // Pre-fix this was silently skipped. Now we emit an event so
-                // off-chain monitoring can flag the orphaned receiver and
-                // governance can use `rescueStrandedRoyalty` (below) to push
-                // the funds to the right place after manual investigation.
-                emit RoyaltyOrphaned(receiver, amount, firstTokenId);
-            }
+            if (amount >= totalSale) return (address(0), 0);
+            return (receiver, amount);
         } catch {
             // Collection doesn't implement ERC-2981 (or reverted). Pay zero.
+            return (address(0), 0);
         }
+    }
+
+    /// @dev AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-CRIT): the transfer half of
+    ///      royalty settlement. Takes the receiver/amount already fixed by
+    ///      `_royaltyQuote` during pricing rather than re-deriving them.
+    ///      Event emission and the "a failing receiver can never brick the
+    ///      swap" posture are unchanged.
+    /// @return unpaid Amount of royalty ETH that is STILL SITTING IN THIS POOL
+    ///         because it could not be delivered. The caller MUST hand it back
+    ///         to whoever funded it (the buyer's refund leg / the seller's
+    ///         payout) — that is the make-whole behaviour trunk's
+    ///         `_settleRoyalty` provided by returning `royaltyPaid == 0`.
+    ///
+    /// @dev AUDIT FIX FRESH-2026 (NFTPOOL-ROYALTY-MAKEWHOLE): the make-whole is
+    ///      deliberately scoped to the case where the ETH is PHYSICALLY still
+    ///      here, which is what `WETHFallbackLib` reports as mode 3 (the raw
+    ///      ETH send failed AND `WETH.deposit` failed, so nothing left the
+    ///      balance). Mode 2 is a DIFFERENT physical state: `deposit` succeeded
+    ///      and only the WETH `transfer` failed, so the wei has already been
+    ///      converted into WETH held by this pool for that receiver. Refunding
+    ///      it as ETH as well would spend the same wei twice and push the pool
+    ///      below `accumulatedLPFees + accumulatedProtocolFees` — the exact
+    ///      DEEP-NFTPOOL-05/07 + M-1 solvency invariant the sell-side
+    ///      `POOL_INSUFFICIENT_ETH` require exists to protect. Trunk's
+    ///      `_settleRoyalty` conflated modes 2 and 3 (its comment says "BOTH
+    ///      legs failed (or the WETH-transfer leg failed AFTER deposit
+    ///      succeeded)") and made the payer whole in both, which is why trunk
+    ///      could over-pay by the royalty in the mode-2 case. Mode 2 keeps its
+    ///      pre-existing recovery route: `RoyaltyOrphaned` for monitoring plus
+    ///      the owner's `rescueStrandedRoyalty`.
+    function _payRoyalty(address receiver, uint256 amount, uint256 firstTokenId)
+        internal
+        returns (uint256 unpaid)
+    {
+        if (receiver == address(0) || amount == 0) return 0;
+        (bool success, uint8 mode) =
+            WETHFallbackLib.safeTransferETHOrWrapNoRevert(weth, receiver, amount);
+        if (success) {
+            if (mode == 1) {
+                emit RoyaltyFallbackToWETH(receiver, amount, firstTokenId);
+            } else {
+                emit RoyaltyPaid(receiver, amount, firstTokenId);
+            }
+            return 0;
+        }
+        // AUDIT FIX (BATCH-B H3): emit so off-chain monitoring can flag the
+        // orphaned receiver and governance can use `rescueStrandedRoyalty`
+        // (below) to push the funds to the right place after investigation.
+        emit RoyaltyOrphaned(receiver, amount, firstTokenId);
+        // mode 3 == ETH untouched in this pool -> hand it back to the payer.
+        // mode 2 == already converted to WETH held here -> nothing left to hand back.
+        return mode == 3 ? amount : 0;
     }
 
     /// @notice AUDIT FIX (BATCH-B H3, Sudoswap V2 withdrawERC20 + Aave V3 rescueTokens pattern):

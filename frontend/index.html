@@ -73,6 +73,11 @@
     <!-- Preconnect to NFT image CDNs for faster loading -->
     <link rel="preconnect" href="https://assets.mgxs.co" crossorigin>
     <link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
+    <!-- Alchemy's NFT API now serves media from nft2-cdn; the legacy nft-cdn host is
+         still hardcoded in src/nakamigos/constants.js + middleware.js, so warm both.
+         Keep BOTH in lock-step with img-src in vercel.json — a host missing there is a
+         broken placeholder in production and invisible locally. -->
+    <link rel="preconnect" href="https://nft2-cdn.alchemy.com" crossorigin>
     <link rel="preconnect" href="https://nft-cdn.alchemy.com" crossorigin>
     <!-- DNS prefetch for API endpoints used by aggregator/swap routing -->
     <link rel="dns-prefetch" href="https://api.geckoterminal.com">

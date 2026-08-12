@@ -1007,8 +1007,30 @@ function _collect6963Providers() {
   return found;
 }
 
+// Provider handed back by the ACTIVE wagmi connector on the most recent
+// `getActiveWalletProvider()` call. `getProvider()` is synchronous and is still
+// used by call sites that cannot await (WETH wrap/approve, ENS lookups, the
+// native orderbook) — serving the connector-resolved provider from here keeps
+// those on the SAME wallet the user actually connected instead of falling
+// through to the rdns priority walk below, which is what let a WETH wrap be
+// paid by MetaMask while the offer was signed by Rabby. Refreshed on every
+// `getActiveWalletProvider()` call and cleared the moment wagmi reports no
+// active connector, so a disconnect cannot leave a stale wallet behind.
+let _activeConnectorProvider = null;
+
+// Monotonic token for cache writes. Every connect / account switch / disconnect
+// starts a fresh `getActiveWalletProvider()` while an earlier one may still be
+// awaiting `connector.getProvider()` — and a slow connector (WalletConnect,
+// Safe) can resolve AFTER the user has already moved to another wallet. Without
+// this, last-write-wins would re-prime the cache with the wallet the user just
+// left, which is precisely the pay-from-the-wrong-wallet state this resolution
+// exists to close. Each call captures the token before its await and may only
+// write the shared cache if it is still the newest resolution in flight.
+let _providerResolutionSeq = 0;
+
 export function getProvider() {
   if (typeof window === 'undefined') return null;
+  if (_activeConnectorProvider) return _activeConnectorProvider;
   // Try EIP-6963 discovery first.
   const announced = _collect6963Providers();
   if (announced.length > 0) {
@@ -1032,6 +1054,85 @@ export function getProvider() {
     return metaMaskish || eth.providers[0];
   }
   return eth;
+}
+
+// ═══ ACTIVE-WALLET RESOLUTION (wagmi connector is the source of truth) ═══
+// AUDIT FIX 2026-08-06 [wallet-provider]: `getProvider()` walks a FIXED rdns
+// priority list that is completely INDEPENDENT of which connector wagmi
+// actually connected. Two live consequences:
+//   1. With MetaMask installed and Rabby (or Frame, or a second injected
+//      wallet) selected in the app, `signer.sendTransaction` was paid by
+//      MetaMask while the address the UI shows — and the address sent to
+//      OpenSea as fulfiller / offerer / recipient — was Rabby's. Users paid
+//      from the wrong wallet.
+//   2. WalletConnect / Coinbase-SDK / Safe connectors announce nothing over
+//      EIP-6963 and inject no `window.ethereum`, so every one of those users
+//      got a bogus "MetaMask not found".
+// The connector IS the wallet. This mirrors useOneClickLaunchBuy.ts:57.
+// Returns { provider, address } — `address` is the wagmi-connected account,
+// or null when wagmi is not mounted (standalone embed / unit tests).
+export async function getActiveWalletProvider() {
+  // Captured BEFORE the connector lookup so a degraded lookup (expired
+  // WalletConnect session, connector that hands back nothing) still reports the
+  // account wagmi says we are connected as. Dropping it here would turn
+  // `assertSameWallet` into a no-op on every api-offers path — which has no
+  // `opts.buyerAddress` to fall back on — silently restoring the very
+  // pay-from-the-wrong-wallet bug this resolution exists to close. Degrade to
+  // the injected provider if we must, but NEVER degrade the guard.
+  const seq = ++_providerResolutionSeq;
+  let connectedAddress = null;
+  try {
+    const [actions, wagmiModule] = await Promise.all([
+      import("wagmi/actions"),
+      import("../lib/wagmi"),
+    ]);
+    const account = actions.getAccount(wagmiModule.config);
+    connectedAddress = account?.address || null;
+    if (account?.connector) {
+      const provider = await account.connector.getProvider();
+      if (provider) {
+        // Stale resolutions still return their own answer to their own caller
+        // (which pairs it with `assertSameWallet`), but must never publish it
+        // to the cache the ~20 synchronous call sites read.
+        if (seq === _providerResolutionSeq) _activeConnectorProvider = provider;
+        return { provider, address: connectedAddress };
+      }
+    }
+    // wagmi is mounted but nothing is connected — do NOT keep serving a
+    // previously connected wallet from the sync cache.
+    if (seq === _providerResolutionSeq) _activeConnectorProvider = null;
+  } catch {
+    // wagmi not available on this surface — fall through to injected discovery.
+  }
+  return { provider: getProvider(), address: connectedAddress };
+}
+
+// Guard: the wallet that is about to SIGN must be the wallet the app is
+// connected as. When they differ the user is signing/paying from an account
+// that is not the one named in the order's fulfiller/offerer/recipient fields
+// (and not the one the balance checks were run against). Fail loudly with an
+// actionable message — never switch the user's account for them.
+// Returns null when they match (or when there is nothing to compare against),
+// otherwise a typed error result.
+export function assertSameWallet(signerAddress, connectedAddress) {
+  if (!signerAddress) {
+    return {
+      error: "no-wallet",
+      message: "Could not read the signing wallet address. Reconnect your wallet and try again.",
+    };
+  }
+  if (!connectedAddress) return null;
+  if (String(signerAddress).toLowerCase() === String(connectedAddress).toLowerCase()) return null;
+  // Kept under 120 chars ON PURPOSE: every caller renders this through
+  // `getFriendlyError`, which collapses anything longer to a generic
+  // "Transaction failed" — which would hide the one thing the user must know.
+  return {
+    error: "wallet-mismatch",
+    message:
+      `Wrong wallet: connected as ${shortenAddress(connectedAddress)} ` +
+      `but ${shortenAddress(signerAddress)} would sign and pay. ` +
+      `Switch back or reconnect.`,
+  };
 }
 
 export async function connectWallet() {
@@ -1162,8 +1263,8 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
 // (in parallel) with the same validated builder as the single buy; one build
 // failure aborts the batch and the caller falls back to per-item buys.
 export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
-  const ethProvider = getProvider();
-  if (!ethProvider) return { error: "no-metamask", message: "MetaMask not found" };
+  const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!ethProvider) return { error: "no-metamask", message: "No wallet connected" };
   if (!Array.isArray(listings) || listings.length === 0) {
     return { error: "no-order", message: "No listings to buy" };
   }
@@ -1180,7 +1281,13 @@ export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
       return { error: "no-network", message: "Could not read wallet chain" };
     }
     const signer = await provider.getSigner();
-    const buyerAddress = opts.buyerAddress || await signer.getAddress();
+    // The address that PAYS must be the address the app is connected as — it is
+    // also what OpenSea gets as `fulfiller` and what the recipient items name.
+    // Read it from the signer (never trust `opts.buyerAddress` as the payer)
+    // and refuse the batch outright if the two disagree.
+    const buyerAddress = await signer.getAddress();
+    const mismatch = assertSameWallet(buyerAddress, connectedAddress || opts.buyerAddress);
+    if (mismatch) return mismatch;
 
     const built = await Promise.all(
       listings.map(l => buildSeaportFulfillCall(l, { ethers, buyerAddress }))
@@ -1205,9 +1312,9 @@ export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
 }
 
 export async function fulfillSeaportOrder(listing, opts = {}) {
-  const ethProvider = getProvider();
+  const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) {
-    return { error: "no-metamask", message: "MetaMask not found" };
+    return { error: "no-metamask", message: "No wallet connected" };
   }
 
   if (!listing.orderHash) {
@@ -1232,10 +1339,14 @@ export async function fulfillSeaportOrder(listing, opts = {}) {
     }
 
     const signer = await provider.getSigner();
-    // PERF: prefer the caller's already-connected wallet address — skips an
-    // extra eth_accounts round-trip in front of the (dominant) OpenSea
-    // fulfillment POST. Falls back to reading it from the signer.
-    const buyerAddress = opts.buyerAddress || await signer.getAddress();
+    // The buyer address is what OpenSea receives as `fulfiller` AND what pays.
+    // It must come from the signer, and it must equal the account the app is
+    // connected as — `opts.buyerAddress` (wagmi's account) used to be trusted
+    // blindly here, which let the order be built for one wallet and paid by
+    // another. Cheap `eth_accounts` round-trip; correctness beats the PERF win.
+    const buyerAddress = await signer.getAddress();
+    const mismatch = assertSameWallet(buyerAddress, connectedAddress || opts.buyerAddress);
+    if (mismatch) return mismatch;
 
     // Build the fulfillment call (fetch + validate + encode — all safety checks
     // live in the shared builder), then send it via MetaMask.

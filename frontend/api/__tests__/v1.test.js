@@ -8,6 +8,7 @@ const NAKAMIGOS = "0xd774557b647330c91bf44cfeab205095f7e6c367";
 // We mock the ratelimit module per-test so we can inject success/failure.
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
+  checkGlobalLimit: vi.fn(async () => true),
 }));
 
 function makeReq({ query = {}, headers = {} } = {}) {
@@ -75,7 +76,10 @@ describe("v1 — R049 rate-limit returns 429 on 21st request", () => {
       res.status(429).json({ error: "Too many requests" });
       return false;
     });
-    vi.doMock("../_lib/ratelimit.js", () => ({ checkRateLimit: rateLimitMock }));
+    vi.doMock("../_lib/ratelimit.js", () => ({
+      checkRateLimit: rateLimitMock,
+      checkGlobalLimit: vi.fn(async () => true),
+    }));
     handler = (await import("../v1/index.js")).default;
   });
 
@@ -105,6 +109,7 @@ describe("v1 — R049 body cap on Alchemy response", () => {
     // re-register a pass-through here or the body-cap path is never reached.
     vi.doMock("../_lib/ratelimit.js", () => ({
       checkRateLimit: vi.fn(async () => true),
+      checkGlobalLimit: vi.fn(async () => true),
     }));
     handler = (await import("../v1/index.js")).default;
   });
