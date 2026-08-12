@@ -36,6 +36,22 @@
 --   ALTER DEFAULT PRIVILEGES hands to anon/authenticated on every new public
 --   table are explicitly revoked below. Two independent gates, both closed.
 --
+-- 🚨 DO NOT APPLY THIS FILE BEFORE `015_drop_permissive_policy_overrides.sql`
+--
+--   Verified against the live database 2026-08-12: RLS is enabled on all 10
+--   public tables, but every owner-scoped policy on user_favorites,
+--   user_profiles, user_watchlist and votes is OR'd with a PERMISSIVE
+--   "Anyone can ..." policy whose qual is literally `true`. PostgreSQL
+--   OR-combines permissive policies, so ownership is enforced NOWHERE on
+--   those tables.
+--
+--   Those tables are empty and therefore harmless ONLY because SIWE login has
+--   never worked. THIS FILE FIXES LOGIN. Apply it first and the moment users
+--   arrive, every user's favourites, watchlist, profile and votes are
+--   world-readable and world-writable by anyone holding the anon key.
+--
+--   Run 015 first (a no-op on empty tables), then this file.
+--
 -- SAFE TO RUN: creates one new table; touches no existing object.
 -- ============================================================
 
