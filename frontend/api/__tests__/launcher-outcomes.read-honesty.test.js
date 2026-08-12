@@ -17,7 +17,15 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
+vi.mock("../_lib/ratelimit.js", () => ({
+  checkRateLimit: vi.fn(async () => true),
+  // The aggregate breaker added 2026-08-12. One POST here is worth up to 200 upstream
+  // reads, so per-IP alone never bounded the fan-out. NOTE: each describe below
+  // re-declares this via vi.doMock in its own beforeEach (they vi.resetModules to get a
+  // fresh handler), so THAT is the mock that actually binds — this one only keeps the
+  // static import graph honest.
+  checkGlobalLimit: vi.fn(async () => true),
+}));
 
 const TOKEN = "0x420698cfdeddea6bc78d59bc17798113ad278f9d";
 const CREATOR = "0x1489825812345678901234567890123456789abc";
@@ -74,7 +82,10 @@ describe("launcher-outcomes — a failed market read is not a verdict", () => {
   beforeEach(async () => {
     vi.resetModules();
     process.env.NODE_ENV = "test";
-    vi.doMock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
+    vi.doMock("../_lib/ratelimit.js", () => ({
+      checkRateLimit: vi.fn(async () => true),
+      checkGlobalLimit: vi.fn(async () => true),
+    }));
     handler = (await import("../_lib/launcher-outcomes.js")).handleLauncherOutcomes;
   });
 
@@ -153,5 +164,59 @@ describe("launcher-outcomes — a failed market read is not a verdict", () => {
     const { res, jsonSpy } = makeRes();
     await handler(makeReq([baseline()]), res);
     expect(jsonSpy.mock.calls[0][0].launches).toEqual([]);
+  });
+});
+
+// This route is the most expensive thing we expose anonymously: MAX_BASELINES is 50 and
+// each baseline costs up to 4 upstream reads, so ONE request is worth ~200 — against an
+// Etherscan free tier of ~300/min shared with the whole app. A per-IP limit bounds one
+// attacker and does nothing about a distributed one, where every individual IP looks
+// polite. Until 2026-08-12 the aggregate breaker was simply absent here, because the
+// `?resource=` branch returns before runProxy, which is where the breaker lives.
+describe("the aggregate breaker gates the fan-out", () => {
+  let handler;
+  let globalLimitMock;
+
+  beforeEach(async () => {
+    // Same shape as the describe above: resetModules + doMock, because the handler has
+    // to be re-imported to pick up a fresh mock.
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    globalLimitMock = vi.fn(async () => true);
+    vi.doMock("../_lib/ratelimit.js", () => ({
+      checkRateLimit: vi.fn(async () => true),
+      checkGlobalLimit: globalLimitMock,
+    }));
+    handler = (await import("../_lib/launcher-outcomes.js")).handleLauncherOutcomes;
+  });
+
+  afterEach(() => { delete globalThis.fetch; });
+
+  it("does not reach a single upstream when the global cap is blown", async () => {
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy;
+    globalLimitMock.mockImplementation(async () => false);
+
+    const { res } = makeRes();
+    await handler(makeReq([baseline()]), res);
+
+    // The load-bearing assertion is the ZERO fan-out, not the status code: a status-only
+    // check could be satisfied by an unrelated upstream failure that still spent the
+    // budget. Pre-fix, checkGlobalLimit was not imported at all, so this call went
+    // straight through and fetch fired.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("asks the breaker under its OWN identifier, not a shared bucket", async () => {
+    // Sharing a bucket with `etherscan` would make this fan-out and /api/etherscan shed
+    // each other's traffic — a throttle on one surface silently starving another.
+    globalThis.fetch = vi.fn(async () => upstream(JSON.stringify({ status: "1", message: "OK", result: [] })));
+    const { res } = makeRes();
+    await handler(makeReq([baseline()]), res);
+
+    expect(globalLimitMock).toHaveBeenCalled();
+    const cfg = globalLimitMock.mock.calls[0][1];
+    expect(cfg.identifier).toBe("launcher-outcomes");
+    expect(cfg.limit).toBeGreaterThan(0);
   });
 });

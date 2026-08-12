@@ -66,6 +66,50 @@ if (process.env.NODE_ENV === "development") {
   ALLOWED_ORIGINS.push("http://localhost:5173", "http://localhost:3000");
 }
 
+/**
+ * The hosts a record_url may point at — the hostnames of ALLOWED_ORIGINS, nothing else.
+ *
+ * Derived rather than written out a second time so adding an origin above cannot leave a
+ * venue able to serve the app but unable to sign its own records.
+ */
+const RECORD_HOSTS = new Set(ALLOWED_ORIGINS.map((o) => new URL(o).hostname));
+
+/**
+ * Is this a record_url we are willing to put our venue signature on?
+ *
+ * Parsed with `new URL` and compared on `hostname` EXACTLY. Never a substring test and
+ * never an unanchored regex: `https://memetic.fun.evil.tld/...` contains "memetic.fun",
+ * and `includes()` would wave it through. (CodeQL flags that shape at HIGH as
+ * js/incomplete-url-substring-sanitization, which is the same defect stated as a rule.)
+ *
+ * The path must also be the record route for THIS token, so a well-formed pair cannot
+ * point the island at some other token's certificate.
+ */
+function validRecordUrl(rawUrl, chain, ca) {
+  let u;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  if (!RECORD_HOSTS.has(u.hostname)) return false;
+  if (u.search || u.hash) return false;
+  // `/record/<chain>/<ca>.json` — the exact shape record.js serves.
+  const parts = u.pathname.split("/");
+  if (parts.length !== 4 || parts[0] !== "" || parts[1] !== "record") return false;
+  if (parts[2] !== chain) return false;
+  if (!parts[3].endsWith(".json")) return false;
+  const slug = parts[3].slice(0, -".json".length);
+  // Per-chain, mirroring record-core.js `normaliseCa` rather than folding both.
+  // Solana base58 is CASE-SENSITIVE and uses mixed case meaningfully, so comparing it
+  // case-insensitively would let two distinct mints match. EVM hex is case-insensitive
+  // and arrives checksummed or lowercased interchangeably, so it must NOT be exact.
+  return chain === "solana"
+    ? slug === String(ca).trim()
+    : slug.toLowerCase() === String(ca).trim().toLowerCase();
+}
+
 function setCors(req, res) {
   const origin = req.headers?.origin || "";
   if (ALLOWED_ORIGINS.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
@@ -118,8 +162,17 @@ export function validateBirthBody(body) {
   if (typeof body.gate_decision_id !== "string" || !body.gate_decision_id) {
     return { error: "gate_decision_id must be a non-empty string", field: "gate_decision_id" };
   }
-  if (typeof body.record_url !== "string" || !/^https:\/\//.test(body.record_url)) {
-    return { error: "record_url must be an https URL", field: "record_url" };
+  if (typeof body.record_url !== "string" || !validRecordUrl(body.record_url, body.chain, body.ca)) {
+    // Was: an `^https://` prefix test, which let the venue sign a pointer at ANY host.
+    // record.js:2-5 is explicit that the island stores this URL permanently and re-reads
+    // it for enrollment, hygiene watch and certification — so a third-party record_url
+    // substitutes an attacker-controlled document for the chain-derived one, under our
+    // identity, for the life of the enrollment. The venue signs a pointer to its OWN
+    // record for THIS token, or it signs nothing.
+    return {
+      error: "record_url must be an https record URL on this venue for this token",
+      field: "record_url",
+    };
   }
   return null;
 }
@@ -147,6 +200,24 @@ export async function handleBirths(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // ENFORCE the origin, do not merely advertise it.
+  //
+  // `setCors` above only SETS Access-Control-Allow-Origin — that is a browser-side
+  // control and does nothing to curl. This route dispatches from aggregator.js BEFORE
+  // runProxy, so it never inherited aggregator-proxy.js's 403 gate, and everything below
+  // (secret, limits, validation, HMAC) was reachable by any unauthenticated client.
+  // The socket's entire trust model is "answers only a valid signature", and a signer
+  // anyone can reach is a signature anyone can obtain.
+  //
+  // Placed ABOVE the secret check on purpose: an unauthorized caller must not be able to
+  // probe whether MEMETICS_BIRTH_SECRET is configured. Safe for our own client —
+  // birthNotify.ts POSTs from the page and browsers attach Origin to every POST,
+  // same-origin included.
+  const origin = req.headers?.origin || "";
+  if (!ALLOWED_ORIGINS.includes(origin)) {
+    return res.status(403).json({ error: "Origin not allowed" });
+  }
 
   const secret = process.env.MEMETICS_BIRTH_SECRET;
   if (!secret) {

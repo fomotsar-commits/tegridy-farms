@@ -23,7 +23,8 @@
 // degrades safely inside the reader (marketObserved:false, no fabricated crash),
 // never throws, never invents a rosy or a damning signal.
 
-import { checkRateLimit } from "./ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
+import { isOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -530,6 +531,15 @@ export async function handleLauncherOutcomes(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
+  // ENFORCE the origin. `setCors` only SETS a header, which is a browser-side control
+  // and does nothing to curl. This route is dispatched from aggregator.js BEFORE
+  // runProxy, so it never inherited aggregator-proxy.js's 403 — and this is the most
+  // expensive branch we expose: one POST is worth up to MAX_BASELINES(50) × 4 = 200
+  // upstream reads, against an Etherscan free tier of ~300/min shared across the app.
+  if (!isOriginAllowed(req.headers?.origin || "")) {
+    return res.status(403).json({ error: "Origin not allowed" });
+  }
+
   // Fans out to GeckoTerminal + Etherscan → throttle tighter than a plain proxy.
   const allowed = await checkRateLimit(req, res, {
     limit: 20,
@@ -537,6 +547,17 @@ export async function handleLauncherOutcomes(req, res) {
     identifier: "launcher-outcomes",
   });
   if (!allowed) return;
+
+  // Per-IP alone bounds ONE attacker; the fan-out multiplier means a distributed caller
+  // can still exhaust the shared upstream budget while every individual IP looks polite.
+  // Its own identifier and env knob on purpose — sharing a bucket with `etherscan` would
+  // make this fan-out and /api/etherscan shed each other's traffic.
+  const underCap = await checkGlobalLimit(res, {
+    limit: Number(process.env.LAUNCHER_OUTCOMES_GLOBAL_RPM) || 60,
+    windowSec: 60,
+    identifier: "launcher-outcomes",
+  });
+  if (!underCap) return;
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });

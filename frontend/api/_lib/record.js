@@ -113,6 +113,21 @@ export function resolveTarget(query) {
   return { chain, ca };
 }
 
+// NO ORIGIN GATE HERE, AND THAT IS DELIBERATE — do not "harden" this to match its
+// siblings.
+//
+// On 2026-08-12 the other five `?resource=` branches gained a 403 origin gate, because
+// each is either a signer (births) or spends a budget on our behalf (heat,
+// launcher-outcomes, launch-radar, launch-cohort) and none of them inherit runProxy's
+// gate. This one is the opposite kind of thing: the birth certificate is PUBLIC by
+// design, and its primary consumer is the island's server fetching it machine-to-machine
+// with no Origin header at all. An origin gate here would 403 the exact reader the route
+// exists to serve, and the failure would be invisible from a browser.
+//
+// Verified anonymously against prod: GET /record/ethereum/0x420698….json answers
+// 200 application/json. Keep it that way. The protections that DO belong here are the
+// aggregate breaker (already present) and the read-only, no-secrets nature of the
+// payload — not caller identity.
 export async function handleRecord(req, res) {
   setRecordCors(res);
   if (req.method === "OPTIONS") return res.status(200).end();

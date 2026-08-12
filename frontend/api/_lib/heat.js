@@ -26,6 +26,7 @@
 //   not be built on a cached, best-effort read.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
+import { isOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -83,6 +84,14 @@ export async function handleHeat(req, res) {
 
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // ENFORCE the origin — `setCors` only sets a header. This proxy exists precisely
+  // BECAUSE the island CORS-locks its oracle to junglebayisland.lat; without a 403 here
+  // we are the open proxy that lock was meant to prevent, spending the island's shared
+  // 100/min budget under our egress reputation on behalf of anyone with curl.
+  if (!isOriginAllowed(req.headers?.origin || "")) {
+    return res.status(403).json({ error: "Origin not allowed" });
   }
 
   // Per-IP budget, then a global one. The global cap is the only control that stops a
