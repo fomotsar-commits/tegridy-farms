@@ -88,6 +88,53 @@ export function assetsFromLogs(logs) {
   return out;
 }
 
+/** The Etherscan getLogs URL for the Airlock's whole `Create` history. */
+function createLogsUrl(key) {
+  return (
+    `https://api.etherscan.io/v2/api?chainid=1&module=logs&action=getLogs` +
+    `&address=${AIRLOCK}&topic0=${CREATE_TOPIC0}` +
+    `&fromBlock=${AIRLOCK_FIRST_BLOCK}&toBlock=latest&page=1&offset=${MAX_LOGS}&apikey=${key}`
+  );
+}
+
+/**
+ * Find ONE asset's `Create` log — its birth block and transaction.
+ *
+ * Exported for the birth-record route, which needs `birth_block` as chain truth. It
+ * reuses this module's enumeration rather than writing a second one because the Airlock's
+ * `Create` event does NOT index `asset` (only `numeraire` is), so there is no per-asset
+ * topic filter and the only way to find one is to walk the same window.
+ *
+ * Returns `{ blockNumber, transactionHash }`, or `{ truncated: true }` when the window
+ * hit MAX_LOGS without a match (we did not find it — NOT proof it does not exist), or
+ * null when the asset genuinely is not in the history. The caller must keep those apart:
+ * a truncated window that returned null would publish "this token was never launched".
+ */
+export async function createLogFor(asset, key) {
+  if (!key) return null;
+  const want = String(asset).toLowerCase();
+  const r = await fetch(createLogsUrl(key), { headers: { accept: "application/json" } });
+  if (!r.ok) throw new Error(`etherscan ${r.status}`);
+  const j = await r.json();
+  if (!Array.isArray(j?.result)) {
+    const msg = String(j?.result ?? j?.message ?? "");
+    if (/no records found/i.test(msg)) return null;
+    throw new Error("etherscan non-array result");
+  }
+  for (const log of j.result) {
+    const a = assetFromCreateLog(log);
+    if (a && a.toLowerCase() === want) {
+      // Etherscan returns these as hex strings.
+      const blockNumber = Number(log.blockNumber);
+      return {
+        blockNumber: Number.isSafeInteger(blockNumber) && blockNumber >= 0 ? blockNumber : null,
+        transactionHash: typeof log.transactionHash === "string" ? log.transactionHash : null,
+      };
+    }
+  }
+  return j.result.length >= MAX_LOGS ? { truncated: true } : null;
+}
+
 export async function handleLaunchCohort(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(200).end();

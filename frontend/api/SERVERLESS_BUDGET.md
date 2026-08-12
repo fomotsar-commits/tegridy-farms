@@ -38,6 +38,33 @@ Count stays ≤ 12. At 9 today, you have room for 3 more standalone routes. Past
 - consolidate (route multiple paths through one `[...catchall].js` handler + a `vercel.json` rewrite), or
 - upgrade to Vercel Pro (removes the cap — a billing decision).
 
+## `?resource=` branches on the catchall — zero function cost
+
+Small, low-traffic first-party resources live on the catchall behind a `?resource=` branch
+and a LAZY dynamic import, so the swap hot path never loads them and the function count is
+unchanged. Each branch MUST sit above the `const provider` line in `api/aggregator.js` — a
+`?resource=` call carries no provider, so a branch placed after it never runs and falls
+into the 404.
+
+| `?resource=` | Module | What it is |
+|---|---|---|
+| `launcher-outcomes` | `_lib/launcher-outcomes.js` | LaunchExplorer market + chain stats |
+| `launch-radar` | `_lib/launch-radar.js` | Market-wide GeckoTerminal `new_pools` |
+| `launch-cohort` | `_lib/launch-cohort.js` | Airlock `Create` enumeration |
+| `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
+| `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
+| `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
+
+`births` is server-side for the same reason `heat` is not an optimisation: it holds the
+shared signing secret, and a signature the browser could produce is one anybody could
+produce.
+
+`record` is reached through a **rewrite**, not by callers naming `?resource=`:
+`/record/:chain/:ca.json` is the stable URL the island stores at enrollment. That rewrite
+is load-bearing — the SPA fallback `/((?!api/).*)` only excludes `api/…`, so without it
+`/record/…` answers **200 with the app shell**, forever, and a health check on `res.ok`
+would call it healthy.
+
 ## Known offenders / watch-list
 - **PR #25** (stale 72-file UX push) adds `api/indexer.js` → would be the 10th function. Still under
   cap alone, but another reason that PR needs a rebuild rather than a blind merge.

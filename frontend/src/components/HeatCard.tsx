@@ -19,15 +19,14 @@ import {
   isStale,
   nextTier,
   shareForDegrees,
-  launchIneligibility,
-  heldDays,
+  gateDecision,
   TIER_FLOORS,
   HEAT_K,
   TWAB_WINDOW_DAYS,
-  LAUNCH_MIN_HELD_DAYS,
   type HeatReading,
   type HeatTier,
 } from '../lib/heat/heatOracle';
+import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
 
 const TIER_COLOR: Record<HeatTier, string> = {
@@ -63,13 +62,36 @@ type State =
   | { kind: 'error'; message: string }
   | { kind: 'ready'; reading: HeatReading };
 
-export function HeatCard() {
+export interface HeatCardProps {
+  /**
+   * Read THIS wallet instead of whatever is connected, and hide the lookup form.
+   *
+   * This is what makes one component serve every surface. The leaderboard wants a
+   * free-text instrument anyone can point at any wallet; the gate's COLD state wants
+   * the connected wallet's own reading and nothing else — "the wallet sees its own
+   * degrees and what warmth is". Same card, same copy, same tier words.
+   */
+  address?: string;
+  /**
+   * Drop the outer panel chrome and the explainer paragraph, for embedding inside a
+   * surface that has already introduced itself (the gate). The READING is unchanged:
+   * degrees, tier word, held-since, reckoning date and the per-token breakdown all
+   * still render. Nothing that constitutes the judgment is ever hidden by a variant.
+   */
+  variant?: 'panel' | 'embedded';
+  /** Hide the launch-floor line, for surfaces where launching is not the subject. */
+  showEligibility?: boolean;
+}
+
+export function HeatCard({ address: pinned, variant = 'panel', showEligibility = true }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
+  const embedded = variant === 'embedded';
   // `draft` is null until the user types. The field's value is DERIVED from that plus
   // the connected wallet, rather than mirrored into state by an effect — so connecting,
   // switching accounts, or disconnecting needs no state sync and cannot desync.
   const [draft, setDraft] = useState<string | null>(null);
-  const input = draft ?? connected ?? '';
+  const subject = pinned ?? connected ?? '';
+  const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [showMath, setShowMath] = useState(false);
   // Frozen per lookup so every relative label on screen is measured from one instant.
@@ -96,16 +118,19 @@ export function HeatCard() {
     }
   }, []);
 
-  // Auto-read the connected wallet, so the common case needs no typing. Keyed on the
-  // address itself, so switching accounts re-reads; guarded by a ref so a re-render
-  // cannot re-fire the same lookup. No setState here — the field is derived above.
+  // Auto-read the subject wallet (pinned, else connected), so the common case needs no
+  // typing. Keyed on the address itself, so switching accounts re-reads; guarded by a
+  // ref so a re-render cannot re-fire the same lookup. No setState here — the field is
+  // derived above. A user-typed draft suspends the auto-read; a PINNED address does not,
+  // because there is no form to type into.
   const autoReadFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!connected || draft !== null) return;
-    if (autoReadFor.current === connected) return;
-    autoReadFor.current = connected;
-    void look(connected);
-  }, [connected, draft, look]);
+    if (!subject) return;
+    if (!pinned && draft !== null) return;
+    if (autoReadFor.current === subject) return;
+    autoReadFor.current = subject;
+    void look(subject);
+  }, [subject, pinned, draft, look]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -113,54 +138,78 @@ export function HeatCard() {
 
   return (
     <div
-      className="rounded-2xl p-5 md:p-6"
-      style={{
-        background: 'rgba(6,12,26,0.78)',
-        border: '1px solid var(--color-purple-40)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
-      }}
+      className={embedded ? '' : 'rounded-2xl p-5 md:p-6'}
+      style={
+        embedded
+          ? undefined
+          : {
+              background: 'rgba(6,12,26,0.78)',
+              border: '1px solid var(--color-purple-40)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+            }
+      }
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 className="heading-luxury text-xl text-white tracking-tight">Heat</h2>
-        <span className="text-[10px] uppercase tracking-[0.16em] text-white/45">
-          Jungle Bay Island · held time
-        </span>
-      </div>
-      <p className="text-white/60 text-[12.5px] leading-relaxed mb-4 max-w-2xl">
-        Heat measures <strong className="text-white/85">how much of a token you held, and for how long</strong>.
-        It is not a Tegridy score and it pays nothing — it is the island&apos;s own instrument, read live.
-        Price never enters it, a fresh bag starts near zero however big it is, and trading in and out earns nothing.
-      </p>
+      {!embedded && (
+        <>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+            <h2 className="heading-luxury text-xl text-white tracking-tight">Heat</h2>
+            <span className="text-[10px] uppercase tracking-[0.16em] text-white/45">
+              Jungle Bay Island · held time
+            </span>
+          </div>
+          <p className="text-white/60 text-[12.5px] leading-relaxed mb-4 max-w-2xl">
+            Heat measures <strong className="text-white/85">how much of a token you held, and for how long</strong>.
+            It is not a Tegridy score and it pays nothing — it is the island&apos;s own instrument, read live.
+            Price never enters it, a fresh bag starts near zero however big it is, and trading in and out earns nothing.
+          </p>
+        </>
+      )}
 
-      <form
-        className="flex flex-wrap gap-2 mb-5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (valid) void look(input);
-        }}
-      >
-        <input
-          value={input}
-          onChange={(e) => setDraft(e.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-          aria-label="Wallet address to read Heat for (Ethereum or Solana)"
-          placeholder="0x… or a Solana address"
-          className="flex-1 min-w-0 sm:min-w-[280px] px-3 py-2 rounded-lg font-mono text-[12.5px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
-          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-40)' }}
-        />
-        <button
-          type="submit"
-          disabled={!valid || state.kind === 'loading'}
-          className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
-          title={valid ? 'Read this wallet' : 'Enter an Ethereum or Solana address'}
+      {/* The free-text instrument. Suppressed when the card is pinned to one wallet —
+          the gate reads the connected wallet and nothing else. */}
+      {!pinned && (
+        <form
+          className="flex flex-wrap gap-2 mb-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid) void look(input);
+          }}
         >
-          {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
-        </button>
-      </form>
+          <input
+            value={input}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Wallet address to read Heat for (Ethereum or Solana)"
+            placeholder="0x… or a Solana address"
+            className="flex-1 min-w-0 sm:min-w-[280px] px-3 py-2 rounded-lg font-mono text-[12.5px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
+            style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-40)' }}
+          />
+          <button
+            type="submit"
+            disabled={!valid || state.kind === 'loading'}
+            className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
+            title={valid ? 'Read this wallet' : 'Enter an Ethereum or Solana address'}
+          >
+            {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
+          </button>
+        </form>
+      )}
 
       <AnimatePresence mode="wait">
+        {state.kind === 'loading' && pinned && (
+          <m.p
+            key="loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="text-[12.5px] text-white/50 animate-pulse"
+          >
+            Reading the island&apos;s instrument…
+          </m.p>
+        )}
+
         {state.kind === 'error' && (
           <m.div
             key="err"
@@ -178,7 +227,13 @@ export function HeatCard() {
 
         {state.kind === 'ready' && (
           <m.div key={state.reading.address} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <Reading reading={state.reading} now={now} showMath={showMath} onToggleMath={() => setShowMath((v) => !v)} />
+            <Reading
+              reading={state.reading}
+              now={now}
+              showMath={showMath}
+              onToggleMath={() => setShowMath((v) => !v)}
+              showEligibility={showEligibility}
+            />
           </m.div>
         )}
       </AnimatePresence>
@@ -191,11 +246,13 @@ function Reading({
   now,
   showMath,
   onToggleMath,
+  showEligibility = true,
 }: {
   reading: HeatReading;
   now: number;
   showMath: boolean;
   onToggleMath: () => void;
+  showEligibility?: boolean;
 }) {
   const stale = isStale(reading, now);
   const next = nextTier(reading.degrees);
@@ -256,11 +313,9 @@ function Reading({
         {stale && <span className="font-semibold">Stale — older than 7 days, so it decides nothing</span>}
       </div>
 
-      {/* LAUNCH ELIGIBILITY. Held TIME, not degrees — a large bag cannot shortcut the
-          wait, which is the whole point of gating on tenure. Rendered from the same
-          primitive the launch path uses, so what a wallet is told here and what
-          happens at submit cannot drift. */}
-      <Eligibility reading={reading} now={now} />
+      {/* LAUNCH ELIGIBILITY, from the same primitive the launch paths enforce with, so
+          what a wallet is told here and what happens at submit cannot drift. */}
+      {showEligibility && <Eligibility reading={reading} now={now} />}
 
       {next && !reading.isCold && (
         <div className="mb-4">
@@ -335,43 +390,56 @@ function Reading({
   );
 }
 
+/**
+ * The launch floor, on the card.
+ *
+ * Rendered from `gateDecision` — the SAME primitive the launch paths enforce with — so
+ * what a wallet is told here and what happens at submit cannot drift. It reads DEGREES,
+ * not tenure: held time is already priced inside the number (see LAUNCH_FLOOR).
+ */
 function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
-  const verdict = launchIneligibility(reading, now);
-  const days = heldDays(reading, now);
-  const eligible = verdict === null;
-  const pct = days === null ? 0 : Math.min(100, (days / LAUNCH_MIN_HELD_DAYS) * 100);
+  const floor = heatLaunchFloor();
+  const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());
+  const warm = d.state === 'WARM';
+  const pct = Math.min(100, (reading.degrees / floor) * 100);
 
   return (
     <div
       className="rounded-lg px-3 py-2.5 mb-4"
       style={{
-        background: eligible ? 'rgba(76,175,80,0.10)' : 'rgba(255,255,255,0.04)',
-        border: `1px solid ${eligible ? 'var(--color-kyle-40)' : 'var(--color-purple-25)'}`,
+        background: warm ? 'rgba(76,175,80,0.10)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${warm ? 'var(--color-kyle-40)' : 'var(--color-purple-25)'}`,
       }}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1.5">
-        <span className="text-[12.5px] font-semibold" style={{ color: eligible ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
-          {eligible ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
+        <span className="text-[12.5px] font-semibold" style={{ color: warm ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
+          {warm ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
         </span>
+        {/* Tier word VERBATIM. "Residents may plant" is the door's own sentence. */}
         <span className="text-[11px] text-white/45">
-          needs {LAUNCH_MIN_HELD_DAYS} days of held history
+          the door opens at {floor}° · Resident
         </span>
       </div>
 
-      {days !== null && (
+      {d.state !== 'STALE' && (
         <div className="h-1 rounded-full overflow-hidden mb-1.5" style={{ background: 'rgba(255,255,255,0.10)' }}>
           <div
             className="h-full rounded-full transition-[width] duration-700"
-            style={{ width: `${pct}%`, background: eligible ? 'var(--color-kyle)' : 'var(--color-purple-70)' }}
+            style={{ width: `${pct}%`, background: warm ? 'var(--color-kyle)' : 'var(--color-purple-70)' }}
           />
         </div>
       )}
 
-      <p className="text-[11.5px] text-white/55 leading-relaxed">
-        {eligible
-          ? `${days} days of held history — comfortably past the floor.`
-          : verdict.detail}
-      </p>
+      <p className="text-[11.5px] text-white/55 leading-relaxed">{d.detail}</p>
+
+      {/* The one thing this venue must never imply. Both rails sign client-side, so
+          the door raises the floor on the path we control and proves nothing about
+          the path we do not. */}
+      {warm && (
+        <p className="text-[10.5px] text-white/35 leading-relaxed mt-1.5">
+          Read live from the island at the moment you launch, not stored here.
+        </p>
+      )}
     </div>
   );
 }

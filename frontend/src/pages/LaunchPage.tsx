@@ -68,6 +68,8 @@ import {
 } from '../lib/lpEmissions';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { LaunchGate } from '../components/LaunchGate';
+import { notifyBirth } from '../lib/launcher/notifyBirth';
 
 const DAY = 86_400;
 // 365/12 days per month, so a 12-month lock is exactly 365 days and meets the
@@ -369,6 +371,18 @@ export default function LaunchPage() {
       });
       const result = await launchToken(walletClient, publicClient, cfg);
       setLaunch({ phase: 'success', result });
+      // THE BIRTH NOTIFY. After the success state is set, and deliberately not awaited:
+      // "the notify NEVER blocks a launch". The token exists on-chain either way, and a
+      // launcher must not watch a spinner for a third party's uptime. Failures stay in
+      // the queue with their error and surface on the ops panel — never swallowed.
+      void notifyBirth({
+        chain: 'ethereum',
+        ca: result.tokenAddress,
+        creator: address,
+        txHash: result.transactionHash,
+        gateDecisionId: result.gateDecisionId,
+        publicClient,
+      });
     } catch (e) {
       // A broadcast-stage failure (classically an RPC receipt-wait timeout) may mean the
       // tx is already on-chain. Surface a distinct "may be confirming" state and BLOCK a
@@ -473,6 +487,15 @@ export default function LaunchPage() {
       <PageArtBackdrop pageId="launch" />
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-10">
       <LaunchHeader lpPhase={lpPhase} />
+
+      {/* THE DOOR, above the wizard. It reads held time live and explains itself, so a
+          cold builder learns what warmth is here rather than at the submit button.
+          The wizard stays usable either way — the gate is read again, live, inside
+          launchToken(), which is the only place it decides anything. */}
+      <div className="mt-4 mb-2">
+        <LaunchGate rail="ethereum" />
+      </div>
+
       <Stepper step={step} />
 
       <m.div

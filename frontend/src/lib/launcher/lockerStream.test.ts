@@ -261,11 +261,32 @@ describe('lockResolverFor — real LockResolver from an already-read stream', ()
       locked: true,
       locker: DOPPLER_MAINNET.support.streamableFeesLocker,
       unlockAt: 1_800_000_000,
+      // A real read happened, so the sheet may state what it found.
+      readable: true,
     });
   });
 
   it('maps a not-graduated stream to an unlocked/null lock', async () => {
     const stream: MigrationStream = { graduated: false, numeraire: ETH_NUMERAIRE, poolId: migrationPoolId(TOKEN), locker: null, locked: false, unlockAt: null, beneficiaries: [] };
-    await expect(lockResolverFor(stream)(TOKEN)).resolves.toEqual({ locked: false, locker: null, unlockAt: null });
+    await expect(lockResolverFor(stream)(TOKEN)).resolves.toEqual({ locked: false, locker: null, unlockAt: null, readable: true });
+  });
+
+  it('marks an UNSUPPORTED stream unreadable — "we did not ask" is not "not locked"', async () => {
+    // This is the live EVM state: readMigrationStream returns `unsupported: true` with a
+    // hardcoded locked:false, having touched no chain. Flattening that into a plain
+    // `locked: false` is what let the fact sheet publish — and ATTEST, via
+    // canonicalDisclosuresJson -> disclosuresDigest — "Liquidity is not locked; it may be
+    // withdrawable by the liquidity owner." about a locker nobody queried.
+    const stream: MigrationStream = {
+      graduated: false,
+      unsupported: true,
+      numeraire: ETH_NUMERAIRE,
+      poolId: migrationPoolId(TOKEN),
+      locker: null,
+      locked: false,
+      unlockAt: null,
+      beneficiaries: [],
+    };
+    await expect(lockResolverFor(stream)(TOKEN)).resolves.toMatchObject({ readable: false });
   });
 });

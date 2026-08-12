@@ -22,6 +22,7 @@ import { TypedConfirmation } from '../components/ui/TypedConfirmation';
 // `msg.sender`, so only LAUNCHER_INTEGRATOR_ADDRESS can withdraw — and that is a
 // different wallet from the protocol owner.
 import { IntegratorFeesPanel } from '../components/launcher/IntegratorFeesPanel';
+import { BirthQueuePanel } from '../components/BirthQueuePanel';
 import { LAUNCHER_INTEGRATOR_ADDRESS } from '../lib/launcher/config';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
@@ -443,6 +444,11 @@ export default function AdminPage() {
             state, and the panel disables its own withdraw button for non-integrators
             rather than hiding the money. */}
         <IntegratorFeesPanel />
+
+        {/* Birth-notify queue. Rendered for BOTH roles and gated on nothing: it holds no
+            secret (the signing secret is server-side) and its whole purpose is that a
+            stuck enrollment is VISIBLE rather than buried in storage nobody reads. */}
+        <BirthQueuePanel />
 
         {isOwner && (
         <>

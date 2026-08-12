@@ -283,6 +283,28 @@ export default async function handler(req, res) {
     return handleHeat(req, res);
   }
 
+  // `?resource=births` signs a birth notify with the venue's shared secret and relays it
+  // to the island's enrollment socket. Server-side because the SECRET is the whole
+  // guarantee — a signature the browser could produce is one anybody could produce.
+  // Lazy import, same as the branches above; also above `const provider`.
+  if (req.query.resource === "births") {
+    const { handleBirths } = await import("./_lib/births.js");
+    return handleBirths(req, res);
+  }
+
+  // `?resource=record` serves a token's birth certificate as JSON, derived from chain on
+  // read. The pretty, stable route is `/record/:chain/:ca.json` (a vercel.json rewrite) —
+  // that URL is what `record_url` carries to the island, so it must not move.
+  //
+  // ⚠️ The rewrite is LOAD-BEARING, not cosmetic. vercel.json's SPA fallback is
+  // `/((?!api/).*)`, whose negative lookahead only excludes `api/…`, so without the
+  // rewrite `/record/…` is rewritten to index.html and answers 200 with HTML forever —
+  // a health check on `res.ok` would call that route healthy. See _lib/record.js.
+  if (req.query.resource === "record") {
+    const { handleRecord } = await import("./_lib/record.js");
+    return handleRecord(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

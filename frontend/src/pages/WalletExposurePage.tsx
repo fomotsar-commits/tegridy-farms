@@ -18,6 +18,7 @@ import { formatBalance, formatPercent, shortenAddress } from '../lib/formatting'
 import { Link } from 'react-router-dom';
 import { validateAddress } from '../lib/tokenList';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { HeatCard } from '../components/HeatCard';
 
 // WalletExposurePage — connect a wallet, see every ERC-20 position, and read each
 // one's concentration / bundle / rug exposure from the shared detection core.
@@ -255,6 +256,14 @@ export default function WalletExposurePage() {
               Switch to Ethereum mainnet to read your holdings.
             </div>
           )}
+
+          {/* THE RULER, on a connected-wallet surface. This page already reads what you
+              hold; Heat reads how LONG you have held it, which is the one dimension
+              concentration metrics cannot see. Same card, same tier words, same
+              reckoning date as everywhere else. */}
+          <div className="mb-6">
+            <HeatCard />
+          </div>
 
           {/* Add-a-token */}
           <div className="rounded-2xl p-4 mb-6" style={{ background: CARD_BG, border: CARD_BORDER }}>

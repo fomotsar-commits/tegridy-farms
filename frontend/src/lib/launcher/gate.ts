@@ -57,7 +57,8 @@ export interface RawTokenFacts {
   owner: Address | null;
   ownerRenounced: boolean;
   ownerIsTimelock: boolean;
-  liquidity: { locked: boolean; locker: Address | null; unlockAt: number | null };
+  /** `readable: false` means the locker was never queried — see LiquidityDisclosure. */
+  liquidity: { locked: boolean; locker: Address | null; unlockAt: number | null; readable?: boolean };
   feeConstitution: FeeConstitutionLine[];
   vesting: VestingSchedule[];
   teamAllocationBps: number;
@@ -207,13 +208,21 @@ function toResidualPowers(raw: RawTokenFacts): ResidualPower[] {
 
 function toLiquidityDisclosure(raw: RawTokenFacts, now: number): LiquidityDisclosure {
   const remaining = lpLockRemaining(raw.liquidity, now);
+  // `readable === false` means NOBODY QUERIED THE LOCKER. Saying "not locked" there is a
+  // claim, not a gap — and this sentence is folded into the on-chain disclosures digest,
+  // so it is a claim we would be publishing permanently. Absent means read, so nothing
+  // that already supplies a real lock state changes.
+  const readable = raw.liquidity.readable !== false;
   return {
     locked: raw.liquidity.locked,
     locker: raw.liquidity.locker,
     unlockAt: raw.liquidity.unlockAt,
-    note: raw.liquidity.locked
-      ? `Liquidity is locked${raw.liquidity.unlockAt ? ` until ${new Date(raw.liquidity.unlockAt * 1000).toISOString().slice(0, 10)} (${Math.floor(remaining / DAY)}d remaining)` : ''}.`
-      : 'Liquidity is not locked; it may be withdrawable by the liquidity owner.',
+    readable,
+    note: !readable
+      ? 'The liquidity lock state could not be read on this rail, so this record makes no claim about it either way.'
+      : raw.liquidity.locked
+        ? `Liquidity is locked${raw.liquidity.unlockAt ? ` until ${new Date(raw.liquidity.unlockAt * 1000).toISOString().slice(0, 10)} (${Math.floor(remaining / DAY)}d remaining)` : ''}.`
+        : 'Liquidity is not locked; it may be withdrawable by the liquidity owner.',
   };
 }
 

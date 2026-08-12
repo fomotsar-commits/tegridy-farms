@@ -73,6 +73,67 @@ export function padAddr(addr) {
   return stripped.padStart(64, "0");
 }
 
+/**
+ * Generic single-endpoint JSON-RPC call. `ethCallOnce` is the `eth_call` special case.
+ *
+ * Added for the birth-record route, which needs `eth_getCode` (presence + template
+ * provenance) and `eth_getTransactionByHash` (the create-tx sender) alongside plain
+ * `eth_call`. Deliberately generic rather than three near-copies: the failover, the
+ * 2.5s abort and the "deterministic JSON-RPC errors are NOT retried" rule are the parts
+ * worth having exactly once.
+ *
+ * ⚠️ NOT body-capped (`res.json()` below). Fine for 32-byte returns, EIP-170-bounded
+ * `eth_getCode` and a single transaction object. Do NOT reach for this with
+ * `eth_getLogs` or a receipt-heavy method without adding `readBoundedText`.
+ */
+export async function ethRpcOnce(url, method, params) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2500);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.error) {
+    const err = new Error(json.error.message || "rpc error");
+    err.rpcError = json.error;
+    throw err;
+  }
+  return json.result;
+}
+
+/** Walk the RPC chain for any method. Same retry doctrine as `ethCall`. */
+export async function ethRpc(method, params) {
+  let lastErr = null;
+  for (const url of rpcUrlChain()) {
+    try {
+      return await ethRpcOnce(url, method, params);
+    } catch (err) {
+      if (err.rpcError) throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error("alchemy-not-configured");
+}
+
+/** Deployed bytecode at an address. `'0x'` means nothing is deployed there. */
+export function ethGetCode(address) {
+  return ethRpc("eth_getCode", [address, "latest"]);
+}
+
+/** A transaction by hash, or null when the node has never seen it. */
+export function ethTxByHash(hash) {
+  return ethRpc("eth_getTransactionByHash", [hash]);
+}
+
 export async function ethCallOnce(url, to, data) {
   // PERF/RESIL: bound each attempt so a hung node (no response, not a fast
   // error) is abandoned in ~2.5s and ethCall() advances to the next URL,

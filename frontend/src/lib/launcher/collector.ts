@@ -30,7 +30,7 @@ export interface ChainReader {
 /** Resolves the LP lock for a graduated token (StreamableFeesLocker lookup). Injected + mockable. */
 export type LockResolver = (
   token: Address,
-) => Promise<{ locked: boolean; locker: Address | null; unlockAt: number | null }>;
+) => Promise<{ locked: boolean; locker: Address | null; unlockAt: number | null; readable?: boolean }>;
 
 export interface CollectOptions {
   chainId?: number;
@@ -42,29 +42,13 @@ export interface CollectOptions {
   feeConstitution?: FeeConstitutionLine[];
 }
 
-// Two minimal-proxy layouts we must recognise:
-//  - Canonical OZ / EIP-1167: 363d3d373d3d3d363d73 <impl> 5af43d82803e903d91602b57fd5bf3
-//  - Solady LibClone (what Doppler's token factories DEPLOY — VERIFIED on a mainnet
-//    fork 2026-07-17): 3d3d3d3d363d3d37363d73 <impl> 5af43d3d93803e602a57fd5bf3
-// A launched Doppler token uses the Solady layout, so parsing ONLY EIP-1167 would
-// make the gate fail to recognise every real Doppler launch (default-closed for all).
-const CLONE_LAYOUTS: { prefix: string; suffix: string }[] = [
-  { prefix: '363d3d373d3d3d363d73', suffix: '5af43d82803e903d91602b57fd5bf3' }, // EIP-1167
-  { prefix: '3d3d3d3d363d3d37363d73', suffix: '5af43d3d93803e602a57fd5bf3' }, // Solady LibClone
-];
-
-/** Extract the implementation address from a known minimal-proxy runtime, or null. */
-export function cloneImplTarget(code: Hex | undefined): Address | null {
-  if (!code) return null;
-  const c = code.slice(2).toLowerCase();
-  for (const { prefix, suffix } of CLONE_LAYOUTS) {
-    if (c.startsWith(prefix) && c.endsWith(suffix)) {
-      const middle = c.slice(prefix.length, c.length - suffix.length);
-      if (middle.length === 40) return (`0x${middle}`) as Address;
-    }
-  }
-  return null;
-}
+// `cloneImplTarget` and its CLONE_LAYOUTS moved to api/_lib/record-core.js so the
+// browser collector and the serverless birth-record route agree on what a Doppler clone
+// is. Two copies would drift, and the drift would be silent on one rail — the Solady
+// layout is the one Doppler actually deploys, and missing it makes every real launch
+// look unverified. Re-exported here so every existing caller is untouched.
+import { cloneImplTarget } from '../../../api/_lib/record-core.js';
+export { cloneImplTarget };
 
 /** @deprecated use cloneImplTarget — kept for existing callers. EIP-1167 only. */
 export function eip1167Target(code: Hex | undefined): Address | null {
@@ -73,10 +57,14 @@ export function eip1167Target(code: Hex | undefined): Address | null {
   return cloneImplTarget(code);
 }
 
+// Reads NOTHING. `readable: false` says so, so callers that publish prose (and the
+// on-chain disclosures digest) render "not read" instead of "not locked" — the latter
+// being an assertion this resolver is in no position to make.
 const DEFAULT_LOCK_RESOLVER: LockResolver = async () => ({
   locked: false,
   locker: null,
   unlockAt: null,
+  readable: false,
 });
 
 /**
@@ -149,7 +137,16 @@ export async function collectTokenFacts(
     teamAllocationVestedBps = teamAllocationBps; // vestedTotalAmount is BY DEFINITION on-chain-vested
   }
 
-  const liquidity = await lockResolver(token).catch(() => ({ locked: false, locker: null, unlockAt: null }));
+  // A THROWN resolver read nothing either — `readable: false`, same as the default.
+  // Without it a failed locker read would be indistinguishable from a successful read
+  // that found no lock, and the sheet would publish "not locked" on the strength of an
+  // exception.
+  const liquidity = await lockResolver(token).catch(() => ({
+    locked: false,
+    locker: null,
+    unlockAt: null,
+    readable: false,
+  }));
 
   return {
     token,
