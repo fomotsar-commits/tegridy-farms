@@ -277,7 +277,16 @@ export async function readMigrationStream(
  * Fact Sheet, instead of the hardcoded default the pre-graduation attest path uses.
  */
 export function lockResolverFor(stream: MigrationStream): LockResolver {
-  return async () => ({ locked: stream.locked, locker: stream.locker, unlockAt: stream.unlockAt });
+  return async () => ({
+    locked: stream.locked,
+    locker: stream.locker,
+    unlockAt: stream.unlockAt,
+    // `unsupported` means readMigrationStream returned its hardcoded shape WITHOUT
+    // touching the chain. Passing that through as a plain `locked: false` is what let
+    // "Liquidity is not locked" be published — and attested — about a locker nobody
+    // queried. Carry the distinction instead of flattening it.
+    readable: !stream.unsupported,
+  });
 }
 
 // `decodeStream` lived here: it normalised the V2 `streams` tuple. Deleted with the

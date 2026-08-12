@@ -338,3 +338,25 @@ describe('birthRecordFailure — refuse to render a malformed twin', () => {
     expect(birthRecordFailure('{}')).toBeTruthy();
   });
 });
+
+describe('the record inherits the sheet’s own lock-readability', () => {
+  it('a sheet that says "not read" makes the record say so, with no caller flag', () => {
+    // One source of truth. Without this, a record built from an honest sheet could still
+    // publish the sheet's suppressed claim just because the caller forgot a flag.
+    const r = buildBirthRecord({
+      sheet: sheet({ liquidity: { locked: false, locker: null, unlockAt: null, note: '', readable: false } }),
+      ...base,
+    });
+    expect(r.unread).toContain('locks.liquidity');
+    expect(r.locks.find((l) => l.kind === 'liquidity')!.note).not.toMatch(/not locked/i);
+  });
+
+  it('an explicit caller flag still wins over the sheet', () => {
+    const r = buildBirthRecord({
+      sheet: sheet({ liquidity: { locked: true, locker: LOCKER, unlockAt: 1800000000, note: 'Liquidity is locked.', readable: true } }),
+      ...base,
+      liquidityReadable: false,
+    });
+    expect(r.unread).toContain('locks.liquidity');
+  });
+});

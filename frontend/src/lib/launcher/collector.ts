@@ -30,7 +30,7 @@ export interface ChainReader {
 /** Resolves the LP lock for a graduated token (StreamableFeesLocker lookup). Injected + mockable. */
 export type LockResolver = (
   token: Address,
-) => Promise<{ locked: boolean; locker: Address | null; unlockAt: number | null }>;
+) => Promise<{ locked: boolean; locker: Address | null; unlockAt: number | null; readable?: boolean }>;
 
 export interface CollectOptions {
   chainId?: number;
@@ -57,10 +57,14 @@ export function eip1167Target(code: Hex | undefined): Address | null {
   return cloneImplTarget(code);
 }
 
+// Reads NOTHING. `readable: false` says so, so callers that publish prose (and the
+// on-chain disclosures digest) render "not read" instead of "not locked" — the latter
+// being an assertion this resolver is in no position to make.
 const DEFAULT_LOCK_RESOLVER: LockResolver = async () => ({
   locked: false,
   locker: null,
   unlockAt: null,
+  readable: false,
 });
 
 /**
@@ -133,7 +137,16 @@ export async function collectTokenFacts(
     teamAllocationVestedBps = teamAllocationBps; // vestedTotalAmount is BY DEFINITION on-chain-vested
   }
 
-  const liquidity = await lockResolver(token).catch(() => ({ locked: false, locker: null, unlockAt: null }));
+  // A THROWN resolver read nothing either — `readable: false`, same as the default.
+  // Without it a failed locker read would be indistinguishable from a successful read
+  // that found no lock, and the sheet would publish "not locked" on the strength of an
+  // exception.
+  const liquidity = await lockResolver(token).catch(() => ({
+    locked: false,
+    locker: null,
+    unlockAt: null,
+    readable: false,
+  }));
 
   return {
     token,

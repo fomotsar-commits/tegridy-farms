@@ -39,6 +39,21 @@ export interface LiquidityDisclosure {
   /** Unix seconds; null = no lock / perpetual / unknown (see `note`). */
   unlockAt: number | null;
   note: string;
+  /**
+   * FALSE when the lock state was never read at all — as opposed to read and found
+   * unlocked. Absent means read, so every existing producer is unaffected.
+   *
+   * This exists because `locked: false` had two meanings and only one of them was true.
+   * `readMigrationStream` is inert against the V1 locker (no token -> position-tokenId
+   * index exists), so it returns a hardcoded `locked: false` without touching the chain,
+   * and `note` then read "Liquidity is not locked; it may be withdrawable by the
+   * liquidity owner." — a claim about a locker nobody queried.
+   *
+   * That sentence is not cosmetic: `attestation.canonicalDisclosuresJson` folds this
+   * whole object into `disclosuresDigest`, which is published ON-CHAIN. An unverified
+   * assertion was being committed permanently.
+   */
+  readable?: boolean;
 }
 
 /** One line of the launch's fee constitution. Shares are basis points of the trade fee. */

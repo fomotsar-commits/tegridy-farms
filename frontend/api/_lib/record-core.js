@@ -249,7 +249,11 @@ export function buildBirthRecord(input) {
   // assertion about a locker nobody asked. The page has its own guard for this
   // (`unverifiedGateChecks` suppresses the gate's version whenever the lock state is
   // null); this is the record's.
-  const liquidityReadable = input.liquidityReadable !== false;
+  // The SHEET now carries this too (LiquidityDisclosure.readable). Prefer the caller's
+  // explicit answer, fall back to the sheet's, and only then assume readable — so a
+  // record built from a sheet that already said "not read" cannot silently disagree
+  // with it. Both undefined still means readable, which keeps every old producer working.
+  const liquidityReadable = (input.liquidityReadable ?? sheet.liquidity.readable) !== false;
   if (!liquidityReadable) {
     locks.push({
       kind: 'liquidity',
