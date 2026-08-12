@@ -108,6 +108,13 @@ export interface BirthRecordInput {
    */
   decimals?: number | null;
   /**
+   * The EXACT base-unit amount of the team allocation that is on-chain vested, when the
+   * caller read one. Preferred over `teamAllocationVestedBps`, which truncates: an
+   * amount recomputed from bps loses up to `supply/10_000 - 1` base units, and that loss
+   * lands in the UNLOCKED public-sale plate.
+   */
+  vestedAmount?: bigint | null;
+  /**
    * FALSE when the liquidity lock state was never queried at all.
    *
    * Defaults to true so every existing producer is unaffected. Set it false and the

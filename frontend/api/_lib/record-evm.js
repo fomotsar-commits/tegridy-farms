@@ -167,18 +167,24 @@ export async function readEvmRecordInput(ca, opts = {}) {
   // failure mode, not a theoretical one.
   let teamAllocationBps = 0;
   let teamAllocationVestedBps = 0;
+  let vestedAmount = null;
   if (isDopplerTemplate && supply !== null && supply > 0n) {
     const vestedHex = await tryCall(ca, SELECTORS.vestedTotalAmount);
     const vestedTotal = decodeUint(vestedHex);
     if (vestedTotal === null) {
       unread.add("plates");
     } else {
+      // The EXACT base-unit amount travels alongside the bps. bps is a truncating
+      // display figure; using it to recompute an amount loses up to supply/10_000 base
+      // units, and that loss lands in the UNLOCKED public-sale plate. See record-core.js.
+      vestedAmount = vestedTotal;
       teamAllocationBps = Number((vestedTotal * 10_000n) / supply);
       teamAllocationVestedBps = teamAllocationBps; // vestedTotalAmount is BY DEFINITION vested
     }
-  } else if (!isDopplerTemplate) {
-    // We cannot enumerate insider holdings on an arbitrary token, and a silent 0 would
-    // read as "no insider allocation".
+  } else {
+    // EVERY path that did not enumerate says so. Previously this was
+    // `else if (!isDopplerTemplate)`, which left a template token whose `totalSupply()`
+    // read failed in neither branch: no enumeration happened, and nothing said so.
     unread.add("plates");
   }
 
@@ -245,6 +251,7 @@ export async function readEvmRecordInput(ca, opts = {}) {
       birthTx,
       gateDecisionId: null, // lives in the launching browser's localStorage; never on chain
       decimals,
+      vestedAmount,
       liquidityReadable: false,
       unread: [...unread],
     },

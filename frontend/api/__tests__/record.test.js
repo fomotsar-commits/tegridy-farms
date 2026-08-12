@@ -559,3 +559,126 @@ describe("a token whose allocations cannot be enumerated publishes NO plates", (
     expect(rec.unread).toContain("plates");
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Regressions from the adversarial review. Each of these shipped, was
+// reproduced against the real code, and is fixed here.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("REGRESSION: bytes alone must not make an account a mint", () => {
+  it("a 165-byte SPL TOKEN ACCOUNT is not decoded as a mint", () => {
+    // `buf.length < 82` admitted every LONGER account. A token account's bytes 44/45
+    // sit inside its owner pubkey, so one with byte45==1 and byte44<=18 decoded as a
+    // "mint" and published bytes 36..44 of that pubkey as `total_supply`. An attacker
+    // grinds such a keypair in seconds and mints a birth certificate with chosen
+    // decimals and supply.
+    const tokenAccount = Buffer.alloc(165);
+    tokenAccount[44] = 9; // looks like decimals
+    tokenAccount[45] = 1; // looks like is_initialized
+    tokenAccount.writeUInt32LE(0xdeadbeef, 36); // looks like supply
+    expect(decodeMintAccount(tokenAccount)).toBeNull();
+  });
+
+  it("an 82-byte account owned by the WRONG PROGRAM is refused", async () => {
+    const mint = Buffer.alloc(82);
+    mint[44] = 9;
+    mint[45] = 1;
+    mint.writeUInt32LE(0xdeadbeef, 36);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          result: {
+            value: {
+              // System Program — not a token program. Bytes alone cannot say "mint".
+              owner: "11111111111111111111111111111111",
+              data: [mint.toString("base64"), "base64"],
+            },
+          },
+        }),
+      })),
+    );
+    const res = mockRes();
+    await handleRecord(req({ chain: "solana", ca: "So11111111111111111111111111111111111111112" }), res);
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("REGRESSION: a template token whose supply read failed must declare plates unread", () => {
+  it("does not publish an empty allocation breakdown as authoritative", async () => {
+    // `else if (!isDopplerTemplate)` left this case in NEITHER branch: no enumeration
+    // happened and nothing said so, so a consumer testing `unread.includes('plates')`
+    // read `plates: []` as "enumerated and empty".
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url, init) => {
+        const body = JSON.parse(init.body);
+        let result;
+        if (body.method === "eth_getCode") result = soladyClone(DOPPLER_ERC20_V1_IMPL);
+        else {
+          const { to, data } = body.params[0];
+          if (to.toLowerCase() === AIRLOCK) result = assetDataReturn();
+          else if (data.startsWith(SELECTORS.name)) result = stringReturn("Test Coin");
+          else if (data.startsWith(SELECTORS.symbol)) result = stringReturn("TEST");
+          else if (data.startsWith(SELECTORS.totalSupply)) result = "0x"; // the failed read
+          else if (data.startsWith(SELECTORS.owner)) result = "0x" + addrWord("0x" + "11".repeat(20));
+          else if (data.startsWith(SELECTORS.decimals)) result = "0x" + uintWord(18);
+          else result = "0x";
+        }
+        return { ok: true, status: 200, json: async () => ({ result }) };
+      }),
+    );
+    const res = mockRes();
+    await handleRecord(req({ chain: "ethereum", ca: CA }), res);
+    expect(res.body.plates).toEqual([]);
+    expect(res.body.unread).toContain("plates");
+  });
+});
+
+describe("REGRESSION: no vested base unit may leak into the unlocked sale plate", () => {
+  const supply = 10n ** 24n;
+  const build = (vested) => {
+    const bps = Number((vested * 10_000n) / supply);
+    return buildBirthRecord({
+      sheet: {
+        schemaVersion: 1, token: CA, chainId: 1, name: "X", symbol: "X", totalSupply: supply,
+        tokenFactory: null, templateCodehash: null, knownSafeTemplate: true, residualPowers: [],
+        liquidity: { locked: false, locker: null, unlockAt: null, note: "" },
+        feeConstitution: [], vesting: [], teamAllocationBps: bps, teamAllocationVestedBps: bps,
+        tier: "none", gateChecks: [], observedAt: 1786104024,
+      },
+      chain: "ethereum", decimals: 18, liquidityReadable: false, vestedAmount: vested,
+    });
+  };
+
+  it("publishes the EXACT vested amount, not a bps round-trip", () => {
+    // 20.0009% truncates to 2000 bps; recomputing the amount from that lost 9e18 base
+    // units of chain-provably vested supply INTO the unlocked public-sale plate.
+    const vested = 200009n * 10n ** 18n;
+    const r = build(vested);
+    const locked = r.plates.filter((p) => p.locked).reduce((a, p) => a + BigInt(p.amount), 0n);
+    expect(locked).toBe(vested);
+  });
+
+  it("a sub-one-basis-point premine still gets a locked plate", () => {
+    // It truncated to 0 bps, the plate vanished, and the record published a single
+    // 10000-bps unlocked "Public sale" — a fabricated full-float claim for a token with
+    // a real premine.
+    const vested = 10n ** 19n; // 0.001%
+    const r = build(vested);
+    const team = r.plates.find((p) => p.locked);
+    expect(team).toBeTruthy();
+    expect(BigInt(team.amount)).toBe(vested);
+  });
+
+  it("amounts always sum to supply and shares always sum to 10000", () => {
+    for (const vested of [0n, 1n, 10n ** 19n, 200009n * 10n ** 18n, supply / 5n]) {
+      const r = build(vested);
+      if (r.plates.length === 0) continue;
+      expect(r.plates.reduce((a, p) => a + BigInt(p.amount), 0n)).toBe(supply);
+      expect(r.plates.reduce((a, p) => a + p.share_bps, 0)).toBe(10_000);
+    }
+  });
+});

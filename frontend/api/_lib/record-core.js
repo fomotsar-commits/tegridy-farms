@@ -143,8 +143,25 @@ export function buildBirthRecord(input) {
 
   const supply = sheet.totalSupply;
   const teamBps = sheet.teamAllocationBps;
-  const teamAmount = (supply * BigInt(teamBps)) / 10_000n;
-  const saleAmount = supply - teamAmount;
+
+  // THE EXACT AMOUNT WINS OVER THE BPS.
+  //
+  // bps is a truncating DISPLAY figure. Recomputing an amount from it — `supply * bps /
+  // 10_000` — loses up to `supply/10_000 - 1` base units, and that loss does not vanish:
+  // it lands in the public-sale remainder, which this record publishes with
+  // `locked: false`. Chain-provably vested supply would be republished as unlocked float.
+  //
+  // Worse at the boundary: a premine under one basis point truncates to 0 bps, the team
+  // plate disappears entirely, and the record publishes a single 10000-bps "Public sale"
+  // plate — the exact fabricated full-float claim the plates suppression above exists to
+  // prevent, reached by a different road.
+  //
+  // So callers that read a real amount pass it, and it is used verbatim.
+  const exactVested = input.vestedAmount ?? null;
+  const teamAmount =
+    exactVested !== null && teamBps === (sheet.teamAllocationVestedBps ?? 0)
+      ? exactVested
+      : (supply * BigInt(teamBps)) / 10_000n;
 
   // How much of the team allocation is under an on-chain schedule.
   //
@@ -160,21 +177,13 @@ export function buildBirthRecord(input) {
   // slice for a token whose insider slice is locked. That is an inversion, not a gap,
   // and it is worse than saying nothing.
   const scheduledTotal = sheet.vesting.reduce((a, v) => a + v.amount, 0n);
-  const vestedByBps = (supply * BigInt(sheet.teamAllocationVestedBps ?? 0)) / 10_000n;
+  // Exact when the caller read one; otherwise the bps-derived approximation.
+  const vestedByBps = exactVested ?? (supply * BigInt(sheet.teamAllocationVestedBps ?? 0)) / 10_000n;
   const vestedTotal = scheduledTotal > vestedByBps ? scheduledTotal : vestedByBps;
   const unvested = teamAmount > vestedTotal ? teamAmount - vestedTotal : 0n;
 
+  // Non-sale plates first; the SALE IS THE REMAINDER, so no base unit can go missing.
   const plates = [];
-  // The sale is a plate. Naming it is what makes the shares sum to the supply.
-  if (saleAmount > 0n) {
-    plates.push({
-      name: 'Public sale',
-      amount: toBaseUnits(saleAmount),
-      share_bps: 10_000 - teamBps,
-      beneficiary: null,
-      locked: false,
-    });
-  }
   for (const v of sheet.vesting) {
     plates.push({
       name: 'Team allocation (on-chain vested)',
@@ -205,6 +214,24 @@ export function buildBirthRecord(input) {
       name: 'Team allocation (not under an on-chain vesting schedule)',
       amount: toBaseUnits(unvested),
       share_bps: shareBps(unvested, supply),
+      beneficiary: null,
+      locked: false,
+    });
+  }
+
+  // THE SALE IS WHAT IS LEFT, computed from EXACT amounts and inserted first.
+  //
+  // Deriving it as `supply - supply*teamBps/10_000` instead would leak every truncated
+  // base unit into an UNLOCKED plate. Its share is the bps remainder for the same reason:
+  // the parts must sum to 10000 without any single plate having to absorb rounding.
+  const allocatedAmount = plates.reduce((a, p) => a + BigInt(p.amount), 0n);
+  const allocatedBps = plates.reduce((a, p) => a + p.share_bps, 0);
+  const saleAmount = supply > allocatedAmount ? supply - allocatedAmount : 0n;
+  if (saleAmount > 0n) {
+    plates.unshift({
+      name: 'Public sale',
+      amount: toBaseUnits(saleAmount),
+      share_bps: 10_000 - allocatedBps,
       beneficiary: null,
       locked: false,
     });
