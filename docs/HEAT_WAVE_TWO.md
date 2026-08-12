@@ -278,3 +278,31 @@ the JSON as a confident value.** That is the one failure this document exists to
 and it took a hostile reader plus a live mainnet run to find all four instances of it
 (the fourth — a fabricated 100%-float plate — was caught by running the route against
 USDC, not by any test).
+
+
+### And the one it led back to: an unverified claim was being attested on-chain
+
+Tracing defect (1) upstream found that it did not start in the birth record. The fact
+sheet itself asserted *"Liquidity is not locked; it may be withdrawable by the liquidity
+owner."* for every token on the EVM rail — and
+`attestation.canonicalDisclosuresJson` folds the whole `liquidity` object into
+`disclosuresDigest`, which is published **on-chain and permanent**.
+
+`readMigrationStream` takes `_client` (unused) and returns a hardcoded
+`locked: false, unsupported: true` without touching the chain. So `locked: false` carried
+two meanings — "read, and unlocked" and "never asked" — and `toLiquidityDisclosure`
+rendered both as the same sentence. The page had a guard for the gate check
+(`unverifiedGateChecks`); the digest had none.
+
+`LiquidityDisclosure.readable?: boolean` now carries the distinction. **Absent means
+read**, so every existing producer is untouched; `lockResolverFor` sets
+`!stream.unsupported`; the default resolver and the `.catch` fallback both set `false`,
+because a thrown read is not a finding of "unlocked". `buildBirthRecord` inherits the
+sheet's value when no flag is passed, so record and sheet cannot disagree.
+
+⚠️ **This changes `disclosuresDigest` for future attestations on this rail.** That is the
+point — the previous digest committed to a false statement. Attestations are revocable
+timestamped disclosures, and no already-published one can be improved either way.
+
+A genuine unlocked finding is still stated plainly. Suppressing "we read it and it is
+unlocked" would be the opposite failure, and a test pins it.
