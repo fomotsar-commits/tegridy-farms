@@ -28,12 +28,24 @@ so an old reference can be traced, never mixed into the live set.
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **TOWELI** — Fixed-supply ERC20 governance/reward token (1B supply). | [`0x420698CFdEDdEa6bc78D59bC17798113ad278F9D`](https://etherscan.io/address/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) | `contracts/src/Toweli.sol` | Live |
+| **TOWELI** — ERC20 governance/reward token, 1B minted once, no mint path. | [`0x420698CFdEDdEa6bc78D59bC17798113ad278F9D`](https://etherscan.io/address/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) | ⚠️ **not this repo's source** — see the note below | Live |
 | **TegridyStaking** — veTOWELI lockup (7d–4y), 0.4x–4.0x boost, flat 25% early-exit penalty paid to the treasury, +0.5x JBAC bonus. | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) | `contracts/src/TegridyStaking.sol` | Live (relaunch 2026-06-06, `DeployMVP`) — `paused() == false`, `treasury() == 0x7D26…Bd7d` |
 | **TegridyStakingAdmin** — EIP-170 admin sister of the staking vault. | [`0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`](https://etherscan.io/address/0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3) | `contracts/src/TegridyStakingAdmin.sol` | Live (relaunch 2026-06-06) |
 | **TegridyStakingJbacVault** — JBAC custody sister for the staking boost. | [`0x28317bF362d43B40fcECebF2390C43dB558c3F14`](https://etherscan.io/address/0x28317bF362d43B40fcECebF2390C43dB558c3F14) | `contracts/src/TegridyStakingJbacVault.sol` | Live (relaunch 2026-06-06) |
 | **StakingMonitorView** — Read-only view sister (EIP-170 split). | [`0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`](https://etherscan.io/address/0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC) | `contracts/src/StakingMonitorView.sol` | Live (relaunch 2026-06-06) |
 | **TegridyRestaking** — Auto-compounding restake wrapper. | _not deployed_ | `contracts/src/TegridyRestaking.sol` | Deferred — `TEGRIDY_RESTAKING_ADDRESS` is `0x0…0`; the pre-relaunch instance is retired (see below). |
+
+> 🔴 **The live TOWELI is not this repo's `Toweli.sol`.** Selector scan of `cast code` plus live
+> `cast call`, 2026-08-12. The deployed contract names itself **`Towelie`** (symbol `Toweli`) and is a
+> token-generator template, not the OZ-based source in `contracts/src/`. What is actually there:
+> `burn(uint256)` ✅, `burnFrom(address,uint256)` ✅, Ownable2Step — `owner()`, `pendingOwner()`,
+> `transferOwnership`, `acceptOwnership`, `renounceOwnership` — ✅ with `owner()` currently `0x0`
+> (renounced). What is **absent**: `permit(...)`, `DOMAIN_SEPARATOR()`, `nonces(address)` (all three
+> revert), and `mint(address,uint256)`. So the token is **not EIP-2612**, and it **is** burnable by any
+> holder. `contracts/src/Toweli.sol` documents intended behaviour and is what a fresh deploy would
+> produce; it is not what is at `0x420698…78F9D`. Verify against Etherscan's Contract tab, never
+> against the repo file. Anything that reads a permit signature or assumes a fixed float off this
+> address is wrong.
 
 **Legacy staking vaults — WITHDRAW-ONLY.** Both still hold user positions and are **unpaused**
 (read back 2026-08-06), so they accept deposits. Never route stake/approve traffic to them; the app
@@ -53,7 +65,7 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 | **TegridyFactory** — Uniswap V2-compatible pair factory for TOWELI markets. | [`0xa24C7287eC56A7DEFDc70033803451240e267a52`](https://etherscan.io/address/0xa24C7287eC56A7DEFDc70033803451240e267a52) | `contracts/src/TegridyFactory.sol` | Live (relaunch 2026-06-06) |
 | **TegridyRouter** — Swap/add/remove liquidity router with fee-on-transfer support. | [`0xE9F83A07b071748E795d2489651d5310fA098Db8`](https://etherscan.io/address/0xE9F83A07b071748E795d2489651d5310fA098Db8) | `contracts/src/TegridyRouter.sol` | Live (relaunch 2026-06-06) |
 | **TegridyLP (TOWELI/WETH pair)** — Native DEX LP token. | [`0x55875887B43C2E23aE424AF0FC8606Fdb058a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) | `contracts/src/TegridyPair.sol` | Live — read back: `token0()` = TOWELI, `token1()` = WETH, `factory()` = `0xa24C…7a52` |
-| **SwapFeeRouter** — Routes DEX swap fees to RevenueDistributor + POLAccumulator. | [`0x6d5791A660e79175F74C6D639584C98422d5956E`](https://etherscan.io/address/0x6d5791A660e79175F74C6D639584C98422d5956E) | `contracts/src/SwapFeeRouter.sol` | Live (relaunch 2026-06-06) — `feeBps() == 50`, `stakerShareBps() == 10000`, `polShareBps() == 0`, `totalETHFees() == 0` (nothing has ever accrued) |
+| **SwapFeeRouter** — Routes DEX swap fees to RevenueDistributor + POLAccumulator. | [`0x6d5791A660e79175F74C6D639584C98422d5956E`](https://etherscan.io/address/0x6d5791A660e79175F74C6D639584C98422d5956E) | `contracts/src/SwapFeeRouter.sol` | Live (relaunch 2026-06-06) — `feeBps() == 50`, `stakerShareBps() == 10000`, `polShareBps() == 0`. **Has collected fee ETH; has distributed none.** `accumulatedETHFees()` and `totalPendingDistribution()` are both `0` because the whole take is still parked in `ReferralSplitter` — see the revenue note below. |
 | **SwapFeeRouterAdmin** — EIP-170 admin sister of the fee router. | [`0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060`](https://etherscan.io/address/0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060) | `contracts/src/SwapFeeRouterAdmin.sol` | Live (relaunch 2026-06-06) |
 | **POLAccumulator** — Protocol-owned-liquidity sink; buys TOWELI and LPs it. | [`0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2`](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) | `contracts/src/POLAccumulator.sol` | Deployed 2026-06-06 but **not wired** — `SwapFeeRouter.polAccumulator()` reads `0x0…0`, so no fee value can reach it today. |
 | **TegridyTWAP** — Time-weighted average price oracle over native pairs. | [`0xdFdd6D72539A425dC917F49FB834901105cA98c9`](https://etherscan.io/address/0xdFdd6D72539A425dC917F49FB834901105cA98c9) | `contracts/src/TegridyTWAP.sol` | Live (relaunch 2026-06-06) — needs 4× `update()` bootstrap after LP seed (audit H-18) |
@@ -67,7 +79,7 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 | Contract | Address | Source | Status |
 |---|---|---|---|
 | **RevenueDistributor** — Streams protocol revenue pro-rata to veTOWELI stakers. | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) | `contracts/src/RevenueDistributor.sol` | Live (relaunch 2026-06-06) |
-| **ReferralSplitter** — Splits referral rebates between referrer and protocol. | [`0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) | `contracts/src/ReferralSplitter.sol` | Live (relaunch 2026-06-06) |
+| **ReferralSplitter** — Sits between `SwapFeeRouter` and the staker rail: takes the referral share off the top, credits the remainder back. | [`0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) | `contracts/src/ReferralSplitter.sol` | Live (relaunch 2026-06-06) — `referralFeeBps() == 2000`, `MAX_REFERRAL_FEE() == 3000`. **Holds the protocol's entire swap-fee take.** |
 | **LockerClaimer** — Permissionless `claim(tokenId)` puller for the Doppler fee locker; forwards the ETH leg to RevenueDistributor, ERC20 leg to Treasury. | [`0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`](https://etherscan.io/address/0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7) | `contracts/src/LockerClaimer.sol` | Live (2026-08-01) — no admin surface; destinations immutable |
 
 ---
@@ -169,8 +181,17 @@ part of the protocol.
 - The broadcast JSON committed to this branch is **stale for the 2026-07-16 batch** — the refreshed
   `run-latest.json` files exist only in the operator's working checkout. Verify with `cast code`
   before acting on any address, in this file or any other.
-- `SwapFeeRouter.totalETHFees()` is `0`: no swap fee has ever accrued, so no revenue has ever been
-  distributed. Do not describe staker yield in the past tense.
+- **The swap-fee rail has earned and has never distributed.** Do not describe staker yield in the past
+  tense, and do not describe the rail as unused either — both were published here before. The
+  mechanism, which does not go stale: `SwapFeeRouter._recordReferralFee` forwards the **whole** fee to
+  `ReferralSplitter` at swap time; the splitter keeps `referralFeeBps` (2000) for the referrer or, with
+  no qualified referrer, for the treasury — that slice is never staker yield — and credits the
+  remaining ~80% back as `callerCredit`, which only moves on a **permissionless**
+  `SwapFeeRouter.recoverCallerCredit()` call that has never been made. `RevenueDistributor` therefore
+  holds `0` and `totalDistributed()` reads `0`: **zero epochs, zero claims, ever.** The splitter is also
+  not removable — `proposeReferralFee` rejects `0` and `applyReferralSplitter(address(0))` reverts
+  `ReferralFeeNonZero()` while the share is above zero. Quote the mechanism; a wei figure is stale after
+  the next swap.
 - The regression guard for this file lives at `frontend/src/lib/docsAddressTruth.test.ts`.
 
 *Last verified: 2026-08-06 (broadcast + on-chain read-back).*

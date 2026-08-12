@@ -13,7 +13,7 @@
 [![Solana Mainnet](https://img.shields.io/badge/chain-Solana_Mainnet-14f195)](https://memetic.fun/solana)
 [![App: memetic.fun](https://img.shields.io/badge/app-memetic.fun-ff7a18)](https://memetic.fun)
 
-> **A DeFi protocol on Ethereum and Solana. On Ethereum: swap fees flow to stakers, votes are weighted by how long you've locked, and the whole thing runs on fixed-supply TOWELI. On Solana: a Jupiter-routed swap and a Meteora launch rail, both fee-earning — TOWELI itself never ships there. Real yield. No inflation tricks. Farm with tegridy.**
+> **A DeFi protocol on Ethereum and Solana. On Ethereum: swap fees are routed toward stakers (the rail has collected, but has never paid out — see [Live deployment status](#live-deployment-status)), votes are weighted by how long you've locked, and the whole thing runs on fixed-supply TOWELI. On Solana: a Jupiter-routed swap and a Meteora launch rail, both fee-earning — TOWELI itself never ships there. Real yield. No inflation tricks. Farm with tegridy.**
 
 > **Live at [memetic.fun](https://memetic.fun).** The surface taking the most build effort today is the **token launcher** ([/launch](https://memetic.fun/launch)) — launch an ERC-20 through Doppler with a published on-chain fee constitution, a Fact Sheet, a permanent per-token record at `/launch/:token`, and afterlife tracking of what actually happened to it. See [Token launcher](#token-launcher). The yield protocol below is what those fees are meant to feed.
 
@@ -23,7 +23,7 @@
 
 1. TOWELI is fixed supply (1B, no mint function, no rebase).
 2. The protocol runs a DEX, staking, revenue distribution, an oracle, LP farming, **NFT finance (P2P NFT lending + a bonding-curve NFT AMM), an NFT launchpad, a premium tier, and an EVM token launcher** live today; **governance and the community programs** are deployed on-chain + verified (2026-07-16) but stay app-gated until a revenue line funds their emissions. (Token lending is audited and staged, pending the oracle bootstrap.)
-3. Fees from live surfaces route to TOWELI stakers, in ETH.
+3. One live surface is aimed at TOWELI stakers in ETH — the front-door swap fee. The rest (NFT lending, the NFT AMM, the launchpad, Premium) fund the treasury Safe. Nothing has been distributed to a staker yet; the front-door's take is still sitting in `ReferralSplitter`.
 4. The longer you lock (up to 4y), the more ETH you earn and the louder you'll vote once governance is live.
 5. A Solana surface earns fees too — the Jupiter-routed swap is live, and the Meteora launcher rail is **armed on mainnet (partner config live 2026-08-01) but has launched zero tokens**. Its page **now has an in-app submit path** (shipped in #259, 2026-08-04): a member of the public signs and submits their own launch, gated on a published partner config — with no config published for a given build, the page falls back to a config preview and says so. *(Corrected 2026-08-07: this line, and the two below, still claimed "no submit path" long after #259 merged.)* The Tegridy-owned Solana programs are **written but deployed nowhere** — not mainnet, not devnet.
 6. The app ships **trust tooling** — a token scanner, wallet-exposure check, deployer-reputation graph, and launch fact-sheets/afterlife tracking — that self-gates to "no data" instead of faking signal.
@@ -64,7 +64,7 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 |---|---|---|---|
 | **Staking** | Lock TOWELI for 7 days → 4 years. Get a 0.4×–4.0× boost on yield, plus +0.5× with a JBAC NFT. Your position is an ERC-721 and is the input to every other primitive. | `TegridyStaking` (+ `TegridyStakingAdmin`, `TegridyStakingJbacVault`) | 🟢 Live |
 | **Native DEX** | Uniswap V2–style AMM for TOWELI/WETH. The pair charges the standard 0.3% (⅚ to LPs, ⅙ to the protocol's `feeTo`). | `TegridyFactory`, `TegridyRouter`, `TegridyPair` | 🟢 Live |
-| **Smart swap front-door** | The app's default swap route runs through `SwapFeeRouter`, which takes a **0.5% protocol fee**, converts it to ETH, and streams it to stakers via the RevenueDistributor. | `SwapFeeRouter` (+ `SwapFeeRouterAdmin`) | 🟢 Live |
+| **Smart swap front-door** | The app's default swap route runs through `SwapFeeRouter`, which takes a **0.5% protocol fee** and converts it to ETH. That ETH is aimed at the RevenueDistributor, but every wei of it passes through `ReferralSplitter` first — and that is where all of it still sits. | `SwapFeeRouter` (+ `SwapFeeRouterAdmin`) | 🟢 Live · never paid out |
 | **Revenue distribution** | Streams ETH to stakers pro-rata to boosted balance + historical lock, using epoch snapshots so a flash-staker can't amplify their share. | `RevenueDistributor` | 🟢 Live |
 | **Oracle** | Time-weighted average price for manipulation-resistant collateral pricing. Uniswap-V2 cumulative-price + V3-style observations. | `TegridyTWAP` | 🟢 Live |
 | **LP Farming** | Synthetix-style boosted LP staking. Deposit TOWELI/WETH LP, earn TOWELI; your boost comes from your existing staking NFT. | `TegridyLPFarming` | 🟢 Live |
@@ -80,7 +80,7 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 
 **🔵 On-chain** means the contract is **deployed to mainnet and Etherscan-verified** (the 2026-07-16 gated batch), but the frontend address is deliberately still zeroed — these are the emission/spend-side features, held back until a revenue line funds them, not a technical dependency. **🟡 Gated** means the source is in the repo and tested but **not yet deployed** — the on-chain address is intentionally zeroed in the frontend ([`isDeployed()`](frontend/src/lib/constants.ts) gate) until it clears its audit wave and deploys. Both auto-activate the moment the operator sets the real address — exactly how the 🟢 NFT-finance/launchpad/premium set went live on 2026-07-21/22. († `TegridyLending` is *not* yet deployed: it is pre-deploy-audited and hardened but **oracle-gated**, so it ships only after the pool deepen + TWAP bootstrap.)
 
-**Why this over Curve / Aave / Yearn?** Fixed-supply token — what you earn is *revenue*, not inflation. Every live fee mechanism routes to stakers by default. The whole thing is one self-contained economic loop: stake → earn ETH → (soon) vote → direct emissions → farm → bribes flow back to stakers.
+**Why this over Curve / Aave / Yearn?** Fixed-supply token — what you earn is *revenue*, not inflation. The intended loop is self-contained: stake → earn ETH → (soon) vote → direct emissions → farm → bribes back to stakers. Be clear about how much of that is running: **one** fee mechanism is aimed at stakers (the front-door swap fee), the other live surfaces fund the treasury, and the staker leg has not made a payment yet.
 
 ---
 
@@ -98,7 +98,8 @@ Honest snapshot as of the latest commit:
 - ✅ **Exotic base pairs + Solana launcher preview un-gated (2026-07-27).** `EXOTIC_LAUNCHES_ENABLED = true` — creators may pair a launch against **TOWELI** instead of ETH (opt-in; ETH stays the default). `SOLANA_LAUNCHER_ENABLED = true` renders `/solana-launch` as a live config **preview** — it is **not** an in-app money path (the page has no signer; real Solana launches still go through the operator's out-of-band CLI).
 - ✅ **Meteora DBC partner config live on Solana mainnet (2026-08-01).** The operator ran `create-config` against a verified Squads v4 fee vault, so the Solana rail is armed and can accept its first launch. **Zero tokens have launched through it** — the Fact-Sheet numbers on `/solana-launch` are builder defaults, not a track record. The same change closed the custody gate: `verifySquadsVault` now enforces the Squads `Multisig` discriminator **and a threshold ≥ 2**, so neither a 1-of-1 multisig nor a substituted Squads account type can be named as `feeClaimer`. ~~`/solana-launch` remains preview-only with no in-app submit path.~~ — **superseded 2026-08-04 by #259**, which shipped the in-app submit path; the preview state now means "no partner config published into this build", not "no submit path exists". *(The two bullets above this one are dated and describe what was true on their date; only this trailing claim outlived its truth.)*
 - ⏳ **Ownership is not yet decentralized.** All live contracts are still owned by the deployer EOA. A 2-step Safe multisig handoff is in progress; the first attempt's 14-day window lapsed and is being re-initiated ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). **This single-key window is the biggest current risk — bigger than any specific code finding.**
-- 🔴 **The protocol-owned TOWELI/WETH pool has been drained, and no longer holds meaningful liquidity.** Read on-chain 2026-08-02: the native pair [`0x55875…a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) holds **146,258 TOWELI + 0.00383 WETH (~$14)**, ~83% of its LP was burned, and **LP Farming holds 0 staked LP** — so farming is not live on it. The Uniswap V2 pool is **~1,926× deeper in WETH**, and the smart front-door correctly routes swaps there. The TWAP oracle remains unbootstrapped: its floor is 10 WETH per side, which **neither** pool clears today (Uniswap holds 7.38). `SwapFeeRouter.totalETHFees()` is **0** — the native router has never earned a wei, so no ETH yield epoch has ever opened. Deepen + bootstrap remain scripted ([`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)), but the original ~1.33-WETH sizing is undersized by roughly 6×; a realistic deepen is **8–11 WETH (~$30–41k both sides)**.
+- 🔴 **The protocol-owned TOWELI/WETH pool has been drained, and no longer holds meaningful liquidity.** Read on-chain 2026-08-02: the native pair [`0x55875…a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) holds **146,258 TOWELI + 0.00383 WETH (~$14)**, ~83% of its LP was burned, and **LP Farming holds 0 staked LP** — so farming is not live on it. The Uniswap V2 pool is **~1,926× deeper in WETH**, and the smart front-door correctly routes swaps there. The TWAP oracle remains unbootstrapped: its floor is 10 WETH per side, which **neither** pool clears today (Uniswap holds 7.38). Deepen + bootstrap remain scripted ([`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)), but the original ~1.33-WETH sizing is undersized by roughly 6×; a realistic deepen is **8–11 WETH (~$30–41k both sides)**.
+- 🔴 **The staker fee rail has collected and has never paid.** Read on-chain 2026-08-12. The front-door has earned: `SwapFeeRouter.totalETHFees()` is non-zero. None of it is staker yield yet, and the reason is structural rather than a matter of waiting. `_recordReferralFee` forwards the **whole** fee to [`ReferralSplitter`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) at swap time, which (a) keeps `referralFeeBps` — **20% today, and it cannot be set to zero**: `proposeReferralFee` rejects `0` and `applyReferralSplitter(address(0))` reverts `ReferralFeeNonZero()` while the share is above zero, so the splitter cannot be unwired either — and (b) parks the remaining ~80% as `callerCredit`, which only returns to the router when someone calls the **permissionless** `recoverCallerCredit()`. Nobody ever has. Downstream, `RevenueDistributor.totalDistributed()` and its balance are both `0`: **no ETH yield epoch has ever opened, and no staker has ever been paid.** Quote the mechanism, not a balance — the balance moves with the next swap, the mechanism does not.
 - 🟡 **A few surfaces remain not-yet-deployed:** token lending (`TegridyLending` — pre-deploy-audited but oracle-gated), restaking (EIP-170 split / Phase 7), the Pro Pass (a launchpad operation), and the Uniswap V4 module (next-wave, unaudited).
 - 🟡 **No professional firm audit yet.** Extensive internal adversarial multi-agent audits are ongoing; a paid human-firm review is the gate before scaling TVL.
 
@@ -110,23 +111,24 @@ The `contracts/src/` tree holds **53 Solidity files**: ~35 at the root (primitiv
 
 ### 1. The revenue flywheel (where the ETH actually comes from)
 
-**In one sentence:** the protocol skims a small fee off trades routed through its smart front-door, turns that fee into ETH, and pays it out to people who've locked TOWELI — so your yield is a share of *real trading fees*, not freshly-minted tokens.
+**In one sentence:** the protocol skims a small fee off trades routed through its smart front-door, turns that fee into ETH, and is wired to pay most of it out to people who've locked TOWELI — so the yield on offer is a share of *real trading fees*, not freshly-minted tokens. **It has not paid anyone yet**, and the two paragraphs after the table explain exactly where it stops.
 
-There are two swap-fee rails, and **only the front-door pays stakers today:**
+There are two swap-fee rails, and **only the front-door is aimed at stakers — it has not reached them yet:**
 
 | Rail | Fee | Who actually gets it |
 |---|---|---|
 | **Native pair** (`TegridyPair`) — a raw swap on the TOWELI/WETH pool | 0.3% | ~0.25% grows the pool for **LPs**; the ~0.05% protocol slice accrues to the **treasury as LP tokens** — *not* to stakers as ETH. |
-| **Smart front-door** (`SwapFeeRouter`) — the app's default swap route | **0.5%** (hard-capped at 1%) | Collected in ETH, then **100% to stakers** by default (governance can never set it below 50%). **This is the staker-yield rail.** |
+| **Smart front-door** (`SwapFeeRouter`) — the app's default swap route | **0.5%** (hard-capped at 1%) | Collected in ETH, then handed **whole** to `ReferralSplitter`, which keeps a **20% referral share that cannot be set to zero** and parks the rest as `callerCredit` until someone calls `recoverCallerCredit()`. `stakerShareBps` (`10000`, floor `5000`) then applies to whatever comes back — so the staker ceiling is the **~80% remainder**, not the fee. **This is the staker-yield rail, and it has never paid out.** |
 
-**How you actually get paid — three steps:**
+**How you would actually get paid — four steps. Step 2 is where the money is stuck today:**
 1. **Fees pool up.** The front-door skims 0.5% off each swap into an ETH pot. (Fees taken in a token — e.g. a token→token swap — are held as that token and swept to ETH by a keeper, price-guarded by the TWAP, before they count.)
-2. **The pot is split and pushed.** Anyone can call `distributeFeesToStakers()`; by default the whole staker slice goes to `RevenueDistributor` (a configurable cut — never more than 25% — can instead deepen protocol-owned liquidity).
-3. **You claim — anytime.** `RevenueDistributor` snapshots an *epoch* (the fresh ETH + everyone's locked stake at that instant). Call `claim()` whenever; your cut is `epoch ETH × your boosted power ÷ total boosted power`. Unclaimed ETH never expires, and **longer locks + a JBAC boost raise your share.**
+2. **The whole fee detours through `ReferralSplitter`.** At swap time the router forwards 100% of it. The splitter keeps `referralFeeBps` (20%) for the swapper's referrer, or for the treasury if there isn't a qualified one — **either way that slice never becomes staker yield** — and credits the remaining ~80% back to the router as `callerCredit`. That credit only moves when someone calls the permissionless `recoverCallerCredit()`. **Nobody has, so every wei collected so far is still sitting in the splitter.**
+3. **The recovered pot is split and pushed.** Anyone can call `distributeFeesToStakers()`; by default the whole staker slice goes to `RevenueDistributor` (a configurable cut — never more than 25% — can instead deepen protocol-owned liquidity).
+4. **You claim — anytime.** `RevenueDistributor` snapshots an *epoch* (the fresh ETH + everyone's locked stake at that instant). Call `claim()` whenever; your cut is `epoch ETH × your boosted power ÷ total boosted power`. Unclaimed ETH never expires, and **longer locks + a JBAC boost raise your share.**
 
 > ⏱ **It's epoch-based, not a live drip.** An epoch only opens once **≥ 1 ETH** of fees has pooled *and* it's been **≥ 4 hours** since the last one — so low volume accumulates before it reaches stakers. Each epoch measures your stake at the *previous second*; that snapshot is what stops anyone flash-staking to skim a payout.
 
-**Worked example.** Swap **1 ETH** through the front-door → it takes **0.005 ETH** (0.5%) and swaps the other 0.995 ETH; that 0.005 ETH is earmarked 100% for stakers. Once enough swaps have pooled ≥ 1 ETH and an epoch opens, a staker holding **5%** of the boosted stake claims **0.05 ETH** from a 1-ETH epoch. Trade that same 1 ETH *directly on the native pair* and stakers get **nothing in ETH** — the fee just grows the pool for LPs.
+**Worked example.** Swap **1 ETH** through the front-door → it takes **0.005 ETH** (0.5%) and swaps the other 0.995 ETH. All 0.005 goes to `ReferralSplitter`: **0.001 ETH** (20%) is the referral share and is never staker yield, and **0.004 ETH** waits as `callerCredit` for a `recoverCallerCredit()` call that has never happened. Only after that recovery does the staker share apply — so the honest ceiling on this swap is **0.004 ETH**, and the amount delivered so far is **0**. Once recovered fees pool to ≥ 1 ETH and an epoch opens, a staker holding **5%** of the boosted stake would claim **0.05 ETH** from a 1-ETH epoch. Trade that same 1 ETH *directly on the native pair* and stakers get **nothing in ETH** — the fee just grows the pool for LPs.
 
 ```mermaid
 flowchart LR
@@ -160,18 +162,26 @@ flowchart LR
     DROP -->|platform fee| TREAS
     PREMIUM -->|subscription| TREAS[Treasury Safe]
 
-    SFR -->|split: 100% to stakers by default| RD[RevenueDistributor]
+    SFR -->|"whole fee, at swap time"| RS["ReferralSplitter<br/>referralFeeBps 20% — cannot be zeroed"]
+    RS -->|"20% — referrer, else treasury<br/>never staker yield"| TREAS
+    RS -.->|"~80% parked as callerCredit —<br/>needs recoverCallerCredit()<br/>NEVER CALLED"| SFR
+    SFR -->|"stakerShareBps of whatever returns<br/>0 epochs opened to date"| RD[RevenueDistributor]
     RD -->|claim your epoch share<br/>ETH, weighted by lock + boost| STAKERS((TOWELI Stakers))
 
     classDef live fill:#ffe1c4,stroke:#cc7a00
     classDef treas fill:#e8e0f7,stroke:#6a4fb3
     classDef sink fill:#d4f1d4,stroke:#2d8a2d
+    classDef stuck fill:#ffd6d6,stroke:#b3261e
     class DEX,SFR,LEND,NFTPOOL,DROP,PREMIUM live
     class TREAS treas
     class STAKERS sink
+    class RS stuck
 ```
 
-**Where the new fees land (honest version):** the NFT-lending, NFT-pool, launchpad, and premium surfaces went live 2026-07-21/22, and their fees accrue to the **treasury Safe** today — *not* to the staker stream yet. Routing them into `RevenueDistributor` is a deliberate later step (the treasury needs to cover operating costs first — see [`REVENUE_ANALYSIS.md`](REVENUE_ANALYSIS.md)). The front-door swap fee remains the one rail that pays stakers directly, and volume on the new surfaces starts from zero — no revenue is implied until the chain shows it.
+> The dashed edge is the whole story: it is the only way value gets from the splitter back
+> to the staker rail, it is permissionless, and it has never been traversed.
+
+**Where the new fees land (honest version):** the NFT-lending, NFT-pool, launchpad, and premium surfaces went live 2026-07-21/22, and their fees accrue to the **treasury Safe** today — *not* to the staker stream yet. Routing them into `RevenueDistributor` is a deliberate later step (the treasury needs to cover operating costs first — see [`REVENUE_ANALYSIS.md`](REVENUE_ANALYSIS.md)). The front-door swap fee remains the one rail *aimed* at stakers directly — and per the fee-rail bullet in [Live deployment status](#live-deployment-status), it has collected without delivering. Volume on the new surfaces starts from zero — no revenue is implied until the chain shows it.
 
 ### 2. The staking position as universal collateral
 
@@ -236,7 +246,7 @@ You don't need to read the contracts. Four steps from cold wallet to earning yie
 MetaMask, Rabby, Coinbase Wallet, or anything RainbowKit supports. Fund it with ETH for gas.
 
 ### 2. Get TOWELI
-- **App swap:** [memetic.fun/swap](https://memetic.fun/swap) — the smart front-door; the protocol fee flows to stakers.
+- **App swap:** [memetic.fun/swap](https://memetic.fun/swap) — the smart front-door; the protocol fee is routed toward stakers (nothing has arrived yet — see the fee-rail bullet above).
 - **Uniswap V2:** [app.uniswap.org](https://app.uniswap.org/swap?outputCurrency=0x420698CFdEDdEa6bc78D59bC17798113ad278F9D&chain=ethereum) — works, but Uniswap keeps the fees.
 
 Price & liquidity: [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D).
@@ -372,11 +382,11 @@ Tegridy runs a Solana surface too — but **TOWELI never touches Solana** (no br
 
 ## Tokenomics in one minute
 
-- **Total supply:** 1,000,000,000 TOWELI. **Fixed.** No mint function. No burn entrypoint.
+- **Total supply:** 1,000,000,000 TOWELI. **Fixed** — `mint(address,uint256)` is not in the live bytecode. `burn(uint256)` and `burnFrom(address,uint256)` **are**: any holder can destroy their own TOWELI, so supply is a ceiling, not a constant. The protocol itself burns nothing. See [TOKENOMICS.md](TOKENOMICS.md) for the on-chain capability read.
 - **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) — an engagement/leaderboard window. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
-- **Revenue flow (live):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). The native pair's separate 0.3% grows the pool for LPs.
+- **Revenue flow (wiring, not history):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `ReferralSplitter` (**20% off the top, unremovable**; the rest parked as `callerCredit` awaiting a permissionless `recoverCallerCredit()`) → back to `SwapFeeRouter` → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). **Zero epochs have opened.** The native pair's separate 0.3% grows the pool for LPs.
 - **Penalty flow:** 25% early-exit penalty → the **treasury** (`safeTransfer(treasury, penalty)`, emitting `PenaltySentToTreasury`). The penalty-recycle split was removed for EIP-170 size; it does *not* redistribute to stakers.
-- **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is what actually streams to stakers (default 100%, floor 50%). Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate.
+- **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is the leg pointed at stakers, and `stakerShareBps` (default `10000`, floor `5000`) governs the share of what survives the referral split, not of the fee. Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate — none of them do today.
 
 Full detail: **[TOKENOMICS.md](TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
 

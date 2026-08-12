@@ -27,9 +27,21 @@ Every item is battle-tested, integration-or-frontend only, and respects minimal-
 | Move | Battle-tested source | User value | New surface |
 |---|---|---|---|
 | **EIP-5792 batched tx** (wagmi [`useSendCalls`](https://wagmi.sh/react/api/hooks/useSendCalls) / `useCapabilities`) | [EIP-5792](https://eips.ethereum.org/EIPS/eip-5792); live on mainnet in MetaMask (via [EIP-7702](https://ethereum.org/roadmap/pectra/7702/)) + Coinbase Smart Wallet | approve+swap, approve+stake, claim+restake → **one click** vs up to 4 sigs | **None** — batches calls to existing contracts; feature-detect with graceful sequential fallback |
-| **EIP-2612 permit single-sig** (TOWELI already implements it) | [EIP-2612](https://eips.ethereum.org/EIPS/eip-2612) | removes the standalone `approve` tx | **None** — fold `permit` into the batch |
+| ~~**EIP-2612 permit single-sig**~~ ⛔ **PREMISE FALSE — see the note under this table** | [EIP-2612](https://eips.ethereum.org/EIPS/eip-2612) | would remove the standalone `approve` tx, *if* the token supported it | n/a — unbuildable against the live token |
 | **One-click MEV-protection RPC** ([`wallet_addEthereumChain`](https://eips.ethereum.org/EIPS/eip-3085)) | [MEV Blocker](https://docs.mevblocker.io/) (CoW DAO + Beaver) 90/10 backrun rebate; [Flashbots Protect](https://docs.flashbots.net/flashbots-protect/overview) | kills sandwich attacks on swaps/stakes, can pay users a rebate | **None** — user-confirmed wallet prompt; pin canonical endpoint, never proxy |
 | **Multicall3 read-batching** in wagmi/viem | [Multicall3](https://github.com/mds1/multicall3) (canonical `0xcA11…`) | fewer RPC round-trips → faster, fresher UI | **None** — client config. *Deferred:* the wagmi `batch` option couldn't be verified in-repo without risking the whole-app config; confirm the type, then enable. Reads only — never route writes through Multicall3 (`msg.sender` hijack). |
+
+> ⛔ **The permit row above rested on a premise that is false on-chain, and so does the Permit2
+> rejection in [Explicitly AVOID](#explicitly-avoid-research-flagged-these-as-gimmicky-or-dangerous--all-sourced).**
+> Read 2026-08-12: the live TOWELI at `0x420698…78F9D` has **no** `permit(...)`, no
+> `DOMAIN_SEPARATOR()`, no `nonces(address)` — all three revert. It is a generator template, not this
+> repo's `Toweli.sol`. So "fold `permit` into the batch" cannot be built, and the Permit2-is-redundant
+> argument has nothing to be redundant *with*.
+>
+> **This does not reverse either decision** — a roadmap call is the owner's, and Permit2 may still be
+> the wrong trade on minimal-surface grounds alone. It removes the *stated* justification. Whoever
+> re-opens this has to argue Permit2 on its own merits, or find another single-sig path, or accept
+> that approvals stay two transactions.
 
 ### B. Real limit orders / DCA / MEV — retire the browser-only hack
 
@@ -88,14 +100,14 @@ Alternatives ([UniswapX](https://github.com/Uniswap/UniswapX), [1inch Fusion](ht
 - **Points-as-implied-airdrop programs.** Off-brand for fixed-supply real-yield and reads as a Ponzi tell. Keep tiers (PremiumAccess) tied to *real* perks: fee discounts, access, capped fee-share referrals. ([Cointelegraph: real yield vs Ponzi](https://cointelegraph.com/magazine/defi-abandons-ponzinomics-real-yield/))
 - **Custom zap router or self-hosted paymaster.** The [OpenZeppelin Beefy-zap audit](https://www.openzeppelin.com/news/beefy-zap-audit-1) found a CRITICAL arbitrary-call drain in exactly this pattern. **Integrate Enso/1inch and a provider paymaster instead.**
 - **Oracle-pooled NFT lending (BendDAO-style).** BendDAO [nearly went insolvent in 2022](https://www.coindesk.com/business/2022/08/22/bank-run-at-nft-lender-benddao-prompts-attempt-to-avert-another-liquidity-crisis), and Chainlink's NFT floor feeds are being [**deprecated**](https://docs.chain.link/data-feeds/deprecating-feeds). The best NFT lenders ([Blur Blend](https://www.paradigm.xyz/2023/05/blend), [MetaStreet](https://docs.metastreet.xyz/liquidity-layer/overview), [Gondi](https://docs.gondi.xyz/)) are all deliberately oracle-free P2P — which **validates your current design**. Keep NFT lending P2P.
-- **Permit2 for the core flow.** Redundant — TOWELI already has EIP-2612 — and it would add surface. Keep Permit2 in reserve only for arbitrary third-party tokens.
+- **Permit2 for the core flow.** ⛔ **The "redundant" half of this is false.** It used to reject Permit2 on the grounds that the token already had the standard natively; the live token does not (see the note under Tier 1.A), so nothing is being duplicated. The **surface** objection stands on its own and is why this stays in AVOID for now; the redundancy objection is withdrawn. Re-argue it on surface, not on duplication. Keep Permit2 in reserve only for arbitrary third-party tokens.
 
 ---
 
 ## Suggested sequencing
 
 1. **Off-chain trust + surface-what-exists:** push-alert dispatch now; indexer-powered leaderboard/history/analytics *once the Ponder endpoint is deployed*; DefiLlama/Dune once relaunch addresses exist.
-2. **Transaction UX:** EIP-5792 batching + EIP-2612 single-sig + MEV-protection button + Multicall3 reads.
+2. **Transaction UX:** EIP-5792 batching + ~~EIP-2612 single-sig~~ (not available on the live token — see Tier 1.A) + MEV-protection button + Multicall3 reads.
 3. **CoW integration** to retire the browser-only limit/DCA hack.
 4. **Onboarding:** fiat on-ramp + relock reminder + Snapshot delegation (when governance re-lights).
 5. **After the paid audit:** opt-in LP-Farming auto-compounder. (Morpho lending — see oracle spike: defer.)

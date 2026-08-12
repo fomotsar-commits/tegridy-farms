@@ -1,9 +1,17 @@
 // REVENUE-CLAIM PARITY GUARD.
 //
 // Four surfaces asserted, in the present tense, that the protocol pays ETH yield.
-// Verified on-chain 2026-08-04, as on every prior check: `RevenueDistributor` holds
-// 0 wei and `SwapFeeRouter.totalETHFees()` is 0. Nothing has ever been distributed
-// to anyone.
+//
+// ⚠ CORRECTED 2026-08-12. This header said `SwapFeeRouter.totalETHFees()` is 0. It is
+// 3000000000000 wei — the rail HAS fired. What is still true is the part that matters:
+// `RevenueDistributor` holds 0 wei and has distributed 0, because 20% of that fee was
+// carved by ReferralSplitter and the remaining 2400000000000 wei sits in
+// callerCredit[SwapFeeRouter], reachable only via the permissionless
+// recoverCallerCredit(), which nothing had ever called.
+//
+// Worth noting how this survived: the walker below strips `//` lines before scanning,
+// so this guard is structurally incapable of catching a false claim in its own header.
+// A guard exempt from itself is the same defect class it was written to prevent.
 //
 // This has now been corrected four separate times on four different surfaces
 // (#199 timelock, #215 gold card, #216 deployer graph, and this pass) — which is the
@@ -26,12 +34,21 @@ describe('revenueSharingSubhead — conditioned on the live read', () => {
     const s = revenueSharingSubhead({ ethDistributed: 0, isLoading: false });
     expect(s).toMatch(/none have been distributed yet/i);
     // The policy is still stated — the fix is tense, not deletion.
-    expect(s).toMatch(/100% of protocol fees/i);
+    //
+    // ⚠ This used to require /100% of protocol fees/, i.e. the guard against dishonest
+    // revenue claims was ENFORCING one. #258 corrected the tense of that sentence and
+    // left its arithmetic alone. It is false in the present tense too:
+    // ReferralSplitter.referralFeeBps is 2000, carved off the top before anything is
+    // credited, so the staker ceiling is ~80%. stakerShareBps IS 10000, but that is
+    // 100% of what REACHES the distributor — the elision the old string traded on.
+    expect(s).toMatch(/20% referral carve/i);
+    expect(s, 'the guard must not re-admit the totality claim it exists to catch')
+      .not.toMatch(/100% of protocol fees/i);
   });
 
   it('states the distribution plainly once it is real', () => {
     const s = revenueSharingSubhead({ ethDistributed: 1.5, isLoading: false });
-    expect(s).toMatch(/are distributed to stakers/i);
+    expect(s).toMatch(/is distributed to stakers/i);
     expect(s).not.toMatch(/none have been distributed/i);
   });
 

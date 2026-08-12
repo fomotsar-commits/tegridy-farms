@@ -36,7 +36,7 @@ Supersedes the external `tegridy-claude-code-workorder.md` + `tegridy-feature-ro
 
 ## Phase 1 — Fee split activation (timelocked parameter changes; operator executes)
 
-**Verified premise:** SwapFeeRouter `0x6d5791A660e79175F74C6D639584C98422d5956E` routes 100% of swap fees to stakers (`stakerShareBps=10000`, live read). `applyFeeSplit` exists (floor 5000 staker, cap 2500 POL); the timelocked path is SwapFeeRouterAdmin `0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060` `proposeFeeSplit`/`executeFeeSplit` (48h), owner = clean deployer. The Q3 "70/20/10 splitter contract" is superseded **for the swap stream** — do not build it (drop/lending fee streams stay 100%-to-treasury; accepted deviation, operator's call).
+**Verified premise:** SwapFeeRouter `0x6d5791A660e79175F74C6D639584C98422d5956E` routes every basis point that REACHES the distributor to stakers (`stakerShareBps=10000`, live read) — end-to-end that is ~80%, because `ReferralSplitter.referralFeeBps=2000` is carved off the top first and cannot be zeroed. `applyFeeSplit` exists (floor 5000 staker, cap 2500 POL); the timelocked path is SwapFeeRouterAdmin `0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060` `proposeFeeSplit`/`executeFeeSplit` (48h), owner = clean deployer. The Q3 "70/20/10 splitter contract" is superseded **for the swap stream** — do not build it (drop/lending fee streams stay 100%-to-treasury; accepted deviation, operator's call).
 
 **Two live-read discoveries that change the sequence [v1-WRONG]:**
 - `polAccumulator()` on the live router = **address(0)** — a naive `proposeFeeSplit(8000,1000)` would silently route the POL slice to treasury (8000/0/2000). POLAccumulator receipt itself cannot revert (unconditional receive + pull-pattern) — TWAP dormancy only idles the funds.
@@ -142,7 +142,7 @@ The binding constraint is DISTRIBUTION, not retention/monetization of near-zero 
 **Wave 2** per the Phase-2 gate rewrite above.
 
 ### Roadmap items corrected/retired **[strategy verdicts]**
-- **A.1 "graduation to own venue" — RETIRED as framed:** fees do NOT stop at graduation (EVM: 15% of graduated-pool LP fees stream to stakers via StreamableFeesLocker; SOL: perpetual DAMM-v2 partner claim to the Squads vault). Own-venue stays Wave-3+/gated = fork Clanker v4, never the bespoke hook.
+- **A.1 "graduation to own venue" — RETIRED as framed:** fees do NOT stop at graduation (EVM: 15% of graduated-pool LP fees are routed toward stakers via StreamableFeesLocker; SOL: perpetual DAMM-v2 partner claim to the Squads vault). Own-venue stays Wave-3+/gated = fork Clanker v4, never the bespoke hook.
 - **A.2 vesting/LP-lock vaults — SPLIT:** launcher tokens = already shipped (Doppler vesting + lock + fact-sheet gate checks); external-token lock vaults = audit-gated custody product, later, verbatim-fork only.
 - **A.4 anti-snipe — DONE** (both chains, incl. the simulator snipe test); residual = fee decay on graduated pools, already specced in LAUNCHER_STRATEGY.
 - **A.6 generative-art lane — RETAG:** no Art-Blocks hook exists in-repo (DropV2 is URI-only; VORTEX is a loading animation). Either 🔴 contract work, or an honest 🟢 v0 (off-chain deterministic renderer, seed on-chain, labeled as such).

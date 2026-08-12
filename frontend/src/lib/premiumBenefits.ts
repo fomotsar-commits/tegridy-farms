@@ -69,9 +69,15 @@ export function goldCardSubhead({ ethDistributed, isLoading }: EthYieldState): s
 export function revenueSharingSubhead({ ethDistributed, isLoading }: EthYieldState): string {
   if (isLoading) return 'Reading what the fee rail has distributed…';
   const paid = Number.isFinite(ethDistributed) && ethDistributed > 0;
+  // "100% of protocol fees" was false, and #258 corrected only the TENSE of it.
+  // Two mechanisms cap it below 100 and neither can be turned off from the app:
+  // ReferralSplitter.referralFeeBps is 2000, carved off the top before anything is
+  // credited, and the 80% remainder lands in callerCredit until someone calls the
+  // permissionless recoverCallerCredit(). stakerShareBps IS 10000 — but that is 100%
+  // of what REACHES the distributor, which is the part the old sentence elided.
   return paid
-    ? '100% of protocol fees are distributed to stakers'
-    : '100% of protocol fees are routed to stakers — none have been distributed yet';
+    ? 'After the 20% referral carve, every remaining basis point of protocol fees is distributed to stakers'
+    : 'After the 20% referral carve, every remaining basis point is earmarked for stakers — none have been distributed yet';
 }
 
 export function goldCardBenefits({ ethDistributed, isLoading }: EthYieldState): GoldCardBenefit[] {

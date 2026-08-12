@@ -6,7 +6,7 @@ How the protocol is put together. Written for developers, integrators, and audit
 
 - [System overview](#system-overview)
 - [Core flows](#core-flows)
-  - [Fee flow — swap fees to stakers](#fee-flow)
+  - [Fee flow — the two rails, and where the staker leg stops](#fee-flow)
   - [Staking lifecycle](#staking-lifecycle)
   - [Gauge voting with commit-reveal](#gauge-voting)
   - [LP farming boost](#lp-farming-boost)
@@ -88,32 +88,55 @@ Three runtime surfaces:
 
 ### Fee flow
 
-Currently every basis point of TOWELI/WETH swap fees flows to stakers. The `SwapFeeRouter` is parameterised for a protocol cut — today the treasury split is set to zero. See [REVENUE_ANALYSIS.md](../REVENUE_ANALYSIS.md) for the active calibration discussion.
+**There are two protocol-fee rails and they never touch.** The AMM rail is `TegridyPair`'s ⅙-of-0.3%
+`feeTo` mint, which lands in the treasury Safe **as LP tokens** and has no path to a staker. The staker
+rail is the app's smart front-door: `SwapFeeRouter` takes its own 0.5% in ETH on the way through. The
+diagram below used to draw a `TegridyPair → SwapFeeRouter` "protocol fee (bps)" arrow; **that arrow was
+never implemented** — the pair does not know the router exists — and it made the two rails look like
+one funnel. Both rails are drawn separately now.
+
+The staker rail is also not a straight line. `SwapFeeRouter._recordReferralFee` forwards the **whole**
+fee to `ReferralSplitter` at swap time; `referralFeeBps` (2000) is kept for the referrer, or for the
+treasury when none qualifies, and the ~80% remainder is credited back as `callerCredit` recoverable
+only by a permissionless `recoverCallerCredit()`. That call has never been made, so nothing has
+reached `RevenueDistributor`. See [REVENUE_ANALYSIS.md](../REVENUE_ANALYSIS.md) for the calibration
+discussion and [CONTRACTS.md](../CONTRACTS.md) for the live reads.
 
 ```mermaid
 sequenceDiagram
     actor U as User
     participant FE as Frontend
+    participant SFR as SwapFeeRouter
     participant R as TegridyRouter
     participant P as TegridyPair
-    participant SFR as SwapFeeRouter
+    participant RS as ReferralSplitter
     participant RD as RevenueDistributor
     participant S as Stakers
-    participant T as Treasury (reserved)
+    participant T as Treasury Safe
     participant POL as POLAccumulator (reserved)
 
     U->>FE: Initiate swap
-    FE->>R: swapExactTokensForTokens
+    FE->>SFR: swap via the smart front-door
+    SFR->>SFR: skim 0.5% in ETH
+    SFR->>R: swap the remainder
     R->>P: execute swap
     P-->>R: output tokens
-    P->>SFR: protocol fee (bps)
-    Note over SFR: Today: 100% → RD<br/>Levers for T/POL exist<br/>but are set to 0
-    SFR->>RD: ETH reward stream
-    RD-->>S: continuous accrual<br/>(claimed on demand)
-    SFR-.inactive lever.->T
-    SFR-.inactive lever.->POL
+    P->>T: AMM rail — 1/6 of 0.3% minted to feeTo<br/>as LP TOKENS, a separate rail that<br/>never becomes staker ETH
+    SFR->>RS: 100% of the skimmed fee
+    RS->>T: referralFeeBps 20% — referrer if qualified,<br/>else treasury. Never staker yield.
+    RS-->>SFR: ~80% held as callerCredit —<br/>released only by recoverCallerCredit()
+    Note over RS,SFR: NEVER CALLED. Everything the rail has<br/>ever earned is still sitting in the splitter.
+    SFR->>RD: stakerShareBps of what returns
+    RD-->>S: epoch accrual (claimed on demand)<br/>0 epochs opened to date
+    SFR--)POL: inactive lever (polShareBps = 0,<br/>and polAccumulator() is unset)
     R-->>U: swap output
 ```
+
+> **This diagram did not render before 2026-08-12.** It used flowchart edge syntax
+> (`SFR-.inactive lever.->T`) inside a `sequenceDiagram`, so mermaid failed to parse it and
+> GitHub showed an error box where the picture should be — which is part of why the phantom
+> `TegridyPair → SwapFeeRouter` arrow went unchallenged for so long. If you edit it, render it:
+> `npx @mermaid-js/mermaid-cli -i <block>.mmd -o /dev/null`.
 
 ### Staking lifecycle
 
@@ -122,7 +145,7 @@ stateDiagram-v2
     [*] --> Staked : stake(amount, duration)<br/>mints ERC-721 position
     Staked --> Boosted : hold JBAC NFT<br/>(+0.5× passive)
     Staked --> LockExpired : block.timestamp ≥ lockEnd
-    Staked --> EarlyExited : earlyWithdraw()<br/>25% penalty →<br/>redistributed to stakers
+    Staked --> EarlyExited : earlyWithdraw()<br/>25% penalty →<br/>treasury (audit L-23)
     LockExpired --> Withdrawn : withdraw()<br/>burns NFT
     EarlyExited --> [*]
     Withdrawn --> [*]
