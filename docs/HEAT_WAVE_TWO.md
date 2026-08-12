@@ -241,3 +241,40 @@ a copy that parsed only EIP-1167 would make every real launch look unverified.
 
 ⚠️ The core is bundled into the **browser** as well as the lambda. Keep it pure: no
 `node:` imports, no `process.env`, no `fetch`, no `Buffer`.
+
+
+### What the adversarial review found after the route shipped
+
+A four-lens pass (honesty · hostile input · read correctness · refactor integrity)
+produced 32 candidates; three survived independent refutation, and all three were
+reproduced against the real code before being patched.
+
+1. **Bytes alone decided what a Solana mint was.** `decodeMintAccount` rejected only
+   buffers *shorter* than 82 bytes, and the owning program was never checked. A 165-byte
+   SPL **token account** therefore decoded as a mint — its bytes 44/45 sit inside the
+   owner pubkey, so one with `byte45 == 1` and `byte44 <= 18` passed the decimals and
+   is-initialised checks by coincidence, and bytes 36..44 of that pubkey were published
+   as `total_supply` with no `unread` entry. Grinding such a keypair takes seconds.
+   Fixed with an exact 82-byte length **and** a token-program owner allowlist checked
+   before decoding — both are needed, because exact-length alone still admits an
+   82-byte account of an unrelated program, and the owner check alone still admits a
+   165-byte Token-2022 token account.
+
+2. **bps truncation moved locked supply into the unlocked plate.** `teamAmount` was
+   recomputed from the truncated bps rather than the exact `vestedTotalAmount()`, and the
+   remainder became the public-sale plate at `locked: false`. A 0.001% premine truncated
+   to 0 bps, the team plate vanished, and the record published a single 10000-bps
+   "Public sale" — the same fabricated full-float claim the plates suppression exists to
+   prevent, reached by another road. Exact base-unit amounts now travel end to end and
+   **the sale is the remainder**, not a round trip.
+
+3. **A template token with an unreadable supply declared nothing.** The two branches that
+   set `unread: ["plates"]` were `isDopplerTemplate && supply > 0n` and
+   `!isDopplerTemplate`; a Doppler clone whose `totalSupply()` read failed matched
+   neither, so `plates: []` was published as if enumerated.
+
+The common shape is worth naming: **each was a path where "we did not read this" reached
+the JSON as a confident value.** That is the one failure this document exists to prevent,
+and it took a hostile reader plus a live mainnet run to find all four instances of it
+(the fourth — a fabricated 100%-float plate — was caught by running the route against
+USDC, not by any test).
