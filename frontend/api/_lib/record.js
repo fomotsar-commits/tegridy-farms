@@ -65,6 +65,54 @@ function setRecordCors(res) {
   res.setHeader("X-Content-Type-Options", "nosniff");
 }
 
+/**
+ * Work out which token is being asked for, under EITHER rewrite.
+ *
+ * ## Why this does not simply trust `?chain=&ca=`
+ *
+ * The pretty route relies on Vercel's `:ca.json` param form, and `.` is not an ordinary
+ * literal to `path-to-regexp` — it is a prefix/delimiter character, so `:ca.json` may
+ * capture `0xabc.json` INTO the param, or fail to match at all, depending on the
+ * platform's version. `path-to-regexp` is not a dependency of this repo, so that parse
+ * cannot be reproduced locally or in CI; it is observable only on a real deployment, and
+ * preview deployments here are auth-protected.
+ *
+ * Rather than ship a route whose correctness rests on an untestable assumption — for the
+ * one URL the island stores permanently at enrollment — this accepts all three shapes:
+ *   1. `chain` + `ca`                      the pretty rewrite parsed as intended
+ *   2. `chain` + `ca` ending in `.json`    the param swallowed the extension
+ *   3. `path` = "ethereum/0xabc.json"      the pretty rewrite did not match, and the
+ *                                          `/record/:path*` catch-all took it instead
+ *
+ * Returns `{ chain: null, ca: null }` for anything else. ARRAY-valued params are refused
+ * outright: Vercel merges the incoming query string with the rewrite's, so
+ * `/record/ethereum/0xabc.json?ca=0xEVIL` arrives as `ca: [...]` and must not be read.
+ */
+export function resolveTarget(query) {
+  const none = { chain: null, ca: null };
+  if (!query) return none;
+
+  const stripJson = (s) => (s.endsWith(".json") ? s.slice(0, -5) : s);
+
+  let chain = query.chain;
+  let ca = query.ca;
+
+  if (typeof chain !== "string" || typeof ca !== "string") {
+    const path = query.path;
+    if (typeof path !== "string") return none;
+    // `:path*` arrives slash-joined. Exactly two segments, or it is not a record URL.
+    const parts = path.split("/").filter(Boolean);
+    if (parts.length !== 2) return none;
+    chain = parts[0];
+    ca = parts[1];
+  }
+
+  chain = chain.trim();
+  ca = stripJson(ca.trim());
+  if (!chain || !ca) return none;
+  return { chain, ca };
+}
+
 export async function handleRecord(req, res) {
   setRecordCors(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -87,9 +135,8 @@ export async function handleRecord(req, res) {
 
   // Vercel MERGES the incoming query string with the rewrite's, and duplicate keys
   // arrive as ARRAYS. `/record/ethereum/0xabc.json?ca=0xEVIL` must not poison the read.
-  const chain = req.query?.chain;
-  const ca = req.query?.ca;
-  if (typeof chain !== "string" || typeof ca !== "string") {
+  const { chain, ca } = resolveTarget(req.query);
+  if (chain === null || ca === null) {
     res.setHeader("Cache-Control", "no-store");
     return res.status(400).json({ error: "Malformed record request" });
   }

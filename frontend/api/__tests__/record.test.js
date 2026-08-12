@@ -14,7 +14,7 @@ vi.mock("../_lib/ratelimit.js", () => ({
   checkGlobalLimit: vi.fn(async () => true),
 }));
 
-import { handleRecord } from "../_lib/record.js";
+import { handleRecord, resolveTarget } from "../_lib/record.js";
 import { buildBirthRecord } from "../_lib/record-core.js";
 import { SELECTORS, ASSET_DATA_WORDS, AIRLOCK, DOPPLER_ERC20_V1_IMPL } from "../_lib/record-evm.js";
 import { decodeAbiString, decodeUint, decodeAddress, decodeUint8, wordAt } from "../_lib/abi-decode.js";
@@ -682,3 +682,69 @@ describe("REGRESSION: no vested base unit may leak into the unlocked sale plate"
     }
   });
 });
+
+describe("the route survives however Vercel parses `:ca.json`", () => {
+  const CHAIN = "ethereum";
+
+  it("the intended parse", () => {
+    expect(resolveTarget({ chain: CHAIN, ca: CA })).toEqual({ chain: CHAIN, ca: CA });
+  });
+
+  it("the param swallowing the extension", () => {
+    // `.` is a prefix/delimiter character to path-to-regexp, not a plain literal, so
+    // `:ca.json` may capture `0xabc.json`. path-to-regexp is not a dependency here, so
+    // this parse is unobservable locally or in CI — only on a real deploy.
+    expect(resolveTarget({ chain: CHAIN, ca: `${CA}.json` })).toEqual({ chain: CHAIN, ca: CA });
+  });
+
+  it("the pretty rewrite not matching at all, so the catch-all takes it", () => {
+    expect(resolveTarget({ path: `${CHAIN}/${CA}.json` })).toEqual({ chain: CHAIN, ca: CA });
+    expect(resolveTarget({ path: `${CHAIN}/${CA}` })).toEqual({ chain: CHAIN, ca: CA });
+  });
+
+  it("refuses an ARRAY param — Vercel merges the query string with the rewrite's", () => {
+    // /record/ethereum/0xabc.json?ca=0xEVIL arrives as ca: [...]
+    expect(resolveTarget({ chain: CHAIN, ca: [CA, "0xEVIL"] })).toEqual({ chain: null, ca: null });
+    expect(resolveTarget({ chain: [CHAIN], ca: CA })).toEqual({ chain: null, ca: null });
+  });
+
+  it("refuses a path that is not exactly chain/ca", () => {
+    for (const path of ["", "ethereum", "a/b/c", "/", "ethereum/"]) {
+      expect(resolveTarget({ path }), path).toEqual({ chain: null, ca: null });
+    }
+    expect(resolveTarget({})).toEqual({ chain: null, ca: null });
+    expect(resolveTarget(undefined)).toEqual({ chain: null, ca: null });
+  });
+
+  it("end to end: the catch-all shape serves a real record", async () => {
+    stubRpcTop(DOPPLER_ERC20_V1_IMPL);
+    const res = mockRes();
+    await handleRecord(req({ path: `${CHAIN}/${CA}.json` }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.schema_version).toBe(1);
+    expect(res.body.ca).toBe(CA);
+  });
+});
+
+/** Minimal healthy-EVM stub usable at top level (the handler block has its own). */
+function stubRpcTop(impl) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      let result;
+      if (body.method === "eth_getCode") result = soladyClone(impl);
+      else {
+        const { to, data } = body.params[0];
+        if (to.toLowerCase() === AIRLOCK) result = assetDataReturn();
+        else if (data.startsWith(SELECTORS.name)) result = stringReturn("Test Coin");
+        else if (data.startsWith(SELECTORS.symbol)) result = stringReturn("TEST");
+        else if (data.startsWith(SELECTORS.totalSupply)) result = "0x" + uintWord(10n ** 24n);
+        else if (data.startsWith(SELECTORS.owner)) result = "0x" + addrWord("0x" + "11".repeat(20));
+        else if (data.startsWith(SELECTORS.decimals)) result = "0x" + uintWord(18);
+        else result = "0x" + uintWord(0);
+      }
+      return { ok: true, status: 200, json: async () => ({ result }) };
+    }),
+  );
+}
