@@ -39,22 +39,46 @@ export interface NavItem {
  * addresses land in constants.ts the pages render their "Contract Not
  * Deployed" placeholder. Set PROMOTE_PENDING back to false to restore pure
  * isDeployed-driven gating (the address lists below stay the source of truth).
+ *
+ * 🔄 2026-08-12 — STATUS CORRECTION, verified by live mainnet read. The two
+ * halves of this override are now in OPPOSITE states and must not be reasoned
+ * about together:
+ *   · NFT finance — three of its four addresses are real in constants.ts, so
+ *     `NFT_FINANCE_ADDRESSES_LIVE` is already true. The override is redundant
+ *     there; turning it off changes nothing.
+ *   · Governance — all four contracts are DEPLOYED AND UNPAUSED on mainnet
+ *     (GaugeController, VoteIncentives, MemeBountyBoard, CommunityGrants — full
+ *     checksummed addresses live in CommunityPage.tsx's DEPLOYED_NOT_WIRED, which
+ *     is the single place they are written; deliberately NOT abbreviated here,
+ *     because a truncated address in this repo once got copied forward into a
+ *     fabricated 33-byte value), but their constants.ts entries
+ *     are still 0x0. `COMMUNITY_ADDRESSES_LIVE` is therefore FALSE and the
+ *     override is the only thing holding /community in the menu. The 0x0s are a
+ *     UI wiring gate, NOT a statement that the contracts do not exist.
+ * The two signals are exported separately below so a reader — and
+ * navConfig.test.ts — can tell which input is actually carrying each entry.
  */
 const PROMOTE_PENDING: boolean = true;
 
-export const NFT_FINANCE_LIVE = PROMOTE_PENDING || [
+/** Address-derived half of the NFT-finance gate (no PROMOTE_PENDING override). */
+export const NFT_FINANCE_ADDRESSES_LIVE = [
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 ].some(isDeployed);
 
-export const COMMUNITY_LIVE = PROMOTE_PENDING || [
+export const NFT_FINANCE_LIVE = PROMOTE_PENDING || NFT_FINANCE_ADDRESSES_LIVE;
+
+/** Address-derived half of the governance gate (no PROMOTE_PENDING override). */
+export const COMMUNITY_ADDRESSES_LIVE = [
   COMMUNITY_GRANTS_ADDRESS,
   MEME_BOUNTY_BOARD_ADDRESS,
   VOTE_INCENTIVES_ADDRESS,
   GAUGE_CONTROLLER_ADDRESS,
 ].some(isDeployed);
+
+export const COMMUNITY_LIVE = PROMOTE_PENDING || COMMUNITY_ADDRESSES_LIVE;
 
 export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 
@@ -101,9 +125,13 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Engage',
     items: [
-      // Community is gated until any governance contract redeploys —
-      // today all four (grants/bounties/bribes/gauges) are zeroed and the
-      // page is wall-to-wall "isn't live yet".
+      // Community is gated on COMMUNITY_LIVE. 🔄 2026-08-12: the old note here
+      // said all four governance contracts were "zeroed" and the page was
+      // "wall-to-wall isn't live yet" — the first half is true only of
+      // constants.ts, and the second half is now false. All four contracts are
+      // deployed and unpaused on mainnet; only the frontend wiring is missing,
+      // and /community says exactly that. The entry is carried by
+      // PROMOTE_PENDING, not by COMMUNITY_ADDRESSES_LIVE (which is false).
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Tegridy Score' },

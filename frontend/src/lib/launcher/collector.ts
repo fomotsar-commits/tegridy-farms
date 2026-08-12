@@ -110,16 +110,26 @@ export async function collectTokenFacts(
   // Powers. Known Doppler template => proven-false by construction (verified source).
   // Unknown template => conservative: report the dangerous powers as present so the
   // gate cannot grant a tier to something we haven't verified.
-  const powers = isDopplerTemplate
-    ? {
-        mint: false,
-        pause: false,
-        blacklist: false,
-        feeOnTransfer: false,
-        upgrade: false,
-        balanceLimit: await safeRead<boolean>(reader, token, 'isBalanceLimitActive', false),
-      }
-    : { mint: true, pause: true, blacklist: true, feeOnTransfer: true, upgrade: true, balanceLimit: false };
+  //
+  // `isBalanceLimitActive` MUST carry the unread Set. Without it a 429 degrades to
+  // `false`, the sheet publishes "No maximum wallet balance is enforced.", and that
+  // sentence goes into the on-chain disclosures digest — an unknown published as a
+  // value. On the non-Doppler branch the call is never even attempted, which is the
+  // same absence and is recorded the same way.
+  let powers: RawTokenFacts['powers'];
+  if (isDopplerTemplate) {
+    powers = {
+      mint: false,
+      pause: false,
+      blacklist: false,
+      feeOnTransfer: false,
+      upgrade: false,
+      balanceLimit: await safeRead<boolean>(reader, token, 'isBalanceLimitActive', false, unread),
+    };
+  } else {
+    unread.add('isBalanceLimitActive');
+    powers = { mint: true, pause: true, blacklist: true, feeOnTransfer: true, upgrade: true, balanceLimit: false };
+  }
 
   // Ownership neutralisation.
   const ownerRenounced = owner == null || owner.toLowerCase() === '0x0000000000000000000000000000000000000000';
@@ -128,14 +138,34 @@ export async function collectTokenFacts(
 
   // Team/insider allocation: DopplerERC20V1 tracks the total vested (insider) amount on-chain.
   // Everything vested is, by definition, under an on-chain schedule.
+  //
+  // `vestedTotalAmount` MUST carry the unread Set too. A failed read degrades to 0n,
+  // which becomes 0 bps, which the gate reads as "no team/insider allocation" AND as
+  // passing the flagship insider-float cap — a clean bill of health computed from a
+  // call that never returned. When the branch is skipped entirely (unknown template,
+  // or a supply we could not read) the read did not happen either, and that absence
+  // is recorded the same way rather than left to look like a zero.
   let teamAllocationBps = 0;
   let teamAllocationVestedBps = 0;
-  const vesting: VestingSchedule[] = [];
   if (isDopplerTemplate && totalSupply > 0n) {
-    const vestedTotal = await safeRead<bigint>(reader, token, 'vestedTotalAmount', 0n);
+    const vestedTotal = await safeRead<bigint>(reader, token, 'vestedTotalAmount', 0n, unread);
     teamAllocationBps = Number((vestedTotal * 10_000n) / totalSupply);
     teamAllocationVestedBps = teamAllocationBps; // vestedTotalAmount is BY DEFINITION on-chain-vested
+  } else {
+    unread.add('vestedTotalAmount');
   }
+
+  // THE VESTING SCHEDULES ARE NOT ENUMERABLE HERE, so none are claimed.
+  //
+  // This array used to be declared, never pushed to, and shipped as `vesting: []` into
+  // `canonicalDisclosuresJson` — i.e. "this token has no vesting schedules", attested
+  // permanently, about schedules nobody looked for. There is nothing to look them up
+  // WITH: TOKEN_READER_ABI is the whole read surface, DopplerERC20V1 exposes only the
+  // aggregate `vestedTotalAmount()` plus `vestingStart()`, and there is no
+  // per-beneficiary index to walk. The aggregate is already reported above as
+  // teamAllocationVestedBps, so nothing is lost by declining to invent the breakdown.
+  // `vestingReadable: false` is what stops the empty list reading as a finding.
+  const vesting: VestingSchedule[] = [];
 
   // A THROWN resolver read nothing either — `readable: false`, same as the default.
   // Without it a failed locker read would be indistinguishable from a successful read
@@ -164,6 +194,7 @@ export async function collectTokenFacts(
     liquidity,
     feeConstitution: opts.feeConstitution ?? [],
     vesting,
+    vestingReadable: false,
     teamAllocationBps,
     teamAllocationVestedBps,
     observedAt: now,

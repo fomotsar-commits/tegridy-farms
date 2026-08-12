@@ -201,6 +201,14 @@ export function canonicalDisclosuresJson(sheet: LaunchFactSheet): string {
       liquidity: sheet.liquidity,
       feeConstitution: sheet.feeConstitution,
       vesting: sheet.vesting,
+      // The two third states are folded in as well, for the same reason as every other
+      // field: a consumer recomputing this digest must be able to see that the sheet
+      // declined to claim something. They are only ever present as `false`
+      // (gate.buildFactSheet spreads nothing in the honest case), and `canonicalize`
+      // drops absent keys — so a sheet that WAS fully read digests to exactly the same
+      // 32 bytes it did before these fields existed. No prior attestation is orphaned.
+      vestingReadable: sheet.vestingReadable,
+      tierDeterminate: sheet.tierDeterminate,
       teamAllocationBps: sheet.teamAllocationBps,
       teamAllocationVestedBps: sheet.teamAllocationVestedBps,
       // outcome
@@ -209,6 +217,78 @@ export function canonicalDisclosuresJson(sheet: LaunchFactSheet): string {
       observedAt: sheet.observedAt,
     }),
   );
+}
+
+// ---------------------------------------------------------------------------
+// FAIL-CLOSED. An attestation is a permanent, public, machine-read claim about
+// somebody else's token. Attesting a WRONG fact is strictly worse than attesting
+// nothing, so the encoder refuses rather than rounding an unknown down to zero.
+// ---------------------------------------------------------------------------
+
+/** Thrown instead of encoding a fact sheet whose columns would be false. */
+export class AttestationRefused extends Error {
+  readonly reason: 'tier-undetermined' | 'liquidity-unread';
+  constructor(reason: 'tier-undetermined' | 'liquidity-unread', message: string) {
+    super(message);
+    this.name = 'AttestationRefused';
+    this.reason = reason;
+  }
+}
+
+/**
+ * Why this sheet must NOT be attested, or null when it may be. Pure, non-throwing —
+ * a UI can call it to disable the button and explain, instead of letting the user
+ * discover the refusal by pressing it.
+ *
+ * Two of the schema's flat columns are lossy in exactly the way the rest of this
+ * codebase refuses to be, and neither has room for a third value:
+ *
+ *   `uint8 tier`               0 means BOTH "evaluated, meets no bar" and "could not
+ *                              be evaluated".
+ *   `uint64 liquidityUnlockAt` 0 means BOTH "no lock" and "the locker was never
+ *                              queried".
+ *
+ * The launch-time attest path lands on both at once. It re-collects the token's facts
+ * with NO LockResolver, so `collector.DEFAULT_LOCK_RESOLVER` returns `readable: false`
+ * having touched no chain; the two LP-lock checks then "fail", the tier collapses, and
+ * a launch the wizard rendered FLAGSHIP one screen earlier is written to mainnet as
+ * `tier = 0, liquidityUnlockAt = 0`. Permanently. About a stranger's token.
+ *
+ * The honest tier cannot be recovered here — the wizard's FLAGSHIP was a PROJECTION of
+ * a lock that does not exist until graduation, so promoting the attested tier to match
+ * it would forge the opposite lie. Refusing is the only correct third answer, and the
+ * product already has the right path for it: attest after graduation, where
+ * `lockerStream.lockResolverFor` supplies a lock state that was actually read.
+ */
+export function attestationRefusal(sheet: LaunchFactSheet): string | null {
+  if (sheet.tierDeterminate === false) {
+    return (
+      'This launch cannot be attested yet: the tier is not settled. At least one gate check ' +
+      'rests on something that could not be read, so the tier on the record would be a guess — ' +
+      'and an attestation is permanent. Attest once the launch has graduated and its liquidity ' +
+      'lock is readable on-chain. Your launch is unaffected.'
+    );
+  }
+  if (sheet.liquidity.readable === false) {
+    return (
+      'This launch cannot be attested yet: the liquidity lock has not been read. The record ' +
+      'would have to write an unlock time of zero, which reads as "no lock" rather than "not ' +
+      'checked", and that claim would be permanent. Attest once the launch has graduated and ' +
+      'the locker can be queried. Your launch is unaffected.'
+    );
+  }
+  return null;
+}
+
+/** Throwing form of {@link attestationRefusal}, used at every encode/write seam. */
+export function assertAttestable(sheet: LaunchFactSheet): void {
+  const refusal = attestationRefusal(sheet);
+  if (refusal) {
+    throw new AttestationRefused(
+      sheet.tierDeterminate === false ? 'tier-undetermined' : 'liquidity-unread',
+      refusal,
+    );
+  }
 }
 
 /**
@@ -226,8 +306,14 @@ export function disclosuresDigest(sheet: LaunchFactSheet): Hex {
  * ABI-encode a Fact Sheet into the bytes the EAS schema expects. Field order + types
  * exactly match FACT_SHEET_EAS_SCHEMA. Rich arrays are folded into disclosuresDigest;
  * a null templateCodehash / unlock time encodes as zero.
+ *
+ * THROWS {@link AttestationRefused} on a sheet whose tier or unlock time would be a
+ * fabricated zero. The guard lives HERE, at the seam that turns a sheet into bytes,
+ * rather than only in `attestFactSheet` — this is the single funnel every write path
+ * goes through, so no future caller can route around it.
  */
 export function encodeFactSheetData(sheet: LaunchFactSheet): Hex {
+  assertAttestable(sheet);
   return encodeAbiParameters(parseAbiParameters(FACT_SHEET_EAS_SCHEMA), [
     sheet.token,
     BigInt(sheet.chainId),
@@ -290,6 +376,11 @@ export async function attestFactSheet(
   opts: AttestFactSheetOptions = {},
 ): Promise<{ uid: Hex; txHash: Hex }> {
   if (!isLauncherEnabled()) throw new Error('launcher gated');
+  // Refuse a false record BEFORE any client interaction, on the same
+  // belt-and-suspenders principle as the gate check above: `encodeFactSheetData`
+  // would catch it a few lines later, but not until after we had built a request
+  // around it. Nothing that would write a fabricated zero gets that far.
+  assertAttestable(sheet);
   const account = walletClient.account;
   if (!account) throw new Error('attestFactSheet: walletClient has no account');
 

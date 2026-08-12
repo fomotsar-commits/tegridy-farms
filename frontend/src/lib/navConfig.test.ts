@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { PRIMARY_NAV, POINTS_NAV, ALL_NAV, MORE_NAV, MORE_NAV_SECTIONS, NFT_FINANCE_LIVE, COMMUNITY_LIVE } from './navConfig';
+import {
+  PRIMARY_NAV,
+  POINTS_NAV,
+  ALL_NAV,
+  MORE_NAV,
+  MORE_NAV_SECTIONS,
+  NFT_FINANCE_LIVE,
+  NFT_FINANCE_ADDRESSES_LIVE,
+  COMMUNITY_LIVE,
+  COMMUNITY_ADDRESSES_LIVE,
+} from './navConfig';
 import { isSolanaSubmitReady } from './launcher/solana/dbc';
 
 // Session 1 consolidated the navigation from 21 routes to a tight primary set.
@@ -29,17 +39,51 @@ describe('navConfig', () => {
     expect(paths).toContain('/swap');
   });
 
-  it('NFT Finance is promoted in primary nav ONLY when a contract is live', () => {
-    // CREDIBILITY GATING (2026-06-09): a top-nav item whose every tab ends
-    // in "Contract Not Deployed" leaks trust. The entry returns automatically
-    // when any nft-finance relaunch address lands in constants.ts.
-    const paths = PRIMARY_NAV.map((n) => n.to);
-    expect(paths.includes('/nft-finance')).toBe(NFT_FINANCE_LIVE);
+  // ⚠️ 2026-08-12 — BOTH of these were TAUTOLOGIES. They read
+  //   `expect(paths.includes('/nft-finance')).toBe(NFT_FINANCE_LIVE)`
+  // i.e. they compared the nav array against the very constant that BUILT the
+  // nav array (navConfig.ts spreads `NFT_FINANCE_LIVE ? [entry] : []`). Both
+  // sides move together for ANY value of PROMOTE_PENDING, so the assertions
+  // passed unconditionally and pinned nothing at all — including the fact that
+  // /community is in the menu purely because of the override.
+  //
+  // Rewritten in the shape the /solana-launch test below already uses: pin the
+  // PRECONDITION as a concrete fact read out of constants.ts, then pin the
+  // concrete value that must follow from it. Neither assertion mentions the
+  // combined gate, so flipping PROMOTE_PENDING can (and for Community, does)
+  // break them.
+
+  it('NFT Finance is in the primary nav on the strength of its OWN addresses', () => {
+    // CREDIBILITY GATING (2026-06-09): a top-nav item whose every tab ends in
+    // "Contract Not Deployed" leaks trust. NFT finance has since earned its
+    // slot honestly — three of its four relaunch addresses are real in
+    // constants.ts, so the address-derived signal alone is already true and
+    // PROMOTE_PENDING is redundant here. Pin that, so zeroing those addresses
+    // (a real regression) fails loudly instead of hiding behind the override.
+    expect(
+      NFT_FINANCE_ADDRESSES_LIVE,
+      'an nft-finance address must be deployed in constants.ts for this entry to be honest',
+    ).toBe(true);
+    expect(PRIMARY_NAV.map((n) => n.to)).toContain('/nft-finance');
   });
 
-  it('Community appears in the More menu ONLY when a governance contract is live', () => {
-    const morePaths = MORE_NAV.map((n) => n.to);
-    expect(morePaths.includes('/community')).toBe(COMMUNITY_LIVE);
+  it('Community is in the More menu ONLY because PROMOTE_PENDING forces it', () => {
+    // The governance contracts ARE deployed and unpaused on mainnet, but their
+    // constants.ts entries are still 0x0 — a UI wiring gate. So the
+    // address-derived signal is false and the override is the sole reason
+    // /community is promoted. Pin BOTH halves: the precondition (nothing wired)
+    // and the outcome (entry present anyway). Turn PROMOTE_PENDING off and
+    // COMMUNITY_LIVE collapses to false, the entry disappears, and the last two
+    // assertions fail — which is the whole point.
+    expect(
+      COMMUNITY_ADDRESSES_LIVE,
+      'no governance address is wired in constants.ts yet',
+    ).toBe(false);
+    expect(
+      COMMUNITY_LIVE,
+      'Community is promoted, so something other than the addresses is carrying it',
+    ).toBe(true);
+    expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
   it('POINTS_NAV is the right-aligned promoted action (Tradermigos)', () => {
