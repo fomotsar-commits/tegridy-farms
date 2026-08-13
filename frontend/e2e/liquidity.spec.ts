@@ -9,7 +9,7 @@
  * Wallet fixture: e2e/fixtures/wallet.ts. See swap.spec.ts for why the anvil
  * gate lives INSIDE the test that needs it rather than in describe scope.
  */
-import { test, expect } from './fixtures/wallet';
+import { test, expect, expectTxReceipt } from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -62,18 +62,25 @@ test.describe('Liquidity surface', () => {
       if (!v) await second.fill('100');
     }
 
-    // PRECONDITION: both sides of the pair must be held. `anvil_setBalance`
-    // covers the ETH leg; the TOWELI leg needs an ERC-20 seed the fixture does
-    // not do yet (see the same note in stake.spec.ts).
-    const supplyBtn = page.getByRole('button', { name: /(supply|add liquidity|deposit|approve)/i }).first();
+    // SCOPED TO THE CARD WE FILLED — same trap as stake.spec.ts. /liquidity renders more
+    // than one CTA matching this verb set, and a bare `.first()` can land on a disabled
+    // one belonging to another surface while this card's real submit sits enabled. Walk
+    // up to the card owning the amount input and take its last matching verb.
+    //
+    // The fork precondition is handled now: the fixture seeds a TOWELI balance via
+    // anvil_setStorageAt on the discovered balanceOf slot, so the paired side is funded.
+    const liquidityCard = inputs.first().locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const supplyBtn = liquidityCard
+      .getByRole('button', { name: /(supply|add liquidity|deposit|approve)/i })
+      .last();
     await expect(
       supplyBtn,
-      'supply CTA never enabled — the fork account holds no TOWELI for the paired side. Seed an ERC-20 balance in the fixture before this leg can execute.',
+      'supply CTA never enabled on the card holding the amount inputs — check the seeded TOWELI balance (fixture: seedErc20Balance) and that this card still owns its own submit button.',
     ).toBeEnabled({ timeout: 20_000 });
     await supplyBtn.click();
 
     // Receipt path
-    await expect(page.locator('a[href*="etherscan"], a[href*="explorer"]').first()).toBeVisible({ timeout: 30_000 });
+    await expectTxReceipt(page, 'supply');
 
     // Remove liquidity: switch to the remove side, then exit.
     const removeTab = page.getByRole('button', { name: /pull crop out|remove|withdraw/i }).first();

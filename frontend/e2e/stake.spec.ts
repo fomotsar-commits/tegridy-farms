@@ -11,7 +11,7 @@
  * full state-changing flow. See swap.spec.ts for why the anvil gate lives
  * INSIDE the test rather than in describe scope.
  */
-import { test, expect } from './fixtures/wallet';
+import { test, expect, expectTxReceipt } from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -66,19 +66,28 @@ test.describe('Stake surface', () => {
 
     // Approve first if the allowance path demands it; the CTA carries the verb.
     //
-    // PRECONDITION this test needs from the fork, named here so a red run is
-    // actionable rather than a mystery: the account must HOLD TOWELI.
-    // `anvil_setBalance` funds ETH only, and 0x71bE…5788 holds no TOWELI on
-    // mainnet, so a bare fork leaves this CTA disabled. Seeding it means a
-    // `deal`-style `anvil_setStorageAt` on the balanceOf slot, or impersonating
-    // a holder — neither exists in the fixture yet.
-    const cta = page.getByRole('button', { name: /^(approve|stake)/i }).first();
+    // SCOPED TO THE CARD WE JUST FILLED, and that is load-bearing. /farm renders more
+    // than one staking surface, and a bare `getByRole('button', {name: /^stake/i})
+    // .first()` matched a DISABLED "Stake" on a different card while this card's real
+    // CTA — "Stake & Lock for 90 Days" — sat enabled right next to the input. The test
+    // then failed claiming the account held no TOWELI, when the card was showing
+    // "Balance: 1000000" at the time.
+    //
+    // Deliberately NOT "pick whichever button is enabled": that would go green on any
+    // future page where the right CTA is disabled and some other one is not. Walk up to
+    // the card that owns this input and take its submit CTA — the last matching verb
+    // inside it, after the lock-duration buttons.
+    //
+    // The fork precondition this used to fail on is now handled: the fixture seeds a
+    // TOWELI balance via anvil_setStorageAt on the discovered balanceOf slot.
+    const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const cta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
     await expect(
       cta,
-      'stake CTA never enabled — the fork account holds no TOWELI. Seed an ERC-20 balance in the fixture (anvil_setStorageAt on the balanceOf slot) before this leg can execute.',
+      'stake CTA never enabled on the card holding the amount input — check the seeded TOWELI balance (fixture: seedErc20Balance) and that this card still owns its own submit button.',
     ).toBeEnabled({ timeout: 20_000 });
     await cta.click();
-    await expect(page.locator('a[href*="etherscan"], a[href*="explorer"]').first()).toBeVisible({ timeout: 30_000 });
+    await expectTxReceipt(page, 'stake');
 
     // 2. Claim — needs accrued rewards; on a fresh fork rewards may be 0,
     // so we just assert the button is wired (not necessarily enabled).

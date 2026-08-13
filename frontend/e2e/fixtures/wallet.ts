@@ -43,6 +43,90 @@ const DEFAULT_CHAIN_ID = 1; // Ethereum mainnet
 // to before: canned reads, no network.
 const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 
+/** Live TOWELI. Mirrors src/lib/constants.ts; the specs gate CTAs on this balance. */
+const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
+
+type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
+
+/**
+ * Assert a transaction receipt link appeared — one that could not have been on the page
+ * before the action.
+ *
+ * ⚠ EVERY money-path spec used to do this instead:
+ *     page.locator('a[href*="etherscan"], a[href*="explorer"]').first()
+ * and that is a FALSE GREEN. Measured on /swap with no wallet and no transaction: one
+ * such link is already present and visible — the static TOWELI token link
+ * (`etherscan.io/token/0x420698…`, "Etherscan ↗"). Several surfaces carry similar
+ * standing links.
+ *
+ * The consequence was worse than a weak assertion. In liquidity.spec.ts it let the spec
+ * sail past a supply that never landed and fail four lines later on a missing remove
+ * button — pointing the reader at the wrong step entirely. A receipt link points at
+ * `/tx/0x<64 hex>`, and nothing static does.
+ *
+ * Lives here, not copy-pasted per spec, because the original was fixed in swap.spec.ts
+ * alone and survived in five other places.
+ */
+export async function expectTxReceipt(page: Page, what: string): Promise<void> {
+  const link = page.locator('a[href*="/tx/0x"]');
+  await expect(
+    link.first(),
+    `${what}: no explorer link to a transaction hash appeared. A receipt link points at ` +
+      `/tx/0x…; the static token link on these pages is NOT a receipt and must not satisfy this.`,
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(link.first()).toHaveAttribute('href', /\/tx\/0x[0-9a-fA-F]{64}/);
+}
+
+/**
+ * Give `holder` an ERC-20 balance on the fork by writing the balance slot directly.
+ *
+ * THE SLOT IS DISCOVERED, NOT HARDCODED, and that is the whole point. `balanceOf` is
+ * `_balances[holder]` at `keccak256(abi.encode(holder, N))` for some mapping slot N —
+ * and N depends on the contract's storage layout. The live TOWELI is NOT this repo's
+ * Toweli.sol: it is a generator template ("Towelie", ERC20 + ERC20Burnable +
+ * Ownable2Step + Initializable), so N is not the 0 you would get from a textbook
+ * OpenZeppelin ERC20, and nothing in this repo pins its layout.
+ *
+ * A hardcoded slot would not throw. It would write to an unrelated slot, leave
+ * balanceOf at 0, and hand the spec back the exact "CTA never enabled" timeout this
+ * function exists to remove — a fixture that looks like it ran and did nothing. So we
+ * probe: write a sentinel, read balanceOf back through the contract's OWN getter, and
+ * keep the slot only if the getter agrees. Self-verifying by construction.
+ *
+ * Every probe is undone before moving on, so a wrong guess leaves no residue.
+ */
+async function seedErc20Balance(rpc: Rpc, token: string, holder: string, amount: bigint): Promise<void> {
+  const { keccak256, encodeAbiParameters, parseAbiParameters, toHex, pad } = await import('viem');
+  const balanceOfCall = `0x70a08231${pad(holder as `0x${string}`, { size: 32 }).slice(2)}`;
+
+  const readBalance = async (): Promise<bigint> => {
+    const hex = (await rpc('eth_call', [{ to: token, data: balanceOfCall }, 'latest'])) as string;
+    return hex && hex !== '0x' ? BigInt(hex) : 0n;
+  };
+
+  const before = await readBalance();
+  if (before >= amount) return; // already rich enough — nothing to do
+
+  const sentinel = pad(toHex(amount), { size: 32 });
+  for (let slot = 0; slot < 64; slot++) {
+    const key = keccak256(
+      encodeAbiParameters(parseAbiParameters('address, uint256'), [holder as `0x${string}`, BigInt(slot)]),
+    );
+    const prior = (await rpc('eth_getStorageAt', [token, key, 'latest'])) as string;
+    await rpc('anvil_setStorageAt', [token, key, sentinel]);
+    if ((await readBalance()) === amount) return; // the getter agrees — this is the slot
+    await rpc('anvil_setStorageAt', [token, key, prior]); // wrong guess, leave no trace
+  }
+
+  // FAIL LOUD. Silently continuing hands the spec a timeout whose message blames the
+  // product ("CTA never enabled") for a fixture that could not find the slot.
+  throw new Error(
+    `seedErc20Balance: could not locate the balance slot for ${token} in slots 0-63. ` +
+      `The token's storage layout changed, or it proxies balanceOf. Do NOT hardcode a slot ` +
+      `to work around this — find out why the probe failed.`,
+  );
+}
+
 export interface WalletMock {
   /**
    * Mark the mock as connected; eth_accounts now returns [account].
@@ -64,10 +148,16 @@ export interface WalletMock {
 
 type Fixtures = { walletMock: WalletMock };
 
+// ⚠ ORDER-DEPENDENCE IS A KNOWN, OPEN ISSUE HERE — and an `evm_snapshot`/`evm_revert`
+// auto-fixture is NOT the drop-in fix it looks like. Tried 2026-08-12 and reverted: the
+// rollback also rewinds `anvil_setBalance` and the seeded ERC-20 balance, and it races
+// the per-test bridge install, which turned two passing render tests red. If you pick
+// this up, snapshot AFTER the bridge has finished seeding, not before, and prove the
+// basic render tests still pass before trusting the money paths.
+//
+// The symptom to watch for: a spec that passes alone and fails in a batch. stake.spec
+// does exactly that today — it spends, leaving a position and an allowance behind.
 export const test = base.extend<Fixtures>({
-  // Playwright fixture callback takes a "use" function as its second arg. We
-  // rename it (anything not starting with `use*` or uppercase) so the React
-  // hooks lint rule doesn't mistake the call for a React hook.
   walletMock: async ({ page }, provide) => {
     // Suppress full-viewport overlays that block clicks in test runs:
     //   - AppLoader splash canvas (zIndex 9999)
@@ -372,6 +462,16 @@ async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
   // 0 ETH on mainnet. Verified — eth_getBalance returned 0x0 on a live fork.
   // So fund it explicitly. anvil_setBalance needs no key and no faucet.
   await rpc('anvil_setBalance', [DEFAULT_ACCOUNT, '0x21e19e0c9bab2400000']); // 10,000 ETH
+
+  // ANVIL_BACKEND step 5 — ERC-20 balance. ETH alone is not enough.
+  //
+  // Four money-path specs failed on a live fork with their own named messages —
+  // "stake CTA never enabled — the fork account holds no TOWELI", and the same for
+  // liquidity's paired side. A mainnet fork inherits mainnet state, and the test
+  // account holds no TOWELI there, so every CTA that gates on a token balance stays
+  // disabled and the leg times out. That is a MISSING FIXTURE, not a product defect,
+  // and it is what kept these specs skipped for months.
+  await seedErc20Balance(rpc, TOWELI, DEFAULT_ACCOUNT, 1_000_000n * 10n ** 18n);
 
   await page.exposeFunction(
     '__tegridyAnvilRpc',

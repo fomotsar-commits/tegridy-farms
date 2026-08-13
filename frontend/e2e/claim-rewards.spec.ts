@@ -14,7 +14,7 @@
  * position is that each claim-bearing surface mounts, so that is what these
  * check; the claim TRANSACTION is the Anvil leg's job.
  */
-import { test, expect } from './fixtures/wallet';
+import { test, expect, expectTxReceipt } from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -63,6 +63,6 @@ test.describe('Claim rewards surfaces', () => {
       'no accrued rewards on the fork — pre-fund reward storage in the fixture so this leg can execute',
     ).toBeVisible({ timeout: 20_000 });
     await claim.click();
-    await expect(page.locator('a[href*="etherscan"], a[href*="explorer"]').first()).toBeVisible({ timeout: 30_000 });
+    await expectTxReceipt(page, 'claim');
   });
 });

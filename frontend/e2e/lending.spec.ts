@@ -13,7 +13,7 @@
  * Anvil-mode: drives a borrow → repay cycle against the fork. See
  * swap.spec.ts for why the anvil gate lives INSIDE the test that needs it.
  */
-import { test, expect } from './fixtures/wallet';
+import { test, expect, expectTxReceipt } from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -74,12 +74,12 @@ test.describe('NFT lending surface', () => {
       'no borrowable offer on the fork — the fixture must mint a collateral NFT to the test account and create a lender offer before this leg can execute.',
     ).toBeVisible({ timeout: 20_000 });
     await acceptOffer.click();
-    await expect(page.locator('a[href*="etherscan"], a[href*="explorer"]').first()).toBeVisible({ timeout: 30_000 });
+    await expectTxReceipt(page, 'borrow/repay');
 
     // Repay
     const repay = page.getByRole('button', { name: /repay/i }).first();
     await expect(repay).toBeVisible({ timeout: 20_000 });
     await repay.click();
-    await expect(page.locator('a[href*="etherscan"], a[href*="explorer"]').first()).toBeVisible({ timeout: 30_000 });
+    await expectTxReceipt(page, 'borrow/repay');
   });
 });
