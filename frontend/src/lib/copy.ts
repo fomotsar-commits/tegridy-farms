@@ -107,10 +107,10 @@ export const GOVERNANCE_COPY = {
 // is the same defect class as the "isn't live yet" claim two lines below it.
 // Say what connecting will do WHEN the address is wired, not what it does today.
 export const COMMUNITY_TAB_INTRO = {
-  grants: 'On-chain governance: propose and vote on how the community treasury funds builders. Voting and proposals open here once the contract is wired into this app.',
-  bounties: 'Meme bounties: fund a task, builders ship, the best work gets paid on-chain. Posting and claiming open here once the contract is wired into this app.',
-  bribes: "Cartman's Market: incentivize voters to back your pool with token rewards. Deposits and claims open here once the contract is wired into this app.",
-  gauges: 'Gauge voting: direct TOWELI emissions toward the pools you want deepened. Gauge weights open here once the contract is wired into this app.',
+  grants: 'On-chain governance: propose and vote on how the community treasury funds builders. Connecting will not unlock it yet — voting and proposals open here once the contract is wired into this app.',
+  bounties: 'Meme bounties: fund a task, builders ship, the best work gets paid on-chain. Connecting will not unlock it yet — posting and claiming open here once the contract is wired into this app.',
+  bribes: "Cartman's Market: incentivize voters to back your pool with token rewards. Connecting will not unlock it yet — deposits and claims open here once the contract is wired into this app.",
+  gauges: 'Gauge voting: direct TOWELI emissions toward the pools you want deepened. Connecting will not unlock it yet — gauge weights open here once the contract is wired into this app.',
 } as const;
 
 // ═══════════════════════════════════════════════════════════════

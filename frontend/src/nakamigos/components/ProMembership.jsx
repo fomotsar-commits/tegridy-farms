@@ -1,6 +1,21 @@
 import useProAccess, { PRO_PASS_LIVE } from "../hooks/useProAccess";
 import { TEGRIDY_PRO_PASS_ADDRESS } from "../../lib/constants";
 
+// ─── STATE OF THIS PAGE, VERIFIED ───
+// 1. TEGRIDY_PRO_PASS_ADDRESS (lib/constants.ts) is the zero address, so
+//    PRO_PASS_LIVE is false: there is no Pro Pass contract, and nothing on this
+//    page can mint one.
+// 2. `useProAccess` has exactly ONE consumer — this file. Nothing else in the app
+//    reads it. So none of the perks below are wired anywhere: there is no Pro
+//    badge renderer, no referral accounting, and no Pro-gated tool. They describe
+//    the PLAN for the Pass, not behaviour that exists today.
+// 3. Even after the address is set, `onCta` calls window.open(etherscan/address/…).
+//    That is a block-explorer link-out, NOT an in-app mint.
+// The page is kept whole and the roadmap is kept visible; what changed is that it
+// now says which of it is shipped and which is planned. Pinned by proPageHonesty
+// .test.jsx — if a perk here becomes real, wire it and move it out of the roadmap
+// framing rather than deleting the disclosure.
+
 // Additive perks only — Pro NEVER paywalls a feature that's free today; it adds
 // flair, a referral cut, early access, and a tradeable membership NFT whose mint
 // proceeds are real ETH to the treasury (funding real-yield staking, not emissions).
@@ -14,7 +29,9 @@ const PERKS = [
 
 function StatusPill({ isPro, loading }) {
   if (!PRO_PASS_LIVE) {
-    return <span style={{ ...pill, color: "var(--text-dim)", borderColor: "var(--border)" }}>MINTING SOON</span>;
+    // "MINTING SOON" implied a contract exists and a date is set. Neither is true:
+    // the address constant is still 0x0. Say the checkable thing instead.
+    return <span style={{ ...pill, color: "var(--text-dim)", borderColor: "var(--border)" }}>NOT YET DEPLOYED</span>;
   }
   if (loading) return <span style={{ ...pill, color: "var(--text-dim)", borderColor: "var(--border)" }}>CHECKING…</span>;
   if (isPro) return <span style={{ ...pill, color: "var(--gold)", borderColor: "var(--gold)", background: "rgba(212,168,67,0.1)" }}>✦ YOU'RE PRO</span>;
@@ -38,9 +55,13 @@ export default function ProMembership({ wallet, onConnect }) {
     if (!wallet) { onConnect?.(); return; }
     window.open(`https://etherscan.io/address/${TEGRIDY_PRO_PASS_ADDRESS}`, "_blank", "noopener,noreferrer");
   };
+  // Labels must describe what the click DOES. `onCta` opens Etherscan — it has
+  // never minted — so no label here may promise a mint.
   const ctaLabel = !PRO_PASS_LIVE
-    ? "Minting soon"
-    : isPro ? "Manage your Pass" : !wallet ? "Connect to mint" : "Mint Pro Pass";
+    ? "Not available yet"
+    : isPro
+      ? "View your Pass on Etherscan ↗"
+      : !wallet ? "Connect wallet" : "View Pass contract on Etherscan ↗";
 
   return (
     <section style={{ maxWidth: 760, margin: "0 auto", padding: "32px 16px" }}>
@@ -49,15 +70,53 @@ export default function ProMembership({ wallet, onConnect }) {
           TEGRIDY PRO
         </div>
         <div style={{ fontFamily: "var(--display)", fontSize: 15, color: "var(--text-dim)", maxWidth: 480, margin: "0 auto 14px", lineHeight: 1.5 }}>
+          {/* Tense matters more than wording here: unqualified, this sentence
+              describes a product you could go buy. The copy itself is untouched. */}
+          {!PRO_PASS_LIVE && <strong style={{ color: "var(--text-muted)" }}>The plan: </strong>}
           A membership Pass for the power users — flair, a referral cut, early tools, and a stake in a protocol funded by real fees, not inflation.
         </div>
         <StatusPill isPro={isPro} loading={loading} />
       </div>
 
+      {/* ADDITIVE honesty block — the page above and below it is unchanged. It
+          exists because everything on this page is a plan, and a marketing page
+          that does not say so reads as a product you can buy today. */}
+      {!PRO_PASS_LIVE && (
+        <div
+          data-testid="pro-not-live-disclosure"
+          role="note"
+          style={{
+            fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.65,
+            color: "var(--text-dim)", marginBottom: 20,
+            padding: "14px 18px", borderRadius: 12,
+            background: "rgba(250,204,21,0.05)",
+            border: "1px solid rgba(250,204,21,0.22)",
+          }}
+        >
+          <div style={{ fontFamily: "var(--display)", fontSize: 13, fontWeight: 700, color: "var(--gold)", marginBottom: 6 }}>
+            Where this actually stands
+          </div>
+          <div>
+            The Pro Pass contract <strong style={{ color: "var(--text)" }}>has not been deployed</strong>,
+            so there is nothing to mint and no Pass to hold. Everything below is the
+            intended design, not shipped behaviour — no Pro badge, referral payout, or
+            Pro-only tool exists in the app today. Nothing here is for sale, and we
+            are not taking deposits, allowlist spots, or pre-orders. If you are asked
+            to pay for a &ldquo;Tegridy Pro Pass&rdquo; anywhere right now, it is not us.
+          </div>
+        </div>
+      )}
+
       <div style={{
         background: "var(--surface-glass)", backdropFilter: "var(--glass-blur)",
         border: "1px solid var(--border)", borderRadius: 16, padding: 24, marginBottom: 20,
       }}>
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em",
+          color: "var(--text-muted)", marginBottom: 14, textTransform: "uppercase",
+        }}>
+          {PRO_PASS_LIVE ? "What the Pass unlocks" : "Planned perks — none of these are live yet"}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {PERKS.map(([icon, title, desc]) => (
             <div key={title} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
@@ -82,7 +141,15 @@ export default function ProMembership({ wallet, onConnect }) {
         </button>
         {!PRO_PASS_LIVE && (
           <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 10 }}>
-            The Pro Pass drops with the next wave — perks light up automatically for holders.
+            There is no mint date. When the Pass is deployed, its address is wired here
+            and this button goes live — perks land as they are built, not on day one.
+          </div>
+        )}
+        {PRO_PASS_LIVE && (
+          /* Post-launch the button still only opens a block explorer. Saying so
+             beats letting a user click "mint" and land somewhere they did not expect. */
+          <div data-testid="pro-cta-linkout-note" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 10 }}>
+            Minting is not wired into this page — this opens the Pass contract on Etherscan.
           </div>
         )}
         {PRO_PASS_LIVE && !isPro && (
