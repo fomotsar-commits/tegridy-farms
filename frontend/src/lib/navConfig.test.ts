@@ -5,7 +5,10 @@ import {
   ALL_NAV,
   MORE_NAV,
   MORE_NAV_SECTIONS,
-  NFT_FINANCE_LIVE,
+  // NOTE: `NFT_FINANCE_LIVE` is deliberately NOT imported. Referencing the combined
+  // gate is what made the old assertions tautological — they compared the nav array
+  // against the constant that built it. The tests below pin the address-derived signal
+  // instead, so flipping PROMOTE_PENDING can actually break them.
   NFT_FINANCE_ADDRESSES_LIVE,
   COMMUNITY_LIVE,
   COMMUNITY_ADDRESSES_LIVE,
