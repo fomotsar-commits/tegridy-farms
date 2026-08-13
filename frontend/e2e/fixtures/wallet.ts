@@ -44,7 +44,13 @@ const DEFAULT_CHAIN_ID = 1; // Ethereum mainnet
 const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 
 export interface WalletMock {
-  /** Mark the mock as connected; eth_accounts now returns [account]. */
+  /**
+   * Mark the mock as connected; eth_accounts now returns [account].
+   *
+   * Safe to call BEFORE the first `page.goto`, and that is the form you want
+   * for anything that asserts a CONNECTED surface — see the note on
+   * `__walletMockConnected` in installWalletMock.
+   */
   connect: (account?: string) => Promise<void>;
   /** Mark the mock as disconnected. */
   disconnect: () => Promise<void>;
@@ -77,15 +83,39 @@ export const test = base.extend<Fixtures>({
     await installWalletMock(page);
     const mock: WalletMock = {
       connect: async (account = DEFAULT_ACCOUNT) => {
-        await page.evaluate(
-          ([addr]) => (window as unknown as { __walletMock: { connect: (a: string) => void } }).__walletMock.connect(addr!),
+        // TWO writes, and both are load-bearing.
+        //
+        // 1. An init script, so the account survives navigation AND is already
+        //    there when wagmi's reconnect() runs on mount. That is the only
+        //    window in which the app can end up genuinely connected: reconnect
+        //    calls injected.isAuthorized(), which is just `eth_accounts` being
+        //    non-empty. Before this existed, every "connected" spec ran against
+        //    a wallet the app had never authorized — the surfaces they asserted
+        //    on were the DISCONNECTED ones, and the assertions were vacuous.
+        // 2. A live evaluate for the already-loaded case, best-effort because
+        //    connect() is legitimately called before the first navigation.
+        await page.addInitScript(
+          ([addr]) => {
+            (window as unknown as { __walletMockConnected?: string }).__walletMockConnected = addr;
+          },
           [account]
         );
+        await page
+          .evaluate(
+            ([addr]) => (window as unknown as { __walletMock?: { connect: (a: string) => void } }).__walletMock?.connect(addr!),
+            [account]
+          )
+          .catch(() => { /* no document yet — the init script covers the next load */ });
       },
       disconnect: async () => {
-        await page.evaluate(() =>
-          (window as unknown as { __walletMock: { disconnect: () => void } }).__walletMock.disconnect()
-        );
+        await page.addInitScript(() => {
+          (window as unknown as { __walletMockConnected?: string }).__walletMockConnected = undefined;
+        });
+        await page
+          .evaluate(() =>
+            (window as unknown as { __walletMock?: { disconnect: () => void } }).__walletMock?.disconnect()
+          )
+          .catch(() => { /* nothing loaded */ });
       },
       switchChain: async (chainId) => {
         await page.evaluate(
@@ -133,6 +163,18 @@ async function installWalletMock(page: Page): Promise<void> {
         listeners[event]?.forEach((cb) => cb(...args));
       }
 
+      // Read LAZILY, never at install time. `connect()` seeds
+      // `__walletMockConnected` with its own addInitScript, which necessarily
+      // runs AFTER this one on every document; by the time the app asks for
+      // accounts both have run, so the ordering resolves itself. Reading it
+      // eagerly here would always see undefined.
+      function accountsNow(): string[] {
+        if (connectedAccounts.length) return connectedAccounts;
+        const seeded = (window as unknown as { __walletMockConnected?: string }).__walletMockConnected;
+        if (seeded) connectedAccounts = [seeded];
+        return connectedAccounts;
+      }
+
       const provider = {
         isMetaMask: false,
         isTegridyTestMock: true,
@@ -142,12 +184,17 @@ async function installWalletMock(page: Page): Promise<void> {
             case 'eth_chainId':
               return `0x${currentChainId.toString(16)}`;
             case 'eth_accounts':
-              return connectedAccounts;
+              return accountsNow();
             case 'eth_requestAccounts': {
               connectedAccounts = [account as string];
               emit('accountsChanged', connectedAccounts);
               return connectedAccounts;
             }
+            case 'wallet_requestPermissions':
+              // RainbowKit / wagmi's injected connector asks for this before
+              // eth_requestAccounts on some paths; returning null makes it fall
+              // through to eth_requestAccounts rather than throwing.
+              return null;
             case 'personal_sign':
               return '0x' + '00'.repeat(64) + '1b';
             case 'wallet_switchEthereumChain': {
@@ -186,6 +233,31 @@ async function installWalletMock(page: Page): Promise<void> {
       };
 
       (window as unknown as { ethereum: typeof provider }).ethereum = provider;
+
+      // EIP-6963 announcement. Setting window.ethereum alone is NOT enough for
+      // this app: it builds its wagmi config through RainbowKit's
+      // getDefaultConfig, and wagmi's `multiInjectedProviderDiscovery` is what
+      // turns a browser wallet into a connector there. Without an announcement
+      // the app never so much as calls `eth_accounts` on the mock — verified:
+      // `__walletMock.getCalls()` came back EMPTY after a full page load, which
+      // is what made every "connected" assertion in the money-path specs an
+      // assertion about the DISCONNECTED surface.
+      const providerInfo = {
+        uuid: '11111111-2222-3333-4444-555555555555',
+        name: 'Tegridy E2E Mock',
+        // 1x1 transparent PNG — RainbowKit requires a data URI here.
+        icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+        rdns: 'farms.tegridy.e2emock',
+      };
+      const announce = () => {
+        window.dispatchEvent(
+          new CustomEvent('eip6963:announceProvider', {
+            detail: Object.freeze({ info: providerInfo, provider }),
+          }),
+        );
+      };
+      window.addEventListener('eip6963:requestProvider', announce);
+      announce();
       (window as unknown as { __walletMock: Record<string, unknown> }).__walletMock = {
         connect: (addr: string) => {
           connectedAccounts = [addr];
@@ -193,6 +265,10 @@ async function installWalletMock(page: Page): Promise<void> {
         },
         disconnect: () => {
           connectedAccounts = [];
+          // Clear the seed too, or `accountsNow()` re-authorizes the account on
+          // the very next `eth_accounts` and the disconnect silently undoes
+          // itself. The fixture's addInitScript only affects the NEXT document.
+          (window as unknown as { __walletMockConnected?: string }).__walletMockConnected = undefined;
           emit('accountsChanged', []);
         },
         switchChain: (id: number) => {
@@ -218,8 +294,65 @@ async function installWalletMock(page: Page): Promise<void> {
  *   * anvil's `anvil_*` cheatcodes are reachable, which is what lets us send
  *     transactions with NO PRIVATE KEY anywhere in the test suite
  */
+/**
+ * The app's READ path never touches the wallet.
+ *
+ * wagmi answers useBalance / useReadContract through the `transports` in
+ * src/lib/wagmi.ts — three public mainnet RPCs — and only sends WRITES through
+ * the connector. So pointing the wallet at a fork moves the transactions and
+ * leaves every balance, allowance and quote reading real mainnet, where the
+ * test account holds nothing. `anvil_setBalance` funds an account the app then
+ * never asks about, and every CTA stays disabled behind "insufficient balance".
+ *
+ * Redirecting those hosts at the browser is the whole fix, and it keeps the fix
+ * in the test: no VITE_ override to add to src/, nothing that can leak into a
+ * production build. Unset ANVIL_RPC_URL and not a single route is installed.
+ */
+const APP_RPC_HOSTS = [
+  'https://ethereum-rpc.publicnode.com/**',
+  'https://eth.drpc.org/**',
+  'https://eth.merkle.io/**',
+];
+
+async function routeAppReadsToAnvil(page: Page, rpcUrl: string): Promise<void> {
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'POST,OPTIONS',
+  };
+  for (const pattern of APP_RPC_HOSTS) {
+    await page.route(pattern, async (route) => {
+      const request = route.request();
+      if (request.method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: cors, body: '' });
+        return;
+      }
+      try {
+        const upstream = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: request.postData() ?? '',
+        });
+        await route.fulfill({
+          status: upstream.status,
+          headers: { ...cors, 'content-type': 'application/json' },
+          body: await upstream.text(),
+        });
+      } catch (e) {
+        // Fail the request rather than letting it fall through to real
+        // mainnet — a silent fallback would make the fork invisible and the
+        // assertions meaningless again.
+        await route.abort('failed');
+        throw e;
+      }
+    });
+  }
+}
+
 async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
   let nextId = 1;
+
+  await routeAppReadsToAnvil(page, rpcUrl);
 
   async function rpc(method: string, params: unknown[]): Promise<unknown> {
     const res = await fetch(rpcUrl, {

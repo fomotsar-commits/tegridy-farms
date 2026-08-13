@@ -445,15 +445,17 @@ jobs:
           FOUNDRY_INVARIANT_RUNS: 32
           FOUNDRY_INVARIANT_DEPTH: 256
 
-      - name: Coverage summary (best-effort, disabled in PR-blocking CI)
-        # CI fix 2026-05-17: forge coverage on this codebase takes 15-30 min
-        # on the ubuntu-latest runner and blocks the job from completing
-        # even with continue-on-error: true (the step itself doesn't exit
-        # until coverage finishes regardless of pass/fail status). Disabled
-        # for PR-blocking CI; runs on the nightly cron with full coverage.
-        if: ${{ false }}
-        run: forge coverage --report summary || true
-        continue-on-error: true
+      # Coverage USED TO LIVE HERE, as a step wearing three separate
+      # disablements at once: `if: ${{ false }}` (never scheduled),
+      # `|| true` (cannot fail), and `continue-on-error: true` (cannot fail
+      # the job either). Its comment said it "runs on the nightly cron with
+      # full coverage" — there was no nightly cron. It had not run since
+      # 2026-05-17 and could not have failed if it had.
+      #
+      # The reasoning for keeping it out of PR-blocking CI was sound (15-30
+      # min on a 2-core runner), so the step is gone and the cron it claimed
+      # to have now exists: .github/workflows/contracts-coverage.yml, weekly
+      # plus workflow_dispatch, with a committed floor it can actually fail.
 
   # ─────────────────────────────────────────────────────────────────────
   # Fuzz + invariant harnesses.

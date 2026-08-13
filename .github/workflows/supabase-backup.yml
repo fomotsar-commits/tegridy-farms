@@ -102,10 +102,20 @@ jobs:
           # Keep in sync when ALLOWED_TABLES or the orderbook schema grows.
           TABLES="native_orders trade_offers messages dm_messages user_profiles user_favorites user_watchlist votes push_subscriptions revoked_jwts"
 
+          # Tables permitted to be ABSENT (HTTP 404) — and ONLY absent; any
+          # other error on them still fails. Empty on purpose: every table in
+          # the list above has a committed migration, so a 404 means either a
+          # migration has not been applied to prod or the name drifted, and
+          # both are things a backup job must shout about. Add a name here only
+          # with the migration number that has not shipped yet.
+          OPTIONAL_TABLES=""
+
           PAGE_SIZE=1000
           MAX_PAGES=500   # 500k rows/table runtime bound — log loudly if hit
           ok=0
           failed=""
+          missing=""
+          truncated=""
 
           dump_table() {
             local table="$1"
@@ -126,16 +136,19 @@ jobs:
                 break
               fi
               if [ "$code" != "200" ] && [ "$code" != "206" ]; then
-                # 404 = table missing (e.g. trade_offers pre-migration-007);
-                # anything else = transient/permission problem. Either way:
-                # warn, skip this table, keep the rest of the backup alive.
-                echo "::warning::${table}: HTTP ${code} on rows ${from}-${to} — table skipped"
+                # Return code 2 = "table does not exist", 1 = "could not read
+                # it". The caller treats those differently: only the first can
+                # ever be tolerated, and only for a table on OPTIONAL_TABLES.
+                # Collapsing both into one warning is what let nine of ten
+                # tables fail while the job reported success.
+                echo "::warning::${table}: HTTP ${code} on rows ${from}-${to}"
                 rm -rf "$tmpdir"
+                [ "$code" = "404" ] && return 2
                 return 1
               fi
               rows="$(jq 'length' "$tmpdir/page_$page.json" 2>/dev/null || echo bad)"
               if ! [[ "$rows" =~ ^[0-9]+$ ]]; then
-                echo "::warning::${table}: non-JSON page at rows ${from}-${to} — table skipped"
+                echo "::warning::${table}: non-JSON page at rows ${from}-${to}"
                 rm -rf "$tmpdir"
                 return 1
               fi
@@ -143,7 +156,10 @@ jobs:
               if [ "$rows" -lt "$PAGE_SIZE" ]; then break; fi
             done
             if [ "$page" -ge "$MAX_PAGES" ]; then
-              echo "::warning::${table}: hit ${MAX_PAGES}-page cap — backup of this table is TRUNCATED"
+              # A truncated table is a table you cannot restore from. It was a
+              # warning; it is a failure.
+              echo "::error::${table}: hit the ${MAX_PAGES}-page cap — this table is TRUNCATED and the bundle is not a usable restore point. Raise MAX_PAGES."
+              truncated="$truncated $table"
             fi
             # Merge pages into one JSON array per table.
             if ls "$tmpdir"/page_*.json >/dev/null 2>&1; then
@@ -162,13 +178,53 @@ jobs:
           echo "| Table | Rows |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           for t in $TABLES; do
-            if dump_table "$t"; then ok=$((ok + 1)); else failed="$failed $t"; fi
+            # `set -e` is deliberately NOT in force in this step (`set -uo
+            # pipefail` only), so a non-zero return lands in $? rather than
+            # killing the run before every table has been attempted. One report
+            # naming all the broken tables beats failing at the first.
+            dump_table "$t"
+            case "$?" in
+              0) ok=$((ok + 1)) ;;
+              2)
+                if printf '%s\n' $OPTIONAL_TABLES | grep -qx -- "$t"; then
+                  echo "::warning::${t}: table does not exist (allowlisted as optional) — not backed up"
+                  missing="$missing $t"
+                else
+                  echo "::error::${t}: table does not exist. Either its migration has not been applied to prod, or the name drifted from the API surface."
+                  failed="$failed $t"
+                fi
+                ;;
+              *) failed="$failed $t" ;;
+            esac
           done
 
-          if [ -n "$failed" ]; then
-            echo "::warning::Tables skipped:$failed"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Skipped:$failed" >> "$GITHUB_STEP_SUMMARY"
+          # ─────────────────────────────────────────────────────────────
+          # ANY table failing fails the job.
+          #
+          # This used to be `if [ "$ok" -eq 0 ]` — nine of ten tables could
+          # fail and the run still reported SUCCESS, having uploaded a bundle
+          # that silently omitted them. For a backup whose whole purpose is
+          # `native_orders` / `trade_offers` — signed Seaport orders, bearer
+          # instruments whose only copy is the DB row — "we got most of it" is
+          # indistinguishable from "we got the part you did not need". The
+          # artifact would restore cleanly and be missing the money.
+          #
+          # A partial backup must never be presentable as a backup. If one
+          # table is genuinely gone for good, allowlist it in OPTIONAL_TABLES
+          # with a reason; do not soften this test.
+          # ─────────────────────────────────────────────────────────────
+          {
+            echo ""
+            echo "Backed up ${ok}/$(echo $TABLES | wc -w) tables."
+            [ -n "$missing" ] && echo "Absent (allowlisted):$missing"
+            [ -n "$failed" ] && echo "FAILED:$failed"
+            [ -n "$truncated" ] && echo "TRUNCATED:$truncated"
+            true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$failed" ] || [ -n "$truncated" ]; then
+            echo "::error title=Incomplete backup::Tables failed:${failed:- none} | truncated:${truncated:- none}. The bundle is NOT a usable restore point, so this run fails rather than uploading a partial snapshot under a green check."
+            exit 1
           fi
           if [ "$ok" -eq 0 ]; then
             echo "::error::Every table failed — check SUPABASE_URL / SUPABASE_SERVICE_KEY (project paused? key rotated?)"

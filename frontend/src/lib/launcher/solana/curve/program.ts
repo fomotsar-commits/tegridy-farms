@@ -1,11 +1,17 @@
 // `tegridy-launch` program identity, PDAs, account layouts and error codes.
 //
-// ⚠ THE PROGRAM IS NOT DEPLOYED. Not mainnet, not devnet. `PROGRAM_ID` below is
-// the placeholder `declare_id!` the crate compiles against (lib.rs:97-101 says so
-// in as many words) and it returns `null` on mainnet-beta. Nothing in this module
-// asserts otherwise, and {@link isPlaceholderProgramId} exists so a surface can
-// state it rather than imply a live market. See `read.ts` for the check that must
-// run before anything else.
+// THE PROGRAM IS LIVE ON MAINNET since 2026-08-08. `PROGRAM_ID` below is the
+// deployed address, not a placeholder — see its own doc comment for the slot and
+// signature. This header used to say the opposite, and kept saying it after
+// `PROGRAM_ID` had been repointed, so the file contradicted itself in the first
+// paragraph. {@link isPlaceholderProgramId} still exists, and still compares against
+// `PLACEHOLDER_PROGRAM_ID` rather than `PROGRAM_ID`, so it now answers a real
+// question instead of a self-referential one.
+//
+// None of that is a substitute for `readDeployment` in `read.ts`: a constant records
+// what someone believed at edit time, and only an account read establishes what is
+// there now. Graduation in particular is still unavailable — cp-swap's AmmConfig
+// does not exist, so `migrate_to_amm` fails AmmNotConfigured (6015).
 //
 // There is NO committed IDL: `solana/tegridy-amm/.gitignore` ignores `target/`,
 // and both on-chain test suites load the IDL from `../target/idl/…` at runtime,

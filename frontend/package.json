@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "e2e": "node scripts/run-e2e-with-anvil.mjs",
     "precommit": "npm run lint && tsc -b --noEmit",
     "analyze": "ANALYZE=true vite build"
   },

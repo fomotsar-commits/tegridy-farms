@@ -13,8 +13,12 @@
 // So nothing below returns a number on failure. There is no `?? 0`, no
 // `catch { return 0 }`, no default-to-clean-badge. An RPC error is an RPC error.
 //
-// ⚠ AND THE PROGRAM IS NOT DEPLOYED. `readLaunch` checks that FIRST and stops
-// there — it does not go on to derive PDAs and render their absence as data.
+// The program IS deployed (mainnet, 2026-08-08). `readLaunch` still checks that FIRST
+// and stops there when the answer is no — it does not go on to derive PDAs and render
+// their absence as data. That order is the point, and it does not depend on the
+// current answer: this comment previously asserted "NOT DEPLOYED" and went on being
+// believed after it was false, which is the whole argument for the check existing in
+// code rather than in prose.
 
 import { PublicKey } from '@solana/web3.js';
 import {

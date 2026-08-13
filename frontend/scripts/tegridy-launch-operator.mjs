@@ -8,13 +8,21 @@
  * drives lives in `src/lib/launcher/solana/tegridyLaunch.ts` (unit-tested, and its
  * config math diffed against the real `curve.rs` over 50,009 cases).
  *
- * ─── THE PROGRAM IS NOT DEPLOYED ───────────────────────────────────────────────
- * `declare_id!` in lib.rs:101 is a PLACEHOLDER keypair nobody holds. Verified null
- * on BOTH clusters on 2026-08-01 (mainnet-beta slot 436,599,196; devnet slot
- * 480,487,191). Every write command therefore READS THE CHAIN FIRST and refuses to
- * build a transaction against an address that holds no program — a tx to a
- * nonexistent program cannot succeed, and a Squads ceremony built on one is wasted.
- * Pass `--program-id` once a real deploy exists.
+ * ─── THE PROGRAM IS LIVE ───────────────────────────────────────────────────────
+ * DEPLOYED TO MAINNET 2026-08-08 at `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED`
+ * (slot 438,055,726) and `initialize_global` has already run. `PROGRAM_ID` in
+ * `curve/program.ts` is that address and is what every command here defaults to.
+ *
+ * This header used to say the opposite, and said it for four days after the deploy.
+ * It is left visible rather than quietly deleted because a stale "not deployed"
+ * banner is not a harmless comment: it tells an operator that a refusal they are
+ * looking at is expected, so they stop reading. What is still true is the MECHANISM —
+ * every write command READS THE CHAIN FIRST and refuses to build against an address
+ * that holds no program. That check is what makes this file's claims self-correcting;
+ * the prose is not. Trust `status`, not this paragraph.
+ *
+ * Still outstanding, and the reason the graduation commands below exist: cp-swap's
+ * AmmConfig does not exist, so `migrate_to_amm` fails AmmNotConfigured (6015).
  *
  * ─── SAFETY / DOCTRINE ─────────────────────────────────────────────────────────
  *   • Secrets come from ENV/CLI ONLY. Nothing is hardcoded or committed: the RPC URL
@@ -38,11 +46,15 @@
  * because the tests pass real values at initialization.
  *
  * So the real sequence is:
- *   1. deploy the program under a REAL keypair (not the placeholder id)
- *   2. `init-global`      — AMM addresses may be zero; the AmmConfig need not exist
- *   3. cp-swap admin creates the AmmConfig
+ *   1. deploy the program under a REAL keypair (not the placeholder id)   ✅ 2026-08-08
+ *   2. `init-global`      — AMM addresses may be zero; the AmmConfig need not exist  ✅
+ *   3. `create-amm-config`  — cp-swap admin creates the AmmConfig         ← OUTSTANDING
  *   4. `update-global --cp-swap-program … --amm-config …`   ← the ONLY way to set them
  *   5. migration is possible; until step 4 `migrate_to_amm` fails AmmNotConfigured (6015)
+ *
+ * `set-curve-segments` is orthogonal to all of that: it publishes the Meteora-shaped
+ * curve so `create_launch --mode 1` has a shape to snapshot. Launches in the default
+ * ConstantProduct mode do not need it.
  *
  * `status` prints exactly which of these steps is outstanding.
  *
@@ -75,7 +87,8 @@
  *     --supply 1000000000000000 --target 11685689681 --reserve 42156720 \
  *     --fee-recipient <base58>
  *
- * Commands: status | derive | check-config | init-global | update-global | help
+ * Commands: status | derive | check-config | init-global | update-global |
+ *           create-amm-config | set-curve-segments | help
  */
 
 import fs from 'node:fs';
@@ -482,12 +495,58 @@ async function requireDeployed(connection, pid) {
   if (status.program.kind !== 'deployed') {
     fail(
       `no program is deployed at ${pid}.\n` +
-        '  The id in lib.rs:101 is a PLACEHOLDER that corresponds to no key anybody holds\n' +
-        '  (verified null on mainnet-beta AND devnet, 2026-08-01). Deploy under a real\n' +
-        '  keypair first, then pass --program-id <deployed-id>.',
+        `  The live mainnet id is ${DEFAULT_PROGRAM_ID} (deployed 2026-08-08).\n` +
+        `  ${PLACEHOLDER_PROGRAM_ID} is the throwaway from lib.rs:114 and corresponds to no key\n` +
+        '  anybody holds. If you passed --program-id, check it; otherwise check the RPC cluster.',
     );
   }
   return status;
+}
+
+// ─── cp-swap pre-flight ─────────────────────────────────────────────────────────
+
+/** `FEE_RATE_DENOMINATOR_VALUE` — cp-swap curve/fees.rs:3. Rates are per MILLION, not bps. */
+const FEE_RATE_DENOMINATOR = 1_000_000n;
+
+/** `AmmConfig::LEN` — states/config.rs:34, `8+1+1+2+4*8+32*2+8+8*15`. Used for the rent quote. */
+const AMM_CONFIG_LEN = 236;
+
+function cpSwapProgramId(flags) {
+  return flags['cp-swap-program'] ? String(flags['cp-swap-program']).trim() : L.CP_SWAP_PROGRAM_ID.toBase58();
+}
+
+/**
+ * Is `owner` an account the System Program can debit?
+ *
+ * `CreateAmmConfig` has `payer = owner` (create_config.rs:23), so the owner is not just
+ * a signer — the System Program must be able to move lamports out of it to fund the
+ * AmmConfig. It can only do that for an account it OWNS, with no data.
+ *
+ * This is the check whose absence cost a program upgrade. The Squads MULTISIG account
+ * fails it twice over: it is owned by the Squads program and carries 495 bytes. Squads
+ * v4 also signs CPIs as the VAULT, so nothing can ever produce a signature for the
+ * multisig account in the first place. Both facts were available on 2026-08-08 and
+ * neither was checked.
+ */
+async function classifyPayer(connection, pubkey) {
+  const info = await connection.getAccountInfo(pubkey);
+  if (!info) return { ok: false, reason: 'the account does not exist on this cluster (0 lamports, never funded)' };
+  if (info.executable) return { ok: false, reason: 'the account is EXECUTABLE — a program cannot sign or be debited' };
+  if (!info.owner.equals(new PublicKey(SYSTEM_SENTINEL))) {
+    return {
+      ok: false,
+      reason:
+        `the account is owned by ${info.owner.toBase58()}, not the System Program, and carries ` +
+        `${info.data.length} bytes of data.\n` +
+        '    The System Program can only debit an account it owns with no data, and `CreateAmmConfig`\n' +
+        '    has `payer = owner`. A Squads MULTISIG account looks exactly like this — that is the\n' +
+        '    2026-08-08 mistake. Use the Squads VAULT PDA (system-owned, 0 bytes) or a plain wallet.',
+    };
+  }
+  if (info.data.length !== 0) {
+    return { ok: false, reason: `the account is System-owned but carries ${info.data.length} bytes of data — the System Program cannot debit it` };
+  }
+  return { ok: true, lamports: BigInt(info.lamports) };
 }
 
 // ─── Commands ───────────────────────────────────────────────────────────────────
@@ -772,13 +831,316 @@ async function cmdUpdateGlobal(flags) {
   await emitTransaction(connection, tx, sent, 'update_global');
 }
 
+// ─── create-amm-config (cp-swap) ────────────────────────────────────────────────
+
+/**
+ * cp-swap `create_amm_config` — the graduated pool's fee schedule.
+ *
+ * This is step 3 of the ordering above and the ONE outstanding blocker on graduation.
+ * MAINNET_RUNBOOK §5 said "tooling that does not exist yet"; this is that tooling.
+ *
+ * ⚠️ THE PROGRAM VALIDATES NOTHING HERE. `create_amm_config` (create_config.rs:32-53)
+ * assigns all six numbers straight onto the account with no `require!` of any kind.
+ * `update_config` DOES assert (update_config.rs:42-59), and it asserts each new value
+ * against the STORED counterpart — so a config created outside those bounds cannot
+ * necessarily be brought back inside them afterwards, and `assert!` panics rather than
+ * returning an error, aborting the whole transaction. The AmmConfig is a PDA seeded by
+ * index, so a botched index is BURNED: you cannot re-create it, only pick a new index.
+ * Every bound below is therefore checked HERE, before anything is signed.
+ */
+async function cmdCreateAmmConfig(flags) {
+  const connection = connect();
+  const cpSwapId = new PublicKey(cpSwapProgramId(flags));
+
+  // 1. Is cp-swap actually there? Same honesty rules as the tegridy-launch check:
+  //    an unreadable RPC is never "not deployed".
+  const cpDeployment = await L.readDeployment(connection, cpSwapId);
+  if (cpDeployment.kind === 'unreadable') {
+    fail(`could not read the cp-swap program account: ${cpDeployment.detail}\n  Refusing to build blind.`);
+  }
+  if (cpDeployment.kind !== 'deployed') {
+    fail(`no cp-swap program is deployed at ${cpSwapId.toBase58()} (${cpDeployment.kind}). Nothing to configure.`);
+  }
+
+  const index = Number(requireFlag(flags, 'index'));
+  if (!Number.isInteger(index) || index < 0 || index > 0xff_ff) {
+    fail(`--index must be a u16 (0..65535), got "${flags.index}". It is a PDA seed and therefore permanent.`);
+  }
+  const params = {
+    index,
+    tradeFeeRate: requireU64Flag(flags, 'trade-fee-rate'),
+    protocolFeeRate: requireU64Flag(flags, 'protocol-fee-rate'),
+    fundFeeRate: requireU64Flag(flags, 'fund-fee-rate'),
+    createPoolFee: requireU64Flag(flags, 'create-pool-fee'),
+    creatorFeeRate: requireU64Flag(flags, 'creator-fee-rate'),
+  };
+
+  // 2. The bounds update_config will hold you to for the rest of the config's life.
+  const problems = [];
+  if (params.protocolFeeRate > FEE_RATE_DENOMINATOR) problems.push(`protocol_fee_rate ${params.protocolFeeRate} > ${FEE_RATE_DENOMINATOR}`);
+  if (params.fundFeeRate > FEE_RATE_DENOMINATOR) problems.push(`fund_fee_rate ${params.fundFeeRate} > ${FEE_RATE_DENOMINATOR}`);
+  if (params.protocolFeeRate + params.fundFeeRate > FEE_RATE_DENOMINATOR) {
+    problems.push(`protocol_fee_rate + fund_fee_rate = ${params.protocolFeeRate + params.fundFeeRate} > ${FEE_RATE_DENOMINATOR}`);
+  }
+  // STRICTLY less than — update_config.rs:48 and :59 use `<`, not `<=`.
+  if (params.tradeFeeRate + params.creatorFeeRate >= FEE_RATE_DENOMINATOR) {
+    problems.push(`trade_fee_rate + creator_fee_rate = ${params.tradeFeeRate + params.creatorFeeRate} must be STRICTLY < ${FEE_RATE_DENOMINATOR}`);
+  }
+
+  // 3. The create_pool_fee ceiling. This one is not cp-swap's rule at all — it is
+  //    tegridy-launch's, and it is the expensive one. Migration pays this flat fee out
+  //    of `global.migration_reserve_lamports`, and the reserve is SNAPSHOTTED onto every
+  //    curve at creation. Set the fee above what the reserve can cover and every launch
+  //    that already exists becomes permanently unmigratable — discovered at the finish
+  //    line, with the pool half-built.
+  const launchPid = programId(flags);
+  const launch = await readProtocol(connection, launchPid);
+  if (params.createPoolFee > 0n) {
+    if (launch.global?.kind !== 'ok') {
+      fail(
+        `--create-pool-fee is ${params.createPoolFee}, but tegridy-launch's \`global\` is "${launch.global?.kind ?? 'not read'}",\n` +
+          '  so the ceiling (migration_reserve - MIN_MIGRATION_RESERVE_LAMPORTS) cannot be established.\n' +
+          '  Refusing to guess: too high and EVERY existing launch becomes permanently unmigratable.\n' +
+          '  Fix the RPC / program id and re-run, or pass --create-pool-fee 0.',
+      );
+    }
+    const reserve = launch.global.value.migrationReserveLamports;
+    const ceiling = reserve - L.MIN_MIGRATION_RESERVE_LAMPORTS;
+    console.log('[operator] create_pool_fee ceiling, from the LIVE global');
+    console.log(`  migration_reserve            : ${reserve} (${sol(reserve)})`);
+    console.log(`  - MIN_MIGRATION_RESERVE      : ${L.MIN_MIGRATION_RESERVE_LAMPORTS} (account rent migration must still pay)`);
+    console.log(`  = ceiling                    : ${ceiling} (${sol(ceiling)})`);
+    console.log(`  requested create_pool_fee    : ${params.createPoolFee} (${sol(params.createPoolFee)})`);
+    if (params.createPoolFee > ceiling) {
+      problems.push(
+        `create_pool_fee ${params.createPoolFee} exceeds the ceiling ${ceiling}. Migration could not pay it, and because ` +
+          'the reserve is snapshotted at creation, every launch made before this change would become permanently unmigratable.',
+      );
+    }
+  }
+
+  if (problems.length > 0) {
+    console.log('\n[operator] REFUSING to build — these would be baked into a PDA that cannot be re-created:');
+    for (const p of problems) console.log(`     • ${p}`);
+    fail('parameters rejected by the pre-flight above — nothing was built.');
+  }
+
+  // 4. One-shot: the AmmConfig is `init`, so a second create at the same index reverts.
+  const ammConfig = L.cpAmmConfigPda(index, cpSwapId);
+  const existing = await connection.getAccountInfo(ammConfig);
+  if (existing) {
+    fail(
+      `AmmConfig index ${index} ALREADY EXISTS at ${ammConfig.toBase58()} (${existing.data.length} bytes).\n` +
+        '  `create_amm_config` is `init`; it can only run once per index. Use cp-swap `update_config`\n' +
+        '  to change rates, or pick a different --index (the index is a PDA seed, so a new index is a\n' +
+        '  genuinely different config and `global.amm_config` would have to be repointed at it).',
+    );
+  }
+
+  // 5. The signer. Everything above is free; this is where a key is touched.
+  const payer = await loadKeypair('OPERATOR_KEYPAIR');
+  const owner = payer.publicKey;
+
+  console.log('\n[operator] create_amm_config');
+  console.log(`  cp-swap program     : ${cpSwapId.toBase58()}`);
+  console.log(`  amm_config PDA      : ${ammConfig.toBase58()}   seeds ["amm_config", be_u16(${index})]`);
+  console.log(`  owner (signer+payer): ${owner.toBase58()}`);
+
+  // 6. `address = crate::admin::ID` (create_config.rs:12). A compile-time constant: no
+  //    account holds it and no RPC exposes it, so the ONLY way to check it is to search
+  //    the deployed bytecode for the raw 32 bytes. `scripts/verify-program-constants.mjs`
+  //    does the full roster; this is the single-key version of the same check.
+  //
+  //    A FALSE here is conclusive and fatal — a key that is not in the binary cannot be
+  //    what the gate compares against — so this refuses rather than warns. The
+  //    2026-08-08 attempt failed at exactly this gate after a Squads ceremony.
+  const bakedIn = await deployerIsBakedIntoProgram(connection, cpSwapId, owner);
+  if (bakedIn === false) {
+    fail(
+      `this key does NOT appear anywhere in the deployed cp-swap bytecode, so it cannot be \`admin::ID\`.\n` +
+        `    loaded : ${owner.toBase58()}\n` +
+        '  `create_amm_config` is gated on `address = crate::admin::ID` (create_config.rs:12) and would\n' +
+        '  fail with InvalidOwner. admin::ID is a compile-time constant — it CANNOT be changed by any\n' +
+        '  transaction, only by a program upgrade.\n' +
+        '  Run `node ../scripts/verify-program-constants.mjs --deployed ' + cpSwapId.toBase58() + '`\n' +
+        '  to see which keys the live binary actually carries.',
+    );
+  }
+  console.log(bakedIn === true
+    ? '  admin::ID           : ✅ this key is present in the deployed cp-swap bytecode'
+    : '  admin::ID           : (could not fetch bytecode to check — proceeding, UNVERIFIED)');
+
+  // 7. Can the System Program actually debit it? Signing is necessary, not sufficient.
+  const payerCheck = await classifyPayer(connection, owner);
+  if (!payerCheck.ok) fail(`the owner cannot pay for the AmmConfig: ${payerCheck.reason}`);
+  let rent = 0n;
+  try {
+    rent = BigInt(await connection.getMinimumBalanceForRentExemption(AMM_CONFIG_LEN));
+    console.log(`  rent for ${AMM_CONFIG_LEN} bytes  : ${rent} (${sol(rent)})`);
+    if (payerCheck.lamports < rent) {
+      fail(`the owner holds ${payerCheck.lamports} lamports (${sol(payerCheck.lamports)}), below the ${rent} needed for rent plus fees.`);
+    }
+  } catch (e) {
+    console.log(`  rent                : (lookup failed: ${e?.message ?? e}) — balance NOT checked`);
+  }
+
+  console.log(`  trade_fee_rate      : ${params.tradeFeeRate} (${Number(params.tradeFeeRate) / 10_000}% of volume)`);
+  console.log(`  protocol_fee_rate   : ${params.protocolFeeRate} (${Number(params.protocolFeeRate) / 10_000}% OF THE TRADE FEE)`);
+  console.log(`  fund_fee_rate       : ${params.fundFeeRate}`);
+  console.log(`  create_pool_fee     : ${params.createPoolFee} (${sol(params.createPoolFee)}, flat, per pool)`);
+  console.log(`  creator_fee_rate    : ${params.creatorFeeRate}`);
+  console.log('');
+  console.log('  NOTE: this sets protocol_owner = fund_owner = the signer above. Moving fee collection');
+  console.log('        to a distinct treasury afterwards is cp-swap `update_config` params 3 and 4.');
+
+  const tx = new Transaction().add(L.createAmmConfigIx({ owner }, params, { cpSwapProgram: cpSwapId }));
+  await prepareAndSign(connection, tx, owner, flags.send ? payer : undefined);
+  const sent = await maybeSend(connection, tx, flags);
+  await emitTransaction(connection, tx, sent, 'create_amm_config');
+
+  console.log('\n  NEXT: this config is inert until tegridy-launch knows about it. Run');
+  console.log(`    update-global --cp-swap-program ${cpSwapId.toBase58()} --amm-config ${ammConfig.toBase58()}`);
+  console.log('  Until then migrate_to_amm still fails AmmNotConfigured (6015).');
+}
+
+// ─── set-curve-segments ─────────────────────────────────────────────────────────
+
+/**
+ * Read the segmented curve's shape from a JSON file.
+ *
+ * A file rather than flags: this is up to 16 pairs of u128s, and a Q64.64 sqrt price
+ * mistyped on a command line is not a smaller price, it is a completely different one
+ * that the curve would then quote against without complaint. A file can be diffed,
+ * reviewed and re-used across a dry run and the real ceremony.
+ *
+ * Numbers are read as STRINGS. JSON numbers are IEEE doubles: 2^64 and up silently
+ * lose precision, and every value here is past that.
+ */
+function readSegmentsFile(path) {
+  let raw;
+  try {
+    raw = fs.readFileSync(path, 'utf8');
+  } catch (e) {
+    return fail(`could not read --segments-file ${path}: ${e?.message ?? e}`);
+  }
+  let doc;
+  try {
+    doc = JSON.parse(raw);
+  } catch (e) {
+    return fail(`--segments-file ${path} is not valid JSON: ${e?.message ?? e}`);
+  }
+  const u128 = (v, label) => {
+    if (typeof v === 'number') {
+      fail(`${label} is a JSON number. Quote it as a string — values above 2^53 lose precision as doubles, silently.`);
+    }
+    if (typeof v !== 'string' || !/^\d+$/.test(v)) fail(`${label} must be a decimal string of digits, got ${JSON.stringify(v)}`);
+    return BigInt(v);
+  };
+  if (!Array.isArray(doc?.segments)) fail(`--segments-file ${path} must be { "sqrtPriceStartX64": "…", "segments": [ … ] }`);
+  return {
+    sqrtPriceStartX64: u128(doc.sqrtPriceStartX64, 'sqrtPriceStartX64'),
+    segments: doc.segments.map((s, i) => ({
+      sqrtPriceUpperX64: u128(s?.sqrtPriceUpperX64, `segments[${i}].sqrtPriceUpperX64`),
+      liquidity: u128(s?.liquidity, `segments[${i}].liquidity`),
+    })),
+  };
+}
+
+/**
+ * `set_curve_segments` — publish the Meteora-shaped curve.
+ *
+ * The operator publishes ONE shape for the whole venue; creators pick a MODE, not a
+ * curve. Re-runnable: the program validates the entire table before writing, so a
+ * rejected table cannot leave a half-updated config behind.
+ *
+ * The checks below mirror the STRUCTURAL half of `segmented::validate_segments`
+ * (segmented.rs:145-173) — count, strict ascent, non-zero liquidity. The PRICE-RANGE
+ * half (MIN/MAX_SQRT_PRICE_X64 from the vendored tick math) is deliberately NOT copied
+ * here: those are two more magic constants that would become a second source of truth
+ * for the same rule, and the failure mode of getting them wrong is refusing a table the
+ * program would have accepted. The program stays the authority; this catches the
+ * mistakes that are obvious from the table alone, before a multisig ceremony.
+ */
+async function cmdSetCurveSegments(flags) {
+  const pid = new PublicKey(programId(flags));
+  const connection = connect();
+  const status = await requireDeployed(connection, pid.toBase58());
+  if (status.global?.kind !== 'ok') {
+    fail(`global is "${status.global?.kind}" — \`set_curve_segments\` needs an initialized config. Run \`init-global\` first.`);
+  }
+  const current = status.global.value;
+
+  const { sqrtPriceStartX64, segments } = readSegmentsFile(requireFlag(flags, 'segments-file'));
+
+  const problems = [];
+  if (segments.length === 0) problems.push('the table is empty — BadSegmentCount');
+  if (segments.length > L.MAX_SEGMENTS) problems.push(`${segments.length} segments, above MAX_SEGMENTS ${L.MAX_SEGMENTS} — BadSegmentCount`);
+  let prev = sqrtPriceStartX64;
+  segments.forEach((s, i) => {
+    if (s.liquidity === 0n) problems.push(`segments[${i}].liquidity is 0 — BadSegments`);
+    if (s.sqrtPriceUpperX64 <= prev) {
+      problems.push(
+        `segments[${i}].sqrtPriceUpperX64 (${s.sqrtPriceUpperX64}) is not STRICTLY above the previous bound (${prev}) — BadSegments. ` +
+          'Equal bounds are a zero-width segment that can never be crossed; descending bounds walk the wrong way.',
+      );
+    }
+    prev = s.sqrtPriceUpperX64;
+  });
+
+  console.log('[operator] set_curve_segments');
+  console.log(`  program            : ${pid.toBase58()}`);
+  console.log(`  sqrt_price_start   : ${sqrtPriceStartX64}  (Q64.64)`);
+  console.log(`  segments           : ${segments.length}`);
+  segments.forEach((s, i) => console.log(`    [${String(i).padStart(2)}] upper ${s.sqrtPriceUpperX64}   liquidity ${s.liquidity}`));
+  if (current.segmentCount > 0) {
+    console.log(`  REPLACES the live table of ${current.segmentCount} segment(s), start ${current.sqrtPriceStartX64}.`);
+    console.log('  Live curves are unaffected — every launch snapshots its terms at creation. This');
+    console.log('  changes the shape FUTURE segmented launches are created from.');
+  }
+  if (problems.length > 0) {
+    console.log('\n  ❌ the program would REJECT this table:');
+    for (const p of problems) console.log(`     • ${p}`);
+    fail('table rejected by the pre-flight above — nothing was built.');
+  }
+  console.log('  ✅ structural checks pass. The program additionally range-checks every price');
+  console.log('     against MIN/MAX_SQRT_PRICE_X64 and liquidity against MAX_SEGMENT_LIQUIDITY');
+  console.log('     (segmented.rs:145-173); those bounds are NOT duplicated here.');
+
+  // `has_one = authority` (lib.rs:1613-1621). Checked against CHAIN state.
+  const payer = await loadKeypair('OPERATOR_KEYPAIR');
+  if (payer.publicKey.toBase58() !== current.authority.toBase58()) {
+    fail(
+      'the loaded key is not `global.authority`.\n' +
+        `    loaded    : ${payer.publicKey.toBase58()}\n` +
+        `    authority : ${current.authority.toBase58()}\n` +
+        '  Build the instruction inside a Squads proposal rather than signing locally.',
+    );
+  }
+
+  const tx = new Transaction().add(
+    // ⚠️ Account order here is authority-then-global, the REVERSE of update_global.
+    // Both are `has_one = authority`, so swapping them does not fail a signer check —
+    // it hands the program a Signer where it expects the config account. `curve/ix.ts`
+    // owns that ordering and is unit-tested on it; this file must not re-state it.
+    L.setCurveSegmentsIx({ authority: payer.publicKey }, { sqrtPriceStartX64, segments }, { programId: pid }),
+  );
+  await prepareAndSign(connection, tx, payer.publicKey, flags.send ? payer : undefined);
+  const sent = await maybeSend(connection, tx, flags);
+  await emitTransaction(connection, tx, sent, 'set_curve_segments');
+
+  console.log('\n  AFTER it lands, read it back with `status` — the send succeeding is not evidence the');
+  console.log('  table decoded the way you meant. That is how GLOBAL_CONFIG_SIZE was found to be wrong.');
+}
+
 function printHelp() {
   console.log(`
 tegridy-launch operator harness — protocol-level instructions for OUR OWN curve.
 
-⚠️  THE PROGRAM IS NOT DEPLOYED ANYWHERE. The id in lib.rs:101 is a placeholder that
-    returns null on mainnet-beta AND devnet (verified 2026-08-01). Every write command
-    reads the chain first and refuses to build against an address with no program.
+LIVE ON MAINNET since 2026-08-08 (CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED), and
+\`initialize_global\` has run. Outstanding: cp-swap's AmmConfig does not exist, so
+\`migrate_to_amm\` fails AmmNotConfigured (6015). \`create-amm-config\` is that step.
+Every write command reads the chain first and refuses to build against an address with
+no program — trust \`status\`, not this help text.
 
 ENV
   SOLANA_RPC_URL     required by every command that touches the chain
@@ -791,10 +1153,12 @@ COMMANDS
   check-config       pure economics pre-flight; no RPC, no key
   init-global        build initialize_global   (runs exactly once — global is a singleton)
   update-global      build update_global       (the ONLY way to set the AMM addresses)
+  create-amm-config  build cp-swap create_amm_config  (once per index — the PDA is one-shot)
+  set-curve-segments build set_curve_segments  (the Meteora-shaped curve; re-runnable)
   help
 
 GLOBAL FLAGS
-  --program-id <id>  override the placeholder program id (use this after a real deploy)
+  --program-id <id>  override the tegridy-launch program id
   --send             broadcast instead of printing. OPT-IN. Only completes when the
                      local key is a sufficient signer set — on mainnet the authority
                      is a Squads multisig, so the authority pre-check fails closed.
@@ -818,10 +1182,33 @@ UPDATE FLAGS (update-global; pass only what changes)
   --new-authority <base58>     --fee-recipient <base58>
   --cp-swap-program <base58>   --amm-config <base58>
 
+CREATE-AMM-CONFIG FLAGS (cp-swap; every *_rate is out of 1,000,000, NOT basis points)
+  --index <u16>              PERMANENT — it is a PDA seed, so a wrong index is burned
+  --trade-fee-rate <n>       total swap fee. 2500 = 0.25%
+  --protocol-fee-rate <n>    our share OF THE TRADE FEE. 120000 = 12% of the fee
+  --fund-fee-rate <n>        second treasury share of the fee
+  --create-pool-fee <lamports>  flat, charged once per pool, paid out of the migrating
+                             curve's migration_reserve. Bounded by
+                             (migration_reserve - MIN_MIGRATION_RESERVE), read LIVE.
+  --creator-fee-rate <n>     pool-creator cut; distinct from global's creator split
+  --cp-swap-program <id>     override the cp-swap program id
+
+  The signer must be cp-swap's compile-time admin::ID AND be System-owned and funded —
+  it is \`payer = owner\`. Both are checked before anything is signed. To see which keys
+  the deployed binary actually carries:
+    node ../scripts/verify-program-constants.mjs --deployed <cp-swap program id>
+
+SET-CURVE-SEGMENTS FLAGS
+  --segments-file <path>     JSON: { "sqrtPriceStartX64": "…", "segments": [
+                             { "sqrtPriceUpperX64": "…", "liquidity": "…" }, … ] }
+                             All values are decimal STRINGS — a JSON number above 2^53
+                             loses precision silently, and a wrong Q64.64 sqrt price is
+                             not a smaller price, it is a different curve.
+
 ORDERING — the opposite of the obvious guess
-  1. deploy under a real keypair
-  2. init-global                       AMM addresses MAY be zero; no AmmConfig needed yet
-  3. cp-swap admin creates the AmmConfig
+  1. deploy under a real keypair                                        ✅ 2026-08-08
+  2. init-global                       AMM addresses MAY be zero; no AmmConfig needed yet  ✅
+  3. create-amm-config                 cp-swap admin creates the AmmConfig   ← OUTSTANDING
   4. update-global --cp-swap-program … --amm-config …
   5. migration possible
 
@@ -851,6 +1238,10 @@ async function main() {
       return cmdInitGlobal(flags);
     case 'update-global':
       return cmdUpdateGlobal(flags);
+    case 'create-amm-config':
+      return cmdCreateAmmConfig(flags);
+    case 'set-curve-segments':
+      return cmdSetCurveSegments(flags);
     case 'help':
     case '--help':
     case '-h':

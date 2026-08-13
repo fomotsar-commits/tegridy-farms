@@ -6,54 +6,62 @@
  *   2. Restaking — `/farm` (RestakingPanel; "Claim N TOWELI" CTA)
  *   3. Bribes / gauge incentives — `/community` (gauge tab)
  *
- * Mock-mode confirms each surface mounts a claim CTA without crashing.
- * Anvil-mode (ANVIL_RPC_URL) drives a real claim transaction once test
- * fixtures pre-fund accrued rewards in storage. Until then the state-change
- * leg is gated by skip().
+ * ⚠ A CLAIM CTA IS POSITION-DEPENDENT. The original first test asserted a
+ * /claim/i button is visible on /farm "when connected" — it is not, from a
+ * cold account, and never was: the claim CTAs mount only once there is a
+ * stake or accrued rewards to claim. That assertion could only ever have gone
+ * green while the whole file was being skipped. What IS assertable without a
+ * position is that each claim-bearing surface mounts, so that is what these
+ * check; the claim TRANSACTION is the Anvil leg's job.
  */
 import { test, expect } from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
 test.describe('Claim rewards surfaces', () => {
-  test('/farm surfaces a claim CTA when connected', async ({ page, walletMock }) => {
-    await page.goto('/farm');
+  test('/farm mounts the reward-bearing sections when connected', async ({ page, walletMock }) => {
     await walletMock.connect();
-    // Either LP farming or restaking section renders a /claim/i button.
-    const claim = page.getByRole('button', { name: /claim/i }).first();
-    await expect(claim).toBeVisible();
+    await page.goto('/farm');
+    await expect(page.getByRole('heading', { name: /lp farming/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /stake toweli/i })).toBeVisible();
+    // No position ⇒ no claim CTA. Pin that as the documented state rather than
+    // asserting a button that cannot exist yet.
+    await expect(page.getByRole('button', { name: /^claim\s+\d/i })).toHaveCount(0);
   });
 
   test('/community renders the gauge / governance surfaces under mock wallet', async ({ page, walletMock }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
-    await page.goto('/community');
     await walletMock.connect();
+    await page.goto('/community');
     await expect(page.locator('h1')).toContainText(/community/i);
-    // Tablist must mount (4 tabs per smoke spec).
-    const tablist = page.locator('[role="tablist"]').first();
-    await expect(tablist).toBeVisible();
+    for (const label of [/governance/i, /bounties/i, /vote incentives/i, /gauge voting/i]) {
+      await expect(page.getByRole('tab', { name: label })).toBeVisible();
+    }
     expect(pageErrors).toEqual([]);
   });
 
-  test('lending surface (restaking lives here) renders without crash', async ({ page, walletMock }) => {
-    await page.goto('/nft-finance');
+  test('gauge voting tab (bribe claims live here) opens without crash', async ({ page, walletMock }) => {
     await walletMock.connect();
-    await expect(page.locator('h1')).toContainText(/NFT Finance/i);
-    // The Token Lending tab includes the restake claim CTA. Don't assert a
-    // specific button (tab may default to NFT Lending); just confirm tabs.
-    const tablist = page.locator('[role="tablist"]').first();
-    await expect(tablist).toBeVisible();
+    await page.goto('/community');
+    const gauge = page.getByRole('tab', { name: /gauge voting/i });
+    await gauge.click();
+    await expect(gauge).toHaveAttribute('aria-selected', 'true');
   });
 
-  test.skip(!onAnvil, 'ANVIL_RPC_URL unset — real claim tx deferred to Anvil-fork run');
   test('claim from LP farming surface (Anvil only)', async ({ page, walletMock }) => {
-    await page.goto('/farm');
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+
     await walletMock.connect();
+    await page.goto('/farm');
     const claim = page.getByRole('button', { name: /^claim\s+\d/i }).first();
-    if ((await claim.count()) === 0) {
-      test.skip(true, 'No accrued rewards on fresh Anvil fork; pre-fund storage in fixture before re-running');
-    }
+    // On a fresh fork nothing has accrued. This is a REAL gap, not a pass:
+    // fail loudly with the reason rather than skipping, so the fixture gets
+    // the reward pre-funding it needs instead of the suite quietly shrinking.
+    await expect(
+      claim,
+      'no accrued rewards on the fork — pre-fund reward storage in the fixture so this leg can execute',
+    ).toBeVisible({ timeout: 20_000 });
     await claim.click();
     await expect(page.locator('a[href*="etherscan"], a[href*="explorer"]').first()).toBeVisible({ timeout: 30_000 });
   });
