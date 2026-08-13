@@ -14,15 +14,18 @@
 //   - batches are capped at 20 calls.
 //
 // ⚠️ THE WRITE SEAM IS NOT HERE. Nothing in this file builds, signs or sends a
-// transaction, on purpose:
-//   - the program id is a documented PLACEHOLDER (lib.rs:97-100) that is guaranteed
-//     to change before any deploy, so an instruction encoded against it today
-//     targets an address that will be wrong;
-//   - the program is not deployed on any cluster, so a submit path could never be
-//     exercised, let alone verified against a confirmed transaction.
-// `ix.ts` holds the encoders for when it lands; `CurveWriteClient` below is the
-// interface the write client must satisfy. A button that builds a transaction
-// against a program id that returns null is worse than an honest "not live yet".
+// transaction. The original reasons have both expired — the program is live on
+// mainnet as of 2026-08-08 and `PROGRAM_ID` is its real address — but the separation
+// is kept, for reasons that did not:
+//   - this module is the READ transport. Signing has a different threat model, a
+//     different failure mode (a bad read shows a wrong number; a bad write spends
+//     someone's money) and belongs behind its own reviewed seam;
+//   - graduation still does not work. cp-swap's AmmConfig does not exist, so
+//     `migrate_to_amm` fails AmmNotConfigured (6015), and a migrate button here would
+//     be a button that always fails.
+// `ix.ts` holds the encoders; `CurveWriteClient` below is the interface a write client
+// must satisfy. The operator-side writes that ARE live today go through
+// `scripts/tegridy-launch-operator.mjs`, which is deliberately not a browser surface.
 //
 // ── THE DEFECT THIS FILE EXISTS TO NOT HAVE ──────────────────────────────────
 // A JSON-RPC 200 that carries NEITHER `result` NOR `error` is a malformed

@@ -165,10 +165,57 @@ solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
 > ~0.0026 SOL. If it is a plain wallet, it is an ordinary single-key transaction. If it is
 > the multisig **account**, this step is impossible and the only fix is a program upgrade —
 > which is exactly what happened here on 2026-08-08.
->
-> Note the repo's `client/` crate can only *decode* `CreateAmmConfig`
-> (`client/src/instructions/events_instructions_parse.rs`); it has **no builder**. Building
-> and sending this instruction needs tooling that does not exist yet.
+
+### The tooling — it exists now
+
+`create-amm-config` on the operator harness builds and (optionally) sends this instruction.
+Run it from `frontend/`:
+
+```bash
+SOLANA_RPC_URL=https://your-keyed-rpc \
+OPERATOR_KEYPAIR=/abs/path/admin.json \
+node scripts/tegridy-launch-operator.mjs create-amm-config \
+  --index 0 --trade-fee-rate 2500 --protocol-fee-rate 120000 \
+  --fund-fee-rate 0 --create-pool-fee 150000000 --creator-fee-rate 0
+```
+
+Default is **print** — a partial-signed base64 transaction for out-of-band co-signing. Add
+`--send` to broadcast. It refuses, before touching a key, on:
+
+- **cp-swap not deployed / unreadable** at the target id. An unreadable RPC is reported as
+  unreadable, never as "not deployed".
+- **the signer is not `admin::ID`.** `admin::ID` is a compile-time constant — no account holds
+  it, no explorer shows it — so the check searches the DEPLOYED bytecode for the key's raw 32
+  bytes. An absent key is conclusive: it cannot be what the gate compares against. This is the
+  gate the 2026-08-08 attempt failed *after* a Squads ceremony.
+- **the signer cannot be debited.** `payer = owner`, and the System Program can only debit an
+  account it owns with no data. The multisig account fails on both counts.
+- **the AmmConfig for that index already exists.** `init`, so once per index, forever.
+- **rates outside the bounds `update_config` will later enforce.** `create_amm_config` itself
+  validates *nothing* (`create_config.rs:32-53` assigns all six numbers straight onto the
+  account), but `update_config` asserts each new value against the STORED counterpart, and
+  `assert!` panics rather than erroring. A config created out of bounds can be unfixable, and
+  the index is burned.
+- **`create_pool_fee` above `migration_reserve - MIN_MIGRATION_RESERVE_LAMPORTS`**, read from
+  the LIVE `global` rather than from this document. See the ceiling note below.
+
+To see which keys the live binary actually carries — the only check that survives a rebuild,
+because a reproducible build of a *wrong* constant still reproduces and still hashes correctly:
+
+```bash
+SOLANA_RPC_URL=… node scripts/verify-program-constants.mjs --deployed <cp-swap program id>
+# or, BEFORE spending rent:
+node scripts/verify-program-constants.mjs --so target/deploy/raydium_cp_swap.so
+```
+
+As of 2026-08-12 that reports `admin::ID` **ABSENT** from the live cp-swap binary: the #281
+source fix is not in the deployed bytecode, so this step remains blocked on a program upgrade.
+
+> The repo's Rust `client/` crate still only *decodes* `CreateAmmConfig`
+> (`client/src/instructions/events_instructions_parse.rs`) and has no builder. The encoder used
+> above lives in `frontend/src/lib/launcher/solana/curve/ix.ts`, where it is unit-tested byte by
+> byte — Borsh with no IDL fails silently, and the failure is not an error, it is the program
+> applying your value to a different field.
 
 `create_config` is **admin-only**. All fee rates use denominator **1_000_000** (`curve/fees.rs`):
 - `trade_fee_rate` — total swap fee, e.g. `2500` = 0.25%.
@@ -187,6 +234,15 @@ whatever token account you name at collection time regardless.
 
 ## 5b. 🔑 Deploy + configure `tegridy-launch` (the bonding curve)
 
+> ✅ **DONE 2026-08-08.** Live at `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` (slot
+> 438,055,726), `initialize_global` has run, upgrade authority is the Squads vault. Verified
+> by bytes, not by claim: `verify-program-constants --deployed CpFnacrAC…` reports the mainnet
+> `declare_id` and `deployer::ID` (`Dcjink4RG…`) both present, and the placeholder, the devnet
+> keys and the multisig all absent. Steps 1-2 below are kept as the record of what was done and
+> what a re-deploy would have to repeat. **Note that trunk's source still carries the
+> placeholder id and the sentinel** — those patches are made at build time and never committed,
+> which is exactly why reading lib.rs tells you nothing about what is live.
+
 A **separate program** from cp-swap, deliberately — folding it in would break
 `diff-guard` and turn a cheap four-constant diff-audit into a full AMM audit.
 
@@ -196,6 +252,21 @@ A **separate program** from cp-swap, deliberately — folding it in would break
    until you set a real key). Build, deploy, move upgrade authority to the multisig.
 2. Call `initialize_global`. **Three parameters are not free choices — get them
    wrong and the launcher misbehaves in ways nothing will warn you about later.**
+3. *(Only if you intend to offer the Meteora-shaped mode)* publish the segmented curve with
+   `set-curve-segments`. Launches created in the default ConstantProduct mode do not need it,
+   and `global.segment_count` is 0 until it runs.
+
+   ```bash
+   SOLANA_RPC_URL=… OPERATOR_KEYPAIR=/abs/path/authority.json \
+   node scripts/tegridy-launch-operator.mjs set-curve-segments --segments-file curve.json
+   ```
+
+   `curve.json` is `{ "sqrtPriceStartX64": "…", "segments": [{ "sqrtPriceUpperX64": "…",
+   "liquidity": "…" }, …] }`, up to 16 segments, **all values as decimal strings** — a JSON
+   number above 2^53 loses precision silently, and a wrong Q64.64 sqrt price is not a smaller
+   price, it is a different curve. Re-runnable: the program validates the whole table before
+   writing, so a rejected table cannot leave a half-updated config behind. Read it back with
+   `status` afterwards; a successful send is not evidence the table decoded the way you meant.
 
 ### `creator_fee_share_bps` — the volume magnet; recommended **4_800** (48% of the fee)
 

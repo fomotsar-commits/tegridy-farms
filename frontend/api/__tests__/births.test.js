@@ -262,6 +262,114 @@ describe("failure handling — retryable vs not", () => {
   });
 });
 
+// The socket's guarantee is "answers only a valid signature". That is worth exactly as
+// much as the set of callers who can reach the signer. Before 2026-08-12 the answer was
+// "anyone": this route dispatches from aggregator.js BEFORE runProxy, so it inherited
+// neither the 403 origin gate nor the aggregate breaker, and `setCors` only SETS a header
+// — a browser-side control that does nothing to curl.
+//
+// Every test here asserts fetch was NEVER called, not merely that the status is 4xx. A
+// status-only assertion can be satisfied by an unrelated upstream error while the HMAC
+// has already been computed and sent, which is the thing that actually matters.
+describe("authorization — who is allowed to reach the signer", () => {
+  const noOrigin = (body) => ({ method: "POST", headers: {}, query: {}, body });
+  const withOrigin = (origin, body) => ({ method: "POST", headers: { origin }, query: {}, body });
+
+  it("refuses an Origin-less caller (curl) before it can reach the signer", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const res = mockRes();
+    await handleBirths(noOrigin(VALID), res);
+    expect(res.statusCode).toBe(403);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a foreign origin", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const res = mockRes();
+    await handleBirths(withOrigin("https://evil.example.com", VALID), res);
+    expect(res.statusCode).toBe(403);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not let an unauthorized caller probe whether the secret is configured", async () => {
+    // The 403 must come from ABOVE the secret check, so the reply is identical whether or
+    // not MEMETICS_BIRTH_SECRET is set. Otherwise 503-vs-403 is an oracle for "is this
+    // venue armed yet", which tells an attacker exactly when to come back.
+    delete process.env.MEMETICS_BIRTH_SECRET;
+    const unset = mockRes();
+    await handleBirths(noOrigin(VALID), unset);
+    process.env.MEMETICS_BIRTH_SECRET = SECRET;
+    const set = mockRes();
+    await handleBirths(noOrigin(VALID), set);
+    expect(unset.statusCode).toBe(403);
+    expect(set.statusCode).toBe(403);
+    expect(unset.body).toEqual(set.body);
+  });
+});
+
+describe("record_url — the venue signs a pointer at its OWN record, or nothing", () => {
+  it("refuses a record_url on someone else's host", () => {
+    // Only the scheme was checked before, so this passed. record.js stores this URL
+    // permanently and re-reads it for enrollment, hygiene and certification — a foreign
+    // host substitutes an attacker's document for the chain-derived one, under our name.
+    expect(
+      validateBirthBody({ ...VALID, record_url: "https://evil.example.com/record/base/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json" }),
+    ).toMatchObject({ field: "record_url" });
+  });
+
+  it("refuses a lookalike host — substring matching is not host matching", () => {
+    // `https://memetic.fun.evil.tld/...` CONTAINS "memetic.fun". Anything built on
+    // includes() or an unanchored regex waves this through; hostname equality does not.
+    expect(
+      validateBirthBody({ ...VALID, record_url: "https://memetic.fun.evil.tld/record/base/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json" }),
+    ).toMatchObject({ field: "record_url" });
+  });
+
+  it("refuses a record_url pointing at a DIFFERENT token than the one being signed", () => {
+    expect(
+      validateBirthBody({ ...VALID, record_url: "https://memetic.fun/record/base/0x0000000000000000000000000000000000000dead.json" }),
+    ).toMatchObject({ field: "record_url" });
+  });
+
+  it("refuses a record_url whose chain segment disagrees with the signed chain", () => {
+    expect(
+      validateBirthBody({ ...VALID, record_url: "https://memetic.fun/record/ethereum/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json" }),
+    ).toMatchObject({ field: "record_url" });
+  });
+
+  it("accepts the URL our own client actually builds, on every allowed origin", () => {
+    // birthRecordUrl(chain, ca, origin) => `${origin}/record/${chain}/${ca}.json`.
+    // If this ever fails, the gate is rejecting real births — check it before shipping.
+    for (const origin of ["https://memetic.fun", "https://www.memetic.fun", "https://memetics.finance", "https://tegridyfarms.vercel.app"]) {
+      expect(
+        validateBirthBody({ ...VALID, record_url: `${origin}/record/base/${VALID.ca}.json` }),
+        `${origin} must be accepted`,
+      ).toBeNull();
+    }
+  });
+
+  it("accepts a checksummed EVM ca against a lowercased path, but is case-SENSITIVE on solana", () => {
+    // normaliseCa lowercases EVM and preserves solana. Folding both would let two
+    // distinct base58 mints match.
+    expect(
+      validateBirthBody({ ...VALID, ca: VALID.ca.toUpperCase().replace("0X", "0x") }),
+    ).toBeNull();
+    const sol = {
+      ...VALID,
+      chain: "solana",
+      ca: "So11111111111111111111111111111111111111112",
+      creator: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      record_url: "https://memetic.fun/record/solana/So11111111111111111111111111111111111111112.json",
+    };
+    expect(validateBirthBody(sol)).toBeNull();
+    expect(
+      validateBirthBody({ ...sol, record_url: sol.record_url.replace("So1111", "so1111") }),
+    ).toMatchObject({ field: "record_url" });
+  });
+});
+
 describe("hexEquals", () => {
   it("compares equal-length hex without leaking length by early return", () => {
     const a = signBirthBytes(SECRET, canonicalBirthBytes(VALID));

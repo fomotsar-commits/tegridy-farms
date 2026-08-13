@@ -3,9 +3,12 @@
 // WHAT THIS PLOTS, AND WHAT IT REFUSES TO PLOT
 //   The curve is a FUNCTION OF STATE — price at a given amount raised — so it is
 //   always knowable from one account read. It is NOT a time series. There is no
-//   indexer, no trade history, and the program is not deployed anywhere, so a
-//   price-over-time chart could only be fabricated
+//   indexer and no trade history, so a price-over-time chart could only be fabricated
 //   (docs/OWN_CURVE_FRONTEND_CONTRACT.md §9 row 7). Nothing here produces one.
+//   (This used to add "and the program is not deployed anywhere". It has been live on
+//   mainnet since 2026-08-08 — which REMOVES a reason and changes nothing: with no
+//   indexer there is still no history to plot, and `getProgramAccounts` is off the
+//   /api/solrpc allowlist, so the browser cannot reconstruct one either.)
 //
 // THE ARITHMETIC IS NOT HERE. An earlier draft of this file restated
 // `lamports_until_target` and the fee constants locally, with a TODO saying to

@@ -57,7 +57,7 @@ deployed and unpaused; the zero means "not surfaced", not "not deployed". The fu
 | Address | Status | Migration reason |
 |---|---|---|
 | RevenueDistributor `0xF993316E2fC079de4358c489A935E01e03E23E17` | **CANONICAL** | Relaunch 2026-06-06. |
-| SwapFeeRouter `0x6d5791A660e79175F74C6D639584C98422d5956E` | **CANONICAL** | Relaunch 2026-06-06. Read back: `feeBps() == 50`, `stakerShareBps() == 10000`, `polShareBps() == 0`, `totalETHFees() == 0` — no fee has ever accrued. Admin sister `SwapFeeRouterAdmin 0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060`. |
+| SwapFeeRouter `0x6d5791A660e79175F74C6D639584C98422d5956E` | **CANONICAL** | Relaunch 2026-06-06. Read back: `feeBps() == 50`, `stakerShareBps() == 10000`, `polShareBps() == 0`. **Has collected fee ETH and distributed none** — the take is parked in `ReferralSplitter` behind an uncalled `recoverCallerCredit()` (corrected 2026-08-12; this row previously said no fee had ever accrued). Admin sister `SwapFeeRouterAdmin 0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060`. |
 | POLAccumulator `0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2` | Deployed, **not wired** | Relaunch 2026-06-06, but `SwapFeeRouter.polAccumulator()` still reads `0x0…0`. |
 | ReferralSplitter `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c` | **CANONICAL** | Relaunch 2026-06-06. |
 | LockerClaimer `0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7` | **CANONICAL** | Deployed 2026-08-01 to give the pull-based Doppler fee locker a `msg.sender` it can actually pay. No admin surface; destinations immutable. |

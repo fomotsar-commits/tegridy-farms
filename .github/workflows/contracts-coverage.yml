@@ -1,0 +1,160 @@
+name: Contracts Coverage
+
+# THE NIGHTLY CRON THAT WAS ALWAYS REFERENCED AND NEVER EXISTED.
+#
+# contracts-ci.yml carried a coverage step disabled three ways at once —
+# `if: ${{ false }}`, `|| true`, and `continue-on-error: true` — whose comment
+# said it "runs on the nightly cron with full coverage". No such workflow was
+# ever committed. Coverage last ran on 2026-05-17, and even then could not
+# have failed.
+#
+# Keeping it out of PR-blocking CI is correct: `forge coverage` on this
+# codebase takes 15-30 minutes on a 2-core hosted runner, and a 30-minute tax
+# on every PR is how a check gets deleted. So it lives here, on its own
+# schedule, where it is allowed to take as long as it takes AND is allowed to
+# fail.
+#
+# WHAT MAKES IT A GATE: a ratchet, `.github/coverage-floor.json`. Coverage that
+# only ever gets printed is a number nobody reads. This run recomputes line
+# coverage over contracts/src and fails if it has dropped below the committed
+# floor. There is deliberately no "no floor file, pass anyway" path — an
+# unarmed ratchet is the same green-over-nothing this workflow was written to
+# replace — so the first run fails and prints the exact JSON to commit.
+
+on:
+  schedule:
+    - cron: "13 5 * * 0" # Sundays 05:13 UTC
+  workflow_dispatch:
+    inputs:
+      update_floor:
+        description: "Print the floor JSON to commit instead of enforcing it"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contracts-coverage
+  cancel-in-progress: false
+
+jobs:
+  coverage:
+    name: forge coverage + floor ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@de808b1eea699e761c404bda44ba8f21aba30b2c # v1.3.1
+        with:
+          version: stable
+
+      # --ir-minimum is load-bearing, not a speed knob. foundry.toml sets
+      # via_ir = true, and `forge coverage` under full via_ir loses the source
+      # mapping it needs to attribute hits — it either errors or reports
+      # nonsense. --ir-minimum compiles with the minimum IR settings that keep
+      # the mapping intact.
+      #
+      # NO `|| true`. If coverage cannot run, that is the finding.
+      - name: forge coverage
+        run: |
+          set -euo pipefail
+          forge coverage --ir-minimum --report summary --report lcov | tee /tmp/coverage.txt
+
+      # Parse LCOV rather than the human summary: LF/LH records are a stable
+      # format, the summary table's columns are not. Scoped to src/ — coverage
+      # of test/ and script/ is not a number anyone should be ratcheting.
+      - name: Compute line coverage over src/
+        id: cov
+        run: |
+          set -euo pipefail
+          test -s lcov.info || { echo "::error::forge coverage produced no lcov.info — nothing was measured"; exit 1; }
+          python3 - <<'PY' | tee /tmp/cov.env
+          found = hit = files = 0
+          in_scope = False
+
+          def scoped(path: str) -> bool:
+              # OUR src/, never a dependency's. Vendored trees under lib/ have
+              # their own src/ directories and would otherwise be averaged in —
+              # which both inflates the number and makes the ratchet move when
+              # a submodule bumps.
+              p = "/" + path.replace("\\", "/")
+              return "/src/" in p and "/lib/" not in p and "/node_modules/" not in p
+
+          for line in open("lcov.info", encoding="utf-8", errors="replace"):
+              line = line.strip()
+              if line.startswith("SF:"):
+                  in_scope = scoped(line[3:])
+              elif in_scope and line.startswith("LF:"):
+                  found += int(line[3:]); files += 1
+              elif in_scope and line.startswith("LH:"):
+                  hit += int(line[3:])
+          assert files > 0, "no src/ files appear in lcov.info — the report is empty or the paths changed"
+          assert found > 0, "src/ files report zero total lines — the report is not usable"
+          pct = 100.0 * hit / found
+          print(f"COV_FILES={files}")
+          print(f"COV_LINES_FOUND={found}")
+          print(f"COV_LINES_HIT={hit}")
+          print(f"COV_PCT={pct:.2f}")
+          PY
+          cat /tmp/cov.env >> "$GITHUB_ENV"
+
+      - name: Enforce the floor
+        env:
+          UPDATE_FLOOR: ${{ inputs.update_floor }}
+        run: |
+          set -euo pipefail
+          FLOOR_FILE=../.github/coverage-floor.json
+          {
+            echo "### Contracts coverage (src/)"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| files | ${COV_FILES} |"
+            echo "| lines hit | ${COV_LINES_HIT} / ${COV_LINES_FOUND} |"
+            echo "| line coverage | **${COV_PCT}%** |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$UPDATE_FLOOR" = "true" ]; then
+            echo "Ratchet not enforced (update_floor requested). Commit this as .github/coverage-floor.json:"
+            printf '{ "lines": %s }\n' "$COV_PCT" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ ! -f "$FLOOR_FILE" ]; then
+            echo "::error title=Coverage floor not armed::.github/coverage-floor.json does not exist, so nothing constrains coverage and this job would only ever print a number. Commit the line below to arm the ratchet."
+            printf '{ "lines": %s }\n' "$COV_PCT" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          FLOOR="$(python3 -c 'import json;print(json.load(open("../.github/coverage-floor.json"))["lines"])')"
+          echo "measured ${COV_PCT}% vs floor ${FLOOR}%"
+          echo "| floor | ${FLOOR}% |" >> "$GITHUB_STEP_SUMMARY"
+          python3 - "$COV_PCT" "$FLOOR" <<'PY'
+          import sys
+          got, floor = float(sys.argv[1]), float(sys.argv[2])
+          if got + 1e-9 < floor:
+              print(f"::error title=Coverage regressed::line coverage over contracts/src fell to {got:.2f}%, below the committed floor of {floor:.2f}%. Add tests, or lower the floor DELIBERATELY in the same PR that removes the coverage.")
+              raise SystemExit(1)
+          print(f"OK: {got:.2f}% >= {floor:.2f}%")
+          PY
+
+      - name: Upload lcov
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        if: ${{ !cancelled() }}
+        with:
+          name: contracts-lcov
+          path: |
+            contracts/lcov.info
+            /tmp/coverage.txt
+          retention-days: 30
+          if-no-files-found: warn

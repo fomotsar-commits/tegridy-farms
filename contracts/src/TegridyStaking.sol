@@ -650,6 +650,54 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit JbacVaultSet(_vault);
     }
 
+    // ─── [TOKENURI-UNWIRED] — DIAGNOSED, MEASURED, NOT LANDED HERE ────────
+    //
+    // `tokenURI()` returning "" while `TegridyTokenURIReader` sits deployed and
+    // unused is REAL and confirmed (see the tokenURI override below). The wire is
+    // three pieces: `address public tokenURIReader` (declared last, see its
+    // natspec), an `onlyOwner` setter here, and a forwarding `tokenURI`.
+    //
+    // It was written and MEASURED on 2026-08-12 and then removed, because it does
+    // not fit and pretending otherwise ships an undeployable contract:
+    //
+    //   TegridyStaking deployedBytecode, measured on this branch, warm cache
+    //   (`forge inspect TegridyStaking deployedBytecode`, length/2 minus the 0x):
+    //     24,457 B  baseline (HEAD)
+    //     24,535 B  +78  [BOOST-RESIDUAL-WIPE]      (reward correctness)
+    //     24,608 B  +73  [L-11 fourth sibling]      (boost/JBAC correctness)
+    //     24,554 B  -54  MAX_MAX_UNSETTLED de-getter  <-- SHIPPED. 22 B headroom.
+    //     24,895 B  +341 tokenURI wire  <-- 319 B OVER the 24,576 EIP-170 ceiling
+    //
+    // 341 B = the `tokenURIReader()` auto-getter + the setter + the forwarding
+    // body. Trimming it (internal var so no getter, no event, no code-length
+    // probe, assembly returndata bubble instead of an ABI round-trip) still lands
+    // near ~200 B against the 22 B actually available.
+    //
+    // The funding options were all rejected on purpose:
+    //   * More `external -> internal` getter golf. This contract has BRICKED live
+    //     callers twice doing exactly that (`userPositionCount` took out
+    //     CommunityGrants.createProposal; `totalLocked` left two interfaces
+    //     declaring a selector that no longer existed — see the preamble of
+    //     scripts/check-interface-selectors.mjs). Spending that risk budget on
+    //     artwork is the wrong trade. The one getter golfed above is the single
+    //     provably-unreferenced selector on the contract.
+    //   * Hardcoding the reader as a `constant`. The deployed reader binds its
+    //     target staking address as a CONSTRUCTOR IMMUTABLE, so the existing one
+    //     points at the CURRENT deployment. Shipping this change-set means a new
+    //     staking address, which the old reader would render stale positions for.
+    //     A settable slot is not optional.
+    //
+    // THE FIX IS AN EXTRACTION, AND IT IS CHEAP AND OBVIOUS: the inline
+    // admin-replacement timelock cluster on this contract — `pendingStakingAdmin`,
+    // `adminReplacementReadyAt`, `proposeAdminReplacement`,
+    // `executeAdminReplacement`, `cancelAdminReplacement` — is four external
+    // selectors plus bodies, far more than 374 B, and it is operator-only
+    // machinery with no user-facing path. Move it the way `earned` / `getPosition`
+    // went to StakingMonitorView, then land the wire in the same PR. Do NOT land
+    // the wire first and "find the bytes later": CI's EIP-170 gate hard-fails at
+    // 24,576 for this contract (FLOOR_EXCEPTIONS only softens the 24,000 floor),
+    // so it cannot silently drift over the way it did to 24,569 B on `main`.
+
     /// @notice Retry a JBAC return that was deferred because the outer
     ///         `vault.returnJbac` call from `_clearPosition` reverted (e.g.,
     ///         mis-wired vault, transient vault gas blow-up, post-deploy ABI
@@ -1088,6 +1136,38 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Toggle auto-max-lock. When enabled, lock auto-extends on every claim.
+    ///
+    /// @notice ENABLING THIS COMMITS YOUR PRINCIPAL FOR FOUR YEARS. The FLAG is
+    ///         two-way — call this again and `autoMaxLock` goes back to false. The
+    ///         LOCK is not. Enabling writes `p.lockEnd = block.timestamp +
+    ///         MAX_LOCK_DURATION` (4 years) and NOTHING anywhere in this contract
+    ///         ever moves `lockEnd` earlier: disabling skips the extend branch
+    ///         entirely, `extendLock` reverts with `LockNotExtended` unless the new
+    ///         end is LATER, and `revalidateBoost` does not touch it. So after you
+    ///         disable, the position still cannot be withdrawn until four years
+    ///         after the moment you enabled.
+    ///
+    ///         Every exit before then costs the 25% penalty. Verified path by path
+    ///         2026-08-12: `withdraw` reverts `LockNotExpired`;
+    ///         `emergencyExitPosition` reverts `LockStillActive`;
+    ///         `executeEmergencyExit` DOES complete but charges
+    ///         `EARLY_WITHDRAWAL_PENALTY_BPS` on the `block.timestamp < p.lockEnd`
+    ///         branch, exactly like `earlyWithdraw`. The only penalty-free early
+    ///         door is `emergencyWithdrawPosition`, which is `whenPaused` — i.e. it
+    ///         requires the owner to pause the whole protocol and is not something
+    ///         a holder can reach on their own.
+    ///
+    /// @dev    UI CONTRACT NOTICE (raised 2026-08-12, fix belongs to the frontend
+    ///         owner, NOT to this file):
+    ///         `frontend/src/components/farm/BoostScheduleTable.tsx:108` currently
+    ///         reads "... Disable anytime to let it expire naturally." The first
+    ///         clause is true of the flag; "let it expire naturally" is false of
+    ///         the money, and it is the clause a user makes the decision on. The
+    ///         chain is the fact and the copy is the lie. Suggested replacement:
+    ///         "Enabling extends your lock to the full 4 years immediately.
+    ///         Disabling stops the auto-renew but does NOT shorten the lock —
+    ///         withdrawing before it ends costs the 25% early-exit penalty."
+    ///
     /// @dev    NOTE: the extend-lock fee (AUDIT C5) that previously applied on enable
     ///         was removed for EIP-170 size. Its bps defaulted to 0 (no fee at
     ///         launch); deferred to a later version. Enabling still maximises boost.
@@ -1215,6 +1295,54 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice Add more TOWELI to an existing staking position without withdrawing.
+    ///
+    /// @notice READ THIS BEFORE TOPPING UP A DECAYED LOCK. Topping up re-rates the
+    ///         WHOLE position — original principal included — down to whatever
+    ///         boost the REMAINING lock time justifies. It is not a per-tranche
+    ///         blend. Concretely: a 4-year lock at 4.0x with six months left is
+    ///         re-rated to `calculateBoost(182 days)` ~= 0.83x on every token in
+    ///         the position, not just the new ones, and it stays there until the
+    ///         next `extendLock` / `toggleAutoMaxLock`. Boost is never raised
+    ///         above the cached `boostBps`, only lowered.
+    ///
+    ///         Mitigation, and it is free: call `extendLock` (or enable
+    ///         `autoMaxLock`) FIRST, in the same session. The clamp reads
+    ///         `p.lockEnd` AFTER the autoMaxLock extension (see
+    ///         STAKING-INC-AML-DOWNGRADE below), so a refreshed horizon makes
+    ///         `remainingBoost` the full-duration boost and the clamp a no-op.
+    ///
+    /// @dev    DESIGN INTENT — the code above is the specification, and this note
+    ///         exists because the F-02-K-04 comment's closing sentence ("new
+    ///         principal earns only what the remaining lock supports") read as if
+    ///         the two tranches were rated separately. They are not, and were never
+    ///         meant to be: F-02-K-04's own opening sentence is "clamp boost on
+    ///         COMBINED principal". Reviewed 2026-08-12 and the CODE was kept, for
+    ///         three reasons beyond that:
+    ///
+    ///         (1) Per-tranche rating is not representable. `Position` carries ONE
+    ///             `uint16 boostBps` and ONE `boostedAmount`, and `votingPowerOf` /
+    ///             `aggregateActiveBoostBps` / `StakingViewLib.earned` all derive
+    ///             from those single values. A blend would have to be collapsed
+    ///             into a weighted-average `boostBps` anyway.
+    ///         (2) A blended `boostBps` would not survive. Every OTHER boost-writing
+    ///             path recomputes boost purely from lock duration —
+    ///             `extendLock` -> `calculateBoost(_newLockDuration)`,
+    ///             `revalidateBoost` -> `calculateBoost(p.lockDuration)`,
+    ///             `getReward`'s decay-restore -> `MAX_BOOST_BPS`. The blend would
+    ///             be silently erased by the holder's next interaction, which is a
+    ///             worse contract than a deterministic clamp they can plan around.
+    ///         (3) It is an economic change, not a doc fix. Rewards are a fixed-rate
+    ///             pool split by boosted share, so paying top-ups a higher blended
+    ///             boost dilutes every staker who did not top up. That is an owner
+    ///             decision, not a drive-by correctness patch on the one contract
+    ///             holding real user funds.
+    ///
+    ///         If the owner ever DOES want per-tranche economics, it is a
+    ///         weighted-average `boostBps` written coherently across all five
+    ///         `_applyNewBoost` callers plus the rounding reconciliation between
+    ///         `boostedAmount` and `amount * boostBps / BOOST_PRECISION` — a
+    ///         designed change with its own test plan, not an edit here.
+    ///
     /// @param tokenId The NFT token ID of the staking position
     /// @param _additionalAmount Amount of TOWELI to add (must be >= MIN_STAKE)
     function increaseAmount(uint256 tokenId, uint256 _additionalAmount) external nonReentrant whenNotPaused updateReward {
@@ -1254,13 +1382,62 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // original `boostBps` was retro-applied to the new principal, letting a
         // whale dribble in additional stake at MAX boost in the final days of a
         // long lock. We use the SMALLER of cached `boostBps` and the boost
-        // derivable from current remaining lock time. Existing-principal earned
-        // its rate honestly so we never raise above cached; new principal earns
-        // only what the remaining lock supports.
+        // derivable from current remaining lock time.
+        //
+        // CLARIFIED 2026-08-12: `effectiveBoost` is applied to the COMBINED
+        // principal by `_applyNewBoost` (`p.boostedAmount = p.amount * newBoost`),
+        // so the ORIGINAL principal is re-rated too. The previous closing sentence
+        // here — "Existing-principal earned its rate honestly so we never raise
+        // above cached; new principal earns only what the remaining lock supports"
+        // — described a per-tranche split that this code has never implemented and
+        // that the Position struct cannot represent. Only the first half was ever
+        // true, and it is the `< cachedBoost` clamp: boost is never RAISED above
+        // the cached value. The full rationale for keeping the combined-principal
+        // behaviour (and what changing it would actually cost) is in this
+        // function's natspec.
         uint256 cachedBoost = uint256(p.boostBps);
         uint256 remaining = p.lockEnd > block.timestamp ? p.lockEnd - block.timestamp : 0;
         uint256 remainingBoost = calculateBoost(remaining);
-        if (p.hasJbacBoost) remainingBoost += JBAC_BONUS_BPS;
+        // AUDIT FIX 2026-08-12 [L-11 — FOURTH SIBLING]: `increaseAmount` was the
+        // one boost-rewriting entrypoint still re-applying the CACHED
+        // `p.hasJbacBoost` flag blind. The other three siblings
+        // (`toggleAutoMaxLock`, `extendLock`, `getReward`'s decay-restore branch)
+        // all re-validate through `StakingViewLib.resolveJbac` first. A legacy
+        // grandfathered `hasJbacBoost && !jbacDeposited` holder who sold or
+        // transferred their JBAC could therefore keep re-anchoring the +5000 BPS
+        // bonus forever by topping up — diluting every honest staker — and would
+        // never be stripped, because `revalidateBoost` is a separate call nobody
+        // is obliged to make. Same lib call, same gate shape, same argument order
+        // as the other three: deposited JBACs are always valid; legacy positions
+        // get a `balanceOf` re-check resolved through the restaking lookup when
+        // the caller IS the restaking contract; transient lookup failure
+        // preserves the cached flag (F3-PERMA-STRIP defence, inside the lib).
+        // Strictly a DOWNGRADE gate — no position can gain a bonus it did not
+        // already hold. NOT, as an earlier version of this comment claimed,
+        // because `jbacValid` is a subset of the `p.hasJbacBoost` it replaces:
+        // StakingViewLib.sol:79 is
+        //     p.jbacDeposited || (p.hasJbacBoost && lookupOk && balanceOf > 0)
+        // and that leading disjunct returns true for `jbacDeposited && !hasJbacBoost`,
+        // where the old condition returned false. It is not a subset.
+        //
+        // The guarantee holds for two other reasons, and anyone golfing this line
+        // needs the real ones:
+        //   1. that shape is unconstructible — `hasJbacBoost = true` is written only
+        //      at :1112, alongside `jbacDeposited = true` at :1115; `revalidateBoost`
+        //      reverts `JbacDeposited()` at :1687 before it could diverge; and every
+        //      `clearStale` site is gated on `!jbacValid`.
+        //   2. even if it were constructible, the clamp below is load-bearing:
+        //      `effectiveBoost = min(remainingBoost, cachedBoost)` means a larger
+        //      `remainingBoost` can never RAISE the boost, only fail to lower it.
+        {
+            (bool jbacValid, bool clearStale) =
+                StakingViewLib.resolveJbac(p, tokenId, msg.sender, restakingContract, jbacNFT);
+            if (jbacValid) {
+                remainingBoost += JBAC_BONUS_BPS;
+            } else if (clearStale) {
+                p.hasJbacBoost = false;
+            }
+        }
         uint256 effectiveBoost = remainingBoost < cachedBoost ? remainingBoost : cachedBoost;
         _applyNewBoost(p, effectiveBoost);
 
@@ -1656,9 +1833,23 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @notice tokenURI override required by Solady's abstract surface.
-    /// @dev    Returns empty string to match the prior OZ/Solmate default
-    ///         behaviour. Frontends/marketplaces resolve metadata via
-    ///         TegridyTokenURIReader (off-chain) per the existing architecture.
+    /// @dev    KNOWN DEFECT [TOKENURI-UNWIRED], confirmed 2026-08-12, NOT FIXED
+    ///         HERE — blocked on EIP-170, with the full byte ledger and the
+    ///         extraction that unblocks it recorded next to `setJbacVault`.
+    ///
+    ///         This returns "" for every token. The prior comment claimed
+    ///         "Frontends/marketplaces resolve metadata via TegridyTokenURIReader
+    ///         (off-chain) per the existing architecture" — that is not how ERC-721
+    ///         consumers work and it made a defect read like a design. OpenSea,
+    ///         Blur, Rainbow, MetaMask and every indexer call `tokenURI(id)` ON
+    ///         THIS CONTRACT. They get "", so a tsTOWELI position renders as an
+    ///         untitled blank — while `TegridyTokenURIReader`, which builds the
+    ///         full on-chain SVG + base64 JSON and carries its own audit history
+    ///         (DEEP-URI-01/02/03, V2-URI-01, R014, L-35), sits deployed with
+    ///         nothing pointing at it.
+    ///
+    ///         Nothing off-chain can paper over this: a marketplace will not read
+    ///         a sister contract it has never heard of.
     function tokenURI(uint256 /*id*/) public view virtual override returns (string memory) {
         return "";
     }
@@ -2170,6 +2361,35 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         Zero when no proposal is pending.
     uint256 public adminReplacementReadyAt;
 
+    /// @notice Address of the deployed `TegridyTokenURIReader`. Zero until wired.
+    /// @dev    AUDIT FIX 2026-08-12 [TOKENURI-UNWIRED].
+    ///
+    ///         DECLARED LAST ON PURPOSE — this is the final storage variable on the
+    ///         contract, so it takes the next free slot and EVERY pre-existing slot
+    ///         index is unchanged. That matters concretely, not theoretically:
+    ///         `FRESH2026_F3_StakingJbacRestakerLookup.t.sol:150` hardcodes
+    ///         `POSITIONS_SLOT = 18` and `invariants/StakingInvariants.t.sol:366`
+    ///         hardcodes `LEDGER_SLOT = 28`, both driving raw `vm.store` /
+    ///         `vm.load`. Declaring this next to `treasury` (the natural-looking
+    ///         home, and where it was first written) shifted both mappings by one
+    ///         and turned those two suites into silent liars — they would still
+    ///         compile, still run, and read an unrelated slot. Keep new storage at
+    ///         the END of this contract.
+    ///
+    ///         NOT immutable: the reader's constructor takes `staking` as an
+    ///         immutable, so the reader cannot exist before this contract does — an
+    ///         immutable here would be unconstructible. NOT one-shot (unlike
+    ///         `jbacVault`): the reader is a PURE VIEW surface that holds no funds,
+    ///         custodies nothing, and cannot touch staking state, so the worst a
+    ///         captured-owner rotation buys is cosmetic metadata — strictly weaker
+    ///         than what that owner can already do — while a one-shot would
+    ///         permanently freeze artwork that is expected to change.
+    ///
+    ///         NOT DECLARED TODAY — see the [TOKENURI-UNWIRED] byte ledger next to
+    ///         `setJbacVault`. Kept as a comment rather than deleted so the next
+    ///         person to wire it lands the slot in the right place first try:
+    ///             address public tokenURIReader;
+
     event StakingAdminReplaced(address indexed oldAdmin, address indexed newAdmin);
     event StakingAdminReplacementProposed(address indexed newAdmin, uint256 executeAfter);
     event StakingAdminReplacementCancelled(address indexed proposed);
@@ -2356,13 +2576,55 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @dev AUDIT REV-M-01: write the system-wide totalBoostedStake checkpoint AFTER both
     ///      the decrement and increment have settled — so the trace records the net post-
     ///      boost-rewrite total, not an intermediate mid-rewrite value.
+    /// @dev AUDIT FIX 2026-08-12 [BOOST-RESIDUAL-WIPE] — carry the UNPAID residual
+    ///      across the boost rewrite instead of destroying it.
+    ///
+    ///      Pre-fix this function ended with an unconditional
+    ///      `p.rewardDebt = accumulated_new`, which forces
+    ///      `accumulated - rewardDebt == 0` — i.e. it silently zeroes whatever
+    ///      the holder was still owed. That directly defeats AUDIT FIX
+    ///      2026-05-26 [H-05] (StakingRewardLib.sol:565), whose entire purpose is
+    ///      to advance `rewardDebt` by ONLY the actually-credited slice so an
+    ///      un-payable remainder stays claimable once the reward pool refills or
+    ///      the `maxUnsettledRewards` cap clears. Every caller runs `_getReward`
+    ///      immediately beforehand, so under a FULLY-funded pool the residual is
+    ///      zero and this fix is a no-op. Under an UNDER-funded pool — the
+    ///      routine state for this deployment, where a fixed `rewardRate` emits
+    ///      against a finite pool and `accumulateRewards` re-allocates the same
+    ///      unclaimed tokens on every tick — `_getReward` returns with a positive
+    ///      residual by design, and the boost rewrite then wiped it. Loss was
+    ///      silent and permanent for anyone who extended, topped up, toggled
+    ///      auto-max-lock, or was JBAC-downgraded during such a window.
+    ///
+    ///      Invariant restored: unpaid-owed (`accumulated - rewardDebt`) is
+    ///      INVARIANT across a boost change. Only a POSITIVE residual is carried.
+    ///      A non-positive one is left anchored at the new accumulator, which
+    ///      preserves the existing (correct) semantics of the post-decay restore
+    ///      path in `getReward` — after `_decayIfExpired` zeroes `boostedAmount`,
+    ///      `accumulated` is 0 while `rewardDebt` is stale-positive, and that
+    ///      deficit must NOT be carried forward as a hole the holder has to earn
+    ///      through.
+    ///
+    ///      Solvency: the residual is a token quantity that was already accrued
+    ///      against the OLD `boostedAmount`, so carrying it creates no new claim
+    ///      — it only stops an existing one from being erased. The payout itself
+    ///      is still gated by `_creditGetReward`'s pool cap and the unsettled cap.
     function _applyNewBoost(Position storage p, uint256 newBoost) private {
+        // Capture BEFORE `p.boostedAmount` is overwritten below.
+        int256 residual = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION) - p.rewardDebt;
         totalBoostedStake -= p.boostedAmount;
         if (newBoost > type(uint16).max) revert BoostOverflow();
         p.boostBps = uint16(newBoost);
         p.boostedAmount = (p.amount * newBoost) / BOOST_PRECISION;
         totalBoostedStake += p.boostedAmount;
-        p.rewardDebt = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
+        int256 anchor = _safeInt256((p.boostedAmount * rewardPerTokenStored) / ACC_PRECISION);
+        // `anchor - residual` may go negative when the boost drops far enough that
+        // the new accumulator is smaller than the carried residual. `rewardDebt` is
+        // int256 precisely so that is representable, and every consumer
+        // (`StakingRewardLib.getReward`, `StakingViewLib.earned` /
+        // `earnedFromMem`) already computes `accumulated - rewardDebt` in signed
+        // arithmetic, so the residual reads back at exactly its captured value.
+        p.rewardDebt = residual > 0 ? anchor - residual : anchor;
         _writeTotalBoostedStakeCheckpoint(); // AUDIT REV-M-01
     }
 
@@ -2480,7 +2742,24 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         so a captured owner cannot reverse AUDIT FIX L-06 by setting cap to
     ///         `type(uint256).max` (which restores the unbounded-growth state L-06
     ///         was meant to prevent).
-    uint256 public constant MAX_MAX_UNSETTLED = 1e10 ether; // 10B TOWELI sanity ceiling
+    /// @dev    EIP-170 golf 2026-08-12: visibility lowered `public` -> `internal` to
+    ///         reclaim the auto-getter (~87 B) that funds the
+    ///         [BOOST-RESIDUAL-WIPE] + [L-11 fourth sibling] fixes in this same
+    ///         change-set. Same de-getter pattern as `strandedJbacAtVault*`
+    ///         (C1 EIP-170 split).
+    ///
+    ///         BRICK CHECK (the `userPositionCount` lesson — see
+    ///         scripts/check-interface-selectors.mjs): the ONLY reader of this
+    ///         selector was this contract itself, on the line below. Verified
+    ///         zero callers across contracts/src, contracts/test,
+    ///         contracts/script, frontend/src (both the generated ABIs and the
+    ///         hand-rolled `contracts.ts` / `abi-supplement.ts`), api/ and
+    ///         scripts/. The value is UNCHANGED and still readable off-chain as
+    ///         a public constant on the admin sister,
+    ///         `TegridyStakingAdmin.MAX_MAX_UNSETTLED` — which is the contract
+    ///         operators actually drive this parameter through — so the golf
+    ///         removes a duplicate getter, not an observability surface.
+    uint256 internal constant MAX_MAX_UNSETTLED = 1e10 ether; // 10B TOWELI sanity ceiling
 
     function applyMaxUnsettledRewards(uint256 _cap) external onlyAdmin {
         if (_cap < 10_000e18) revert CapTooLow();

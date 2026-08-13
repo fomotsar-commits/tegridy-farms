@@ -30,6 +30,19 @@ export interface ResidualPower {
   holder?: Address | null;
   /** Plain-language, buyer-facing sentence. Always factual, never reassuring. */
   disclosure: string;
+  /**
+   * THE THIRD STATE for `present`. FALSE when the read behind this power never
+   * landed — as opposed to landing and reporting the power absent.
+   *
+   * `present: false` had two meanings and one of them is a lie: a 429 on
+   * `isBalanceLimitActive()` degrades to `false`, which reads out as "No maximum
+   * wallet balance is enforced." — a statement about a contract nobody queried,
+   * folded permanently into `disclosuresDigest`.
+   *
+   * Emitted ONLY when false. Absent means read, so every existing producer and
+   * every already-computed digest is byte-for-byte unaffected.
+   */
+  readable?: boolean;
 }
 
 /** LP lock disclosure. */
@@ -100,11 +113,48 @@ export interface LaunchFactSheet {
   liquidity: LiquidityDisclosure;
   feeConstitution: FeeConstitutionLine[];
   vesting: VestingSchedule[];
+  /**
+   * THE THIRD STATE for `vesting`. FALSE when the per-beneficiary schedules were
+   * never ENUMERATED — as opposed to enumerated and found to be none.
+   *
+   * `vesting: []` had two meanings and one of them is a lie. The on-chain collector
+   * cannot enumerate schedules at all: DopplerERC20V1 exposes `vestedTotalAmount()`
+   * (a single total) and `vestingStart()`, and there is no per-beneficiary index to
+   * walk. So `collectTokenFacts` returns an empty array for every token, and
+   * `canonicalDisclosuresJson` folds that empty array into the ON-CHAIN digest — an
+   * unknown published as the value "none".
+   *
+   * Emitted ONLY when false. Absent means enumerated, so a caller that really does
+   * know the schedules (the wizard projection, a graduated-locker read) is unchanged
+   * and its digest does not move.
+   */
+  vestingReadable?: boolean;
   /** Basis points of supply held by team/insiders, and how much of that is on-chain-vested. */
   teamAllocationBps: number;
   teamAllocationVestedBps: number;
   // outcome
   tier: LaunchTier;
+  /**
+   * THE THIRD STATE for `tier`. FALSE when the gate could not actually DECIDE —
+   * i.e. at least one check rested on an input nobody read, and the tier would flip
+   * depending on how that unread input resolved.
+   *
+   * `tier: 'none'` had two meanings and one of them is a lie: "evaluated, does not
+   * meet the bar" and "could not be evaluated". The launch-time attest path hits the
+   * second one on every launch — it re-collects with no LockResolver, the LP-lock
+   * checks fail on an unqueried locker, and a token the wizard rendered FLAGSHIP one
+   * screen earlier encodes as `tier = 0` (see TIER_CODE) permanently, on someone
+   * else's token.
+   *
+   * The uint8 `tier` column has no room for a third value, so the honest move is not
+   * to encode a fourth code — it is to REFUSE. `attestation.attestationRefusal()`
+   * reads this field and blocks the write. Same for the `uint64 liquidityUnlockAt`
+   * column, whose 0 means both "no lock" and "not read".
+   *
+   * Emitted ONLY when false. Absent means the gate decided, so every existing
+   * producer and every already-computed digest is byte-for-byte unaffected.
+   */
+  tierDeterminate?: boolean;
   /** Every gate check with its pass/fail and reason — the audit trail. */
   gateChecks: GateCheck[];
   /** When these facts were read (unix seconds). Facts are point-in-time. */
@@ -118,6 +168,20 @@ export interface GateCheck {
   requiredFor: 'listable' | 'flagship';
   passed: boolean;
   detail: string;
+  /**
+   * THE THIRD STATE for `passed`. FALSE when this check's INPUT was never read, so
+   * `passed` is the conservative fallback rather than a finding.
+   *
+   * A gate substitutes the value that CLOSES the gate when a read fails, which is
+   * right for tiering and wrong for publishing — and in two places it is not even
+   * gate-closing: an unread `owner()` degrades to `null` degrades to "ownership
+   * renounced", which PASSES the flagship admin bar, and an unread
+   * `vestedTotalAmount()` degrades to 0 bps, which PASSES the insider-float cap.
+   * A fabricated pass and a fabricated fail are the same defect.
+   *
+   * Emitted ONLY when false, so a determinate audit trail digests exactly as before.
+   */
+  readable?: boolean;
 }
 
 /**

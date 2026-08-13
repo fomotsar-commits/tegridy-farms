@@ -207,20 +207,11 @@ function validateOrderShape(params, label) {
  * half of the guard was made fail-closed first; this is the write half, and the guard is
  * only as good as whichever half is weaker.
  */
-async function cancelOrderHashes(supabase, orderHashes) {
-  for (const hash of orderHashes) {
-    const { error } = await supabase
-      .from("native_orders")
-      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-      .eq("order_hash", hash)
-      .eq("status", "active");
-    if (error) {
-      const err = new Error(`cancel-failed: ${error.message}`);
-      err.code = "CANCEL_FAILED";
-      throw err;
-    }
-  }
-}
+// `cancelOrderHashes` LIVED HERE AND IS DELETED ON PURPOSE — 2026-08-12. It marked
+// native_orders rows 'cancelled' in the database while the Seaport order stayed
+// fillable on-chain; both callers now refuse with 409 instead. Deleted rather than left
+// unused: a helper named `cancelOrderHashes` that cancels nothing is exactly what gets
+// re-wired in six months. A supersede flow must do the on-chain leg FIRST.
 
 // SECURITY: the only fulfillment contracts a stored order may name. Every other
 // field on this write path is validated (currency, price cap, signature recovery,
@@ -984,12 +975,39 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Unsupported protocol address" });
       }
 
-      // Every rejection path is now behind us — safe to supersede the prior listing.
-      try {
-        await cancelOrderHashes(supabase, supersededOrderHashes);
-      } catch (e) {
-        console.error("[orderbook] superseding cancel failed:", e.message);
-        return res.status(503).json({ error: "Could not replace your existing listing — please retry" });
+      // REFUSE, DO NOT SUPERSEDE — 2026-08-12.
+      //
+      // `cancelOrderHashes` was a DATABASE write and nothing more. The server holds no
+      // maker signer so it cannot cancel on Seaport, and no client path compensated:
+      // createNativeListing calls neither cancelSeaportOrder nor incrementCounter. So a
+      // relist flipped the old row to 'cancelled', the UI stopped showing it, and
+      // on-chain it stayed perfectly fillable — same owner, same conduit approval, same
+      // signature. Seller lists at 1 ETH, relists at 2, believes they are at 2, and
+      // anyone holding the old signature buys at 1.
+      //
+      // Refusing is the trade the bundle-vs-bundle branch already makes. It costs the
+      // seller one explicit step and it is the step that actually works: MyListings'
+      // Cancel button sends a real on-chain cancelSeaportOrder before POSTing
+      // action:"cancel".
+      //
+      // Kept in the exact slot the cancel occupied — structurally the last thing before
+      // the insert. Refusing earlier, at the overlap check, reorders the error
+      // precedence so a request that is both overlapping AND malformed answers 409
+      // where it used to answer 400/503.
+      //
+      // Considered and rejected for now: 409-with-parameters so the client cancels
+      // on-chain and retries. That puts a wallet prompt inside BulkListingWizard's
+      // per-item loop and opens a new partial-failure window, for a flow with zero live
+      // orders today. Do not add it without handling both.
+      //
+      // Latent until migration 005 — native_orders.seaport_order_hash does not exist in
+      // prod, so the create path 42703s and never reaches here. Fixed BEFORE 005, not
+      // after.
+      if (supersededOrderHashes.length > 0) {
+        return res.status(409).json({
+          error: `#${tokenId} is already listed by you. Cancel that listing first — that cancels it on-chain — then list it again.`,
+          conflictingOrders: supersededOrderHashes,
+        });
       }
 
       const { error } = await supabase.from("native_orders").insert({
@@ -1306,12 +1324,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Unsupported protocol address" });
       }
 
-      // Every rejection path is behind us — safe to supersede.
-      try {
-        await cancelOrderHashes(supabase, bundleSuperseded);
-      } catch (e) {
-        console.error("[orderbook] bundle superseding cancel failed:", e.message);
-        return res.status(503).json({ error: "Could not replace your existing listings — please retry" });
+      // Same defect, same fix, same slot as the single-listing branch — see the note
+      // there. A bundle superseding the seller's own singles would DB-cancel them while
+      // leaving every one fillable on-chain at its old price.
+      if (bundleSuperseded.length > 0) {
+        return res.status(409).json({
+          error:
+            'Some of these NFTs are already listed individually by you. Cancel those listings first — that cancels them on-chain — then create the bundle.',
+          conflictingOrders: bundleSuperseded,
+        });
       }
 
       const { error: insertErr } = await supabase.from("native_orders").insert({

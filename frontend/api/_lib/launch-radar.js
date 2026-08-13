@@ -21,7 +21,8 @@
 // on the raw JSON forwarded here — so this adapter stays a thin, cacheable pipe and
 // the hostile-JSON handling has exactly one tested implementation.
 
-import { checkRateLimit } from "./ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
+import { isOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -75,6 +76,12 @@ export async function handleLaunchRadar(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
+  // ENFORCE the origin — `setCors` only sets a header. Dispatched before runProxy, so
+  // this branch does not inherit aggregator-proxy.js's 403 and must apply it itself.
+  if (!isOriginAllowed(req.headers?.origin || "")) {
+    return res.status(403).json({ error: "Origin not allowed" });
+  }
+
   // Keyless upstream with a shared IP budget — throttle like the sibling resource.
   const allowed = await checkRateLimit(req, res, {
     limit: 20,
@@ -82,6 +89,15 @@ export async function handleLaunchRadar(req, res) {
     identifier: "launch-radar",
   });
   if (!allowed) return;
+
+  // Per-IP bounds one caller; the aggregate breaker bounds the fleet against a shared
+  // keyless upstream that rate-limits US, not the individual visitor.
+  const underCap = await checkGlobalLimit(res, {
+    limit: Number(process.env.LAUNCH_RADAR_GLOBAL_RPM) || 120,
+    windowSec: 60,
+    identifier: "launch-radar",
+  });
+  if (!underCap) return;
 
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });

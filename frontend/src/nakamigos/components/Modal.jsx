@@ -13,6 +13,7 @@ import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { copyToClipboard, fulfillSeaportOrder, fetchTokenSalesHistory, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { validateOrderQuick } from "../lib/orderValidator";
+import { pageArt } from "../../lib/artConfig";
 import { recordTransaction } from "../lib/transactions";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
@@ -288,8 +289,21 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
           </button>
         </div>
 
-        {/* Details Side */}
-        <div className="modal-details">
+        {/* Details Side.
+            Art backs ONLY this column, never `.modal-image-side` — the NFT is the
+            hero on the left and a second image behind it would compete with the
+            collection's own artwork. Scrim is the lightest of the three popups
+            (0.78->0.86) because this column is large type with generous spacing.
+            Safe under both named themes: `theme-midnight`/`theme-sovereign` override
+            `.modal-content` border and box-shadow with !important but never
+            `background`, and neither themes `.modal-details` at all. */}
+        <div
+          className="modal-details"
+          style={{
+            background: `linear-gradient(180deg, rgba(10,16,32,0.78) 0%, rgba(10,16,32,0.86) 100%), url(${pageArt("nft-detail", 0).src}) center / cover no-repeat`,
+            textShadow: "0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)",
+          }}
+        >
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>

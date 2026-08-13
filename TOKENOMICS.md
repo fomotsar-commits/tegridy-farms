@@ -8,13 +8,15 @@
 | Address | [`0x420698CFdEDdEa6bc78D59bC17798113ad278F9D`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) |
 | Total supply | **1,000,000,000 (1B) — fixed** |
 | Decimals | 18 |
-| Standard | ERC-20 + ERC-2612 (permit) |
-| Mintable | **No.** No `mint()` function exists on the contract. |
-| Burnable | **No protocol burn path.** The only mechanism that could shrink circulating float is the POL sink (below), and it is dormant — see [Sinks](#sinks--how-circulating-supply-can-shrink). |
-| Owner | **None.** The token contract has no owner, no admin, no upgrade path. |
+| Standard | Plain ERC-20. **No permit** — `permit(...)`, `DOMAIN_SEPARATOR()` and `nonces(address)` all revert on the live contract. Approvals are two transactions. |
+| Mintable | **No.** `mint(address,uint256)` is not in the deployed bytecode. |
+| Burnable | **Yes, by holders.** `burn(uint256)` and `burnFrom(address,uint256)` are both live, so any holder can destroy their own TOWELI. **The protocol burns nothing** — no contract calls either one; see [Sinks](#sinks--how-circulating-supply-can-shrink). |
+| Owner | **Renounced.** The contract is Ownable2Step (`owner`, `pendingOwner`, `transferOwnership`, `acceptOwnership`, `renounceOwnership` all exist) and `owner()` reads `0x0…0`, so every owner-gated path reverts for everybody. No admin, no upgrade path — by renunciation, not by absence. |
 | Deployed | ~2024. See [docs/TOKEN_DEPLOY.md](docs/TOKEN_DEPLOY.md) for the CREATE2 vanity-address deployment story. |
 
-**The token has been live for ~2 years at the canonical address above.** Full supply was minted once at deploy. There is no way to issue more TOWELI; no governance vote, no admin action, no upgrade pattern. The supply cap is enforced by the ERC-20 source itself — see [contracts/src/Toweli.sol](contracts/src/Toweli.sol).
+> ⚠️ **The live contract is not [contracts/src/Toweli.sol](contracts/src/Toweli.sol).** Read on-chain 2026-08-12: it names itself **`Towelie`** (symbol `Toweli`) and is a token-generator template. The repo source is OZ-based with permit and no burn; the deployed bytecode is the reverse on both counts, and adds Ownable2Step. The rows above describe **what is deployed** — the repo file describes what a fresh deploy of this project's own source would produce. When they disagree, the chain wins. See [CONTRACTS.md § Core Token](CONTRACTS.md#core-token--staking) for the full selector read.
+
+**The token has been live for ~2 years at the canonical address above.** Full supply was minted once at deploy. There is no way to issue more TOWELI; no governance vote, no admin action, no upgrade pattern. 1B is therefore a **ceiling**: holder burns can only take the float down.
 
 ---
 
@@ -42,9 +44,12 @@ All supply has been minted and is in circulation somewhere — in treasury, LP, 
 from protocol swap fees. The 10% future-emissions bucket is secondary — a supplementary incentive for
 LP farmers, not the core value accrual.
 
-> **Nothing has flowed through this yet.** `SwapFeeRouter.totalETHFees()` read `0` on 2026-08-06 —
-> not a single wei of swap fee has ever accrued, so no ETH has ever reached the RevenueDistributor
-> or any staker. The diagram below is the wiring, not a record of payments.
+> **The rail has collected. It has never paid.** Corrected 2026-08-12 — the previous revision of this
+> box said no fee had ever accrued, which was false: `SwapFeeRouter` has taken fee ETH. Every wei of it
+> is still in `ReferralSplitter`, because the ~80% remainder is held as `callerCredit` and only moves
+> when someone calls the permissionless `recoverCallerCredit()`, which nobody has. `RevenueDistributor`
+> holds `0` and `totalDistributed()` reads `0`. **No staker has ever been paid.** The diagram below is
+> the wiring, not a record of payments — and note the splitter hop, which the old diagram omitted.
 
 ```
                        ┌──────────────────────┐
@@ -54,31 +59,51 @@ LP farmers, not the core value accrual.
                                   │ fee tokens
                                   ▼
                        ┌──────────────────────┐
-                       │   SwapFeeRouter      │
-                       │   0x6d5791A6...      │
+                       │   SwapFeeRouter      │◀────────────┐
+                       │   0x6d5791A6...      │             │
+                       └──────────┬───────────┘             │
+                                  │ 100% of the fee,        │ ~80% back, but ONLY on a
+                                  ▼ at swap time            │ recoverCallerCredit() call
+                       ┌──────────────────────┐             │ — NEVER CALLED
+                       │  ReferralSplitter    │─────────────┘
+                       │   0x6B3442dA...      │
                        └──────────┬───────────┘
-                                  │
-                                  ▼ (currently 100% — levers for split below)
+                                  │ referralFeeBps = 20%, cannot be set to 0
+                                  ▼
                        ┌──────────────────────┐
-                       │  RevenueDistributor  │
-                       │   0xF993316E...      │
+                       │ Referrer, or Treasury│
+                       │ if none qualifies    │   ← never staker yield
+                       └──────────────────────┘
+
+                       ┌──────────────────────┐
+                       │  RevenueDistributor  │   stakerShareBps applies to what
+                       │   0xF993316E...      │   comes BACK, not to the fee
                        └──────────┬───────────┘
                                   │
                                   ▼ pro-rata by veTOWELI voting power
                        ┌──────────────────────┐
                        │       Stakers        │
-                       │  (continuous ETH)    │
+                       │  0 epochs to date    │
                        └──────────────────────┘
 ```
 
-**Current state (read on-chain 2026-08-06):** `stakerShareBps() == 10000` and `polShareBps() == 0`,
-so 100% of any swap fee is earmarked for stakers. The `SwapFeeRouter` has dormant levers to route a
-% to a **Treasury** bucket and to a **POL Accumulator** (protocol-owned liquidity sink). Those levers
-are parameterised but set to zero pending a governance proposal — see
+**Current state (read on-chain 2026-08-12):** `stakerShareBps() == 10000` and `polShareBps() == 0` —
+but read what those apply to. They govern the split of `accumulatedETHFees`, i.e. of whatever has come
+**back** from the splitter, not of the fee the swapper paid. Upstream of them, `referralFeeBps` is
+`2000`, so the standing ceiling on staker yield is **~80% of the fee, not 100%**, and it is not a
+governance knob: `ReferralSplitter.proposeReferralFee` rejects `0` outright, and
+`SwapFeeRouter.applyReferralSplitter(address(0))` reverts `ReferralFeeNonZero()` while the share is
+above zero, so the splitter cannot be zeroed or unwired. The `SwapFeeRouter` additionally has dormant
+levers to route a % to a **Treasury** bucket and to a **POL Accumulator** (protocol-owned liquidity
+sink); those are parameterised but set to zero pending a governance proposal — see
 [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md).
 
 Ceilings, taken from the constants in [contracts/src/SwapFeeRouter.sol](contracts/src/SwapFeeRouter.sol):
-- **Stakers:** today 100%. `MIN_STAKER_SHARE_BPS = 5_000` is the hard floor, so a split can never push the staker share below **50%**.
+- **Stakers:** `10000` bps of the recovered pot today, which is ~80% of the fee once the referral share
+  is out. `MIN_STAKER_SHARE_BPS = 5_000` is the hard floor on the router's own split, so *that* leg can
+  never drop below **50%**.
+- **Referral (upstream, not a router lever):** `2000` bps of the raw fee, capped at
+  `MAX_REFERRAL_FEE = 3_000` (**30%**) and floored above zero. This is the only mandatory deduction.
 - **POL:** 0% today. `MAX_POL_SHARE_BPS = 2_500` caps it at **25%**. Goes to [POLAccumulator](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) — which is deployed but **not wired**: `SwapFeeRouter.polAccumulator()` currently reads `0x0…0`, so the lever has nowhere to send value even if it were raised.
 - **Treasury:** 0% today. It is the *remainder* (`BPS − stakerShare − polShare`), not a separately-capped lever, so with the POL share at zero the treasury leg can reach **50%** — the mirror of the staker floor. There is no 20% cap on it.
 
@@ -134,9 +159,12 @@ User-facing flavour (from [frontend/src/lib/copy.ts](frontend/src/lib/copy.ts)):
 
 ## Sinks — how circulating supply can shrink
 
-TOWELI has no `burn()` function. One mechanism below *could* shrink circulating float, and it is
-dormant; the other is often described as a sink and is not one. **Nothing is contracting the float
-today.**
+The live token **does** expose `burn(uint256)` and `burnFrom(address,uint256)` — corrected 2026-08-12,
+this section previously said it had neither. That is a *holder* capability: anyone can destroy their
+own TOWELI, and nothing in the protocol calls either function. So the burn path is real but
+unattributable — a sink only if holders choose to use it. Of the two protocol-side mechanisms below,
+one *could* shrink circulating float and is dormant; the other is often described as a sink and is not
+one. **Nothing the protocol controls is contracting the float today.**
 
 ### 1. POL Accumulator (dormant — lever at 0% and the destination is unset)
 
@@ -186,18 +214,20 @@ Any balance not in the contracts above is in EOA wallets, exchange hot-wallets, 
 ## Verifying the supply yourself
 
 1. **Total supply check:** go to [Etherscan → TOWELI → Contract → Read](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#readContract) and call `totalSupply()`. Expect `1e27` (1,000,000,000 with 18 decimals).
-2. **No mint function:** use Etherscan's "Read Contract" tab. There is no `mint()`, `issue()`, `rebase()`, or owner-gated function that could change supply.
-3. **Top holders:** [Etherscan holder list](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#balances) shows the current distribution. Contracts (TegridyStaking, LP, treasury) will be near the top; individual wallets follow.
-4. **Source:** [contracts/src/Toweli.sol](contracts/src/Toweli.sol) in this repo matches the verified Etherscan source. Standard OpenZeppelin ERC20 + ERC20Permit, no bells or whistles.
+2. **No mint function:** use Etherscan's "Read Contract" tab. There is no `mint()`, `issue()` or `rebase()`. There *is* an owner-gated surface (Ownable2Step) but `owner()` reads `0x0…0`, so none of it is reachable.
+3. **Burn is real:** call `burn(uint256)` / `burnFrom(address,uint256)` in the Write tab — they exist. `totalSupply()` therefore only ever moves down. Any doc claiming the opposite is out of date; this one was, until 2026-08-12.
+4. **Top holders:** [Etherscan holder list](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#balances) shows the current distribution. Contracts (TegridyStaking, LP, treasury) will be near the top; individual wallets follow.
+5. **Source:** read the **Etherscan** Contract tab, not this repo. [contracts/src/Toweli.sol](contracts/src/Toweli.sol) is the project's own source and does **not** match the deployed bytecode — it has permit and no burn; the chain has burn and no permit.
 
 ---
 
 ## Summary
 
-- **Fixed 1B TOWELI supply.** No mint. No burn function. Two years live on mainnet.
+- **1B TOWELI ceiling.** No mint path in the deployed bytecode; holder-callable `burn`/`burnFrom` are present, so supply can only fall. Two years live on mainnet. The live contract is a generator template, **not** this repo's `Toweli.sol`, and has **no** EIP-2612 permit.
 - **Fair-launch distribution.** No VC allocation, no pre-sale.
 - **LP seed 30% / Treasury 10% / Community 10% / Team 5% / Circulating 45%** — historical distribution; current on-chain state is the source of truth.
-- **Yield is designed to come from ETH fees, not TOWELI emissions** — but `SwapFeeRouter.totalETHFees()` is `0`, so the RevenueDistributor has never paid anyone. This is a design, not a track record.
+- **Yield is designed to come from ETH fees, not TOWELI emissions** — the rail has collected, but the take is parked in `ReferralSplitter` behind an uncalled `recoverCallerCredit()`, and `RevenueDistributor` has never paid anyone. This is a design, not a track record.
+- **A 20% referral cut comes off every fee before stakers see it**, and it cannot be set to zero or unwired. Staker yield is capped at ~80% of the fee, not 100%.
 - **Boost ceiling 4.5×.** 0.4× at 7-day lock → 4.0× at 4-year lock + 0.5× JBAC bonus.
 - **Flat 25% early-exit penalty, paid in full to the treasury** — not recycled to stakers.
 - **POL sink is dormant twice over:** the lever is 0% and `SwapFeeRouter.polAccumulator()` is unset. Activation is a governance decision plus a wiring transaction; see [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) § fee calibration.

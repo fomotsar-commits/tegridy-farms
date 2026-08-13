@@ -47,10 +47,42 @@ jobs:
         with:
           target: contracts/
           solc-version: 0.8.26
-          # AUDIT R056 LOW: fail-on: medium (was none). PRs that introduce
-          # medium/high static-analysis findings now block merge instead of
-          # silently flowing into main. False positives can be muted with
-          # inline `// slither-disable-next-line <detector>`.
+          # ── THE CONFIG WAS NEVER LOADED ────────────────────────────────
+          #
+          # The action's `slither-config` input is documented as defaulting to
+          # "./slither.config.json if present". It does not: entrypoint.sh
+          # reads the input raw and only passes `--config-file` when it is
+          # non-empty. With nothing passed, slither falls back to its own
+          # auto-load, which searches the CURRENT WORKING DIRECTORY — the repo
+          # ROOT, not `target:`. So every run has been picking up the stale
+          # root slither.config.json (last touched 2026-05-03) while
+          # contracts/slither.config.json — the curated one written for this
+          # branch's 15-contract scope, with 12 documented false-positive
+          # exclusions and their rationale — was read by nothing.
+          #
+          # Two of those exclusions are exactly the chronic noise: `timestamp`
+          # (every flagged comparison is a period-scale time gate, verified FP
+          # across six contracts) and `dead-code` (helpers kept for ABI
+          # compatibility). Neither is excluded by the root config.
+          #
+          # ⚠ Loading the curated config also required fixing it: it carried
+          # its promoted fund-loss detectors under `detectors_to_run`, which in
+          # slither means "run ONLY these" and returns before the exclusion
+          # logic — so loading it as-written would have QUIETLY GUTTED the
+          # detector set under a fail-on gate. See the note in that file.
+          slither-config: contracts/slither.config.json
+          # ── AND THE THRESHOLD STAYS ────────────────────────────────────
+          #
+          # fail-on: medium is NOT being lowered to buy green. The chronic red
+          # was a config that never loaded, not a threshold set too tight; the
+          # honest fix is to load the config and see what is genuinely left. A
+          # noisy gate is bad, but a gate lowered until it stops objecting is
+          # worse — it still reports, and it now reports nothing.
+          #
+          # If Medium findings survive the curated exclusions they are real
+          # and get triaged: fix, or mute the specific line with
+          # `// slither-disable-next-line <detector>` and a reason. Do not
+          # move this to `high` or `none`.
           fail-on: medium
           sarif: slither.sarif
 

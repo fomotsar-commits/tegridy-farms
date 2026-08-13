@@ -212,14 +212,25 @@ describe("orderbook — NFT cannot sit in two live orders", () => {
     expect(inserted).toHaveLength(0); // never persisted
   });
 
-  // An overlapping SINGLE is auto-cancelled instead — same relist semantics as `create`,
-  // and cheap to recreate, unlike an assembled package.
-  it("auto-cancels an overlapping single listing when a bundle is created", async () => {
+  // INVERTED 2026-08-12. This test used to assert the auto-cancel, i.e. it PINNED the
+  // vulnerability: "cancelling" a single was a database UPDATE and nothing more. The
+  // server has no maker signer and no client path called cancelSeaportOrder, so the
+  // superseded order stayed fillable on Seaport at its old price while the UI showed it
+  // as gone. Seller lists at 1 ETH, bundles it at 2, and anyone holding the old
+  // signature buys at 1.
+  //
+  // The invariant now: no code path may mark a Seaport order dead in the database
+  // unless it has been invalidated ON-CHAIN first. Since the server cannot do that, it
+  // refuses — the same trade the bundle-vs-bundle branch already made.
+  it("refuses, and cancels NOTHING, when a bundle overlaps the seller's own single listing", async () => {
     selectRows = [{ order_hash: "0xsingle", token_id: "2", is_bundle: false, token_ids: null }];
     const c = await postBundle(handler, bundleParams([1, 2]));
-    expect(c.status).not.toBe(409);
-    expect(updates.map((u) => u.hash)).toContain("0xsingle");
-    expect(updates.find((u) => u.hash === "0xsingle").patch.status).toBe("cancelled");
+    expect(c.status).toBe(409);
+    expect(c.json.conflictingOrders).toContain("0xsingle");
+    // The load-bearing half: a DB-only cancel must never happen. Asserting the 409 alone
+    // would still pass on a version that refused AND cancelled.
+    expect(updates).toHaveLength(0);
+    expect(inserted).toHaveLength(0);
   });
 
   it("allows a bundle that overlaps nothing", async () => {
@@ -371,8 +382,12 @@ describe("orderbook overlap guard — the ways it could silently not work", () =
   it("matches a stored non-canonical token_id against a canonical bundle key", async () => {
     selectRows = [{ order_hash: "0xsingle", token_id: "005", is_bundle: false, token_ids: null }];
     const c = await postBundle(handler, bundleParams([5, 9]));
-    expect(c.status).not.toBe(409);
-    expect(updates.map((u) => u.hash)).toContain("0xsingle"); // matched despite "005" vs "5"
+    // This used to prove the key matched by observing the auto-cancel. That cancel was
+    // DB-only and is gone (see orderbook.js), so the overlap now surfaces as a refusal —
+    // which proves the same thing: "005" was recognised as token 5.
+    expect(c.status).toBe(409);
+    expect(c.json.conflictingOrders).toContain("0xsingle"); // matched despite "005" vs "5"
+    expect(updates).toHaveLength(0);
   });
 
   it("matches a non-canonical incoming tokenId against a stored canonical bundle", async () => {
@@ -494,14 +509,21 @@ describe("orderbook — round-3 blockers", () => {
     void now;
   });
 
-  // The guard has a read half and a write half. Making the SCAN fail closed left the
-  // CANCEL still ignoring its error: scan succeeds, cancel silently fails, insert
-  // proceeds — producing exactly the double-listing the guard exists to prevent.
-  it("FAILS CLOSED when the superseding cancel fails — never inserts alongside it", async () => {
+  // The guard had a read half and a write half. The write half — a DB-only "cancel" of
+  // the superseded order — is DELETED, because it marked an order dead in the database
+  // while leaving it fillable on Seaport at its old price. So the invariant is no longer
+  // "the cancel fails closed"; it is that NO code path marks a Seaport order dead in the
+  // database unless it was invalidated on-chain first. The server cannot do that, so it
+  // refuses.
+  //
+  // Note what this asserts beyond the status: ZERO updates and ZERO inserts. A version
+  // that refused AND still wrote the cancel would pass a status-only check.
+  it("refuses a relist rather than DB-cancelling an order that is still live on-chain", async () => {
     selectRows = [{ order_hash: "0xprior", token_id: "5", is_bundle: false, token_ids: null }];
-    updateError = { message: "update conflict" };
     const c = await post("create", singleOrder());
-    expect(c.status).toBe(503);
+    expect(c.status).toBe(409);
+    expect(c.json.conflictingOrders).toContain("0xprior");
+    expect(updates).toHaveLength(0);
     expect(inserted).toHaveLength(0);
   });
 

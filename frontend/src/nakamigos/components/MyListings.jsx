@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
-import { getProvider } from "../api";
+import { getActiveWalletProvider, assertSameWallet } from "../api";
 import { SEAPORT_ADDRESS, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED } from "../constants";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import { useActiveCollection } from "../contexts/CollectionContext";
@@ -361,19 +361,30 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
   // Two-step: 1) Cancel on-chain via Seaport, 2) Update backend status
   const handleCancel = useCallback(async (listing) => {
     if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
-    const provider = getProvider();
+    // Resolve from the ACTIVE wagmi connector, not the fixed rdns priority walk —
+    // same resolution api-offers.cancelOrder uses, and the reason it exists: with
+    // MetaMask installed and Rabby connected, getProvider() handed back MetaMask.
+    const { provider, address: connectedAddress } = await getActiveWalletProvider();
     if (!provider) {
       addToast?.("Wallet not connected", "error");
       return;
     }
 
     setCancelling(listing.orderHash);
-    addToast?.("Cancelling listing...", "info");
 
     try {
       const { ethers } = await import("ethers");
       const browserProvider = new ethers.BrowserProvider(provider);
       const signer = await browserProvider.getSigner();
+
+      // Only the offerer can cancel. Signing from a different wallet burns gas on
+      // a cancel that marks nothing. Mirrors api-offers.cancelOrder:706-709.
+      // Falls back to the maker this page was fetched for so a DEGRADED connector
+      // lookup (expired WalletConnect session) fails CLOSED, never open.
+      const walletErr = assertSameWallet(await signer.getAddress(), connectedAddress || wallet);
+      if (walletErr) { addToast?.(walletErr.message, "error"); return; }
+
+      addToast?.("Cancelling listing...", "info");
 
       // Step 1: Cancel on-chain via Seaport contract (invalidates the signed order)
       if (!listing.rawParameters) {
@@ -432,24 +443,47 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     } finally {
       setCancelling(null);
     }
-  }, [addToast, isWrongNetwork, switchChain]);
+  }, [addToast, isWrongNetwork, switchChain, wallet]);
 
   // ═══ CANCEL ALL (increment Seaport counter) ═══
   const handleCancelAll = useCallback(async () => {
     if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
-    const provider = getProvider();
+    // Resolve from the ACTIVE wagmi connector, not the fixed rdns priority walk.
+    // This call site is the worst possible place to get the wallet identity wrong
+    // (see the guard below), and getProvider()'s priority walk is independent of
+    // which connector wagmi actually connected.
+    const { provider, address: connectedAddress } = await getActiveWalletProvider();
     if (!provider) {
       addToast?.("Wallet not connected", "error");
       return;
     }
 
     setCancellingAll(true);
-    addToast?.("Cancelling all listings (incrementing Seaport counter)...", "info");
 
     try {
       const { ethers } = await import("ethers");
       const browserProvider = new ethers.BrowserProvider(provider);
       const signer = await browserProvider.getSigner();
+
+      // ─── WALLET GUARD — read this before touching it ───
+      // incrementCounter() invalidates EVERY Seaport order the CALLER has ever
+      // signed: listings, item bids, collection bids, on this marketplace and on
+      // every other one sharing this Seaport. There is no un-increment. So if the
+      // signer is not the identity this page is showing listings for, the seller
+      // pays gas to destroy an unrelated wallet's entire order book while their
+      // own listings stay live — and the UI then renders setListings([]) as if it
+      // worked. Nothing about that is recoverable.
+      //
+      // Mirrors api-offers.cancelOrder:706-709 / acceptOffer:766-769. Falling back
+      // to `wallet` (the maker these listings were fetched for, MyListings.jsx:271)
+      // keeps a DEGRADED connector lookup failing CLOSED — dropping the comparand
+      // would turn assertSameWallet into a no-op, which is exactly the bug the
+      // wallet-provider lane closed.
+      const signerAddress = await signer.getAddress();
+      const walletErr = assertSameWallet(signerAddress, connectedAddress || wallet);
+      if (walletErr) { addToast?.(walletErr.message, "error"); return; }
+
+      addToast?.("Cancelling all listings (incrementing Seaport counter)...", "info");
 
       const seaportABI = ["function incrementCounter() returns (uint256)"];
       const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
@@ -467,7 +501,9 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       try {
         const _ts = Math.floor(Date.now() / 1000);
         const _cid = 1;
-        const makerAddr = (await signer.getAddress()).toLowerCase();
+        // Reuses the address the wallet guard above already verified, so the maker
+        // we claim to the server cannot drift from the one that signed on-chain.
+        const makerAddr = signerAddress.toLowerCase();
         const cancelMessage = `Cancel all orders | Chain: ${_cid} | Time: ${_ts}`;
         const cancelSignature = await signer.signMessage(cancelMessage);
         await fetch("/api/orderbook", {
@@ -498,7 +534,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
     } finally {
       setCancellingAll(false);
     }
-  }, [addToast, listings, isWrongNetwork, switchChain]);
+  }, [addToast, listings, isWrongNetwork, switchChain, wallet]);
 
   // ═══ COMPUTED ═══
   // Filter out expired listings on the client side (server filters on fetch, but

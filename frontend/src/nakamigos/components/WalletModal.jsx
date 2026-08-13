@@ -3,6 +3,7 @@ import { useWallet, HAS_WC_PROJECT_ID } from "../contexts/WalletContext";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
+import { pageArt } from "../../lib/artConfig";
 
 const CONNECTOR_ICONS = {
   metaMask: "\u{1F98A}",
@@ -69,12 +70,20 @@ export default function WalletModal({ onClose, addToast }) {
         className="modal-enter"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--surface)",
+          // Art-backed panel. `--surface` (#101012) stays the base layer so the
+          // dialog never renders bare if the image 404s; the scrim above the art
+          // is deliberately heavy (0.82->0.88) because this dialog is dense
+          // small-caps text and connector rows, not headline copy. Nakamigos is
+          // a permanently dark surface (no light-theme selectors in App.css), so
+          // fixed dark scrim values are safe here — do NOT copy them into the
+          // themed app shell, which branches on isDark.
+          background: `linear-gradient(180deg, rgba(10,16,32,0.82) 0%, rgba(10,16,32,0.88) 100%), url(${pageArt("wallet-modal", 0).src}) center / cover no-repeat, var(--surface)`,
           border: "1px solid var(--border)",
           borderRadius: 16,
           padding: "32px 28px",
           width: "min(420px, 90vw)",
           backdropFilter: "var(--glass-blur)",
+          textShadow: "0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)",
         }}
       >
         {/* Header */}

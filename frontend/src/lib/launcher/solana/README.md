@@ -238,9 +238,16 @@ one read and one derivation. The chart shipped built, tested and rendered by not
 for a while — `CurveLaunchPage.test.tsx` now asserts it is on screen, because the
 chart's own suite renders the component directly and cannot see that it is unmounted.
 
-**That program is not deployed to any cluster**, so every surface built on it must say
-so. The interface it is written against is `docs/OWN_CURVE_FRONTEND_CONTRACT.md`, which
-also lists what each file in `curve/` owns.
+**That program has been live on mainnet since 2026-08-08**
+(`CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED`, slot 438,055,726), with `global`
+initialized. This paragraph said "not deployed to any cluster" for four days afterwards.
+
+What is still true, and is the part that mattered: no surface may imply a market it has
+not read. `readDeployment` runs before anything else, and **graduation does not work** —
+cp-swap's `AmmConfig` does not exist, so `migrate_to_amm` fails `AmmNotConfigured`
+(6015) until an operator runs `create-amm-config` and then `update-global` on
+`scripts/tegridy-launch-operator.mjs`. The interface these files are written against is
+`docs/OWN_CURVE_FRONTEND_CONTRACT.md`, which also lists what each file in `curve/` owns.
 
 ⚠️ `curve/math.ts` is the only place quote arithmetic for this program may live. The
 page, the chart and the operator CLI each once carried their own transcription of

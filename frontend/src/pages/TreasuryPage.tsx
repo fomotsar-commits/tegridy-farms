@@ -9,10 +9,12 @@ import {
   TREASURY_ADDRESS,
   POL_ACCUMULATOR_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS,
+  REFERRAL_SPLITTER_ADDRESS,
+  REVENUE_DISTRIBUTOR_ADDRESS,
   TOWELI_WETH_LP_ADDRESS,
   CHAIN_ID,
 } from '../lib/constants';
-import { SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
+import { SWAP_FEE_ROUTER_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { getAddressUrl, getTxUrl } from '../lib/explorer';
 import { fetchAddressTxList, type TxRecord } from '../lib/txHistory';
@@ -36,14 +38,59 @@ const SHARE_ABI = [
   { type: 'function', name: 'polShareBps',    inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
+/**
+ * 🔄 2026-08-12 — THE OMISSION THIS PAGE WAS BUILT ON.
+ *
+ * The split above (stakers / POL / treasury) is real, but it is the SECOND
+ * stage of the fee pipeline, and this page rendered it as if it were the whole
+ * of it. Stage one is ReferralSplitter, which was not on this page at all —
+ * not in the bar, not in the legend, not in the address list. That is the
+ * contract holding 100% of every fee the protocol has ever collected.
+ *
+ * Read from mainnet 2026-08-12, and re-read live by this page:
+ *   SwapFeeRouter.totalETHFees()        = 3,000,000,000,000 wei  (all of it)
+ *   SwapFeeRouter.accumulatedETHFees()  = 0                      (stage two has never had anything to split)
+ *   ReferralSplitter balance            = 3,000,000,000,000 wei  (all of it, still there)
+ *     ├ callerCredit[SwapFeeRouter]     = 2,400,000,000,000 wei  (80% — owed back to the router, never pulled)
+ *     └ accumulatedTreasuryETH          =   600,000,000,000 wei  (20% referral slice, no qualified referrer)
+ *   RevenueDistributor.totalDistributed = 0                      (stakers have received nothing, ever)
+ *
+ * Every swap fee is forwarded to ReferralSplitter.recordFee() BEFORE it can
+ * reach `accumulatedETHFees` (SwapFeeRouter.sol:571-593). The splitter keeps
+ * `referralFeeBps` for the referrer and books the remainder as a pull-pattern
+ * credit back to the router. Nobody has pulled it: `recoverCallerCredit()` is
+ * permissionless with a 30s cooldown and `lastCallerCreditAt` is still 0. So
+ * the stakers-get-100% bar was, in the only sense a visitor cares about,
+ * describing a pipeline that has moved zero wei.
+ *
+ * The fix is additive: both stages are now shown, in order, with a live
+ * reconciliation underneath that says where the money physically is. The
+ * original bar is kept and relabelled, not replaced.
+ */
 const SPLIT_COLORS = {
   stakers: '#22c55e',
   pol: '#8b5cf6',
   treasury: '#eab308',
+  /** Stage one: the referrer's slice, held inside ReferralSplitter. */
+  referral: '#f472b6',
+  /** Stage one: the remainder, credited back to the router but not yet pulled. */
+  credit: '#38bdf8',
 } as const;
 
 const ERC20_BAL_ABI = [
   { type: 'function', name: 'balanceOf', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+
+/** Reads that make the stage-one omission visible. Declared locally for the same
+ *  reason SHARE_ABI is: contracts.ts's shared ABIs do not carry these selectors. */
+const SPLITTER_ABI = [
+  { type: 'function', name: 'referralFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'callerCredit', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'accumulatedTreasuryETH', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalPendingETH', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+const ROUTER_ACCRUAL_ABI = [
+  { type: 'function', name: 'accumulatedETHFees', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // F451: distinguish "no data yet / read failed" (undefined → "–") from a
@@ -61,6 +108,33 @@ function formatEth(wei: bigint): string {
   if (n >= 1) return `${n.toFixed(3)} ETH`;
   if (n > 0) return `${n.toFixed(5)} ETH`;
   return '0 ETH';
+}
+
+/**
+ * Same idea as formatEth, but it never renders a real non-zero balance as
+ * "0.00000 ETH". The protocol's entire lifetime fee take is 3e12 wei — five
+ * decimals of ETH rounds that to zero, which is exactly the reading error this
+ * page exists to prevent. Below 0.0001 ETH we switch to gwei, and below a gwei
+ * to raw wei, so a tiny number reads as tiny rather than as nothing.
+ * `undefined` (read pending / failed) stays distinct from a true zero.
+ */
+function formatEthFine(wei: bigint | undefined): string {
+  if (wei === undefined) return '–';
+  if (wei === 0n) return '0 ETH';
+  const n = parseFloat(formatEther(wei));
+  if (n >= 1) return `${n.toFixed(3)} ETH`;
+  if (n >= 0.0001) return `${n.toFixed(5)} ETH`;
+  if (wei >= 1_000_000_000n) {
+    const gwei = Number(wei) / 1e9;
+    return `${gwei >= 100 ? gwei.toFixed(0) : gwei.toFixed(2)} gwei`;
+  }
+  return `${wei.toString()} wei`;
+}
+
+/** Percent of `total` that `part` represents, as a display string. '' when unknown. */
+function pctOf(part: bigint | undefined, total: bigint | undefined): string {
+  if (part === undefined || total === undefined || total === 0n) return '';
+  return `${((Number(part) / Number(total)) * 100).toFixed(0)}%`;
 }
 
 /**
@@ -136,6 +210,58 @@ export default function TreasuryPage() {
     query: { refetchInterval: 300_000, staleTime: 60_000 },
   });
 
+  // ── Stage one: ReferralSplitter. The contract this page used to omit. ──
+  // Every swap fee lands here first, so these six reads are what turn
+  // "how we intend to split revenue" into "where the revenue actually is".
+  const { data: referralBpsData } = useReadContract({
+    address: REFERRAL_SPLITTER_ADDRESS,
+    abi: SPLITTER_ABI,
+    functionName: 'referralFeeBps',
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: splitterBal } = useBalance({
+    address: REFERRAL_SPLITTER_ADDRESS,
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 60_000 },
+  });
+  const { data: routerCredit } = useReadContract({
+    address: REFERRAL_SPLITTER_ADDRESS,
+    abi: SPLITTER_ABI,
+    functionName: 'callerCredit',
+    args: [SWAP_FEE_ROUTER_ADDRESS],
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 60_000 },
+  });
+  const { data: splitterTreasuryEth } = useReadContract({
+    address: REFERRAL_SPLITTER_ADDRESS,
+    abi: SPLITTER_ABI,
+    functionName: 'accumulatedTreasuryETH',
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 60_000 },
+  });
+  const { data: splitterPendingRef } = useReadContract({
+    address: REFERRAL_SPLITTER_ADDRESS,
+    abi: SPLITTER_ABI,
+    functionName: 'totalPendingETH',
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 60_000 },
+  });
+  const { data: routerAccrued } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS,
+    abi: ROUTER_ACCRUAL_ABI,
+    functionName: 'accumulatedETHFees',
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 60_000 },
+  });
+  const { data: lifetimeDistributed } = useReadContract({
+    address: REVENUE_DISTRIBUTOR_ADDRESS,
+    abi: REVENUE_DISTRIBUTOR_ABI,
+    functionName: 'totalDistributed',
+    chainId: CHAIN_ID,
+    query: { refetchInterval: 60_000 },
+  });
+
   // R070: surface SwapFeeRouter.paused() with an amber banner so users see
   // when fee routing is halted (no stakers/POL/treasury distribution while
   // paused). Surface treasury() vs the hardcoded TREASURY_ADDRESS with a RED
@@ -166,6 +292,107 @@ export default function TreasuryPage() {
     { label: 'Treasury', bps: treasuryBps, color: SPLIT_COLORS.treasury },
   ];
 
+  // Stage one. Defaults match the live contract (referralFeeBps = 2000) so the
+  // card is coherent before the read resolves rather than briefly claiming 0%.
+  const referralBps = referralBpsData !== undefined ? Number(referralBpsData as bigint) : 2_000;
+  const routerCreditBps = Math.max(0, 10_000 - referralBps);
+  const stageOne = [
+    {
+      label: 'Referrer share — held in ReferralSplitter',
+      bps: referralBps,
+      color: SPLIT_COLORS.referral,
+      note: 'Paid to the swapper’s referrer if they hold enough voting power. Unattributed shares stay in the splitter as treasury-claimable ETH.',
+    },
+    {
+      label: 'Credited back to SwapFeeRouter',
+      bps: routerCreditBps,
+      color: SPLIT_COLORS.credit,
+      note: 'The remainder is booked as a pull-pattern credit, not sent. It stays in the splitter until recoverCallerCredit() moves it into the Stage 2 pool.',
+    },
+  ];
+
+  const creditWei = routerCredit as bigint | undefined;
+  const splitterTreasuryWei = splitterTreasuryEth as bigint | undefined;
+  const splitterPendingWei = splitterPendingRef as bigint | undefined;
+  const accruedWei = routerAccrued as bigint | undefined;
+  const distributedWei = lifetimeDistributed as bigint | undefined;
+  const lifetimeWei = totalFeesWei as bigint | undefined;
+  const splitterHeldWei = splitterBal?.value;
+
+  // The reconciliation. Order follows the money, not the org chart.
+  // `id` doubles as the React key and as a data-testid, so a test can assert on
+  // the AMOUNT in a specific row rather than on the prose around it.
+  const ledger: {
+    id: string;
+    label: string;
+    wei: bigint | undefined;
+    note: string;
+    source?: string;
+    pct?: string;
+    indent?: boolean;
+    emphasis?: boolean;
+  }[] = [
+    {
+      id: 'collected',
+      label: 'Collected, lifetime',
+      wei: lifetimeWei,
+      note: 'SwapFeeRouter.totalETHFees()',
+      source: SWAP_FEE_ROUTER_ADDRESS,
+    },
+    {
+      id: 'splitter-held',
+      label: 'Held by ReferralSplitter right now',
+      wei: splitterHeldWei,
+      note: 'ETH balance of the splitter contract',
+      source: REFERRAL_SPLITTER_ADDRESS,
+      pct: pctOf(splitterHeldWei, lifetimeWei),
+    },
+    {
+      id: 'router-credit',
+      label: 'of which: owed back to the router, not yet pulled',
+      wei: creditWei,
+      note: 'ReferralSplitter.callerCredit(SwapFeeRouter) — released by the permissionless recoverCallerCredit()',
+      pct: pctOf(creditWei, lifetimeWei),
+      indent: true,
+      emphasis: creditWei !== undefined && creditWei > 0n,
+    },
+    {
+      id: 'splitter-treasury',
+      label: 'of which: referral slice with no qualified referrer',
+      wei: splitterTreasuryWei,
+      note: 'ReferralSplitter.accumulatedTreasuryETH() — treasury-claimable, still inside the splitter',
+      pct: pctOf(splitterTreasuryWei, lifetimeWei),
+      indent: true,
+    },
+    {
+      id: 'referrer-pending',
+      label: 'of which: claimable by referrers',
+      wei: splitterPendingWei,
+      note: 'ReferralSplitter.totalPendingETH()',
+      pct: pctOf(splitterPendingWei, lifetimeWei),
+      indent: true,
+    },
+    {
+      id: 'router-accrued',
+      label: 'Waiting in the router to be split',
+      wei: accruedWei,
+      note: 'SwapFeeRouter.accumulatedETHFees() — the pool the Stage 2 percentages divide',
+      source: SWAP_FEE_ROUTER_ADDRESS,
+    },
+    {
+      id: 'distributed',
+      label: 'Distributed to stakers, lifetime',
+      wei: distributedWei,
+      note: 'RevenueDistributor.totalDistributed()',
+      source: REVENUE_DISTRIBUTOR_ADDRESS,
+    },
+  ];
+
+  // Fees were collected but nothing ever completed the pipeline. Stated only
+  // when both reads have resolved, so a pending read never accuses the protocol.
+  const stakersNeverPaid =
+    lifetimeWei !== undefined && lifetimeWei > 0n && distributedWei !== undefined && distributedWei === 0n;
+
   // F451: keep the underlying read's loaded/undefined state distinct so a
   // successful zero shows "$0.00"/"0 ETH" and only a pending/failed read shows
   // "–". `totalFeesWei`/`treasuryBal` are undefined until their read resolves.
@@ -184,7 +411,10 @@ export default function TreasuryPage() {
 
   const stats: { label: string; value: string; sub: string; idx: number }[] = [
     { label: 'Total Value Locked', value: pool.tvlFormatted, sub: 'TOWELI/WETH pool', idx: 1 },
-    { label: 'Lifetime Fees', value: formatUsd(lifetimeFeesUsd), sub: `${lifetimeFeesEth.toFixed(4)} ETH routed`, idx: 2 },
+    // `${lifetimeFeesEth.toFixed(4)} ETH routed` rendered the protocol's entire
+    // 3e12-wei take as "0.0000 ETH routed" — a real number displayed as nothing.
+    // formatEthFine steps down to gwei/wei so the sub-line can never do that.
+    { label: 'Lifetime Fees', value: formatUsd(lifetimeFeesUsd), sub: `${formatEthFine(totalFeesWei as bigint | undefined)} routed`, idx: 2 },
     { label: 'Treasury Balance', value: treasuryEthFormatted, sub: formatUsd(treasuryUsd), idx: 3 },
     { label: 'POL Holdings', value: formatUsd(polUsd), sub: `${(polShare * 100).toFixed(2)}% of LP supply`, idx: 4 },
   ];
@@ -286,10 +516,54 @@ export default function TreasuryPage() {
             <ArtImg pageId="treasury" idx={5} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="relative z-10">
-        <div className="flex items-baseline justify-between mb-5">
+        <div className="flex items-baseline justify-between mb-2">
           <h2 className="heading-luxury text-xl text-white">Revenue Distribution</h2>
           <span className="text-white/40 text-[11px]">Per swap fee</span>
         </div>
+        <p className="text-white/60 text-[12px] leading-relaxed mb-6 max-w-[640px]">
+          A swap fee passes through two contracts, in this order. Both stages are shown
+          because only showing the second one made it look as though fees reach stakers —
+          they have not.
+        </p>
+
+        {/* ── STAGE ONE — the contract this card used to leave out entirely. ── */}
+        <p className="text-white/75 text-[11px] uppercase tracking-[0.16em] mb-1">Stage 1 · at collection — ReferralSplitter</p>
+        <p className="text-white/50 text-[11px] leading-relaxed mb-3 max-w-[640px]">
+          100% of every swap fee is forwarded to <span className="text-white/75">ReferralSplitter</span> before
+          it can reach the pool that Stage 2 divides. This is where the money is today.
+        </p>
+        <div
+          className="flex h-3 rounded-full overflow-hidden mb-4"
+          role="img"
+          aria-label={`Stage 1 split at collection: ${stageOne.filter(s => s.bps > 0).map(s => `${(s.bps / 100).toFixed(0)}% ${s.label}`).join(', ')}`}
+        >
+          {stageOne.filter(s => s.bps > 0).map((s) => (
+            <div key={s.label} style={{ width: `${s.bps / 100}%`, background: s.color }} />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+          {stageOne.map((s) => (
+            <div key={s.label} className="flex items-start gap-3" style={{ opacity: s.bps === 0 ? 0.45 : 1 }}>
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1.5" style={{ background: s.color }} />
+              <div>
+                <p className="text-white text-[13px]">{s.label}</p>
+                <p className="text-white/50 text-[11px]">{(s.bps / 100).toFixed(0)}% ({s.bps} bps){s.bps === 0 ? ' · inactive' : ''}</p>
+                <p className="text-white/45 text-[11px] leading-relaxed mt-0.5">{s.note}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── STAGE TWO — the original bar. Unchanged in what it renders; the
+             heading and the caption below it are what changed, so nobody reads
+             "100% stakers" as "stakers were paid". ── */}
+        <p className="text-white/75 text-[11px] uppercase tracking-[0.16em] mb-1">Stage 2 · after recovery — SwapFeeRouter</p>
+        <p className="text-white/50 text-[11px] leading-relaxed mb-3 max-w-[640px]">
+          How the router divides whatever has actually reached its distributable pool
+          (<span className="font-mono">accumulatedETHFees</span>). Stage 1&apos;s credit has to be
+          pulled back with a <span className="font-mono">recoverCallerCredit()</span> call before
+          anything lands here.
+        </p>
 
         {/* Stacked bar — rendered from the live on-chain split. Zero-width
             segments are skipped so the rounded corners stay clean when
@@ -315,6 +589,50 @@ export default function TreasuryPage() {
             </div>
           ))}
         </div>
+
+        {/* The percentages above are a policy. This is the outcome. */}
+        <div className="mt-8 pt-6 border-t border-white/10">
+          <h3 className="text-white text-[14px] font-medium mb-1">Where the money actually is</h3>
+          <p className="text-white/50 text-[11px] leading-relaxed mb-4 max-w-[640px]">
+            Live balances, not intentions. Every row is a single contract read; follow the
+            source link to check any of them yourself.
+          </p>
+          <div className="space-y-2.5">
+            {ledger.map((row) => (
+              <div
+                key={row.id}
+                data-testid={`ledger-${row.id}`}
+                className={`flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 ${row.indent ? 'sm:pl-5' : ''}`}
+              >
+                <div className="min-w-0">
+                  <p className={`text-[13px] ${row.emphasis ? 'text-amber-200' : 'text-white/80'}`}>
+                    {row.indent ? <span className="text-white/30 mr-1.5">└</span> : null}
+                    {row.label}
+                  </p>
+                  <p className="text-white/40 text-[11px] leading-relaxed">
+                    {row.note}
+                    {row.source ? <> <SourceLink chainId={chainId} address={row.source} label={row.label} /></> : null}
+                  </p>
+                </div>
+                <p className={`font-mono text-[13px] tabular-nums shrink-0 ${row.emphasis ? 'text-amber-200' : 'text-white'}`}>
+                  {formatEthFine(row.wei)}
+                  {row.pct ? <span className="text-white/40"> · {row.pct}</span> : null}
+                </p>
+              </div>
+            ))}
+          </div>
+          {stakersNeverPaid && (
+            <p role="status" className="mt-5 rounded-xl border px-4 py-3 text-[12px] leading-relaxed"
+              style={{ background: 'rgba(245,158,11,0.10)', borderColor: 'rgba(245,158,11,0.35)', color: '#fde68a' }}>
+              <strong className="font-semibold">Stakers have not been paid any swap-fee revenue yet.</strong>{' '}
+              Fees were collected, but none has completed the pipeline: the Stage 1 credit is
+              still sitting in ReferralSplitter, so the Stage 2 split above has had nothing to
+              divide. The recovery call that moves it is permissionless — anyone can trigger
+              it — which is why it is worth saying out loud rather than leaving it as a
+              100%-to-stakers bar that has never paid out.
+            </p>
+          )}
+        </div>
           </div>
         </div>
 
@@ -330,6 +648,12 @@ export default function TreasuryPage() {
                 { label: 'Treasury', addr: TREASURY_ADDRESS },
                 { label: 'POL Accumulator', addr: POL_ACCUMULATOR_ADDRESS },
                 { label: 'Swap Fee Router', addr: SWAP_FEE_ROUTER_ADDRESS },
+                // 🔄 2026-08-12: added. A transparency page that lists three fee
+                // contracts and omits the two that the money is actually sitting
+                // in (splitter) or is supposed to end up in (distributor) is not
+                // a complete list. Both are read live in the card above.
+                { label: 'Referral Splitter', addr: REFERRAL_SPLITTER_ADDRESS },
+                { label: 'Revenue Distributor', addr: REVENUE_DISTRIBUTOR_ADDRESS },
               ].map((row) => (
                 <div key={row.label} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2 border-b border-white/5 last:border-b-0">
                   <span className="text-white/75 text-[13px]">{row.label}</span>

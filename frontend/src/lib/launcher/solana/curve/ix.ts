@@ -10,8 +10,14 @@
 // nothing. They return `TransactionInstruction`s a caller adds to a transaction.
 // Same doctrine as `dbc.ts` — the param layer and the signing layer stay apart.
 //
-// ⚠ The program is NOT DEPLOYED. Anything built here is unsendable today; that is
-// deliberate and `read.ts` is where a surface finds out.
+// The program has been LIVE ON MAINNET since 2026-08-08, so what is built here is
+// sendable. This comment used to say the opposite; nothing about the builders changed
+// when that stopped being true, which is precisely why the claim did not update
+// itself. `read.ts` is still where a surface establishes what is actually deployed.
+//
+// The one instruction that is NOT usable yet is `migrateToAmmIx`: cp-swap's AmmConfig
+// does not exist, so `migrate_to_amm` fails AmmNotConfigured (6015) until an operator
+// runs `create-amm-config` and then `update-global`.
 
 // `Buffer` is imported explicitly rather than taken off `globalThis`: the browser
 // only has it once `solanaPolyfill.ts` has run, and this module must not depend

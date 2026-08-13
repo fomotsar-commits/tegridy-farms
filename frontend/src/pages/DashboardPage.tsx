@@ -4,8 +4,9 @@ import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, 
 import { formatEther } from 'viem';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
+import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
+import { getAddressUrl } from '../lib/explorer';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
@@ -519,23 +520,7 @@ export default function DashboardPage() {
             )}
 
             {/* POL Accumulator */}
-            {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <div className="absolute inset-0">
-                  <ArtImg pageId="dashboard" idx={8} alt="" loading="lazy" className="w-full h-full object-cover" />
-                </div>
-                <div className="relative z-10 p-5">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-white text-[15px] font-medium">POL Accumulator</span>
-                    <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' }}>Coming Soon</span>
-                  </div>
-                  <p className="text-white text-[12px] leading-relaxed max-w-lg">
-                    Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
-                  </p>
-                </div>
-              </m.div>
-            )}
+            <POLAccumulatorCard />
 
             {/* Position */}
             <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
@@ -799,6 +784,137 @@ export default function DashboardPage() {
       </div>
       </ErrorBoundary>
     </div>
+  );
+}
+
+/**
+ * POL Accumulator card.
+ *
+ * 🔄 2026-08-12 — DEAD BRANCH REPAIR. This card was `{!isDeployed(POL_ACCUMULATOR_ADDRESS) && …}`:
+ * a "Coming Soon" promise that rendered ONLY while the accumulator address was
+ * the zero address. The contract deployed (0x2A5f…D11D2 went into constants.ts),
+ * `isDeployed()` flipped true, the negation went false, and the card silently
+ * vanished. Nothing replaced it. The promise was neither kept nor withdrawn —
+ * it just stopped being visible, which is the worst of the three outcomes,
+ * because the dashboard now says nothing at all about a feature it once
+ * advertised and that still has not delivered a wei.
+ *
+ * Verified against mainnet 2026-08-12 before writing this copy:
+ *   POLAccumulator 0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2 — unpaused,
+ *     totalETHReceived() = 0, totalLPCreated() = 0, balance 0. Never funded.
+ *   SwapFeeRouter  0x6d5791A660e79175F74C6D639584C98422d5956E —
+ *     polShareBps() = 0 and polAccumulator() = address(0).
+ *
+ * A note on the framing: it is NOT true that this contract "cannot receive a
+ * wei" — `POLAccumulator.receive()` (POLAccumulator.sol:282) is unguarded, so
+ * anyone can send it ETH. What is true, and what this card says, is that it
+ * cannot be funded from PROTOCOL FEES as currently wired: SwapFeeRouter's POL
+ * share is 0 bps, and its `polAccumulator` slot is unset, so the POL leg of
+ * `distributeFeesToStakers` (SwapFeeRouter.sol:1392-1404) is dead code and its
+ * slice would fold into treasury even if the share were raised first.
+ *
+ * The state is READ, not hardcoded, so this card cannot rot the same way twice:
+ * wire the router to the accumulator and it starts reporting real LP.
+ */
+const POL_WIRING_ABI = [
+  { type: 'function', name: 'polShareBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'polAccumulator', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+] as const;
+const POL_ACCUMULATOR_STATS_ABI = [
+  { type: 'function', name: 'totalETHReceived', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalLPCreated', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+
+export function POLAccumulatorCard() {
+  const deployed = isDeployed(POL_ACCUMULATOR_ADDRESS);
+
+  const { data: polShareBps } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS, abi: POL_WIRING_ABI, functionName: 'polShareBps', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: routerPolTarget } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS, abi: POL_WIRING_ABI, functionName: 'polAccumulator', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: totalETHReceived } = useReadContract({
+    address: POL_ACCUMULATOR_ADDRESS, abi: POL_ACCUMULATOR_STATS_ABI, functionName: 'totalETHReceived', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: totalLPCreated } = useReadContract({
+    address: POL_ACCUMULATOR_ADDRESS, abi: POL_ACCUMULATOR_STATS_ABI, functionName: 'totalLPCreated', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+
+  // "Wired" means the router would actually send it something: a non-zero POL
+  // share AND the router's polAccumulator slot pointing at this contract. Both
+  // are required — DEEP-R-M04 lets governance set one without the other, and a
+  // non-zero share with an unset target folds straight into treasury.
+  const targetMatches =
+    typeof routerPolTarget === 'string' &&
+    routerPolTarget.toLowerCase() === POL_ACCUMULATOR_ADDRESS.toLowerCase();
+  const shareBps = polShareBps !== undefined ? Number(polShareBps as bigint) : undefined;
+  const wired = deployed && targetMatches && shareBps !== undefined && shareBps > 0;
+  const wiringKnown = deployed && shareBps !== undefined && routerPolTarget !== undefined;
+  const everFunded = totalETHReceived !== undefined && (totalETHReceived as bigint) > 0n;
+
+  const badge = !deployed ? 'Coming Soon' : wired ? 'Live' : 'Deployed · Unfunded';
+  const badgeStyle = wired
+    ? { background: 'rgba(52,211,153,0.22)', color: '#6ee7b7', border: '1px solid rgba(52,211,153,0.45)' }
+    : { background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' };
+
+  return (
+    <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <div className="absolute inset-0">
+        <ArtImg pageId="dashboard" idx={8} alt="" loading="lazy" className="w-full h-full object-cover" />
+      </div>
+      <div className="relative z-10 p-5">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="text-white text-[15px] font-medium">POL Accumulator</span>
+          <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={badgeStyle}>{badge}</span>
+        </div>
+
+        {/* The original promise. Kept verbatim — it is still the design intent,
+            and it is what the rest of the copy is measured against. */}
+        <p className="text-white text-[12px] leading-relaxed max-w-lg">
+          Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+        </p>
+
+        {deployed && (
+          <div className="mt-3 pt-3 border-t border-white/10 max-w-lg">
+            {wired ? (
+              <p className="text-white/70 text-[11px] leading-relaxed">
+                Wired and earning: SwapFeeRouter routes {((shareBps ?? 0) / 100).toFixed(2)}% of each
+                distributed fee here.{' '}
+                {totalLPCreated !== undefined && (
+                  <>Lifetime LP minted to the protocol: <span className="font-mono text-white/85">{formatWei(totalLPCreated as bigint, 18, 6)}</span> LP.</>
+                )}
+              </p>
+            ) : (
+              <p className="text-white/70 text-[11px] leading-relaxed">
+                <span className="text-amber-300/90 font-medium">Status:</span> the contract is deployed
+                and unpaused on mainnet, but it has never received a wei
+                {totalETHReceived !== undefined && !everFunded ? ' (totalETHReceived is 0)' : ''} and
+                cannot be funded from swap fees as wired today. SwapFeeRouter&apos;s POL share is{' '}
+                <span className="font-mono text-white/85">{wiringKnown ? `${((shareBps ?? 0) / 100).toFixed(2)}%` : '—'}</span>
+                {wiringKnown && !targetMatches ? ' and its accumulator target is not set to this contract' : ''}
+                , so every fee that reaches the distributable pool goes to stakers and treasury instead.
+                Turning it on takes two timelocked governance calls, not a deploy — until then, treat
+                the paragraph above as a plan, not a running feature.
+              </p>
+            )}
+            <a
+              href={getAddressUrl(CHAIN_ID, POL_ACCUMULATOR_ADDRESS)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-white/55 hover:text-white text-[10px] underline underline-offset-2 transition-colors break-all"
+            >
+              Verify on the block explorer: {POL_ACCUMULATOR_ADDRESS} ↗
+            </a>
+          </div>
+        )}
+      </div>
+    </m.div>
   );
 }
 

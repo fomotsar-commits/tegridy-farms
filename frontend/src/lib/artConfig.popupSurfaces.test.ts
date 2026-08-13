@@ -19,6 +19,13 @@ const POPUP_SURFACES = [
   'connect-prompt:0',
   'token-select:0',
   'typed-confirm:0',
+  // Tradermigos pop-ups (src/nakamigos/), wired 2026-08-12. These live outside
+  // src/components/ which is why every earlier "art on every popup" pass missed
+  // them — they rendered no art at all, rather than losing it. Pinned here so
+  // they cannot silently fall back to the hash rotation.
+  'wallet-modal:0',
+  'make-offer:0',
+  'nft-detail:0',
 ];
 
 describe('pop-up modal art surfaces (art-studio registered)', () => {

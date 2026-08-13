@@ -1,0 +1,107 @@
+name: Address Registry — chain read
+
+# The registry's OFFLINE checks (structure, truncation, duplicates, denylist,
+# drift against constants.ts) run on every push in ci.yml. This is the other
+# half: does the chain agree with what the registry SAYS?
+#
+# It did not run anywhere. `verify-addresses.mjs --onchain` existed, and no
+# workflow ever passed the flag — and had one, it could not have failed:
+# every disagreement was a `warn()` (warnings do not affect the exit code) and
+# every RPC error was swallowed by `catch { console.log('(unreadable)') }`.
+# Both halves are fixed in the script; this is the pipeline it was missing.
+#
+# WHY NOT ON EVERY PR: this reads mainnet over the network. A PR that touches
+# no addresses should not be blocked because an operator wallet ran dry or a
+# public RPC hiccuped. It runs daily, on demand, and on any change to the
+# registry or to the constants it mirrors.
+#
+# ⚠ THIS IS EXPECTED TO BE RED ON ITS FIRST RUN, and that is the point. As of
+# 2026-08-12 the registry's `deploy-authority`
+# (Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7) is recorded as "live, funded
+# … 3.53 SOL left" and does not exist on mainnet — zero lamports, confirmed
+# against two independent RPCs. Per its own registry note it is the only
+# signer that can call initialize_global. Either fund it, or correct the
+# registry. Do not silence the check.
+
+on:
+  schedule:
+    - cron: "41 6 * * *" # daily 06:41 UTC
+  workflow_dispatch: {}
+  push:
+    branches: [main, mvp-launch]
+    paths:
+      - "frontend/scripts/addresses.json"
+      - "frontend/scripts/verify-addresses.mjs"
+      - "frontend/src/lib/constants.ts"
+      - ".github/workflows/registry-onchain.yml"
+  pull_request:
+    branches: [main, mvp-launch]
+    paths:
+      - "frontend/scripts/addresses.json"
+      - "frontend/scripts/verify-addresses.mjs"
+      - "frontend/src/lib/constants.ts"
+      - ".github/workflows/registry-onchain.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-onchain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chain-read:
+    name: registry vs chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --ignore-scripts
+
+      # Offline first. If the registry does not even parse, a chain read is
+      # noise — and this is the check that caught the fabricated 33-byte
+      # "Solana address" the whole script exists for.
+      - name: Registry structure (offline)
+        run: node scripts/verify-addresses.mjs
+
+      # Keyless public endpoints, both verified serving real reads. Overridable
+      # so an operator can point at a paid endpoint when the public ones throttle.
+      # Bound through env:, never spliced into the script.
+      - name: Registry vs live chain state
+        env:
+          SOLANA_RPC: ${{ vars.SOLANA_RPC || 'https://api.mainnet-beta.solana.com' }}
+          ETH_RPC: ${{ vars.ETH_RPC || 'https://ethereum-rpc.publicnode.com' }}
+        run: |
+          set -euo pipefail
+          node scripts/verify-addresses.mjs --onchain | tee /tmp/onchain.txt
+
+      # `tee` above means the node exit code reaches the step through
+      # pipefail. This is the belt: the report has to actually contain the
+      # chain section, so a script that silently stops reading — an early
+      # return, a renamed flag — cannot pass as "no disagreements found".
+      - name: Assert the chain was actually read
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          grep -q 'live chain state' /tmp/onchain.txt || {
+            echo "::error title=No chain read happened::verify-addresses.mjs --onchain produced no chain section. A green run here would mean 'nothing was checked', not 'nothing is wrong'."
+            exit 1
+          }
+          {
+            echo "### Address registry — chain read"
+            echo ""
+            echo '```'
+            sed -n '/live chain state/,$p' /tmp/onchain.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

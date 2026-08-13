@@ -12,13 +12,22 @@
 > | LP Farming `0x1171268A…e149` LP balance | 125.0 (99.5% staked) | **0** |
 > | Uniswap pair `0x6682Ac59…F81104D` | ~$26,400 | 278,952,490 TOWELI + 7.3786 WETH |
 > | Uniswap depth advantage | 360× | **1,926× in WETH** |
-> | `SwapFeeRouter.totalETHFees()` | — | **0 — lifetime, never earned** |
+> | Staker fee rail | — | **has collected; has never paid** (re-read 2026-08-12 — see below) |
 >
 > ~83% of the LP was burned and the farm's staked LP went to zero. So
 > **"farming is live" is false**, and the `DeepenLP.s.sol` plan sized below
 > (~50M TOWELI + ~1.31 ETH) is undersized by roughly 6× — an independent model
 > puts the point where the native pool starts winning $1k trades at **8–11 WETH
 > (~$30–41k both sides at ETH $1,866)**, not 1.33.
+>
+> **Fee-rail row corrected 2026-08-12.** It previously reported the router's lifetime fee counter as
+> zero. That was already wrong when written: the router *has* taken fee ETH. What
+> has never happened is a **distribution**, and the reason is structural. `_recordReferralFee` hands
+> the whole fee to `ReferralSplitter`, which keeps `referralFeeBps` (20%, floored above zero and not
+> unwireable) and parks the ~80% remainder as `callerCredit` until someone calls the permissionless
+> `recoverCallerCredit()`. Nobody has, so `RevenueDistributor` holds `0` and `totalDistributed()`
+> reads `0`. State it that way — a wei figure here goes stale on the next swap, which is exactly how
+> the old row rotted.
 >
 > Everything below is retained as the historical 2026-07-11 record. Do not action
 > it without re-reading the chain first.

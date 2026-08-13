@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { explorerEnvelopeFailure, marketFor } from './useDeployerReputation';
+import { explorerEnvelopeFailure, marketFor, txListUrl, TXLIST_OFFSET } from './useDeployerReputation';
 import { classifyLaunch } from '../lib/detection/deployerReputation';
 import type { OutcomeRecord } from '../lib/launcher/outcomes';
 
@@ -120,5 +120,42 @@ describe('marketFor → classifyLaunch — an unread market is `unobserved`, nev
     expect(t.liquidityEth).toBeNull();
     expect(t.priceEth).toBeNull();
     expect(t.note).not.toMatch(/withdrawn|thin/i);
+  });
+});
+
+// /deployer was permanently broken for busy addresses, and it did not look like a bug —
+// it looked like the explorer was down. Without page/offset, Etherscan returns its
+// 10,000-row default; ~700 B/row is ~7 MB, over MAX_RESPONSE_BYTES in
+// api/_lib/bodycap.js, so /api/etherscan answers 502 every single time for that address.
+//
+// The invariant is the BOUND, not the literal: this read must never ask the explorer for
+// an unbounded page. Asserting the exact URL string would fail on any harmless reorder
+// and would not notice the offset being raised past the proxy's clamp.
+describe('txListUrl — the deployer read is always bounded', () => {
+  const ADDR = '0x1489825812345678901234567890123456789ABC';
+
+  it('always sends a page size, and never one the proxy would clamp', () => {
+    const q = new URL(txListUrl(ADDR), 'https://memetic.fun').searchParams;
+    expect(q.get('offset'), 'offset must be present — its absence IS the bug').not.toBeNull();
+    // 500 == MAX_OFFSET in api/etherscan.js. Above it the proxy clamps, which would make
+    // the effective page size disagree with what this module thinks it asked for.
+    expect(Number(q.get('offset'))).toBeGreaterThan(0);
+    expect(Number(q.get('offset'))).toBeLessThanOrEqual(500);
+    // Etherscan pages from 1 when offset is supplied without page; pin it explicitly so
+    // the window can never silently shift.
+    expect(q.get('page')).toBe('1');
+  });
+
+  it('asks for enough rows to satisfy the 50 creations the page actually renders', () => {
+    expect(TXLIST_OFFSET).toBeGreaterThanOrEqual(50);
+  });
+
+  it('still omits the block range and sorts newest-first', () => {
+    // The proxy rejects a range wider than 10k; omitting it is what gets full history.
+    const q = new URL(txListUrl(ADDR), 'https://memetic.fun').searchParams;
+    expect(q.get('startblock')).toBeNull();
+    expect(q.get('endblock')).toBeNull();
+    expect(q.get('sort')).toBe('desc');
+    expect(q.get('address')).toBe(ADDR.toLowerCase());
   });
 });

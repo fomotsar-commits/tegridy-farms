@@ -24,7 +24,8 @@
 //   from the aggregator catchall via `?resource=launch-cohort` behind a lazy import, exactly
 //   like _lib/launch-radar.js and _lib/launcher-outcomes.js. See api/SERVERLESS_BUDGET.md.
 
-import { checkRateLimit } from "./ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
+import { isOriginAllowed } from "./aggregator-proxy.js";
 import { logSafe } from "./logSafe.js";
 
 const AIRLOCK = "0xde3599a2ec440b296373a983c85c365da55d9dfa";
@@ -143,8 +144,24 @@ export async function handleLaunchCohort(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // ENFORCE the origin — `setCors` only sets a header. Dispatched before runProxy, so
+  // this branch does not inherit aggregator-proxy.js's 403 and must apply it itself.
+  if (!isOriginAllowed(req.headers?.origin || "")) {
+    return res.status(403).json({ error: "Origin not allowed" });
+  }
+
   const allowed = await checkRateLimit(req, res, { limit: 30, windowSec: 60, identifier: "launch-cohort" });
   if (!allowed) return;
+
+  // Spends the keyed Etherscan budget, which is shared with /api/etherscan and the
+  // deployer graph — bound the fleet, not just the visitor. Own identifier so the two
+  // surfaces cannot shed each other.
+  const underCap = await checkGlobalLimit(res, {
+    limit: Number(process.env.LAUNCH_COHORT_GLOBAL_RPM) || 90,
+    windowSec: 60,
+    identifier: "launch-cohort",
+  });
+  if (!underCap) return;
 
   const key = process.env.ETHERSCAN_API_KEY;
   // FAIL LOUD, NOT EMPTY. An empty `assets` array is indistinguishable from "nothing has
