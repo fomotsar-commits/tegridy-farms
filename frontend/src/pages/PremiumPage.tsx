@@ -73,10 +73,15 @@ export default function PremiumPage() {
   const hasError = premium.isDataError || revenue.isDataError;
   const errorMsg = premium.dataError?.message || revenue.dataError?.message || 'Failed to load contract data';
 
-  // PremiumAccess isn't part of the relaunch deployment (address zeroed in
-  // constants.ts). Render a clean placeholder rather than a live subscribe flow
-  // wired to an undeployed contract. Revenue-share stats remain available on
-  // the Dashboard. Restore the address post-redeploy to bring this page back.
+  // ⚠ THIS BRANCH IS UNREACHABLE TODAY, and the comment that used to sit here said
+  // the opposite. PremiumAccess IS deployed and wired —
+  // PREMIUM_ACCESS_ADDRESS is 0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5
+  // (constants.ts), un-gated 2026-07-21 — so isDeployed() is true and the page always
+  // renders the live flow below.
+  //
+  // Kept, not deleted: it is the correct fallback if the address is ever zeroed again,
+  // and a page that renders a subscribe button against 0x0 is the failure it prevents.
+  // What was wrong was the comment asserting it as the CURRENT state.
   if (!isDeployed(PREMIUM_ACCESS_ADDRESS)) {
     return (
       <div className="-mt-14 relative min-h-screen">

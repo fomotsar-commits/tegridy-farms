@@ -461,6 +461,12 @@ export default function LaunchPage() {
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
         <LaunchHeader lpPhase={lpPhase} />
+        {/* ⚠ UNREACHABLE TODAY. LAUNCHER_ENABLED is true (lib/launcher/config.ts), so
+            isLauncherEnabled() short-circuits this whole branch and the live wizard
+            renders instead. Kept as the fail-closed path if the flag is ever turned
+            off — but do not read the copy below as a description of the current
+            state, and do not "update" it to match today's app: its whole job is to
+            describe the OFF state. */}
         <FeatureNotDeployed
           pageId="community"
           idx={5}

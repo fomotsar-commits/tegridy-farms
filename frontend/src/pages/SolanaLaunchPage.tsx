@@ -882,6 +882,12 @@ export default function SolanaLaunchPage() {
   if (!isSolanaLauncherEnabled()) {
     return (
       <div className="max-w-md mx-auto px-4 py-10">
+        {/* ⚠ UNREACHABLE TODAY. SOLANA_LAUNCHER_ENABLED is true
+            (lib/launcher/solana/dbc.ts), so this branch never renders and
+            /solana-launch always shows the live submit flow. Kept as the fail-closed
+            path if the flag is turned off. NOTE this is a different gate from
+            /solana (the SWAP surface), which IS currently walled because
+            VITE_SOLANA_FEE_ACCOUNT is unset — that one is reachable and accurate. */}
         <FeatureNotDeployed
           pageId="launch"
           idx={0}

@@ -117,9 +117,16 @@ const VALID_SECTIONS: Section[] = ['lending', 'nftlending', 'amm', 'launchpad'];
  */
 const DEFAULT_SECTION: Section = 'nftlending';
 
-// Per-section contract-deploy state. Every NFT-Finance contract is currently the
-// zero address (constants.ts, ZEROED 2026-05-31), so each surface renders its
-// honest pre-deploy state. This map drives the amber "Soon" chips on the tab row
+// Per-section contract-deploy state, derived from constants.ts — never asserted.
+//
+// ⚠ This comment used to say "Every NFT-Finance contract is currently the zero
+// address (ZEROED 2026-05-31)". That has been false since 2026-07-21: the NFT pool
+// factory, NFT lending and LaunchpadV2 all carry real addresses and are un-gated.
+// Token Lending (TEGRIDY_LENDING_ADDRESS) is the ONLY 0x0 left here, and it is
+// genuinely undeployed — it waits on the TWAP oracle, whose reserve floor the drained
+// native pool does not clear.
+//
+// This map drives the amber "Soon" chips on the tab row
 // + intro cards so visitors can see which surfaces are gated before clicking in;
 // each chip flips off automatically when a real address lands in constants.ts.
 const SECTION_DEPLOYED: Record<Section, boolean> = {

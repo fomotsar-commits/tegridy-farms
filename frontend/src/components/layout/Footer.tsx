@@ -9,10 +9,16 @@ import { CopyButton } from '../ui/CopyButton';
  * Every route demoted from the top nav must be reachable here so the
  * reduced TopNav doesn't strand any page.
  *
- * CREDIBILITY GATING (2026-06-09): undeployed feature surfaces (NFT Finance,
- * Governance, Gold Card — all relaunch-zeroed in constants.ts) are dropped
- * from the promoted link lists until their contracts are live. Routes stay
- * reachable by URL; entries reappear automatically on redeploy.
+ * CREDIBILITY GATING (2026-06-09): feature surfaces with no reachable contract are
+ * dropped from the promoted link lists. Routes stay reachable by URL; entries reappear
+ * automatically once an address lands in constants.ts.
+ *
+ * ⚠ The parenthetical here used to read "NFT Finance, Governance, Gold Card — all
+ * relaunch-zeroed", and two thirds of that is now false. Gold Card (PremiumAccess) and
+ * three of the four NFT-Finance contracts carry real addresses and are un-gated; only
+ * Governance is still 0x0 in constants.ts — and even those four contracts are deployed
+ * and unpaused on mainnet, they are simply not wired here. See ContractsPage's
+ * `unwired` status for the distinction.
  */
 const PRODUCT_LINKS: { to: string; label: string }[] = [
   { to: '/dashboard', label: 'Dashboard' },

@@ -2732,7 +2732,7 @@ export function AMMSection() {
           className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
           style={{ background: 'rgba(245,158,11,0.06)' }}
         >
-          NFT AMM contracts are being finalized and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
+          The NFT pool factory is deployed on mainnet; this notice appears only if its address is ever unset. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
         </div>
       )}
       <AMMStatsBar poolCount={poolCount as bigint | undefined} />
