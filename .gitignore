@@ -48,3 +48,17 @@ CODEBASE_OVERVIEW.txt
 **/keystore/
 **/*.key
 **/wallet.json
+
+# ── Stray artefacts and audit scratch (added 2026-08-15) ────────────────────
+# Ignored, NOT deleted. Each was sitting untracked at the repo root where a
+# `git clean -fd` would take it along with anything real beside it — which has
+# already cost this repo twice (WORKORDER_V2.md and
+# scripts/verify-program-constants.mjs were both real work found untracked).
+# Ignoring them means the next `git status` shows only things that matter.
+nul
+tl.so
+idx.html
+*.mp4
+.spartan_unpacked/
+.audit_diffs/
+.audit_2026_freshlook/
