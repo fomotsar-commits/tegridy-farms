@@ -1,208 +1,177 @@
-# Status for seacasa — 2026-08-15
+# Wave three — status from the venue
 
-Everything that could be done without a key, a credential, or money is done, merged to
-`mvp-launch`, and live in production. This is where things stand, what I need from you,
-and what I need from the island.
+2026-08-15. Everything in this wave that could be built has been built, merged and is
+live in production. This is the account of it, and the four things we need in writing.
 
-Two documents carry the detail and are both in the repo:
-`docs/ISLAND_WAVE_THREE_STATUS.md` (the file the island reads) and
-`docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md` (the phase-04 ledger).
-
----
-
-## 1. The thing you should read first
-
-**Both Solana programs are closed on mainnet.** `tegridy-launch` and the cp-swap fork
-both have their ProgramData deleted — `null`, 0 lamports — verified on two independent
-RPCs. The program *stubs* still exist and still report `executable: true`, which is why
-this looks fine from an explorer; you have to check the ProgramData account, not the
-program account.
-
-A program whose ProgramData is closed cannot execute. On Solana the address is also not
-reusable, so **`CpFnacrA…` and `3ZvZXEBr…` are spent forever.** Relaunching means new
-program IDs, a new `deployer::ID` baked into a new binary, new config, new custody.
-
-This matches the close runbook that was on file to reclaim the ~8.47 SOL of rent. I am
-not treating it as an accident — but I could not find the money. It is not in the Squads
-vault (0.001 SOL), the multisig (0.00434), the deploy authority (0), or member A
-(0.0221). The `global` PDA still holds 5,922,960 lamports, owned by a program that
-cannot run.
-
-**Why this matters for Wave 3:** phase 02 is written on the premise that "your upgrade
-authority sits at the multisig, so the live program can still learn." There is nothing to
-upgrade. That phase cannot be executed as written, and it is now a question for the
-island rather than a signature from you.
+The repo carries the same record at `docs/ISLAND_WAVE_THREE_STATUS.md`, which is the file
+the island reads, and the phase-04 ledger at
+`docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md`.
 
 ---
 
-## 2. Wave 3 — where each phase actually is
+## Where each phase stands
 
-| phase | state | who is holding it |
-|---|---|---|
-| 01 prove the wire | **BLOCKED** | **you** — one env var |
-| 02 creator-fee door, decimals, fee constitution | **BLOCKED, premise gone** | **the island** — a decision |
-| 03 fee custody on the public path | **DONE** | — |
-| 04 audit swarm on the program | **DONE** | — |
-| 05 custody comes home | **BLOCKED** | **you** — on-chain signing |
-| 06 small true things | **DONE** | — |
+| phase | state |
+|---|---|
+| 01 prove the wire | **blocked** — waiting on the venue to set the secret in production |
+| 02 governed upgrade | **cannot execute as written** — see below |
+| 03 fee custody on the public path | **done** |
+| 04 the swarm, pointed at the program | **done** |
+| 05 custody comes home | **blocked** — on-chain signing, ours to run |
+| 06 small true things | **done** |
 
-### What is done, and what it actually changed
-
-**03 — fee custody, verified where the public walks.** The venue's strongest Solana
-guarantee is that the config's `feeClaimer` is the Squads vault. That check existed in
-operator tooling and had never once run on the public submit path — the one place a
-stranger's money is at stake. It now runs: one read, before submit, refusing on a
-mismatch, an unreadable account, a throwing RPC, *and* on there being no configured
-expectation. Placed above the SDK, so a refusal is provably "nothing was submitted".
-
-**04 — the audit, pointed at the program for the first time.** 43 findings, 0 critical,
-9 high, then every high and medium handed to an independent verifier told to default to
-REFUTED: 16 confirmed, 3 refuted. The two sharpest are both about segmented mode, which
-`segment_count = 0` was the only thing preventing — one signature away:
-
-- it **bypasses the graduation-price continuity band entirely**, so a published table
-  could list a launch at 35%–122% of its curve price against a ±5% band the program
-  enforces everywhere else;
-- a **well-formed table can permanently brick every launch** created under it — three
-  were replayed against the live parameters and one bricks on the very first buy, with
-  the creator's rent already spent and the mint authority already burned.
-
-Plus three client bugs that would have built valid-but-wrong transactions. None is
-exploitable now because nothing can be called — they are findings about the **source**,
-and they are exactly what a redeploy would carry forward.
-
-**06 — the three small true things.**
-- The garden lane is mounted. `certification.ts` was correct and had no importer, so the
-  island's promise was invisible. It renders as a promise and is deliberately **not
-  selectable**, because offering it as a choice would be the venue self-declaring
-  certification. The read is now a per-token path, not a query parameter.
-- The 180-day averaging window is gone, along with the decay story built on it. It was
-  labelled "CONFIRMED BY THE ISLAND 2026-08-07" and it was not, and both the number and
-  the mechanic were being shown to users. The card now carries the three confirmed
-  properties and says plainly that the period has not been published.
-- The attestation seam is laid dark. The verdict is a **state, not a boolean**, with no
-  `.valid` to read — so nobody can wire it in, treat "never ran" as "not attested", and
-  start enforcing a verdict the island never gave.
-
-**Floor confirmed at 80, the Resident word — we were already at 80. No change needed.**
+**The floor is at 80, the Resident word.** We were already there — no change was needed.
 
 ---
 
-## 3. What I need from you
+## 02 — the premise is gone
 
-Ordered by value per minute of your time.
+The wave opens phase 02 with "your upgrade authority sits at the multisig, so the live
+program can still learn."
 
-### 3.1 Set `MEMETICS_BIRTH_SECRET` in Vercel production — unblocks phase 01
+It cannot. **Both Solana programs are closed on mainnet.** The ProgramData accounts for
+`tegridy-launch` and for the cp-swap fork both return `null` with 0 lamports, verified on
+two independent RPCs. The program stubs still exist and still report `executable: true`,
+which is why this looks healthy from an explorer — the ProgramData account is where the
+truth is.
 
-This is one environment variable and it is the whole of phase 01. Everything else is
-built and verified: the relay reads it server-side only (never a `VITE_` variable, never
-committed), the ops panel for stuck births exists and is mounted on `/admin`, and the
-client already treats `already_enrolled` as a success carrying the island's original
-enrollment id. Live production currently answers `503 no_secret`.
+A program whose ProgramData is closed cannot execute, and on Solana the address is not
+reusable. So the creator-fee door, the decimals pin and the fee-constitution sentence are
+all written against a rail that is no longer on chain.
 
-**Do not send me the value.** Set it in the Vercel dashboard yourself. I will then run
-the test birth, the replay, and confirm zero stuck pending, and record the enrollment id
-in the status file.
+We are not asking the island to decide what happens to that rail — that is ours. What
+matters here is that phase 02 has no live target, so it is reported honestly rather than
+left showing as work in progress.
 
-### 3.2 Decide whether the Solana leg is being relaunched or retired
-
-I need this before I write another line of Solana code. Right now the repo contains a
-launcher, a curve, a client and an operator harness for programs that no longer exist.
-That is not neutral — it is the exact "half-built thing that reads as live" pattern we
-spent this week removing everywhere else.
-
-If it is being retired, say so and I will mark the surfaces honestly and stop.
-If it is being relaunched, the phase-04 highs get fixed **before** the new deploy, not
-after.
-
-### 3.3 Run the EVM custody re-home — phase 05
-
-`docs/SAFE_REHOME_RUNBOOK.md`. Ownership behind the multisig at a named threshold,
-published address, integrator fee recipient re-pointed in the same motion. This is
-entirely unaffected by the Solana situation. Once the on-chain move lands I will banner
-the superseded checklist and update the front-door risk paragraph in the same pass.
-
-### 3.4 The things that are cheap now and expensive later
-
-- **There is still no succession document.** One person holds the deployer keystore for
-  19 live contracts, the Vercel environment (the only record of 9 server-only variables),
-  GoDaddy, Supabase and GitHub. `git grep` for succession or bus-factor returns nothing.
-- **Backups cover one item.** Only the Solana keypairs were ever in scope, and those are
-  now the keys to closed programs. The deployer keystore, Safe recovery material and the
-  Vercel variable set are not backed up anywhere.
-- **No legal entity and no tax treatment**, against a protocol every month of the plan is
-  built to earn from.
+The audit in phase 04 was still worth running. Its findings are about the **source**, and
+they are exactly what any future deploy would carry forward.
 
 ---
 
-## 4. What I need from the island
+## 03 — fee custody, verified where the public walks
 
-These are in the status file's notes as well, which is where the island reads them.
+The strongest guarantee on this rail is that the config's `feeClaimer` is the Squads
+vault, so fees cannot be redirected to a person. That check existed, and it had never run
+on the public submit path — it lived in operator tooling, so the one place a stranger's
+money was at stake was the one place nothing asked the chain.
 
-1. **Phase 02 assumes a live program and there is not one.** Does the island want this
-   rail redeployed under new program IDs — new deploy, new config, new custody, phase-04
-   highs fixed first — or is the Solana leg retired? Everything else in Wave 3 is
-   unaffected either way.
+It now runs before submit: one read, refusing on a mismatch, an unreadable account, a
+throwing RPC, and on there being no configured expectation at all. That last branch
+matters — with nothing to compare against, a "match" is vacuous, and a vacuous pass is
+indistinguishable from a verified one at the call site.
 
-2. **The exact TWAB window semantics.** We removed the 180-day figure because it was
-   never island-confirmed. The consequence is that a preview cannot reproduce the curve,
-   and the surface now says so. Is a reproduction preview expected before the window is
-   published, or should the surface stay descriptive?
-
-3. **Which half of the fee constitution is immutable.** Our shape is: rate snapshotted
-   per curve, destination read live. We intend to publish plainly that **the rate is
-   fixed forever and the destination is operational**, rather than timelock the
-   destination — the EVM rail's timelock discipline exists because that rail holds user
-   funds in the contract, which was never true here. Confirm, or say the destination must
-   be timelocked.
-
-4. **The certification read path shape.** We pinned it to a per-token path. Our record
-   route is `/record/:chain/:ca.json`. Should certification hang off that same shape
-   (`/record/:chain/:ca/certification.json`), or sit at its own root?
+It sits above the SDK and far above broadcast, so a refusal is provably "nothing was
+submitted" and carries no signature. A denial can never read as a failed broadcast.
 
 ---
 
-## 5. Information that would make this go faster
+## 04 — the swarm, pointed at the program
 
-Not blockers — things that cost me real time this week, that you can settle in a line.
+Six lanes over the launch program and the cp-swap fork diff. Every high and medium
+finding was then handed to an independent verifier instructed to default to refuted.
 
-- **Where did the ~8.47 SOL of reclaimed rent go, and was the close deliberate?** I can
-  see the effect on chain but not the intent, and the answer changes whether I treat the
-  Solana tree as retired or as between deployments.
-- **Can Squads member B (`6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`) sign?** It has
-  never appeared in any proposal's `approved[]`, holds 0 SOL, and has no keyfile on this
-  machine. If it cannot, the multisig is effectively 1-of-1-that-cannot-act and every
-  plan resting on it is fiction. If the close ran, something signed — I would like to
-  know what.
-- **Is `VITE_SOLANA_FEE_ACCOUNT` deliberately unset?** It gates the whole `/solana` swap
-  surface behind an honest "not live yet" wall. I have left it alone because the wall is
-  truthful, but if the intent was for that surface to be live, it has been dark for
-  weeks.
-- **Which of the 19 open PRs do you actually want?** Most are dependabot. I have been
-  working around them rather than through them.
-- **What is `indexer/` for?** 1,832 lines, no CI job, no consumer, no deploy config, and
-  26,018 files on disk. Its fate is a decision, not a code problem.
-- **Is there a staging Supabase project?** Every migration decision this week was made
-  against production because there is nowhere else to rehearse. Migration 004 is
-  partially applied and running it as a unit would kill the live Trade Board; that is the
-  kind of thing a staging project makes cheap to establish.
+**43 findings — 0 critical, 9 high, 10 medium, 10 low, 14 info. Verify pass: 16
+confirmed, 3 refuted.** Each carries a disposition, in the same culture as our existing
+remediation ledgers.
+
+The two sharpest are both about segmented mode, which `segment_count = 0` was the only
+thing holding shut — one authority signature away:
+
+- **It bypasses the graduation-price continuity band entirely.** The economics check
+  models only the constant-product curve and the segmented path never calls it, so a
+  published table could list a launch at 35%–122% of its curve price, against a ±5% band
+  the program enforces everywhere else.
+- **A well-formed table can permanently brick every launch created under it.** Three were
+  replayed against the live parameters; one bricks on the very first buy, with the
+  creator's rent already spent and the mint authority already burned.
+
+Plus three client defects that would have built valid-but-wrong transactions: a 162-byte
+curve decode against a 716-byte account, a trade instruction omitting the creator
+account, and a migration instruction omitting the fee recipient and shifting 21 accounts
+by one position.
+
+None is exploitable now, because nothing can be called. They are recorded as source
+findings, to be closed before anything is deployed again.
 
 ---
 
-## 6. One process note, offered rather than asked
+## 06 — the three small true things
 
-Three times this week a test passed that was proving nothing, and each time it was the
-mutation check that caught it rather than the test suite:
+**The garden lane is mounted.** The certification module was correct and had no importer,
+so the island's promise was invisible and the module's tests guarded code nobody could
+reach. It now renders on the launch page as a promise, and is deliberately **not
+selectable** — offering it as a choice would be the venue self-declaring certification,
+which the spec forbids. When dark it shows the island's own reason, because a dark lane
+that does not say why reads as broken, while one that says why reads as waiting. The read
+is pinned to a per-token path, not a query parameter.
 
-- a fee-custody position test that passed with the check deleted, because a different
-  fail-closed guard refused first;
-- a test asserting `TWAB_WINDOW_DAYS === 180` in a case named "pins the island-confirmed
-  constants" — it was protecting a fabrication, and made removing it look like a
+**The explainer is corrected.** We had exported a 180-day averaging window under the
+header "confirmed by the island", and built a decay mechanic on top of it — that the
+window rolls, that warmth is not banked, that a wallet which sells decays out of the
+average. Both the number and the mechanic were being rendered to users.
+
+It was not confirmed, and we should not have published it. The surface now carries only
+the three properties the island has actually given — continuous, zero-anchored from first
+hold, velocity-blind — and states plainly that the averaging period has not been
+published, so the curve cannot be reproduced yet. A guard fails the build if a window
+length or a decay story reappears anywhere a user can read it.
+
+**The attestation seam is laid dark.** Config-shaped and inactive against the pinned
+shape only: an island-key signature over canonical JSON of the seven fields, in the
+island's order, with the public key read from a route that does not exist yet. No key, no
+route, no activation.
+
+The verdict it returns is a **state, not a boolean**, and there is no `valid` property to
+read. That is deliberate. A dark seam's characteristic failure is becoming load-bearing
+by accident — someone wires it in, it returns falsy because nothing is configured, the
+caller reads falsy as "not attested", and a check that has never run starts deciding who
+may launch. Unconfigured is not a denial either.
+
+The canonical encoding fixes key order to the island's rather than to object
+construction order, so two encoders of the same voucher produce identical bytes. Same
+discipline the birth socket already keeps, and for the same reason.
+
+---
+
+## What we need in writing
+
+1. **The exact TWAB window semantics.** Having removed the unconfirmed figure, a preview
+   cannot reproduce the curve, and the surface now says so. Is a reproduction preview
+   expected before the window is published, or should that surface stay descriptive until
+   it is?
+
+2. **Which half of the fee constitution is immutable.** Our shape is: rate snapshotted per
+   curve, destination read live with no delay. We intend to publish plainly that **the
+   rate is fixed forever and the destination is operational**, rather than move the
+   destination behind a timelock — the timelock discipline on our other rail exists
+   because that rail holds user funds in the contract, which was never true here. Confirm
+   that is acceptable, or say the destination must be timelocked.
+
+3. **The certification read path.** The wave pins it to a per-token path form. Our record
+   route is already `/record/:chain/:ca.json`. Should certification hang off that same
+   shape — `/record/:chain/:ca/certification.json` — or sit at its own root?
+
+4. **The voucher's clock.** The pinned shape carries `as_of_unix` and `expires_unix`.
+   When the seam activates, is expiry judged against the verifier's clock, or does the
+   island expect a freshness rule of its own? We have not guessed one, and the seam does
+   not currently judge expiry at all.
+
+---
+
+## One note on method, offered rather than asked
+
+The wave's rail — every done-means becomes a failing test before it becomes code — is
+the reason three separate problems surfaced this week that a passing suite had been
+hiding:
+
+- a fee-custody position test that passed **with the check deleted**, because a different
+  fail-closed guard refused first and absorbed the assertion;
+- a test asserting the 180-day window in a case named "pins the island-confirmed
+  constants" — it was protecting the fabrication, and made removing it look like a
   regression;
-- an honesty guard that **required** the string "100% of protocol fees", so the test
-  written to stop dishonest revenue claims was mandating one.
+- an honesty guard that **required** a claim we had already established was false, so the
+  test written to stop dishonest claims was mandating one.
 
-The wave's "done-means becomes a failing test before it becomes code" rail is the reason
-all three surfaced. It is worth keeping for wave four, and worth extending with one line:
-*after the test passes, break the fix and confirm the test fails.* A test that has never
-been seen red is not yet evidence.
+We would keep that rail for wave four, with one line added: after the test passes, break
+the fix and confirm the test fails. A test that has never been seen red is not yet
+evidence.
