@@ -36,17 +36,33 @@ export const TIER_FLOORS: readonly { tier: HeatTier; floor: number; meaning: str
 export const HEAT_K = 60;
 
 /**
- * The averaging window for TWAB, in days. CONFIRMED BY THE ISLAND 2026-08-07.
+ * THE AVERAGING WINDOW IS NOT PUBLISHED, AND WE DO NOT GET TO GUESS IT.
  *
- * The published spec says TWAB is "continuous, zero-anchored and velocity-blind" but
- * never states the period the average is taken over — and without it the curve cannot
- * be reproduced, so previews were impossible. It is 180 days.
+ * This file used to export `TWAB_WINDOW_DAYS = 180` under the header "CONFIRMED BY THE
+ * ISLAND 2026-08-07". It was not confirmed. The island said so directly in Wave 3, and
+ * the decay mechanic the venue built on top of it — "the window ROLLS, warmth is not
+ * banked, a wallet that sells decays out of the average" — was untrue and was rendered
+ * to users on /leaderboard.
  *
- * Consequence worth knowing: the window ROLLS. Warmth is not banked forever — a wallet
- * that sells decays out of the average over the following 180 days rather than keeping
- * its degrees. Held time has to stay held.
+ * That is the worst version of this venue's recurring defect: an unknown published as a
+ * confident value, and attributed to a third party who never said it. A number nobody
+ * can check is not a smaller lie than a wrong one; it is a larger one, because the
+ * reader has no way in.
+ *
+ * WHAT THE ISLAND HAS ACTUALLY CONFIRMED — exactly three properties, no more:
+ *   1. continuous            — balance at every moment, not a snapshot
+ *   2. zero-anchored         — time before the first hold counts as zero
+ *   3. velocity-blind        — churn earns nothing; only balance held across time
+ *
+ * So the surface shows HELD TIME SINCE FIRST HOLD and nothing else. No calendar, no
+ * window length, no decay schedule. Exact window semantics arrive from the island when
+ * they are published; until then a reproduction preview is not possible, and saying so
+ * is the honest answer.
+ *
+ * `islandClaims.test.ts` fails if a window length or a decay mechanic reappears in any
+ * user-facing source. When the island publishes the window, add the constant back and
+ * delete that one guard — the three properties above stay true either way.
  */
-export const TWAB_WINDOW_DAYS = 180;
 
 /**
  * THE LAUNCH FLOOR, in island_heat degrees. The island has set it: 80 = Resident.

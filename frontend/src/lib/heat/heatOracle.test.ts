@@ -15,7 +15,6 @@ import {
   heldDays,
   TIER_FLOORS,
   HEAT_K,
-  TWAB_WINDOW_DAYS,
   LAUNCH_FLOOR,
   GATE_MAX_AGE_DAYS,
 } from './heatOracle';
@@ -316,9 +315,17 @@ describe('the curve (display only — the oracle is the ruler)', () => {
   });
 
   it('pins the island-confirmed constants', () => {
-    // All three were told to us rather than derived; if any moves, that is a decision
-    // someone made, and it should break a test rather than slip through.
-    expect(TWAB_WINDOW_DAYS).toBe(180);
+    // Told to us rather than derived; if either moves, that is a decision someone
+    // made, and it should break a test rather than slip through.
+    //
+    // ⚠ TWAB_WINDOW_DAYS was in this list, asserted as 180 and labelled
+    // island-confirmed. It never was. The island said so in Wave 3, and the venue had
+    // been rendering both the number and a decay mechanic built on it to users. The
+    // constant is gone; islandClaims.test.ts now fails if a window length or a decay
+    // story reappears in any user-facing source.
+    //
+    // A test that pins a fabricated constant does not protect the value — it protects
+    // the fabrication, and makes removing it look like a regression.
     expect(LAUNCH_FLOOR).toBe(80);
     expect(GATE_MAX_AGE_DAYS).toBe(7);
   });

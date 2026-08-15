@@ -1,0 +1,27 @@
+# Island — Wave Three status
+
+The island reads this file from the repo. It is the only "done" the island accepts.
+
+One row per phase. `status` is one of NOT-STARTED · IN-PROGRESS · DONE · BLOCKED.
+`evidence` is a commit sha plus the test name that proves the done-means.
+BLOCKED rows name exactly what is needed, and from whom.
+Updated in the same commit as every phase close.
+
+Opened 2026-08-13.
+
+| phase | status | evidence | notes |
+|---|---|---|---|
+| 01 prove the wire | BLOCKED | — | Relay is built and correct: the secret is read server-side only (`api/_lib/births.js`, `process.env.MEMETICS_BIRTH_SECRET`), never a `VITE_` variable, never committed — verified by grep across `src/` and `api/`. Live prod answers `503 no_secret`, so the env var is not set. **Needed from the operator:** set `MEMETICS_BIRTH_SECRET` in the Vercel production environment. Nobody but the operator can do this and Claude must not handle the value. Until then no birth can be signed, so enrolled/already-enrolled cannot be proven. **Floor: confirmed at 80 (Resident) — our `LAUNCH_FLOOR` was already 80, no change needed.** |
+| 02 governed upgrade — creator fee, decimals, fee constitution | BLOCKED | — | The three closures are code and can be written. **Shipping them cannot happen:** upgrade authority is the Squads vault, which is 2-of-2, and member B (`6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`) has never appeared in any proposal's `approved[]`, holds 0 SOL, and has no keyfile on this machine. Separately the deploy authority `Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7` reads **0 lamports and does not exist on chain** (verified 2026-08-13, control: squads-vault reads 0.001 SOL), so it can neither sign nor pay. **Needed from the operator:** prove Squads member B can sign, and fund the deploy authority. |
+| 03 verify fee custody on the public path | NOT-STARTED | — | Pure code. No dependency. |
+| 04 point the audit swarm at the program | NOT-STARTED | — | Pure work. No dependency. |
+| 05 custody comes home | BLOCKED | — | Requires signing from keys Claude does not hold and must not hold. **Needed from the operator:** execute `docs/SAFE_REHOME_RUNBOOK.md` — ownership behind the multisig at a named threshold, published address, integrator fee recipient re-pointed in the same motion. Claude will banner the superseded checklist and update the front-door risk paragraph in the same pass once the on-chain move is done. |
+| 06 small true things | IN-PROGRESS | (b) done — `islandClaims.test.ts` · `the venue does not publish an averaging window the island has not given it` (3 cases) + `the three confirmed properties survive` (3 cases) | **(b) DONE.** `TWAB_WINDOW_DAYS = 180` and its "CONFIRMED BY THE ISLAND 2026-08-07" header are removed, along with the decay mechanic ("the window rolls, warmth is not banked") that was rendered to users at `HeatCard.tsx:454,504`. The card now states only the three confirmed properties and says plainly that the averaging period has not been published, so the curve cannot be reproduced yet. An existing test pinned `TWAB_WINDOW_DAYS === 180` as island-confirmed — it was protecting the fabrication, and is corrected. **(a) and (c) not started.** |
+
+## Questions for the island
+
+1. **Exact TWAB window semantics.** Phase 06 removes the 180-day figure and the decay story, leaving only the three confirmed properties (continuous · zero-anchored from first hold · velocity-blind) and held-time-since-first-hold. Previews that need to reproduce the curve are therefore not possible until the island publishes the window. Is a preview expected to exist before then, or should the surface stay descriptive?
+
+2. **Fee-constitution half (phase 02).** The wave says both answers are defensible and silence is not. Our current shape is: rate snapshotted per curve, destination read live with no delay. We intend to publish plainly that **the rate is fixed forever and the destination is operational**, rather than move the destination behind a timelock — the timelock discipline on the EVM rail exists because that rail holds user funds in the contract, which is not true here. Confirm that is acceptable, or say the destination must be timelocked.
+
+3. **Certification read path (phase 06a).** The wave pins the read to a per-token path form, not a query parameter. Our record route is already `/record/:chain/:ca.json`. Should certification hang off that same path shape (e.g. `/record/:chain/:ca/certification.json`), or a separate root?

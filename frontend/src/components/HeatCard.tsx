@@ -22,7 +22,6 @@ import {
   gateDecision,
   TIER_FLOORS,
   HEAT_K,
-  TWAB_WINDOW_DAYS,
   type HeatReading,
   type HeatTier,
 } from '../lib/heat/heatOracle';
@@ -451,8 +450,8 @@ function Maths({ degrees }: { degrees: number }) {
       <p className="text-white/75 mb-3">
         For each measured token you hold, the island works out your{' '}
         <strong className="text-white">time-weighted average balance</strong> — your balance at every
-        moment, averaged over the last <strong className="text-white">{TWAB_WINDOW_DAYS} days</strong> — as a
-        share of that token&apos;s total supply. It puts that share through one curve:
+        moment, not a snapshot — as a share of that token&apos;s total supply. It puts that share
+        through one curve:
       </p>
 
       <div className="rounded-lg px-3 py-2.5 mb-3 font-mono text-[12px] overflow-x-auto" style={{ background: 'rgba(0,0,0,0.55)', color: 'var(--color-kyle)' }}>
@@ -495,14 +494,17 @@ function Maths({ degrees }: { degrees: number }) {
         To reach {TIER_FLOORS.find((t) => t.tier === 'Observer')!.floor}° on a{' '}
         <em>single</em> token you would need about{' '}
         <strong className="text-white/75">{((shareForDegrees(30) ?? 0) * 100).toFixed(2)}% of its whole supply</strong>,
-        held for the entire measurement window. Most wallets get there by holding several
+        held steadily rather than traded. Most wallets get there by holding several
         measured tokens instead.
       </p>
 
       <p className="text-white/50 text-[11.5px] mb-2">
-        Because the window <em>rolls</em>, warmth is not banked. A wallet that sells decays out of
-        the average over the following {TWAB_WINDOW_DAYS} days rather than keeping its degrees —
-        held time has to stay held.
+        The island has published three properties of the instrument and no others: it is{' '}
+        <strong className="text-white/75">continuous</strong> (your balance at every moment, not a
+        snapshot), <strong className="text-white/75">zero-anchored</strong> (time before you first
+        held counts as zero), and <strong className="text-white/75">velocity-blind</strong> (churn
+        earns nothing). The period the average is taken over has not been published, so this page
+        does not state one — and cannot reproduce the curve until it is.
       </p>
 
       <p className="text-white/40 text-[11px]">
