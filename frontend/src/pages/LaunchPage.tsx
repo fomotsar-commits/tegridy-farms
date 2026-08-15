@@ -6,6 +6,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { LaunchExplorer } from '../components/launcher/LaunchExplorer';
+import { GardenLane } from '../components/launcher/GardenLane';
 import { LaunchAfterlife } from '../components/launcher/LaunchAfterlife';
 import { LaunchRadar } from '../components/launcher/LaunchRadar';
 import {
@@ -1278,6 +1279,10 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
             <p className="text-white/60 text-xs mt-1.5 leading-relaxed">{t.blurb}</p>
           </button>
         ))}
+        {/* The Garden lane sits WITH the tiers but is not one of them: it is shown as a
+            promise, not offered as a choice. Selecting it would be the venue declaring
+            its own certification, which the launch-gate spec forbids outright. */}
+        <GardenLane community={w.symbol || w.name || 'this community'} />
       </div>
       <div className="grid grid-cols-3 gap-3 mt-5">
         <Field label="Start mcap ($k)">

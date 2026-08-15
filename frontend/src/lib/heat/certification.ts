@@ -29,6 +29,24 @@ export type CertificationState =
 const TIMEOUT_MS = 6000;
 
 /**
+ * The per-token read path for one community's certification.
+ *
+ * PATH FORM, NOT A QUERY PARAMETER — Wave 3, phase 06(a). This was
+ * `${endpoint}?community=${encodeURIComponent(community)}`, and a query string is the
+ * wrong shape for a fact about one subject. It is droppable by a proxy or a redirect,
+ * it caches badly, and a request that loses its parameter does not fail cleanly: it
+ * asks a DIFFERENT question ("certify what?") and can come back with a body that
+ * decodes. The venue's own record route already settled on `/record/:chain/:ca.json`
+ * for the same reason.
+ *
+ * The community is encoded into the SEGMENT, so a slash in the subject cannot silently
+ * become a new path segment and ask about something else.
+ */
+export function certificationPath(endpoint: string, community: string): string {
+  return `${endpoint.replace(/\/+$/, '')}/${encodeURIComponent(community)}.json`;
+}
+
+/**
  * Is this community certified by the island?
  *
  * FAIL-CLOSED in every branch that is not an explicit island YES. An unreachable
@@ -56,7 +74,7 @@ export async function isCertified(
   opts.signal?.addEventListener('abort', onAbort);
 
   try {
-    const res = await doFetch(`${endpoint}?community=${encodeURIComponent(community)}`, {
+    const res = await doFetch(certificationPath(endpoint, community), {
       headers: { Accept: 'application/json' },
       signal: ac.signal,
     });
