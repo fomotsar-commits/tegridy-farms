@@ -31,7 +31,8 @@
 import { Connection, Keypair, Transaction } from '@solana/web3.js';
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk';
 import { launchToken } from './dbcClient';
-import { buildLaunchParams, type DbcLaunchParams } from './dbc';
+import { assertFeeCustody } from './feeCustody';
+import { buildLaunchParams, type DbcLaunchParams, expectedFeeVault } from './dbc';
 import { assertMayLaunch } from '../../heat/launchGate';
 
 /** Commitment used for the client and for confirmation. */
@@ -221,6 +222,24 @@ export async function submitLaunch(input: SubmitLaunchInput): Promise<SubmitLaun
     );
   }
   const gateRow = await assertMayLaunch(input.heatIdentity);
+
+  // FEE CUSTODY, VERIFIED HERE AND NOT ONLY AT BUILD TIME — Wave 3, phase 03.
+  //
+  // The note at the top of this file explains why `verifySquadsVault` is not called
+  // from the browser, and that reasoning still holds. What did not hold was the
+  // consequence: the venue's strongest Solana guarantee — that fees land in the Squads
+  // vault and cannot be redirected to a person — ran in operator tooling and nowhere
+  // near the button the public presses. A build-time constant is only as good as the
+  // build, and nothing on this path had ever asked the chain.
+  //
+  // One read, and it fails closed on every branch that is not an exact match: a
+  // different claimer, an unreadable account, a throwing RPC, or no configured
+  // expectation. An RPC hiccup must not read as "custody verified".
+  //
+  // Placed with the gate, ABOVE the descriptor build and far above `sendTransaction`,
+  // so `FeeCustodyError` is provably "nothing was submitted" for the same reason
+  // `HeatGateDenied` is. Never move it below the SDK call.
+  await assertFeeCustody(input.config, expectedFeeVault());
 
   const mint = input.mintKeypair.publicKey.toBase58();
 

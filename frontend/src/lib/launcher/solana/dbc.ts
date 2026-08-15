@@ -107,6 +107,24 @@ export const LIVE_DBC_CONFIG =
   (import.meta.env.VITE_SOLANA_DBC_CONFIG as string | undefined)?.trim() || undefined;
 
 /**
+ * The Squads vault the live DBC config MUST name as `feeClaimer`.
+ *
+ * Config, not a constant, per the wave's rail — `VITE_SOLANA_FEE_VAULT` overrides. The
+ * default is the vault already proven to be this rail's fee destination: the DBC
+ * program was scanned for configs whose `feeClaimer` sits at offset 72, and exactly one
+ * matched, so this is a read of the chain rather than a hopeful literal.
+ *
+ * ⚠ Returning '' here is NOT a way to disable the check. `assertFeeCustody` refuses
+ * when there is no expectation, deliberately: with nothing to compare against, a
+ * "match" would be vacuous, and a vacuous pass is indistinguishable from a verified one
+ * at the call site. To move the destination, change the value — never blank it.
+ */
+export function expectedFeeVault(): string {
+  const override = (import.meta.env.VITE_SOLANA_FEE_VAULT as string | undefined)?.trim();
+  return override || 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+}
+
+/**
  * Can a member of the public actually complete a launch right now?
  *
  * BOTH conditions are required and neither implies the other: the feature gate can be

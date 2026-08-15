@@ -58,7 +58,14 @@ export const POOL_CONFIG_DISCRIMINATOR = new Uint8Array([
   0x1a, 0x6c, 0x0e, 0x7b, 0x74, 0xe6, 0x81, 0x2b,
 ]);
 
-const OFF = {
+/**
+ * Byte offsets into the DBC PoolConfig account.
+ *
+ * Exported because `feeCustody.ts` reads `feeClaimer` from the same account for the
+ * pre-submit custody check. One definition, so the two readers cannot drift apart —
+ * and the discriminator guard above is what makes hand-rolled offsets safe for both.
+ */
+export const CONFIG_OFFSETS = {
   feeClaimer: 72,
   cliffFeeNumerator: 104,
   periodFrequency: 112,
@@ -67,6 +74,8 @@ const OFF = {
   baseFeeMode: 130,
   creatorTradingFeePercentage: 245,
 } as const;
+
+const OFF = CONFIG_OFFSETS;
 
 /** Smallest account we will attempt to decode (the live one is 1048 bytes). */
 const MIN_ACCOUNT_BYTES = 256;

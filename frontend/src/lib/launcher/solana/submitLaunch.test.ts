@@ -36,6 +36,16 @@ vi.mock('../../heat/launchGate', () => ({
   HeatGateDenied: class HeatGateDenied extends Error {},
 }));
 
+// Same bargain for the fee-custody check (Wave 3, phase 03). It reads the live config
+// over RPC and fails CLOSED, so with no network every test below would refuse before
+// reaching the SDK. Its behaviour is pinned in feeCustody.test.ts and its POSITION —
+// above sendTransaction, so a refusal is provably never-submitted — in
+// submitLaunch.gate.test.ts, which does not mock it.
+vi.mock('./feeCustody', () => ({
+  assertFeeCustody: vi.fn(async () => undefined),
+  FeeCustodyError: class FeeCustodyError extends Error {},
+}));
+
 import { launchToken } from './dbcClient';
 import { submitLaunch, confirmSignature, ConfirmationTimeout, LaunchFailedOnChain, wasBroadcast } from './submitLaunch';
 
