@@ -144,14 +144,27 @@ Until that variable is set, every indexer-backed surface honestly reports "unava
 there is no fake-data path to worry about. Tell Claude the URL is live and the first consumer
 pages get wired immediately.
 
-### B2. Two questions only you can answer *(one sentence each)*
+### B2. Two questions only you can answer — ✅ **answered 2026-08-18**
 
-- **The birth secret.** Production answers `503 no_secret`, so no token launched on the venue
-  is enrolled with the island and none of them accrue Heat from birth. Do you already hold
-  `MEMETICS_BIRTH_SECRET`, or does seacasa still owe it? If you hold it, set it in Vercel
-  (server-side variable — **not** a `VITE_` one) and redeploy. Do not paste it in chat.
-- **The Squads co-signer.** Is `6VHowW4p…` your second key, or someone else's? It co-signs the
-  vault holding all Solana fee custody, so this decides whether a stranger is on it.
+- **The birth secret.** *Operator holds it (believed).* Set `MEMETICS_BIRTH_SECRET` in Vercel
+  as a **server-side** variable — never a `VITE_` one, which would ship it to every browser —
+  then redeploy. Do not paste it in chat.
+
+  ⚠️ **It must be the exact secret seacasa issued, not a self-generated one.** It is an
+  HMAC-SHA256 *shared* key: `api/_lib/births.js` signs the birth payload with it and the
+  island verifies using their copy. A mismatched value fails on their side, not ours.
+
+  **How to tell, without guessing:** after setting it, launch a token (or replay a queued
+  birth from the admin Birth Queue panel) and read the response.
+  - `200` with `status: enrolled` (or `replay: true`) → **the secret is correct.**
+  - `422` with `retryable: false` → **wrong or rotated secret** — the island rejected the
+    signature. Nothing retries; it needs the real value.
+  - `503 no_secret` → the variable did not reach the deployment (redeploy).
+  - `502` → the island's socket is down; retry later, the secret is not implicated.
+
+- **The Squads co-signer.** ✅ *`6VHowW4p…` is the operator's own key.* No stranger co-signs the
+  vault holding Solana fee custody. The 2-of-2 → 2-of-3 repair in C2 still matters (a 2-of-2
+  cannot repair itself), but this is no longer a trust question.
 
 ---
 
