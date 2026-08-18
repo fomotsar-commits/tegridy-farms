@@ -22,14 +22,19 @@ The biggest unlock in the repo, and it costs nothing. It ends with login working
 on profiles, DMs, watchlists, votes, push, and real analytics — and it closes a live data
 exposure on the way.
 
-### A0. Wait for the code precondition ⏳ *(Claude's job — check this is done first)*
+### A0. Code precondition — ✅ **done 2026-08-18** (`c66e6064`)
 
-`castVote` and the other user-data writes still go straight to Supabase with the browser's
-anon key. Migration 015 removes the policies that allow that, so if you run the SQL first,
-**voting and favourites break silently** — the code returns "false" and the UI says nothing.
+Every user-data write now goes through the SIWE-authed server proxy, which takes the wallet
+from the verified JWT rather than trusting the client. Denials surface as toasts instead of
+silent no-ops, and a tripwire test fails if a direct anon-key write ever reappears.
 
-Claude is repointing those writes through the authenticated server proxy. **Do not start A1
-until Claude says this has landed AND you have redeployed** (see A5 for how to redeploy).
+Smaller than the plan feared, in two ways worth knowing: seven of the eight writes had already
+moved to the proxy in an earlier pass — only `castVote` was still direct — and `castVote` has
+no callers, because the vote UI was never wired. So the "kills voting silently" warning was
+true of the library, not of a live user path.
+
+**You must redeploy before step A2** (see A5), so the deployed bundle is the one that writes
+through the proxy. A1 is read-only and safe to run any time.
 
 ### A1. Enumerate what is actually live *(2 minutes, read-only)*
 
@@ -63,7 +68,12 @@ needs an aggregate view built first, or the public vote tally goes blank.
 
 Every statement is `IF EXISTS`, so re-running is safe.
 
-**Verify** (the file's own check — must return **zero rows**):
+**Verify — run BOTH of the file's checks, not just the first.** The second one matters more
+than it looks: the `votes` write is an upsert, so it needs **both** owner twins
+(`"Owner can insert votes"` *and* `"Owner can update own vote"`) to have survived. If only one
+is left, voting writes fail after the drops.
+
+Check one — must return **zero rows**:
 
 ```sql
 select tablename, cmd, policyname
@@ -74,6 +84,17 @@ select tablename, cmd, policyname
    and coalesce(qual, with_check) = 'true'
    and tablename in ('user_favorites','user_profiles','user_watchlist','votes')
  order by tablename, cmd;
+```
+
+Check two — the owner policies must have **survived** (expect one row per command per table,
+including both `votes` twins):
+
+```sql
+select tablename, cmd, policyname, coalesce(qual, with_check) as expr
+  from pg_policies
+ where schemaname = 'public'
+   and tablename in ('user_favorites','user_profiles','user_watchlist','votes')
+ order by tablename, cmd, policyname;
 ```
 
 ### A3. Run 014 — the login fix *(same session, right after)*
@@ -115,6 +136,11 @@ Then, still in Vercel → Settings → Environment Variables, set:
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generate with `npx web-push generate-vapid-keys` | Push notifications; nothing can subscribe until login works, so this belongs here |
 | `VITE_VAPID_PUBLIC_KEY` | same public value as above | The browser needs the public half |
 | `VAPID_SUBJECT` | `mailto:` your address | Currently points at a dead domain |
+
+**While you are in the environment settings, confirm two that already exist**, because the
+write proxy fails closed without them and every write would 503 after login starts working:
+`SUPABASE_SERVICE_KEY` must be present, and the SIWE JWT must carry a `jti` claim (a token
+without one is rejected with 401). Check, do not change.
 
 Also run migration `013_analytics_events.sql`, then redeploy once more so both halves land.
 
