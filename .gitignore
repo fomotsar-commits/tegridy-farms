@@ -64,3 +64,6 @@ idx.html
 .spartan_unpacked/
 .audit_diffs/
 .audit_2026_freshlook/
+
+# Playwright HTML report (generated per run)
+frontend/playwright-report/
