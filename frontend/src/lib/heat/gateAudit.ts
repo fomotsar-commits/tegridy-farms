@@ -78,24 +78,108 @@ function newId(): string {
   return `gd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * The read, with its own failure told apart from its own emptiness.
+ *
+ * `readGateAudit()` collapses every outcome to `[]`, which is right for a caller that
+ * only wants rows — and wrong for a surface that RENDERS the result, because "no
+ * decision has been recorded" and "this browser will not let the page keep a record"
+ * are different facts and an empty list shown for both reads as "you were never
+ * denied". Any UI over this ring must branch on `kind`, never on `rows.length` alone.
+ *
+ * `dropped` counts entries that were in the blob and failed the shape check. Nonzero
+ * means the record on screen is INCOMPLETE, which the reader is entitled to know.
+ */
+const VERDICTS = new Set<string>(['WARM', 'COLD', 'STALE']);
+const REASONS = new Set<string>(['qualified', 'below-floor', 'stale-reading', 'unreadable']);
+const TIERS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 'Drifter']);
+
+/** A number, or the null that means "the instrument never gave one". Never NaN, never a string. */
+function optionalNumber(v: unknown): boolean {
+  return v === null || (typeof v === 'number' && Number.isFinite(v));
+}
+
+/**
+ * Shape-check a row rather than trusting the blob.
+ *
+ * This is USER-WRITABLE storage on a shared origin: anything can be in it, including a
+ * row half-written by a tab that was closed mid-`setItem`. The check covers every field
+ * the render path dereferences — not just the identifying two — because the ones that
+ * are easy to skip are the ones that crash it: `new Date(undefined * 1000)` throws on
+ * `toISOString`, and a missing `floor` renders as the word "undefined" next to a real
+ * degrees figure, which is worse than dropping the row. A row that fails here is
+ * COUNTED, so the surface can say its list is incomplete instead of quietly shortening.
+ */
+function isGateAuditRow(r: unknown): r is GateAuditRow {
+  if (!r || typeof r !== 'object') return false;
+  const row = r as Record<string, unknown>;
+  return (
+    typeof row.id === 'string' &&
+    typeof row.address === 'string' &&
+    optionalNumber(row.degrees) &&
+    (row.tier === null || (typeof row.tier === 'string' && TIERS.has(row.tier))) &&
+    optionalNumber(row.as_of) &&
+    typeof row.floor === 'number' &&
+    Number.isFinite(row.floor) &&
+    typeof row.verdict === 'string' &&
+    VERDICTS.has(row.verdict) &&
+    typeof row.reason === 'string' &&
+    REASONS.has(row.reason) &&
+    typeof row.decided_at === 'number' &&
+    Number.isFinite(row.decided_at)
+  );
+}
+
+export type GateAuditRead =
+  | { kind: 'ok'; rows: GateAuditRow[]; dropped: number }
+  /** No storage at all — private mode, blocked site data, or SSR. */
+  | { kind: 'unavailable' }
+  /** Storage answered, with something that is not this ring. */
+  | { kind: 'unreadable' };
+
+export function readGateAuditState(): GateAuditRead {
+  const s = store();
+  if (!s) return { kind: 'unavailable' };
+
+  let raw: string | null;
+  try {
+    raw = s.getItem(STORAGE_KEY);
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  if (!raw) return { kind: 'ok', rows: [], dropped: 0 };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { kind: 'unreadable' };
+  }
+  if (!Array.isArray(parsed)) return { kind: 'unreadable' };
+
+  const rows = parsed.filter(isGateAuditRow);
+  return { kind: 'ok', rows, dropped: parsed.length - rows.length };
+}
+
 /** Every logged decision, newest first. Returns [] rather than throwing on bad storage. */
 export function readGateAudit(): GateAuditRow[] {
-  const s = store();
-  if (!s) return [];
-  try {
-    const raw = s.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    // Shape-check each row rather than trusting the blob: this is user-writable storage,
-    // and a half-written row must not crash the ops surface that renders it.
-    return parsed.filter(
-      (r): r is GateAuditRow =>
-        !!r && typeof r === 'object' && typeof (r as GateAuditRow).id === 'string' && typeof (r as GateAuditRow).address === 'string',
-    );
-  } catch {
-    return [];
-  }
+  const state = readGateAuditState();
+  return state.kind === 'ok' ? state.rows : [];
+}
+
+/**
+ * Do two addresses name the same wallet, for the purpose of filtering this ring?
+ *
+ * EVM hex is case-insensitive (EIP-55 checksumming is a checksum, not an identity), so
+ * a row written from a checksummed string must still match a lower-cased connection.
+ * Solana base58 is case-SIGNIFICANT and folding it would merge distinct wallets — so
+ * the fold applies to `0x…` only. Mirrors the same split in heatClient's cache key.
+ */
+export function isSameAuditAddress(a: string, b: string): boolean {
+  const x = a.trim();
+  const y = b.trim();
+  const hex = /^0x[a-fA-F0-9]{40}$/;
+  return hex.test(x) && hex.test(y) ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
 
 /** Look one decision up by its `gate_decision_id`. */

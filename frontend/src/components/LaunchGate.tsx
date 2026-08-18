@@ -20,6 +20,7 @@ import { isHeatGateEnabled } from '../lib/heat/heatGateConfig';
 import type { GateDecision } from '../lib/heat/heatOracle';
 import type { GateAuditRow } from '../lib/heat/gateAudit';
 import { HeatCard } from './HeatCard';
+import { GateAuditPanel } from './heat/GateAuditPanel';
 import { shortenAddress } from '../lib/formatting';
 
 /**
@@ -186,6 +187,10 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
               across time — it cannot be bought, and a larger bag does not buy it faster. Nobody
               approves this by hand and there is nobody to ask: the door reads the instrument, and so can you.
             </p>
+            {/* The denied wallet is standing HERE, so the record of what it was denied on
+                lives here too — collapsed, because the reading above is the answer and
+                the ledger is the working. */}
+            <GateAuditPanel address={decision.address} onReRead={() => void read()} />
           </m.div>
         )}
 
@@ -200,6 +205,10 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
               The door is shut because it has nothing it is allowed to judge on — not because of
               anything about this wallet. No verdict has been recorded against you.
             </p>
+            {/* No `onReRead` here: "Read again" is already the primary control above, and a
+                second button doing the identical thing invites the reader to think one of
+                them does something else. */}
+            <GateAuditPanel address={decision.address} />
           </m.div>
         )}
       </AnimatePresence>
@@ -221,12 +230,16 @@ function Frame({ children, state }: { children: React.ReactNode; state?: GateDec
   const border =
     state === 'WARM' ? 'var(--color-kyle-40)' : state === 'STALE' ? 'rgba(234,179,8,0.35)' : 'var(--color-purple-40)';
   return (
-    <div
+    // A named region, not a bare div: the door is a distinct landmark on a page whose
+    // main content is the wizard, and screen-reader users need to be able to reach the
+    // thing that decides whether the wizard leads anywhere.
+    <section
+      aria-label="Who may plant"
       className="rounded-2xl p-5 md:p-6"
       style={{ background: 'rgba(6,12,26,0.78)', border: `1px solid ${border}`, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
     >
       {children}
-    </div>
+    </section>
   );
 }
 
