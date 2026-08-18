@@ -1438,7 +1438,9 @@ A genuine two-rail, three-collection (Nakamigos, GNSS Art, Jungle Bay) NFT marke
 
 ## The single highest-leverage file on this surface
 
-`scripts/compute-rarity.mjs` **does not exist** and `data/rarity.json` is an empty stub — so 0 of 20,000 Nakamigos tokens have precomputed rarity. Writing this one generator (emit `{generatedAt, totalTokens: 20000, traitCount, rarity: {"<tokenId>": {rank, score}}}`; the consumer at `api.js:839-856` needs zero changes) simultaneously fixes the RaritySniper-empty defect, Analytics trait distribution, RarityPriceScatter joins, Deals rank drift, and removes TraitExplorer's need to hammer the API loading all 20K tokens. **Do this first, before any Wave 7 item.**
+> ✅ **shipped 2026-08-18** — `frontend/scripts/compute-rarity.mjs` written (checkpointed, resume-capable) and the full 20,000-token `data/rarity.json` generated (186 distinct traits, 754 KB; scoring mirrors the runtime fallback exactly, so precomputed and runtime ranks agree in method). The consumer activated with zero code changes. Watch: the JSON is statically imported by `api.js`, so it inlines into the lazy nakamigos bundle — check bundle size on the next build.
+
+`scripts/compute-rarity.mjs` **did not exist** and `data/rarity.json` was an empty stub — so 0 of 20,000 Nakamigos tokens have precomputed rarity. Writing this one generator (emit `{generatedAt, totalTokens: 20000, traitCount, rarity: {"<tokenId>": {rank, score}}}`; the consumer at `api.js:839-856` needs zero changes) simultaneously fixes the RaritySniper-empty defect, Analytics trait distribution, RarityPriceScatter joins, Deals rank drift, and removes TraitExplorer's need to hammer the API loading all 20K tokens. **Do this first, before any Wave 7 item.**
 
 ## Standing corrections to wave items
 
@@ -1451,7 +1453,7 @@ A genuine two-rail, three-collection (Nakamigos, GNSS Art, Jungle Bay) NFT marke
 
 ## Known debt to fix opportunistically (don't worsen it)
 
-Wrong-brand PWA manifest (installing from inside Tradermigos yields a "Tegridy Farms" app opening on `/` — both `manifest.json` and `manifest.webmanifest`); the nakamigos `ThemeContext` clobbers the main app's theme with no unmount cleanup (F531); dead splash enter-gate on deep links (F513); hardcoded `eth.llamarpc.com` in WhaleIntelligence/OnChainProfile; the shared-AbortController retry bug in `fetchNativeListings`; BidManager/MyListings passing hardcoded `SEAPORT_ADDRESS` into cancels (wrong-version trap for Seaport 1.6 offers); collection-offer prices not normalized per item (depth hidden, not fixed); sweep/deals buys skipping the cart's 3-layer pre-flight; wallet inventory truncated at 100 NFTs; zero component tests on the social surfaces.
+Wrong-brand PWA manifest (installing from inside Tradermigos yields a "Tegridy Farms" app opening on `/` — both `manifest.json` and `manifest.webmanifest`); the nakamigos `ThemeContext` clobbers the main app's theme with no unmount cleanup (F531); dead splash enter-gate on deep links (F513); hardcoded `eth.llamarpc.com` in WhaleIntelligence/OnChainProfile; ~~the shared-AbortController retry bug in `fetchNativeListings`~~ (✅ fixed 2026-08-18 `1d17e4ce` — per-attempt controllers); ~~BidManager/MyListings passing hardcoded `SEAPORT_ADDRESS` into cancels~~ (✅ fixed 2026-08-18 `1d17e4ce` — cancels now use the order's own protocol address, fail-closed at the sink); collection-offer prices not normalized per item (depth hidden, not fixed); sweep/deals buys skipping the cart's 3-layer pre-flight; wallet inventory truncated at 100 NFTs; zero component tests on the social surfaces.
 
 ## Rest-of-app corrections (from the coverage pass)
 
