@@ -6,6 +6,12 @@
  *
  * Keep narrow: this is smoke coverage, not an axe audit. Exhaustive WCAG
  * scans should go through a dedicated axe-core run.
+ *
+ * THE OTHER HALF IS e2e/a11y-routes.spec.ts. This file pins named landmarks on
+ * the handful of surfaces the B2a pass touched; that one sweeps EVERY routed
+ * page for structural violations against the table in e2e/fixtures/routes.ts.
+ * Add a route-shaped assertion there and a landmark-shaped one here — the
+ * split is what keeps this file from turning into a list of forty near-copies.
  */
 
 import { test, expect } from './fixtures/wallet';

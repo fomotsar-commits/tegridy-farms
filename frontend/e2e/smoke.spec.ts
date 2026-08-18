@@ -1,14 +1,28 @@
 import { test, expect } from '@playwright/test';
+import { gotoRoute } from './fixtures/routes';
+
+/**
+ * ⚠ ROUTES ARE ENTERED THROUGH `gotoRoute`, NOT `page.goto`.
+ *
+ * Every page is a `lazy()` chunk behind Suspense, so `goto` resolves while the
+ * route is still a skeleton. Playwright's default 5s expect budget absorbs that
+ * on Chromium and on WebKit at --workers=1 (the CI setting), and does not
+ * absorb it on WebKit at the local default worker count — measured on this
+ * machine: green at --workers=1, red at 9 with `element(s) not found`, same
+ * build, pages fine. `gotoRoute` waits for the fallback to be gone before any
+ * assertion runs, so the result stops depending on the host's core count.
+ * See e2e/fixtures/routes.ts.
+ */
 
 test.describe('Smoke Tests', () => {
   test('homepage loads and shows hero', async ({ page }) => {
-    await page.goto('/');
+    await gotoRoute(page, '/');
     await expect(page).toHaveTitle(/Tegridy/i);
     await expect(page.locator('h1')).toBeVisible();
   });
 
   test('navigation links render', async ({ page }) => {
-    await page.goto('/');
+    await gotoRoute(page, '/');
     // Both desktop top nav and mobile bottom nav mount as <nav aria-label="Main
     // navigation">, one hidden at each breakpoint via tailwind md:hidden/hidden.
     // Assert that at least one is visible (the visible-filter picks the one not
@@ -18,7 +32,7 @@ test.describe('Smoke Tests', () => {
   });
 
   test('farm page loads', async ({ page }) => {
-    await page.goto('/farm');
+    await gotoRoute(page, '/farm');
     // FarmPage doesn't use an h1 — the heading is rendered via heading-luxury
     // styling on an h2 inside ConnectPrompt / StakePanel. Title (set via
     // usePageTitle) is the authoritative source for "did this route mount".
@@ -26,12 +40,12 @@ test.describe('Smoke Tests', () => {
   });
 
   test('swap page loads', async ({ page }) => {
-    await page.goto('/swap');
+    await gotoRoute(page, '/swap');
     await expect(page.locator('h1')).toBeVisible();
   });
 
   test('community page loads with tabs', async ({ page }) => {
-    await page.goto('/community');
+    await gotoRoute(page, '/community');
     await expect(page.locator('h1')).toContainText(/community/i);
     // The page renders multiple role="tablist" elements (page-level Community
     // tabs + the gauge-voting subtabs). Scope to the first one — that's the
@@ -43,7 +57,7 @@ test.describe('Smoke Tests', () => {
   });
 
   test('lending page loads with tabs', async ({ page }) => {
-    await page.goto('/lending');
+    await gotoRoute(page, '/lending');
     await expect(page.locator('h1')).toContainText(/NFT Finance/i);
     // Same multi-tablist pattern as community — scope to first.
     const tablist = page.locator('[role="tablist"]').first();
@@ -51,17 +65,17 @@ test.describe('Smoke Tests', () => {
   });
 
   test('premium page loads', async ({ page }) => {
-    await page.goto('/premium');
+    await gotoRoute(page, '/premium');
     await expect(page.locator('h1')).toContainText(/Gold.*Card/i);
   });
 
   test('tokenomics page loads', async ({ page }) => {
-    await page.goto('/tokenomics');
+    await gotoRoute(page, '/tokenomics');
     await expect(page.locator('h1')).toBeVisible();
   });
 
   test('faq page loads and has search', async ({ page }) => {
-    await page.goto('/faq');
+    await gotoRoute(page, '/faq');
     // FAQ page h1 follows the in-character "Questions about the farm"
     // phrasing — the route still serves at /faq and the document title is
     // "FAQ", but the visible heading leans into the personality system.
@@ -70,7 +84,7 @@ test.describe('Smoke Tests', () => {
   });
 
   test('404 page shows for unknown routes', async ({ page }) => {
-    await page.goto('/nonexistent-page-xyz');
+    await gotoRoute(page, '/nonexistent-page-xyz');
     await expect(page.locator('body')).toContainText(/not found|go back|home/i);
   });
 });
@@ -78,13 +92,13 @@ test.describe('Smoke Tests', () => {
 test.describe('Responsive', () => {
   test('mobile navigation works', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/');
+    await gotoRoute(page, '/');
     await expect(page.locator('h1')).toBeVisible();
   });
 
   test('community tabs scroll on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/community');
+    await gotoRoute(page, '/community');
     const tablist = page.locator('[role="tablist"]');
     await expect(tablist).toBeVisible();
   });
@@ -92,7 +106,7 @@ test.describe('Responsive', () => {
 
 test.describe('Accessibility', () => {
   test('tabs have correct ARIA attributes', async ({ page }) => {
-    await page.goto('/community');
+    await gotoRoute(page, '/community');
     // Wait for tabs to load
     const tabs = page.locator('[role="tab"]');
     await expect(tabs.first()).toBeVisible();
@@ -102,7 +116,7 @@ test.describe('Accessibility', () => {
 
   test('lending tab panels have correct roles', async ({ page }) => {
     // `/lending` is a redirect (App.tsx:236 -> /nft-finance); go straight there.
-    await page.goto('/nft-finance');
+    await gotoRoute(page, '/nft-finance');
     // Should have wallet connect prompt or tab panel
     // _panel: panel may or may not be visible depending on wallet state.
     // Kept for documentation; not asserted because the wallet-connect prompt
