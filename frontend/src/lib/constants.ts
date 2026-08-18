@@ -48,20 +48,32 @@ export const POL_ACCUMULATOR_ADDRESS = '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11
 // 0xa7EF711… and the 2026-05-31 ZEROED interim are both superseded.)
 export const LP_FARMING_ADDRESS = '0x1171268AE5B69791c47Fd589b7825932c957e149' as const;
 
-// Gauge Controller — Wave 0 2026-04-18: H-2 commit-reveal redeploy
-// ZEROED 2026-05-31 (relaunch supersedes Wave 0; no src contract, not in DeployMVP).
-// Restore after redeploy. Prev: 0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb
+// Gauge Controller — DEPLOYED 2026-07-16 gated batch at
+// 0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054 (Etherscan-verified; gaugeCount()==0).
+// Kept ZERO here ON PURPOSE: emission/spend-side features stay unsurfaced until a
+// revenue line funds them and gauges exist (see CONTRACTS.md + EVERYTHING_LEFT Tier 3.4-3.6).
+// An earlier revision of this comment said "no src contract, not in DeployMVP" — that
+// was true on 2026-05-31 and stale after the gated batch shipped. Zero = not surfaced,
+// NOT not-deployed. Wave-0 prev (DO NOT wire — pairToGauge reverts): 0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb
 export const GAUGE_CONTROLLER_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
-// Community
-// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032
+// Community — both DEPLOYED 2026-07-16 gated batch (Etherscan-verified), kept ZERO
+// on purpose: they SPEND (grants/bounties), so they wait for a revenue line + the
+// Safe re-home. Zero = not surfaced, NOT not-deployed (CONTRACTS.md is canonical).
+// CommunityGrants live at 0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471. Prev: 0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032
 export const COMMUNITY_GRANTS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9
+// MemeBountyBoard live at 0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890 (bountyCount()==0). Prev: 0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9
 export const MEME_BOUNTY_BOARD_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 export const REFERRAL_SPLITTER_ADDRESS = '0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c' as const; // RELAUNCH 2026-06-06 (DeployMVP)
 // RELAUNCH 2026-07-16 gated batch (DeployPremiumAccess; Etherscan-verified; fee 10,000 TOWELI/mo). Prev V1: 0xaA16dF3dC66c7A6aD7db153711329955519422Ad
 export const PREMIUM_ACCESS_ADDRESS = '0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5' as const;
-// ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A
+// VoteIncentives — DEPLOYED 2026-07-16 gated batch at
+// 0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF (+Admin 0xf87Ec231BA7FA3975619309bc16C698B2ea3B300).
+// Kept ZERO on purpose until after the Safe re-home AND setGaugeController: the setter
+// is ONE-SHOT in the deployed bytecode (no rotation path) and its only correct argument
+// is the gated-batch GaugeController 0x6c79522D…1054 — a hot-key typo bricks the bribe
+// market forever. Un-gate order: re-home → setGaugeController (Safe quorum) → gauges →
+// then surface (EVERYTHING_LEFT Tier 3.5/3.6). Prev: 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A
 export const VOTE_INCENTIVES_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 // Tegridy Pro Pass — an ETH-priced access-pass NFT (deploy a TegridyDropV2 clone
 // via LaunchpadV2; the proceeds are real ETH to the treasury and it gates the Pro

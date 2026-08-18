@@ -13,6 +13,8 @@ standard-json-farm.json
 frontend/test-results/
 **/tsconfig.tsbuildinfo
 indexer/nul
+# compute-rarity.mjs resume checkpoint (regenerated; only rarity.json is tracked)
+frontend/scripts/.rarity-checkpoint.json
 
 # Static-analysis artifacts (regenerated on every run; multi-MB)
 # The slither.config.json AT REPO ROOT IS tracked — output is not.
