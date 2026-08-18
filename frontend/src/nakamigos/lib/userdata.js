@@ -84,15 +84,94 @@
  *
  */
 
+// READS stay on the anon client on purpose. Migration 015 §2 (the read-side
+// `Anyone can read …` policies) is a deliberately deferred product decision —
+// see the migration header. Only WRITES move.
 import { supabase, CHAT_ENABLED } from "./supabase";
 // F715: cloud WRITES must go through the SIWE proxy — the anon client's writes
 // are rejected by RLS (wallet must equal the JWT wallet), so favorites/profile/
 // watchlist silently degraded to this-device-only localStorage. proxyWrite
 // attaches the cookie JWT server-side; on a signed-out user it throws needsAuth,
 // caught below to keep the existing localStorage fallback (no regression).
+//
+// The proxy takes the acting wallet from the SIWE JWT in the httpOnly cookie.
+// The `wallet` field in each body below is NOT what the server trusts: it is
+// compared against the JWT claim by api/_lib/proxy-schemas.js `validateBody`
+// and a mismatch is a 400. Sending it is required (the row schemas mark it
+// non-optional), spoofing it is not possible.
 import { proxyWrite } from "./supabaseProxy";
 
 const SYNC_ENABLED = CHAT_ENABLED; // reuse same Supabase credentials
+
+// ── Sync result contract ─────────────────────────────────────────────
+//
+// Every mutating export below returns a discriminated result instead of a
+// bare boolean (or `undefined`). A bare `false` cannot tell "the server
+// REFUSED this row" apart from "nothing needed changing", which is exactly
+// the failure mode migration 015 §1 arms: once the permissive `qual = true`
+// write policies are DROPped, an unauthenticated or mis-scoped write is
+// refused by RLS (PostgREST 403 / SQLSTATE 42501). The old `castVote`
+// returned `!error` and the UI had no error path at all — a vote just
+// vanished. Callers switch on `status`, or hand the result straight to
+// `syncFailureToast()` for user-facing copy.
+export const SYNC_STATUS = Object.freeze({
+  /** The cloud write landed. */
+  OK: "ok",
+  /** Supabase is not configured; localStorage is the whole store. Not an error. */
+  LOCAL_ONLY: "local-only",
+  /** No SIWE cookie (proxy 401). The local copy is still saved. */
+  NEEDS_AUTH: "needs-auth",
+  /** Authenticated but refused — RLS 403 (42501), or the proxy schema said no. */
+  DENIED: "denied",
+  /** Transient: the request never landed, was rate-limited, or upstream 5xx'd. */
+  NETWORK: "network",
+});
+
+const okResult = (status = SYNC_STATUS.OK) => ({ ok: true, status });
+
+/**
+ * Map a proxyWrite rejection onto a SYNC_STATUS. supabaseProxy sets
+ * `err.needsAuth` for 401 and `err.status` for every other non-2xx; a fetch
+ * that never reached the proxy at all carries neither.
+ */
+function classifySyncError(err) {
+  if (err?.needsAuth) return SYNC_STATUS.NEEDS_AUTH;
+  const status = err?.status;
+  if (typeof status !== "number") return SYNC_STATUS.NETWORK; // never left the browser
+  if (status === 429) return SYNC_STATUS.NETWORK;             // rate limited — retryable
+  if (status >= 500) return SYNC_STATUS.NETWORK;              // proxy/upstream fault
+  // 403 is the post-015 RLS refusal (PostgREST maps 42501 → 403). 400 is the
+  // proxy's own schema / JWT-ownership rejection. Neither is retryable as-is.
+  return SYNC_STATUS.DENIED;
+}
+
+function failResult(err, where) {
+  const status = classifySyncError(err);
+  if (import.meta.env.DEV) console.error(`[userdata] ${where} ${status}:`, err?.message || err);
+  return { ok: false, status, error: err?.message || String(err) };
+}
+
+/**
+ * User-facing copy for a failed sync, or `null` when there is nothing to say.
+ * One place for the wording so every surface reports a denial the same way.
+ *
+ * @param {{ ok: boolean, status: string } | undefined} result
+ * @param {string} what - the noun the toast talks about ("profile", "vote", …)
+ * @returns {{ message: string, type: "info" | "error" } | null}
+ */
+export function syncFailureToast(result, what = "changes") {
+  if (!result || result.ok) return null;
+  switch (result.status) {
+    case SYNC_STATUS.NEEDS_AUTH:
+      return { message: `Saved on this device — sign in to sync your ${what} across devices.`, type: "info" };
+    case SYNC_STATUS.DENIED:
+      return { message: `Couldn't sync your ${what} — the server rejected the change. Sign in again, then retry.`, type: "error" };
+    case SYNC_STATUS.NETWORK:
+      return { message: `Couldn't reach sync — your ${what} are saved on this device only.`, type: "info" };
+    default:
+      return { message: `Couldn't sync your ${what}.`, type: "error" };
+  }
+}
 
 // ── Profiles ────────────────────────────────────────────────────────
 
@@ -150,8 +229,13 @@ export async function getProfile(wallet, slug) {
   }
 }
 
+/**
+ * Persist a profile. Always writes the local cache first, then attempts the
+ * cloud upsert through the SIWE proxy.
+ * @returns {Promise<{ ok: boolean, status: string, error?: string }>}
+ */
 export async function saveProfile(wallet, { displayName, bio, twitter }, slug) {
-  if (!wallet) return false;
+  if (!wallet) return { ok: false, status: SYNC_STATUS.NEEDS_AUTH, error: "no wallet" };
   const lower = wallet.toLowerCase();
 
   const profile = { wallet: lower, displayName, bio, twitter };
@@ -161,7 +245,7 @@ export async function saveProfile(wallet, { displayName, bio, twitter }, slug) {
   cache[lower] = { ...cache[lower], ...profile };
   saveProfileCache(cache, slug);
 
-  if (!SYNC_ENABLED) return true;
+  if (!SYNC_ENABLED) return okResult(SYNC_STATUS.LOCAL_ONLY);
 
   try {
     await proxyWrite({
@@ -175,16 +259,23 @@ export async function saveProfile(wallet, { displayName, bio, twitter }, slug) {
         updated_at: new Date().toISOString(),
       },
     });
-    return true;
+    return okResult();
   } catch (err) {
-    if (import.meta.env.DEV) console.error("[userdata] saveProfile cloud sync skipped:", err.message);
-    return false;
+    return failResult(err, "saveProfile");
   }
 }
 
 // ── Favorites ────────────────────────────────────────────────────────
 
-export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigos") {
+/**
+ * Merge local + remote favorites and push the local-only ones back up.
+ * Still returns the merged id list (unchanged contract); the outcome of the
+ * PUSH — which is a real write and can be refused — is reported through the
+ * optional `onPushResult` callback so a background merge stops failing mute.
+ *
+ * @param {(result: { ok: boolean, status: string }) => void} [onPushResult]
+ */
+export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigos", onPushResult) {
   if (!SYNC_ENABLED || !wallet) return localIds;
   const lower = wallet.toLowerCase();
 
@@ -198,14 +289,21 @@ export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigo
     const remoteIds = (data || []).map(r => r.token_id);
     const merged = [...new Set([...localIds.map(String), ...remoteIds.map(String)])];
 
-    // Push any local-only favorites to remote
+    // Push any local-only favorites to remote. Its own try/catch: a refused
+    // push must not discard the merge we just computed (the old single
+    // try/catch threw the merged list away and returned localIds).
     const localOnly = localIds.filter(id => !remoteIds.includes(id));
     if (localOnly.length > 0) {
-      await proxyWrite({
-        table: "user_favorites",
-        method: "UPSERT",
-        body: localOnly.map(id => ({ wallet: lower, token_id: String(id), collection_slug: collectionSlug })),
-      });
+      try {
+        await proxyWrite({
+          table: "user_favorites",
+          method: "UPSERT",
+          body: localOnly.map(id => ({ wallet: lower, token_id: String(id), collection_slug: collectionSlug })),
+        });
+        onPushResult?.(okResult());
+      } catch (err) {
+        onPushResult?.(failResult(err, "syncFavorites push"));
+      }
     }
 
     return merged;
@@ -214,24 +312,42 @@ export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigo
   }
 }
 
+/** @returns {Promise<{ ok: boolean, status: string, error?: string }>} */
 export async function addFavoriteRemote(wallet, tokenId, collectionSlug = "nakamigos") {
-  if (!SYNC_ENABLED || !wallet) return;
+  if (!wallet) return { ok: false, status: SYNC_STATUS.NEEDS_AUTH, error: "no wallet" };
+  if (!SYNC_ENABLED) return okResult(SYNC_STATUS.LOCAL_ONLY);
   try {
     await proxyWrite({ table: "user_favorites", method: "UPSERT", body: { wallet: wallet.toLowerCase(), token_id: String(tokenId), collection_slug: collectionSlug } });
-  } catch { /* signed-out or sync unavailable — the local favorite is already saved */ }
+    return okResult();
+  } catch (err) {
+    // The local favorite is already saved; the caller decides how loud to be.
+    return failResult(err, "addFavoriteRemote");
+  }
 }
 
+/** @returns {Promise<{ ok: boolean, status: string, error?: string }>} */
 export async function removeFavoriteRemote(wallet, tokenId, collectionSlug = "nakamigos") {
-  if (!SYNC_ENABLED || !wallet) return;
+  if (!wallet) return { ok: false, status: SYNC_STATUS.NEEDS_AUTH, error: "no wallet" };
+  if (!SYNC_ENABLED) return okResult(SYNC_STATUS.LOCAL_ONLY);
   try {
     // RLS scopes the delete to the JWT wallet, so match on token_id + collection.
     await proxyWrite({ table: "user_favorites", method: "DELETE", match: { token_id: String(tokenId), collection_slug: collectionSlug } });
-  } catch { /* silent */ }
+    return okResult();
+  } catch (err) {
+    return failResult(err, "removeFavoriteRemote");
+  }
 }
 
 // ── Watchlist ────────────────────────────────────────────────────────
 
-export async function syncWatchlist(wallet, localItems, collectionSlug = "nakamigos") {
+/**
+ * Merge local + remote watchlist and push the local-only items back up.
+ * Same contract as syncFavorites: the merged array is the return value, and
+ * the push outcome arrives through the optional `onPushResult` callback.
+ *
+ * @param {(result: { ok: boolean, status: string }) => void} [onPushResult]
+ */
+export async function syncWatchlist(wallet, localItems, collectionSlug = "nakamigos", onPushResult) {
   if (!SYNC_ENABLED || !wallet) return localItems;
   const lower = wallet.toLowerCase();
 
@@ -259,23 +375,28 @@ export async function syncWatchlist(wallet, localItems, collectionSlug = "nakami
       });
     }
 
-    // Push any local-only items to remote
+    // Push any local-only items to remote. Own try/catch — see syncFavorites.
     const localOnly = [...localMap.keys()].filter(id => !remoteMap.has(id));
     if (localOnly.length > 0) {
-      await proxyWrite({
-        table: "user_watchlist",
-        method: "UPSERT",
-        body: localOnly.map(id => {
-          const item = localMap.get(id);
-          return {
-            wallet: lower,
-            token_id: String(id),
-            collection_slug: collectionSlug,
-            target_price: item?.targetPrice != null ? Number(item.targetPrice) : null,
-            note: item?.note || null,
-          };
-        }),
-      });
+      try {
+        await proxyWrite({
+          table: "user_watchlist",
+          method: "UPSERT",
+          body: localOnly.map(id => {
+            const item = localMap.get(id);
+            return {
+              wallet: lower,
+              token_id: String(id),
+              collection_slug: collectionSlug,
+              target_price: item?.targetPrice != null ? Number(item.targetPrice) : null,
+              note: item?.note || null,
+            };
+          }),
+        });
+        onPushResult?.(okResult());
+      } catch (err) {
+        onPushResult?.(failResult(err, "syncWatchlist push"));
+      }
     }
 
     return merged;
@@ -284,8 +405,10 @@ export async function syncWatchlist(wallet, localItems, collectionSlug = "nakami
   }
 }
 
+/** @returns {Promise<{ ok: boolean, status: string, error?: string }>} */
 export async function addWatchlistRemote(wallet, tokenId, { targetPrice, note } = {}, collectionSlug = "nakamigos") {
-  if (!SYNC_ENABLED || !wallet) return;
+  if (!wallet) return { ok: false, status: SYNC_STATUS.NEEDS_AUTH, error: "no wallet" };
+  if (!SYNC_ENABLED) return okResult(SYNC_STATUS.LOCAL_ONLY);
   try {
     await proxyWrite({ table: "user_watchlist", method: "UPSERT", body: {
       wallet: wallet.toLowerCase(),
@@ -294,14 +417,22 @@ export async function addWatchlistRemote(wallet, tokenId, { targetPrice, note } 
       note: note || null,
       collection_slug: collectionSlug,
     } });
-  } catch { /* silent */ }
+    return okResult();
+  } catch (err) {
+    return failResult(err, "addWatchlistRemote");
+  }
 }
 
+/** @returns {Promise<{ ok: boolean, status: string, error?: string }>} */
 export async function removeWatchlistRemote(wallet, tokenId, collectionSlug = "nakamigos") {
-  if (!SYNC_ENABLED || !wallet) return;
+  if (!wallet) return { ok: false, status: SYNC_STATUS.NEEDS_AUTH, error: "no wallet" };
+  if (!SYNC_ENABLED) return okResult(SYNC_STATUS.LOCAL_ONLY);
   try {
     await proxyWrite({ table: "user_watchlist", method: "DELETE", match: { token_id: String(tokenId), collection_slug: collectionSlug } });
-  } catch { /* silent */ }
+    return okResult();
+  } catch (err) {
+    return failResult(err, "removeWatchlistRemote");
+  }
 }
 
 // ── Votes (NFT of the Week) ────────────────────────────────────────
@@ -318,28 +449,55 @@ export function getCurrentWeek() {
   return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, "0")}`;
 }
 
+/**
+ * Cast (or change) this wallet's vote for the current ISO week.
+ *
+ * F-015: this was the last DIRECT anon-key mutation in the app. Migration 015
+ * §1 DROPs `"Anyone can insert votes"` / `"Anyone can update own vote"`, and
+ * the surviving owner-scoped twins compare `wallet` against the SIWE JWT — a
+ * claim the anon key does not carry. The old `supabase.from("votes").upsert()`
+ * would have started returning 42501 and this function returned `!error`, i.e.
+ * a bare `false` that no caller could distinguish from "nothing changed".
+ * Routed through the proxy (JWT from the httpOnly cookie, verified
+ * server-side) and returning a discriminated result.
+ *
+ * NOTE: `slug` scopes only the localStorage fallback. The `votes` table has no
+ * `collection_slug` column and the proxy schema does not accept one, so cloud
+ * votes remain collection-agnostic (pre-existing; see plan g13). Nothing here
+ * widens the server allowlist.
+ *
+ * @returns {Promise<{ ok: boolean, status: string, error?: string }>}
+ */
 export async function castVote(wallet, tokenId, slug) {
-  if (!wallet) return false;
+  if (!wallet) return { ok: false, status: SYNC_STATUS.NEEDS_AUTH, error: "no wallet" };
   const week = getCurrentWeek();
   const votesKey = `${slug || "default"}_votes`;
 
   if (!SYNC_ENABLED) {
-    // localStorage fallback
+    // localStorage fallback — unchanged shape so getUserVote/getWeekVotes
+    // keep reading it exactly as before.
     try {
       const votes = JSON.parse(localStorage.getItem(votesKey) || "{}");
       votes[wallet.toLowerCase()] = { tokenId, week };
       localStorage.setItem(votesKey, JSON.stringify(votes));
-      return true;
-    } catch { return false; }
+      return okResult(SYNC_STATUS.LOCAL_ONLY);
+    } catch (err) {
+      return { ok: false, status: SYNC_STATUS.NETWORK, error: err?.message || "localStorage unavailable" };
+    }
   }
 
   try {
-    const { error } = await supabase
-      .from("votes")
-      .upsert({ wallet: wallet.toLowerCase(), token_id: tokenId, week });
-    return !error;
-  } catch {
-    return false;
+    await proxyWrite({
+      table: "votes",
+      method: "UPSERT",
+      // String(): the proxy schema is z.string().max(64); a numeric tokenId
+      // (the gallery passes numbers) would be rejected as "Invalid payload
+      // shape". Mirrors the coercion used everywhere else in this file.
+      body: { wallet: wallet.toLowerCase(), token_id: String(tokenId), week },
+    });
+    return okResult();
+  } catch (err) {
+    return failResult(err, "castVote");
   }
 }
 

@@ -492,13 +492,22 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
     const removing = favorites.includes(tokenId);
     ctxToggleFavorite(tokenId);
     if (wallet) {
-      getUserdata().then(({ addFavoriteRemote, removeFavoriteRemote }) => {
-        if (removing) removeFavoriteRemote(wallet, tokenId, collectionSlug);
-        else addFavoriteRemote(wallet, tokenId, collectionSlug);
+      // F-015: the cloud half of a favourite is a real write through the SIWE
+      // proxy and can be refused (RLS 42501 once migration 015 §1 lands, or a
+      // missing sign-in). It used to be swallowed, so the heart filled in and
+      // nothing ever synced. Report the reason.
+      getUserdata().then(async ({ addFavoriteRemote, removeFavoriteRemote, syncFailureToast }) => {
+        const result = removing
+          ? await removeFavoriteRemote(wallet, tokenId, collectionSlug)
+          : await addFavoriteRemote(wallet, tokenId, collectionSlug);
+        const failure = syncFailureToast(result, "favorites");
+        if (failure) addToast(failure.message, failure.type);
+      }).catch((err) => {
+        console.warn("Favorite sync failed:", err?.message);
       });
     }
     play("favorite");
-  }, [ctxToggleFavorite, favorites, play, wallet, collectionSlug]);
+  }, [ctxToggleFavorite, favorites, play, wallet, collectionSlug, addToast]);
 
   const addToCart = useCallback((nft) => {
     if (cart.find(n => String(n.id) === String(nft.id))) return;
@@ -635,8 +644,16 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   // Sync favorites from Supabase on wallet connect or collection change
   useEffect(() => {
     if (!wallet) return;
-    getUserdata().then(({ syncFavorites }) =>
-      syncFavorites(wallet, favorites, collectionSlug).then((merged) => {
+    getUserdata().then(({ syncFavorites, syncFailureToast, SYNC_STATUS }) =>
+      // The background merge also PUSHES local-only favourites, which is a
+      // write. A connected-but-not-signed-in wallet is the ordinary state and
+      // stays quiet; an authenticated push the server REFUSES is the 015 §1
+      // regression shape and must not pass silently.
+      syncFavorites(wallet, favorites, collectionSlug, (result) => {
+        if (result.status !== SYNC_STATUS.DENIED) return;
+        const failure = syncFailureToast(result, "favorites");
+        if (failure) addToast(failure.message, failure.type);
+      }).then((merged) => {
         setFavorites(merged);
         saveFavorites(merged);
       })

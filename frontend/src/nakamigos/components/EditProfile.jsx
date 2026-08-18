@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getProfile, saveProfile } from "../lib/userdata";
+import { getProfile, saveProfile, syncFailureToast } from "../lib/userdata";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import useEns from "../hooks/useEns";
@@ -89,20 +89,23 @@ export default function EditProfile({ wallet, onClose, onConnect, addToast, onSa
     if (!wallet) return;
     setSaving(true);
     try {
-      // F716: saveProfile ALWAYS persists to localStorage first, then returns
-      // false (without throwing) when the cloud upsert is rejected — so the old
-      // unconditional "Profile saved" toast lied on every failed cloud write.
-      // Gate the message on the real result.
-      const synced = await saveProfile(wallet, {
+      // F716 / F-015: saveProfile ALWAYS persists to localStorage first, then
+      // reports the cloud outcome as a discriminated result (never a bare
+      // boolean) — the old unconditional "Profile saved" toast lied on every
+      // failed cloud write, and a bare `false` could not say WHY. `ok` covers
+      // both a real cloud write and the local-only build where there is no
+      // cloud to reach; anything else names the reason.
+      const result = await saveProfile(wallet, {
         displayName: displayName.trim(),
         bio: bio.trim(),
         twitter: twitter.trim(),
       }, slug);
       onSave?.();
-      if (synced) {
-        addToast?.("Profile saved", "success");
+      const failure = syncFailureToast(result, "profile");
+      if (failure) {
+        addToast?.(failure.message, failure.type);
       } else {
-        addToast?.("Saved on this device — sign in to sync your profile across devices.", "info");
+        addToast?.("Profile saved", "success");
       }
       onClose();
     } catch (err) {
