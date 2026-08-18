@@ -156,7 +156,23 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
     // path exists to avoid. Mirror the mount-effect guard (F592): leave the
     // pending placeholder up so a URL arriving from the batch can still render.
     if (noSelfFetch) return;
-    if (failCount === 0 && nft.id) {
+
+    // F683: the modal/theater hero asks for `imageLarge` — often a full-res IPFS
+    // original that 503s or times out while the grid's `image` thumbnail for the
+    // same token is already loading fine. Step down to the thumbnail before the
+    // metadata API rather than after: a visibly lower-res hero beats the letter
+    // placeholder, and it costs no request.
+    //
+    // Deliberately NOT written to `resolvedUrls`: a success entry has no TTL, so
+    // caching a step-down would pin every later hero and theater view of this
+    // token to the thumbnail for the rest of the session over one transient 503.
+    if (large && failCount === 0 && nft.image && nft.image !== src) {
+      setFailCount(1);
+      setDynamicSrc(nft.image);
+      return;
+    }
+
+    if (failCount < 2 && nft.id) {
       // First failure: go straight to the metadata API. (The old intermediate
       // hop — nft-cdn.alchemy.com/<contract>/<tokenId> — now 403s for
       // Nakamigos too, and setting an identical failing src never re-fires

@@ -202,7 +202,12 @@ export default function useSmartAlerts(addToast) {
         }
 
         // --- Volume Spike Alert ---
-        if (cfg.volume.enabled && stats.volume != null) {
+        // A volume figure standing in for a throttled /stats call is a stored
+        // constant, not a measurement. Admitting it to the rolling history
+        // would both fabricate a spike on the step into and out of the constant
+        // and flatten the average that real spikes are judged against — so the
+        // engine skips the cycle entirely rather than alerting on it.
+        if (cfg.volume.enabled && stats.volume != null && !stats.volumeFallback) {
           const hist = volumeHistoryRef.current;
           if (hist.length > 0) {
             const avg = hist.reduce((s, v) => s + v, 0) / hist.length;

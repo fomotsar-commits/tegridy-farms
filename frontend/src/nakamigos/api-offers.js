@@ -72,41 +72,76 @@ const GAS_BUFFER_WEI = parseEther("0.005");
 
 // ═══ FETCH OFFERS (all via proxy — no API keys in browser) ═══
 
+async function fetchTokenOffersOrThrow(tokenId, contract = CONTRACT) {
+  const data = await openseaGet("orders/ethereum/seaport/offers", {
+    asset_contract_address: contract,
+    token_ids: tokenId,
+    order_by: "eth_price",
+    order_direction: "desc",
+  });
+  return (data.orders || []).map(normalizeOffer);
+}
+
 export async function fetchTokenOffers(tokenId, contract = CONTRACT) {
   try {
-    const data = await openseaGet("orders/ethereum/seaport/offers", {
-      asset_contract_address: contract,
-      token_ids: tokenId,
-      order_by: "eth_price",
-      order_direction: "desc",
-    });
-    return (data.orders || []).map(normalizeOffer);
+    return await fetchTokenOffersOrThrow(tokenId, contract);
   } catch (err) {
     console.warn("Fetch token offers failed:", err.message);
     return [];
   }
 }
 
-export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaSlug } = {}) {
+async function fetchBestOfferOrThrow(tokenId, slug = COLLECTION_SLUG, { openseaSlug } = {}) {
   const osSlug = openseaSlug || slug;
+  const data = await openseaGet(`offers/collection/${osSlug}/nfts/${tokenId}/best`);
+  if (!data.price) return null;
+  const endSec = parseInt(data.protocol_data?.parameters?.endTime);
+  const nftItem = (data.protocol_data?.parameters?.consideration || []).find(c => Number(c.itemType) >= 2);
+  return {
+    price: safePriceFromWei(data.price.value),
+    currency: data.price.currency,
+    maker: data.protocol_data?.parameters?.offerer,
+    orderHash: data.order_hash,
+    protocolAddress: data.protocol_address || SEAPORT_ADDRESS,
+    tokenContract: nftItem?.token || null,
+    expiry: Number.isFinite(endSec) ? new Date(endSec * 1000) : null,
+  };
+}
+
+export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaSlug } = {}) {
   try {
-    const data = await openseaGet(`offers/collection/${osSlug}/nfts/${tokenId}/best`);
-    if (!data.price) return null;
-    const endSec = parseInt(data.protocol_data?.parameters?.endTime);
-    const nftItem = (data.protocol_data?.parameters?.consideration || []).find(c => Number(c.itemType) >= 2);
-    return {
-      price: safePriceFromWei(data.price.value),
-      currency: data.price.currency,
-      maker: data.protocol_data?.parameters?.offerer,
-      orderHash: data.order_hash,
-      protocolAddress: data.protocol_address || SEAPORT_ADDRESS,
-      tokenContract: nftItem?.token || null,
-      expiry: Number.isFinite(endSec) ? new Date(endSec * 1000) : null,
-    };
+    return await fetchBestOfferOrThrow(tokenId, slug, { openseaSlug });
   } catch (err) {
     console.warn("Fetch best offer failed:", err.message);
     return null;
   }
+}
+
+/**
+ * Both offer lookups for one token, with the outage kept distinguishable from
+ * an empty book.
+ *
+ * The swallowing wrappers above turn a 429/502 from the OpenSea proxy into `[]`
+ * and `null` — indistinguishable from a token nobody has bid on. A surface that
+ * paints "No Offers Yet" off that is telling the user a fact it does not have,
+ * and the venue's own proxy rate-limits under normal browsing, so this is the
+ * common case rather than the rare one. `unavailable` is true when either leg
+ * failed; a caller with nothing to show must say so instead of claiming zero.
+ * Partial success still returns its data — a failed best-offer highlight is no
+ * reason to hide offers that did load.
+ */
+export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug } = {}) {
+  const [offersRes, bestRes] = await Promise.allSettled([
+    fetchTokenOffersOrThrow(tokenId, contract),
+    fetchBestOfferOrThrow(tokenId, slug, { openseaSlug }),
+  ]);
+  if (offersRes.status === "rejected") console.warn("Fetch token offers failed:", offersRes.reason?.message);
+  if (bestRes.status === "rejected") console.warn("Fetch best offer failed:", bestRes.reason?.message);
+  return {
+    offers: offersRes.status === "fulfilled" ? offersRes.value : [],
+    bestOffer: bestRes.status === "fulfilled" ? bestRes.value : null,
+    unavailable: offersRes.status === "rejected" || bestRes.status === "rejected",
+  };
 }
 
 // Seaport item types that can carry the NFT leg of a criteria offer:

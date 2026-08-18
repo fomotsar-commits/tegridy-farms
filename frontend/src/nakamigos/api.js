@@ -249,8 +249,15 @@ async function _fetchCollectionStatsUncached({ contract = CONTRACT, slug = COLLE
     // for the main collection — so its landing card shows the same number as the
     // detail Hero instead of a bare "—". Other collections have no cached figure
     // and honestly stay null.
+    //
+    // The rest of this object is measured, so the whole-object `fallback` flag
+    // must NOT be set here — it would mislabel a live floor/owner count as
+    // cached. `volumeFallback` marks only the field that is a constant, so the
+    // surfaces can tag that one tile and leave the measured ones alone.
+    let volumeFallback = false;
     if (volume == null && contract.toLowerCase() === CONTRACT.toLowerCase()) {
       volume = FALLBACK_STATS.volume ?? null;
+      volumeFallback = volume != null;
     }
 
     return {
@@ -258,6 +265,7 @@ async function _fetchCollectionStatsUncached({ contract = CONTRACT, slug = COLLE
       volume,
       owners,
       supply,
+      volumeFallback,
     };
   } catch (err) {
     if (err.name === "AbortError") throw err;

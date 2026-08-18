@@ -69,7 +69,9 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
   const displaySupply = stats?.supply ?? collection.supply ?? null;
   const statCards = [
     { label: "Floor Price", value: stats?.floor != null ? formatPrice(Number(stats.floor)) : null, suffix: " ETH", color: "var(--gold)" },
-    { label: "Total Volume", value: stats?.volume != null ? formatVol(stats.volume) : null, suffix: " ETH", color: "var(--naka-blue)" },
+    // `cached` marks a tile whose number is a stored constant standing in for a
+    // throttled call, so it is never read as a current measurement.
+    { label: "Total Volume", value: stats?.volume != null ? formatVol(stats.volume) : null, suffix: " ETH", color: "var(--naka-blue)", cached: !!stats?.volumeFallback || !!stats?.fallback },
     { label: "Owners", value: stats?.owners != null ? formatNumber(stats.owners) : null, suffix: "", color: "var(--green)" },
     { label: "Supply", value: displaySupply != null ? formatNumber(displaySupply) : null, suffix: "", color: "var(--purple)" },
   ];
@@ -190,13 +192,24 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
           gridTemplateColumns: `repeat(${Math.min(statCards.length, 4)}, 1fr)`,
           gap: 12,
         }}>
-          {statCards.map(({ label, value, suffix, color }) => (
+          {statCards.map(({ label, value, suffix, color, cached }) => (
             <div key={label} className="about-stat-card">
               <div style={{
                 fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
                 letterSpacing: "0.08em", marginBottom: 6,
               }}>
                 {label.toUpperCase()}
+                {cached && value != null && (
+                  <span
+                    title="Cached estimate — live stats unavailable right now"
+                    style={{
+                      marginLeft: 5, fontSize: 8, border: "1px solid var(--border)",
+                      borderRadius: 3, padding: "0 3px",
+                    }}
+                  >
+                    CACHED
+                  </span>
+                )}
               </div>
               <div style={{ fontFamily: "var(--display)", fontSize: 18, fontWeight: 600, color: value != null ? color : "var(--text-muted)" }}>
                 {value != null ? `${value}${suffix}` : "\u2014"}
