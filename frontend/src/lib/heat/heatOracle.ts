@@ -85,7 +85,9 @@ export const HEAT_K = 60;
  *
  * The half-year figure that motivated the old floor is ISLAND-SIDE ENROLLMENT judgment
  * ("arrivals prove half a year, births don't") and, per spec, never appears in venue
- * code. See docs/HEAT_LAUNCH_GATE.md for the full record of that reversal.
+ * code. See docs/HEAT_WAVE_TWO.md for the full record of that reversal (an earlier
+ * revision of this comment pointed at docs/HEAT_LAUNCH_GATE.md, which was never
+ * written — the wave-two record is where the deviation flag actually lives).
  *
  * Config, never a constant at the call site — pass it in, so the number moves without
  * touching the gate. `heatLaunchFloor()` in heatGateConfig.ts is the operator dial.
@@ -326,11 +328,11 @@ export function gateDecision(
   };
 }
 
-/** Days of held history, or null when the wallet has none. */
-export function heldDays(reading: HeatReading, nowUnix: number): number | null {
-  if (reading.heldSinceUnix === null) return null;
-  return Math.max(0, Math.floor((nowUnix - reading.heldSinceUnix) / 86_400));
-}
+// `heldDays` used to live here. Deleted on purpose: it was ready-made tenure
+// arithmetic sitting next to a gate whose spec forbids tenure rules ("NO
+// 180-day check, NO calendar, anywhere in this codebase"), and it had no
+// callers. Surfaces that want to show history render `heldSinceUnix` directly
+// as a date — a fact, not a day-counter an eager caller could gate on.
 
 /** The tier a given island_heat falls in. Mirrors the island's floors; display only. */
 export function tierFor(degrees: number): HeatTier {

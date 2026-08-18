@@ -12,7 +12,6 @@ import {
   heatDegreesFor,
   shareForDegrees,
   gateDecision,
-  heldDays,
   TIER_FLOORS,
   HEAT_K,
   LAUNCH_FLOOR,
@@ -232,15 +231,8 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
   });
 });
 
-describe('heldDays', () => {
-  it('counts whole days since the first measured holding', () => {
-    const r = parseHeatReading({ ...WARM, held_since_unix: 1786104024 - 200 * 86_400 });
-    expect(heldDays(r, 1786104024)).toBe(200);
-  });
-  it('is null for a wallet with no history', () => {
-    expect(heldDays(parseHeatReading(COLD), 1786104024)).toBeNull();
-  });
-});
+// The `heldDays` suite is gone with the helper itself — deleted as ready-made
+// tenure arithmetic the launch-gate spec forbids (no day-counters in venue code).
 
 describe('tiers', () => {
   it.each([

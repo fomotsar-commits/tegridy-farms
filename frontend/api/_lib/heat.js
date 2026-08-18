@@ -37,7 +37,7 @@ const HEAT_BASE = "https://memetics.wtf/api/heat";
 
 // The upstream is a third party we do not control and whose quota we would be
 // spending. Keep the client timeout well under Vercel's default so a hanging
-// upstream surfaces as an honest 504 from us rather than a platform timeout.
+// upstream surfaces as an honest 502 from us rather than a platform timeout.
 //
 // AND under the BROWSER's ceiling: heatClient.ts aborts at 6000ms per the directive's
 // "hard timeout (<=6s)". If this budget were >= that, a hanging island would always be
@@ -53,9 +53,14 @@ const UPSTREAM_TIMEOUT_MS = 4500;
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-// Same credentialed-CORS origin set the rest of the api/ surface uses.
-// Registered in api/__tests__/origin-allowlist-parity.test.js — if you edit this
-// array, edit it there too or CI goes red.
+// The canonical prod origin set, kept as a literal so
+// api/__tests__/origin-allowlist-parity.test.js can pin it (the parity test greps
+// mirrors for these exact strings). NOT the runtime authority anymore: setCors
+// below decides via the SAME isOriginAllowed the 403 gate uses, so the header and
+// the gate can never drift again. The drift this fixes: an origin admitted via the
+// ALLOWED_ORIGIN env var passed the 403 gate (spending upstream quota) but this
+// local array didn't know it, so the response never carried
+// Access-Control-Allow-Origin and the browser blocked it anyway.
 const ALLOWED_ORIGINS = [
   "https://memetic.fun",
   "https://www.memetic.fun",
@@ -63,13 +68,14 @@ const ALLOWED_ORIGINS = [
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
 ];
-if (process.env.NODE_ENV === "development") {
-  ALLOWED_ORIGINS.push("http://localhost:5173", "http://localhost:3000");
-}
+void ALLOWED_ORIGINS;
 
 function setCors(req, res) {
   const origin = req.headers?.origin || "";
-  if (ALLOWED_ORIGINS.includes(origin)) {
+  // Single source of truth with the enforcement gate (aggregator-proxy.js):
+  // covers the literals above, the ALLOWED_ORIGIN env escape hatch, and dev
+  // localhost via its own prod-like gating.
+  if (origin && isOriginAllowed(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Vary", "Origin");
