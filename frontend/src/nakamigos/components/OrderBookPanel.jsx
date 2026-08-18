@@ -8,6 +8,7 @@ import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS, BUNDLE_LISTING_ENABLED } from "../co
 import { getProvider } from "../api";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import { getFriendlyError } from "../lib/errorMessages";
+import { computeBookSides } from "../lib/bookDepth";
 import NativeListingsList from "./NativeListingsList";
 
 // ═══ ORDER BOOK PANEL ═══
@@ -354,47 +355,35 @@ function bucketize(values, bucketCount = 10) {
 }
 
 function DepthChart({ listings = [], collectionOffers = [] }) {
-  const { bidBuckets, askBuckets, spread, spreadPct, maxCumulative } = useMemo(() => {
-    const askPrices = listings.map(l => l.price).filter(p => p != null && p > 0).sort((a, b) => a - b);
-    const lowestAsk = askPrices[0] || 0;
-    // #12: a collection bid priced well above the floor ask is garbage/stale — a
-    // collection offer applies to ANY token, so a bid at/above the floor would
-    // fill instantly. One 4.38 ETH outlier on a 0.10 floor was producing a
-    // "best bid" above the best ask and a nonsensical -4057% spread. Drop bids
-    // beyond 2x the floor before computing the book.
-    const bidPrices = collectionOffers.map(o => o.price)
-      .filter(p => p != null && p > 0 && (lowestAsk <= 0 || p <= lowestAsk * 2))
-      .sort((a, b) => b - a);
+  const { bidBuckets, askBuckets, spread, spreadPct, maxCumulative, bestAsk, bestBid, crossed } = useMemo(() => {
+    const book = computeBookSides(listings, collectionOffers);
 
-    const askBuckets = bucketize(askPrices, 8);
-    const bidBuckets = bucketize(bidPrices, 8).reverse();
+    const askBuckets = bucketize(book.askPrices, 8);
+    const bidBuckets = bucketize(book.bidPrices, 8).reverse();
 
     let cumAsk = 0;
     for (const b of askBuckets) { cumAsk += b.count; b.cumulative = cumAsk; }
     let cumBid = 0;
     for (const b of bidBuckets) { cumBid += b.count; b.cumulative = cumBid; }
 
-    const bestBid = bidPrices[0] || 0;
-    const bestAsk = askPrices[0] || 0;
-    const spread = bestAsk && bestBid ? bestAsk - bestBid : 0;
-    const spreadPct = bestAsk && bestBid ? ((spread / bestAsk) * 100).toFixed(1) : null;
     const maxCumulative = Math.max(...askBuckets.map(b => b.cumulative), ...bidBuckets.map(b => b.cumulative), 1);
 
-    return { bidBuckets, askBuckets, spread, spreadPct, maxCumulative };
+    return {
+      bidBuckets,
+      askBuckets,
+      maxCumulative,
+      spread: book.spread,
+      spreadPct: book.spreadPct != null ? book.spreadPct.toFixed(1) : null,
+      bestAsk: book.bestAsk,
+      bestBid: book.bestBid,
+      crossed: book.crossed,
+    };
   }, [listings, collectionOffers]);
 
   const hasBids = bidBuckets.some(b => b.count > 0);
   const hasAsks = askBuckets.some(b => b.count > 0);
 
   if (!hasBids && !hasAsks) return null;
-
-  const askPricesValid = listings.map(l => l.price).filter(p => p != null && p > 0);
-  const bestAsk = askPricesValid.length > 0 ? Math.min(...askPricesValid) : null;
-  // #12: same outlier guard as the depth memo above — exclude garbage bids well
-  // above the floor so BEST BID isn't an inverted 40x-floor number.
-  const bidPricesValid = collectionOffers.map(o => o.price)
-    .filter(p => p != null && p > 0 && (bestAsk == null || p <= bestAsk * 2));
-  const bestBid = bidPricesValid.length > 0 ? Math.max(...bidPricesValid) : null;
 
   return (
     <div style={{
@@ -413,7 +402,7 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
             Bid/ask depth &middot; {listings.length} asks &middot; {collectionOffers.length} bids
           </div>
         </div>
-        {spreadPct && (
+        {spreadPct != null && (
           <div style={{
             fontFamily: "var(--mono)", fontSize: 11,
             background: "rgba(111,168,220,0.08)", borderRadius: 8, padding: "6px 12px",
@@ -421,6 +410,17 @@ function DepthChart({ listings = [], collectionOffers = [] }) {
             <span style={{ color: "var(--text-muted)" }}>Spread </span>
             <span style={{ color: "var(--gold)" }}>{spread.toFixed(4)}</span>
             <span style={{ color: "var(--text-muted)" }}> ({spreadPct}%)</span>
+          </div>
+        )}
+        {/* A crossed book has no meaningful spread — say so instead of printing
+            a negative one, and keep the crossing bid in the depth below. */}
+        {crossed && (
+          <div style={{
+            fontFamily: "var(--mono)", fontSize: 11,
+            background: "rgba(251,191,36,0.08)", borderRadius: 8, padding: "6px 12px",
+            color: "var(--yellow, #fbbf24)",
+          }}>
+            Spread unavailable &middot; best bid is at or above best ask
           </div>
         )}
       </div>

@@ -28,6 +28,13 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
+  // The wallet walk is paged. Pages paint as they land so a big wallet isn't a
+  // blank screen, which means `tokens` is routinely a PARTIAL set — and every
+  // affordance below (bulk list, bundle, CSV export, portfolio value) operates
+  // on exactly what is in `tokens`. Until the walk finishes, the surface has to
+  // say it is still counting rather than let a partial set read as the wallet.
+  const [inventoryComplete, setInventoryComplete] = useState(true);
+  const [inventoryError, setInventoryError] = useState(false);
   const [listings, setListings] = useState([]);
   // Three distinct states, deliberately NOT collapsed into "listings.length === 0":
   // in flight, reachable-and-empty, and could-not-reach. Before this, all three
@@ -117,11 +124,23 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     setListings([]);
     setLoading(true);
     setError(null);
+    setInventoryComplete(true);
+    setInventoryError(false);
 
-    fetchWalletNfts(wallet, collection.contract, collection.metadataBase).then((data) => {
+    fetchWalletNfts(wallet, collection.contract, collection.metadataBase, {
+      onPage: (page) => {
+        if (!mounted) return;
+        setTokens(page.tokens);
+        setTotalCount(page.totalCount);
+        setInventoryComplete(page.complete);
+        setLoading(false);
+      },
+    }).then((data) => {
       if (!mounted) return;
       setTokens(data.tokens);
       setTotalCount(data.totalCount);
+      setInventoryComplete(data.complete !== false);
+      setInventoryError(!!data.error);
       setLoading(false);
     }).catch((err) => {
       if (!mounted) return;
@@ -155,11 +174,23 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
     setLoading(true);
     setLoadingListings(true);
     setListingsError(false);
+    setInventoryComplete(true);
+    setInventoryError(false);
 
-    fetchWalletNfts(wallet, collection.contract, collection.metadataBase).then((data) => {
+    fetchWalletNfts(wallet, collection.contract, collection.metadataBase, {
+      onPage: (page) => {
+        if (retryGenRef.current !== gen) return;
+        setTokens(page.tokens);
+        setTotalCount(page.totalCount);
+        setInventoryComplete(page.complete);
+        setLoading(false);
+      },
+    }).then((data) => {
       if (retryGenRef.current !== gen) return; // stale -- collection switched
       setTokens(data.tokens);
       setTotalCount(data.totalCount);
+      setInventoryComplete(data.complete !== false);
+      setInventoryError(!!data.error);
       setLoading(false);
     }).catch(() => {
       if (retryGenRef.current !== gen) return;
@@ -228,6 +259,14 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
           </h2>
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
             {shortenAddress(wallet)} {"\u00b7"} {totalCount} {collection.name} owned
+            {/* Loaded-vs-owned, whenever the two differ. Bulk List, Bundle and
+                Export CSV all act on the loaded set only. */}
+            {!inventoryComplete && (
+              <span style={{ color: inventoryError ? "var(--red)" : "var(--yellow, #fbbf24)", marginLeft: 8 }}>
+                {"\u00b7"} {tokens.length} of {totalCount} loaded
+                {inventoryError ? " \u2014 the rest could not be reached" : "\u2026 still loading"}
+              </span>
+            )}
             {/* In flight / unreachable / known \u2014 three states, never collapsed.
                 Rendering nothing while the fetch is open reads as "0 listed",
                 which is a claim we have not earned yet. */}

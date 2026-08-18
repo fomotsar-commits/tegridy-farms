@@ -19,12 +19,19 @@ const keyOf = (n) => `${n.contract.toLowerCase()}:${n.id ?? n.tokenId}`;
 // floor values diverge hard, say so loudly before anyone signs.
 const LOPSIDED_RATIO = 0.6;
 
-function SidePanel({ title, accent, tokens, loading, selected, onToggle, emptyText }) {
+function SidePanel({ title, accent, tokens, loading, partial, selected, onToggle, emptyText }) {
   return (
     <div style={{ flex: "1 1 300px", minWidth: 260 }}>
       <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: accent, letterSpacing: "0.08em", marginBottom: 8 }}>
         {title} ({selected.size}/{MAX_ITEMS_PER_SIDE})
       </div>
+      {/* A picker that silently omits holdings makes an absent NFT look like an
+          unowned one — and a trade gets built around that mistake. */}
+      {partial && !loading && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--yellow, #fbbf24)", marginBottom: 6 }}>
+          Partial inventory — some holdings could not be loaded
+        </div>
+      )}
       <div style={{
         border: "1px solid var(--border)", borderRadius: 10, padding: 10,
         background: "rgba(0,0,0,0.2)", maxHeight: 260, overflowY: "auto",
@@ -98,6 +105,8 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
   const [theirTokens, setTheirTokens] = useState([]);
   const [loadingMine, setLoadingMine] = useState(false);
   const [loadingTheirs, setLoadingTheirs] = useState(false);
+  const [minePartial, setMinePartial] = useState(false);
+  const [theirsPartial, setTheirsPartial] = useState(false);
   const [give, setGive] = useState(() => new Map((prefillGive || []).map(n => [keyOf(n), n])));
   const [get, setGet] = useState(() => new Map((initialRequested || []).map(n => [keyOf(n), n])));
   const [wethTopup, setWethTopup] = useState(prefillWethTopup || "");
@@ -135,27 +144,33 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
     return () => { window.removeEventListener("keydown", h); unlockScroll(); };
   }, [onClose]);
 
-  // Load both inventories across all supported collections
-  const loadInventory = useCallback(async (owner, setTokens, setLoading) => {
+  // Load both inventories across all supported collections. `setPartial` carries
+  // whether any collection's paged walk stopped short — the picker must not
+  // present an incomplete wallet as the whole of what the owner can trade.
+  const loadInventory = useCallback(async (owner, setTokens, setLoading, setPartial) => {
     if (!owner) return;
     setLoading(true);
+    setPartial(false);
     try {
+      let partial = false;
       const batches = await Promise.all(COLLECTION_LIST.map(async (c) => {
         try {
           const res = await fetchWalletNfts(owner, c.contract, c.metadataBase);
+          if (res?.complete === false) partial = true;
           return (res?.tokens || []).map(t => ({ ...t, contract: c.contract, collectionName: c.name, pixelated: c.pixelated }));
-        } catch { return []; }
+        } catch { partial = true; return []; }
       }));
       setTokens(batches.flat());
+      setPartial(partial);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadInventory(wallet, setMyTokens, setLoadingMine); }, [wallet, loadInventory]);
+  useEffect(() => { loadInventory(wallet, setMyTokens, setLoadingMine, setMinePartial); }, [wallet, loadInventory]);
   useEffect(() => {
-    if (validCounterparty) loadInventory(counterparty, setTheirTokens, setLoadingTheirs);
-    else setTheirTokens([]);
+    if (validCounterparty) loadInventory(counterparty, setTheirTokens, setLoadingTheirs, setTheirsPartial);
+    else { setTheirTokens([]); setTheirsPartial(false); }
   }, [counterparty, validCounterparty, loadInventory]);
 
   // Floor prices per collection (best-effort, for the balance meter only)
@@ -317,6 +332,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             accent="var(--gold)"
             tokens={myTokens}
             loading={loadingMine}
+            partial={minePartial}
             selected={give}
             onToggle={toggle(give, setGive, get)}
             emptyText={wallet ? "No NFTs from the supported collections in your wallet" : "Connect your wallet"}
@@ -374,6 +390,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
             accent="var(--green)"
             tokens={theirTokens}
             loading={loadingTheirs}
+            partial={theirsPartial}
             selected={get}
             onToggle={toggle(get, setGet, give)}
             emptyText={validCounterparty ? "No NFTs from the supported collections in that wallet" : "Enter the counterparty address above"}

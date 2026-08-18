@@ -395,6 +395,50 @@ export async function validateOrderFillability(ethersProvider, order, fulfillerA
 }
 
 /**
+ * Pre-flight a list of orders with the same Layer 1+2 checks the cart runs, and
+ * split them into what is still fillable and what must be skipped.
+ *
+ * Every multi-buy path needs this split, not just a boolean: a sweep that dies
+ * on the first dead listing abandons the rest of a queue whose cheapest items
+ * are the most contested, and an EIP-5792 batch containing one stale order
+ * reverts as a whole. Callers drop `skipped` from the queue, tell the user what
+ * went and why, and continue with `ok`.
+ *
+ * A validator fault is NOT evidence an order is dead — those pass through as
+ * warnings rather than silently deleting a fillable listing.
+ *
+ * @param {object|null} ethersProvider - null runs Layer 1 only (free, offline)
+ * @param {Array} orders
+ * @returns {{ ok: Array, skipped: Array<{order: object, reason: string}>, results: Array }}
+ */
+export async function preflightOrders(ethersProvider, orders = []) {
+  const results = await Promise.all(
+    (orders || []).map(async (order) => {
+      if (!order?.orderHash) {
+        return { order, status: "red", reason: "Missing order data", warnings: [], layer: 0 };
+      }
+      try {
+        const result = await validateOrderQuick(ethersProvider, order);
+        return { order, ...result };
+      } catch {
+        return { order, status: "yellow", warnings: ["Validation check failed"], layer: 0 };
+      }
+    })
+  );
+
+  const ok = [];
+  const skipped = [];
+  for (const r of results) {
+    if (r.status === "red") {
+      skipped.push({ order: r.order, reason: r.reason || "Order is no longer fillable" });
+    } else {
+      ok.push(r.order);
+    }
+  }
+  return { ok, skipped, results };
+}
+
+/**
  * Quick Layer 1+2 validation (no simulation). Suitable for Modal pre-check.
  */
 export async function validateOrderQuick(ethersProvider, order) {

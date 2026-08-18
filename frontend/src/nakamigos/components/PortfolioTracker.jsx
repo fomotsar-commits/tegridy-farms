@@ -133,6 +133,10 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
   const [error, setError] = useState(null);
   const [pnlData, setPnlData] = useState(null);
   const [tokens, setTokens] = useState([]);
+  // Set when the wallet walk did not reach the end. Every number below is a sum
+  // over `tokens`, so a partial inventory means a portfolio value that is
+  // understated by an unknown amount — it has to say so on the same screen.
+  const [partialInventory, setPartialInventory] = useState(null);
   const [expandedCollection, setExpandedCollection] = useState(false);
   const [snapshots, setSnapshots] = useState(() => wallet ? loadSnapshots(wallet, collection.contract) : []);
   const genRef = useRef(0);
@@ -169,6 +173,11 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
         return;
       }
 
+      setPartialInventory(
+        nftData.complete === false
+          ? { loaded: nftData.tokens.length, total: nftData.totalCount, capped: !!nftData.truncated }
+          : null,
+      );
       setTokens(nftData.tokens);
 
       if (nftData.tokens.length === 0) {
@@ -322,6 +331,17 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
           Refresh
         </button>
       </div>
+
+      {partialInventory && (
+        <div className="error-banner" style={{ marginBottom: 16 }} role="status">
+          <span>
+            Partial inventory: {partialInventory.loaded} of {partialInventory.total} NFTs loaded
+            {partialInventory.capped ? " (page limit reached)" : ""}. Every figure below covers only
+            the loaded NFTs and understates this wallet.
+          </span>
+          <button onClick={() => loadPortfolio(true)}>Retry</button>
+        </div>
+      )}
 
       {/* ═══ HERO STATS BAR ═══ */}
       <div style={{

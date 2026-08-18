@@ -640,21 +640,78 @@ export async function fetchTopHolders({ contract = CONTRACT, limit = 10 } = {}) 
 }
 
 // ═══ WALLET NFTs ═══
-export async function fetchWalletNfts(walletAddress, contract = CONTRACT, metadataBase = METADATA_BASE) {
+// Alchemy caps getNFTsForOwner at 100 per page. This used to fetch exactly one
+// page and return it next to `totalCount` — the wallet's REAL holding count —
+// so a 340-NFT wallet rendered 100 tokens under a "340 owned" header, and every
+// consumer that derives from the token array (portfolio value, CSV export, bulk
+// listing, trade inventory pickers) silently worked from a third of the wallet
+// while presenting itself as the whole of it.
+//
+// Now every page is walked. The return carries the state of that walk, and
+// callers MUST branch on it rather than treating `tokens` as authoritative:
+//   complete: true  — every page arrived; tokens IS the wallet
+//   complete: false — the walk stopped early (`error` = a page failed,
+//                     `truncated` = the page cap was reached). Whatever is in
+//                     `tokens` is a partial set and must be labelled as one.
+const WALLET_PAGE_SIZE = 100;
+// 25 pages = 2,500 tokens. A cap has to exist (Alchemy paginates unboundedly and
+// each page is a proxied round trip); reaching it is disclosed, never silent.
+const MAX_WALLET_PAGES = 25;
+
+export async function fetchWalletNfts(
+  walletAddress,
+  contract = CONTRACT,
+  metadataBase = METADATA_BASE,
+  { signal, maxPages = MAX_WALLET_PAGES, onPage } = {},
+) {
+  const tokens = [];
+  let totalCount = 0;
+  let pageKey = null;
+  let pages = 0;
+
   try {
-    const data = await alchemyGet("getNFTsForOwner", {
-      owner: walletAddress,
-      "contractAddresses[]": contract,
-      withMetadata: "true",
-      pageSize: "100",
-    });
+    do {
+      const params = {
+        owner: walletAddress,
+        "contractAddresses[]": contract,
+        withMetadata: "true",
+        pageSize: String(WALLET_PAGE_SIZE),
+      };
+      if (pageKey) params.pageKey = pageKey;
+
+      const data = await alchemyGet("getNFTsForOwner", params, { signal });
+      for (const nft of data.ownedNfts || []) tokens.push(normalizeToken(nft, metadataBase));
+      // Alchemy reports the owner's full matching count on every page, so this
+      // is the honest denominator even mid-walk.
+      if (data.totalCount != null) totalCount = data.totalCount;
+      pageKey = data.pageKey || null;
+      pages++;
+
+      // Lets a surface paint what has landed while still declaring itself
+      // incomplete, instead of blocking on the whole walk behind one spinner.
+      onPage?.({ tokens: [...tokens], totalCount, complete: !pageKey, pages });
+    } while (pageKey && pages < maxPages);
+
+    const complete = !pageKey;
     return {
-      tokens: (data.ownedNfts || []).map(nft => normalizeToken(nft, metadataBase)),
-      totalCount: data.totalCount || 0,
+      tokens,
+      totalCount: totalCount || tokens.length,
+      complete,
+      truncated: !complete,
+      pages,
     };
   } catch (err) {
     console.warn("Wallet NFTs unavailable:", err.message);
-    return { tokens: [], totalCount: 0, error: "Could not load wallet NFTs. Please check your connection and try again." };
+    // Pages that already landed are real and worth keeping — but the result is
+    // explicitly incomplete, so no caller can read a partial wallet as a whole one.
+    return {
+      tokens,
+      totalCount: totalCount || tokens.length,
+      complete: false,
+      truncated: false,
+      pages,
+      error: "Could not load wallet NFTs. Please check your connection and try again.",
+    };
   }
 }
 

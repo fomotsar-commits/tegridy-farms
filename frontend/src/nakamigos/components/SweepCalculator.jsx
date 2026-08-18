@@ -4,6 +4,7 @@ import { fulfillSeaportOrder, fulfillSeaportOrdersBatch, getProvider } from "../
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
+import { preflightOrders } from "../lib/orderValidator";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
 
@@ -125,6 +126,11 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
   const [sweeping, setSweeping] = useState(false);
   const [progress, setProgress] = useState(0);
   const [batching, setBatching] = useState(false); // EIP-5792 single-confirmation in flight
+  const [validating, setValidating] = useState(false); // 3-layer pre-flight in flight
+  // What the pre-flight took out of the queue, kept on screen after the sweep so
+  // "swept 3 of 5" is never left unexplained.
+  const [skippedItems, setSkippedItems] = useState([]);
+  const [sweepTotal, setSweepTotal] = useState(0); // items actually attempted
 
   // Dual mode: "quantity" or "budget"
   const [mode, setMode] = useState("quantity");
@@ -308,8 +314,8 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     }
     if (filteredListings.length === 0) return;
 
-    const sweepList = filteredListings.slice(0, effectiveCount).filter(l => l.orderHash);
-    if (sweepList.length === 0) {
+    const queued = filteredListings.slice(0, effectiveCount).filter(l => l.orderHash);
+    if (queued.length === 0) {
       addToast?.("No purchasable listings found.", "error");
       return;
     }
@@ -317,6 +323,43 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
     setSweeping(true);
     setProgress(0);
     setBatching(false);
+    setSkippedItems([]);
+    setSweepTotal(0);
+
+    // Same 3-layer pre-flight the cart runs before checkout. Without it a stale
+    // listing reaches the wallet, and in the batch path below one dead order
+    // reverts the whole atomic call — so the invalidated items come out of the
+    // queue here, and the sweep continues with what is left.
+    setValidating(true);
+    let ethersProvider = null;
+    try {
+      const ethProvider = getProvider();
+      if (ethProvider) {
+        const { ethers } = await import("ethers");
+        ethersProvider = new ethers.BrowserProvider(ethProvider);
+      }
+    } catch {
+      // No provider — preflightOrders falls back to the free Layer 1 checks.
+    }
+    const { ok: sweepList, skipped } = await preflightOrders(ethersProvider, queued);
+    setValidating(false);
+    setSkippedItems(skipped.map(s => ({
+      id: s.order?.id ?? s.order?.tokenId ?? s.order?.orderHash,
+      label: s.order?.name || `#${s.order?.id ?? s.order?.tokenId}`,
+      reason: s.reason,
+    })));
+
+    if (sweepList.length === 0) {
+      addToast?.(`All ${queued.length} queued listing${queued.length !== 1 ? "s are" : " is"} no longer fillable — nothing swept.`, "error");
+      setSweeping(false);
+      setProgress(0);
+      return;
+    }
+    if (skipped.length > 0) {
+      addToast?.(`Skipping ${skipped.length} listing${skipped.length !== 1 ? "s" : ""} that went stale — sweeping the remaining ${sweepList.length}.`, "warning");
+    }
+
+    setSweepTotal(sweepList.length);
     addToast?.(`Sweeping ${sweepList.length} ${collection.name}...`, "info");
 
     let bought = 0;
@@ -374,13 +417,19 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
             ? "was just sold"
             : getFriendlyError(result.message || "failed");
           addToast?.(`${nft.name || `#${nft.id}`} ${why} — skipping`, "warning");
+          setSkippedItems((prev) => [...prev, {
+            id: nft.id ?? nft.tokenId ?? nft.orderHash,
+            label: nft.name || `#${nft.id ?? nft.tokenId}`,
+            reason: why,
+          }]);
           continue;
         }
       }
     }
 
     if (bought > 0) {
-      addToast?.(`Swept ${bought} of ${sweepList.length} ${collection.name}!`, "success");
+      const tail = skipped.length > 0 ? ` (${skipped.length} skipped as stale)` : "";
+      addToast?.(`Swept ${bought} of ${sweepList.length} ${collection.name}!${tail}`, "success");
     } else {
       addToast?.("Nothing swept — those listings may already be gone. Try refreshing.", "error");
     }
@@ -651,6 +700,26 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
         </div>
       )}
 
+      {/* Pre-flight casualties stay visible after the run — a queue of N that
+          buys fewer than N must say which ones it dropped and why. */}
+      {skippedItems.length > 0 && (
+        <div className="sweep-filters" style={{ marginTop: 8 }}>
+          <div className="sweep-section-label" style={{ color: "var(--yellow, #fbbf24)" }}>
+            SKIPPED ({skippedItems.length})
+          </div>
+          {skippedItems.slice(0, 5).map((s, i) => (
+            <div key={s.id ?? i} className="sweep-micro-label" style={{ marginTop: 2 }}>
+              {s.label} — {s.reason}
+            </div>
+          ))}
+          {skippedItems.length > 5 && (
+            <div className="sweep-micro-label" style={{ marginTop: 2 }}>
+              +{skippedItems.length - 5} more
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         className="btn-primary"
         style={{ display: "block", width: "100%", textAlign: "center", marginTop: 18, fontSize: 12 }}
@@ -658,7 +727,11 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
         onClick={handleSweep}
       >
         {sweeping
-          ? (batching ? "Confirming sweep…" : `Sweeping ${progress}/${effectiveCount}...`)
+          ? (validating
+              ? "Checking listings…"
+              : batching
+                ? "Confirming sweep…"
+                : `Sweeping ${progress}/${sweepTotal || effectiveCount}...`)
           : !wallet
             ? `Connect & Sweep ${effectiveCount} ${collectionLabel}`
             : filteredListings.length === 0

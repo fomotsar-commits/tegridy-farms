@@ -167,6 +167,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
   const SUPPLY = stats?.supply || collection.supply || 20000;
   const [totalOwners, setTotalOwners] = useState(0);
   const [expandedNfts, setExpandedNfts] = useState([]);
+  const [expandedTotal, setExpandedTotal] = useState(0);
   const [loadingNfts, setLoadingNfts] = useState(false);
   // Distinguish an outage from a genuinely-empty wallet in the expanded view (F724).
   const [expandedError, setExpandedError] = useState(false);
@@ -269,11 +270,17 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
       setExpandedNfts([]);
       setExpandedError(false);
       setLoadingNfts(true);
-      const data = await fetchWalletNfts(address, collection.contract, collection.metadataBase);
+      // This panel is a thumbnail preview, so it deliberately walks only the
+      // first few pages rather than every page of a thousand-token whale. The
+      // count rendered beside it comes from `totalCount` (the wallet's real
+      // holding count, reported on every page), never from how many thumbnails
+      // happened to load.
+      const data = await fetchWalletNfts(address, collection.contract, collection.metadataBase, { maxPages: 3 });
       if (!mountedRef.current) return;
       // An outage returns { tokens:[], error } — don't claim "none held".
       if (data?.error && (data.tokens?.length || 0) === 0) setExpandedError(true);
       setExpandedNfts(data.tokens || []);
+      setExpandedTotal(data?.totalCount || 0);
       setLoadingNfts(false);
     },
     [expandedHolder, collection.contract, collection.metadataBase]
@@ -825,7 +832,12 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                   letterSpacing: "0.06em",
                                 }}
                               >
-                                {expandedNfts.length} {collection.name.toUpperCase()} HELD
+                                {expandedTotal || expandedNfts.length} {collection.name.toUpperCase()} HELD
+                                {expandedTotal > expandedNfts.length && (
+                                  <span style={{ color: "var(--yellow, #fbbf24)", marginLeft: 6 }}>
+                                    &middot; previewing {expandedNfts.length}
+                                  </span>
+                                )}
                               </div>
                               <div
                                 style={{
