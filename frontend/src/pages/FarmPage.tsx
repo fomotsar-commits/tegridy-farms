@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { JBAC_BONUS_BPS, CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
@@ -17,11 +18,14 @@ import type { ReceiptType } from '../hooks/useTransactionReceipt';
 import { useConfetti } from '../hooks/useConfetti';
 import { usePoolTVL } from '../hooks/usePoolTVL';
 import { useLPFarming } from '../hooks/useLPFarming';
+import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
+import { useOneClickStake } from '../hooks/useOneClickStake';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
 import { safeParseEther } from '../lib/safeParseEther';
+import { surfaceTxError, isUserRejection } from '../lib/txErrors';
 import { seasonStatus } from '../lib/season';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
@@ -87,6 +91,22 @@ export default function FarmPage() {
   const lpFarm = useLPFarming();
   const restaking = useRestaking();
 
+  // AUDIT F-7: the LP farm only recomputes the boost inside stake/withdraw/exit,
+  // so a wallet that stakes first and buys a JBAC second keeps earning at the
+  // unboosted rate until it touches the farm again. Prompt mode (auto:false) —
+  // refreshBoost is a transaction, so the user confirms it rather than having a
+  // signature request appear on page load.
+  const lpBoost = useAutoRefreshBoost({ onRefreshNeeded: lpFarm.refreshBoost });
+
+  // EIP-5792: collapse approve + stake into one confirmation on wallets that
+  // advertise atomic batching. Support is never assumed — `canBatch` stays false
+  // until wallet_getCapabilities answers, and `batchUnavailable` retires the path
+  // for the rest of the session if a batch is rejected by the wallet for any
+  // reason other than the user declining it.
+  const oneClickStake = useOneClickStake();
+  const [batchUnavailable, setBatchUnavailable] = useState(false);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+
   // Auto-dismiss confirmation dialogs after 5 seconds (regular withdrawals only).
   // Emergency exit is a dangerous financial action — never auto-dismiss.
   // F118: memoize the per-key setters so useAutoReset's effect (setter is a dep)
@@ -123,8 +143,40 @@ export default function FarmPage() {
   // null instead; treat unparseable input as "no approval needed yet".
   const stakeNeedsApproval = pos.allowance < (amtNum > 0 ? (safeParseEther(stakeAmount) ?? 0n) : 0n);
 
+  // Only worth batching when an approval would otherwise be a separate signature.
+  // `batchSubmitting` is deliberately NOT part of this: it gates a second submit
+  // inside handleStake, and folding it in here would relabel the button mid-prompt
+  // to describe a flow the open wallet dialog is not running.
+  const canBatchStake = stakeNeedsApproval && oneClickStake.canBatch && !batchUnavailable;
+
   const handleStake = () => {
     if (amtNum <= 0) return;
+    if (canBatchStake) {
+      if (batchSubmitting) return;
+      const wei = safeParseEther(stakeAmount);
+      if (wei === null || wei <= 0n) { toast.error('Invalid amount'); return; }
+      setBatchSubmitting(true);
+      // wallet_sendCalls resolves on SUBMISSION and returns a batch id, not a
+      // mined tx hash — there is no receipt to key a stake receipt off, so this
+      // path deliberately shows no receipt and no confetti. The position poll is
+      // what reflects the stake once the batch actually lands.
+      oneClickStake
+        .stakeOneClick(wei, BigInt(selectedLock.seconds))
+        .then(() => {
+          toast.success('Approve + stake submitted in one confirmation', {
+            description: 'Your position updates here once the batch confirms on-chain.',
+          });
+        })
+        .catch((err: unknown) => {
+          // A decline is not a broken wallet — keep the one-click affordance for
+          // the retry. Anything else means this wallet cannot complete the batch,
+          // so fall back to the proven sequential approve → stake flow.
+          if (!isUserRejection(err)) setBatchUnavailable(true);
+          surfaceTxError(err, toast, { component: 'FarmPage/oneClickStake' });
+        })
+        .finally(() => setBatchSubmitting(false));
+      return;
+    }
     if (stakeNeedsApproval) {
       // F95: tag the approve so the success effect shows an approve receipt (or
       // nothing) instead of fabricating a stake receipt + confetti.
@@ -370,6 +422,29 @@ export default function FarmPage() {
           </div>
         </m.div>
 
+        {/* AUDIT F-7: staked before acquiring the JBAC → the farm is still paying
+            the unboosted rate. Permissionless on-chain, so the user can fix it
+            here in one transaction. */}
+        {lpBoost.needsRefresh && (
+          <div
+            className="mb-4 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3"
+            style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
+          >
+            <p className="text-amber-200 text-[12px] leading-snug flex-1">
+              Your JBAC boost is not applied to your staked LP. The farm recalculates the boost only
+              when you stake, withdraw or exit, so LP staked before you acquired the NFT is still
+              earning at the unboosted rate until you refresh it.
+            </p>
+            <button
+              onClick={() => lpFarm.refreshBoost()}
+              disabled={lpFarm.isPending || lpFarm.isConfirming}
+              className="btn-outline px-4 py-2 min-h-[44px] text-[12px] whitespace-nowrap disabled:opacity-50"
+            >
+              {lpFarm.isPending || lpFarm.isConfirming ? 'Confirming…' : 'Refresh boost'}
+            </button>
+          </div>
+        )}
+
         {/* ── LP Farming ── */}
         <LPFarmingSection lpFarm={lpFarm} isConnected={isConnected} />
 
@@ -483,7 +558,10 @@ export default function FarmPage() {
               totalBoostBps,
               amtNum,
               effectiveStake,
-              stakeNeedsApproval,
+              // The CTA labels the next confirmation, not the allowance state: on a
+              // batching wallet the single prompt approves AND stakes, so "Approve
+              // TOWELI" would understate what the user is about to sign.
+              stakeNeedsApproval: stakeNeedsApproval && !canBatchStake,
             }}
             handleStake={handleStake}
             lastActionRef={lastActionRef}

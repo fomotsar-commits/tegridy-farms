@@ -13,6 +13,7 @@ import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
 import { useNFTBoost } from '../hooks/useNFTBoost';
+import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
@@ -81,6 +82,10 @@ export default function DashboardPage() {
   const myLoans = useMyLoans();
   const pos = useUserPosition();
   const lpPos = useLpPosition(address);
+  // AUDIT F-7, detection only: the pending-rewards figure below accrues on the
+  // farm's EFFECTIVE balance, so a stale boost makes it read low. No callback is
+  // passed — refreshBoost is a transaction and the Farm page owns that write.
+  const lpBoost = useAutoRefreshBoost({});
   const pool = usePoolData();
   const { history: priceHistory } = usePriceHistory();
   const revenueStats = useRevenueStats();
@@ -622,6 +627,16 @@ export default function DashboardPage() {
                         <p className="stat-value text-[16px] text-white">{formatCurrency(lpUsd)}</p>
                       </div>
                     </div>
+                    {lpBoost.needsRefresh && (
+                      <div className="mt-4 px-3 py-2 rounded-lg flex items-start gap-2" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                        <span className="text-amber-300 text-[13px] leading-none" aria-hidden="true">⚠</span>
+                        <p className="text-amber-200 text-[11px] leading-snug">
+                          Your JBAC boost is not applied to this staked LP, so the pending figure is
+                          accruing at the unboosted rate. Refresh it on the{' '}
+                          <Link to="/farm" className="underline hover:text-amber-100">Farm page</Link>.
+                        </p>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 mt-4 flex-wrap">
                       <span className="text-white/50 text-[11px]">
                         {lpPos.farmingDeployed && (lpPos.stakedLp > 0n || lpPos.pendingRewards > 0)

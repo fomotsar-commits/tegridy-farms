@@ -3,6 +3,7 @@ import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../lib/contracts';
 import { TEGRIDY_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
+import { geckoTerminalTokenPriceSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
 
 // R075: every cache key carries its own schema version. A stale entry from
 // a different commit, a tampered `signedAt`, or a future-signed payload is
@@ -226,9 +227,18 @@ export function useToweliPrice() {
         { signal: controller.signal },
       )
         .then(r => r.json())
-        .then(d => {
+        .then((d: unknown) => {
           if (cancelled) return;
-          const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
+          // R080: this response feeds the site-wide display price, so it is
+          // validated before it is read. A shape outside the schema is a fetch
+          // that did not happen — leave the previous price and the on-chain leg
+          // in place rather than letting a malformed payload set a number.
+          const parsed = parseOrNull(geckoTerminalTokenPriceSchema, d);
+          if (!parsed) {
+            console.warn('[useToweliPrice] GeckoTerminal price response failed schema validation — ignored');
+            return;
+          }
+          const p = parseFloat(parsed.data.attributes.token_prices[TOWELI_ADDRESS.toLowerCase()] ?? '0');
           if (p > 0) {
             setApiFallbackPrice(p);
             setApiPriceStale(false);

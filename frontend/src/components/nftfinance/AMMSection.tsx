@@ -82,6 +82,21 @@ function addTrackedPool(addr: string) {
   }
 }
 
+// The shared TEGRIDY_NFT_POOL_FACTORY_ABI carries only the trading surface, so the
+// factory's public `protocolFeeBps` getter is declared here rather than displayed
+// from a constant. The fee is timelocked-changeable on-chain
+// (propose/execute ProtocolFeeChange), which is exactly why a literal in this file
+// can silently diverge from what a trade is actually charged.
+const NFT_POOL_FACTORY_FEE_ABI = [
+  {
+    inputs: [],
+    name: 'protocolFeeBps',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
 const ERC721_APPROVAL_ABI = [
   {
     inputs: [
@@ -415,17 +430,38 @@ function PriceImpactBadge({ impact }: { impact: number | null }) {
 
 // ─── Stats Bar ────────────────────────────────────────────────────
 
+/** Basis points as a percent string, matching LendingSection's fee display. */
+function bpsToPercent(bps: bigint | number): string {
+  const n = typeof bps === 'bigint' ? Number(bps) : bps;
+  return (n / 100).toFixed(2);
+}
+
 function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
-  // F269 (deferred): the pool factory ABI exposes no protocol-fee view, so the
-  // fee can't be read on-chain here \u2014 the prior `protocolFeeBps` read targeted a
-  // function the factory doesn't implement and broke the build. Show the current
-  // configured value; revisit with the correct pool/router fee getter + ABI.
-  const protocolFeeLabel = '0.5%';
+  // Read the fee from the factory that charges it, the way LendingSection reads
+  // TegridyLending.protocolFeeBps. The gate mirrors F255: a zeroed address makes
+  // the eth_call return '0x', decode fails, and react-query retries on loop.
+  const { data: protocolFeeBps } = useReadContract({
+    address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+    abi: NFT_POOL_FACTORY_FEE_ABI,
+    functionName: 'protocolFeeBps',
+    chainId: CHAIN_ID,
+    query: { enabled: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS) },
+  });
+
+  // No read, no number. A stated percentage that nothing on-chain backs is worse
+  // than an admitted gap: it is the figure a trader sizes a trade against.
+  const feeRead = typeof protocolFeeBps === 'bigint';
 
   const stats = [
     { label: 'Total Pools', value: poolCount?.toString() ?? '0', tooltip: 'Number of bonding curve pools deployed for NFT trading' },
     { label: 'Total Volume', value: '\u2014', tooltip: 'Cumulative ETH volume traded through all pools' },
-    { label: 'Protocol Fee', value: protocolFeeLabel, tooltip: 'Fee taken by the protocol on each trade, separate from LP fees' },
+    {
+      label: 'Protocol Fee',
+      value: feeRead ? `${bpsToPercent(protocolFeeBps)}%` : 'Unavailable',
+      tooltip: feeRead
+        ? 'Fee taken by the protocol on each trade, separate from LP fees. Read live from the pool factory.'
+        : 'The protocol fee could not be read from the pool factory, so none is shown. The exact fee for your trade still appears in the quote before you sign.',
+    },
   ];
 
   return (

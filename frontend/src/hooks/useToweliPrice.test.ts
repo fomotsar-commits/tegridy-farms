@@ -440,6 +440,79 @@ describe('useToweliPrice', () => {
     const { result } = renderHook(() => useToweliPrice());
     expect(result.current.priceUnavailable).toBe(true);
   });
+
+  // R080: the API leg is untrusted input to the site-wide display price ───
+  //
+  // This hook is the API leg's ONLY consumer, and with the native pair below
+  // its pricing floor the API leg is frequently the only source answering — so
+  // whatever survives this fetch is what the whole site shows. Until the schema
+  // was applied here, the value was read with optional chaining and handed to
+  // parseFloat: a number, a scientific-notation string, or a nested object all
+  // walked straight through. These cases pin refusal.
+
+  /** Stub GeckoTerminal with a literal body, valid or not. */
+  function stubRawFetch(body: unknown): void {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(body),
+    }) as unknown as typeof fetch;
+  }
+
+  const KEY = TOWELI_ADDRESS.toLowerCase();
+
+  it('accepts the documented shape — the control for the refusals below', async () => {
+    stubRawFetch({ data: { attributes: { token_prices: { [KEY]: '0.2' } } } });
+    const { result, rerender } = renderHook(() => useToweliPrice());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender();
+    expect(result.current.priceInUsd).toBeCloseTo(0.2, 6);
+    expect(result.current.priceUnavailable).toBe(false);
+  });
+
+  it('refuses a malformed price payload instead of pricing the site from it', async () => {
+    const hostile: unknown[] = [
+      // Number where the API documents a string — parseFloat would have taken it.
+      { data: { attributes: { token_prices: { [KEY]: 0.2 } } } },
+      // Scientific notation: Number() loses precision on the tail.
+      { data: { attributes: { token_prices: { [KEY]: '2e-7' } } } },
+      // Envelope drift / a proxy returning someone else's JSON.
+      { token_prices: { [KEY]: '0.2' } },
+      { data: { attributes: { token_prices: [['0.2']] } } },
+      { data: null },
+      'not json at all',
+    ];
+    for (const body of hostile) {
+      stubRawFetch(body);
+      const { result, rerender } = renderHook(() => useToweliPrice());
+      await new Promise((r) => setTimeout(r, 0));
+      rerender();
+      // No on-chain reads are stubbed either, so the honest answer is "no price".
+      expect(result.current.priceInUsd).toBe(0);
+      expect(result.current.priceUnavailable).toBe(true);
+    }
+  });
+
+  it('a refused payload never overwrites the on-chain price with a zero', async () => {
+    // The failure that matters: an outage reading as a legitimate low value.
+    stubRawFetch({ data: { attributes: { token_prices: { [KEY]: 'free' } } } });
+    wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
+    wagmiMock.setReadResult({
+      functionName: 'getReserves',
+      result: reserves(10n ** 20n, 10n ** 24n),
+    });
+    wagmiMock.setReadResult({
+      functionName: 'latestRoundData',
+      address: ETH_USD_FEED,
+      result: validChainlinkRound(2000),
+    });
+
+    const { result, rerender } = renderHook(() => useToweliPrice());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender();
+
+    expect(result.current.priceInUsd).toBeCloseTo(0.2, 6);
+    expect(result.current.apiPriceDiscrepant).toBe(false);
+  });
 });
 
 // ─────────── Launch-path freshness window (pure, no React) ───────────

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
 import { safeGetItem, safeJsonParse, safeSetItem } from '../lib/storage';
 import { PRICE_CACHE_VERSION } from './useToweliPrice';
+import { geckoTerminalOhlcvSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
 
 const CACHE_KEY = 'tegridy_price_history';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -78,15 +79,23 @@ export function usePriceHistory(): PriceHistoryResult {
           });
 
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = await res.json();
+          const json: unknown = await res.json();
 
-          const ohlcv = json?.data?.attributes?.ohlcv_list;
-          if (Array.isArray(ohlcv) && ohlcv.length >= 2) {
+          // R080: validate the whole envelope before any candle reaches the
+          // sparkline. A shape outside the schema falls through to the retry
+          // loop and then to the explicit "unavailable" state — the chart never
+          // renders a series assembled from a payload we could not verify.
+          const parsed = parseOrNull(geckoTerminalOhlcvSchema, json);
+          if (!parsed) throw new Error('OHLCV response failed schema validation');
+
+          const ohlcv = parsed.data.attributes.ohlcv_list;
+          if (ohlcv.length >= 2) {
             const closes: number[] = [];
             for (const candle of ohlcv) {
-              if (!Array.isArray(candle) || candle.length < 5) continue;
-              const close = Number(candle[4]);
-              if (!Number.isFinite(close) || close < 0) continue;
+              const close = candle[4];
+              // The schema pins the tuple shape and rejects NaN/Infinity; it does
+              // not check sign, and a negative close is a number but not a price.
+              if (!(close >= 0)) continue;
               closes.push(close);
             }
             closes.reverse();
