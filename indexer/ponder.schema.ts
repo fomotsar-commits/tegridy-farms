@@ -28,7 +28,11 @@ export const stakingAction = onchainTable(
     id: t.text().primaryKey(),
     user: t.hex().notNull(),
     tokenId: t.bigint().notNull(),
-    type: t.text().notNull(), // stake | withdraw | earlyWithdraw | claim | extend | increase
+    // stake | withdraw | earlyWithdraw | transfer | claim | extend | increase
+    // `transfer` (H-24, position NFT moving wallets) writes amount = 0n — it is
+    // a custody change, not a flow. Consumers summing `amount` must exclude it
+    // or they double-count nothing and mis-label a wallet rotation as activity.
+    type: t.text().notNull(),
     amount: t.bigint().notNull(),
     penalty: t.bigint(), // nullable — only set for earlyWithdraw rows
     timestamp: t.bigint().notNull(),

@@ -788,6 +788,22 @@ ponder.on("TegridyFactory_Governance:PairEmergencyDisabled", async ({ event, con
     .onConflictDoNothing();
 });
 
+// F1 2026-08-18: TegridyFactory inherits TimelockAdmin, so every timelocked
+// factory change (pair disable/enable, token block, feeTo change, guardian
+// rotation) also emits the keyed triplet. Routing it through the existing
+// writer puts the factory's pending queue alongside the two Admin sisters
+// under contract = "TegridyFactory"; see the ABI comment in ponder.config.ts
+// for what the keyed rows can and cannot answer.
+ponder.on("TegridyFactory_Governance:ProposalCreated", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyFactory", "created");
+});
+ponder.on("TegridyFactory_Governance:ProposalExecuted", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyFactory", "executed");
+});
+ponder.on("TegridyFactory_Governance:ProposalCancelled", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyFactory", "cancelled");
+});
+
 // ─── TegridyTWAP rebootstrap (post-Batch-J sweep) ────────────────────────────
 
 ponder.on("TegridyTWAP:DeviationBypassed", async ({ event, context }) => {

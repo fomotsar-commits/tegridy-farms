@@ -256,7 +256,24 @@ const TegridyFactoryPairCreatedEvent = parseAbiItem(
 // AUDIT (post-Batch-J sweep): TegridyFactory governance lifecycle. The
 // guardian rotation timelock (Batch A, commit 393b084) emits a propose/execute/
 // cancel triplet that the timelock UI needs to render the active queue.
-// Pair-disable governance also emits PairDisableProposed/Executed.
+//
+// F1 2026-08-18: this comment used to also claim pair-disable coverage, which
+// the ABI did not have. TegridyFactory `is TimelockAdmin` and routes EVERY
+// timelocked change — pair disable/enable, token block, feeTo change, guardian
+// rotation — through _propose/_execute/_cancel, which emit the keyed
+// ProposalCreated/Executed/Cancelled triplet below. Subscribing to it puts the
+// factory's whole pending queue in the existing `timelockProposal` table
+// (contract = "TegridyFactory"), the same way the two Admin sisters do.
+//
+// WHAT IS STILL NOT INDEXED, so no consumer mistakes silence for absence: the
+// semantic payload events (PairDisableProposed/Executed/Cancelled,
+// TokenBlockProposed/Cancelled, FeeToChangeProposed/Cancelled,
+// FeeToSetterProposed/Accepted) carry the SUBJECT — which pair, which token,
+// which address — and the keyed rows do not. `key` is
+// keccak256(TYPE_CONSTANT ‖ subject), so a caller holding a candidate pair can
+// compute the key forward and answer "is a disable pending for THIS pair?",
+// but the reverse enumeration ("list every pending pair disable") needs a
+// dedicated table. That is a schema addition, deliberately not made here.
 const TegridyFactoryGovernanceAbi = [
   {
     type: "event",
@@ -297,6 +314,29 @@ const TegridyFactoryGovernanceAbi = [
       { name: "pair", type: "address", indexed: true },
       { name: "by", type: "address", indexed: true },
     ],
+  },
+  // TimelockAdmin triplet inherited by TegridyFactory. Same signatures as
+  // TimelockAdminMinimalAbi below — repeated rather than spread because a
+  // Ponder contract entry takes one flat ABI and `as const` inference is lost
+  // through a spread of a widened array.
+  {
+    type: "event",
+    name: "ProposalCreated",
+    inputs: [
+      { name: "key", type: "bytes32", indexed: true },
+      { name: "executeAfter", type: "uint256", indexed: false },
+      { name: "expiresAt", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "ProposalExecuted",
+    inputs: [{ name: "key", type: "bytes32", indexed: true }],
+  },
+  {
+    type: "event",
+    name: "ProposalCancelled",
+    inputs: [{ name: "key", type: "bytes32", indexed: true }],
   },
 ] as const;
 
