@@ -139,6 +139,23 @@ jobs:
           FLOOR="$(python3 -c 'import json;print(json.load(open("../.github/coverage-floor.json"))["lines"])')"
           echo "measured ${COV_PCT}% vs floor ${FLOOR}%"
           echo "| floor | ${FLOOR}% |" >> "$GITHUB_STEP_SUMMARY"
+
+          # A floor of 0 is the armed-but-unmeasured state: the file exists so
+          # this job can complete, but nothing has ever measured this tree, so
+          # the comparison below cannot fail and this run proves nothing. That
+          # has to be visible on the run itself — a green check whose green
+          # means "no opinion" is the shape this whole workflow was written to
+          # replace. Warning, not failure: failing here would make the cron red
+          # until an operator does the one thing a red cron discourages.
+          if python3 -c 'import sys,json;sys.exit(0 if float(json.load(open("../.github/coverage-floor.json"))["lines"]) <= 0 else 1)'; then
+            echo "::warning title=Coverage ratchet not armed::.github/coverage-floor.json has lines=0 — this run enforces nothing. Re-run this workflow with update_floor checked and commit the printed number to arm it."
+            {
+              echo ""
+              echo "> **The ratchet is not armed.** \`lines\` is 0, so this run enforces nothing and its"
+              echo "> green result is not evidence of coverage. Re-run with \`update_floor\` and commit"
+              echo "> the printed number."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           python3 - "$COV_PCT" "$FLOOR" <<'PY'
           import sys
           got, floor = float(sys.argv[1]), float(sys.argv[2])

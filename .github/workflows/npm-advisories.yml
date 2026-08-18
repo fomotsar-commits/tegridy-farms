@@ -1,0 +1,101 @@
+name: npm advisories
+
+# THE GATE THAT DID NOT EXIST.
+#
+# dependabot.yml raises version-drift PRs across five ecosystems and has done
+# so for months. Drift is not exposure: it asks "is there a newer release",
+# never "is the version we ship known-exploitable". No workflow in this repo
+# has ever failed on an advisory, and on 2026-08-18 the tree carried 40 in
+# frontend/ (10 high) and 15 in indexer/ (13 high) — including a bigint-buffer
+# heap overflow reachable through @solana/spl-token, in an application whose
+# entire job is signing transactions.
+#
+# The gate blocks on high/critical. Inherited debt is recorded as a dated
+# baseline rather than forgiven; see .github/npm-advisory-allowlist.json for
+# the two suppression mechanisms and why they are two.
+#
+# The cron matters as much as the PR trigger: advisories appear against a
+# lockfile that has not changed, so a repo with no merges is not a repo with no
+# new exposure.
+
+# DELIBERATELY NOT PATH-FILTERED. Restricting this to lockfile changes would be
+# the obvious economy and it is the wrong one twice over. First, `npm audit`
+# here costs seconds — it resolves against the lockfile and never installs.
+# Second, a `paths:` filter means the check is not reported at all on most PRs,
+# and a required status check that is never reported leaves branch protection
+# waiting forever; see .github/workflows/contracts-ci-not-applicable.yml for
+# what that costs and what it takes to work around. A gate that always runs
+# needs no companion.
+on:
+  push:
+    branches: [main, mvp-launch]
+  pull_request:
+    branches: [main, mvp-launch]
+  schedule:
+    - cron: "37 7 * * *" # daily 07:37 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: advisories — ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every directory in the repo holding its own package-lock.json. A
+        # project missing from this list is a project with no advisory gate;
+        # frontend/src/test/npmAdvisoryGate.test.ts asserts the list still
+        # matches the lockfiles on disk, so adding a fourth npm project fails
+        # the unit suite rather than quietly shipping ungated.
+        project: [".", "frontend", "indexer"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+
+      # No `npm ci`. `npm audit` resolves the advisory database against the
+      # lockfile, not against an installed tree — installing would only add
+      # minutes and a postinstall-execution surface to a security job.
+      #
+      # `--json` is parsed by the gate; the exit code is deliberately captured
+      # and NOT used as the verdict. npm exits non-zero for "found something"
+      # and for "could not reach the registry" alike, and the gate refuses a
+      # report it cannot recognise rather than reading a network failure as a
+      # clean audit.
+      - name: npm audit
+        working-directory: ${{ matrix.project }}
+        run: |
+          set -uo pipefail
+          npm audit --json > audit.json
+          echo "npm audit exit: $?"
+          test -s audit.json || { echo "::error::npm audit produced no output at all"; exit 1; }
+
+      - name: Enforce the advisory gate
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/npm-advisory-gate.mjs \
+            --project "$PROJECT" \
+            --report "$PROJECT/audit.json" \
+            --allowlist .github/npm-advisory-allowlist.json
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        if: ${{ !cancelled() }}
+        with:
+          name: npm-audit-${{ matrix.project == '.' && 'root' || matrix.project }}
+          path: ${{ matrix.project }}/audit.json
+          retention-days: 30
+          if-no-files-found: warn

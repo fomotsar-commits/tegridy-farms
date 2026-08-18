@@ -727,3 +727,45 @@ jobs:
           done
 
           yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Required-status aggregator, mirroring contracts-ci.yml's all-tests-pass.
+  #
+  # Before this job, solana-ci exposed six independent check names and no
+  # single one meant "the Solana side is good". Branch protection would have
+  # had to name all six, and adding a seventh job would silently leave it
+  # unrequired. Point the rule at "solana-ci / all-checks-pass" instead.
+  #
+  # `if: always()` plus an explicit read of every result: under always(), a
+  # skipped or failed dependency still lets this job run, so `needs` alone
+  # gates nothing. A skipped job is NOT a pass here — that is the same
+  # green-over-nothing shape the contracts aggregator exists to refuse.
+  # ─────────────────────────────────────────────────────────────────────
+  all-checks-pass:
+    name: all-checks-pass
+    needs: [diff-guard, clmm-vendor-guard, build, launch-curve, launch-constraints, migration-rehearsal]
+    runs-on: ubuntu-latest
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate job results
+        run: |
+          set -uo pipefail
+          FAILED=0
+          for PAIR in \
+            "diff-guard=${{ needs['diff-guard'].result }}" \
+            "clmm-vendor-guard=${{ needs['clmm-vendor-guard'].result }}" \
+            "build=${{ needs.build.result }}" \
+            "launch-curve=${{ needs['launch-curve'].result }}" \
+            "launch-constraints=${{ needs['launch-constraints'].result }}" \
+            "migration-rehearsal=${{ needs['migration-rehearsal'].result }}"; do
+            JOB="${PAIR%%=*}"
+            RESULT="${PAIR#*=}"
+            echo "${JOB}: ${RESULT}"
+            if [ "$RESULT" != "success" ]; then FAILED=1; fi
+          done
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error title=solana-ci did not fully pass::at least one job above is not 'success'. A skipped job counts as a failure here."
+            exit 1
+          fi
+          echo "All solana-ci jobs passed"
