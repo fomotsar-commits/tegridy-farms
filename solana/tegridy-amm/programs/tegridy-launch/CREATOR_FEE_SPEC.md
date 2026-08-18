@@ -22,9 +22,10 @@ exists (`state.rs:127`) but is never paid.
 
 Our own Meteora DBC config pays creators **48 bps** of every trade. Pump.fun pays **30 bps**.
 As built, our own venue is the least attractive of the three to the exact people it must
-attract — and post-graduation it is structurally zero too, because `migrate_to_amm` calls
+attract — and post-graduation it was structurally zero too, because `migrate_to_amm` called
 cp-swap's permissionless `initialize`, which hardcodes `enable_creator_fee = false`, and the
-fork has no setter. **The curve is the only place a creator can ever be paid.**
+fork has no setter. **The curve was the only place a creator could ever be paid.**
+(Superseded: the CPI now targets `initialize_with_permission`. See §10.)
 
 ## 1. Decision
 
@@ -301,9 +302,17 @@ hazard*, not the instruction.
 
 ## 10. What this does not solve
 
-- **Post-graduation creator fees remain structurally impossible.** Marketing must say
-  "creators earn on the curve," never "creators earn forever," and the Fact Sheet should show
-  the stream terminating at graduation. Someone will check.
+- ~~**Post-graduation creator fees remain structurally impossible.**~~ **RESOLVED in
+  source.** `migrate_to_amm` now CPIs `initialize_with_permission`, the only cp-swap entry
+  point that passes `enable_creator_fee = true` and the only one where `pool_creator` is a
+  separate non-signing account — so the graduated pool records the launch creator's own
+  wallet, which is the signer `collect_creator_fee` demands, and fees are denominated in the
+  WSOL leg. Two things are still NOT done, and marketing must not run ahead of either:
+  (a) the rate is `creator_fee_rate` on the AmmConfig and is **zero** until a cp-swap admin
+  sets it — the switch preserved the option, it did not turn a fee on; and (b) no launch has
+  graduated, so this is verified by compilation and by the CI rehearsal's pool assertions,
+  not by a mainnet pool. Until (a) lands, "creators earn on the curve" is still the only true
+  sentence. See MIGRATE_DESIGN.md's amendment.
 - **The ratio is not governable** without a program upgrade.
 - **Creator identity is fixed forever** at `create_launch`. No transfer, no rotation on key
   loss. Decide now, not after the audit.

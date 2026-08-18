@@ -15,6 +15,53 @@ directly, not assumed.
 
 ---
 
+## ⚠️ AMENDED — the CPI target changed, and two decisions below are superseded
+
+Everything in this document was written against cp-swap's permissionless
+`initialize`. `migrate_to_amm` now CPIs **`initialize_with_permission`** instead.
+Read the amendments here before trusting a decision below; the reasoning that
+survived is unchanged, only the entry point and two of its consequences moved.
+
+**Why.** `initialize` hardcodes `enable_creator_fee = false` and sets the pool's
+`pool_creator` to the CPI's signing creator. Both are written once, by
+`pool_state.initialize`, and no cp-swap instruction rewrites either. So every pool
+this program could create was permanently creator-fee-less AND owned by the
+migration-authority PDA, which no instruction can make sign — and
+`collect_creator_fee` requires `pool_creator` as a **signer**. "Creators earn
+forever" was false by construction, per pool, at migration.
+`initialize_with_permission` is the only entry point that passes `true`, and the
+only one where `creator` is a separate non-signing account, so `pool_creator`
+becomes the launch creator's own wallet.
+
+**What changed:**
+
+1. **21 accounts, not 20.** `payer`/`payer_token_0`/`payer_token_1`/`payer_lp_token`
+   replace the `creator*` names, `permission` is added, and the `rent` sysvar is
+   gone. The account list below is the `initialize` one and is stale.
+2. **The migration authority is PROGRAM-WIDE**, seeded `[MIGRATION_AUTH_SEED]` with
+   no mint. `permission` is a cp-swap PDA at `["permission", payer]` that must
+   already exist and is creatable **only by cp-swap's `admin::ID`**. Keeping the
+   mint in the seeds would have made every single launch wait on its own
+   admin-signed permission account before it could graduate. One authority means
+   one permission account, created once. The cost is that migrations serialise on
+   one writable account, which is accepted.
+3. **`creator_fee_on` is resolved to the WSOL leg** (`OnlyToken0` / `OnlyToken1`
+   following the same mint sort as the amounts), so creator fees accrue in SOL
+   rather than in the illiquid side of the creator's own pool.
+
+**This does NOT turn a fee on.** `enable_creator_fee` only makes a pool eligible;
+the rate is `creator_fee_rate` on the AmmConfig, a cp-swap admin decision, and it
+is zero until an operator sets it. What the switch buys is that the decision stays
+available instead of being foreclosed, silently, at every graduation.
+
+**Operator prerequisite, and it is hard.** Until a cp-swap admin runs
+`create_permission_pda` against the migration authority, no launch can graduate.
+That fails closed with the named error `MigrationPermissionMissing` (6021), checked
+before anything moves — deliberately, so it is not diagnosed as a launch-program
+fault from 250k CU inside a CPI.
+
+---
+
 ## What cp-swap's `initialize` actually requires
 
 **VERIFIED** — `instructions/initialize.rs`, 20 accounts:

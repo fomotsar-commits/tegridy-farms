@@ -1,18 +1,16 @@
 use anchor_lang::prelude::*;
 
-use crate::segmented::{Segment, MAX_SEGMENTS};
-
 /// PDA seed prefixes. Changing any of these is an account-layout break.
 pub const GLOBAL_SEED: &[u8] = b"global";
 pub const CURVE_SEED: &[u8] = b"curve";
 pub const VAULT_SEED: &[u8] = b"vault";
-/// Seed for the per-launch migration authority.
+/// Seed for the migration authority. **Program-wide, not per-launch.**
 ///
 /// This PDA is deliberately DATA-LESS, which makes it System-owned — and that is
-/// the whole point. cp-swap's `initialize` declares five accounts as `init` with
-/// `payer = creator`, and `init` funds rent through the System program's
-/// `CreateAccount`, which requires a System-owned payer. The curve PDA holds
-/// `BondingCurve` data, so it is owned by THIS program and can never be that
+/// the whole point. cp-swap's pool-creating instructions declare five accounts as
+/// `init` with `payer` as the rent source, and `init` funds rent through the System
+/// program's `CreateAccount`, which requires a System-owned payer. The curve PDA
+/// holds `BondingCurve` data, so it is owned by THIS program and can never be that
 /// payer. An earlier version made the curve the creator and failed at runtime on
 /// the System program's "`from` must not carry data" check.
 ///
@@ -20,11 +18,33 @@ pub const VAULT_SEED: &[u8] = b"vault";
 /// program) and pay rent (it is System-owned). Never allocate data to it — the
 /// reconciliation barrier in `migrate_to_amm` also System-transfers FROM it, so
 /// allocating data breaks two things at once. The handler asserts it.
+///
+/// ## Why the mint is NOT in the seeds
+///
+/// `migrate_to_amm` CPIs `initialize_with_permission`, whose `permission` account is
+/// a PDA of cp-swap at `["permission", payer]` that must ALREADY EXIST and can only
+/// be created by cp-swap's `admin::ID`. With the mint in the seeds every launch would
+/// need its own admin-signed permission account before it could graduate, which would
+/// make graduation gated on a manual admin ceremony per launch. One program-wide
+/// authority means one permission account, created once, unblocking every graduation.
+///
+/// The cost is that all migrations serialise on one writable account. That is
+/// accepted: migration is a once-per-launch event and the SVM's write lock only
+/// forces them into separate transactions, which they already are.
+///
+/// It holds no balance between instructions — `migrate_to_amm` sweeps it to zero
+/// before returning — so a shared authority never accumulates value to steal.
 pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
+
+/// cp-swap's `PERMISSION_SEED`, restated so the derivation is visible at the call
+/// site rather than reached for through the dependency. Asserted equal to
+/// `raydium_cp_swap::states::PERMISSION_SEED` in the tests, so a fork bump that
+/// renames it fails here rather than at the first graduation.
+pub const CP_SWAP_PERMISSION_SEED: &[u8] = b"permission";
 
 /// Rent floor for `migration_reserve_lamports`, in lamports.
 ///
-/// Exactly the rent cp-swap's `initialize` charges the creator, computed from its
+/// Exactly the rent cp-swap's pool creation charges its payer, computed from its
 /// own `LEN` constants at `minimum_balance = (128 + size) * 6960` — not estimated:
 ///
 /// | account | bytes | lamports |
@@ -34,10 +54,10 @@ pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
 /// | `token_0_vault` | 165 | 2,039,280 |
 /// | `token_1_vault` | 165 | 2,039,280 |
 /// | `lp_mint` | 82 | 1,461,600 |
-/// | `creator_lp_token` ATA | 165 | 2,039,280 |
+/// | `payer_lp_token` ATA | 165 | 2,039,280 |
 ///
 /// ⚠️ **This is a FLOOR, not a sufficient value.** cp-swap also charges
-/// `create_pool_fee` as native SOL from the creator (0.15 SOL on Raydium mainnet),
+/// `create_pool_fee` as native SOL from the payer (0.15 SOL on Raydium mainnet),
 /// and that lives in a MUTABLE `AmmConfig` field, so it cannot be baked in here
 /// without risking a wrongly-rejected config if the fee changes. The practical
 /// minimum is this plus the fee — ~0.1922 SOL today. MAINNET_RUNBOOK.md §5b carries
@@ -76,34 +96,26 @@ pub const LAUNCH_POOL_SEED: &[u8] = b"launchpool";
 /// changing this config never retroactively alters a live launch's economics.
 /// That is deliberate: a launch's terms must not be mutable by governance after
 /// people have bought into it.
-
-/// Which pricing curve a launch runs on. Stored as `u8` so an unknown value from a
-/// future version deserializes rather than corrupting the account.
 ///
-/// ONE PROGRAM, TWO MODES — deliberately. The migration path, the fee split, the
-/// creator payout, the mint constraints and the graduation gate are identical for
-/// both; only the pricing differs. Two programs would mean two deploys, two audits,
-/// and two chances for the shared 90% to drift apart.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
-pub enum CurveMode {
-    /// Constant product over virtual reserves — the pump.fun shape. Prices from
-    /// `virtual_*_reserves`; `segments` is unused.
-    ConstantProduct,
-    /// Up to 16 `(sqrt_price, liquidity)` segments — the Meteora shape. Prices from
-    /// `segments` + `sqrt_price_x64`; the virtual reserves are unused.
-    Segmented,
-}
-
-impl CurveMode {
-    pub fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0 => Some(CurveMode::ConstantProduct),
-            1 => Some(CurveMode::Segmented),
-            _ => None,
-        }
-    }
-}
-
+/// ## ONE pricing curve, deliberately
+///
+/// This program used to carry a second "segmented" (Meteora-shaped) mode: a 16-entry
+/// `(sqrt_price, liquidity)` table published by the operator, priced by a vendored
+/// copy of Raydium's concentrated-liquidity math. It was REMOVED before it ever
+/// priced a lamport. Two independent findings showed the mode had no economic gate of
+/// any kind — a well-formed table could list a launch at 35% or 122% of its final
+/// curve price, and a different well-formed table permanently bricked every launch
+/// under it, one variant on the first buy — and the only thing standing between the
+/// venue and both was `segment_count == 0`, one authority signature away.
+///
+/// Closing those two holes needs a config-time simulation of the table's realised end
+/// state whose rounding must agree, lamport for lamport, with what the trade loop
+/// actually realises. That is bespoke core math on the money path, for a shape the
+/// operator publishes globally (creators picked a mode, never a curve), which no
+/// launch had ever used, which taxed every constant-product launch ~0.0036 SOL of
+/// rent for a table it left zeroed, and which set the worst-case compute of `buy`.
+/// Deleting it is the honest trade. Do not reintroduce it without an adversarial
+/// audit wave of its own.
 #[account]
 #[derive(InitSpace)]
 pub struct GlobalConfig {
@@ -155,22 +167,6 @@ pub struct GlobalConfig {
     /// never trap holders in a position they cannot exit.
     pub paused: bool,
     pub bump: u8,
-
-    // ── The segmented (Meteora-shaped) curve, defined by the OPERATOR ──────────
-    //
-    // The shape lives here, not in `create_launch`, on purpose. Letting a creator
-    // supply arbitrary segments would let them craft a curve — a near-vertical first
-    // segment, say — and every config-time economic gate would be checking numbers
-    // the creator chose. The operator publishes ONE shape; creators pick which mode
-    // to launch on, not what the curve looks like.
-    /// Opening sqrt-price for segmented launches, Q64.64.
-    pub sqrt_price_start_x64: u128,
-    /// How many of `segments` are live. Zero means the segmented mode is not
-    /// configured yet and `create_launch` must refuse it.
-    pub segment_count: u8,
-    /// The segment table. Fixed-size rather than a `Vec` so the account layout never
-    /// moves; unused entries are zeroed and ignored.
-    pub segments: [Segment; MAX_SEGMENTS],
 }
 
 /// One bonding curve per launched token. PDA at [`CURVE_SEED`, mint].
@@ -211,29 +207,6 @@ pub struct BondingCurve {
     /// permanently locked every lamport raised, because `buy` and `sell` both
     /// require `!complete` and `sell` was the only exit. A flag that closes the
     /// only exit must be written by the instruction that opens the new one.
-    // ── Curve mode, snapshotted at creation ───────────────────────────────────
-    //
-    // Snapshotted for the same reason the fee and target are: `update_global` must
-    // never be able to reprice a launch people have already bought into. A launch
-    // created as Segmented keeps ITS segments even if the operator republishes a
-    // different shape the next block.
-    /// `CurveMode` as `u8`. See `CurveMode::from_u8`.
-    pub mode: u8,
-    /// Current sqrt-price, Q64.64. Segmented mode only; zero on constant-product.
-    pub sqrt_price_x64: u128,
-    /// The price this launch OPENED at, Q64.64. Immutable, and the floor a sell may
-    /// never price below. Kept separate from `sqrt_price_x64` because that one moves
-    /// with every trade — using it as its own floor would let the floor ratchet up
-    /// behind sellers.
-    pub sqrt_price_start_x64: u128,
-    /// Live segment count. Zero on constant-product.
-    pub segment_count: u8,
-    /// The snapshot. Costs ~0.0036 SOL of extra rent on EVERY launch, including
-    /// constant-product ones that leave it zeroed. That is deliberate: a `Vec` would
-    /// save the rent but make the account size depend on an instruction argument,
-    /// and a fixed layout is worth $0.27 in a program that holds other people's SOL.
-    pub segments: [Segment; MAX_SEGMENTS],
-
     pub complete: bool,
 
     /// The cp-swap pool this curve graduated into. Zero until migration.
@@ -279,7 +252,11 @@ pub struct Traded {
     pub is_buy: bool,
     pub sol_amount: u64,
     pub token_amount: u64,
-    /// TOTAL fee charged on the trade (creator + protocol).
+    /// Fee actually COLLECTED on this trade (creator + protocol), which is not
+    /// always what the fee schedule implies: a creator credit that would strand its
+    /// recipient in the rent-paying band folds into the protocol leg, and a protocol
+    /// credit that would do the same is waived entirely. Emitting the scheduled
+    /// figure instead would report a fee outage to indexers as revenue.
     pub fee_lamports: u64,
     /// The slice of `fee_lamports` paid to the launch creator. The protocol's
     /// slice is the difference — emitted so indexers and the Fact Sheet can
@@ -296,12 +273,9 @@ pub struct Graduated {
     pub sol_reserves: u64,
     /// Tokens handed to the AMM pool seeding.
     pub token_reserves: u64,
-}
-
-/// Emitted when the operator publishes a new segmented-curve shape. Indexers need
-/// this to explain why launches created after a given slot price differently.
-#[event]
-pub struct CurveSegmentsSet {
-    pub segment_count: u8,
-    pub sqrt_price_start_x64: u128,
+    /// The wallet recorded as the cp-swap pool's `pool_creator` — the ONLY key that
+    /// can ever call `collect_creator_fee` on this pool. Emitted because it is not
+    /// derivable from anything else in the event and a wrong value here is
+    /// unfixable: `pool_creator` is written once, at pool creation.
+    pub pool_creator: Pubkey,
 }
