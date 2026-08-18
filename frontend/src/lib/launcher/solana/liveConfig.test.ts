@@ -9,11 +9,13 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CONFIG_OFFSETS,
   decodePoolConfig,
   feeBpsAtSeconds,
   splitAtFee,
   POOL_CONFIG_DISCRIMINATOR,
 } from './liveConfig';
+import { encodeBase58 } from './feeCustody';
 
 // Real account bytes, base64, as returned by getAccountInfo.
 const LIVE_ACCOUNT_B64 = 'GmwOe3TmgSsGm4hX/quBhPtof2NGGMA12sQ53BrrO1WYoPAAAAAAAeUc3D/p5bgRyaiS88h1kuJ5K7gQGxKoQO+dTnYct/FI5RzcP+nluBHJqJLzyHWS4nkruBAbEqhA751Odhy38UiAMwI7AAAAALQAAAAAAAAAdwEAAAAAAAB4AAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAQYAAABkAAAAAgE8AQAAAAAAAAAAAIKCn138sgIAEmX06ewKAADEhRtHgtoAABaz23+LSz45AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgMakfo0DAACAxqR+jQMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACVUJ1kUhgaEgAAAAAAAAAAFrPbf4tLPjkAAAAAAAAAABgQU76BtRETy7Ir53RHAACbV2lOqRpchLHE/v8AAAAAA9ZpuQTNX8tykAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
@@ -62,6 +64,35 @@ describe('decodePoolConfig — against the real mainnet account', () => {
     expect(s.creatorBps).toBe(4800);
     expect(s.partnerBps).toBe(3200);
     expect(s.meteoraBps).toBe(2000);
+  });
+});
+
+// The two pubkey offsets, pinned SEPARATELY and by the address each one yields.
+//
+// They are indistinguishable on this account — `fee_claimer` and
+// `leftover_receiver` hold the same vault — which is precisely how the custody
+// gate came to read 72. Asserting "offset 72 gives the vault" was true and told
+// nobody that 72 is the wrong field. So each offset is pinned to its own value
+// AND to its neighbours, so a swap moves an assertion even while the two agree.
+describe('the PoolConfig pubkey offsets', () => {
+  const at = (o: number) => encodeBase58(RAW.subarray(o, o + 32));
+  const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+
+  it('fee_claimer is 40 and leftover_receiver is 72 — never the other way round', () => {
+    expect(CONFIG_OFFSETS.feeClaimer).toBe(40);
+    expect(CONFIG_OFFSETS.leftoverReceiver).toBe(72);
+    expect(CONFIG_OFFSETS.feeClaimer).toBeLessThan(CONFIG_OFFSETS.leftoverReceiver);
+  });
+
+  it('the field BEFORE fee_claimer is quote_mint, which anchors the pair', () => {
+    // If the layout shifted by one pubkey in either direction this stops being
+    // wSOL, so it is the independent evidence that 40 is not merely "a pubkey".
+    expect(at(8)).toBe('So11111111111111111111111111111111111111112');
+  });
+
+  it('both fields hold the vault on the v1 config — the reason a wrong offset hid', () => {
+    expect(at(CONFIG_OFFSETS.feeClaimer)).toBe(VAULT);
+    expect(at(CONFIG_OFFSETS.leftoverReceiver)).toBe(VAULT);
   });
 });
 

@@ -51,12 +51,91 @@ const u64At = (ix: TransactionInstruction, offset: number): bigint =>
 
 const disc = (ix: TransactionInstruction): Uint8Array => Uint8Array.from(ix.data.subarray(0, 8));
 
+const CREATOR = new PublicKey('Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7');
+
 /** `[base58, isSigner, isWritable]` — the shape Anchor matches POSITIONALLY. */
 const keyTable = (ix: TransactionInstruction) =>
   ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable] as const);
 
+// ── the account lists, transcribed from the program's context structs ────────
+//
+// These are FIELD NAMES in declaration order, copied from
+// `#[derive(Accounts)] pub struct Trade` and `pub struct MigrateToAmm` in
+// tegridy-launch's lib.rs. They are the invariant; the builders' output is the
+// thing under test.
+//
+// Counting was not enough, and that is not hypothetical: this file pinned NINE
+// Trade accounts and TWENTY-THREE MigrateToAmm accounts — the numbers the encoder
+// happened to emit — while the program declared ten and twenty-four. `creator` and
+// `fee_recipient` were simply absent, every buy, sell and migration the repo could
+// build reverted, and CI was green throughout because the assertion and the bug
+// shared one source. Naming each slot means an omission moves a NAMED row rather
+// than a total, so the failure says which account went missing.
+
+const TRADE_ACCOUNTS = [
+  'trader',
+  'global',
+  'fee_recipient',
+  'mint',
+  'curve',
+  'creator',
+  'curve_vault',
+  'trader_token_account',
+  'token_program',
+  'system_program',
+] as const;
+
+const MIGRATE_ACCOUNTS = [
+  'payer',
+  'global',
+  'fee_recipient',
+  'launch_mint',
+  'curve',
+  'curve_vault',
+  'wsol_mint',
+  'migration_authority',
+  'auth_wsol',
+  'auth_token',
+  'auth_lp',
+  'cp_swap_program',
+  'amm_config',
+  'amm_authority',
+  'pool_state',
+  'lp_mint',
+  'token_0_vault',
+  'token_1_vault',
+  'create_pool_fee',
+  'observation_state',
+  'token_program',
+  'associated_token_program',
+  'system_program',
+  'rent',
+] as const;
+
+/**
+ * Label each emitted account with the struct field it is standing in for, so a
+ * comparison pins ORDER and NAME together: a builder that drops one account
+ * relabels every account after it, and the diff names the first one that moved.
+ */
+function byName(
+  ix: TransactionInstruction,
+  names: readonly string[],
+): Record<string, readonly [string, boolean, boolean]> {
+  expect(ix.keys.length, `the program declares ${names.length} accounts`).toBe(names.length);
+  const rows = keyTable(ix);
+  return Object.fromEntries(names.map((n, i) => [n, rows[i]!]));
+}
+
+/** One named slot, for the assertions that care about a single account. */
+const slot = (ix: TransactionInstruction, names: readonly string[], name: string) =>
+  ix.keys[names.indexOf(name)]!.pubkey;
+
 describe('buy', () => {
-  const ix = buyIx({ trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT }, 5_000_000n, 42n);
+  const ix = buyIx(
+    { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT, creator: CREATOR },
+    5_000_000n,
+    42n,
+  );
 
   it('is addressed to the program and carries the buy discriminator', () => {
     expect(ix.programId.equals(PROGRAM_ID)).toBe(true);
@@ -69,32 +148,54 @@ describe('buy', () => {
     expect(u64At(ix, 16)).toBe(42n);
   });
 
-  it('lists all nine Trade accounts in declaration order with the right flags (lib.rs:1461-1500)', () => {
-    expect(keyTable(ix)).toEqual([
-      [TRADER.toBase58(), true, true],
-      [globalPda().toBase58(), false, false],
-      [FEE_RECIPIENT.toBase58(), false, true],
-      [MINT.toBase58(), false, false],
-      [curvePda(MINT).toBase58(), false, true],
-      [curveVaultPda(MINT).toBase58(), false, true],
-      [associatedTokenAddress(MINT, TRADER).toBase58(), false, true],
-      [TOKEN_PROGRAM_ID.toBase58(), false, false],
-      [SYSTEM_PROGRAM_ID.toBase58(), false, false],
-    ]);
+  it('fills every field of the Trade context, by name, in declaration order', () => {
+    expect(byName(ix, TRADE_ACCOUNTS)).toEqual({
+      trader: [TRADER.toBase58(), true, true],
+      global: [globalPda().toBase58(), false, false],
+      fee_recipient: [FEE_RECIPIENT.toBase58(), false, true],
+      mint: [MINT.toBase58(), false, false],
+      curve: [curvePda(MINT).toBase58(), false, true],
+      creator: [CREATOR.toBase58(), false, true],
+      curve_vault: [curveVaultPda(MINT).toBase58(), false, true],
+      trader_token_account: [associatedTokenAddress(MINT, TRADER).toBase58(), false, true],
+      token_program: [TOKEN_PROGRAM_ID.toBase58(), false, false],
+      system_program: [SYSTEM_PROGRAM_ID.toBase58(), false, false],
+    });
+  });
+
+  it('takes `creator` from the caller and never derives it', () => {
+    // It is `curve.creator`, an address only a decoded curve can supply. A builder
+    // that derived or defaulted it would revert with `CreatorMismatch` on every
+    // launch it guessed wrong, and pay the wrong person on any it guessed right.
+    const other = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    const alt = buyIx(
+      { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT, creator: other },
+      1n,
+      1n,
+    );
+    expect(slot(alt, TRADE_ACCOUNTS, 'creator').equals(other)).toBe(true);
+    // …and it is distinct from the vault that used to occupy this slot.
+    expect(slot(ix, TRADE_ACCOUNTS, 'creator').equals(curveVaultPda(MINT))).toBe(false);
   });
 
   it('accepts a non-ATA token account — the program does not require the ATA', () => {
     const other = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
     const custom = buyIx(
-      { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT, traderTokenAccount: other },
+      {
+        trader: TRADER,
+        mint: MINT,
+        feeRecipient: FEE_RECIPIENT,
+        creator: CREATOR,
+        traderTokenAccount: other,
+      },
       1n,
       1n,
     );
-    expect(custom.keys[6]!.pubkey.equals(other)).toBe(true);
+    expect(slot(custom, TRADE_ACCOUNTS, 'trader_token_account').equals(other)).toBe(true);
   });
 
   it('refuses an amount that cannot be encoded, rather than truncating it', () => {
-    const accounts = { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT };
+    const accounts = { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT, creator: CREATOR };
     expect(() => buyIx(accounts, U64_MAX + 1n, 0n)).toThrow(RangeError);
     expect(() => buyIx(accounts, -1n, 0n)).toThrow(RangeError);
     expect(() => buyIx(accounts, 0n, U64_MAX + 1n)).toThrow(RangeError);
@@ -104,14 +205,15 @@ describe('buy', () => {
 });
 
 describe('sell', () => {
-  const accounts = { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT };
+  const accounts = { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT, creator: CREATOR };
   const ix = sellIx(accounts, 1_000n, 7n);
 
   it('carries the sell discriminator and the same account list as buy', () => {
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.sell);
     expect(u64At(ix, 8)).toBe(1_000n);
     expect(u64At(ix, 16)).toBe(7n);
-    expect(keyTable(ix)).toEqual(keyTable(buyIx(accounts, 1n, 1n)));
+    // Both handlers take `Context<Trade>`, so the lists cannot legally differ.
+    expect(byName(ix, TRADE_ACCOUNTS)).toEqual(byName(buyIx(accounts, 1n, 1n), TRADE_ACCOUNTS));
   });
 
   it('is a DIFFERENT instruction from buy — the discriminator is the only thing separating them', () => {
@@ -144,7 +246,7 @@ describe('create_launch', () => {
     expect(() => createLaunchIx({ creator, mint: MINT }, -1 as never)).toThrow(RangeError);
   });
 
-  it('lists the eight accounts in declaration order (lib.rs:1254-1314)', () => {
+  it('lists the eight CreateLaunch accounts in declaration order', () => {
     expect(keyTable(ix)).toEqual([
       [creator.toBase58(), true, true],
       [globalPda().toBase58(), false, false],
@@ -162,7 +264,13 @@ describe('migrate_to_amm', () => {
   const payer = TRADER;
   const ammConfig = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
   const createPoolFee = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
-  const ix = migrateToAmmIx({ payer, launchMint: MINT, ammConfig, createPoolFee });
+  const ix = migrateToAmmIx({
+    payer,
+    feeRecipient: FEE_RECIPIENT,
+    launchMint: MINT,
+    ammConfig,
+    createPoolFee,
+  });
 
   it('takes no args and needs the compute limit raised', () => {
     expect(ix.data.length).toBe(8);
@@ -172,48 +280,66 @@ describe('migrate_to_amm', () => {
     expect(MIGRATE_COMPUTE_UNITS).toBeGreaterThan(264_128);
   });
 
-  it('lists all 23 accounts in declaration order (lib.rs:1323-1459)', () => {
+  it('fills every field of the MigrateToAmm context, by name, in declaration order', () => {
     const migAuth = migrationAuthorityPda(MINT);
     const poolState = poolStatePda(MINT);
     const lpMint = cpLpMintPda(poolState);
     const [mint0, mint1] = sortMints(WSOL_MINT, MINT);
 
-    expect(ix.keys.length).toBe(23);
-    expect(keyTable(ix)).toEqual([
-      [payer.toBase58(), true, true],
-      [globalPda().toBase58(), false, false],
-      [MINT.toBase58(), false, false],
-      [curvePda(MINT).toBase58(), false, true],
-      [curveVaultPda(MINT).toBase58(), false, true],
-      [WSOL_MINT.toBase58(), false, false],
-      [migAuth.toBase58(), false, true],
-      [associatedTokenAddress(WSOL_MINT, migAuth).toBase58(), false, true],
-      [associatedTokenAddress(MINT, migAuth).toBase58(), false, true],
-      [associatedTokenAddress(lpMint, migAuth).toBase58(), false, true],
-      [CP_SWAP_PROGRAM_ID.toBase58(), false, false],
-      [ammConfig.toBase58(), false, false],
-      [cpAmmAuthorityPda().toBase58(), false, false],
-      [poolState.toBase58(), false, true],
-      [lpMint.toBase58(), false, true],
-      [cpPoolVaultPda(poolState, mint0).toBase58(), false, true],
-      [cpPoolVaultPda(poolState, mint1).toBase58(), false, true],
-      [createPoolFee.toBase58(), false, true],
-      [cpObservationPda(poolState).toBase58(), false, true],
-      [TOKEN_PROGRAM_ID.toBase58(), false, false],
-      [ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(), false, false],
-      [SYSTEM_PROGRAM_ID.toBase58(), false, false],
-      [SYSVAR_RENT_PUBKEY.toBase58(), false, false],
-    ]);
+    expect(byName(ix, MIGRATE_ACCOUNTS)).toEqual({
+      payer: [payer.toBase58(), true, true],
+      global: [globalPda().toBase58(), false, false],
+      fee_recipient: [FEE_RECIPIENT.toBase58(), false, true],
+      launch_mint: [MINT.toBase58(), false, false],
+      curve: [curvePda(MINT).toBase58(), false, true],
+      curve_vault: [curveVaultPda(MINT).toBase58(), false, true],
+      wsol_mint: [WSOL_MINT.toBase58(), false, false],
+      migration_authority: [migAuth.toBase58(), false, true],
+      auth_wsol: [associatedTokenAddress(WSOL_MINT, migAuth).toBase58(), false, true],
+      auth_token: [associatedTokenAddress(MINT, migAuth).toBase58(), false, true],
+      auth_lp: [associatedTokenAddress(lpMint, migAuth).toBase58(), false, true],
+      cp_swap_program: [CP_SWAP_PROGRAM_ID.toBase58(), false, false],
+      amm_config: [ammConfig.toBase58(), false, false],
+      amm_authority: [cpAmmAuthorityPda().toBase58(), false, false],
+      pool_state: [poolState.toBase58(), false, true],
+      lp_mint: [lpMint.toBase58(), false, true],
+      token_0_vault: [cpPoolVaultPda(poolState, mint0).toBase58(), false, true],
+      token_1_vault: [cpPoolVaultPda(poolState, mint1).toBase58(), false, true],
+      create_pool_fee: [createPoolFee.toBase58(), false, true],
+      observation_state: [cpObservationPda(poolState).toBase58(), false, true],
+      token_program: [TOKEN_PROGRAM_ID.toBase58(), false, false],
+      associated_token_program: [ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(), false, false],
+      system_program: [SYSTEM_PROGRAM_ID.toBase58(), false, false],
+      rent: [SYSVAR_RENT_PUBKEY.toBase58(), false, false],
+    });
+  });
+
+  it('takes `fee_recipient` from the caller and never derives it', () => {
+    // It is `global.fee_recipient`, read off the decoded global. The program pins it
+    // with an address constraint, so a derived or defaulted value fails ACCOUNT
+    // VALIDATION — before the handler runs, which is why this builder could never
+    // surface the AmmNotConfigured (6015) the ledger records as the real blocker.
+    const other = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    const alt = migrateToAmmIx({
+      payer,
+      feeRecipient: other,
+      launchMint: MINT,
+      ammConfig,
+      createPoolFee,
+    });
+    expect(slot(alt, MIGRATE_ACCOUNTS, 'fee_recipient').equals(other)).toBe(true);
+    // The mint used to land in this slot, which is the shift that broke the list.
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'fee_recipient').equals(MINT)).toBe(false);
   });
 
   it('passes the vaults in cp-swap mint order, not argument order', () => {
-    // Positions 15 and 16 are token_0_vault / token_1_vault. cp-swap constrains
-    // token_0_mint < token_1_mint by raw bytes and reverts hard on the reverse.
+    // cp-swap constrains token_0_mint < token_1_mint by raw bytes and reverts hard
+    // on the reverse.
     const poolState = poolStatePda(MINT);
     const [mint0, mint1] = sortMints(WSOL_MINT, MINT);
     expect(Buffer.compare(Buffer.from(mint0.toBytes()), Buffer.from(mint1.toBytes()))).toBeLessThan(0);
-    expect(ix.keys[15]!.pubkey.equals(cpPoolVaultPda(poolState, mint0))).toBe(true);
-    expect(ix.keys[16]!.pubkey.equals(cpPoolVaultPda(poolState, mint1))).toBe(true);
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'token_0_vault').equals(cpPoolVaultPda(poolState, mint0))).toBe(true);
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'token_1_vault').equals(cpPoolVaultPda(poolState, mint1))).toBe(true);
   });
 
   it('sorts even when the launch mint sorts BEFORE wsol — the case that reverts', () => {
@@ -223,30 +349,39 @@ describe('migrate_to_amm', () => {
     const lowMint = new PublicKey(Uint8Array.from({ length: 32 }, (_, i) => i + 1));
     expect(sortMints(WSOL_MINT, lowMint)[0].equals(lowMint)).toBe(true);
 
-    const low = migrateToAmmIx({ payer, launchMint: lowMint, ammConfig, createPoolFee });
+    const low = migrateToAmmIx({
+      payer,
+      feeRecipient: FEE_RECIPIENT,
+      launchMint: lowMint,
+      ammConfig,
+      createPoolFee,
+    });
     const poolState = poolStatePda(lowMint);
-    expect(low.keys[15]!.pubkey.equals(cpPoolVaultPda(poolState, lowMint))).toBe(true);
-    expect(low.keys[16]!.pubkey.equals(cpPoolVaultPda(poolState, WSOL_MINT))).toBe(true);
+    expect(slot(low, MIGRATE_ACCOUNTS, 'token_0_vault').equals(cpPoolVaultPda(poolState, lowMint))).toBe(true);
+    expect(slot(low, MIGRATE_ACCOUNTS, 'token_1_vault').equals(cpPoolVaultPda(poolState, WSOL_MINT))).toBe(true);
     // i.e. NOT the argument order.
-    expect(low.keys[15]!.pubkey.equals(cpPoolVaultPda(poolState, WSOL_MINT))).toBe(false);
+    expect(slot(low, MIGRATE_ACCOUNTS, 'token_0_vault').equals(cpPoolVaultPda(poolState, WSOL_MINT))).toBe(false);
   });
 
   it('uses OUR pool_state, so a squatter on cp-swap canonical cannot redirect it', () => {
-    expect(ix.keys[13]!.pubkey.equals(poolStatePda(MINT))).toBe(true);
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'pool_state').equals(poolStatePda(MINT))).toBe(true);
     // And every cp-swap-side account hangs off it.
-    expect(ix.keys[14]!.pubkey.equals(cpLpMintPda(poolStatePda(MINT)))).toBe(true);
-    expect(ix.keys[18]!.pubkey.equals(cpObservationPda(poolStatePda(MINT)))).toBe(true);
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'lp_mint').equals(cpLpMintPda(poolStatePda(MINT)))).toBe(true);
+    expect(
+      slot(ix, MIGRATE_ACCOUNTS, 'observation_state').equals(cpObservationPda(poolStatePda(MINT))),
+    ).toBe(true);
   });
 
   it('never invents create_pool_fee — it is a hardcoded, fail-closed address in the fork', () => {
-    expect(ix.keys[17]!.pubkey.equals(createPoolFee)).toBe(true);
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'create_pool_fee').equals(createPoolFee)).toBe(true);
     const other = migrateToAmmIx({
       payer,
+      feeRecipient: FEE_RECIPIENT,
       launchMint: MINT,
       ammConfig,
       createPoolFee: SYSTEM_PROGRAM_ID,
     });
-    expect(other.keys[17]!.pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+    expect(slot(other, MIGRATE_ACCOUNTS, 'create_pool_fee').equals(SYSTEM_PROGRAM_ID)).toBe(true);
   });
 });
 
@@ -456,15 +591,15 @@ describe('program-id override', () => {
   it('retargets every derived account', () => {
     const alt = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
     const ix = buyIx(
-      { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT },
+      { trader: TRADER, mint: MINT, feeRecipient: FEE_RECIPIENT, creator: CREATOR },
       1n,
       1n,
       { programId: alt },
     );
     expect(ix.programId.equals(alt)).toBe(true);
-    expect(ix.keys[1]!.pubkey.equals(globalPda(alt))).toBe(true);
-    expect(ix.keys[4]!.pubkey.equals(curvePda(MINT, alt))).toBe(true);
-    expect(ix.keys[1]!.pubkey.equals(globalPda())).toBe(false);
+    expect(slot(ix, TRADE_ACCOUNTS, 'global').equals(globalPda(alt))).toBe(true);
+    expect(slot(ix, TRADE_ACCOUNTS, 'curve').equals(curvePda(MINT, alt))).toBe(true);
+    expect(slot(ix, TRADE_ACCOUNTS, 'global').equals(globalPda())).toBe(false);
   });
 });
 

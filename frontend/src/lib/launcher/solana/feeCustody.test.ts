@@ -22,7 +22,8 @@
 // is false and the caller can say "nothing was submitted" and be literally right.
 
 import { describe, it, expect, vi } from 'vitest';
-import { assertFeeCustody, FeeCustodyError } from './feeCustody';
+import { assertFeeCustody, encodeBase58, FeeCustodyError, readFeeClaimerOnChain } from './feeCustody';
+import { CONFIG_OFFSETS, POOL_CONFIG_DISCRIMINATOR } from './liveConfig';
 
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const IMPOSTOR = 'EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK';
@@ -78,5 +79,67 @@ describe('the resolved fee custody is verified against the chain before submit',
     const e = new FeeCustodyError('x');
     expect(e).toBeInstanceOf(Error);
     expect((e as unknown as { signature?: string }).signature).toBeUndefined();
+  });
+});
+
+// The live v1 config sets `fee_claimer` and `leftover_receiver` to the SAME vault,
+// so no fixture taken from it can tell the reader which field the gate is reading.
+// This account is synthetic for exactly that reason: the two fields differ, so
+// reading the wrong one produces the wrong answer and a test can see it.
+//
+// The attack it stands in for: a config whose `leftover_receiver` is the vault and
+// whose `fee_claimer` is one private key. `leftover_receiver` only ever receives
+// leftover base tokens after migration, so an attacker gives up nothing by setting
+// it honestly — and every trading fee accrues to the key while the gate reports
+// "verified".
+describe('the gate reads fee_claimer, not leftover_receiver', () => {
+  const CLAIMER_BYTES = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+  const LEFTOVER_BYTES = Uint8Array.from({ length: 32 }, (_, i) => 200 - i);
+  const CLAIMER = encodeBase58(CLAIMER_BYTES);
+  const LEFTOVER = encodeBase58(LEFTOVER_BYTES);
+
+  /** A 1048-byte PoolConfig — the live account's size — with the two fields DIFFERENT. */
+  function splitCustodyAccount(): Uint8Array {
+    const raw = new Uint8Array(1048);
+    raw.set(POOL_CONFIG_DISCRIMINATOR, 0);
+    raw.set(CLAIMER_BYTES, CONFIG_OFFSETS.feeClaimer);
+    raw.set(LEFTOVER_BYTES, CONFIG_OFFSETS.leftoverReceiver);
+    return raw;
+  }
+
+  function stubRpc(raw: Uint8Array) {
+    let s = '';
+    for (const b of raw) s += String.fromCharCode(b);
+    const body = { result: { value: { data: [btoa(s), 'base64'] } } };
+    return vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response);
+  }
+
+  it('the two fields are genuinely distinguishable in this fixture', () => {
+    // Guards the guard: if these ever encoded equal, every assertion below would
+    // pass for the wrong reason — which is the defect being tested for.
+    expect(CLAIMER).not.toBe(LEFTOVER);
+  });
+
+  it('readFeeClaimerOnChain returns the offset-40 key', async () => {
+    const fetchMock = stubRpc(splitCustodyAccount());
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(readFeeClaimerOnChain(CONFIG)).resolves.toBe(CLAIMER);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('REFUSES a config whose leftover_receiver is the vault but whose fee_claimer is not', async () => {
+    const fetchMock = stubRpc(splitCustodyAccount());
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      // `LEFTOVER` is what the old offset would have returned, so this call is the
+      // exact transaction that used to report "verified".
+      await expect(assertFeeCustody(CONFIG, LEFTOVER)).rejects.toBeInstanceOf(FeeCustodyError);
+      await expect(assertFeeCustody(CONFIG, CLAIMER)).resolves.toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

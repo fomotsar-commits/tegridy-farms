@@ -66,6 +66,13 @@ published breakdown for the Fact Sheet.
 unprofitable. The schedule is validated against the program's `[25, 9900]` bps
 bounds and 12h max decay window.
 
+That default is a *fallback*, not a recommendation: a 99% opening fee makes a
+launch effectively untradeable for most of its first day, and a DBC config cannot
+be edited afterwards. `create-config` therefore takes `--opening-fee-bps`,
+`--resting-fee-bps` and `--decay-seconds` (`feeSchedule.ts`), prints what it
+resolved, and refuses an opening fee above 5000 bps without an explicit
+`--i-understand-anti-snipe`.
+
 **Token safety:** the curve pins an **immutable, no-mint** SPL token
 (`TokenAuthorityOption.Immutable`), fees collected in the quote token, migration
 to **DAMM v2**, and (by default) **100% partner-permanent-locked** migrated LP so
@@ -112,8 +119,16 @@ SOLANA_RPC_URL=https://your-keyed-rpc \
 OPERATOR_KEYPAIR=/abs/path/payer.json \
 SQUADS_MULTISIG=<multisig-base58> SQUADS_VAULT_INDEX=0 \
   node scripts/solana-dbc-operator.mjs create-config \
-    --initial-market-cap 5000 --migration-market-cap 50000
-# → prints the CONFIG ADDRESS (record it) + a partial-signed tx (or --send).
+    --initial-market-cap 5000 --migration-market-cap 50000 \
+    --opening-fee-bps 2000 --resting-fee-bps 100 --decay-seconds 21600
+# → prints the resolved FEE SCHEDULE, the CONFIG ADDRESS (record it), and a
+#   partial-signed tx (or --send).
+#
+# State the fee schedule. Omitting those three flags inherits DEFAULT_ANTI_SNIPE
+# (9900 bps opening = 99%), and a DBC config is IMMUTABLE — the only correction is
+# a new config and a new Squads ceremony. create-config REFUSES an opening fee
+# above 5000 bps unless --i-understand-anti-snipe is passed, and prints whatever it
+# resolved before the transaction.
 
 # 2) Launch a token against that config key:
 SOLANA_RPC_URL=… OPERATOR_KEYPAIR=… \

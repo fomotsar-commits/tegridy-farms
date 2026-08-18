@@ -338,8 +338,30 @@ export const GLOBAL_CONFIG_SIZE = 723;
 
 /** `segmented.rs:MAX_SEGMENTS`. The array is fixed-width, so this bounds the count byte. */
 export const MAX_SEGMENTS = 16;
-/** `8 + InitSpace(154)`. state.rs:123-166. */
-export const BONDING_CURVE_SIZE = 162;
+/**
+ * `8 + InitSpace(708)`. state.rs `BondingCurve`.
+ *
+ * 708 = 128 for `mint`/`creator`/the eight u64 scalars, plus 580 for the mode
+ * snapshot — `mode` (1) + `sqrt_price_x64` (16) + `sqrt_price_start_x64` (16) +
+ * `segment_count` (1) + `[Segment; 16]` (512) — plus `complete` (1), `pool` (32)
+ * and `bump` (1).
+ *
+ * This sat at 162 — the size through `bump` of the struct BEFORE the segmented
+ * fields and `creator_fee_share_bps` were added — which made `decodeBondingCurve`
+ * answer `bad-length` for every account the program can write, so every launch
+ * rendered as `unreadable`. The identical mistake had already been found and fixed
+ * in `GLOBAL_CONFIG_SIZE` and was left standing in the sibling. It also understated
+ * the curve PDA's rent floor by 554 bytes, in the permissive direction, which is the
+ * half that does not fail closed: a "max sell" computed against it is too generous
+ * and reverts on chain.
+ *
+ * ⚠ NOT pinned against a captured mainnet account, unlike `GLOBAL_CONFIG_SIZE`.
+ * `getProgramAccounts` on the launch program returns EMPTY — no curve has ever been
+ * created — so there are no real bytes to capture. The size is therefore derived
+ * from the Rust field widths in `program.test.ts`, field by field, and must be
+ * re-pinned against a real account the first time one exists.
+ */
+export const BONDING_CURVE_SIZE = 716;
 
 /** `GlobalConfig`, state.rs:77-120. Describes FUTURE launches only — see {@link BondingCurve}. */
 export interface GlobalConfig {
@@ -391,10 +413,32 @@ export interface BondingCurve {
    * terms, and a quote taken from the global disagrees with the program silently.
    */
   tradeFeeBps: bigint;
+  /**
+   * The creator's share OF THE TRADE FEE, in bps of the fee, snapshotted at
+   * creation. Sits between `trade_fee_bps` and `graduation_target_lamports` in the
+   * Rust struct; its absence here shifted every field below it by one slot, exactly
+   * as it did in `GlobalConfig`.
+   */
+  creatorFeeShareBps: bigint;
   /** Snapshotted, same reason. */
   graduationTargetLamports: bigint;
   /** Snapshotted, same reason. Buys are capped at target + THIS. */
   migrationReserveLamports: bigint;
+  /**
+   * Which pricing curve this launch runs, snapshotted at creation: 0 =
+   * ConstantProduct, 1 = Segmented (`CurveMode::from_u8`, state.rs). Any other byte
+   * is a value the program cannot write, so the decoder refuses rather than picking
+   * a curve on the caller's behalf.
+   */
+  mode: 0 | 1;
+  /** Current sqrt-price, Q64.64. Segmented mode only; zero on constant-product. */
+  sqrtPriceX64: bigint;
+  /** The price this launch OPENED at, Q64.64. Immutable, and the floor a sell may not price below. */
+  sqrtPriceStartX64: bigint;
+  /** How many of the 16 fixed slots are live. Zero on constant-product. */
+  segmentCount: number;
+  /** Exactly `segmentCount` entries; the zeroed tail slots are not returned. */
+  segments: readonly { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
   /** Terminal. Only `migrate_to_amm` writes it, in the same instruction that moves the liquidity. */
   complete: boolean;
   /** The cp-swap pool. All-zero until migration (state.rs:159-163). */
@@ -498,8 +542,23 @@ export function decodeBondingCurve(data: Uint8Array | null | undefined): Decoded
     return { ok: false, reason: 'wrong-discriminator' };
   }
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const complete = readBool(data, 128);
+  // Offsets are +8 from where they were through `graduation_target_lamports`
+  // (`creator_fee_share_bps` sits second among the snapshots), and everything from
+  // `complete` on moved by 554 — the width of the curve-mode snapshot.
+  const complete = readBool(data, 682);
   if (complete === null) return { ok: false, reason: 'malformed' };
+  const modeByte = data[136]!;
+  // `CurveMode::from_u8` returns None for anything else, so the program cannot have
+  // written it. Refusing beats defaulting to constant-product and quoting a
+  // segmented launch on the wrong curve.
+  if (modeByte !== 0 && modeByte !== 1) return { ok: false, reason: 'malformed' };
+  const segmentCount = data[169]!;
+  // A count past the fixed 16 slots would read off the end of the segment array.
+  if (segmentCount > MAX_SEGMENTS) return { ok: false, reason: 'malformed' };
+  const segments = Array.from({ length: segmentCount }, (_, i) => ({
+    sqrtPriceUpperX64: readU128(v, 170 + i * 32),
+    liquidity: readU128(v, 170 + i * 32 + 16),
+  }));
   return {
     ok: true,
     value: {
@@ -510,11 +569,17 @@ export function decodeBondingCurve(data: Uint8Array | null | undefined): Decoded
       realSolReserves: readU64(v, 88),
       realTokenReserves: readU64(v, 96),
       tradeFeeBps: readU64(v, 104),
-      graduationTargetLamports: readU64(v, 112),
-      migrationReserveLamports: readU64(v, 120),
+      creatorFeeShareBps: readU64(v, 112),
+      graduationTargetLamports: readU64(v, 120),
+      migrationReserveLamports: readU64(v, 128),
+      mode: modeByte,
+      sqrtPriceX64: readU128(v, 137),
+      sqrtPriceStartX64: readU128(v, 153),
+      segmentCount,
+      segments,
       complete,
-      pool: readPubkey(data, 129),
-      bump: data[161]!,
+      pool: readPubkey(data, 683),
+      bump: data[715]!,
     },
   };
 }

@@ -29,13 +29,23 @@
 // OFFSETS — each verified against the SDK's own decode of the live account on
 // 2026-08-02 (see liveConfig.test.ts, which pins the real 1048-byte account):
 //
-//   72   feeClaimer            pubkey (32)
+//   8    quoteMint             pubkey (32) → So111…112 on the live config
+//   40   feeClaimer            pubkey (32) → who may claim partner trading fees
+//   72   leftoverReceiver      pubkey (32) → leftover BASE tokens, post-migration
 //   104  cliffFeeNumerator     u64  → 990000000 = 99.00% opening fee
 //   112  periodFrequency       u64  → 180 s per period
 //   120  reductionFactor       u64  → 375 (bps of decay per period)
 //   128  numberOfPeriod        u16  → 120
 //   130  baseFeeMode           u8   → 1 = exponential, 0 = linear
 //   245  creatorTradingFeePct  u8   → 60 (creator's % of the non-Meteora 80%)
+//
+// `feeClaimer` and `leftoverReceiver` HOLD THE SAME KEY on the v1 config, so no
+// fixture built from that account can tell the two apart and no test that reads
+// only one of them can fail. The custody gate reads `feeClaimer`; reading 72
+// instead would verify the wrong 32 bytes the first time a config is minted with
+// the two set differently — which is a config an attacker gets to choose. Both
+// offsets are therefore pinned separately, against a synthetic account whose two
+// fields differ.
 //
 // A layout change inside the same account type would NOT be caught by the
 // discriminator, so `decodePoolConfig` additionally range-checks every field and
@@ -66,7 +76,13 @@ export const POOL_CONFIG_DISCRIMINATOR = new Uint8Array([
  * and the discriminator guard above is what makes hand-rolled offsets safe for both.
  */
 export const CONFIG_OFFSETS = {
-  feeClaimer: 72,
+  feeClaimer: 40,
+  /**
+   * Only ever receives leftover BASE tokens after migration. It is NOT the fee
+   * authority and must never be substituted for one — the fee claimer can redirect
+   * every accrued partner fee, the leftover receiver cannot.
+   */
+  leftoverReceiver: 72,
   cliffFeeNumerator: 104,
   periodFrequency: 112,
   reductionFactor: 120,

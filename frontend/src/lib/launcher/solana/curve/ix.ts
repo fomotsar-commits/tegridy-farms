@@ -10,14 +10,21 @@
 // nothing. They return `TransactionInstruction`s a caller adds to a transaction.
 // Same doctrine as `dbc.ts` — the param layer and the signing layer stay apart.
 //
-// The program has been LIVE ON MAINNET since 2026-08-08, so what is built here is
-// sendable. This comment used to say the opposite; nothing about the builders changed
-// when that stopped being true, which is precisely why the claim did not update
-// itself. `read.ts` is still where a surface establishes what is actually deployed.
+// WHETHER THESE ARE SENDABLE IS NOT A QUESTION THIS FILE CAN ANSWER. It has claimed
+// both answers in turn — "NOT DEPLOYED" for four days after the 2026-08-08 deploy,
+// then "LIVE ON MAINNET, so what is built here is sendable" after
+// docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md recorded both program ids as CLOSED on
+// mainnet on 2026-08-13 (ProgramData deleted, verified there on two RPCs). A closed
+// upgradeable program id cannot be redeployed, so a redeploy means NEW ids and every
+// address here moves with them.
 //
-// The one instruction that is NOT usable yet is `migrateToAmmIx`: cp-swap's AmmConfig
-// does not exist, so `migrate_to_amm` fails AmmNotConfigured (6015) until an operator
-// runs `create-amm-config` and then `update-global`.
+// `readDeployment` in `read.ts` is the only thing that establishes what exists. These
+// builders encode the program's instruction FORMAT, which is a property of the source
+// and is worth keeping correct regardless of what is deployed.
+//
+// `migrateToAmmIx` additionally requires `global.cp_swap_program` and
+// `global.amm_config` to be set; while they are zero, `migrate_to_amm` fails
+// AmmNotConfigured (6015) no matter how well-formed the transaction is.
 
 // `Buffer` is imported explicitly rather than taken off `globalThis`: the browser
 // only has it once `solanaPolyfill.ts` has run, and this module must not depend
@@ -203,21 +210,43 @@ export interface ProgramIds {
   cpSwapProgram?: PublicKey;
 }
 
-// ── buy / sell (the `Trade` context, lib.rs:1461-1500) ───────────────────────
+// ── buy / sell (the `Trade` context struct in lib.rs) ────────────────────────
+//
+// Line citations are deliberately absent: the previous ones pointed ~390 lines
+// short of the struct in a 1,900-line file, so an engineer checking this list
+// against them confirmed nothing. Name the symbol; a symbol survives an edit.
 
 export interface TradeAccounts {
   trader: PublicKey;
   mint: PublicKey;
-  /** MUST equal `global.fee_recipient` (lib.rs:1470) — read it, do not assume it. */
+  /** MUST equal `global.fee_recipient` — read it, do not assume it. */
   feeRecipient: PublicKey;
   /**
+   * MUST equal `curve.creator` — the address `create_launch` recorded, read off the
+   * DECODED CURVE and never derived or guessed. It takes the creator's share of the
+   * trade fee on every buy and sell, and the program pins it (`address =
+   * curve.creator`), so a wrong value reverts with `CreatorMismatch` rather than
+   * paying the wrong person.
+   */
+  creator: PublicKey;
+  /**
    * Any token account of `mint` the trader owns; the program does NOT require the
-   * ATA (lib.rs:1493-1494). Use the ATA and CREATE IT YOURSELF FIRST — nothing in
-   * `buy` creates it. Defaults to `associatedTokenAddress(mint, trader)`.
+   * ATA. Use the ATA and CREATE IT YOURSELF FIRST — nothing in `buy` creates it.
+   * Defaults to `associatedTokenAddress(mint, trader)`.
    */
   traderTokenAccount?: PublicKey;
 }
 
+/**
+ * The ten `Trade` accounts, in declaration order.
+ *
+ * `creator` was missing, so every buy and sell this module could build carried nine
+ * accounts for ten declared fields. Anchor matches POSITIONALLY, so `curve_vault`
+ * arrived in the `creator` slot and the transaction reverted — `CreatorMismatch`, or
+ * `NotEnoughAccountKeys` if the trailing shift was caught first. Nothing failed in
+ * CI because the test pinned the count the encoder produced instead of the count the
+ * program declares.
+ */
 function tradeKeys(a: TradeAccounts, programId: PublicKey) {
   return [
     acc(a.trader, true, true),
@@ -225,6 +254,7 @@ function tradeKeys(a: TradeAccounts, programId: PublicKey) {
     acc(a.feeRecipient, false, true),
     acc(a.mint, false, false),
     acc(curvePda(a.mint, programId), false, true),
+    acc(a.creator, false, true),
     acc(curveVaultPda(a.mint, programId), false, true),
     acc(a.traderTokenAccount ?? associatedTokenAddress(a.mint, a.trader), false, true),
     acc(TOKEN_PROGRAM_ID, false, false),
@@ -233,7 +263,7 @@ function tradeKeys(a: TradeAccounts, programId: PublicKey) {
 }
 
 /**
- * `buy(max_lamports_in, min_tokens_out)` — lib.rs:452.
+ * `buy(max_lamports_in, min_tokens_out)`.
  *
  * ⚠ `maxLamportsIn` is a CEILING, not a spend. A buy that would carry the curve
  * past `graduation_target + migration_reserve` is capped there and the remainder
@@ -263,9 +293,9 @@ export function buyIx(
 }
 
 /**
- * `sell(tokens_in, min_lamports_out)` — lib.rs:565.
+ * `sell(tokens_in, min_lamports_out)`.
  *
- * Deliberately NOT gated on `global.paused` (lib.rs:563-564): a pause stops new
+ * Deliberately NOT gated on `global.paused`: a pause stops new
  * money entering and must never trap holders. A paused UI must keep this
  * available and say so.
  */
@@ -287,7 +317,7 @@ export function sellIx(
   });
 }
 
-// ── create_launch (lib.rs:1254-1314) ─────────────────────────────────────────
+// ── create_launch (the `CreateLaunch` context struct in lib.rs) ──────────────
 
 /**
  * `create_launch()` — no args. Supply, virtual reserves, fee, target and reserve
@@ -330,11 +360,18 @@ export function createLaunchIx(
   });
 }
 
-// ── migrate_to_amm (lib.rs:1323-1459) ────────────────────────────────────────
+// ── migrate_to_amm (the `MigrateToAmm` context struct in lib.rs) ─────────────
 
 export interface MigrateAccounts {
-  /** Funds rent along the way and is fully reimbursed by the sweep (lib.rs:1075-1162). */
+  /** Funds rent along the way and is fully reimbursed by the sweep. */
   payer: PublicKey;
+  /**
+   * MUST equal `global.fee_recipient` — read it off the decoded global, never
+   * derived and never defaulted. It receives the unspent migration reserve, and the
+   * program pins it (`address = global.fee_recipient`), so a wrong value fails
+   * ACCOUNT VALIDATION with `Unauthorized` (6008) before the handler ever runs.
+   */
+  feeRecipient: PublicKey;
   launchMint: PublicKey;
   /** `global.amm_config`. Read it; it is not derivable and may be unset. */
   ammConfig: PublicKey;
@@ -348,8 +385,16 @@ export interface MigrateAccounts {
 }
 
 /**
- * `migrate_to_amm()` — no args, permissionless by design (lib.rs:686-692): no
- * caller-chosen parameters, pays the caller nothing, exactly one legal outcome.
+ * `migrate_to_amm()` — no args, permissionless by design: no caller-chosen
+ * parameters, pays the caller nothing, exactly one legal outcome.
+ *
+ * All TWENTY-FOUR accounts, in declaration order. `fee_recipient` (index 2) was
+ * missing, which shifted the remaining 21 by one: `launch_mint` landed in the
+ * `fee_recipient` slot and every build reverted at account validation with
+ * `Unauthorized` (6008). Note the diagnostic cost — validation runs before the
+ * handler, so this builder could never produce the `AmmNotConfigured` (6015) the
+ * operator ledger records as migration's blocker, and anyone debugging graduation
+ * with it chased the wrong error.
  *
  * The caller MUST prepend `setComputeUnitLimit({ units: MIGRATE_COMPUTE_UNITS })`.
  *
@@ -383,6 +428,7 @@ export function migrateToAmmIx(
     keys: [
       acc(accounts.payer, true, true),
       acc(globalPda(programId), false, false),
+      acc(accounts.feeRecipient, false, true),
       acc(launchMint, false, false),
       acc(curvePda(launchMint, programId), false, true),
       acc(curveVaultPda(launchMint, programId), false, true),

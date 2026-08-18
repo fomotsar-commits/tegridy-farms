@@ -68,7 +68,13 @@ export function encodeBase58(bytes: Uint8Array): string {
  * Returns null when the account cannot be read or does not look like a PoolConfig —
  * never a guess. The discriminator guard is what makes a hand-rolled offset safe: if
  * Meteora changes the layout, the first eight bytes stop matching and this reads null
- * rather than decoding whatever now sits at byte 72 and calling it an address.
+ * rather than decoding whatever now sits at the fee-claimer offset and calling it an
+ * address.
+ *
+ * Reads `CONFIG_OFFSETS.feeClaimer` (40), NOT `leftoverReceiver` (72). The two hold
+ * the same key on the v1 config, so the substitution is invisible until a config is
+ * minted where they differ — and the whole point of this check is the config nobody
+ * here minted.
  */
 export async function readFeeClaimerOnChain(
   configAddress: string,

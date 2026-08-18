@@ -111,8 +111,11 @@ export const LIVE_DBC_CONFIG =
  *
  * Config, not a constant, per the wave's rail — `VITE_SOLANA_FEE_VAULT` overrides. The
  * default is the vault already proven to be this rail's fee destination: the DBC
- * program was scanned for configs whose `feeClaimer` sits at offset 72, and exactly one
- * matched, so this is a read of the chain rather than a hopeful literal.
+ * program was scanned for configs naming this vault, and exactly one matched, so this
+ * is a read of the chain rather than a hopeful literal. That scan matched at offset 72
+ * (`leftover_receiver`); on the v1 config `fee_claimer` at offset 40 holds the same
+ * key, verified byte-for-byte, so the conclusion survives — but the scan alone did not
+ * establish it and a re-run must read 40 (see `liveConfig.ts` CONFIG_OFFSETS).
  *
  * ⚠ Returning '' here is NOT a way to disable the check. `assertFeeCustody` refuses
  * when there is no expectation, deliberately: with nothing to compare against, a

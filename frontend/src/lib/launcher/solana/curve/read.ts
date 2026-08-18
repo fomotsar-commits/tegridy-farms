@@ -187,8 +187,9 @@ export interface CurveAccount {
   address: PublicKey;
   curve: BondingCurve;
   /**
-   * The PDA's actual lamport balance: `rent_exempt(162) + real_sol_reserves +
-   * anything anyone donated` (anyone can send lamports to a derivable address).
+   * The PDA's actual lamport balance: `rent_exempt(BONDING_CURVE_SIZE) +
+   * real_sol_reserves + anything anyone donated` (anyone can send lamports to a
+   * derivable address).
    *
    * ⚠ Use `curve.realSolReserves` for progress and "SOL raised". Use THIS for the
    * migration budget check and the sell rent floor. They are not interchangeable

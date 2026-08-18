@@ -112,9 +112,29 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
     expect(GLOBAL_CONFIG_SIZE).toBe(723);
   });
 
-  it('BondingCurve = 162 (state.rs:123-166)', () => {
-    // mint, creator | 7 × u64 | complete | pool | bump
-    expect(DISC + 2 * PUBKEY + 7 * U64 + BOOL + PUBKEY + U8).toBe(BONDING_CURVE_SIZE);
+  it('BondingCurve = 716 (state.rs `BondingCurve`)', () => {
+    const U128 = 16;
+    const SEGMENT = 2 * U128;
+    const MAX_SEGMENTS = 16; // fixed-width, used slots or not
+    // mint, creator | 8 × u64 | mode | sqrt_price_x64 | sqrt_price_start_x64
+    // | segment_count | [Segment; 16] | complete | pool | bump
+    expect(
+      DISC +
+        2 * PUBKEY +
+        8 * U64 +
+        U8 +
+        U128 +
+        U128 +
+        U8 +
+        MAX_SEGMENTS * SEGMENT +
+        BOOL +
+        PUBKEY +
+        U8,
+    ).toBe(BONDING_CURVE_SIZE);
+    // Unlike GlobalConfig this is NOT corroborated by a captured account: no curve
+    // has ever been created on the program, so there are no real bytes to hold it
+    // against. The field-by-field sum above is the only evidence there is.
+    expect(BONDING_CURVE_SIZE).toBe(716);
   });
 });
 
@@ -276,7 +296,32 @@ function encodeGlobal(
   );
 }
 
-function encodeCurve(over: Partial<{ complete: number; pool: PublicKey }> = {}) {
+/**
+ * `BondingCurve` as the PROGRAM writes it (state.rs), including the curve-mode
+ * snapshot: `mode` (u8), `sqrt_price_x64` (u128), `sqrt_price_start_x64` (u128),
+ * `segment_count` (u8) and a FIXED 16-slot `[Segment; 16]`. Total 716 bytes.
+ *
+ * This fixture stopped at `bump` after seven u64s (162 bytes), matching a decoder
+ * that made the same two omissions — `creator_fee_share_bps` and the whole mode
+ * snapshot — so the pair agreed with each other and disagreed with the program.
+ * There is no captured account to anchor it to (none exists), so the size assertion
+ * above sums the Rust field widths instead.
+ */
+function encodeCurve(
+  over: Partial<{
+    complete: number;
+    pool: PublicKey;
+    creatorFeeShareBps: bigint;
+    mode: number;
+    sqrtPriceX64: bigint;
+    sqrtPriceStartX64: bigint;
+    segments: { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
+  }> = {},
+) {
+  const segments = over.segments ?? [];
+  const slots = Array.from({ length: 16 }, (_, i) =>
+    cat(u128le(segments[i]?.sqrtPriceUpperX64 ?? 0n), u128le(segments[i]?.liquidity ?? 0n)),
+  );
   return cat(
     ACCOUNT_DISCRIMINATOR.BondingCurve,
     key(MINT),
@@ -286,8 +331,14 @@ function encodeCurve(over: Partial<{ complete: number; pool: PublicKey }> = {}) 
     u64le(7_000_000_000n),
     u64le(900_000_000_000_000n),
     u64le(100n),
+    u64le(over.creatorFeeShareBps ?? 4_800n),
     u64le(85_000_000_000n),
     u64le(250_000_000n),
+    byte(over.mode ?? 0),
+    u128le(over.sqrtPriceX64 ?? 0n),
+    u128le(over.sqrtPriceStartX64 ?? 0n),
+    byte(segments.length),
+    ...slots,
     byte(over.complete ?? 0),
     key(over.pool ?? DEFAULT_PUBKEY),
     byte(253),
@@ -470,10 +521,57 @@ describe('decodeBondingCurve', () => {
     expect(d.value.realSolReserves).toBe(7_000_000_000n);
     expect(d.value.realTokenReserves).toBe(900_000_000_000_000n);
     expect(d.value.tradeFeeBps).toBe(100n);
+    // The field whose absence shifted `graduation_target` and everything after it.
+    expect(d.value.creatorFeeShareBps).toBe(4_800n);
     expect(d.value.graduationTargetLamports).toBe(85_000_000_000n);
     expect(d.value.migrationReserveLamports).toBe(250_000_000n);
+    expect(d.value.mode).toBe(0);
+    expect(d.value.sqrtPriceX64).toBe(0n);
+    expect(d.value.sqrtPriceStartX64).toBe(0n);
+    expect(d.value.segmentCount).toBe(0);
+    expect(d.value.segments).toEqual([]);
     expect(d.value.complete).toBe(false);
     expect(d.value.bump).toBe(253);
+  });
+
+  it('reads the segmented snapshot, whose u128s exceed 2^53', () => {
+    // A constant-product launch leaves all of this zeroed, so a decoder that
+    // dropped the block entirely would look correct on every default fixture.
+    const segs = [
+      { sqrtPriceUpperX64: (1n << 70n) + 7n, liquidity: (1n << 65n) + 3n },
+      { sqrtPriceUpperX64: (1n << 71n) + 9n, liquidity: (1n << 66n) + 5n },
+    ];
+    const d = decodeBondingCurve(
+      encodeCurve({
+        mode: 1,
+        sqrtPriceX64: (1n << 66n) + 11n,
+        sqrtPriceStartX64: (1n << 64n) + 1n,
+        segments: segs,
+      }),
+    );
+    expect(d.ok).toBe(true);
+    if (!d.ok) return;
+    expect(d.value.mode).toBe(1);
+    expect(d.value.sqrtPriceX64).toBe((1n << 66n) + 11n);
+    expect(d.value.sqrtPriceStartX64).toBe((1n << 64n) + 1n);
+    expect(d.value.segmentCount).toBe(2);
+    expect(d.value.segments).toEqual(segs);
+    // The zeroed tail slots are never returned as segments.
+    expect(d.value.segments.length).toBe(2);
+    // …and the fields AFTER the 512-byte array still land where they should.
+    expect(d.value.bump).toBe(253);
+  });
+
+  it('refuses a mode byte the program cannot write, rather than defaulting the curve', () => {
+    // `CurveMode::from_u8` has no third arm. Coercing an unknown byte to
+    // constant-product would quote a segmented launch on the wrong curve.
+    expect(decodeBondingCurve(encodeCurve({ mode: 2 }))).toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('refuses a segment count past the 16 fixed slots', () => {
+    const bytes = encodeCurve();
+    bytes[169] = 17;
+    expect(decodeBondingCurve(bytes)).toEqual({ ok: false, reason: 'malformed' });
   });
 
   it('an un-migrated curve has an all-zero pool, which is "not yet", not an address', () => {

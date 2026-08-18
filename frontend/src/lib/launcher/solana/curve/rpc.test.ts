@@ -37,9 +37,12 @@ function curveBytes(over: { realSol?: bigint; complete?: boolean } = {}): Uint8A
   v.setBigUint64(88, over.realSol ?? 0n, true); // real_sol_reserves
   v.setBigUint64(96, 1_000_000_000_000_000n, true); // real_token_reserves
   v.setBigUint64(104, 100n, true); // trade_fee_bps
-  v.setBigUint64(112, 85_000_000_000n, true); // graduation_target_lamports
-  v.setBigUint64(120, 1_000_000_000n, true); // migration_reserve_lamports
-  b[128] = over.complete ? 1 : 0;
+  v.setBigUint64(112, 4_800n, true); // creator_fee_share_bps
+  v.setBigUint64(120, 85_000_000_000n, true); // graduation_target_lamports
+  v.setBigUint64(128, 1_000_000_000n, true); // migration_reserve_lamports
+  // 136..682 is the curve-mode snapshot (mode, both sqrt prices, segment_count and
+  // the fixed 16-slot segment array), all zero for a constant-product launch.
+  b[682] = over.complete ? 1 : 0;
   return b;
 }
 
