@@ -394,7 +394,13 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       }
       // F630: shared helper reads the live counter + rebuilds OrderComponents so
       // the cancel targets the real order hash (not a phantom that stays fillable).
-      const tx = await cancelSeaportOrder({ ethers, signer, params: listing.rawParameters, seaportAddress: SEAPORT_ADDRESS });
+      // Cancel on the Seaport this order was SIGNED against — the row already carries
+      // it (protocolAddress, mapped at fetch time above). Handing the sink the
+      // hardcoded constant would send a 1.6-signed order's cancel to 1.5, where the
+      // hash doesn't exist: cancel() succeeds vacuously and the listing stays
+      // fillable. Mirrors api-offers.cancelOrder:732-734; unknown targets still fail
+      // closed inside cancelSeaportOrder.
+      const tx = await cancelSeaportOrder({ ethers, signer, params: listing.rawParameters, seaportAddress: listing.protocolAddress || null });
       await tx.wait();
 
       // Step 2: Update native orderbook backend status — BEST-EFFORT. The on-chain

@@ -3,7 +3,6 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { fetchWalletNfts, shortenAddress, getProvider } from "../api";
 import { fetchTokenOffers, acceptOffer } from "../api-offers";
-import { SEAPORT_ADDRESS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { openseaGet } from "../lib/proxy";
@@ -283,7 +282,14 @@ async function cancelBid(order) {
 
     // F630: shared helper reads the live counter + rebuilds OrderComponents so
     // the cancel hits the real order hash (not a phantom that leaves it live).
-    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: SEAPORT_ADDRESS });
+    // Cancel on the Seaport the bid was SIGNED against, not the hardcoded default —
+    // an OpenSea offer that lands on a newer Seaport would otherwise get its cancel
+    // sent to 1.5, succeed vacuously, and stay fillable. Null keeps the documented
+    // default for orders with no protocol address; unknown targets fail closed at
+    // the sink. Mirrors api-offers.cancelOrder:732-734.
+    const orderProtocolAddress =
+      order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
+    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: orderProtocolAddress });
     await tx.wait();
     return { success: true, hash: tx.hash };
   } catch (err) {

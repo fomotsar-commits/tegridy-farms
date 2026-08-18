@@ -83,20 +83,28 @@ export async function fetchNativeListings(contract, { sort = "price_eth", limit 
   // Bundles are excluded from the default per-token feed; ask for them explicitly.
   if (bundles) params.set("bundles", "true");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  // Timeout is PER ATTEMPT, created inside the retry callback. The old shape — one
+  // shared AbortController + one setTimeout hoisted above withRetry, cleared on the
+  // first attempt — meant attempt 1 disarmed the only timer (later attempts could
+  // hang forever), and an attempt-1 timeout left the shared signal permanently
+  // aborted so every retry died instantly. A fresh controller per attempt gives each
+  // try its own honest 15s budget.
   try {
     return await withRetry(async () => {
-      const res = await fetch(`${ORDERBOOK_API}?${params}`, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to fetch");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const res = await fetch(`${ORDERBOOK_API}?${params}`, { signal: controller.signal });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to fetch");
+        }
+        return await res.json();
+      } finally {
+        clearTimeout(timeout);
       }
-      return await res.json();
     });
   } catch (e) {
-    clearTimeout(timeout);
     if (e.name === "AbortError") return { orders: [], count: 0, error: "Request timed out" };
     return { orders: [], count: 0, error: e.message };
   }
