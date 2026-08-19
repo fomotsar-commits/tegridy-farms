@@ -16,6 +16,26 @@ more than an hour except where marked.
 
 ---
 
+## 🔴 Read this one first
+
+**Your incident-response runbook told the pause guardian to call a function that reverts.**
+
+`INCIDENT_RESPONSE.md` §3 documented the fast path as `pause()`. That function is `onlyOwner` on
+every contract, so the guardian calling it fails. In a live incident the responder would have
+followed the runbook, watched the transaction revert, and spent the opening minutes of an emergency
+debugging the runbook instead of stopping the loss. The real entry point is a separate function,
+`guardianPause()` (selector `0xd4593872`, no arguments). Corrected in the doc, verified against
+source across all nine contracts that expose it.
+
+Two things follow that are yours:
+- **`0xCDCA` has never signed anything** (nonce 0) and it is the address that would make that call.
+  Your incident plan assumes a two-minute pause from a Safe that has never proven it can assemble a
+  signature. Proving it costs one cheap transaction today.
+- **Unpausing is not symmetric.** `unpause()` is `onlyOwner`, so a guardian pause commits you to a
+  multisig round trip to undo. Correct asymmetry, but it means pausing is not a free action.
+
+---
+
 ## Tier 0 — do these first (free, minutes each, unlock the most)
 
 ### 0.1 Run the login change-set ⭐ the single biggest unlock
