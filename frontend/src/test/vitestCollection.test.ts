@@ -39,6 +39,12 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   { prefix: 'frontend/e2e/', runner: 'playwright (npm run test:e2e / npm run e2e)' },
   // ts-mocha under anchor, executed by .github/workflows/solana-ci.yml.
   { prefix: 'solana/', runner: 'ts-mocha via anchor (solana-ci.yml)' },
+  // The Solana indexing leg. Same vitest binary as this project — it is
+  // installed here and nowhere else — but rooted at the service, because
+  // `root` is frontend/ and no include glob can reach above it:
+  //   npx vitest run --root ../indexer-solana --environment node
+  // ci.yml runs exactly that in the "Solana indexer unit tests" step.
+  { prefix: 'indexer-solana/', runner: "vitest --root ../indexer-solana (ci.yml 'Solana indexer unit tests')" },
   // Vendored dependency trees. Not ours, not our runner's problem.
   { prefix: 'contracts/lib/', runner: 'upstream vendored dependency (not executed here)' },
 ];

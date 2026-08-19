@@ -249,6 +249,16 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/start',
+    owner: 'components/onboarding/OnboardingFlow.tsx',
+    gate: null,
+    why:
+      'Audited on step 1 with no wallet. The funding step mounts the on-ramp panel, which on ' +
+      'an unconfigured build (no partner keys in CI) renders its "not configured" branch — the ' +
+      'configured branch with a live partner link is not reachable from this suite.',
+    knownViolations: [],
+  },
+  {
     path: '/trade',
     owner: 'App.tsx',
     gate: 'redirect',
@@ -407,6 +417,7 @@ export const ROUTES: readonly RouteSpec[] = [
   { path: '/scan', owner: 'pages/ScannerPage.tsx', gate: null, knownViolations: [] },
   { path: '/deployer', owner: 'pages/DeployerPage.tsx', gate: null, knownViolations: [] },
   { path: '/trust', owner: 'pages/TrustHubPage.tsx', gate: null, knownViolations: [] },
+  { path: '/developers', owner: 'pages/DeveloperPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/nakamigos',
     owner: 'nakamigos/App.jsx',

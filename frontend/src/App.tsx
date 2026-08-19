@@ -46,6 +46,10 @@ const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
 const DeployerPage = lazy(() => import('./pages/DeployerPage'));
 // Thin hub that frames the three detection surfaces above as one anti-rug suite.
 const TrustHubPage = lazy(() => import('./pages/TrustHubPage'));
+// Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
+// from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
+// so neither the price list nor the signup can claim what is not configured.
+const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
@@ -76,6 +80,11 @@ const AirdropPage = lazy(() => import('./pages/AirdropPage'));
 // a deployment that ships one rail before the other shows the live one and keeps
 // reporting "no data" for the other.
 const VestingPage = lazy(() => import('./pages/VestingPage'));
+// Guided first-run flow (#43). Wallet-free and never gated itself — its step list is built
+// from the same gates the destination pages read, so a re-gated surface disappears from it
+// rather than being promised. Lives under components/onboarding/ with the on-ramp panel it
+// mounts, not in pages/, because the flow and that panel are one feature.
+const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -237,6 +246,7 @@ function AnimatedRoutes() {
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />
         <Route path="airdrop" element={<Suspense fallback={<PageSkeleton />}><AirdropPage /></Suspense>} />
         <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
+        <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
@@ -270,6 +280,7 @@ function AnimatedRoutes() {
         <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
         <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
         <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
+        <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

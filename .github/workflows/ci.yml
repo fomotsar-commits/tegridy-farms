@@ -72,6 +72,18 @@ jobs:
         # be re-checked before porting to main.
         run: npm test
 
+      # indexer-solana/ is a separate Node service, so its tests cannot be
+      # collected by the step above: vitest's `root` is frontend/ and include
+      # globs are resolved under it — nothing above frontend/ is reachable,
+      # whatever the glob says (src/test/vitestCollection.test.ts asserts that
+      # boundary and lists this step as the runner for these files).
+      #
+      # It reuses the vitest installed here rather than a second node_modules:
+      # the service itself has one runtime dependency and no dev tree, and a
+      # test runner it does not ship is a runner that never drifts from this one.
+      - name: Solana indexer unit tests
+        run: npx vitest run --root ../indexer-solana --environment node
+
       # Every protocol address, decoded rather than eyeballed.
       #
       # 2026-08-08: an operator wallet was recorded in notes only as a truncated

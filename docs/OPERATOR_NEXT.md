@@ -223,6 +223,28 @@ becomes schedulable.
 
 *(These three involve signing. They are yours alone — Claude will not and cannot do them.)*
 
+### C3. One naming decision nobody else can make *(free, no signing, no deadline)*
+
+The app answers to two names at once and has for a while. `<title>`, the OG tags, the JSON-LD
+and both PWA manifests say **Tegridy Farms**; the canonical domain, and the name you use, is
+**memetic.fun**. Neither is wrong — but an installed home-screen icon reads its label from the
+manifest, so today someone who installs the app from memetic.fun gets a tile called "Tegridy".
+
+Nothing is broken and nothing is misleading, so this is not urgent and Claude did not decide
+it. What *was* fixed on 2026-08-19 is the manifest **description**, which described a product
+that no longer exists — a single-chain, farming-only app — and now matches the copy
+`index.html` already serves to crawlers.
+
+Tell Claude which name the app installs under and the change is mechanical. Two things must
+move together, and a third is a judgement call:
+
+- `frontend/public/manifest.webmanifest` — what `index.html` actually links.
+- `frontend/public/manifest.json` — a duplicate the e2e suite fetches by name. If they
+  disagree, the tests pass while the installed app is wrong, which is the worst arrangement.
+- Whether `<title>`, `og:title` and the JSON-LD follow. Renaming the manifest alone is
+  legitimate (an install name and a page title need not match); renaming everything is a
+  bigger call with SEO history attached.
+
 ---
 
 ## Do NOT do these yet

@@ -280,6 +280,24 @@ assertion survives in eight files; `security.txt` disclaims the very domains it 
 the README's native-pool figures are six times off; ROADMAP writes shipped Q2 items as future
 work; five pages carry a hardcoded "Last reviewed: July 2026".
 
+> **Reconciled 2026-08-19 — four of these are closed, six are not.**
+> *Closed:* the registry now records both program ids as closed on 2026-08-13 and carries
+> each one's **ProgramData** address as its own entry with `expect: absent`, so the claim is
+> machine-checked rather than asserted — the program stub stays executable-flagged after a
+> close, which is exactly why the old `expect: executable` kept passing. `ROADMAP.md` is
+> rewritten with a per-item status vocabulary and its Q3 "70/20/10" premise corrected (no
+> such split is implemented anywhere). `NEXT_SESSION.md` is reduced to a redirect: it was
+> dated April, and its "immediate priorities" told an operator to act on three addresses the
+> June relaunch superseded, one of them the `GaugeController` whose `pairToGauge` reverts.
+> The PWA manifests no longer describe a single-chain farming product.
+> *Still open:* `readDeployment`'s wording; the "LIVE ON MAINNET since 2026-08-08" assertion,
+> now in six files (`frontend/src/lib/launcher/solana/README.md`, `curve/index.ts`,
+> `curve/program.ts`, `curve/ix.ts`, `curve/geometry.ts`, `frontend/scripts/tegridy-launch-operator.mjs`);
+> `security.txt`; the README pool figures; the five "Last reviewed" stamps. The Solana
+> markdown under `solana/tegridy-amm/` is corrected, but the same stale claims survive in
+> `programs/cp-swap/src/lib.rs`'s header comment, which still describes fail-closed sentinels
+> the tree no longer has and still names the multisig as `admin::ID`.
+
 **Repo hygiene (15).** Close #278 · decide #280, #282, #265, #205 · merge eight clean Dependabot
 PRs and hold #296 · reclaim **27 GB** (`.git/worktrees` holds a duplicate submodule clone per
 worktree, 116 times over) · prune 116 worktrees with `git worktree remove` only, 93 are dirty ·
@@ -336,6 +354,15 @@ verified, none of which any lane owned:
    is exactly the recurring "merged ≠ live" pain.
 7. **The PWA manifest is wrong-brand** — still `"Tegridy Farms"`, `"Art-first yield farming on
    Ethereum"` — on a project that spent 20 items this sweep on honesty debt.
+   > **Half-closed 2026-08-19.** The *description* was the factually wrong half — the app is
+   > not single-chain and not farming-only — and both `public/manifest.json` and
+   > `public/manifest.webmanifest` now carry the same wording `index.html` already ships to
+   > crawlers. The *name* is a branding decision and is left alone: "Tegridy Farms" is still
+   > what `<title>`, the OG tags and the JSON-LD say, while the canonical domain is
+   > memetic.fun, so changing one file would have made the install name disagree with the
+   > tab title instead of agreeing with it. Flagged for the operator in
+   > `docs/OPERATOR_NEXT.md`; both manifest files must move together, because
+   > `index.html` links the `.webmanifest` and the e2e suite fetches the `.json`.
 8. **`frontend/src/nakamigos/` is the largest unswept surface** — 177 files, 52,530 LOC, ~26% of
    `frontend/src`, a live marketplace handling **signed Seaport orders**, and it appears in the
    211 items exactly once. Named as unswept, not as buggy — nobody looked.

@@ -4,6 +4,8 @@ Researched 2026-08-17. Companion to [YEAR_PLAN_2026_2027.md](YEAR_PLAN_2026_2027
 Method: six web-grounded research lanes (trading, yield, launch, credit, social, infra) + an adversarial revenue fact-check pass.
 Legend: NET+ = genuinely net-positive · DEBATABLE = real value, real harm · EXTRACTIVE = users in aggregate lose (included per request, flagged per house style) · ⚠ = house-law conflict/structural risk · effort S/M/L/XL = days/weeks/months/quarter+.
 
+**Build status, reconciled against the tree 2026-08-19.** This file ranks *opportunities*; it is not a record of what exists. Where work has started, the item carries a `Status:` line using `docs/BATTLE_PLAN.md`'s two markers — `✅ shipped` means the battle plan's Done-when is met in production, `🟡 in the tree` means merged and tested but not live, always with the gap named. Items without a status line have no implementation. Nothing in this list is `✅` yet; the revenue figures below are comparables from other venues, never this one's earnings.
+
 ## Tier S — The money printers
 
 _The twelve highest-revenue builds, ranked by verified comparables. Ten of twelve extend systems the repo already has._
@@ -17,16 +19,19 @@ _The twelve highest-revenue builds, ranked by verified comparables. Ten of twelv
    - Auto-migrate every graduated launch into the existing V2-fork DEX with locked LP — wiring, not new contracts.
    - Earns: 0.25% pool fee with 0.05% protocol take. PumpSwap: $608M annualized fees / $110M protocol revenue (CONFIRMED) — where pump.fun doubled its business.
    - Replaces: PumpSwap, Raydium graduation
+   - 🟡 **in the tree 2026-08-19 `477acb2b`** — disclosure only: the launch page now reads and shows where a launch really graduates and what that venue's fee line holds. The migrator contract is not written, so "auto-migrate into the existing V2-fork DEX" remains the whole build. Note the "wiring, not new contracts" framing is optimistic — it needs an immutable migrator and Whetstone's module whitelisting. See BATTLE_PLAN #2.
 
 **3. Ultra-Mode swap fee layer** — NET+ · effort S
    - Default best-execution mode — gasless, MEV-protected, simulated — with a disclosed 0.25–0.5% convenience fee; the raw 0-fee route stays available.
    - Earns: MetaMask took $198.6M cumulative at 0.875% without even best-price routing (CONFIRMED; run-rate caveat ~$51M/yr). Purest extension of what exists.
    - Replaces: MetaMask Swaps, Jupiter Ultra
+   - 🟡 **in the tree 2026-08-18 `2840ce4f`, charging nothing.** The policy layer and the disclosure line exist and are off by default; one of six provider fee legs is fed. "Purest extension of what exists" understates the gap: aggregator quotes are used for comparison and the swap executes through the venue's own router, so a collection path has to be decided before a rate means anything. See BATTLE_PLAN #3.
 
 **4. First-party Solana bonding-curve launchpad** — DEBATABLE · effort M
    - Deploy the already-written curve program as the venue's own pump.fun-class launchpad, Heat-gated, keeping the whole fee instead of the Meteora split.
    - Earns: 1% curve trade fee + creation fee. pump.fun: $800M+ cumulative by Sep 2025, record ~$148M month (audit-corrected figure).
    - Replaces: pump.fun, LetsBonk, Moonshot
+   - ⚠ **Correction: "already-written" is true, "already-deployed" is not.** Both program ids from the 2026-08-08 deploy — the curve and its cp-swap graduation venue — were **closed on mainnet 2026-08-13**; their ProgramData accounts are gone, the ids can never be redeployed, and ~8.2M lamports are permanently stranded (`docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md`). This is a fresh deploy at fresh ids carrying the ~15 scheduled audit fixes, not a switch-flip. Client-side, the four pre-redeploy decode bugs are fixed (2026-08-18 `21835d1d`, `0fbbf2a4`). See BATTLE_PLAN #4.
 
 **5. Telegram trading bot** — DEBATABLE ⚠ custody risk · effort L
    - Trojan-class TG + PWA bot on venue routing with inline scanner + Heat warnings. Non-custodial session-key design only — the custody attack surface is the house-law conflict.
@@ -37,6 +42,7 @@ _The twelve highest-revenue builds, ranked by verified comparables. Ten of twelv
    - Market-cap-scaled trading-fee share to launch creators, claimable in ETH/SOL, printed on the fact sheet — the anti-rug income stream.
    - Earns: Venue keeps 30–50% of a larger fee base. pump.fun has paid creators $350M+ (CONFIRMED) — proof it drives launch volume, not charity.
    - Replaces: pump.fun creator dash, Believe
+   - 🟡 **in the tree 2026-08-19 `fe59fc63`, share defaulting to 0, EVM only.** It landed as a launch-time shift of the fee constitution rather than a claimable accrual, so "claimable in ETH/SOL" and "market-cap-scaled" are both unbuilt — those need a splitter contract and indexed FDV. The fact-sheet component exists but is imported nowhere. See BATTLE_PLAN #6.
 
 **7. Copy-trading engine** — DEBATABLE · effort L
    - Follow smart-money wallets surfaced by the deployer-reputation graph and indexer leaderboards, with size caps, slippage guards, and honest latency labeling.
@@ -92,6 +98,7 @@ _Completes the launch-to-graduation economy and the yield stack — where the He
    - Keeper-executed stop-loss, take-profit, trailing, and OCO on any spot token, both chains — extending the live CoW limit orders.
    - Earns: 0.1% per triggered execution (Jupiter Trigger's rate). Stop-losses are straightforwardly protective.
    - Replaces: Jupiter Trigger, BullX auto-sell
+   - 🟡 **in the tree 2026-08-19 `fe59fc63`** — the CoW/Safe path only. "Both chains" and "any spot token" are the parts that need the venue's own keeper (F4), which does not exist, so every EOA and every trailing stop renders as explicitly unarmed. The tab is also not mounted on any page yet. See BATTLE_PLAN #16.
 
 **17. MEV recapture auction** — NET+ · effort L
    - Searchers bid for the right to backrun venue order flow; ~90% rebated to users, the rest is revenue. Turns invisible extraction into rebates.
@@ -142,16 +149,19 @@ _Completes the launch-to-graduation economy and the yield stack — where the He
    - Creator's fee share escrowed for N days; auto-refunds curve buyers pro-rata if deployer wallets dump within the window. Creator-funded, never venue-underwritten — a net-new category and the purest expression of the wedge.
    - Earns: 5–10% of escrowed premiums + launch-share gains from trust. No direct comparable exists (honest gap).
    - Replaces: nothing — net-new category
+   - 🟡 **in the tree 2026-08-19 `206b4dc6`, deployed nowhere, no front end.** The escrowed asset is the creator's own ETH rather than their accrued fee share, and the trigger is a chain-provable held-share covenant published at open, not a dump detector and not any signed attestation. The venue fee dial ships at zero. See BATTLE_PLAN #26.
 
 **27. Anti-snipe decaying-tax mode** — NET+ · effort M
    - Optional launch format: tax starts ~99% and decays to baseline over ~90 minutes, making block-zero sniping unprofitable; proceeds split to veTOWELI + creator.
    - Earns: Venue keeps ~25% of collected tax + standard fees. Virtuals ($39.5M cumulative revenue) pioneered the pattern.
    - Replaces: Virtuals Unicorn, anti-snipe subscriptions
+   - 🟡 **in the tree 2026-08-19 `206b4dc6`, deployed nowhere.** Two corrections to the line above: it is a *pool* fee, not a token tax (a token tax is what the launcher gate disqualifies), and the venue keeps none of it — the hook holds no funds and never transfers, so v4 credits the elevated fee to in-range liquidity. Do not build a splitter against the ~25% figure without re-deciding the mechanism. See BATTLE_PLAN #27.
 
 **28. Vesting & lock rails** — NET+ · effort M
    - Sablier-fork streams wired into every launch flow: team allocations and LP provably locked, status printed on fact sheets and read by the scanner.
    - Earns: 0.25% of streamed value + per-claim fees. Honest: Sablier itself earns ~$36K/yr — the value here is trust and launch share, not direct fees.
    - Replaces: Sablier, Streamflow, Team.finance
+   - 🟡 **in the tree 2026-08-18 `fd706689` + 2026-08-19 `b9ff0c17`, deployed nowhere.** No Sablier anywhere: what shipped is an OZ `VestingWallet` factory plus a house lock vault, joined by a single read for the gate. The "read by the scanner" half is unmet — the launcher's lock resolver is still unfilled, so the Tier-L checks continue to use conservative defaults. See BATTLE_PLAN #28.
 
 **29. Afterlife buyback flywheel** — NET+ · effort M
    - Every graduated token gets an optional flywheel address: inflows auto-market-buy and burn (or LP) via the native DEX — transparent, rules-based support instead of dev promises.
@@ -342,6 +352,7 @@ _Everything a crypto person currently leaves the venue to do: infra, APIs, portf
    - Self-serve Merkle-claim distributor with Heat-score and holder-snapshot targeting — a unique anti-sybil upsell.
    - Earns: ~$1–2 per claim (Sablier charges $1.99); memecoin airdrops run 10K–500K claimants.
    - Replaces: Sablier Airdrops, Disperse
+   - 🟡 **in the tree 2026-08-18 `fd706689` + 2026-08-19 `b9ff0c17`, deployed nowhere.** Targeting is a client-side CSV, not a holder snapshot and not Heat-filtered, so the anti-sybil upsell this item is ranked for does not exist yet — it needs the indexer. See BATTLE_PLAN #65.
 
 **66. P2P OTC escrow desk** — NET+ · effort S
    - Extend the built P2P trade module to large token blocks with on-chain escrow — kills the Telegram-middleman scam economy.

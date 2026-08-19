@@ -70,6 +70,7 @@ const TRUST_LINKS: { to: string; label: string }[] = [
   { to: '/scan', label: 'Token Scanner' },
   { to: '/deployer', label: 'Deployer Graph' },
   { to: '/exposure', label: 'Wallet Exposure' },
+  { to: '/developers', label: 'Developer API' },
 ];
 
 export function Footer() {

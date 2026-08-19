@@ -24,6 +24,13 @@
     "deployments that still custody user positions. A guard that can only ever discover addresses the",
     "frontend already imports cannot notice a missing entry, which is the one thing it was for.",
     "",
+    "SOLANA CLOSURE IS NOT VISIBLE FROM THE PROGRAM ACCOUNT. `solana program close` deletes the",
+    "ProgramData account and leaves the program stub executable-flagged, so `expect.type: executable`",
+    "keeps passing for a program that can never run again. Any program id whose closure this registry",
+    "asserts must therefore ALSO carry its ProgramData address as its own entry with",
+    "`expect.type: absent`, which verify-addresses.mjs enforces unconditionally. Without that second",
+    "entry the closure is a sentence; with it, CI reads the chain.",
+    "",
     "WHAT MUST NEVER GO IN THIS FILE: private keys, seed phrases, or the FILESYSTEM PATHS of keyfiles.",
     "This repository is PUBLIC. Key custody is tracked in an operator-local file that is not committed;",
     "the 'custody' field here says WHO controls a key, never WHERE it is stored."
@@ -55,33 +62,49 @@
     {
       "id": "deploy-authority",
       "address": "Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7",
-      "role": "Program deploy authority for the own-venue mainnet deploy. Pays rent for cp-swap + tegridy-launch, then MUST hand upgrade authority to the Squads multisig (MAINNET_RUNBOOK §4).",
+      "role": "Program deploy authority for the own-venue mainnet deploy of 2026-08-08. Both programs it deployed were closed on 2026-08-13, so it currently authorises nothing; it is kept registered because it is still the key a restart would deploy from, and because losing it is how this registry started.",
       "custody": "single key, operator-held. No seed phrase — generated --no-bip39-passphrase --silent, so the keyfile IS the backup.",
-      "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale. This is a BLOCKER, not bookkeeping: this key is the deployer::ID baked into the live tegridy-launch binary (proven by byte-searching the deployed bytecode — see scripts/verify-program-constants.mjs), so it is the ONLY signer that can ever call initialize_global; and #281 makes it cp-swap's admin::ID, where it must both SIGN AND PAY for create_amm_config (`payer = owner`). Graduation therefore needs this wallet funded even after the cp-swap upgrade ships. It deployed both programs 2026-08-08 (8.41 SOL of rent); upgrade authority has since moved to squads-vault. NO SEED PHRASE EXISTS — the keyfile is the only backup.",
+      "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale; the text after that called the empty balance a graduation BLOCKER, which stopped being true on 2026-08-13 when both programs were closed — there is no initialize_global left to call and no cp-swap upgrade left to ship. What remains true: it deployed both programs 2026-08-08 (8.41 SOL of rent, not recovered to any address this registry knows), and NO SEED PHRASE EXISTS — the keyfile is the only backup.",
       "expect": { "type": "wallet", "funded": true }
     },
     {
       "id": "cp-swap-program",
       "address": "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y",
       "role": "cp-swap program address (Raydium CPMM fork). Keypair claims the address at first deploy; inert afterwards.",
-      "custody": "single key, operator-held. Upgrade authority is squads-vault as of the 2026-08-08 deploy.",
-      "status": "live, DEPLOYED to mainnet 2026-08-08 (4.815 SOL rent). Bytecode sha256 matches its CI artifact — which proves the build is reproducible, NOT that its constants are right. Its AmmConfig does NOT exist: the deployed binary's admin::ID is the Squads MULTISIG account, which can neither sign nor pay the AmmConfig rent, so create_amm_config is uncallable and no Squads transaction can fix it. #281 corrects admin::ID in SOURCE to deploy-authority Dcjink4RG…; the fix is not live until the program is UPGRADED. Confirm with `node scripts/verify-program-constants.mjs --deployed 3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` — if Dcjink4RG… reports ABSENT, the upgrade has not happened.",
+      "custody": "nobody. Upgrade authority went to squads-vault on the 2026-08-08 deploy and became meaningless when the ProgramData was closed — there is no account left for an authority to act on.",
+      "status": "CLOSED ON MAINNET 2026-08-13. Its ProgramData account 6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF returns null with 0 lamports on two independent RPCs (verified 2026-08-15, docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). The 1,141,440-lamport stub is still executable-FLAGGED, which is why `expect.type: executable` below still passes and is not evidence of anything: a program whose ProgramData is gone cannot execute, and Solana will not let a closed program id be redeployed. This program id is SPENT. Deployed 2026-08-08 (4.815 SOL rent); the #281 admin::ID correction can never be applied to it, and any restart needs a new id, a new declare_id! and re-derivation of every PDA the fork owns.",
       "expect": { "type": "executable" }
     },
     {
       "id": "tegridy-launch-program",
       "address": "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED",
       "role": "tegridy-launch bonding-curve program address. Separate program, separate deploy.",
-      "custody": "single key, operator-held. Upgrade authority is squads-vault as of the 2026-08-08 deploy.",
-      "status": "live, DEPLOYED to mainnet 2026-08-08 (3.581 SOL rent) and INITIALIZED. Bytecode sha256 matches its CI artifact. Graduation venue is still unset, so migrate_to_amm fails AmmNotConfigured (6015) until update_global names the cp-swap program and its AmmConfig.",
+      "custody": "nobody. Upgrade authority went to squads-vault on the 2026-08-08 deploy and became meaningless when the ProgramData was closed.",
+      "status": "CLOSED ON MAINNET 2026-08-13. Its ProgramData account 6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS returns null with 0 lamports on two independent RPCs (verified 2026-08-15, docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). The executable-FLAGGED stub below is not evidence the program runs. This id is SPENT and cannot be redeployed. Deployed 2026-08-08 (3.581 SOL rent) and initialized; graduation never worked, because AmmNotConfigured (6015) was never cleared before the close.",
       "expect": { "type": "executable" }
+    },
+    {
+      "id": "tegridy-launch-programdata",
+      "address": "6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS",
+      "role": "The BPFLoaderUpgradeable ProgramData account behind tegridy-launch. Registered as a POSITIVE CONTROL for closure: the program stub stays executable-flagged after `solana program close`, so the only machine-checkable difference between a live program and a dead one is whether THIS account exists. `expect.type: absent` is enforced unconditionally by verify-addresses.mjs, so if anyone ever reports this rail live again, CI reads the account rather than the sentence.",
+      "custody": "none — the account does not exist",
+      "status": "closed 2026-08-13. Must stay absent; a non-null read here means the world changed and every doc citing the close needs re-verifying.",
+      "expect": { "type": "absent" }
+    },
+    {
+      "id": "cp-swap-programdata",
+      "address": "6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF",
+      "role": "The BPFLoaderUpgradeable ProgramData account behind the cp-swap fork. Same positive control as the entry above.",
+      "custody": "none — the account does not exist",
+      "status": "closed 2026-08-13. Must stay absent.",
+      "expect": { "type": "absent" }
     },
     {
       "id": "tegridy-launch-global",
       "address": "7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e",
       "role": "The tegridy-launch `global` singleton PDA, seeds [\"global\"]. Holds the parameters every FUTURE launch is created from: 1% trade fee, creator 48% / protocol 52%, 30 SOL virtual reserve, graduation target 11.621942308 SOL (the continuity target — it lists at 9999 bps of the final curve price), 0.25 SOL migration reserve. fee_recipient is squads-vault.",
       "custody": "program-derived — nobody holds a key for it. Its `authority` FIELD is the mutable admin and is currently deploy-authority; hand it to squads-vault with `update-global --new-authority`.",
-      "status": "live, initialized 2026-08-08. 723 bytes.",
+      "status": "STRANDED. Initialized 2026-08-08, 723 bytes, still holding 5,922,960 lamports of rent — owned by a program that was closed on 2026-08-13 and can never execute again. Nobody can sign for it and nobody can close it, so the rent is unrecoverable. Its parameters below describe launches that can no longer be created; they are kept as the record of what the rail was configured to do, not as live settings.",
       "expect": { "type": "program-owned" }
     },
     {
@@ -95,10 +118,10 @@
     {
       "id": "squads-vault",
       "address": "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
-      "role": "Squads vault PDA, index 0. Upgrade authority for both mainnet programs, and tegridy-launch's `global.fee_recipient`. It is NOT cp-swap's admin::ID and never has been — see the correction below. Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
+      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It is NOT cp-swap's admin::ID and never was — see the correction below. Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
       "custody": "PDA of the Squads multisig — no private key exists",
       "status": "live",
-      "correction": "This entry used to read 'Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID'. Both halves were wrong, and it is the exact confusion that bricked graduation. (a) The DEPLOYED cp-swap binary bakes the MULTISIG account EVGSnRZ… as admin::ID — a 495-byte Squads-program-owned account that can neither sign (v4 signs CPIs as the vault) nor be debited by the System Program, and `CreateAmmConfig` has `payer = owner`. So create_amm_config is uncallable and migrate_to_amm sits on AmmNotConfigured (6015). (b) The SOURCE fix (#281) repoints admin::ID at deploy-authority Dcjink4RG…, a plain system-owned wallet — still not this vault. (c) create_support_mint_associated_owner::ID is deliberately the multisig, left as-is because it is a pure OR-fallback. Settle which of these is in the live bytecode with `node scripts/verify-program-constants.mjs --deployed <program>`; it cannot be read from any account or explorer.",
+      "correction": "This entry used to read 'Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID'. Both halves were wrong, and it is the exact confusion that bricked graduation. (a) The cp-swap binary that WAS deployed baked the MULTISIG account EVGSnRZ… as admin::ID — a 495-byte Squads-program-owned account that can neither sign (v4 signs CPIs as the vault) nor be debited by the System Program, and `CreateAmmConfig` has `payer = owner`. create_amm_config was therefore uncallable and migrate_to_amm never got past AmmNotConfigured (6015). (b) The SOURCE fix (#281) repoints admin::ID at deploy-authority Dcjink4RG…, a plain system-owned wallet — still not this vault. (c) create_support_mint_associated_owner::ID is deliberately the multisig, left as-is because it is a pure OR-fallback. This correction is now history rather than a live hazard: both program ids were closed on 2026-08-13, `verify-program-constants.mjs --deployed` has no bytecode left to search, and the question it settled must be re-answered against whatever binary a restart actually deploys.",
       "expect": { "type": "wallet" }
     },
     {
