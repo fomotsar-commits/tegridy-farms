@@ -17,7 +17,7 @@
 // guessed here — keeping every line in this file grounded and unit-testable.
 
 import type { Address, Hex } from 'viem';
-import type { FeeConstitutionLine, VestingSchedule } from './factSheet';
+import type { FeeConstitutionLine, LaunchPricingDisclosure, VestingSchedule } from './factSheet';
 import type { RawTokenFacts } from './gate';
 import { DOPPLER_MAINNET } from './doppler.constants';
 
@@ -40,6 +40,8 @@ export interface CollectOptions {
   lockResolver?: LockResolver;
   /** Fee constitution is a launch-config input (what WE set), not read from the token. */
   feeConstitution?: FeeConstitutionLine[];
+  /** Same: how the venue's line was priced is config, and unreadable from the token. */
+  pricing?: LaunchPricingDisclosure;
 }
 
 // `cloneImplTarget` and its CLONE_LAYOUTS moved to api/_lib/record-core.js so the
@@ -193,6 +195,7 @@ export async function collectTokenFacts(
     ownerIsTimelock,
     liquidity,
     feeConstitution: opts.feeConstitution ?? [],
+    ...(opts.pricing ? { pricing: opts.pricing } : {}),
     vesting,
     vestingReadable: false,
     teamAllocationBps,

@@ -19,6 +19,7 @@ import type {
   FeeConstitutionLine,
   GateCheck,
   LaunchFactSheet,
+  LaunchPricingDisclosure,
   LaunchTier,
   LiquidityDisclosure,
   ResidualPower,
@@ -60,6 +61,13 @@ export interface RawTokenFacts {
   /** `readable: false` means the locker was never queried — see LiquidityDisclosure. */
   liquidity: { locked: boolean; locker: Address | null; unlockAt: number | null; readable?: boolean };
   feeConstitution: FeeConstitutionLine[];
+  /**
+   * How the venue's line of that constitution was priced. A LAUNCH-CONFIG input like
+   * `feeConstitution` itself — the on-chain collector cannot read it back, because the
+   * locker stores the resulting shares and not the dials that produced them. Omitted
+   * means the standard rate with neither pricing feature in force.
+   */
+  pricing?: LaunchPricingDisclosure;
   vesting: VestingSchedule[];
   /**
    * FALSE when the per-beneficiary schedules were never enumerated (the on-chain
@@ -335,6 +343,9 @@ export function buildFactSheet(raw: RawTokenFacts, cfg: GateConfig = defaultGate
     residualPowers: toResidualPowers(raw),
     liquidity: toLiquidityDisclosure(raw, cfg.now),
     feeConstitution: raw.feeConstitution,
+    // Carried only when there is something to carry, for the same digest-stability reason
+    // as the third states below: a standard-rate sheet hashes exactly as it did before.
+    ...(raw.pricing ? { pricing: raw.pricing } : {}),
     vesting: raw.vesting,
     // Both third states are carried ONLY in the negative. Spreading nothing in the
     // determinate case is what keeps `disclosuresDigest` identical to its pre-fix

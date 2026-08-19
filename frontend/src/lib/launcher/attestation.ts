@@ -200,6 +200,12 @@ export function canonicalDisclosuresJson(sheet: LaunchFactSheet): string {
       residualPowers: sheet.residualPowers,
       liquidity: sheet.liquidity,
       feeConstitution: sheet.feeConstitution,
+      // What set the venue's line. Folded in for the same reason as the constitution
+      // itself — it is a published claim about where the money goes, and a claim outside
+      // the digest is a claim nobody can check. Present only when a pricing feature was
+      // in force, and `canonicalize` drops absent keys, so a standard-rate sheet digests
+      // to exactly the 32 bytes it did before this field existed.
+      pricing: sheet.pricing,
       vesting: sheet.vesting,
       // The two third states are folded in as well, for the same reason as every other
       // field: a consumer recomputing this digest must be able to see that the sheet

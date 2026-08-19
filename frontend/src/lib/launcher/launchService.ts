@@ -29,6 +29,14 @@ import {
   isAllowedNumeraire,
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
+import {
+  pricingRefusal,
+  resolveLaunchPricing,
+  standardLaunchPricing,
+  tierReadingFromAudit,
+  venueLineBps,
+  type ResolvedLaunchPricing,
+} from './launchPricing';
 import { LOCKER_CLAIMER_ADDRESS } from '../constants';
 import { assertMayLaunch, HeatGateDenied } from '../heat/launchGate';
 import type { GateAuditRow } from '../heat/gateAudit';
@@ -211,6 +219,16 @@ export interface LaunchMapOptions {
   /** Override the default proceeds band (numeraire wei). */
   minProceeds?: bigint;
   maxProceeds?: bigint;
+  /**
+   * The launch's resolved price (Heat tier + creator revenue share). Resolve it ONCE from
+   * the Heat gate's own decision and pass the SAME object into the projected Fact Sheet
+   * and into this mapper, so the split shown before the signature is the split deployed by
+   * it. Omitted => today's standard rate, which is what every existing caller gets.
+   *
+   * `launchToken` re-checks this against a live reading before broadcasting, so a price
+   * that has since gone stale cannot be minted permanently.
+   */
+  pricing?: ResolvedLaunchPricing;
 }
 
 type ResolvedLine = FeeConstitutionLine & { address: Address };
@@ -284,7 +302,14 @@ export function resolveFeeConstitution(
   userAddress: Address,
   attentionSplits: readonly AttentionSplit[] = [],
   numeraire: Address = ETH_NUMERAIRE,
+  pricing: ResolvedLaunchPricing = standardLaunchPricing(),
 ): ResolvedLine[] {
+  // The venue's line is the ONLY thing pricing moves; whatever it gives up crosses to the
+  // creator-directed pool, so the 10000 total and the Doppler floor are identities rather
+  // than checks. Defaulting to `standardLaunchPricing()` makes every pre-existing caller
+  // (and every already-computed disclosure) byte-identical to before pricing existed.
+  const creatorPoolBps = CREATOR_ATTENTION_POOL_BPS + pricing.creatorBonusBps;
+
   // Validate the creator's carve-out: non-negative whole bps that don't over-allocate.
   let splitSum = 0;
   for (const s of attentionSplits) {
@@ -293,9 +318,9 @@ export function resolveFeeConstitution(
     }
     splitSum += s.shareBps;
   }
-  if (splitSum > CREATOR_ATTENTION_POOL_BPS) {
+  if (splitSum > creatorPoolBps) {
     throw new Error(
-      `Attention splits over-allocate the creator pool: ${splitSum} bps directed of ${CREATOR_ATTENTION_POOL_BPS} bps available.`,
+      `Attention splits over-allocate the creator pool: ${splitSum} bps directed of ${creatorPoolBps} bps available.`,
     );
   }
 
@@ -305,7 +330,11 @@ export function resolveFeeConstitution(
     if (line.role === 'protocol-stakers') {
       // Numeraire-aware sink + honest label (RevenueDistributor/ETH-yield vs Treasury/exotic).
       const sink = protocolFeeSink(numeraire);
-      fixedLines.push({ ...line, recipient: sink.recipient, address: sink.address });
+      // `pricing.venueBps` replaces the template's share rather than adjusting it, so the
+      // deployed line is the priced line and there is no second place it could be read
+      // from. At zero the line is dropped below with the other empty lines — a venue that
+      // keeps nothing must not appear in the locker as a beneficiary of nothing.
+      fixedLines.push({ ...line, shareBps: pricing.venueBps, recipient: sink.recipient, address: sink.address });
     }
     // Carries the Airlock owner + enforces the >=5% floor.
     else if (line.role === 'doppler') fixedLines.push(dopplerBeneficiaryLine(line.shareBps));
@@ -328,7 +357,7 @@ export function resolveFeeConstitution(
   resolved.push({
     recipient: 'Creator',
     role: 'creator',
-    shareBps: CREATOR_ATTENTION_POOL_BPS - splitSum,
+    shareBps: creatorPoolBps - splitSum,
     address: userAddress,
   });
   // Each creator-directed KOL/community beneficiary.
@@ -501,7 +530,7 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     numeraire,
     minProceeds: opts.minProceeds ?? defaultMinProceeds,
     maxProceeds: opts.maxProceeds ?? defaultMaxProceeds,
-    feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits, numeraire),
+    feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits, numeraire, opts.pricing),
     integrator: LAUNCHER_INTEGRATOR_ADDRESS,
     lockDurationSeconds: Math.round(w.lpLockMonths * MONTH_SECONDS),
     userAddress: opts.userAddress,
@@ -555,6 +584,23 @@ export async function launchToken(
       throw new LaunchError('heat-denied', e.message, { cause: e, broadcast: false });
     }
     throw e;
+  }
+
+  // THE PRICE MUST STILL BE EARNED AT THE MOMENT IT IS MINTED.
+  //
+  // The constitution in `cfg` was priced when the wizard read the door, and the locker
+  // makes it permanent the instant this transaction mines. So the discount is re-checked
+  // against the reading that JUST came back — not the one on a screen that has been open
+  // for ten minutes. `pricingRefusal` refuses in one direction only: a config claiming a
+  // deeper discount than the live reading supports. A config that keeps the venue's line
+  // at or above the live price deploys exactly what the creator was shown and is allowed
+  // through. A null gate row is the same as an unreadable instrument (fail-closed), and
+  // with both pricing dials off live and deployed are both the standard line, so this is
+  // inert on today's path.
+  const livePricing = resolveLaunchPricing(gateRow ? tierReadingFromAudit(gateRow) : null);
+  const refusal = pricingRefusal(venueLineBps(cfg.feeConstitution), livePricing);
+  if (refusal) {
+    throw new LaunchError('invalid-config', refusal, { broadcast: false });
   }
 
   const { DopplerSDK } = await import('@whetstone-research/doppler-sdk/evm');
