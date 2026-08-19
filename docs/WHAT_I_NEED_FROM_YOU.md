@@ -1,0 +1,135 @@
+# What I need from you
+
+Everything that could be built without you has been built. This is the list of things that
+**structurally cannot** be done by an agent — because they need a key, a credential, a payment,
+a human signature, a legal identity, or a decision that is yours to make.
+
+It is ordered so that each item unlocks the most work per minute you spend. Nothing here takes
+more than an hour except where marked.
+
+**Two rules that protect you, and one honest note.**
+1. I never type a secret into a field. Where a step involves a key, you set it yourself — never
+   paste it into a chat, including to me.
+2. I never change security settings on live infrastructure or sign anything that moves value.
+3. Some of this cannot be compressed. Audit firms have calendars, signers are people, and a
+   staking reserve runs down on its own schedule. Where a date matters, it is marked ⏰.
+
+---
+
+## Tier 0 — do these first (free, minutes each, unlock the most)
+
+### 0.1 Run the login change-set ⭐ the single biggest unlock
+**What:** eight `DROP POLICY` statements, then migration 014, in one Supabase SQL session.
+**Why it's first:** it turns on SIWE login, which gates the entire social tier — profiles, DMs,
+watchlists, votes, push notifications, and real analytics instead of events printed to the
+visitor's own console and discarded. It also closes a live write-side exposure on four user tables.
+**Steps, verification queries and the traps** are in [`OPERATOR_NEXT.md`](OPERATOR_NEXT.md) §A.
+**Already verified for you:** I ran the enumeration against your live database. All 21 permissive
+policies are accounted for — 8 are the targets, 4 are the deferred read-side, 9 are intentional
+public/service-role. The migration is safe exactly as written.
+**Tell me:** the row count when you re-run the enumeration afterward. It should be 13.
+
+### 0.2 Redeploy Vercel
+**Why:** several shipped fixes only take effect on a new build — the CSP that currently
+browser-blocks Pro Pass collection creation, the write-proxy repoint, and the analytics endpoint.
+`VITE_*` variables are baked in at build time, so setting one without redeploying changes nothing.
+
+### 0.3 Name the Safe topology
+**What:** pick **8 keys** (2-of-3 Admin / 2-of-3 Treasury / 1-of-2 Guardian — recommended),
+or **3 keys** (Admin only, self-held on three separate hardware devices).
+**Why it's free and urgent:** every previous attempt stalled at "we need 15 signers and have 3."
+The 15 is the problem, not the recruiting. Naming a reachable number unblocks the longest
+dependency chain in the repo: signer recruitment → Safe deployment → 18 ownership transfers →
+the audits, the governance un-gates, and the lending deploy that all wait behind it.
+
+### 0.4 Back up the deployer keystore + password, offline, two locations
+**Why:** `OwnableNoRenounce` disables renounce. Lose that one file before the ownership migration
+and **18 mainnet contracts become permanently unownable.** Cheapest item on this page, worst tail.
+
+### 0.5 Squads 2-of-2 → 2-of-3, and add a third Treasury Safe owner
+**Why:** a 2-of-2 cannot repair itself, and the repair is itself a 2-of-2 transaction — so it is
+only possible **while both keys still work**. Same argument on the Ethereum side.
+
+---
+
+## Tier 1 — one account, unlocks the largest revenue cluster
+
+### 1.1 Host the indexer (~$5–20/month)
+**What:** a Railway account, Postgres, deploy `indexer/`, put it behind a rate-limited proxy, set
+`VITE_INDEXER_URL` in Vercel.
+**Why:** it is the chokepoint under the trading terminal, leaderboards, copy-trading, portfolio and
+tax APIs — the biggest revenue cluster in the top-100 list. Everything client-side is already
+built and honesty-gated: with no URL set, every surface says "unavailable" rather than inventing a
+zero.
+**Runbook:** [`indexer/DEPLOY.md`](../indexer/DEPLOY.md) — env vars, the mandatory proxy (Ponder
+ships no auth and no rate limiting; the raw port must never be public), and bring-up.
+
+### 1.2 Set `MEMETICS_BIRTH_SECRET`
+**What:** a **server-side** Vercel variable (never `VITE_`, which would ship it to every browser),
+then redeploy.
+**Why:** production answers `503 no_secret`, so nothing launched on your venue is enrolled with the
+island and no launch accrues Heat from birth.
+**It must be the exact secret seacasa issued** — it is a shared HMAC key, and a self-generated
+value fails on their side where you cannot see it. After setting it, launch or replay a birth:
+`200 enrolled` means the key matches, `422` means the island rejected the signature, `503` means
+the variable never reached the deployment, `502` means their socket is down and says nothing about
+the key.
+
+### 1.3 Provision VAPID keys
+`npx web-push generate-vapid-keys`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+`VITE_VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` (currently pointing at a dead domain). Push
+notifications and the alerts product need these; nothing can subscribe until login works, so this
+follows 0.1.
+
+---
+
+## Tier 2 — decisions only you can make
+
+*(Filled in from the build spree — see "Decisions waiting on you" below.)*
+
+---
+
+## Tier 3 — external, long lead times, start early
+
+### 3.1 Send the Solana audit RFQ
+Written, never sent. Audit calendars — not engineering — are usually the schedule constraint, so
+this goes out before you think you need it. Fix `AUDIT_RFQ.md:107` first: it currently tells four
+firms nothing was ever deployed and nothing holds funds, and both are now false.
+
+### 3.2 Book the EVM firm audit — **after** the ownership migration
+Auditing a system whose admin model is about to change out from under the report wastes the report.
+
+### 3.3 Send the wave-three packet to seacasa
+Written, pushed, never handed over. Add the fifth question: **when will the island publish its
+attestation signing key, and at what route?** Without it the Heat gate stays advisory — anyone who
+reads the Airlock ABI can launch around it. It is the largest thing they owe you.
+
+### 3.4 The rest
+SEAL 911 / Safe Harbor registration (free, no dependencies) · Immunefi listing (fix the 404'd link
+in `AUDITS.md:178` first, and don't publish reward tiers a $61 treasury cannot honour) · DefiLlama
+listing (only after the pool deepen) · legal entity and tax scoping (nobody has been contacted, so
+nothing is pending on anyone's side).
+
+---
+
+## ⏰ Clocks that run whether or not you act
+
+| When | What | If missed |
+|---|---|---|
+| **~2026-10-11** | Staking reserve runway ends | Claims silently pay partial with IOUs — quieter than a revert and worse for trust |
+| **~Aug 2027** | `memetics.finance` renewal (registered 1 year, 2026-08-02) | A second production domain lapses while monitoring stays green |
+| Now → re-home | One EOA owns 18 contracts; one keystore, one machine | Loss is permanent unownability; compromise is everything |
+| Every day dark | Solana rail armed with zero launches; social layer off; governance idle | The wedge dulls while competitors compound |
+
+---
+
+## Things I deliberately did NOT do, and why
+
+- **Run your SQL.** Modifying security policies on a live database is not something I'll do even
+  when told not to ask. If I fat-finger a policy name or run the wrong section, you are the one who
+  has to notice and unwind it — and you can't do that if you weren't the one driving.
+- **Type any secret.** Birth secret, VAPID keys, RPC keys. I don't put credentials into fields.
+- **Deploy any contract, enable any fee, or wire any live address.** Everything new ships
+  zero-address-gated or flag-off, so switching it on is your decision and your signature.
+- **Merge the Solana segmented-mode removal.** It's sound and its client half has landed, but it
+  deletes a capability, so it waits on your sign-off — see "Decisions waiting on you".
