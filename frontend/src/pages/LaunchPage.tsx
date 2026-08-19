@@ -9,6 +9,7 @@ import { LaunchExplorer } from '../components/launcher/LaunchExplorer';
 import { GardenLane } from '../components/launcher/GardenLane';
 import { LaunchAfterlife } from '../components/launcher/LaunchAfterlife';
 import { LaunchRadar } from '../components/launcher/LaunchRadar';
+import { GraduationVenuePanel } from '../components/launcher/GraduationVenuePanel';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_TIERS,
@@ -563,6 +564,14 @@ export default function LaunchPage() {
           the fee split, the afterlife) was reaching nobody. Below the wizard so the
           four steps still lead the page. */}
       <LauncherExplainer />
+
+      {/* Graduation destination. Above the re-attestation panel because it answers the
+          question that panel presupposes — which venue the liquidity went to, on what
+          lock terms, and who collects that pool's fee. States plainly that graduation
+          runs through the external migrator today. */}
+      <div className="mt-12">
+        <GraduationVenuePanel />
+      </div>
 
       {/* Post-graduation re-attestation — the fully-verifiable fee disclosure, read
           from the graduated pool's StreamableFeesLocker. Distinct from the pre-launch

@@ -188,6 +188,16 @@ const AUTHORITY_IMMUTABLE = 1 as TokenAuthorityOption; // no mint / no update au
 const COLLECT_IN_QUOTE = 0 as CollectFeeMode; // fees accrue in the quote (SOL/USDC)
 const MIGRATE_TO_DAMM_V2 = 1 as MigrationOption;
 const MIGRATION_FEE_FIXED_100_BPS = 2 as MigrationFeeOption; // 1% post-migration pool fee
+
+/** Human name of the migration target `MIGRATE_TO_DAMM_V2` selects. Disclosure only. */
+export const MIGRATION_TARGET_LABEL = 'Meteora DAMM v2';
+/**
+ * The post-migration pool's trade fee, in bps, that `MIGRATION_FEE_FIXED_100_BPS`
+ * selects. Declared separately because the SDK constant is an ENUM ORDINAL (2), not a
+ * rate — publishing the ordinal as a fee would print "0.02%" over a 1% pool. Change both
+ * together if the migrationFeeOption ever changes.
+ */
+export const MIGRATED_POOL_FEE_BPS = 100;
 const ACTIVATION_TIMESTAMP = 1 as ActivationType;
 const FEE_SCHEDULER_EXPONENTIAL = 1 as BaseFeeMode.FeeSchedulerExponential;
 const FEE_SCHEDULER_LINEAR = 0 as BaseFeeMode.FeeSchedulerLinear;
@@ -444,7 +454,9 @@ export interface DbcPartnerConfig {
   feeSplit: TradingFeeSplit;
 }
 
-const DEFAULT_LIQUIDITY_DISTRIBUTION = {
+/** The LP split every launch gets unless the caller overrides it. Exported so a
+ *  disclosure surface prints the distribution this repo actually builds, not a copy. */
+export const DEFAULT_LIQUIDITY_DISTRIBUTION = {
   partnerPermanentLockedLiquidityPercentage: 100,
   partnerLiquidityPercentage: 0,
   creatorPermanentLockedLiquidityPercentage: 0,
