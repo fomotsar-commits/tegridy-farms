@@ -18,7 +18,7 @@ import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
-import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei, formatTimeAgo } from '../lib/formatting';
+import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
@@ -38,6 +38,8 @@ import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
+import { usePortfolio } from '../hooks/usePortfolio';
+import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -109,29 +111,17 @@ export default function DashboardPage() {
   const lpUsd = useMemo(() => price.isLoaded
     ? (lpPos.toweliAmount * price.priceInUsd) + (price.oracleStale ? 0 : lpPos.wethAmount * price.ethUsd)
     : 0, [lpPos.toweliAmount, lpPos.wethAmount, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
-  // F153: claimable legs shown elsewhere on this same page but previously omitted
-  // from Portfolio Value — pending ETH revenue + referral ETH (ETH-denominated,
-  // zeroed when the oracle is stale like the other ETH legs) and unsettled TOWELI.
-  const unsettledTotal = useMemo(() => Number(pos.unsettledFormatted) || 0, [pos.unsettledFormatted]);
-  const claimableUsd = useMemo(() => price.isLoaded ? (
-    (price.oracleStale ? 0 : (revenueStats.pendingRevenue + revenueStats.referralPending) * price.ethUsd) +
-    (unsettledTotal * price.priceInUsd)
-  ) : 0, [revenueStats.pendingRevenue, revenueStats.referralPending, unsettledTotal, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
-  const portfolioUsd = useMemo(() => price.isLoaded ? (
-    (walletToweli * price.priceInUsd) +
-    (stakedTotal * price.priceInUsd) +
-    (pendingTotal * price.priceInUsd) +
-    (price.oracleStale ? 0 : ethBal * price.ethUsd) +
-    lpUsd +
-    (lpPos.pendingRewards * price.priceInUsd) +
-    claimableUsd
-  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, lpUsd, lpPos.pendingRewards, claimableUsd, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
+  // The headline figure is no longer assembled here. It was a single sum over seven
+  // legs in which an unread leg and an empty leg were both `0`, and a stale ETH
+  // oracle silently marked the ETH-denominated legs to nothing — a portfolio that FELL
+  // by the user's ETH balance with only a chip beside it to explain the drop. The sum,
+  // the per-source availability, and the freshness model now live in usePortfolio, which
+  // withholds the total rather than shrinking it. See lib/portfolio/aggregate.ts.
+  const portfolio = usePortfolio();
 
-  // F155: manual refresh affordance + "updated Xs ago" stamp. The page already
-  // polls in the background; this gives the user an explicit re-read and a sense
-  // of data freshness. `nowTick` re-renders the relative label ~every 10s so the
-  // stamp doesn't sit stale between background polls.
-  const [lastRefreshed, setLastRefreshed] = useState(() => Math.floor(Date.now() / 1000));
+  // F155: manual refresh affordance + relative age stamp. The page already polls in the
+  // background; this gives the user an explicit re-read. `nowTick` re-renders the
+  // relative label ~every 10s so the stamp doesn't sit stale between background polls.
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [, setNowTick] = useState(0);
   useEffect(() => {
@@ -142,9 +132,8 @@ export default function DashboardPage() {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      await Promise.all([pos.refetchAll(), revenueStats.refetch()]);
+      await Promise.all([pos.refetchAll(), revenueStats.refetch(), portfolio.refetch()]);
     } finally {
-      setLastRefreshed(Math.floor(Date.now() / 1000));
       setIsRefreshing(false);
     }
   };
@@ -282,7 +271,9 @@ export default function DashboardPage() {
             Wrong network detected. Please switch to Ethereum Mainnet.
           </div>
         )}
-        {/* Header with Portfolio Value */}
+        {/* Page header. The portfolio figure lives in <UnifiedPortfolio/> below, which
+            owns both the number and the disclosure that qualifies it — they must not be
+            separable, so nothing here may render a total. */}
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
@@ -300,50 +291,17 @@ export default function DashboardPage() {
               </Link>
             </div>
           </div>
-          <div className="flex items-center gap-3 mt-2">
-            {price.isLoaded ? (
-              <AnimatedCounter value={portfolioUsd} prefix="$" decimals={2} className="stat-value text-2xl md:text-3xl text-white" />
-            ) : (
-              <Skeleton width={120} height={32} />
-            )}
-            <span className="text-white text-[13px]">Portfolio Value</span>
-            {/* F135: when the oracle is stale the ETH/WETH legs are zeroed out of
-                the total — flag it so the user doesn't read the drop as a real
-                portfolio loss. Reuses the "Stale" chip from the price card. */}
-            {price.isLoaded && price.oracleStale && (
-              <span
-                className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
-                title="ETH price oracle is stale — ETH-denominated value is temporarily excluded"
-              >
-                Stale · excl. ETH
-              </span>
-            )}
-            {/* F155: manual refresh + last-updated stamp. */}
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              aria-label="Refresh portfolio data"
-              title="Refresh"
-              className="text-white/55 hover:text-white transition-colors disabled:opacity-50"
-            >
-              <svg
-                className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
-                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-              >
-                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                <polyline points="21 3 21 9 15 9" />
-              </svg>
-            </button>
-            <span className="text-white/45 text-[10px]" aria-live="polite">updated {formatTimeAgo(lastRefreshed)}</span>
-          </div>
-          {/* F153: surface the claimable legs now folded into Portfolio Value. */}
-          {price.isLoaded && claimableUsd > 0.005 && (
-            <p className="text-white/50 text-[11px] mt-1">incl. {formatCurrency(claimableUsd)} claimable</p>
-          )}
         </m.div>
+
+        {/* One view over every tracked source, each reporting its own availability, and a
+            total that withholds itself rather than under-report. */}
+        <UnifiedPortfolio
+          sources={portfolio.sources}
+          total={portfolio.total}
+          summary={portfolio.summary}
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
+        />
 
         {/* Summary Stats */}
         <m.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
