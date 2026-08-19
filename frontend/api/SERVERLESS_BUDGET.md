@@ -55,6 +55,14 @@ into the 404.
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
 | `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
+| `airdrop` | `_lib/airdrop.js` | Airdrop manifest store: one claimant's own leaf + a server-generated proof; creator publish |
+
+`airdrop` is the one resource here whose absent branch is the security property. It has no
+endpoint that returns a campaign's recipient list, because a recipient list is a
+wallet-targeting database and there is no caller for whom the whole thing is the right
+answer. The two queries it makes against the entry table are shape-pinned by
+`api/_lib/__tests__/airdrop.test.js`: the tree rebuild selects no address column, and the
+claimant lookup is filtered to one address. Do not add a third.
 
 `alerts` is CRUD only and cannot ever be the evaluator: a serverless function runs only
 when something calls it, so nothing here can watch a rule while the user's tab is shut.

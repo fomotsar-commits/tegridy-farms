@@ -1,6 +1,5 @@
 import { getAddress, isAddress, isHex, type Address, type Hex } from 'viem';
-import { hashLeaf, type AirdropLeaf } from './leaf';
-import { buildMerkleTree, merkleProof, verifyMerkleProof } from './tree';
+import { hashLeaf, buildMerkleTree, merkleProof, verifyMerkleProof, type AirdropLeaf } from './core.js';
 
 /**
  * A campaign manifest: the claim list, its root, and a proof per row.
@@ -41,6 +40,23 @@ export interface CampaignManifest {
    * list is owed the criteria that excluded it, not just the verdict.
    */
   criteria?: string;
+  /**
+   * True when `rows` holds only the rows this client ASKED for, not the campaign.
+   *
+   * The hosted store (src/lib/merkle/manifestStore.ts) serves one claimant's leaf and
+   * never the list, so a manifest built from it has at most one row. Without this flag
+   * `rows.length` reads as the campaign size, and a claim surface would tell a wallet
+   * it is missing from "a list of 1 address". Anything that counts recipients must read
+   * `recipientCount` and anything that phrases a negative verdict must say who did the
+   * looking.
+   */
+  partial?: true;
+  /**
+   * How many addresses are in the WHOLE campaign, when that is known independently of
+   * `rows`. Set by the store path; absent on a pasted manifest, where `rows.length`
+   * already is the answer.
+   */
+  recipientCount?: number;
 }
 
 /**

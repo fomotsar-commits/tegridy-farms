@@ -1,23 +1,38 @@
 import { useMemo, useState } from 'react';
 import { useReadContracts } from 'wagmi';
-import { formatUnits, isAddress, type Address } from 'viem';
+import { formatUnits, isAddress, type Address, type Hex } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
+import { CHAIN_ID } from '../../lib/constants';
 import { useAirdropFactory } from '../../hooks/useAirdropFactory';
 import {
+  attachDistributor,
   buildCampaign,
   parseAllocationCsv,
+  publishManifest,
   serializeManifest,
   verifyManifest,
   type CampaignManifest,
+  type PublishResult,
 } from '../../lib/merkle';
 
 /**
- * Campaign creation: CSV in, merkle root out, funding last.
+ * Campaign creation: CSV in, merkle root out, hosting, funding last.
  *
  * The tree is built entirely in the browser. That is deliberate — a claimant has to be
  * able to rebuild the same root from the same list without trusting this site, and a
  * server-built tree would make that impossible to check.
+ *
+ * PUBLISHING HAPPENS BEFORE FUNDING, and that ordering is the whole point of the step.
+ * The store recomputes the root from the rows it actually stored and returns ITS number;
+ * the creator sees that number next to the browser's before signing anything. Both sides
+ * run src/lib/merkle/core.js, so agreement is expected — and a disagreement means one of
+ * them is describing a different list, which is exactly the thing you must not discover
+ * after the tokens are locked. Funding is blocked in that case and only in that case.
+ *
+ * Hosting is NOT a precondition for funding. If our store is down, the creator still has
+ * a real root and a real manifest, and a campaign they can run by publishing the JSON
+ * themselves. The surface says which of those two situations they are in.
  *
  * The builder works while the factory is undeployed. Computing a root needs no chain,
  * and a creator preparing a campaign ahead of the deploy ceremony is a real use; only
@@ -35,6 +50,10 @@ export function CampaignBuilder() {
   const [built, setBuilt] = useState<{ manifest: CampaignManifest; error: null } | { manifest: null; error: string } | null>(
     null,
   );
+  const [publishState, setPublishState] = useState<PublishResult | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [distributorInput, setDistributorInput] = useState('');
+  const [attachNote, setAttachNote] = useState<string | null>(null);
 
   const token = isAddress(tokenInput) ? (tokenInput as Address) : null;
 
@@ -63,15 +82,22 @@ export function CampaignBuilder() {
   const manifest = built?.manifest ?? null;
 
   /**
-   * Any edit to the inputs discards the built tree.
+   * Any edit to the inputs discards the built tree AND the publish result.
    *
    * Without this, a creator could build a root, edit the CSV, and be looking at a root
    * preview that no longer describes the list on screen — with a Create button under it
    * that would fund the stale root. Rebuilding is one click; showing a root that does
    * not match its list is not recoverable once the transaction lands.
+   *
+   * The publish result is cleared for the same reason and it is the more dangerous half:
+   * a stale "published" badge beside an edited list would claim we are hosting a
+   * manifest for a root nobody has funded, and the campaign that does get funded would
+   * have no list in our store at all.
    */
   function invalidate() {
     if (built !== null) setBuilt(null);
+    if (publishState !== null) setPublishState(null);
+    if (attachNote !== null) setAttachNote(null);
   }
 
   function handleBuild() {
@@ -92,6 +118,49 @@ export function CampaignBuilder() {
       setBuilt({ manifest: null, error: (e as Error).message });
     }
   }
+
+  async function handlePublish() {
+    if (!manifest) return;
+    setPublishing(true);
+    setAttachNote(null);
+    try {
+      const result = await publishManifest({
+        chainId: CHAIN_ID,
+        token: token,
+        criteria: criteria.trim() || null,
+        // Base units as decimal strings. A JSON number cannot carry a uint256, and an
+        // allocation silently rounded by IEEE-754 is a wrong allocation.
+        entries: manifest.rows.map((r) => ({ account: r.account, amount: r.amount.toString() })),
+      });
+      setPublishState(result);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleAttach() {
+    const storedRoot = publishState?.root;
+    if (!storedRoot || !isAddress(distributorInput)) return;
+    const result = await attachDistributor({
+      chainId: CHAIN_ID,
+      root: storedRoot as Hex,
+      distributor: distributorInput as Address,
+    });
+    setAttachNote(
+      result.ok
+        ? 'Recorded. Claimants can now find this list by the campaign address alone.'
+        : (result.detail ?? 'The campaign address was not recorded.'),
+    );
+  }
+
+  /**
+   * The store recomputed the root from the rows it stored. Anything other than exact
+   * agreement means the two sides are describing different lists, and the only safe
+   * response is to refuse to fund either of them. `null` while nothing is published —
+   * unknown, which is not the same as agreeing.
+   */
+  const storedRoot = publishState?.ok ? publishState.root : null;
+  const rootAgrees = manifest && storedRoot ? storedRoot.toLowerCase() === manifest.root.toLowerCase() : null;
 
   const windowSeconds = windowDays * 86_400;
   // `null` when the factory's bounds were not read. The form then says the value is
@@ -240,6 +309,123 @@ export function CampaignBuilder() {
         </section>
       )}
 
+      {/* ─── Hosting ─── */}
+      {manifest && (
+        <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <h2 className="text-white/85 font-semibold text-sm mb-1">Host the claim list</h2>
+          <p className="text-white/45 text-[12px] leading-relaxed">
+            Stores the list with us so claimants fetch their own leaf and proof instead of being handed the whole
+            recipient list as JSON. We serve one leaf per request and never the list — a full-list endpoint would be a
+            free wallet-targeting database for anyone who asked. This step happens before funding so you can compare the
+            root we computed against the one above.
+          </p>
+
+          <button
+            type="button"
+            className="btn-primary mt-3 px-4 py-2 text-[13px] disabled:opacity-40"
+            disabled={publishing || publishState?.ok === true}
+            onClick={() => void handlePublish()}
+          >
+            {publishing ? 'Publishing…' : publishState?.ok ? 'Published' : 'Publish the list'}
+          </button>
+
+          {publishState && (
+            <div
+              className={`mt-4 rounded-xl border p-4 ${
+                rootAgrees === false
+                  ? 'border-rose-500/30 bg-rose-500/[0.06]'
+                  : publishState.ok
+                    ? 'border-emerald-500/25 bg-emerald-500/[0.05]'
+                    : 'border-amber-500/25 bg-amber-500/[0.06]'
+              }`}
+            >
+              {publishState.ok ? (
+                <>
+                  <p className="text-white/70 text-[11px]">Root the store computed from the rows it stored</p>
+                  <p
+                    className={`font-mono text-[12px] break-all mt-1 ${
+                      rootAgrees === false ? 'text-rose-300/90' : 'text-emerald-300/90'
+                    }`}
+                  >
+                    {publishState.root}
+                  </p>
+                  {rootAgrees ? (
+                    <p className="text-white/55 text-[12px] mt-2 leading-relaxed">
+                      Identical to the root built in your browser. Both sides derived it from the same leaf encoding, so
+                      this is the root the distributor will pay against — and the number you are about to commit.
+                    </p>
+                  ) : (
+                    <p className="text-rose-200/90 text-[12px] mt-2 leading-relaxed font-semibold">
+                      This does NOT match the root built in your browser. One of the two is describing a different list.
+                      Do not fund either root — rebuild from your CSV and publish again. Funding is blocked below.
+                    </p>
+                  )}
+                  {publishState.meta && (
+                    <p className="text-white/45 text-[11px] mt-2 leading-relaxed">
+                      {publishState.meta.recipientCount} recipients stored.{' '}
+                      {publishState.meta.criteria
+                        ? 'Your selection criteria travel with the list and are printed on the claim page.'
+                        : 'No selection criteria were stored, so the claim page will say so to anyone it turns away.'}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-amber-200/90 text-[13px] font-semibold">
+                    {publishState.alreadyPublished ? 'This list is already hosted' : 'The list was not hosted'}
+                  </p>
+                  <p className="text-white/60 text-[12px] mt-1 leading-relaxed">{publishState.detail}</p>
+                  {publishState.operatorStep && (
+                    <p className="text-white/45 text-[11px] mt-2 leading-relaxed">
+                      <span className="text-white/60 font-semibold">Operator: </span>
+                      {publishState.operatorStep}
+                    </p>
+                  )}
+                  {!publishState.alreadyPublished && (
+                    <p className="text-white/50 text-[11px] mt-2 leading-relaxed">
+                      Your root above is still real and your campaign is still fundable — hosting is a convenience, not a
+                      precondition. Copy the manifest JSON and publish it yourself, or claimants will have nothing to
+                      prove a leaf against. A funded campaign whose list is nowhere is unclaimable by everyone.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {publishState?.ok && (
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <label htmlFor="airdrop-attach" className="block text-white/60 text-[12px] mb-1">
+                After funding: record the campaign address
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="airdrop-attach"
+                  value={distributorInput}
+                  onChange={(e) => setDistributorInput(e.target.value.trim())}
+                  placeholder="0x… the distributor createCampaign returned"
+                  className="flex-1 rounded-lg bg-black/40 border border-white/12 px-3 py-2 text-[12px] text-white/90 font-mono"
+                />
+                <button
+                  type="button"
+                  className="rounded-lg border border-white/15 px-3 py-2 text-[12px] text-white/80 hover:bg-white/5 disabled:opacity-40"
+                  disabled={!isAddress(distributorInput)}
+                  onClick={() => void handleAttach()}
+                >
+                  Record
+                </button>
+              </div>
+              <p className="text-white/40 text-[11px] mt-2 leading-relaxed">
+                Links the stored list to the deployed campaign so a claimant who has only the campaign address can find
+                it. An address already recorded for this root is never overwritten — repointing a root at a second
+                contract would send claimants somewhere their proof cannot be spent.
+              </p>
+              {attachNote && <p className="text-white/60 text-[12px] mt-2 leading-relaxed">{attachNote}</p>}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* ─── Funding ─── */}
       <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
         <h2 className="text-white/85 font-semibold text-sm mb-3">Fund the campaign</h2>
@@ -308,6 +494,10 @@ export function CampaignBuilder() {
                   !token ||
                   factory.paused === true ||
                   windowInRange === false ||
+                  // Blocked ONLY on an actual disagreement. `null` — nothing published —
+                  // is not a disagreement, and refusing to fund an unhosted campaign
+                  // would make our store an unannounced dependency of running one.
+                  rootAgrees === false ||
                   factory.isPending ||
                   factory.isConfirming
                 }
@@ -318,6 +508,18 @@ export function CampaignBuilder() {
                 2. Create campaign
               </button>
             </div>
+            {rootAgrees === false && (
+              <p className="text-rose-300/90 text-[12px] mt-3 leading-relaxed">
+                Creation is blocked: the root we stored and the root your browser built are not the same, so neither can
+                be trusted to describe your list. Rebuild and publish again.
+              </p>
+            )}
+            {rootAgrees === null && (
+              <p className="text-white/45 text-[12px] mt-3 leading-relaxed">
+                Nothing is hosted for this root yet. You can still fund the campaign, but claimants will need the
+                manifest JSON from you until the list is published.
+              </p>
+            )}
             <p className="text-white/40 text-[11px] mt-3 leading-relaxed">
               The factory pulls the funding straight through to a fresh, ownerless distributor and keeps no balance.
               After the window closes, whatever nobody claimed can be taken back by you and by nobody else.

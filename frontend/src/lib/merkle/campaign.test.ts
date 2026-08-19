@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getAddress, parseEther, type Address } from 'viem';
 import { buildCampaign, findRow, parseManifest, serializeManifest, verifyManifest } from './campaign';
-import { hashLeaf } from './leaf';
-import { buildMerkleTree } from './tree';
+import { hashLeaf, buildMerkleTree } from './core.js';
 
 // Lowercase throughout: viem's `isAddress` is checksum-strict by default, which is the
 // behaviour we want (a mixed-case address that fails EIP-55 is a transcription error,

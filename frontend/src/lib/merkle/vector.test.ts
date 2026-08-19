@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseEther, type Address, type Hex } from 'viem';
 import { buildCampaign, verifyManifest } from './campaign';
-import { hashLeaf } from './leaf';
-import { buildMerkleTree, merkleProof, verifyMerkleProof } from './tree';
+import { hashLeaf, buildMerkleTree, merkleProof, verifyMerkleProof } from './core.js';
 
 /**
  * THE CROSS-LANGUAGE VECTOR.

@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { pad, toHex, type Address } from 'viem';
 import { buildCampaign, verifyManifest } from './campaign';
-import { verifyMerkleProof } from './tree';
-import { hashLeaf } from './leaf';
+import { hashLeaf, verifyMerkleProof } from './core.js';
 
 /**
  * The size the build note actually asks for: a campaign with 1,000+ leaves.

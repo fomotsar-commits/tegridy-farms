@@ -315,6 +315,17 @@ export default async function handler(req, res) {
     return handleRecord(req, res);
   }
 
+  // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
+  // OWN leaf and proof, and a creator publishes the list before funding. There is
+  // deliberately no branch that returns the recipient list — an airdrop recipient list
+  // is a wallet-targeting database, so the capability does not exist rather than being
+  // permission-checked. Lazy import, same as the branches above; also above
+  // `const provider`. See _lib/airdrop.js.
+  if (req.query.resource === "airdrop") {
+    const { handleAirdrop } = await import("./_lib/airdrop.js");
+    return handleAirdrop(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

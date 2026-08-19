@@ -1,6 +1,6 @@
 import type { Address, Hex } from 'viem';
 import { findRow, type CampaignManifest, type CampaignRow } from './campaign';
-import { verifyMerkleProof } from './tree';
+import { verifyMerkleProof } from './core.js';
 
 /**
  * Why a wallet can or cannot claim — and, when the answer is unknown, the fact that it
@@ -105,10 +105,21 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
   const row = findRow(manifest, account);
   if (!row) {
     const criteria = manifest.criteria?.trim();
+    // The campaign's real size, never `rows.length`, which for a store-sourced manifest
+    // is the number of rows THIS PAGE asked for (at most one). Reporting that as the
+    // list size would tell a wallet it is missing from a list of one address.
+    const size = manifest.recipientCount ?? manifest.rows.length;
+    // A `partial` manifest means the hosted store did the looking and reported this
+    // account absent. Saying so is the difference between a verdict this page can
+    // stand behind and one it is repeating. Either way it is reached only because a
+    // list WAS read — a store that failed produces `manifest: null` above, not this.
+    const who = manifest.partial
+      ? `${account} is not among the ${size} addresses in the campaign's stored list.`
+      : `${account} does not appear in the loaded list of ${size} addresses.`;
     return result(
       'not-listed',
       'Not in this campaign',
-      `${account} does not appear in the loaded list of ${manifest.rows.length} addresses. ` +
+      `${who} ` +
         (criteria
           ? `The list was selected as: ${criteria}`
           : 'The campaign creator did not publish the selection criteria with this list.'),

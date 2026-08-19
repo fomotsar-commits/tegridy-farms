@@ -1,5 +1,11 @@
-export { hashLeaf, type AirdropLeaf } from './leaf';
-export { buildMerkleTree, merkleProof, verifyMerkleProof, type MerkleTree } from './tree';
+export {
+  hashLeaf,
+  buildMerkleTree,
+  merkleProof,
+  verifyMerkleProof,
+  type AirdropLeaf,
+  type MerkleTree,
+} from './core.js';
 export {
   buildCampaign,
   findRow,
@@ -11,6 +17,16 @@ export {
   type CampaignRow,
 } from './campaign';
 export { parseAllocationCsv, type CsvParseResult, type CsvRowError } from './csv';
+export {
+  fetchStoredProof,
+  publishManifest,
+  attachDistributor,
+  AIRDROP_STORE_ENDPOINT,
+  type ManifestStoreResult,
+  type ManifestStoreStatus,
+  type StoredManifestMeta,
+  type PublishResult,
+} from './manifestStore';
 export {
   evaluateEligibility,
   type EligibilityInput,
