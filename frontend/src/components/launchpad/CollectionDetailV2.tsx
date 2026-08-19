@@ -196,27 +196,27 @@ export function CollectionDetailV2({
                 href={explorerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-black/70 hover:text-black text-xs font-mono hover:underline"
+                className="text-white/70 hover:text-white text-xs font-mono hover:underline"
               >
                 {shortAddr}
               </a>
               {safeExternalLink ? (
                 <>
-                  <span className="text-black/30 text-xs mx-2">{'\u00B7'}</span>
+                  <span className="text-white/30 text-xs mx-2">{'\u00B7'}</span>
                   <a
                     href={safeExternalLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-black/70 hover:text-black text-xs hover:underline"
+                    className="text-white/70 hover:text-white text-xs hover:underline"
                   >
                     Project site {'\u2197'}
                   </a>
                 </>
               ) : rawExternalLink ? (
                 <>
-                  <span className="text-black/30 text-xs mx-2">{'\u00B7'}</span>
+                  <span className="text-white/30 text-xs mx-2">{'\u00B7'}</span>
                   <span
-                    className="text-black/40 text-xs cursor-not-allowed"
+                    className="text-white/40 text-xs cursor-not-allowed"
                     title="Project link uses an unsupported URI scheme and was hidden for safety."
                   >
                     Project site (link blocked)
@@ -325,7 +325,7 @@ export function CollectionDetailV2({
             </div>
             <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Phase</p>
-              <p className="text-black font-medium text-lg">{drop.phaseLabel}</p>
+              <p className="text-white font-medium text-lg">{drop.phaseLabel}</p>
             </div>
           </div>
 

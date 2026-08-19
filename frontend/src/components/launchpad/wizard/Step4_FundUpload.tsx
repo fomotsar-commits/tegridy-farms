@@ -42,37 +42,54 @@ export function Step4_FundUpload({
     state.rows.length * 512 + // metadata JSON overhead estimate
     2048;                     // contractURI + buffer
 
+  // A held quote only covers the folder it was priced against. Going back to
+  // Step 2 and adding images grows bytesToPay while quoteWei stays put, and the
+  // shortfall is only discovered after the funding tx has settled — mid-upload,
+  // with the user's ETH already spent. Quoting costs nothing, so anything but a
+  // quote known to cover the current payload is re-priced.
+  const quoteCoversPayload =
+    state.quoteWei !== null && state.quotedBytes !== null && state.quotedBytes >= bytesToPay;
+
   useEffect(() => {
-    if (phase === 'idle' && state.quoteWei === null) {
-      (async () => {
-        try {
-          const wei = await irys.quote(bytesToPay);
-          const buffered = wei + (wei * BigInt(FUNDING_BUFFER_BPS)) / 10_000n;
-          dispatch({ type: 'QUOTE_RECEIVED', wei: buffered });
-          setPhase('quoted');
-        } catch (e) {
-          setLocalErr((e as Error).message);
-          setPhase('error');
-        }
-      })();
-    } else if (phase === 'idle' && state.quoteWei !== null) {
-      // Hydrated from a draft with an existing quote — skip straight to quoted.
+    if (phase !== 'idle') return;
+    if (quoteCoversPayload) {
       setPhase('quoted');
+      return;
     }
+    (async () => {
+      try {
+        const bytes = bytesToPay;
+        const wei = await irys.quote(bytes);
+        const buffered = wei + (wei * BigInt(FUNDING_BUFFER_BPS)) / 10_000n;
+        dispatch({ type: 'QUOTE_RECEIVED', wei: buffered, bytes });
+        setPhase('quoted');
+      } catch (e) {
+        setLocalErr((e as Error).message);
+        setPhase('error');
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
   const handleFundAndUpload = async () => {
     if (!state.quoteWei) return;
+    // Refuse to spend against a quote that predates the current folder rather
+    // than funding short and failing mid-upload.
+    if (!quoteCoversPayload) {
+      setLocalErr('The upload cost is being re-quoted for the current files — try again in a moment.');
+      setPhase('idle');
+      return;
+    }
     setLocalErr(null);
     try {
-      // 1) Fund — only if we haven't already funded on a prior attempt. Irys
-      // balance persists per wallet, so re-funding is safe but costs an extra
-      // tx the user didn't expect; skipping matches user expectation on retry.
-      if (!state.fundTxId) {
+      // 1) Fund — skipped only when the earlier funding was sized for at least
+      // the current payload. Irys balance persists per wallet, so topping up is
+      // safe; it just costs a tx the user didn't expect on a plain retry.
+      const fundingCovers = state.fundedBytes !== null && state.fundedBytes >= bytesToPay;
+      if (!state.fundTxId || !fundingCovers) {
         setPhase('funding');
         const txId = await irys.fund(state.quoteWei);
-        dispatch({ type: 'FUND_SUCCESS', txId });
+        dispatch({ type: 'FUND_SUCCESS', txId, bytes: bytesToPay });
       }
 
       setPhase('uploading');
@@ -153,8 +170,11 @@ export function Step4_FundUpload({
         <p className="text-white/60 text-[11px] mt-1">
           Includes {FUNDING_BUFFER_BPS / 100}% buffer for surge pricing. Dust leftover stays
           in your Irys balance and can be reclaimed later.
-          {state.fundTxId && (
+          {state.fundTxId && state.fundedBytes !== null && state.fundedBytes >= bytesToPay && (
             <span className="text-emerald-400/80"> · Wallet already funded — retries skip funding.</span>
+          )}
+          {state.fundTxId && (state.fundedBytes === null || state.fundedBytes < bytesToPay) && (
+            <span className="text-amber-400/80"> · The file set grew since funding — a top-up tx is required.</span>
           )}
         </p>
       </ArtCard>

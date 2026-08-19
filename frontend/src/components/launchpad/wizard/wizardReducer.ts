@@ -33,7 +33,15 @@ export interface WizardState {
 
   // Step 4 upload artifacts ───────────────────────────────────────
   quoteWei: bigint | null;
+  // The byte total `quoteWei` was priced against. A quote is only spendable
+  // for the folder it was taken on: fund short of the real payload and the
+  // upload dies partway through, after the funding tx has already settled.
+  quotedBytes: number | null;
   fundTxId: string | null;
+  // Byte total the settled funding tx was sized for. Retries skip funding, so
+  // without this a payload that grew after funding would upload against a
+  // balance that can't cover it.
+  fundedBytes: number | null;
   imagesManifestId: string | null;
   metadataManifestId: string | null;
   contractUriId: string | null;
@@ -63,8 +71,8 @@ export type WizardAction =
   // F266: Step 2 also computes warnings ("N files not referenced in CSV"); carry
   // them on the same action so they reach the warning surface, not just errors.
   | { type: 'VALIDATION_ERRORS'; errors: string[]; warnings?: string[] }
-  | { type: 'QUOTE_RECEIVED'; wei: bigint }
-  | { type: 'FUND_SUCCESS'; txId: string }
+  | { type: 'QUOTE_RECEIVED'; wei: bigint; bytes: number }
+  | { type: 'FUND_SUCCESS'; txId: string; bytes: number }
   | { type: 'IMAGES_UPLOADED'; manifestId: string }
   | { type: 'METADATA_UPLOADED'; manifestId: string }
   | { type: 'CONTRACT_URI_UPLOADED'; txId: string }
@@ -93,7 +101,9 @@ export const initialState: WizardState = {
   validationWarnings: [],
   validationErrors: [],
   quoteWei: null,
+  quotedBytes: null,
   fundTxId: null,
+  fundedBytes: null,
   imagesManifestId: null,
   metadataManifestId: null,
   contractUriId: null,
@@ -158,9 +168,9 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       };
 
     case 'QUOTE_RECEIVED':
-      return { ...state, quoteWei: action.wei };
+      return { ...state, quoteWei: action.wei, quotedBytes: action.bytes };
     case 'FUND_SUCCESS':
-      return { ...state, fundTxId: action.txId };
+      return { ...state, fundTxId: action.txId, fundedBytes: action.bytes };
     case 'IMAGES_UPLOADED':
       return { ...state, imagesManifestId: action.manifestId };
     case 'METADATA_UPLOADED':

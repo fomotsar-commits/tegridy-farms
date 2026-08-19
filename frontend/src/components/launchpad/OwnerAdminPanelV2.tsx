@@ -5,9 +5,37 @@ import { parseEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../../lib/contracts';
 import { CHAIN_ID } from '../../lib/constants';
+import { safeParseEther } from '../../lib/safeParseEther';
 import { pageArt } from '../../lib/artConfig';
 import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
 import { ArtCard } from './launchpadShared';
+import { TypedConfirmation } from '../ui/TypedConfirmation';
+
+/** Whole non-negative integer, as typed. `type=number` still admits "1.5" and "1e3". */
+function safeWholeBigInt(value: string): bigint | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  try {
+    return BigInt(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+/** unix seconds ⇄ the local-time shape `datetime-local` requires. */
+function unixToLocalInput(unix: string): string {
+  const n = Number(unix);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n * 1000);
+  const pad = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function localInputToUnix(value: string): string {
+  if (!value) return '';
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? String(Math.floor(ms / 1000)) : '';
+}
 
 /// OwnerAdminPanelV2 — richer admin surface for TegridyDropV2 clones.
 /// Extends the legacy panel with V2-only controls:
@@ -32,7 +60,9 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   const [merkleRoot, setMerkleRoot] = useState('');
   const [mintPrice, setMintPrice] = useState('');
   const [maxPerWallet, setMaxPerWallet] = useState('');
-  const [phase, setPhase] = useState('0');
+  // null = follow the chain. The grid must not open on a phase the contract
+  // isn't in — that turns one stray click into a closed live mint.
+  const [phase, setPhase] = useState<string | null>(null);
   const [newOwner, setNewOwner] = useState('');
   const [dutchStartPrice, setDutchStartPrice] = useState('');
   const [dutchEndPrice, setDutchEndPrice] = useState('');
@@ -80,6 +110,8 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     ? (totalSupplyData as bigint) >= (maxSupplyData as bigint) && (maxSupplyData as bigint) > 0n
     : false;
   const canWithdraw = !isCancelled && (isClosed || soldOut);
+  const selectedPhase =
+    phase ?? (currentPhaseNum >= 0 && currentPhaseNum <= 3 ? String(currentPhaseNum) : '0');
 
   // F250: refetch in an effect, not the render body — `isSuccess` stays true
   // until the next tx, so a render-body refetch resolved → re-render → refetched
@@ -120,6 +152,13 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     return null;
   }, [dutchStartPrice, dutchEndPrice, dutchStartTime, dutchDuration]);
 
+  // A throw out of a click handler is caught by the page ErrorBoundary, not by
+  // anything that can tell the operator what was wrong with the field. Both
+  // inputs are `type=number`, which still admits "1e3" and "1.5" — values viem
+  // and BigInt reject by throwing.
+  const mintPriceWei = useMemo(() => safeParseEther(mintPrice), [mintPrice]);
+  const maxPerWalletBig = useMemo(() => safeWholeBigInt(maxPerWallet), [maxPerWallet]);
+
   const chainId = useChainId();
 
   const exec = useCallback((fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
@@ -146,7 +185,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between text-sm"
       >
-        <span className="text-black font-semibold tracking-wide uppercase text-[11px] flex items-center gap-2">
+        <span className="text-white font-semibold tracking-wide uppercase text-[11px] flex items-center gap-2">
           Owner Admin (V2)
           {isCancelled && (
             <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider"
@@ -161,7 +200,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
             </span>
           )}
         </span>
-        <m.span animate={{ rotate: open ? 180 : 0 }} className="text-black/50 text-xs">▼</m.span>
+        <m.span animate={{ rotate: open ? 180 : 0 }} className="text-white/50 text-xs">▼</m.span>
       </button>
 
       <AnimatePresence>
@@ -184,21 +223,41 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   Zone; the contract reverts on setMintPhase(CANCELLED). */}
               <AdminSection label="Mint Phase">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {PHASE_LABELS.slice(0, 4).map((label, i) => (
-                    <button key={label}
-                      className={`py-2 rounded-lg text-xs font-medium transition-all ${
-                        phase === String(i)
-                          ? 'bg-emerald-600 text-white shadow-[0_0_12px_-4px_rgba(16,185,129,0.4)]'
-                          : 'bg-black/60 text-white hover:text-white border border-white/25 hover:border-white/20'
-                      }`}
-                      onClick={() => setPhase(String(i))}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  {PHASE_LABELS.slice(0, 4).map((label, i) => {
+                    const isLive = currentPhaseNum === i;
+                    return (
+                      <button key={label}
+                        aria-pressed={selectedPhase === String(i)}
+                        className={`py-2 rounded-lg text-xs font-medium transition-all ${
+                          selectedPhase === String(i)
+                            ? 'bg-emerald-600 text-white shadow-[0_0_12px_-4px_rgba(16,185,129,0.4)]'
+                            : 'bg-black/60 text-white hover:text-white border border-white/25 hover:border-white/20'
+                        } ${isLive ? 'ring-1 ring-emerald-400/60' : ''}`}
+                        onClick={() => setPhase(String(i))}
+                      >
+                        {label}
+                        {isLive && <span className="block text-[9px] opacity-80">on-chain now</span>}
+                      </button>
+                    );
+                  })}
                 </div>
-                <ExecButton busy={busy} disabled={isCancelled} onClick={() => exec('setMintPhase', [Number(phase)])}>
-                  Set Phase
+                {/* A stray click here can close a live mint. The grid opens on
+                    the phase the contract is actually in, and the write is
+                    refused when it would be a no-op, so "Set Phase" is only
+                    ever reachable as a deliberate change. */}
+                <p className="text-[10px] text-white/60 mt-2">
+                  {currentPhaseNum >= 0
+                    ? `Contract is currently in ${PHASE_LABELS[currentPhaseNum] ?? 'an unknown phase'}.`
+                    : 'Current phase not read yet — the selection below is not confirmed against the contract.'}
+                </p>
+                <ExecButton
+                  busy={busy}
+                  disabled={isCancelled || currentPhaseNum < 0 || selectedPhase === String(currentPhaseNum)}
+                  onClick={() => exec('setMintPhase', [Number(selectedPhase)])}
+                >
+                  {selectedPhase === String(currentPhaseNum)
+                    ? 'Already in this phase'
+                    : `Set Phase → ${PHASE_LABELS[Number(selectedPhase)] ?? selectedPhase}`}
                 </ExecButton>
               </AdminSection>
 
@@ -268,8 +327,13 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     placeholder="0.05"
                     className={`${INPUT} font-mono text-xs`}
                   />
-                  <ExecButton busy={busy} disabled={isCancelled || !mintPrice}
-                    onClick={() => exec('setMintPrice', [parseEther(mintPrice)], { onSuccess: () => setMintPrice('') })}>
+                  {mintPrice !== '' && mintPriceWei === null && (
+                    <p role="alert" className="mt-1 text-[11px] text-red-400">
+                      Enter a plain decimal amount — no exponent notation, at most 18 decimals.
+                    </p>
+                  )}
+                  <ExecButton busy={busy} disabled={isCancelled || mintPriceWei === null}
+                    onClick={() => exec('setMintPrice', [mintPriceWei], { onSuccess: () => setMintPrice('') })}>
                     Set Price
                   </ExecButton>
                 </AdminSection>
@@ -281,8 +345,13 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     placeholder="5"
                     className={`${INPUT} font-mono text-xs`}
                   />
-                  <ExecButton busy={busy} disabled={isCancelled || !maxPerWallet}
-                    onClick={() => exec('setMaxPerWallet', [BigInt(maxPerWallet)], { onSuccess: () => setMaxPerWallet('') })}>
+                  {maxPerWallet !== '' && maxPerWalletBig === null && (
+                    <p role="alert" className="mt-1 text-[11px] text-red-400">
+                      Enter a whole number of tokens.
+                    </p>
+                  )}
+                  <ExecButton busy={busy} disabled={isCancelled || maxPerWalletBig === null}
+                    onClick={() => exec('setMaxPerWallet', [maxPerWalletBig], { onSuccess: () => setMaxPerWallet('') })}>
                     Set Cap
                   </ExecButton>
                 </AdminSection>
@@ -305,11 +374,14 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     placeholder="End (ETH)"
                     className={`${INPUT} font-mono text-xs`}
                   />
+                  {/* Stored as unix seconds — the contract's unit — but typed as
+                      a wall-clock time, because a hand-converted epoch is how an
+                      auction starts a month off by one digit. */}
                   <input
-                    type="number"
-                    value={dutchStartTime}
-                    onChange={(e) => setDutchStartTime(e.target.value)}
-                    placeholder="Start (unix)"
+                    type="datetime-local"
+                    aria-label="Dutch auction start time"
+                    value={unixToLocalInput(dutchStartTime)}
+                    onChange={(e) => setDutchStartTime(localInputToUnix(e.target.value))}
                     className={`${INPUT} font-mono text-xs`}
                   />
                   <input
@@ -319,6 +391,18 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     placeholder="Duration (sec)"
                     className={`${INPUT} font-mono text-xs`}
                   />
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-[10px] text-white/60">
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded border border-white/20 hover:border-white/40 transition-colors"
+                    onClick={() => setDutchStartTime(String(Math.floor(Date.now() / 1000) + 3600))}
+                  >
+                    Start in 1 hour
+                  </button>
+                  {dutchStartTime && (
+                    <span className="font-mono">unix {dutchStartTime}</span>
+                  )}
                 </div>
                 {dutchValidationError && (
                   <p role="alert" className="mt-2 text-[11px] text-red-400">
@@ -365,7 +449,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   onClick={() => exec('transferOwnership', [newOwner as `0x${string}`], { onSuccess: () => setNewOwner('') })}>
                   Initiate Transfer
                 </ExecButton>
-                <p className="text-[10px] text-black/60 mt-1">
+                <p className="text-[10px] text-white/60 mt-1">
                   New owner must call <code className="font-mono">acceptOwnership()</code> to complete.
                 </p>
               </AdminSection>
@@ -401,23 +485,21 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                 <p className="text-white/60 text-[11px] leading-relaxed mb-3">
                   Cancel the sale permanently. Buyers become eligible for refunds. Irreversible.
                 </p>
-                <button
-                  className="w-full py-2 rounded-lg text-xs font-medium border transition-colors disabled:opacity-40"
-                  style={{
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    borderColor: 'rgba(239, 68, 68, 0.35)',
-                    color: '#fca5a5',
-                  }}
-                  disabled={busy || isCancelled}
-                  onClick={() => {
-                    const ok = typeof window !== 'undefined' && window.confirm(
-                      'Cancel the sale? This cannot be undone.'
-                    );
-                    if (ok) exec('cancelSale');
-                  }}
-                >
-                  {isCancelled ? 'Already Cancelled' : 'Cancel Sale (Irreversible)'}
-                </button>
+                {isCancelled ? (
+                  <p className="text-[11px] text-red-300/80">Sale already cancelled.</p>
+                ) : (
+                  // window.confirm is one keypress from a dismissed dialog, and
+                  // this write is not reversible: it ends the sale and opens
+                  // refunds for every buyer.
+                  <TypedConfirmation
+                    phrase="CANCEL SALE"
+                    description="Cancelling ends the sale permanently and makes every buyer eligible for a refund. There is no way back."
+                    ctaLabel="Cancel Sale (Irreversible)"
+                    executeLabel="Cancel Sale"
+                    pending={busy}
+                    onConfirm={() => exec('cancelSale')}
+                  />
+                )}
               </div>
             </div>
           </m.div>

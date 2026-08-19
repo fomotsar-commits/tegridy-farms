@@ -2568,16 +2568,52 @@ function useTrackedPools() {
   return { pools, addPool, removePool };
 }
 
-function MyPoolsTab() {
+function MyPoolsTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
   const { pools: trackedPools, addPool, removePool } = useTrackedPools();
   const [newPoolAddr, setNewPoolAddr] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const publicClient = usePublicClient();
 
-  const handleAddPool = () => {
+  // A tracked address becomes a live money sink: PoolCard's deposit leg sends
+  // ETH to it. The factory has no isPool getter, so membership is proven the
+  // long way — ask the address which collection it serves, then ask the factory
+  // whether it lists that address for that collection. An EOA, a dead
+  // pre-relaunch pool, or an unrelated contract fails one of the two.
+  const handleAddPool = async () => {
     if (!isValidAddress(newPoolAddr)) return toast.error('Invalid pool address');
-    addPool(newPoolAddr);
+    if (!deployed || !publicClient) {
+      return toast.error('Pool factory unavailable — cannot verify this address right now.');
+    }
+    const candidate = newPoolAddr as Address;
+    setVerifying(true);
+    try {
+      const info = (await publicClient.readContract({
+        address: candidate,
+        abi: TEGRIDY_NFT_POOL_ABI,
+        functionName: 'getPoolInfo',
+      })) as readonly unknown[];
+      const collection = info[0] as Address;
+      const siblings = (await publicClient.readContract({
+        address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+        abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
+        functionName: 'getPoolsForCollection',
+        args: [collection],
+      })) as readonly Address[];
+      const registered = siblings.some((p) => p.toLowerCase() === candidate.toLowerCase());
+      if (!registered) {
+        toast.error('Not a pool from this factory — refusing to track it.');
+        return;
+      }
+    } catch {
+      toast.error('Could not verify this address as a pool — nothing was tracked.');
+      return;
+    } finally {
+      setVerifying(false);
+    }
+    addPool(candidate);
     setNewPoolAddr('');
-    toast.success('Pool added to tracking list');
+    toast.success('Pool verified against the factory and added to tracking');
   };
 
   if (!address) {
@@ -2620,7 +2656,9 @@ function MyPoolsTab() {
         <div className="p-5">
           <h4 className="text-sm font-semibold text-white mb-3">Track a Pool</h4>
           <p className="text-xs text-white mb-4">
-            Enter a pool address to track it. Pool ownership is verified on-chain.
+            {deployed
+              ? 'Enter a pool address. It is checked against the factory before it is tracked; owner controls unlock only when the pool’s on-chain owner is your connected wallet.'
+              : 'Tracking is unavailable until the pool factory address is set — an address cannot be checked against a factory that isn’t there.'}
           </p>
           <div className="flex gap-3">
             <input
@@ -2628,15 +2666,18 @@ function MyPoolsTab() {
               value={newPoolAddr}
               onChange={(e) => setNewPoolAddr(e.target.value)}
               placeholder="Pool address (0x...)"
-              className={`flex-1 ${inputClass}`}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddPool()}
+              disabled={!deployed}
+              className={`flex-1 ${inputClass} disabled:opacity-50`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleAddPool();
+              }}
             />
             <button
-              onClick={handleAddPool}
-              disabled={!isValidAddress(newPoolAddr)}
+              onClick={() => void handleAddPool()}
+              disabled={!deployed || verifying || !isValidAddress(newPoolAddr)}
               className="px-5 py-3 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 transition-colors text-white text-sm font-medium disabled:opacity-70 disabled:cursor-not-allowed flex-shrink-0"
             >
-              Track
+              {verifying ? 'Verifying…' : 'Track'}
             </button>
           </div>
         </div>
@@ -2796,7 +2837,7 @@ export function AMMSection() {
         >
           {activeTab === 'trade' && <TradeTab deployed={deployed} />}
           {activeTab === 'create' && <CreatePoolTab deployed={deployed} />}
-          {activeTab === 'pools' && <MyPoolsTab />}
+          {activeTab === 'pools' && <MyPoolsTab deployed={deployed} />}
         </m.div>
       </AnimatePresence>
     </div>

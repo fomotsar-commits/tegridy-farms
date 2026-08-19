@@ -103,7 +103,7 @@ export function PhaseIndicator({ current }: { current: number }) {
             </div>
             <span
               className={`text-[10px] uppercase tracking-wider label-pill ${
-                i === current ? 'text-black' : 'text-white'
+                i === current ? 'text-white' : 'text-white/50'
               }`}
             >
               {label}
@@ -282,7 +282,7 @@ export function CreatorRevenueDashboard({
 
   return (
     <ArtCard art={pageArt('launchpad-shared', 0)} opacity={1} overlay="none" className="mb-6">
-      <h3 className="text-black font-semibold tracking-wide uppercase text-[11px] mb-4">
+      <h3 className="text-white font-semibold tracking-wide uppercase text-[11px] mb-4">
         Creator Revenue Dashboard
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -317,7 +317,7 @@ export function LiveMintFeed({ dropAddress }: { dropAddress?: string }) {
 
   return (
     <ArtCard art={pageArt('launchpad-shared', 1)} opacity={1} overlay="none" className="mb-6">
-      <h3 className="text-black font-semibold tracking-wide uppercase text-[11px] mb-4">
+      <h3 className="text-white font-semibold tracking-wide uppercase text-[11px] mb-4">
         Live Mint Feed
       </h3>
       <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
@@ -339,7 +339,7 @@ export function LiveMintFeed({ dropAddress }: { dropAddress?: string }) {
                 <span className="text-white font-mono text-xs">{shortenAddress(mintRow.to)}</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-black/80 text-xs font-mono">x{mintRow.qty}</span>
+                <span className="text-white/80 text-xs font-mono">x{mintRow.qty}</span>
                 <span className="text-white text-[10px]">{blocksAgo(mintRow.blockNumber, tipBlock)}</span>
               </div>
             </div>
