@@ -167,8 +167,13 @@ surface reads "unavailable" rather than rendering zeros or a stale cache.
 
 ## 6. Known gaps (so silence is not mistaken for absence)
 
-- **Solana is not indexed at all.** Ponder is EVM-only. The `indexer-solana/`
-  leg described in the F1 plan does not exist yet.
+- **Solana is not indexed by THIS service and never will be** — Ponder is
+  EVM-only. The `indexer-solana/` leg is a separate Node process that writes
+  `solana_`-prefixed tables into this same Postgres; see
+  `indexer-solana/DEPLOY.md`. It is a second deploy on the same project, with
+  its own env and its own `/ready`. Nothing here needs changing for it, and
+  nothing here reports on it: a green `/ready` on this service says nothing
+  about whether Solana is being indexed.
 - **Factory governance is indexed as keyed timelock rows**
   (`timelockProposal`, `contract = "TegridyFactory"`), which say *that* a
   proposal is pending but not *which pair or token* it is about. The `key` is
