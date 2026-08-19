@@ -68,6 +68,14 @@ const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
 // Launch simulator — preview a token's distribution band + Fact-Sheet tier before
 // launching. Pure client-side, always usable (deliberately live before the launch rail).
 const LaunchSimulatorPage = lazy(() => import('./pages/LaunchSimulatorPage'));
+// Merkle airdrop campaigns (#65). AirdropFactory is undeployed, so the funding and
+// claim transactions are isDeployed()-gated in-page; the client-side tree builder is
+// not, because a root computed from a CSV needs no chain.
+const AirdropPage = lazy(() => import('./pages/AirdropPage'));
+// Vesting streams + lock viewer (#28). Each tab gates on its own contract address, so
+// a deployment that ships one rail before the other shows the live one and keeps
+// reporting "no data" for the other.
+const VestingPage = lazy(() => import('./pages/VestingPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -227,6 +235,8 @@ function AnimatedRoutes() {
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />
+        <Route path="airdrop" element={<Suspense fallback={<PageSkeleton />}><AirdropPage /></Suspense>} />
+        <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
