@@ -12,6 +12,7 @@ import { PublicKey } from '@solana/web3.js';
 import { browserCurveRpc, browserRpc, readMint, type SolanaRpc } from './rpc';
 import {
   BONDING_CURVE_SIZE,
+  GLOBAL_CONFIG_SIZE,
   PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -40,9 +41,8 @@ function curveBytes(over: { realSol?: bigint; complete?: boolean } = {}): Uint8A
   v.setBigUint64(112, 4_800n, true); // creator_fee_share_bps
   v.setBigUint64(120, 85_000_000_000n, true); // graduation_target_lamports
   v.setBigUint64(128, 1_000_000_000n, true); // migration_reserve_lamports
-  // 136..682 is the curve-mode snapshot (mode, both sqrt prices, segment_count and
-  // the fixed 16-slot segment array), all zero for a constant-product launch.
-  b[682] = over.complete ? 1 : 0;
+  b[136] = over.complete ? 1 : 0;
+  // 137..168 pool, 169 bump — zero here, which reads as "not migrated".
   return b;
 }
 
@@ -55,9 +55,8 @@ function curveBytes(over: { realSol?: bigint; complete?: boolean } = {}): Uint8A
  * reached.
  */
 function globalBytes(): Uint8Array {
-  // 723, not 186: the struct carries a fixed 16-slot segment array (state.rs:159-173)
-  // and `creator_fee_share_bps` sits second, shifting every offset below it by 8.
-  const b = new Uint8Array(723);
+  // 194: `creator_fee_share_bps` sits second, shifting every offset below it by 8.
+  const b = new Uint8Array(GLOBAL_CONFIG_SIZE);
   b.set([149, 8, 156, 202, 160, 252, 176, 217], 0);
   b.set(new PublicKey(MINT).toBytes(), 8); // authority
   b.set(new PublicKey(MINT).toBytes(), 40); // fee_recipient
@@ -73,7 +72,6 @@ function globalBytes(): Uint8Array {
   b.set(new PublicKey(MINT).toBytes(), 160); // amm_config
   b[192] = 0; // paused
   b[193] = 254; // bump
-  // 194..209 sqrt_price_start_x64, 210 segment_count, 211.. segments — all zero.
   return b;
 }
 

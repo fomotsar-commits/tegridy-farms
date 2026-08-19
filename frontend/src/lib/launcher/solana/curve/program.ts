@@ -109,6 +109,8 @@ export const CP_POOL_LP_MINT_SEED = seed('pool_lp_mint');
 export const CP_POOL_VAULT_SEED = seed('pool_vault');
 export const CP_OBSERVATION_SEED = seed('observation');
 export const CP_AMM_CONFIG_SEED = seed('amm_config');
+/** cp-swap `states/permission.rs:3`. Keyed by the account that PAYS the pool creation. */
+export const CP_PERMISSION_SEED = seed('permission');
 
 /**
  * ⚠ TESTING NOTE, not a runtime one. `findProgramAddressSync` hashes with
@@ -181,6 +183,22 @@ export function cpObservationPda(
   return pda([CP_OBSERVATION_SEED, poolState.toBytes()], cpSwapProgram);
 }
 
+/**
+ * `["permission", authority]` on cp-swap.
+ *
+ * `initialize_with_permission` derives it from its own `payer`
+ * (`initialize_with_permission.rs:154-161`), and `create_permission_pda` — an
+ * admin-only instruction pinned to cp-swap's compile-time `admin::ID` — is the
+ * only thing that can create one. So the account must EXIST for the authority
+ * that fronts the pool rent, and no client can conjure it.
+ */
+export function cpPermissionPda(
+  authority: PublicKey,
+  cpSwapProgram: PublicKey = CP_SWAP_PROGRAM_ID,
+): PublicKey {
+  return pda([CP_PERMISSION_SEED, authority.toBytes()], cpSwapProgram);
+}
+
 /** `["amm_config", be_u16(index)]` on cp-swap — note BIG-endian. */
 export function cpAmmConfigPda(index: number, cpSwapProgram: PublicKey = CP_SWAP_PROGRAM_ID): PublicKey {
   if (!Number.isInteger(index) || index < 0 || index > 0xffff) {
@@ -230,9 +248,6 @@ export const IX_DISCRIMINATOR = {
   buy: Uint8Array.from([102, 6, 61, 18, 1, 218, 235, 234]),
   sell: Uint8Array.from([51, 230, 133, 164, 1, 127, 131, 173]),
   migrateToAmm: Uint8Array.from([207, 82, 192, 145, 254, 207, 145, 223]),
-  // sha256("global:set_curve_segments")[..8]. Derived with the same routine that
-  // reproduces all six values above byte-for-byte, so it is checked, not guessed.
-  setCurveSegments: Uint8Array.from([87, 209, 71, 218, 186, 34, 79, 1]),
 } as const;
 
 /**
@@ -323,45 +338,133 @@ export const ALREADY_COMPLETE_CODE = 6005;
 // 1_000_000_000_000_000, far past `Number.MAX_SAFE_INTEGER`.
 
 /**
- * `8 + InitSpace(715)`. state.rs:107-174.
+ * ═══ THIS CLIENT TARGETS THE POST-REMOVAL PROGRAM ═══════════════════════════
  *
- * 715 = 186 for the fee/curve scalars + 529 for the segmented (Meteora-shaped)
- * curve — `sqrt_price_start_x64` (16) + `segment_count` (1) + `[Segment; 16]`
- * (16 x 32). This constant sat at 186 after the segmented fields were added to the
- * Rust struct, which made `decodeGlobalConfig` return `bad-length` for EVERY real
- * account: the live mainnet `global` is 723 bytes. Nothing caught it, because the
- * unit tests build their fixtures from this same constant — so the encoder and the
- * decoder agreed with each other and disagreed with the chain. Found by reading the
- * account back after `initialize_global` rather than trusting the send.
+ * Everything below describes `tegridy-launch` AFTER segmented ("Meteora-shaped")
+ * curve mode was taken out, on branch `claude/solana-segmented-removal`. The Rust
+ * under `solana/` on the branch this file sits on STILL HAS segmented mode, so the
+ * two disagree, deliberately. That is recorded here rather than left for someone to
+ * discover: a reader who diffs this module against the neighbouring `state.rs` will
+ * find a mismatch that is a bug in neither.
+ *
+ * What the removal changes, and what this module encodes:
+ *   • `BondingCurve` loses `mode`, both sqrt prices, `segment_count` and the fixed
+ *     `[Segment; 16]` array — 716 bytes down to 170.
+ *   • `set_curve_segments`, `CurveMode` and `CurveSegment` cease to exist.
+ *   • `create_launch` takes no instruction argument (the `mode: u8` is gone).
+ *   • `MigrateToAmm` gains a `creator` account and drives cp-swap's
+ *     `initialize_with_permission`, which needs a `permission` PDA.
+ *
+ * {@link UNVERIFIED} is the half of that which was NOT supplied by the verified
+ * layout table and had to be derived. It is exported so a surface can say so, and
+ * pinned by `program.test.ts` so the list cannot quietly shrink to nothing.
  */
-export const GLOBAL_CONFIG_SIZE = 723;
+export const POST_REMOVAL_PROGRAM = {
+  branch: 'claude/solana-segmented-removal',
+  /**
+   * VERIFIED against the branch's `state.rs` / `lib.rs` on 2026-08-18. Three of
+   * these were previously derived by analogy, and two of the three were WRONG —
+   * which is the argument for reading the struct rather than reasoning about it:
+   *
+   *   GlobalConfig = 194   derivation held; the segmented tail is gone.
+   *   creator @ 8          derived as "straight after `curve`" (6) by analogy with
+   *                        `Trade::creator`. It is declared after `wsol_mint`, and
+   *                        it is NOT `mut`.
+   *   permission @ 15      derived as "last in the cp-swap block" (23) by analogy
+   *                        with cp-swap's own `InitializeWithPermission`. The
+   *                        program declares it between `amm_config` and
+   *                        `amm_authority`. Mirroring the CPI callee instead of
+   *                        this program's own context shifted eight accounts.
+   *
+   * Either positional slip fails as a constraint error naming an account the
+   * caller never touched, which is why they are recorded rather than quietly fixed.
+   */
+  VERIFIED_AGAINST_BRANCH: '2026-08-18',
+  /**
+   * Still derived. Positional and offset decisions fail as confusing reverts
+   * rather than obvious errors, so anything not read off the Rust is named here
+   * instead of being presented as settled.
+   */
+  UNVERIFIED: [
+    // `initialize_with_permission.rs` seeds it from cp-swap's `payer`, and the
+    // migration authority is what fronts the pool rent today. The seed itself was
+    // read; that the authority is the right payer to key it by is the inference.
+    'the permission PDA is keyed by `migration_authority`',
+  ],
+} as const;
 
-/** `segmented.rs:MAX_SEGMENTS`. The array is fixed-width, so this bounds the count byte. */
-export const MAX_SEGMENTS = 16;
 /**
- * `8 + InitSpace(708)`. state.rs `BondingCurve`.
- *
- * 708 = 128 for `mint`/`creator`/the eight u64 scalars, plus 580 for the mode
- * snapshot — `mode` (1) + `sqrt_price_x64` (16) + `sqrt_price_start_x64` (16) +
- * `segment_count` (1) + `[Segment; 16]` (512) — plus `complete` (1), `pool` (32)
- * and `bump` (1).
- *
- * This sat at 162 — the size through `bump` of the struct BEFORE the segmented
- * fields and `creator_fee_share_bps` were added — which made `decodeBondingCurve`
- * answer `bad-length` for every account the program can write, so every launch
- * rendered as `unreadable`. The identical mistake had already been found and fixed
- * in `GLOBAL_CONFIG_SIZE` and was left standing in the sibling. It also understated
- * the curve PDA's rent floor by 554 bytes, in the permissive direction, which is the
- * half that does not fail closed: a "max sell" computed against it is too generous
- * and reverts on chain.
- *
- * ⚠ NOT pinned against a captured mainnet account, unlike `GLOBAL_CONFIG_SIZE`.
- * `getProgramAccounts` on the launch program returns EMPTY — no curve has ever been
- * created — so there are no real bytes to capture. The size is therefore derived
- * from the Rust field widths in `program.test.ts`, field by field, and must be
- * re-pinned against a real account the first time one exists.
+ * `GlobalConfig` byte offsets, post-removal. The decoder reads THROUGH this table
+ * rather than repeating the numbers, so the table and the decode cannot drift.
  */
-export const BONDING_CURVE_SIZE = 716;
+export const GLOBAL_CONFIG_LAYOUT = {
+  authority: 8,
+  feeRecipient: 40,
+  tradeFeeBps: 72,
+  creatorFeeShareBps: 80,
+  initialVirtualSol: 88,
+  initialVirtualToken: 96,
+  tokenTotalSupply: 104,
+  graduationTargetLamports: 112,
+  migrationReserveLamports: 120,
+  cpSwapProgram: 128,
+  ammConfig: 160,
+  paused: 192,
+  bump: 193,
+  size: 194,
+} as const;
+
+/**
+ * `8 + InitSpace(186)`.
+ *
+ * The live mainnet `global` is 723 bytes because it was written by the PRE-removal
+ * program, and the first 194 of those bytes are byte-identical to this layout —
+ * nothing before `bump` moved. `program.test.ts` decodes exactly that prefix of a
+ * captured mainnet account, which is the only real-bytes evidence available for any
+ * of these offsets.
+ *
+ * ⚠ A 723-byte account therefore now reads `bad-length`, correctly: the removal
+ * cannot be applied to a deployed program in place, and both program ids were
+ * recorded CLOSED on mainnet 2026-08-13, so a post-removal build means new ids and
+ * a freshly-allocated `global`.
+ */
+export const GLOBAL_CONFIG_SIZE = GLOBAL_CONFIG_LAYOUT.size;
+
+/**
+ * `BondingCurve` byte offsets, post-removal — the verified layout, transcribed
+ * whole. Same single-source rule as {@link GLOBAL_CONFIG_LAYOUT}.
+ */
+export const BONDING_CURVE_LAYOUT = {
+  mint: 8,
+  creator: 40,
+  virtualSolReserves: 72,
+  virtualTokenReserves: 80,
+  realSolReserves: 88,
+  realTokenReserves: 96,
+  tradeFeeBps: 104,
+  creatorFeeShareBps: 112,
+  graduationTargetLamports: 120,
+  migrationReserveLamports: 128,
+  complete: 136,
+  pool: 137,
+  bump: 169,
+  size: 170,
+} as const;
+
+/**
+ * `8 + InitSpace(162)`.
+ *
+ * NOT pinned against a captured account: `getProgramAccounts` on the launch program
+ * returns EMPTY — no curve has ever been created — so there are no real bytes to
+ * hold it against, and there will be none until a post-removal build is deployed.
+ * `program.test.ts` re-sums it from the field widths instead.
+ *
+ * This is also the number the curve PDA's rent floor is computed from. When it was
+ * wrong before, it was wrong in the PERMISSIVE direction — the half that does not
+ * fail closed, because a "max sell" measured against too small a floor is too
+ * generous and reverts on chain.
+ */
+export const BONDING_CURVE_SIZE = BONDING_CURVE_LAYOUT.size;
 
 /** `GlobalConfig`, state.rs:77-120. Describes FUTURE launches only — see {@link BondingCurve}. */
 export interface GlobalConfig {
@@ -390,12 +493,6 @@ export interface GlobalConfig {
   /** Blocks buys and graduation. Sells stay open (state.rs:116-118). */
   paused: boolean;
   bump: number;
-  /** Opening price of the segmented curve, Q64.64. Zero until `set_curve_segments`. */
-  sqrtPriceStartX64: bigint;
-  /** How many of the 16 segment slots are live. Zero => segmented mode unconfigured. */
-  segmentCount: number;
-  /** Exactly `segmentCount` entries; the unused tail slots are not returned. */
-  segments: readonly { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
 }
 
 /** `BondingCurve`, state.rs:123-166. One per launched token. */
@@ -424,21 +521,6 @@ export interface BondingCurve {
   graduationTargetLamports: bigint;
   /** Snapshotted, same reason. Buys are capped at target + THIS. */
   migrationReserveLamports: bigint;
-  /**
-   * Which pricing curve this launch runs, snapshotted at creation: 0 =
-   * ConstantProduct, 1 = Segmented (`CurveMode::from_u8`, state.rs). Any other byte
-   * is a value the program cannot write, so the decoder refuses rather than picking
-   * a curve on the caller's behalf.
-   */
-  mode: 0 | 1;
-  /** Current sqrt-price, Q64.64. Segmented mode only; zero on constant-product. */
-  sqrtPriceX64: bigint;
-  /** The price this launch OPENED at, Q64.64. Immutable, and the floor a sell may not price below. */
-  sqrtPriceStartX64: bigint;
-  /** How many of the 16 fixed slots are live. Zero on constant-product. */
-  segmentCount: number;
-  /** Exactly `segmentCount` entries; the zeroed tail slots are not returned. */
-  segments: readonly { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
   /** Terminal. Only `migrate_to_amm` writes it, in the same instruction that moves the liquidity. */
   complete: boolean;
   /** The cp-swap pool. All-zero until migration (state.rs:159-163). */
@@ -461,15 +543,6 @@ export type Decoded<T> = { ok: true; value: T } | { ok: false; reason: DecodeFai
 
 function readU64(v: DataView, offset: number): bigint {
   return v.getBigUint64(offset, true); // little-endian
-}
-
-/**
- * Borsh `u128` — two little-endian `u64` halves, low first. `DataView` has no
- * `getBigUint128`, and the halves must be recombined rather than added as Numbers:
- * a Q64.64 sqrt price routinely exceeds 2^53.
- */
-function readU128(v: DataView, offset: number): bigint {
-  return v.getBigUint64(offset, true) | (v.getBigUint64(offset + 8, true) << 64n);
 }
 
 function readPubkey(bytes: Uint8Array, offset: number): PublicKey {
@@ -499,37 +572,25 @@ export function decodeGlobalConfig(data: Uint8Array | null | undefined): Decoded
     return { ok: false, reason: 'wrong-discriminator' };
   }
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  // Offsets are +8 from where they were: `creator_fee_share_bps` sits between
-  // `trade_fee_bps` and `initial_virtual_sol` in the Rust struct (state.rs:117-125).
-  const paused = readBool(data, 192);
+  const G = GLOBAL_CONFIG_LAYOUT;
+  const paused = readBool(data, G.paused);
   if (paused === null) return { ok: false, reason: 'malformed' };
-  const segmentCount = data[210]!;
-  // A count past the fixed 16 slots would read off the end of the segment array.
-  // Refuse rather than return a truncated curve that quotes plausible-looking prices.
-  if (segmentCount > MAX_SEGMENTS) return { ok: false, reason: 'malformed' };
-  const segments = Array.from({ length: segmentCount }, (_, i) => ({
-    sqrtPriceUpperX64: readU128(v, 211 + i * 32),
-    liquidity: readU128(v, 211 + i * 32 + 16),
-  }));
   return {
     ok: true,
     value: {
-      authority: readPubkey(data, 8),
-      feeRecipient: readPubkey(data, 40),
-      tradeFeeBps: readU64(v, 72),
-      creatorFeeShareBps: readU64(v, 80),
-      initialVirtualSol: readU64(v, 88),
-      initialVirtualToken: readU64(v, 96),
-      tokenTotalSupply: readU64(v, 104),
-      graduationTargetLamports: readU64(v, 112),
-      migrationReserveLamports: readU64(v, 120),
-      cpSwapProgram: readPubkey(data, 128),
-      ammConfig: readPubkey(data, 160),
+      authority: readPubkey(data, G.authority),
+      feeRecipient: readPubkey(data, G.feeRecipient),
+      tradeFeeBps: readU64(v, G.tradeFeeBps),
+      creatorFeeShareBps: readU64(v, G.creatorFeeShareBps),
+      initialVirtualSol: readU64(v, G.initialVirtualSol),
+      initialVirtualToken: readU64(v, G.initialVirtualToken),
+      tokenTotalSupply: readU64(v, G.tokenTotalSupply),
+      graduationTargetLamports: readU64(v, G.graduationTargetLamports),
+      migrationReserveLamports: readU64(v, G.migrationReserveLamports),
+      cpSwapProgram: readPubkey(data, G.cpSwapProgram),
+      ammConfig: readPubkey(data, G.ammConfig),
       paused,
-      bump: data[193]!,
-      sqrtPriceStartX64: readU128(v, 194),
-      segmentCount,
-      segments,
+      bump: data[G.bump]!,
     },
   };
 }
@@ -542,44 +603,25 @@ export function decodeBondingCurve(data: Uint8Array | null | undefined): Decoded
     return { ok: false, reason: 'wrong-discriminator' };
   }
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  // Offsets are +8 from where they were through `graduation_target_lamports`
-  // (`creator_fee_share_bps` sits second among the snapshots), and everything from
-  // `complete` on moved by 554 — the width of the curve-mode snapshot.
-  const complete = readBool(data, 682);
+  const C = BONDING_CURVE_LAYOUT;
+  const complete = readBool(data, C.complete);
   if (complete === null) return { ok: false, reason: 'malformed' };
-  const modeByte = data[136]!;
-  // `CurveMode::from_u8` returns None for anything else, so the program cannot have
-  // written it. Refusing beats defaulting to constant-product and quoting a
-  // segmented launch on the wrong curve.
-  if (modeByte !== 0 && modeByte !== 1) return { ok: false, reason: 'malformed' };
-  const segmentCount = data[169]!;
-  // A count past the fixed 16 slots would read off the end of the segment array.
-  if (segmentCount > MAX_SEGMENTS) return { ok: false, reason: 'malformed' };
-  const segments = Array.from({ length: segmentCount }, (_, i) => ({
-    sqrtPriceUpperX64: readU128(v, 170 + i * 32),
-    liquidity: readU128(v, 170 + i * 32 + 16),
-  }));
   return {
     ok: true,
     value: {
-      mint: readPubkey(data, 8),
-      creator: readPubkey(data, 40),
-      virtualSolReserves: readU64(v, 72),
-      virtualTokenReserves: readU64(v, 80),
-      realSolReserves: readU64(v, 88),
-      realTokenReserves: readU64(v, 96),
-      tradeFeeBps: readU64(v, 104),
-      creatorFeeShareBps: readU64(v, 112),
-      graduationTargetLamports: readU64(v, 120),
-      migrationReserveLamports: readU64(v, 128),
-      mode: modeByte,
-      sqrtPriceX64: readU128(v, 137),
-      sqrtPriceStartX64: readU128(v, 153),
-      segmentCount,
-      segments,
+      mint: readPubkey(data, C.mint),
+      creator: readPubkey(data, C.creator),
+      virtualSolReserves: readU64(v, C.virtualSolReserves),
+      virtualTokenReserves: readU64(v, C.virtualTokenReserves),
+      realSolReserves: readU64(v, C.realSolReserves),
+      realTokenReserves: readU64(v, C.realTokenReserves),
+      tradeFeeBps: readU64(v, C.tradeFeeBps),
+      creatorFeeShareBps: readU64(v, C.creatorFeeShareBps),
+      graduationTargetLamports: readU64(v, C.graduationTargetLamports),
+      migrationReserveLamports: readU64(v, C.migrationReserveLamports),
       complete,
-      pool: readPubkey(data, 683),
-      bump: data[715]!,
+      pool: readPubkey(data, C.pool),
+      bump: data[C.bump]!,
     },
   };
 }

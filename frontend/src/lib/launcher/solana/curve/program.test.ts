@@ -11,19 +11,23 @@ import {
   ACCOUNT_DISCRIMINATOR,
   ALREADY_COMPLETE_CODE,
   AWAITING_MIGRATION_CODE,
+  BONDING_CURVE_LAYOUT,
   BONDING_CURVE_SIZE,
   CP_SWAP_PROGRAM_ID,
   PLACEHOLDER_PROGRAM_ID,
   DEFAULT_PUBKEY,
   EVENT_DISCRIMINATOR,
+  GLOBAL_CONFIG_LAYOUT,
   GLOBAL_CONFIG_SIZE,
   IX_DISCRIMINATOR,
   LAUNCH_ERROR_CODES,
+  POST_REMOVAL_PROGRAM,
   PROGRAM_ID,
   cpAmmAuthorityPda,
   cpAmmConfigPda,
   cpLpMintPda,
   cpObservationPda,
+  cpPermissionPda,
   cpPoolVaultPda,
   curvePda,
   curveVaultPda,
@@ -89,52 +93,139 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
   const U8 = 1;
   const DISC = 8;
 
-  it('GlobalConfig = 723 (state.rs:107-174)', () => {
-    const U128 = 16;
-    const SEGMENT = 2 * U128; // sqrt_price_upper_x64 + liquidity
-    const MAX_SEGMENTS = 16; // the array is FIXED-width, used slots or not
+  it('GlobalConfig = 194 once the segmented tail is gone', () => {
     // authority, fee_recipient | 7 × u64 | cp_swap_program, amm_config | paused, bump
-    // | sqrt_price_start_x64 | segment_count | [Segment; 16]
-    expect(
-      DISC +
-        2 * PUBKEY +
-        7 * U64 +
-        2 * PUBKEY +
-        BOOL +
-        U8 +
-        U128 +
-        U8 +
-        MAX_SEGMENTS * SEGMENT,
-    ).toBe(GLOBAL_CONFIG_SIZE);
-    // Independently: the size of the account the program actually allocated on
-    // mainnet. The sum above is a re-derivation of the same belief that was wrong
-    // before; this number was measured.
-    expect(GLOBAL_CONFIG_SIZE).toBe(723);
+    expect(DISC + 2 * PUBKEY + 7 * U64 + 2 * PUBKEY + BOOL + U8).toBe(GLOBAL_CONFIG_SIZE);
+    expect(GLOBAL_CONFIG_SIZE).toBe(194);
+    // The 529 bytes that went: sqrt_price_start_x64 (16) + segment_count (1) +
+    // [Segment; 16] (512). The live mainnet account still carries them, which is why
+    // it is 723 and why this decoder now rejects it — see the mainnet case below.
+    expect(723 - GLOBAL_CONFIG_SIZE).toBe(16 + 1 + 16 * 32);
   });
 
-  it('BondingCurve = 716 (state.rs `BondingCurve`)', () => {
-    const U128 = 16;
-    const SEGMENT = 2 * U128;
-    const MAX_SEGMENTS = 16; // fixed-width, used slots or not
-    // mint, creator | 8 × u64 | mode | sqrt_price_x64 | sqrt_price_start_x64
-    // | segment_count | [Segment; 16] | complete | pool | bump
-    expect(
-      DISC +
-        2 * PUBKEY +
-        8 * U64 +
-        U8 +
-        U128 +
-        U128 +
-        U8 +
-        MAX_SEGMENTS * SEGMENT +
-        BOOL +
-        PUBKEY +
-        U8,
-    ).toBe(BONDING_CURVE_SIZE);
-    // Unlike GlobalConfig this is NOT corroborated by a captured account: no curve
-    // has ever been created on the program, so there are no real bytes to hold it
-    // against. The field-by-field sum above is the only evidence there is.
-    expect(BONDING_CURVE_SIZE).toBe(716);
+  it('BondingCurve = 170 once the mode snapshot is gone', () => {
+    // mint, creator | 8 × u64 | complete | pool | bump
+    expect(DISC + 2 * PUBKEY + 8 * U64 + BOOL + PUBKEY + U8).toBe(BONDING_CURVE_SIZE);
+    expect(BONDING_CURVE_SIZE).toBe(170);
+    // mode (1) + sqrt_price_x64 (16) + sqrt_price_start_x64 (16) + segment_count (1)
+    // + [Segment; 16] (512).
+    expect(716 - BONDING_CURVE_SIZE).toBe(1 + 16 + 16 + 1 + 16 * 32);
+  });
+
+  // The offset tables are the decoders' ONLY source of offsets, so a field left at
+  // a stale offset shows up here as a gap or an overlap rather than as a plausible
+  // number decoded from the wrong place.
+  it('every offset table is gapless and ends exactly at its size', () => {
+    const walk = (fields: readonly [string, number, number][], size: number) => {
+      let at = 8; // past the Anchor discriminator
+      for (const [name, offset, width] of fields) {
+        expect(offset, `${name} starts where the previous field ends`).toBe(at);
+        at += width;
+      }
+      expect(at, 'the last field ends at the account size').toBe(size);
+    };
+
+    walk(
+      [
+        ['authority', GLOBAL_CONFIG_LAYOUT.authority, PUBKEY],
+        ['feeRecipient', GLOBAL_CONFIG_LAYOUT.feeRecipient, PUBKEY],
+        ['tradeFeeBps', GLOBAL_CONFIG_LAYOUT.tradeFeeBps, U64],
+        ['creatorFeeShareBps', GLOBAL_CONFIG_LAYOUT.creatorFeeShareBps, U64],
+        ['initialVirtualSol', GLOBAL_CONFIG_LAYOUT.initialVirtualSol, U64],
+        ['initialVirtualToken', GLOBAL_CONFIG_LAYOUT.initialVirtualToken, U64],
+        ['tokenTotalSupply', GLOBAL_CONFIG_LAYOUT.tokenTotalSupply, U64],
+        ['graduationTargetLamports', GLOBAL_CONFIG_LAYOUT.graduationTargetLamports, U64],
+        ['migrationReserveLamports', GLOBAL_CONFIG_LAYOUT.migrationReserveLamports, U64],
+        ['cpSwapProgram', GLOBAL_CONFIG_LAYOUT.cpSwapProgram, PUBKEY],
+        ['ammConfig', GLOBAL_CONFIG_LAYOUT.ammConfig, PUBKEY],
+        ['paused', GLOBAL_CONFIG_LAYOUT.paused, BOOL],
+        ['bump', GLOBAL_CONFIG_LAYOUT.bump, U8],
+      ],
+      GLOBAL_CONFIG_LAYOUT.size,
+    );
+
+    walk(
+      [
+        ['mint', BONDING_CURVE_LAYOUT.mint, PUBKEY],
+        ['creator', BONDING_CURVE_LAYOUT.creator, PUBKEY],
+        ['virtualSolReserves', BONDING_CURVE_LAYOUT.virtualSolReserves, U64],
+        ['virtualTokenReserves', BONDING_CURVE_LAYOUT.virtualTokenReserves, U64],
+        ['realSolReserves', BONDING_CURVE_LAYOUT.realSolReserves, U64],
+        ['realTokenReserves', BONDING_CURVE_LAYOUT.realTokenReserves, U64],
+        ['tradeFeeBps', BONDING_CURVE_LAYOUT.tradeFeeBps, U64],
+        ['creatorFeeShareBps', BONDING_CURVE_LAYOUT.creatorFeeShareBps, U64],
+        ['graduationTargetLamports', BONDING_CURVE_LAYOUT.graduationTargetLamports, U64],
+        ['migrationReserveLamports', BONDING_CURVE_LAYOUT.migrationReserveLamports, U64],
+        ['complete', BONDING_CURVE_LAYOUT.complete, BOOL],
+        ['pool', BONDING_CURVE_LAYOUT.pool, PUBKEY],
+        ['bump', BONDING_CURVE_LAYOUT.bump, U8],
+      ],
+      BONDING_CURVE_LAYOUT.size,
+    );
+  });
+
+  // The verified layout, transcribed a second time and independently of the module,
+  // so a transposed pair of offsets in the table above is caught rather than
+  // confirmed by a test that reads the table it is checking.
+  it('BondingCurve offsets match the verified post-removal layout', () => {
+    expect(BONDING_CURVE_LAYOUT).toEqual({
+      mint: 8,
+      creator: 40,
+      virtualSolReserves: 72,
+      virtualTokenReserves: 80,
+      realSolReserves: 88,
+      realTokenReserves: 96,
+      tradeFeeBps: 104,
+      creatorFeeShareBps: 112,
+      graduationTargetLamports: 120,
+      migrationReserveLamports: 128,
+      complete: 136,
+      pool: 137,
+      bump: 169,
+      size: 170,
+    });
+  });
+});
+
+// The honesty guard for this module: it targets a program whose source is not on
+// this branch, and parts of that target were DERIVED rather than read. A surface
+// that presented the whole layout as confirmed would be claiming knowledge it does
+// not have, so the module has to keep saying which parts those are.
+describe('the drift from the on-disk program is disclosed, not silent', () => {
+  it('names the branch it targets', () => {
+    expect(POST_REMOVAL_PROGRAM.branch).toBe('claude/solana-segmented-removal');
+  });
+
+  it('keeps an explicit list of what was inferred rather than verified', () => {
+    // Emptying this list is how the disclosure would disappear — either because
+    // someone confirmed every item against the reworked Rust, in which case this
+    // test is the right place to record that, or because someone deleted an
+    // inconvenient caveat.
+    expect(POST_REMOVAL_PROGRAM.UNVERIFIED.length).toBeGreaterThan(0);
+    for (const item of POST_REMOVAL_PROGRAM.UNVERIFIED) {
+      expect(item.length).toBeGreaterThan(20); // a name, not a shrug
+    }
+  });
+
+  it('records the date the layout was read off the branch', () => {
+    // Three items left this list on 2026-08-18 because they were checked against
+    // state.rs and lib.rs — and two of the three were WRONG, so the checking is the
+    // whole point. Dropping the stamp while keeping the layout would turn read
+    // facts back into unattributed assertions.
+    expect(POST_REMOVAL_PROGRAM.VERIFIED_AGAINST_BRANCH).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('no longer lists what has since been read off the struct', () => {
+    // GlobalConfig's size, and the positions of `creator` and `permission`, are
+    // transcribed now. Re-adding them to UNVERIFIED would understate what is known;
+    // leaving them in while the code depends on the read values would be worse.
+    const listed = POST_REMOVAL_PROGRAM.UNVERIFIED.join(' | ');
+    expect(listed).not.toContain('GlobalConfig');
+    expect(listed).not.toContain('sits directly after');
+  });
+
+  it('the BondingCurve layout is NOT on that list — it was supplied, not guessed', () => {
+    expect(POST_REMOVAL_PROGRAM.UNVERIFIED.join(' | ')).not.toContain('BondingCurve');
   });
 });
 
@@ -157,6 +248,23 @@ describe('PDA derivation', () => {
   it('cp-swap PDAs', () => {
     expect(cpAmmAuthorityPda().toBase58()).toBe('39TE29rvRbuT3DLri3LwQWUYLwjFKJE4UoHarhTKqFGP');
     expect(cpAmmConfigPda(0).toBase58()).toBe('DpaUiYQPRk6WNqmGVPZB4LPCMQUSoUxGmc8XXto9FGMk');
+  });
+
+  it('the permission PDA is keyed by its authority, and lives on CP-SWAP', () => {
+    // `["permission", authority]` — cp-swap's own seed, so it must derive against
+    // cp-swap's program id. Deriving it on tegridy-launch would produce a
+    // syntactically fine address that cp-swap can never have created.
+    const perMint = cpPermissionPda(migrationAuthorityPda(MINT));
+    expect(perMint.equals(cpPermissionPda(migrationAuthorityPda(PROGRAM_ID)))).toBe(false);
+    expect(
+      perMint.equals(
+        PublicKey.findProgramAddressSync(
+          [ascii('permission'), migrationAuthorityPda(MINT).toBytes()],
+          CP_SWAP_PROGRAM_ID,
+        )[0],
+      ),
+    ).toBe(true);
+    expect(perMint.equals(cpPermissionPda(migrationAuthorityPda(MINT), PROGRAM_ID))).toBe(false);
   });
 
   it('amm_config uses BIG-endian u16, so index 1 is not index 256', () => {
@@ -245,21 +353,16 @@ const byte = (n: number): Uint8Array => Uint8Array.from([n]);
 const AUTHORITY = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const FEE_RECIPIENT = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 
-const u128le = (n: bigint): Uint8Array =>
-  cat(u64le(n & ((1n << 64n) - 1n)), u64le(n >> 64n));
-
 /**
- * `GlobalConfig` as the PROGRAM writes it (state.rs:107-174), including the
- * segmented-curve tail: `sqrt_price_start_x64` (u128), `segment_count` (u8), and a
- * FIXED 16-slot `[Segment; 16]` array that is always present regardless of how many
- * slots are used. Total 723 bytes.
+ * `GlobalConfig` as the POST-REMOVAL program writes it — 194 bytes, ending at
+ * `bump`. The 529-byte segmented tail (`sqrt_price_start_x64`, `segment_count`,
+ * `[Segment; 16]`) is gone with the mode it described.
  *
- * This fixture previously stopped at `bump` (186 bytes) and omitted
- * `creator_fee_share_bps` entirely. Because the tests encode and decode with the same
- * mistaken layout, they agreed with each other and disagreed with the chain — the
- * decoder returned `bad-length` for the real mainnet account while CI stayed green.
- * `decodes the byte layout of a REAL mainnet account` below pins this against actual
- * on-chain bytes so the pair cannot drift together again.
+ * This fixture once stopped at `bump` while the program wrote 723, and once omitted
+ * `creator_fee_share_bps` entirely. Because these tests encode AND decode with the
+ * same table, a mistake made in both cancels out and CI stays green while every real
+ * account reads `bad-length`. `decodes the surviving prefix of a REAL mainnet
+ * account` below is the only assertion here anchored to bytes the program wrote.
  */
 function encodeGlobal(
   over: Partial<{
@@ -267,14 +370,8 @@ function encodeGlobal(
     cpSwap: PublicKey;
     ammConfig: PublicKey;
     creatorFeeShareBps: bigint;
-    sqrtPriceStartX64: bigint;
-    segments: { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
   }> = {},
 ) {
-  const segments = over.segments ?? [];
-  const slots = Array.from({ length: 16 }, (_, i) =>
-    cat(u128le(segments[i]?.sqrtPriceUpperX64 ?? 0n), u128le(segments[i]?.liquidity ?? 0n)),
-  );
   return cat(
     ACCOUNT_DISCRIMINATOR.GlobalConfig,
     key(AUTHORITY),
@@ -290,38 +387,24 @@ function encodeGlobal(
     key(over.ammConfig ?? AUTHORITY),
     byte(over.paused ?? 0),
     byte(254),
-    u128le(over.sqrtPriceStartX64 ?? 0n),
-    byte(segments.length),
-    ...slots,
   );
 }
 
 /**
- * `BondingCurve` as the PROGRAM writes it (state.rs), including the curve-mode
- * snapshot: `mode` (u8), `sqrt_price_x64` (u128), `sqrt_price_start_x64` (u128),
- * `segment_count` (u8) and a FIXED 16-slot `[Segment; 16]`. Total 716 bytes.
+ * `BondingCurve` as the POST-REMOVAL program writes it — 170 bytes. `complete`
+ * follows `migration_reserve_lamports` directly; the 546-byte mode snapshot that
+ * used to sit between them is gone.
  *
- * This fixture stopped at `bump` after seven u64s (162 bytes), matching a decoder
- * that made the same two omissions — `creator_fee_share_bps` and the whole mode
- * snapshot — so the pair agreed with each other and disagreed with the program.
- * There is no captured account to anchor it to (none exists), so the size assertion
- * above sums the Rust field widths instead.
+ * No captured account anchors this one — none has ever been created — so the size
+ * assertion above sums the Rust field widths instead.
  */
 function encodeCurve(
   over: Partial<{
     complete: number;
     pool: PublicKey;
     creatorFeeShareBps: bigint;
-    mode: number;
-    sqrtPriceX64: bigint;
-    sqrtPriceStartX64: bigint;
-    segments: { sqrtPriceUpperX64: bigint; liquidity: bigint }[];
   }> = {},
 ) {
-  const segments = over.segments ?? [];
-  const slots = Array.from({ length: 16 }, (_, i) =>
-    cat(u128le(segments[i]?.sqrtPriceUpperX64 ?? 0n), u128le(segments[i]?.liquidity ?? 0n)),
-  );
   return cat(
     ACCOUNT_DISCRIMINATOR.BondingCurve,
     key(MINT),
@@ -334,11 +417,6 @@ function encodeCurve(
     u64le(over.creatorFeeShareBps ?? 4_800n),
     u64le(85_000_000_000n),
     u64le(250_000_000n),
-    byte(over.mode ?? 0),
-    u128le(over.sqrtPriceX64 ?? 0n),
-    u128le(over.sqrtPriceStartX64 ?? 0n),
-    byte(segments.length),
-    ...slots,
     byte(over.complete ?? 0),
     key(over.pool ?? DEFAULT_PUBKEY),
     byte(253),
@@ -388,9 +466,6 @@ describe('decodeGlobalConfig', () => {
       key(AUTHORITY),
       byte(0),
       byte(254),
-      u128le(0n), // sqrt_price_start_x64
-      byte(0), // segment_count
-      new Uint8Array(512), // [Segment; 16]
     );
     const d = decodeGlobalConfig(withMax);
     expect(d.ok).toBe(true);
@@ -417,22 +492,29 @@ describe('decodeGlobalConfig', () => {
 
   // The regression guard. Every other test here encodes with `encodeGlobal` and
   // decodes with `decodeGlobalConfig`, so a layout mistake made in BOTH cancels out —
-  // which is exactly what happened: the pair agreed on a 186-byte struct while the
-  // program wrote 723, and `decodeGlobalConfig` rejected the real account as
-  // `bad-length`. These bytes came off mainnet (`global` PDA
+  // which is exactly what happened once: the pair agreed on a 186-byte struct while
+  // the program wrote 723. These bytes came off mainnet (`global` PDA
   // 7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e, initialized 2026-08-08), so this
-  // test is anchored to the program's actual output rather than to our idea of it.
-  it('decodes the byte layout of a REAL mainnet account', () => {
+  // is anchored to a program's actual output rather than to our idea of it.
+  //
+  // That account was written by the PRE-removal program and is 723 bytes. Nothing
+  // before `bump` moved in the removal, so its first 194 bytes ARE the post-removal
+  // layout, byte for byte — which makes this the only real-bytes evidence available
+  // for any offset in `GLOBAL_CONFIG_LAYOUT`. The 723-byte whole is asserted to be
+  // REJECTED below; a shorter struct must not quietly accept a longer account.
+  it('decodes the surviving prefix of a REAL mainnet account', () => {
     const HEAD_B64 =
       'lQicyqD8sNm7c+Aqo3S9kOE+Z402zTfNZXq5lfIBei5HU0hDn0H6UuUc3D/p5bgRyaiS88h1kuJ5K7gQGxKo' +
       'QO+dTnYct/FIZAAAAAAAAADAEgAAAAAAAACsI/wGAAAAABDYR+PPAwAAgMakfo0DACTEuLQCAAAAgLLmDgAA' +
       'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
       'AAAAAP8AAAAAAAAAAAAAAAAAAAAAAA==';
     const head = Uint8Array.from(atob(HEAD_B64), (c) => c.charCodeAt(0));
-    // The 16 segment slots are fixed-width and were all zero at initialization.
-    const real = cat(head, new Uint8Array(512));
-    expect(real.length).toBe(723);
-    expect(real.length).toBe(GLOBAL_CONFIG_SIZE);
+    // 211 captured bytes: the 194 that survive, plus `sqrt_price_start_x64` and
+    // `segment_count`, both zero at initialization. The 512 segment slots that
+    // followed on chain were zero too and are not reproduced.
+    expect(head.length).toBe(211);
+    const real = head.subarray(0, GLOBAL_CONFIG_SIZE);
+    expect(real.length).toBe(194);
 
     const d = decodeGlobalConfig(real);
     expect(d.ok).toBe(true);
@@ -452,36 +534,17 @@ describe('decodeGlobalConfig', () => {
     expect(isDefaultPubkey(d.value.ammConfig)).toBe(true);
     expect(d.value.paused).toBe(false);
     expect(d.value.bump).toBe(255);
-    // Segmented mode is unconfigured until `set_curve_segments` runs.
-    expect(d.value.sqrtPriceStartX64).toBe(0n);
-    expect(d.value.segmentCount).toBe(0);
-    expect(d.value.segments).toEqual([]);
   });
 
-  it('reads the segmented-curve tail and refuses an out-of-range count', () => {
-    const segs = [
-      { sqrtPriceUpperX64: (1n << 70n) + 7n, liquidity: (1n << 65n) + 3n },
-      { sqrtPriceUpperX64: (1n << 71n) + 9n, liquidity: (1n << 66n) + 5n },
-    ];
-    const d = decodeGlobalConfig(
-      encodeGlobal({ sqrtPriceStartX64: (1n << 64n) + 1n, segments: segs }),
-    );
-    expect(d.ok).toBe(true);
-    if (!d.ok) return;
-    // Values past 2^53 must survive — these are Q64.64, so Number would round them.
-    expect(d.value.sqrtPriceStartX64).toBe((1n << 64n) + 1n);
-    expect(d.value.segmentCount).toBe(2);
-    expect(d.value.segments).toEqual(segs);
-
-    // A count beyond the 16 fixed slots would read past the array; refuse it rather
-    // than hand back a curve that quotes prices from whatever follows in memory.
-    const bad = encodeGlobal({ segments: segs });
-    bad[210] = 17;
-    expect(decodeGlobalConfig(bad)).toEqual({ ok: false, reason: 'malformed' });
-    // The boundary itself is legal.
-    const edge = encodeGlobal({ segments: segs });
-    edge[210] = 16;
-    expect(decodeGlobalConfig(edge).ok).toBe(true);
+  it('rejects a pre-removal 723-byte account instead of decoding its prefix', () => {
+    // The dangerous near-miss: a 723-byte account's first 194 bytes decode
+    // perfectly, so a length check written as `>=` would return a confident,
+    // correct-looking config read from a program that is not the one this client
+    // builds instructions for. It has to be `bad-length` — the honest answer is
+    // "this is not my account", not a plausible struct.
+    const preRemoval = cat(encodeGlobal(), new Uint8Array(723 - GLOBAL_CONFIG_SIZE));
+    expect(preRemoval.length).toBe(723);
+    expect(decodeGlobalConfig(preRemoval)).toEqual({ ok: false, reason: 'bad-length' });
   });
 
   it('reports WHY it failed and never returns a zeroed struct', () => {
@@ -525,53 +588,33 @@ describe('decodeBondingCurve', () => {
     expect(d.value.creatorFeeShareBps).toBe(4_800n);
     expect(d.value.graduationTargetLamports).toBe(85_000_000_000n);
     expect(d.value.migrationReserveLamports).toBe(250_000_000n);
-    expect(d.value.mode).toBe(0);
-    expect(d.value.sqrtPriceX64).toBe(0n);
-    expect(d.value.sqrtPriceStartX64).toBe(0n);
-    expect(d.value.segmentCount).toBe(0);
-    expect(d.value.segments).toEqual([]);
     expect(d.value.complete).toBe(false);
     expect(d.value.bump).toBe(253);
   });
 
-  it('reads the segmented snapshot, whose u128s exceed 2^53', () => {
-    // A constant-product launch leaves all of this zeroed, so a decoder that
-    // dropped the block entirely would look correct on every default fixture.
-    const segs = [
-      { sqrtPriceUpperX64: (1n << 70n) + 7n, liquidity: (1n << 65n) + 3n },
-      { sqrtPriceUpperX64: (1n << 71n) + 9n, liquidity: (1n << 66n) + 5n },
-    ];
-    const d = decodeBondingCurve(
-      encodeCurve({
-        mode: 1,
-        sqrtPriceX64: (1n << 66n) + 11n,
-        sqrtPriceStartX64: (1n << 64n) + 1n,
-        segments: segs,
-      }),
-    );
-    expect(d.ok).toBe(true);
-    if (!d.ok) return;
-    expect(d.value.mode).toBe(1);
-    expect(d.value.sqrtPriceX64).toBe((1n << 66n) + 11n);
-    expect(d.value.sqrtPriceStartX64).toBe((1n << 64n) + 1n);
-    expect(d.value.segmentCount).toBe(2);
-    expect(d.value.segments).toEqual(segs);
-    // The zeroed tail slots are never returned as segments.
-    expect(d.value.segments.length).toBe(2);
-    // …and the fields AFTER the 512-byte array still land where they should.
-    expect(d.value.bump).toBe(253);
+  it('reads `complete` from 136, where the mode snapshot used to begin', () => {
+    // The whole removal lands on this byte: `complete` moved 546 bytes earlier, and
+    // 136 used to hold `mode`. A decoder still reading 682 finds nothing at all in a
+    // 170-byte account; one reading 136 against a PRE-removal account reads the mode
+    // byte and calls a live launch complete — which reads as "already graduated" and
+    // would hide a curve that is still raising.
+    const bytes = encodeCurve({ complete: 1 });
+    expect(bytes[136]).toBe(1);
+    const d = decodeBondingCurve(bytes);
+    expect(d.ok && d.value.complete).toBe(true);
+    // …and the pubkey immediately after it is `pool`, not a sqrt price.
+    const g = decodeBondingCurve(encodeCurve({ complete: 1, pool: FEE_RECIPIENT }));
+    expect(g.ok && g.value.pool.equals(FEE_RECIPIENT)).toBe(true);
   });
 
-  it('refuses a mode byte the program cannot write, rather than defaulting the curve', () => {
-    // `CurveMode::from_u8` has no third arm. Coercing an unknown byte to
-    // constant-product would quote a segmented launch on the wrong curve.
-    expect(decodeBondingCurve(encodeCurve({ mode: 2 }))).toEqual({ ok: false, reason: 'malformed' });
-  });
-
-  it('refuses a segment count past the 16 fixed slots', () => {
-    const bytes = encodeCurve();
-    bytes[169] = 17;
-    expect(decodeBondingCurve(bytes)).toEqual({ ok: false, reason: 'malformed' });
+  it('rejects a pre-removal 716-byte account instead of decoding its prefix', () => {
+    // Same near-miss as GlobalConfig, and worse here: the first 136 bytes of a
+    // pre-removal curve decode to correct reserves, so a permissive length check
+    // would quote real-looking prices off an account whose `complete` and `pool` it
+    // is reading from the wrong place entirely.
+    const preRemoval = cat(encodeCurve(), new Uint8Array(716 - BONDING_CURVE_SIZE));
+    expect(preRemoval.length).toBe(716);
+    expect(decodeBondingCurve(preRemoval)).toEqual({ ok: false, reason: 'bad-length' });
   });
 
   it('an un-migrated curve has an all-zero pool, which is "not yet", not an address', () => {

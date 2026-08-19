@@ -52,9 +52,10 @@
  *   4. `update-global --cp-swap-program … --amm-config …`   ← the ONLY way to set them
  *   5. migration is possible; until step 4 `migrate_to_amm` fails AmmNotConfigured (6015)
  *
- * `set-curve-segments` is orthogonal to all of that: it publishes the Meteora-shaped
- * curve so `create_launch --mode 1` has a shape to snapshot. Launches in the default
- * ConstantProduct mode do not need it.
+ * There is no venue-shape step any more. `set-curve-segments` published the
+ * Meteora-shaped curve for `create_launch --mode 1` to snapshot; segmented mode was
+ * removed from the program, so the command, the mode flag and the curve are all
+ * gone and every launch is constant-product.
  *
  * `status` prints exactly which of these steps is outstanding.
  *
@@ -88,7 +89,7 @@
  *     --fee-recipient <base58>
  *
  * Commands: status | derive | check-config | init-global | update-global |
- *           create-amm-config | set-curve-segments | help
+ *           create-amm-config | help
  */
 
 import fs from 'node:fs';
@@ -1003,135 +1004,6 @@ async function cmdCreateAmmConfig(flags) {
   console.log('  Until then migrate_to_amm still fails AmmNotConfigured (6015).');
 }
 
-// ─── set-curve-segments ─────────────────────────────────────────────────────────
-
-/**
- * Read the segmented curve's shape from a JSON file.
- *
- * A file rather than flags: this is up to 16 pairs of u128s, and a Q64.64 sqrt price
- * mistyped on a command line is not a smaller price, it is a completely different one
- * that the curve would then quote against without complaint. A file can be diffed,
- * reviewed and re-used across a dry run and the real ceremony.
- *
- * Numbers are read as STRINGS. JSON numbers are IEEE doubles: 2^64 and up silently
- * lose precision, and every value here is past that.
- */
-function readSegmentsFile(path) {
-  let raw;
-  try {
-    raw = fs.readFileSync(path, 'utf8');
-  } catch (e) {
-    return fail(`could not read --segments-file ${path}: ${e?.message ?? e}`);
-  }
-  let doc;
-  try {
-    doc = JSON.parse(raw);
-  } catch (e) {
-    return fail(`--segments-file ${path} is not valid JSON: ${e?.message ?? e}`);
-  }
-  const u128 = (v, label) => {
-    if (typeof v === 'number') {
-      fail(`${label} is a JSON number. Quote it as a string — values above 2^53 lose precision as doubles, silently.`);
-    }
-    if (typeof v !== 'string' || !/^\d+$/.test(v)) fail(`${label} must be a decimal string of digits, got ${JSON.stringify(v)}`);
-    return BigInt(v);
-  };
-  if (!Array.isArray(doc?.segments)) fail(`--segments-file ${path} must be { "sqrtPriceStartX64": "…", "segments": [ … ] }`);
-  return {
-    sqrtPriceStartX64: u128(doc.sqrtPriceStartX64, 'sqrtPriceStartX64'),
-    segments: doc.segments.map((s, i) => ({
-      sqrtPriceUpperX64: u128(s?.sqrtPriceUpperX64, `segments[${i}].sqrtPriceUpperX64`),
-      liquidity: u128(s?.liquidity, `segments[${i}].liquidity`),
-    })),
-  };
-}
-
-/**
- * `set_curve_segments` — publish the Meteora-shaped curve.
- *
- * The operator publishes ONE shape for the whole venue; creators pick a MODE, not a
- * curve. Re-runnable: the program validates the entire table before writing, so a
- * rejected table cannot leave a half-updated config behind.
- *
- * The checks below mirror the STRUCTURAL half of `segmented::validate_segments`
- * (segmented.rs:145-173) — count, strict ascent, non-zero liquidity. The PRICE-RANGE
- * half (MIN/MAX_SQRT_PRICE_X64 from the vendored tick math) is deliberately NOT copied
- * here: those are two more magic constants that would become a second source of truth
- * for the same rule, and the failure mode of getting them wrong is refusing a table the
- * program would have accepted. The program stays the authority; this catches the
- * mistakes that are obvious from the table alone, before a multisig ceremony.
- */
-async function cmdSetCurveSegments(flags) {
-  const pid = new PublicKey(programId(flags));
-  const connection = connect();
-  const status = await requireDeployed(connection, pid.toBase58());
-  if (status.global?.kind !== 'ok') {
-    fail(`global is "${status.global?.kind}" — \`set_curve_segments\` needs an initialized config. Run \`init-global\` first.`);
-  }
-  const current = status.global.value;
-
-  const { sqrtPriceStartX64, segments } = readSegmentsFile(requireFlag(flags, 'segments-file'));
-
-  const problems = [];
-  if (segments.length === 0) problems.push('the table is empty — BadSegmentCount');
-  if (segments.length > L.MAX_SEGMENTS) problems.push(`${segments.length} segments, above MAX_SEGMENTS ${L.MAX_SEGMENTS} — BadSegmentCount`);
-  let prev = sqrtPriceStartX64;
-  segments.forEach((s, i) => {
-    if (s.liquidity === 0n) problems.push(`segments[${i}].liquidity is 0 — BadSegments`);
-    if (s.sqrtPriceUpperX64 <= prev) {
-      problems.push(
-        `segments[${i}].sqrtPriceUpperX64 (${s.sqrtPriceUpperX64}) is not STRICTLY above the previous bound (${prev}) — BadSegments. ` +
-          'Equal bounds are a zero-width segment that can never be crossed; descending bounds walk the wrong way.',
-      );
-    }
-    prev = s.sqrtPriceUpperX64;
-  });
-
-  console.log('[operator] set_curve_segments');
-  console.log(`  program            : ${pid.toBase58()}`);
-  console.log(`  sqrt_price_start   : ${sqrtPriceStartX64}  (Q64.64)`);
-  console.log(`  segments           : ${segments.length}`);
-  segments.forEach((s, i) => console.log(`    [${String(i).padStart(2)}] upper ${s.sqrtPriceUpperX64}   liquidity ${s.liquidity}`));
-  if (current.segmentCount > 0) {
-    console.log(`  REPLACES the live table of ${current.segmentCount} segment(s), start ${current.sqrtPriceStartX64}.`);
-    console.log('  Live curves are unaffected — every launch snapshots its terms at creation. This');
-    console.log('  changes the shape FUTURE segmented launches are created from.');
-  }
-  if (problems.length > 0) {
-    console.log('\n  ❌ the program would REJECT this table:');
-    for (const p of problems) console.log(`     • ${p}`);
-    fail('table rejected by the pre-flight above — nothing was built.');
-  }
-  console.log('  ✅ structural checks pass. The program additionally range-checks every price');
-  console.log('     against MIN/MAX_SQRT_PRICE_X64 and liquidity against MAX_SEGMENT_LIQUIDITY');
-  console.log('     (segmented.rs:145-173); those bounds are NOT duplicated here.');
-
-  // `has_one = authority` (lib.rs:1613-1621). Checked against CHAIN state.
-  const payer = await loadKeypair('OPERATOR_KEYPAIR');
-  if (payer.publicKey.toBase58() !== current.authority.toBase58()) {
-    fail(
-      'the loaded key is not `global.authority`.\n' +
-        `    loaded    : ${payer.publicKey.toBase58()}\n` +
-        `    authority : ${current.authority.toBase58()}\n` +
-        '  Build the instruction inside a Squads proposal rather than signing locally.',
-    );
-  }
-
-  const tx = new Transaction().add(
-    // ⚠️ Account order here is authority-then-global, the REVERSE of update_global.
-    // Both are `has_one = authority`, so swapping them does not fail a signer check —
-    // it hands the program a Signer where it expects the config account. `curve/ix.ts`
-    // owns that ordering and is unit-tested on it; this file must not re-state it.
-    L.setCurveSegmentsIx({ authority: payer.publicKey }, { sqrtPriceStartX64, segments }, { programId: pid }),
-  );
-  await prepareAndSign(connection, tx, payer.publicKey, flags.send ? payer : undefined);
-  const sent = await maybeSend(connection, tx, flags);
-  await emitTransaction(connection, tx, sent, 'set_curve_segments');
-
-  console.log('\n  AFTER it lands, read it back with `status` — the send succeeding is not evidence the');
-  console.log('  table decoded the way you meant. That is how GLOBAL_CONFIG_SIZE was found to be wrong.');
-}
-
 function printHelp() {
   console.log(`
 tegridy-launch operator harness — protocol-level instructions for OUR OWN curve.
@@ -1154,7 +1026,6 @@ COMMANDS
   init-global        build initialize_global   (runs exactly once — global is a singleton)
   update-global      build update_global       (the ONLY way to set the AMM addresses)
   create-amm-config  build cp-swap create_amm_config  (once per index — the PDA is one-shot)
-  set-curve-segments build set_curve_segments  (the Meteora-shaped curve; re-runnable)
   help
 
 GLOBAL FLAGS
@@ -1198,13 +1069,6 @@ CREATE-AMM-CONFIG FLAGS (cp-swap; every *_rate is out of 1,000,000, NOT basis po
   the deployed binary actually carries:
     node ../scripts/verify-program-constants.mjs --deployed <cp-swap program id>
 
-SET-CURVE-SEGMENTS FLAGS
-  --segments-file <path>     JSON: { "sqrtPriceStartX64": "…", "segments": [
-                             { "sqrtPriceUpperX64": "…", "liquidity": "…" }, … ] }
-                             All values are decimal STRINGS — a JSON number above 2^53
-                             loses precision silently, and a wrong Q64.64 sqrt price is
-                             not a smaller price, it is a different curve.
-
 ORDERING — the opposite of the obvious guess
   1. deploy under a real keypair                                        ✅ 2026-08-08
   2. init-global                       AMM addresses MAY be zero; no AmmConfig needed yet  ✅
@@ -1240,8 +1104,6 @@ async function main() {
       return cmdUpdateGlobal(flags);
     case 'create-amm-config':
       return cmdCreateAmmConfig(flags);
-    case 'set-curve-segments':
-      return cmdSetCurveSegments(flags);
     case 'help':
     case '--help':
     case '-h':

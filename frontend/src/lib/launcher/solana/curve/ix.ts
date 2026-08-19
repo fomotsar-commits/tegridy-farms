@@ -46,6 +46,7 @@ import {
   cpAmmConfigPda,
   cpLpMintPda,
   cpObservationPda,
+  cpPermissionPda,
   cpPoolVaultPda,
   curvePda,
   curveVaultPda,
@@ -54,7 +55,7 @@ import {
   poolStatePda,
   sortMints,
 } from './program';
-import { U128_MAX, U64_MAX, isU64 } from './math';
+import { U64_MAX, isU64 } from './math';
 
 /**
  * `migrate_to_amm` measured at **264,128 CU** off the confirmed CI rehearsal
@@ -71,20 +72,6 @@ import { U128_MAX, U64_MAX, isU64 } from './math';
  * gets quoted back as fact.
  */
 export const MIGRATE_COMPUTE_UNITS = 400_000;
-
-/**
- * Which pricing curve a launch runs on — mirrors `CurveMode` in state.rs.
- * Anchor serialises a fieldless enum as its u8 discriminant, in declaration order.
- */
-// A const object, not a TS `enum`: this project sets `erasableSyntaxOnly`, under
-// which `enum` emits runtime code and is rejected.
-export const CurveMode = {
-  /** Constant product over virtual reserves — the pump.fun shape. */
-  ConstantProduct: 0,
-  /** Up to 16 (sqrt_price, liquidity) segments — the Meteora shape. */
-  Segmented: 1,
-} as const;
-export type CurveMode = (typeof CurveMode)[keyof typeof CurveMode];
 
 // ── encoding ─────────────────────────────────────────────────────────────────
 
@@ -120,38 +107,6 @@ class Writer {
       throw new RangeError(`${label} must be an integer in 0..65535, got ${v}`);
     }
     this.bytes.push(v & 0xff, (v >>> 8) & 0xff);
-    return this;
-  }
-
-  /** Borsh `u32` — used for `Vec` length prefixes, which are always u32 LE. */
-  u32(v: number, label: string): this {
-    if (!Number.isInteger(v) || v < 0 || v > 0xff_ff_ff_ff) {
-      throw new RangeError(`${label} must be an integer in 0..2^32-1, got ${v}`);
-    }
-    for (let i = 0; i < 4; i++) this.bytes.push((v >>> (8 * i)) & 0xff);
-    return this;
-  }
-
-  /**
-   * Borsh `u128`, little-endian. Range-checked for the same reason `u64` is: a
-   * silently truncated Q64.64 sqrt price is not a smaller price, it is a
-   * completely different one, and the curve would quote against it without error.
-   */
-  u128(v: bigint, label: string): this {
-    if (typeof v !== 'bigint' || v < 0n || v > U128_MAX) {
-      throw new RangeError(`${label} must fit in a u128 (0..${U128_MAX}), got ${v}`);
-    }
-    for (let i = 0n; i < 16n; i++) this.bytes.push(Number((v >> (8n * i)) & 0xffn));
-    return this;
-  }
-
-  /** A bare `u8`. Range-checked for the same reason `u64` is: a silently truncated
-   *  discriminant would select a DIFFERENT curve mode than the caller asked for. */
-  u8(v: number, label: string): this {
-    if (!Number.isInteger(v) || v < 0 || v > 255) {
-      throw new RangeError(`${label} must be an integer in 0..255, got ${v}`);
-    }
-    this.bytes.push(v);
     return this;
   }
 
@@ -336,11 +291,14 @@ export function sellIx(
  *
  * Decimals are NOT constrained by the program. Read them off the mint; never
  * assume 9.
+ *
+ * The payload is the bare 8-byte discriminator. It briefly carried a trailing
+ * `mode: u8` selecting constant-product or the segmented curve; segmented mode is
+ * gone and so is the byte, and a 9-byte payload against the reworked handler fails
+ * to deserialize just as an 8-byte one did against the old.
  */
 export function createLaunchIx(
   accounts: { creator: PublicKey; mint: PublicKey },
-  /** 0 = ConstantProduct (pump.fun shape), 1 = Segmented (Meteora shape). */
-  mode: CurveMode = CurveMode.ConstantProduct,
   ids: ProgramIds = {},
 ): TransactionInstruction {
   const programId = ids.programId ?? PROGRAM_ID;
@@ -356,7 +314,7 @@ export function createLaunchIx(
       acc(SYSTEM_PROGRAM_ID, false, false),
       acc(SYSVAR_RENT_PUBKEY, false, false),
     ],
-    data: new Writer().disc(IX_DISCRIMINATOR.createLaunch).u8(mode, 'mode').finish(),
+    data: new Writer().disc(IX_DISCRIMINATOR.createLaunch).finish(),
   });
 }
 
@@ -365,6 +323,14 @@ export function createLaunchIx(
 export interface MigrateAccounts {
   /** Funds rent along the way and is fully reimbursed by the sweep. */
   payer: PublicKey;
+  /**
+   * MUST equal `curve.creator`, read off the DECODED CURVE — same doctrine and same
+   * failure as {@link TradeAccounts.creator}. It is handed through to cp-swap as the
+   * graduated pool's `creator`, which is who its creator-fee stream pays, so a
+   * derived or defaulted value either reverts on the address constraint or hands a
+   * launch's pool income to a stranger for the life of the pool.
+   */
+  creator: PublicKey;
   /**
    * MUST equal `global.fee_recipient` — read it off the decoded global, never
    * derived and never defaulted. It receives the unspent migration reserve, and the
@@ -382,19 +348,41 @@ export interface MigrateAccounts {
    * the real one rather than have this module invent it.
    */
   createPoolFee: PublicKey;
+  /**
+   * cp-swap's `permission` PDA, defaulting to
+   * `cpPermissionPda(migrationAuthorityPda(launchMint))`.
+   *
+   * The override exists because the default is an INFERENCE — see
+   * `POST_REMOVAL_PROGRAM.UNVERIFIED`. `initialize_with_permission` seeds the
+   * account from its own `payer`, and the migration authority is what fronts the
+   * pool rent today; if the reworked program pays from something else, the address
+   * moves and this field is how an operator supplies the real one without waiting
+   * on a code change.
+   *
+   * Either way the account must already EXIST — only cp-swap's compile-time admin
+   * can create one (`create_permission_pda.rs:10`), so migration is blocked until
+   * they have, exactly as it is blocked by the missing AmmConfig.
+   */
+  permission?: PublicKey;
 }
 
 /**
  * `migrate_to_amm()` — no args, permissionless by design: no caller-chosen
  * parameters, pays the caller nothing, exactly one legal outcome.
  *
- * All TWENTY-FOUR accounts, in declaration order. `fee_recipient` (index 2) was
+ * All TWENTY-SIX accounts, in declaration order. `fee_recipient` (index 2) was once
  * missing, which shifted the remaining 21 by one: `launch_mint` landed in the
  * `fee_recipient` slot and every build reverted at account validation with
  * `Unauthorized` (6008). Note the diagnostic cost — validation runs before the
  * handler, so this builder could never produce the `AmmNotConfigured` (6015) the
  * operator ledger records as migration's blocker, and anyone debugging graduation
  * with it chased the wrong error.
+ *
+ * `creator` and `permission` are the two the post-removal program added, and their
+ * POSITIONS are inferred rather than read — `POST_REMOVAL_PROGRAM.UNVERIFIED` names
+ * both. A position that is wrong here reverts the same silent, shifted way
+ * `fee_recipient` did, so re-check them against `MigrateToAmm` before a real
+ * graduation is attempted.
  *
  * The caller MUST prepend `setComputeUnitLimit({ units: MIGRATE_COMPUTE_UNITS })`.
  *
@@ -433,12 +421,22 @@ export function migrateToAmmIx(
       acc(curvePda(launchMint, programId), false, true),
       acc(curveVaultPda(launchMint, programId), false, true),
       acc(WSOL_MINT, false, false),
+      // Position 8, AFTER wsol_mint — transcribed from the program's MigrateToAmm
+      // context, not inferred from Trade's ordering. Read-only: the constraint is
+      // `address = curve.creator` with no `mut`, so the account is proof of identity
+      // for the pool's creator field and never a payee here.
+      acc(accounts.creator, false, false),
       acc(migrationAuthority, false, true),
       acc(associatedTokenAddress(WSOL_MINT, migrationAuthority), false, true),
       acc(associatedTokenAddress(launchMint, migrationAuthority), false, true),
       acc(associatedTokenAddress(lpMint, migrationAuthority), false, true),
       acc(cpSwapProgram, false, false),
       acc(accounts.ammConfig, false, false),
+      // Position 15, between amm_config and amm_authority — the program's own
+      // ordering, which is NOT where cp-swap places it in InitializeWithPermission.
+      // Mirroring the CPI callee instead of the caller's context would shift every
+      // account from here down by one and fail the whole graduation.
+      acc(accounts.permission ?? cpPermissionPda(migrationAuthority, cpSwapProgram), false, false),
       acc(cpAmmAuthorityPda(cpSwapProgram), false, false),
       acc(poolState, false, true),
       acc(lpMint, false, true),
@@ -449,7 +447,6 @@ export function migrateToAmmIx(
       acc(TOKEN_PROGRAM_ID, false, false),
       acc(ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
       acc(SYSTEM_PROGRAM_ID, false, false),
-      acc(SYSVAR_RENT_PUBKEY, false, false),
     ],
     data: new Writer().disc(IX_DISCRIMINATOR.migrateToAmm).finish(),
   });
@@ -565,60 +562,6 @@ export function updateGlobalIx(
       .optU64(args.newInitialVirtualSol, 'newInitialVirtualSol')
       .optU64(args.newCreatorFeeShareBps, 'newCreatorFeeShareBps')
       .finish(),
-  });
-}
-
-// ── set_curve_segments ───────────────────────────────────────────────────────
-
-/**
- * One segment of the segmented ("Meteora-shaped") curve. Mirrors
- * `segmented.rs:94-100` — two `u128`s, 32 bytes, no padding.
- */
-export interface CurveSegment {
-  /** Upper sqrt-price bound, Q64.64. Must be STRICTLY greater than the previous. */
-  sqrtPriceUpperX64: bigint;
-  /** Liquidity active inside this segment. Non-zero, `<= MAX_SEGMENT_LIQUIDITY`. */
-  liquidity: bigint;
-}
-
-/**
- * `set_curve_segments` (lib.rs:598-623) — publishes the segmented curve's shape.
- *
- * The operator publishes ONE shape for the whole venue; creators choose a mode, not
- * a curve. Re-runnable: the program validates the whole table before writing, so a
- * rejected table cannot leave a half-updated config for `create_launch` to snapshot.
- *
- * ⚠️ ACCOUNT ORDER IS THE REVERSE OF `update_global`. `SetCurveSegments` is
- * `authority, global` (lib.rs:1613-1621); `UpdateGlobal` is `global, authority`
- * (lib.rs:1599-1607). Both are `has_one = authority`, so swapping them does not
- * fail a signer check — it hands the program a `Signer` where it expects the config
- * account, which is a confusing deserialize error rather than an obvious one.
- *
- * Validation is NOT duplicated here. `segmented::validate_segments` rejects an empty
- * or over-long table, a start price outside `[MIN_SQRT_PRICE, MAX_SQRT_PRICE)`, zero
- * or oversized liquidity, and any bound not strictly above its predecessor. Copying
- * those bounds into TypeScript would be a second source of truth for the same rules;
- * the range checks below are only the ones Borsh itself imposes.
- */
-export function setCurveSegmentsIx(
-  accounts: { authority: PublicKey },
-  args: { sqrtPriceStartX64: bigint; segments: readonly CurveSegment[] },
-  ids: ProgramIds = {},
-): TransactionInstruction {
-  const programId = ids.programId ?? PROGRAM_ID;
-  const w = new Writer()
-    .disc(IX_DISCRIMINATOR.setCurveSegments)
-    .u128(args.sqrtPriceStartX64, 'sqrtPriceStartX64')
-    // `Vec<Segment>` — u32 LE length prefix, then the elements packed.
-    .u32(args.segments.length, 'segments.length');
-  args.segments.forEach((s, i) => {
-    w.u128(s.sqrtPriceUpperX64, `segments[${i}].sqrtPriceUpperX64`);
-    w.u128(s.liquidity, `segments[${i}].liquidity`);
-  });
-  return new TransactionInstruction({
-    programId,
-    keys: [acc(accounts.authority, true, false), acc(globalPda(programId), false, true)],
-    data: w.finish(),
   });
 }
 

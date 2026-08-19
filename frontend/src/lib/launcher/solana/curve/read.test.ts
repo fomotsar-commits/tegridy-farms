@@ -41,11 +41,11 @@ const POOL = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const SOL = 1_000_000_000n;
 const TARGET = 85n * SOL;
 const RESERVE = SOL / 4n;
-// (128 + 716) × 6960, the cluster's rent formula over the REAL account size. It
-// read 2_018_400 here — rent for 162 bytes — which understated the curve PDA's
-// floor by 3,855,840 lamports in the permissive direction: a max-sell computed
-// against it is too generous and reverts on chain.
-const RENT_EXEMPT_CURVE = 5_874_240n;
+// (128 + 170) × 6960, the cluster's rent formula over the post-removal account
+// size. Getting this wrong in the PERMISSIVE direction is the half that does not
+// fail closed: a max-sell computed against too small a floor is too generous and
+// reverts on chain.
+const RENT_EXEMPT_CURVE = 2_074_080n;
 
 // ── encoders (fields concatenated in declaration order) ─────────────────────
 
@@ -82,11 +82,6 @@ function globalBytes(o: { paused?: boolean; ammConfigured?: boolean } = {}): Uin
     (o.ammConfigured === false ? DEFAULT_PUBKEY : CREATOR).toBytes(),
     byte(o.paused ? 1 : 0),
     byte(254),
-    // The segmented-curve tail: sqrt_price_start_x64 (u128), segment_count (u8), and
-    // the FIXED 16-slot segment array — present at full width even when unused.
-    new Uint8Array(16),
-    byte(0),
-    new Uint8Array(16 * 32),
   );
 }
 
@@ -103,14 +98,6 @@ function curveBytes(o: { realSol?: bigint; complete?: boolean; pool?: PublicKey 
     u64le(4_800n), // creator_fee_share_bps — snapshotted second, not last
     u64le(TARGET),
     u64le(RESERVE),
-    // The curve-mode snapshot: mode (u8), sqrt_price_x64 (u128),
-    // sqrt_price_start_x64 (u128), segment_count (u8) and a FIXED 16-slot segment
-    // array, all zeroed on a constant-product launch and all present regardless.
-    byte(0),
-    new Uint8Array(16),
-    new Uint8Array(16),
-    byte(0),
-    new Uint8Array(16 * 32),
     byte(o.complete ? 1 : 0),
     (o.pool ?? DEFAULT_PUBKEY).toBytes(),
     byte(253),
@@ -607,14 +594,11 @@ describe('migrationEligibility', () => {
 
 describe('the account sizes the rent reads use', () => {
   it('match the layouts', () => {
-    // 723 is the size of the account the program allocated on mainnet, measured —
-    // not re-derived. It was 186 here while the chain held 723, which made
-    // `decodeGlobalConfig` reject the live account as `bad-length`.
-    expect(GLOBAL_CONFIG_SIZE).toBe(723);
-    // 716, the summed width of the Rust struct. It was 162 here — the size through
-    // `bump` of a struct two field groups out of date — so every curve read as
-    // `bad-length` and the rent floor asked for was 554 bytes short.
-    expect(BONDING_CURVE_SIZE).toBe(716);
+    // The post-removal sizes. These are what the rent reads ASK the cluster for, so
+    // a stale value here does not fail loudly — it returns a rent floor for an
+    // account of the wrong size and every budget check built on it is quietly off.
+    expect(GLOBAL_CONFIG_SIZE).toBe(194);
+    expect(BONDING_CURVE_SIZE).toBe(170);
     // The rent floor a sell and a migration budget are measured against. Wrong in
     // the permissive direction is the one that does not fail closed.
     expect(RENT_EXEMPT_CURVE).toBe(BigInt((128 + BONDING_CURVE_SIZE) * 6960));

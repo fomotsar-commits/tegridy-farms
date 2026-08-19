@@ -9,12 +9,10 @@ import {
   associatedTokenAddress,
   buyIx,
   createLaunchIx,
-  CurveMode,
   initializeGlobalIx,
   migrateToAmmIx,
   sellIx,
   updateGlobalIx,
-  setCurveSegmentsIx,
   createAmmConfigIx,
 } from './ix';
 import {
@@ -31,6 +29,7 @@ import {
   cpAmmAuthorityPda,
   cpLpMintPda,
   cpObservationPda,
+  cpPermissionPda,
   cpPoolVaultPda,
   curvePda,
   curveVaultPda,
@@ -85,6 +84,17 @@ const TRADE_ACCOUNTS = [
   'system_program',
 ] as const;
 
+const CREATE_LAUNCH_ACCOUNTS = [
+  'creator',
+  'global',
+  'mint',
+  'curve',
+  'curve_vault',
+  'token_program',
+  'system_program',
+  'rent',
+] as const;
+
 const MIGRATE_ACCOUNTS = [
   'payer',
   'global',
@@ -93,12 +103,21 @@ const MIGRATE_ACCOUNTS = [
   'curve',
   'curve_vault',
   'wsol_mint',
+  // `creator` (8) and `permission` (15) were both added by the segmented-removal
+  // rework. Their positions are TRANSCRIBED from the program's MigrateToAmm context
+  // struct, not inferred: an earlier revision of this list guessed `creator` right
+  // after `curve` (mirroring Trade) and `permission` last in the cp-swap block
+  // (mirroring cp-swap's own InitializeWithPermission). Both guesses were wrong, and
+  // either one shifts every later account by a slot — a graduation that fails with a
+  // constraint error naming an account nobody touched. The struct is the authority.
+  'creator',
   'migration_authority',
   'auth_wsol',
   'auth_token',
   'auth_lp',
   'cp_swap_program',
   'amm_config',
+  'permission',
   'amm_authority',
   'pool_state',
   'lp_mint',
@@ -109,7 +128,6 @@ const MIGRATE_ACCOUNTS = [
   'token_program',
   'associated_token_program',
   'system_program',
-  'rent',
 ] as const;
 
 /**
@@ -225,38 +243,39 @@ describe('create_launch', () => {
   const creator = TRADER;
   const ix = createLaunchIx({ creator, mint: MINT });
 
-  // The client used to send only the discriminator, which was right until
-  // `create_launch` gained `mode: u8`. An 8-byte payload against a handler
-  // expecting 9 fails to deserialize — EVERY launch would have reverted.
-  it('encodes the curve mode; every other term comes from global and is snapshotted', () => {
-    expect(ix.data.length).toBe(9);
+  // The payload has been wrong in both directions. It was 8 bytes after
+  // `create_launch` gained `mode: u8`, and 9 after the removal took it away again;
+  // either way Borsh refuses the instruction and EVERY launch reverts. The length is
+  // asserted as a bare number, not as `8 + something`, so it cannot track a change
+  // to the encoder it is supposed to be checking.
+  it('sends the bare discriminator — every term comes from global and is snapshotted', () => {
+    expect(ix.data.length).toBe(8);
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.createLaunch);
-    expect(ix.data[8]).toBe(CurveMode.ConstantProduct);
   });
 
-  it('the mode byte actually changes with the argument', () => {
-    const seg = createLaunchIx({ creator, mint: MINT }, CurveMode.Segmented);
-    expect(seg.data[8]).toBe(1);
-    expect(seg.data[8]).not.toBe(ix.data[8]);
-  });
-
-  it('rejects a mode that would not fit a u8 rather than truncating it', () => {
-    // Truncation would silently select a DIFFERENT curve than the caller asked for.
-    expect(() => createLaunchIx({ creator, mint: MINT }, 256 as never)).toThrow(RangeError);
-    expect(() => createLaunchIx({ creator, mint: MINT }, -1 as never)).toThrow(RangeError);
+  it('reads its SECOND positional argument as the program ids, not as a mode', () => {
+    // The slot the curve mode used to occupy now holds `ids`. A caller still passing
+    // a mode there would silently retarget the instruction rather than fail, so what
+    // matters is that the ids are honoured from that position — and that the payload
+    // stays 8 bytes no matter what is passed.
+    const alt = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    const retargeted = createLaunchIx({ creator, mint: MINT }, { programId: alt });
+    expect(retargeted.programId.equals(alt)).toBe(true);
+    expect(slot(retargeted, CREATE_LAUNCH_ACCOUNTS, 'global').equals(globalPda(alt))).toBe(true);
+    expect(retargeted.data.length).toBe(8);
   });
 
   it('lists the eight CreateLaunch accounts in declaration order', () => {
-    expect(keyTable(ix)).toEqual([
-      [creator.toBase58(), true, true],
-      [globalPda().toBase58(), false, false],
-      [MINT.toBase58(), false, true],
-      [curvePda(MINT).toBase58(), false, true],
-      [curveVaultPda(MINT).toBase58(), false, true],
-      [TOKEN_PROGRAM_ID.toBase58(), false, false],
-      [SYSTEM_PROGRAM_ID.toBase58(), false, false],
-      [SYSVAR_RENT_PUBKEY.toBase58(), false, false],
-    ]);
+    expect(byName(ix, CREATE_LAUNCH_ACCOUNTS)).toEqual({
+      creator: [creator.toBase58(), true, true],
+      global: [globalPda().toBase58(), false, false],
+      mint: [MINT.toBase58(), false, true],
+      curve: [curvePda(MINT).toBase58(), false, true],
+      curve_vault: [curveVaultPda(MINT).toBase58(), false, true],
+      token_program: [TOKEN_PROGRAM_ID.toBase58(), false, false],
+      system_program: [SYSTEM_PROGRAM_ID.toBase58(), false, false],
+      rent: [SYSVAR_RENT_PUBKEY.toBase58(), false, false],
+    });
   });
 });
 
@@ -266,6 +285,7 @@ describe('migrate_to_amm', () => {
   const createPoolFee = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
   const ix = migrateToAmmIx({
     payer,
+    creator: CREATOR,
     feeRecipient: FEE_RECIPIENT,
     launchMint: MINT,
     ammConfig,
@@ -294,12 +314,16 @@ describe('migrate_to_amm', () => {
       curve: [curvePda(MINT).toBase58(), false, true],
       curve_vault: [curveVaultPda(MINT).toBase58(), false, true],
       wsol_mint: [WSOL_MINT.toBase58(), false, false],
+      // Read-only: the program declares `address = curve.creator` with no `mut`, so
+      // this account proves who the pool's creator is and is never paid here.
+      creator: [CREATOR.toBase58(), false, false],
       migration_authority: [migAuth.toBase58(), false, true],
       auth_wsol: [associatedTokenAddress(WSOL_MINT, migAuth).toBase58(), false, true],
       auth_token: [associatedTokenAddress(MINT, migAuth).toBase58(), false, true],
       auth_lp: [associatedTokenAddress(lpMint, migAuth).toBase58(), false, true],
       cp_swap_program: [CP_SWAP_PROGRAM_ID.toBase58(), false, false],
       amm_config: [ammConfig.toBase58(), false, false],
+      permission: [cpPermissionPda(migAuth).toBase58(), false, false],
       amm_authority: [cpAmmAuthorityPda().toBase58(), false, false],
       pool_state: [poolState.toBase58(), false, true],
       lp_mint: [lpMint.toBase58(), false, true],
@@ -310,7 +334,6 @@ describe('migrate_to_amm', () => {
       token_program: [TOKEN_PROGRAM_ID.toBase58(), false, false],
       associated_token_program: [ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(), false, false],
       system_program: [SYSTEM_PROGRAM_ID.toBase58(), false, false],
-      rent: [SYSVAR_RENT_PUBKEY.toBase58(), false, false],
     });
   });
 
@@ -322,6 +345,7 @@ describe('migrate_to_amm', () => {
     const other = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
     const alt = migrateToAmmIx({
       payer,
+      creator: CREATOR,
       feeRecipient: other,
       launchMint: MINT,
       ammConfig,
@@ -330,6 +354,61 @@ describe('migrate_to_amm', () => {
     expect(slot(alt, MIGRATE_ACCOUNTS, 'fee_recipient').equals(other)).toBe(true);
     // The mint used to land in this slot, which is the shift that broke the list.
     expect(slot(ix, MIGRATE_ACCOUNTS, 'fee_recipient').equals(MINT)).toBe(false);
+  });
+
+  it('takes `creator` from the caller and never derives it', () => {
+    // Same rule and same address as `Trade::creator`: it is `curve.creator`, which
+    // only a decoded curve can supply. It is also what cp-swap records as the
+    // graduated pool's creator, so a guessed value either reverts on the address
+    // constraint or diverts that pool's creator fees for its whole life.
+    const other = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    const alt = migrateToAmmIx({
+      payer,
+      creator: other,
+      feeRecipient: FEE_RECIPIENT,
+      launchMint: MINT,
+      ammConfig,
+      createPoolFee,
+    });
+    expect(slot(alt, MIGRATE_ACCOUNTS, 'creator').equals(other)).toBe(true);
+    // It is nobody else in the list — not the payer, and not the curve vault that
+    // sits in the next slot.
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'creator').equals(payer)).toBe(false);
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'creator').equals(curveVaultPda(MINT))).toBe(false);
+  });
+
+  it('derives `permission` on cp-swap from the migration authority, and lets it be overridden', () => {
+    // cp-swap seeds it from `initialize_with_permission`'s own payer, which is the
+    // migration authority — so it moves per launch.
+    expect(
+      slot(ix, MIGRATE_ACCOUNTS, 'permission').equals(cpPermissionPda(migrationAuthorityPda(MINT))),
+    ).toBe(true);
+    const otherMint = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    const otherIx = migrateToAmmIx({
+      payer,
+      creator: CREATOR,
+      feeRecipient: FEE_RECIPIENT,
+      launchMint: otherMint,
+      ammConfig,
+      createPoolFee,
+    });
+    expect(
+      slot(otherIx, MIGRATE_ACCOUNTS, 'permission').equals(slot(ix, MIGRATE_ACCOUNTS, 'permission')),
+    ).toBe(false);
+
+    // The default is an inference, so an operator who learns the real authority can
+    // supply the address without waiting on a code change.
+    const pinned = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+    const overridden = migrateToAmmIx({
+      payer,
+      creator: CREATOR,
+      feeRecipient: FEE_RECIPIENT,
+      launchMint: MINT,
+      ammConfig,
+      createPoolFee,
+      permission: pinned,
+    });
+    expect(slot(overridden, MIGRATE_ACCOUNTS, 'permission').equals(pinned)).toBe(true);
   });
 
   it('passes the vaults in cp-swap mint order, not argument order', () => {
@@ -351,6 +430,7 @@ describe('migrate_to_amm', () => {
 
     const low = migrateToAmmIx({
       payer,
+      creator: CREATOR,
       feeRecipient: FEE_RECIPIENT,
       launchMint: lowMint,
       ammConfig,
@@ -376,6 +456,7 @@ describe('migrate_to_amm', () => {
     expect(slot(ix, MIGRATE_ACCOUNTS, 'create_pool_fee').equals(createPoolFee)).toBe(true);
     const other = migrateToAmmIx({
       payer,
+      creator: CREATOR,
       feeRecipient: FEE_RECIPIENT,
       launchMint: MINT,
       ammConfig,
@@ -525,65 +606,17 @@ describe('operator-only instructions', () => {
     expect(new PublicKey(ix.data.subarray(13, 45)).equals(MINT)).toBe(true);
   });
 
-  it('set_curve_segments puts AUTHORITY first — the reverse of update_global', () => {
-    // Both are `has_one = authority`, but the structs declare the accounts in
-    // OPPOSITE order (lib.rs:1613-1621 vs :1599-1607). Anchor matches POSITIONALLY,
-    // so swapping them hands the program a Signer where it wants the config account
-    // — a confusing deserialize failure rather than an obvious signer error.
-    const seg = { sqrtPriceUpperX64: (1n << 65n) + 1n, liquidity: 1_000_000n };
-    const set = setCurveSegmentsIx(
-      { authority },
-      { sqrtPriceStartX64: 1n << 64n, segments: [seg] },
-    );
-    expect(keyTable(set)).toEqual([
-      [authority.toBase58(), true, false],
-      [globalPda().toBase58(), false, true],
+  // The instruction table is the client's whole record of what the program answers
+  // to; a stale entry invites building something the program has no handler for.
+  it('exposes only the six instructions the program still has', () => {
+    expect(Object.keys(IX_DISCRIMINATOR).sort()).toEqual([
+      'buy',
+      'createLaunch',
+      'initializeGlobal',
+      'migrateToAmm',
+      'sell',
+      'updateGlobal',
     ]);
-    // ...and update_global is the other way round.
-    expect(keyTable(updateGlobalIx({ authority }, { paused: true }))).toEqual([
-      [globalPda().toBase58(), false, true],
-      [authority.toBase58(), true, false],
-    ]);
-  });
-
-  it('set_curve_segments encodes u128s and a u32 Vec prefix, little-endian', () => {
-    const segs = [
-      { sqrtPriceUpperX64: (1n << 70n) + 7n, liquidity: (1n << 65n) + 3n },
-      { sqrtPriceUpperX64: (1n << 71n) + 9n, liquidity: (1n << 66n) + 5n },
-    ];
-    const ix = setCurveSegmentsIx(
-      { authority },
-      { sqrtPriceStartX64: (1n << 64n) + 1n, segments: segs },
-    );
-    expect(disc(ix)).toEqual(IX_DISCRIMINATOR.setCurveSegments);
-    // 8 disc + 16 start + 4 Vec len + 32 per segment.
-    expect(ix.data.length).toBe(8 + 16 + 4 + segs.length * 32);
-    const view = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
-    const rd128 = (o: number) => view.getBigUint64(o, true) | (view.getBigUint64(o + 8, true) << 64n);
-    // Every value here exceeds 2^53, so a Number-based encoder would round them.
-    expect(rd128(8)).toBe((1n << 64n) + 1n);
-    expect(view.getUint32(24, true)).toBe(2);
-    segs.forEach((s, i) => {
-      expect(rd128(28 + i * 32)).toBe(s.sqrtPriceUpperX64);
-      expect(rd128(28 + i * 32 + 16)).toBe(s.liquidity);
-    });
-  });
-
-  it('set_curve_segments refuses a value that does not fit a u128', () => {
-    const tooBig = 2n ** 128n;
-    expect(() =>
-      setCurveSegmentsIx({ authority }, { sqrtPriceStartX64: tooBig, segments: [] }),
-    ).toThrow(/sqrtPriceStartX64 must fit in a u128/);
-    expect(() =>
-      setCurveSegmentsIx(
-        { authority },
-        { sqrtPriceStartX64: 1n, segments: [{ sqrtPriceUpperX64: 1n, liquidity: tooBig }] },
-      ),
-    ).toThrow(/liquidity must fit in a u128/);
-    // u128::MAX itself is legal at this layer; the PROGRAM rejects it on range.
-    expect(() =>
-      setCurveSegmentsIx({ authority }, { sqrtPriceStartX64: tooBig - 1n, segments: [] }),
-    ).not.toThrow();
   });
 });
 
