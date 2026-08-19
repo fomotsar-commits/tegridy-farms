@@ -83,9 +83,75 @@ follows 0.1.
 
 ---
 
-## Tier 2 — decisions only you can make
+## Tier 2 — switches, all of them deliberately off
 
-*(Filled in from the build spree — see "Decisions waiting on you" below.)*
+Everything below was built, tested, and shipped **inert**. Each line is the exact act that turns
+one on. None of them can turn on by accident, and several are ordered — the order is stated where
+getting it backwards costs you something.
+
+### 2.1 Mount three finished surfaces *(one line each; I could not reach the files)*
+`AlertsPanel`, the trigger-order tab, and the launch-pricing call site all sit outside the
+ownership fences the build slices ran under, so they are complete and unrouted:
+- Alerts: route `src/components/notifications/AlertsPanel.tsx` and add it to `lib/navConfig.ts`.
+- Triggers: add a `trigger` tab to `pages/TradePage.tsx`, mirroring the existing TWAP tab.
+- Launch pricing: thread `pricing` through `pages/LaunchPage.tsx` — until then both fee flags
+  below are inert end-to-end no matter what you set.
+- `/airdrop` and `/vesting` are reachable by URL but not in the nav, which suits rails that are
+  still undeployed. Adding them should be a deliberate act.
+
+### 2.2 Apply two migrations by hand *(this database has no migration ledger)*
+`016_alert_rules.sql` and `017_api_keys.sql`. Both written, neither applied. Until `016` runs,
+every alerts call answers 503 `schema-missing` and says so — it does not pretend to have no rules.
+⚠️ They were briefly both numbered 016 by two independent slices; I renumbered the API one. If you
+ever see two files sharing a number again, that is the bug — you apply one, see "016 done", and the
+other never lands.
+
+### 2.3 Deploy the contracts that are written and deployed nowhere
+`AirdropFactory` · `TegridyAirdropDistributor` · `VestingFactory` · `TegridyVestingWallet` ·
+`TegridyLockVault` · `LaunchLockView` · `LaunchRugEscrow` · `DecayingFeeHook` — plus the
+long-standing `TegridyLending` (oracle-gated) and `TegridyLiquidityMigrator`.
+Filling their addresses into `constants.ts` is the entire activation step; every surface is
+already gated on them. Deploy scripts exist, are mainnet-chainid-guarded, require `MULTISIG` to be
+a contract, and have **never been run**.
+
+⚠️ **Fee-dial ordering, both new contracts:** call `setFeeSink(...)` **before** `setFee(...)`. A
+fee with a zero sink is snapshotted as zero, so the reverse order silently ships free escrows until
+the next one opens.
+⚠️ **The escrow ships with openings disabled.** `setOpeningsEnabled(true)` is a separate deliberate
+act, and nothing about a launch changes just because the contract exists.
+⚠️ **The decaying-fee hook's owner is set in the constructor** because the deploy script mines a
+CREATE2 address over the constructor args. Rotating the owner afterwards changes the address and
+invalidates the mine — decide the owner before deploying, not after.
+
+### 2.4 Two fee decisions (a flag and a price are two separate decisions)
+- **Heat-tier launch pricing:** `VITE_LAUNCH_TIER_PRICING=on` plus a full five-tier bps table. All
+  five tier words must be named or it refuses to apply — a partial table would silently price
+  someone at a default they never chose.
+- **Creator revenue share:** `VITE_CREATOR_FEE_SHARE=on` plus `VITE_CREATOR_FEE_SHARE_BPS`.
+- **Swap/trigger fee:** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`.
+The venue's take is **structurally capped** at today's rate: no configuration of these dials can
+raise it, because the resolver rejects any tier priced above the standard line.
+
+### 2.5 The graduation venue — pick the shape first
+The repo now contains **two different versions of #2** and they are not compatible: the battle
+plan specifies a new V2-fork migrator burning LP to a dead address, while the tree already has
+`TegridyLiquidityMigrator` graduating into a V4 hooked pool with LP time-locked in the fee locker.
+**Choose one before anything is deployed.** Then, in order: deploy the migrator → get Whetstone to
+whitelist the module (`Airlock.setModuleState(<migrator>, 4)`, executed by the Airlock owner — a
+petition, not a transaction you can send) → grant the hook's initializer allowance via a 48h
+timelocked admin action → *only then* set `TEGRIDY_V4_MIGRATOR_ADDRESS` and redeploy. Skipping the
+whitelist means graduation reverts at pool initialization.
+
+### 2.6 Known product gap, needs your call
+**Airdrop manifest hosting is unsolved,** and it is the biggest gap in that feature. The chain
+stores a 32-byte root and no list, so today a claimant must paste JSON the creator hands them.
+Either host manifests (indexer tables, or IPFS/Arweave pinning), or accept the paste flow and say
+so in the UI. Right now the UI is honest about it, which is not the same as it being good.
+
+### 2.7 Branding decision
+The PWA manifest no longer describes a single-chain farming product, but the **name** is still a
+question only you can answer — the app is "Tegridy Farms" at memetic.fun with a Tradermigos
+marketplace inside it, and installing from the marketplace produces an app named after the venue.
 
 ---
 
