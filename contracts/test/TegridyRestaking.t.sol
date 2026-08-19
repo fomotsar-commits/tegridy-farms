@@ -8,6 +8,7 @@ import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
 import "../src/TegridyRestaking.sol";
+import {TegridyRestakingAdmin} from "../src/TegridyRestakingAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -60,6 +61,7 @@ contract TegridyRestakingTest is Test {
     TegridyStakingAdmin stakingAdmin;
     TegridyStakingJbacVault vault; // AUDIT FIX (pass-8 batch-14)
     TegridyRestaking restaking;
+    TegridyRestakingAdmin restakingAdmin; // EIP-170 split: timelocked param governance
     RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
@@ -100,6 +102,11 @@ contract TegridyRestakingTest is Test {
             address(weth),
             BONUS_RATE
         );
+
+        // EIP-170 split: the timelocked admin surface lives on the sister;
+        // the host only exposes the onlyAdmin applyXxx hooks it calls.
+        restakingAdmin = new TegridyRestakingAdmin(address(restaking));
+        restaking.setRestakingAdmin(address(restakingAdmin));
         rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Fund staking with rewards
@@ -313,27 +320,27 @@ contract TegridyRestakingTest is Test {
     // ===== BONUS RATE TIMELOCK (SECURITY FIX #13) =====
 
     function test_proposeBonusRate_timelock() public {
-        restaking.proposeBonusRate(0.5 ether);
-        assertEq(restaking.pendingBonusRate(), 0.5 ether);
-        assertGt(restaking.bonusRateChangeTime(), block.timestamp);
+        restakingAdmin.proposeBonusRate(0.5 ether);
+        assertEq(restakingAdmin.pendingBonusRate(), 0.5 ether);
+        assertGt(restakingAdmin.bonusRateChangeTime(), block.timestamp);
     }
 
     function test_executeBonusRateChange_afterTimelock() public {
-        restaking.proposeBonusRate(0.5 ether);
+        restakingAdmin.proposeBonusRate(0.5 ether);
         vm.warp(block.timestamp + 48 hours + 1);
-        restaking.executeBonusRateChange();
+        restakingAdmin.executeBonusRateChange();
         assertEq(restaking.bonusRewardPerSecond(), 0.5 ether);
     }
 
     function test_revert_executeBonusRate_beforeTimelock() public {
-        restaking.proposeBonusRate(0.5 ether);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, restaking.BONUS_RATE_CHANGE()));
-        restaking.executeBonusRateChange();
+        restakingAdmin.proposeBonusRate(0.5 ether);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, restakingAdmin.BONUS_RATE_CHANGE()));
+        restakingAdmin.executeBonusRateChange();
     }
 
     function test_revert_proposeBonusRate_tooHigh() public {
         vm.expectRevert(TegridyRestaking.RateTooHigh.selector);
-        restaking.proposeBonusRate(101 ether);
+        restakingAdmin.proposeBonusRate(101 ether);
     }
 
     // ===== AUDIT FIX C-1: per-tokenId attribution prevents kick-bucket race =====
@@ -543,9 +550,15 @@ contract TegridyRestakingTest is Test {
 
         // Install the only hard-to-reach precondition directly: a STALE _residualClaimant
         // pointing at a prior restaker (alice). `_residualClaimant` is
-        // mapping(uint256 => address) at storage slot 13 (forge inspect storageLayout).
-        bytes32 slot = keccak256(abi.encode(tokenId, uint256(13)));
+        // mapping(uint256 => address) at storage slot 11 (forge inspect storageLayout).
+        // It was slot 13 before the EIP-170 admin split dropped TimelockAdmin from the
+        // inheritance list, which removed `_executeAfter` and let `pauseGuardian` pack
+        // with `_paused`. The read-back below is not decoration: a raw vm.store against
+        // a shifted slot writes an unrelated variable and leaves this test asserting
+        // nothing while still passing.
+        bytes32 slot = keccak256(abi.encode(tokenId, uint256(11)));
         vm.store(address(restaking), slot, bytes32(uint256(uint160(alice))));
+        assertEq(restaking.residualClaimant(tokenId), alice, "residual-claimant slot index is stale");
 
         // Accrue rewards for bob's position past his lock, then settle them into the
         // shared per-tokenId bucket via a permissionless kick — the credit a thief targets.
@@ -885,5 +898,220 @@ contract TegridyRestakingTest is Test {
         vm.prank(attacker);
         vm.expectRevert(TegridyRestaking.Unauthorized.selector);
         restaking.revalidateBoostForRestaked(tokenId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  EIP-170 admin split — parent<->sister boundary
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @dev The whole security value of the split rests on this: the host's apply
+    ///      hooks carry every fund effect of the moved flows, so if any caller other
+    ///      than the wired sister could reach them, the split would have converted
+    ///      four timelocked flows into four instant ones. Owner is `address(this)`
+    ///      in this suite, so this also proves the owner cannot bypass the timelock.
+    function test_split_applyHooks_rejectEveryCallerButTheSister() public {
+        _stakeAndRestake(alice);
+
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applyBonusRate(0.2 ether);
+
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applyAttributeStuckRewards(alice, 1 ether);
+
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applySweepStuckRewards(address(0xdead));
+
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applyRescueNFT(999, bob);
+
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applyResidualClaimant(999, bob);
+
+        // Same hooks, from a stranger.
+        vm.startPrank(bob);
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applyBonusRate(0.2 ether);
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applyResidualClaimant(999, bob);
+        vm.stopPrank();
+    }
+
+    function test_split_setRestakingAdmin_isOneShot() public {
+        assertEq(restaking.restakingAdmin(), address(restakingAdmin));
+        TegridyRestakingAdmin replacement = new TegridyRestakingAdmin(address(restaking));
+        vm.expectRevert(TegridyRestaking.AdminAlreadySet.selector);
+        restaking.setRestakingAdmin(address(replacement));
+    }
+
+    /// @dev An EOA admin bricks every apply hook: an EOA cannot construct the calls,
+    ///      and the only way back is another 48h rotation.
+    function test_split_adminWiring_rejectsEOA() public {
+        TegridyRestaking fresh = new TegridyRestaking(
+            address(staking), address(monitor), address(toweli), address(weth), BONUS_RATE
+        );
+        vm.expectRevert(TegridyRestaking.NotAContract.selector);
+        fresh.setRestakingAdmin(alice);
+
+        vm.expectRevert(TegridyRestaking.NotAContract.selector);
+        restaking.proposeAdminReplacement(alice);
+    }
+
+    function test_split_adminRotation_fullCycle() public {
+        TegridyRestakingAdmin replacement = new TegridyRestakingAdmin(address(restaking));
+
+        restaking.proposeAdminReplacement(address(replacement));
+        assertEq(restaking.pendingRestakingAdmin(), address(replacement));
+        assertEq(restaking.adminReplacementReadyAt(), vm.getBlockTimestamp() + 48 hours);
+
+        // Not before the delay.
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.executeAdminReplacement();
+
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        restaking.executeAdminReplacement();
+
+        assertEq(restaking.restakingAdmin(), address(replacement));
+        assertEq(restaking.pendingRestakingAdmin(), address(0));
+        assertEq(restaking.adminReplacementReadyAt(), 0);
+
+        // The outgoing sister's authority is gone the instant the swap lands.
+        restakingAdmin.proposeBonusRate(0.2 ether);
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restakingAdmin.executeBonusRateChange();
+
+        // The incoming sister has it.
+        replacement.proposeBonusRate(0.3 ether);
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        replacement.executeBonusRateChange();
+        assertEq(restaking.bonusRewardPerSecond(), 0.3 ether);
+    }
+
+    /// @dev H-14: a stale rotation proposal must expire rather than stay executable
+    ///      forever — a forgotten candidate address is a live hostile-admin vector.
+    function test_split_adminRotation_expiresAfterValidityWindow() public {
+        TegridyRestakingAdmin replacement = new TegridyRestakingAdmin(address(restaking));
+        restaking.proposeAdminReplacement(address(replacement));
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 7 days + 2);
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.executeAdminReplacement();
+        assertEq(restaking.restakingAdmin(), address(restakingAdmin), "admin must be unchanged");
+    }
+
+    /// @dev M19-PORT: an outgoing owner must not hand the next owner a live rotation
+    ///      proposal that installs an admin of the old owner's choosing.
+    function test_split_hostAcceptOwnership_flushesPendingRotation() public {
+        TegridyRestakingAdmin hostile = new TegridyRestakingAdmin(address(restaking));
+        restaking.proposeAdminReplacement(address(hostile));
+        assertGt(restaking.adminReplacementReadyAt(), 0);
+
+        restaking.transferOwnership(bob);
+        vm.prank(bob);
+        restaking.acceptOwnership();
+
+        assertEq(restaking.adminReplacementReadyAt(), 0, "rotation must be flushed on handoff");
+        assertEq(restaking.pendingRestakingAdmin(), address(0));
+        assertEq(restaking.restakingAdmin(), address(restakingAdmin));
+    }
+
+    /// @dev The sister carries the four TimelockAdmin keys the host used to hold, so
+    ///      the booby-trap sweep has to move with them. Also pins the F-2 cooldown
+    ///      reset: without it the incoming owner inherits up to 24h of the outgoing
+    ///      owner's anti-churn window on their first propose.
+    function test_split_sisterAcceptOwnership_flushesAllFourKeysAndCooldown() public {
+        _stakeAndRestake(alice);
+        MockTOWELI stray = new MockTOWELI();
+
+        restakingAdmin.proposeBonusRate(0.2 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 1 ether);
+        restakingAdmin.proposeSweepStuckRewards(address(stray));
+        restakingAdmin.proposeRescueNFT(999, bob);
+
+        assertGt(restakingAdmin.bonusRateChangeTime(), 0);
+        assertGt(restakingAdmin.attributionExecuteAfter(), 0);
+        assertTrue(restakingAdmin.hasPendingProposal(restakingAdmin.SWEEP_STUCK_CHANGE()));
+        assertTrue(restakingAdmin.hasPendingProposal(restakingAdmin.RESCUE_NFT_CHANGE()));
+        assertGt(restakingAdmin.lastBonusRateActionAt(), 0);
+
+        restakingAdmin.transferOwnership(bob);
+        vm.prank(bob);
+        restakingAdmin.acceptOwnership();
+
+        assertEq(restakingAdmin.bonusRateChangeTime(), 0, "BONUS_RATE_CHANGE not flushed");
+        assertEq(restakingAdmin.attributionExecuteAfter(), 0, "ATTRIBUTION_CHANGE not flushed");
+        assertFalse(
+            restakingAdmin.hasPendingProposal(restakingAdmin.SWEEP_STUCK_CHANGE()),
+            "SWEEP_STUCK_CHANGE not flushed"
+        );
+        assertFalse(
+            restakingAdmin.hasPendingProposal(restakingAdmin.RESCUE_NFT_CHANGE()),
+            "RESCUE_NFT_CHANGE not flushed"
+        );
+        assertEq(restakingAdmin.pendingBonusRate(), 0);
+        assertEq(restakingAdmin.pendingSweepStuckToken(), address(0));
+        assertEq(
+            restakingAdmin.lastBonusRateActionAt(), 0,
+            "incoming owner must not inherit the anti-churn cooldown"
+        );
+
+        // The incoming owner's first propose is unblocked.
+        vm.prank(bob);
+        restakingAdmin.proposeBonusRate(0.2 ether);
+    }
+
+    /// @dev Pre-split, `proposeBonusRate` ran the `updateBonus` accrual. The sister
+    ///      cannot accrue, so that segmentation point is gone. This pins the property
+    ///      it existed to protect: no elapsed second is repriced. The whole window
+    ///      must pay at the OLD rate, and the new rate applies only from execute on.
+    function test_split_bonusRateChange_repricesNoElapsedSecond() public {
+        _stakeAndRestake(alice);
+        uint256 rateBefore = restaking.bonusRewardPerSecond();
+        assertEq(rateBefore, BONUS_RATE);
+
+        uint256 accrualStart = restaking.lastBonusRewardTime();
+
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        restakingAdmin.proposeBonusRate(rateBefore * 2);
+        // Nothing accrued at propose: the sister has no path to the accumulator.
+        assertEq(restaking.lastBonusRewardTime(), accrualStart, "propose must not accrue");
+
+        vm.warp(vm.getBlockTimestamp() + 48 hours + 1);
+        uint256 execTime = vm.getBlockTimestamp();
+        restakingAdmin.executeBonusRateChange();
+
+        assertEq(restaking.bonusRewardPerSecond(), rateBefore * 2, "new rate must be live");
+        assertEq(restaking.lastBonusRewardTime(), execTime, "execute must accrue up to now");
+
+        // Alice is the only restaker, so the whole emission is hers. The tolerance is
+        // the accumulator's truncation (< totalRestaked / ACC_PRECISION per step),
+        // not a fudge factor.
+        uint256 expected = (execTime - accrualStart) * rateBefore;
+        assertApproxEqAbs(
+            rMonitorView.pendingBonus(alice),
+            expected,
+            1e9,
+            "elapsed window must be priced entirely at the OLD rate"
+        );
+    }
+
+    /// @dev The attribution cap is the F-2 fix. The sister's propose-time view of the
+    ///      host's balances is up to 24h stale, so the cap must be recomputed on the
+    ///      host at execute time — pinned here by making the proposal legal when
+    ///      queued and illegal when executed.
+    function test_split_attributionCap_isRecomputedOnHostAtExecute() public {
+        _stakeAndRestake(alice);
+
+        // Unattributed TOWELI on the host at propose time.
+        toweli.transfer(address(restaking), 100 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 100 ether);
+
+        // The backing leaves during the timelock window. A stale propose-time cap
+        // would still say 100 ether is attributable.
+        vm.warp(vm.getBlockTimestamp() + 24 hours + 1);
+        vm.prank(address(restaking));
+        toweli.transfer(bob, 100 ether);
+
+        vm.expectRevert(TegridyRestaking.BadParam.selector);
+        restakingAdmin.executeAttributeStuckRewards();
     }
 }

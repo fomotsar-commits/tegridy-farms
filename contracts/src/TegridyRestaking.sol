@@ -17,12 +17,7 @@ import {OwnableNoRenounce} from "./base/OwnableNoRenounce.sol";
 // EIP-170 split (2026-05-30): pendingBase delegates to StakingMonitorView since
 // `earned(uint256)` moved off TegridyStaking into the read-only sister.
 import {StakingMonitorView} from "./StakingMonitorView.sol";
-import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 import {PauseGuardian} from "./base/PauseGuardian.sol";
-// EIP-170 split (2026-06-04): cold owner-only admin/governance bodies live in a
-// linked (delegatecall) library to keep the host under EIP-170. See the lib's
-// NatSpec for the storage-reference / delegatecall semantics.
-import {RestakingAdminLib} from "./lib/RestakingAdminLib.sol";
 
 interface ITegridyStaking {
     function getReward(uint256 tokenId) external returns (uint256 claimed);
@@ -103,18 +98,22 @@ interface ITegridyStaking {
 ///         Think of it like:
 ///         - Base staking = earning interest on a savings account
 ///         - Restaking = lending your savings certificate for extra yield
-contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver, TimelockAdmin, PauseGuardian {
+/// @dev EIP-170 split: every timelocked owner-only parameter flow (bonus rate,
+///      stuck-reward attribution, stuck-token sweep, NFT rescue, residual-claimant
+///      clear) lives on the sister `TegridyRestakingAdmin`, together with the
+///      `TimelockAdmin` base this contract no longer inherits. What remains here is
+///      the fund/accounting core plus the narrow `onlyAdmin applyXxx` setters the
+///      sister calls. The fund-mutation body of every moved flow stays on THIS
+///      contract on purpose: attribution's cap, rescue's live-claim guards and the
+///      bonus-rate accrual all read host state that can go stale during the
+///      timelock window, so the authoritative re-check must run here at execute
+///      time, not off a getter the sister read earlier.
+contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC721Receiver, PauseGuardian {
 
     // ─── Constants ──────────────────────────────────────────────────
     /// AUDIT FIX (BATCH-N1 M1): bumped from 1e12 to 1e18 (same as TegridyStaking).
     /// Modern share-accumulator precision standard.
     uint256 private constant ACC_PRECISION = 1e18;
-
-    // ─── TimelockAdmin Keys ──────────────────────────────────────────
-    bytes32 public constant BONUS_RATE_CHANGE = keccak256("BONUS_RATE_CHANGE");
-    bytes32 public constant ATTRIBUTION_CHANGE = keccak256("ATTRIBUTION_CHANGE");
-    /// @notice AUDIT FIX FRESH-2026: M-4 [F-04-2] — timelock key for rescueNFT.
-    bytes32 public constant RESCUE_NFT_CHANGE = keccak256("RESCUE_NFT_CHANGE");
 
     // ─── State ──────────────────────────────────────────────────────
     IERC20 public immutable rewardToken;       // TOWELI
@@ -377,56 +376,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     mapping(address => uint256) public unforwardedBonusRewards;
     uint256 public totalUnforwardedBonus;
 
-    /// @notice AUDIT FIX FRESH-2026: F-04-3 — owner-only timelocked clear of
-    ///         an abandoned residual claimant (e.g. lost-keys restaker).
-    uint256 public constant CLEAR_RESIDUAL_TIMELOCK = 7 days;
-    /// @notice AUDIT FIX (2026-05-25 2nd pass): validity window after the timelock
-    ///         elapses, so an abandoned residual-clear proposal self-expires instead of
-    ///         staying executable forever (parity with sibling inline timelocks).
-    uint256 public constant CLEAR_RESIDUAL_VALIDITY = 7 days;
-    // EIP-170 split (2026-06-04): PendingResidualClear now lives in RestakingAdminLib
-    // so the storage-reference type matches across the delegatecall seam (same
-    // {address newClaimant; uint256 executeAfter} layout — identical storage slots).
-    mapping(uint256 => RestakingAdminLib.PendingResidualClear) public pendingResidualClears;
-    event ResidualClearProposed(uint256 indexed tokenId, address indexed newClaimant, uint256 executeAfter);
-    event ResidualClearExecuted(uint256 indexed tokenId, address indexed oldClaimant, address indexed newClaimant);
-    event ResidualClearCancelled(uint256 indexed tokenId);
-
-    /// @notice AUDIT FIX FRESH-2026: M-4 [F-04-2] — propose/execute pair for
-    ///         the rescueNFT path (48h timelock).
-    uint256 public constant RESCUE_NFT_TIMELOCK = 48 hours;
-    // EIP-170 split (2026-06-04, part 2d): PendingRescueNFT now lives in
-    // RestakingAdminLib so the storage-reference type matches across the
-    // delegatecall seam (same {uint256 tokenId; address to} layout — identical
-    // storage slots; the public getter tuple shape is unchanged).
-    RestakingAdminLib.PendingRescueNFT public pendingRescueNFT;
-    event RescueNFTProposed(uint256 indexed tokenId, address indexed to, uint256 executeAfter);
-    event RescueNFTExecuted(uint256 indexed tokenId, address indexed to);
-    event RescueNFTCancelled(uint256 indexed tokenId);
-
     /// @notice AUDIT FIX FRESH-2026: F-84-1 — bonus-token-decimal-scaled cap
     ///         unit. Cached at construction; raw-wei scale of one whole bonus
     ///         token. Defaults to 1e18 if `decimals()` reverts.
     uint256 public immutable bonusRewardTokenUnit;
 
-    // SECURITY FIX #13: Timelock for reward rate changes
-    uint256 public constant BONUS_RATE_TIMELOCK = 48 hours;
     /// @notice AUDIT FIX FRESH-2026: F-04-7 + F-84-1 — symmetric, decimal-
     ///         scaled cap. Pre-fix the constructor bound rate to `10e18`
     ///         while `proposeBonusRate` allowed up to `100e18` — asymmetric
-    ///         and not scaled to `bonusRewardToken.decimals()`. Now both
-    ///         sites share `maxBonusRewardRate()` evaluating to
-    ///         `10 * bonusRewardTokenUnit`.
+    ///         and not scaled to `bonusRewardToken.decimals()`. Both the
+    ///         constructor and `applyBonusRate` share `maxBonusRewardRate()`,
+    ///         evaluating to `10 * bonusRewardTokenUnit`.
     uint256 public constant MAX_BONUS_REWARD_RATE_MULTIPLIER = 10;
-    uint256 public pendingBonusRate;
-
-    // SECURITY FIX: Timelock for attributeStuckBaseRewards
-    uint256 public constant ATTRIBUTE_TIMELOCK = 24 hours;
-    // EIP-170 split (2026-06-04, part 2d): PendingAttribution now lives in
-    // RestakingAdminLib so the storage-reference type matches across the
-    // delegatecall seam (same {address restaker; uint256 amount} layout —
-    // identical storage slots; the public getter tuple shape is unchanged).
-    RestakingAdminLib.PendingAttribution public pendingAttribution;
 
     // H-01 FIX: Track per-user recovery to prevent race condition in recoverStuckPrincipal
     /// @dev AUDIT FIX (pass-8): EIP170-04 — visibility lowered to `internal`.
@@ -441,14 +402,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     uint256 public lastForceReturnTime;
     uint256 public constant FORCE_RETURN_COOLDOWN = 1 hours;
 
-    // AUDIT FIX: DEEP-DR-07 — cooldown between bonus-rate propose/cancel sequences
-    // so a captured-key signer cannot churn the rate-change state indefinitely
-    // (preventing legitimate signers from enacting a counter-rate during an
-    // incident). Tracks the timestamp of the most recent propose OR cancel; the
-    // next propose/cancel pair is gated by `BONUS_RATE_ACTION_COOLDOWN`.
-    uint256 public lastBonusRateActionAt;
-    uint256 public constant BONUS_RATE_ACTION_COOLDOWN = 24 hours;
-
     // ─── Events ─────────────────────────────────────────────────────
     event Restaked(address indexed user, uint256 indexed tokenId, uint256 positionAmount);
     event Unrestaked(address indexed user, uint256 indexed tokenId);
@@ -456,14 +409,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     event BaseClaimed(address indexed user, uint256 baseAmount);
     event BonusFunded(uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed tokenId); // SECURITY FIX #12
-    event BonusRateProposed(uint256 newRate, uint256 executeAfter); // SECURITY FIX #13
+    /// @notice EIP-170 split: the `*Proposed` / `*Cancelled` halves of every
+    ///         timelocked flow now emit from `TegridyRestakingAdmin`. The
+    ///         `*Executed` halves stay here, at the site that actually moves the
+    ///         value, so an execution can never be observed that did not happen.
     event BonusRateExecuted(uint256 newRate); // SECURITY FIX #13
     event BaseClaimFailed(uint256 indexed tokenId, address indexed user); // SECURITY FIX #21
-    event BonusRateCancelled(uint256 cancelledRate); // M-03: Cancel mechanism
     event PositionRefreshed(address indexed user, uint256 indexed tokenId, uint256 oldAmount, uint256 newAmount); // C-05
     event StuckBaseRewardsAttributed(address indexed restaker, uint256 amount); // AUDIT FIX: attribute external base rewards
-    event AttributionProposed(address indexed restaker, uint256 amount, uint256 executeAfter);
-    event AttributionCancelled(address indexed restaker, uint256 amount);
+    event SweepStuckExecuted(address indexed token, uint256 amount);
+    event RescueNFTExecuted(uint256 indexed tokenId, address indexed to);
+    event ResidualClearExecuted(uint256 indexed tokenId, address indexed oldClaimant, address indexed newClaimant);
     event UnsettledRecovered(address indexed user, uint256 amount); // AUDIT FIX: recover unsettled from NFT transfer
     event EmergencyForceReturn(address indexed restaker, uint256 indexed tokenId, bool nftReturned); // H-05
     event BoostRevalidated(address indexed restaker, uint256 indexed tokenId, uint256 oldBoosted, uint256 newBoosted); // M-26
@@ -525,10 +481,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         the cached boost matches the current staking-side boost (i.e., no
     ///         decay has happened yet — the helper has nothing to do).
     error NoDecay();
-    /// @notice AUDIT FIX: DEEP-DR-07 — propose/cancel of bonus rate must be at
-    ///         least `BONUS_RATE_ACTION_COOLDOWN` apart so a captured-signer key
-    ///         cannot churn rate-change state continuously.
-    error BonusRateActionCooldown();
     /// @notice AUDIT FIX: DR2-08 — distinct typed error for the staking-side
     ///         per-owner-set divergence check (DR-11 fix). Pre-DR2-08, this
     ///         shared `NotNFTOwner()` with the ERC721 ownership check, so
@@ -544,12 +496,13 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         fires. Pre-fix, copying that inflated cache into the restaking
     ///         struct let the attacker siphon honest restakers' bonus emission.
     error PositionExpired();
-    /// @notice AUDIT FIX FRESH-2026: F-04-3 — typed errors for the timelocked
-    ///         residual-clear admin path.
-    error NoPendingResidualClear();
-    error ResidualClearTimelockNotElapsed();
-    /// @notice AUDIT FIX (2026-05-25 2nd pass): residual-clear proposal expired (past validity).
-    error ResidualClearExpired();
+    /// @notice EIP-170 split: first-time `setRestakingAdmin` already ran. Rotation
+    ///         must go through the 48h `proposeAdminReplacement` path.
+    error AdminAlreadySet();
+    /// @notice EIP-170 split: the proposed admin is an EOA or an EIP-7702 delegated
+    ///         EOA. Installing one bricks every `onlyAdmin` path, because an EOA
+    ///         cannot construct the `applyXxx` calls.
+    error NotAContract();
 
     // ─── Constructor ────────────────────────────────────────────────
     constructor(
@@ -602,10 +555,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         bonusRewardPerSecond = _bonusRewardPerSecond;
         lastBonusRewardTime = block.timestamp;
     }
-
-    // ─── Legacy View Helpers (for test compatibility) ──────────────
-    function bonusRateChangeTime() external view returns (uint256) { return _executeAfter[BONUS_RATE_CHANGE]; }
-    function attributionExecuteAfter() external view returns (uint256) { return _executeAfter[ATTRIBUTION_CHANGE]; }
 
     /// @notice AUDIT FIX FRESH-2026: F-04-7 + F-84-1 — single decimal-scaled
     ///         cap used by both constructor and `proposeBonusRate`.
@@ -1596,36 +1545,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         emit ResidualClaimWaived(tokenId, msg.sender);
     }
 
-    // ─── AUDIT FIX FRESH-2026: F-04-3 — abandoned residual claimant escape ──
-
-    /// @notice Owner-only timelocked clear/retarget of an abandoned residual
-    ///         claimant on `tokenId`. Pre-fix, a lost-key restaker who held
-    ///         a residual lock perma-blocked re-restake of that NFT (the
-    ///         `restake()` guard requires either claimant == msg.sender OR
-    ///         `staking.unsettledRewardsByTokenId == 0`). 7-day timelock +
-    ///         per-tokenId proposal + visible events let the original
-    ///         claimant surface and object before clearance.
-    /// @param tokenId The tsTOWELI NFT token ID whose residual claim to clear.
-    /// @param newClaimant Pass `address(0)` to fully clear; pass a non-zero
-    ///         address (e.g. the new NFT owner) to retarget the claim.
-    function proposeClearResidualClaimant(uint256 tokenId, address newClaimant) external onlyOwner {
-        // EIP-170 split (2026-06-04): body in RestakingAdminLib (delegatecall) —
-        // behaviour byte-identical (H-RESTAKE-CLEAR-ABANDONS-RESIDUE non-zero-successor
-        // guard + M-03 pending-proposal reject preserved verbatim in the lib).
-        RestakingAdminLib.proposeClearResidualClaimant(_residualClaimant, pendingResidualClears, tokenId, newClaimant);
-    }
-
-    function executeClearResidualClaimant(uint256 tokenId) external onlyOwner {
-        // EIP-170 split (2026-06-04): body in RestakingAdminLib (delegatecall) —
-        // 7-day timelock + validity-window expiry checks preserved verbatim.
-        RestakingAdminLib.executeClearResidualClaimant(_residualClaimant, pendingResidualClears, tokenId);
-    }
-
-    function cancelClearResidualClaimant(uint256 tokenId) external onlyOwner {
-        // EIP-170 split (2026-06-04): body in RestakingAdminLib (delegatecall).
-        RestakingAdminLib.cancelClearResidualClaimant(pendingResidualClears, tokenId);
-    }
-
     // ─── Admin ──────────────────────────────────────────────────────
 
     /// @notice Fund the bonus reward pool
@@ -1662,129 +1581,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         // Now accrue against the post-deposit balance.
         _accrueBonusChecked();
         emit BonusFunded(received);
-    }
-
-    /// @notice DEPRECATED: Use proposeBonusRate + executeBonusRateChange instead.
-    function setBonusRewardPerSecond(uint256) external pure {
-        revert("DEPRECATED: use proposeBonusRate()");
-    }
-
-    /// @notice SECURITY FIX #13: Propose a new bonus reward rate (subject to 48h timelock)
-    /// @dev AUDIT FIX: DEEP-DR-07 — gate proposals behind a 24h cooldown shared
-    ///      with `cancelBonusRateProposal` so a captured signer cannot loop
-    ///      propose+cancel to keep rate-change state churning indefinitely.
-    ///      Order of checks:
-    ///        1. RateTooHigh (input validation)
-    ///        2. _propose's ExistingProposalPending (legacy back-compat — preserves
-    ///           audit195 test suite expectations)
-    ///        3. cooldown gate (only relevant after a previous propose+cancel)
-    ///      The cooldown only applies AFTER the first action (lastBonusRateActionAt
-    ///      is left zero at deploy so the first rate proposal is unblocked).
-    function proposeBonusRate(uint256 _rate) external onlyOwner updateBonus {
-        // AUDIT FIX FRESH-2026: F-04-7 + F-84-1 — symmetric decimal-scaled cap.
-        if (_rate > maxBonusRewardRate()) revert RateTooHigh();
-        // _propose handles the ExistingProposalPending check internally.
-        // We delay the cooldown check until AFTER that so the legacy
-        // "second propose reverts with ExistingProposalPending" test passes.
-        if (lastBonusRateActionAt != 0 &&
-            _executeAfter[BONUS_RATE_CHANGE] == 0 &&
-            block.timestamp < lastBonusRateActionAt + BONUS_RATE_ACTION_COOLDOWN) {
-            revert BonusRateActionCooldown();
-        }
-        pendingBonusRate = _rate;
-        lastBonusRateActionAt = block.timestamp;
-        _propose(BONUS_RATE_CHANGE, BONUS_RATE_TIMELOCK);
-        emit BonusRateProposed(_rate, _executeAfter[BONUS_RATE_CHANGE]);
-    }
-
-    /// @notice SECURITY FIX #13: Execute pending bonus rate change after timelock
-    function executeBonusRateChange() external onlyOwner updateBonus {
-        _execute(BONUS_RATE_CHANGE);
-        bonusRewardPerSecond = pendingBonusRate;
-        emit BonusRateExecuted(pendingBonusRate);
-        pendingBonusRate = 0;
-    }
-
-    /// @notice M-03: Cancel a pending bonus rate proposal
-    /// @dev AUDIT FIX: DR2-05 — REMOVED the cooldown gate from
-    ///      `cancelBonusRateProposal`. The DR-07 v1 fix gated BOTH propose and
-    ///      cancel behind the same 24h cooldown. While that stopped the
-    ///      propose+cancel churn loop, it also blocked the FIRST cancel within
-    ///      24h of a propose — halving the multisig's defensive responsiveness
-    ///      against a captured-signer malicious propose. The asymmetric trade
-    ///      was wrong: defensive cancel is exactly the action the multisig
-    ///      MUST be able to take immediately when it spots a hostile proposal.
-    ///
-    ///      Fix: cancel is now always allowed. Anti-churn protection remains
-    ///      via the propose-side cooldown — a compromised signer cannot
-    ///      indefinitely re-propose at sub-24h cadence even if they cancel
-    ///      between proposes. Pattern of record: OZ TimelockController allows
-    ///      cancel without cooldown; only propose is rate-limited.
-    function cancelBonusRateProposal() external onlyOwner {
-        _cancel(BONUS_RATE_CHANGE);
-        uint256 cancelledRate = pendingBonusRate;
-        pendingBonusRate = 0;
-        // AUDIT FIX: DR2-05 — still update `lastBonusRateActionAt` on cancel so
-        // the propose-side cooldown observes this cancel as a recent action.
-        // The next propose remains gated by the 24h window from this cancel
-        // (anti-churn). Defensive cancel itself is unblocked.
-        lastBonusRateActionAt = block.timestamp;
-        emit BonusRateCancelled(cancelledRate);
-    }
-
-    /// @notice AUDIT FIX H-02: Sweep stuck reward tokens (from revalidateBoost or other external calls).
-    /// @dev AUDIT FIX 2026-05-26 [M-09]: split into propose/execute behind a 24h
-    ///      timelock. Pre-fix, the function was instant-onlyOwner. The chained
-    ///      defense via `address(staking)` + Staking's own 24h timelocked sweep
-    ///      already mitigated drain (BATCH-J1 H17), but the visible 24h propose
-    ///      window here gives off-chain monitoring an extra signal AND aligns
-    ///      with every other captured-owner-residual-surface fix in this batch.
-    ///      DELETE > ADD principle: kept the original receiver invariants
-    ///      (address(staking), bonus/reward token rejects); only added the
-    ///      timelock wrapper using existing TimelockAdmin base.
-    bytes32 public constant SWEEP_STUCK_CHANGE = keccak256("RESTAKING_SWEEP_STUCK_REWARDS");
-    uint256 public constant SWEEP_STUCK_TIMELOCK = 24 hours;
-    address public pendingSweepStuckToken;
-
-    event SweepStuckProposed(address indexed token, uint256 executeAfter);
-    event SweepStuckCancelled(address indexed token);
-    event SweepStuckExecuted(address indexed token, uint256 amount);
-
-    function proposeSweepStuckRewards(address _token) external onlyOwner {
-        if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
-        if (_token == address(rewardToken)) revert CannotSweepRewardToken();
-        if (_token == address(0)) revert ZeroAddress();
-        pendingSweepStuckToken = _token;
-        _propose(SWEEP_STUCK_CHANGE, SWEEP_STUCK_TIMELOCK);
-        emit SweepStuckProposed(_token, _executeAfter[SWEEP_STUCK_CHANGE]);
-    }
-
-    function executeSweepStuckRewards() external onlyOwner {
-        _execute(SWEEP_STUCK_CHANGE);
-        address _token = pendingSweepStuckToken;
-        pendingSweepStuckToken = address(0);
-        // EIP-170 split (2026-06-04, part 2d): execute-time re-check guards +
-        // transfer-to-staking + emit delegate to RestakingAdminLib byte-for-byte.
-        RestakingAdminLib.executeSweepStuckRewards(
-            _token,
-            address(bonusRewardToken),
-            address(rewardToken),
-            address(staking)
-        );
-    }
-
-    function cancelSweepStuckRewards() external onlyOwner {
-        address cancelled = pendingSweepStuckToken;
-        pendingSweepStuckToken = address(0);
-        _cancel(SWEEP_STUCK_CHANGE);
-        emit SweepStuckCancelled(cancelled);
-    }
-
-    /// @notice DEPRECATED — pre-2026-05-26 instant sweep. Use the
-    ///         propose/execute pair above. Reverts to flag to callers
-    ///         that migration is required.
-    function sweepStuckRewards(address) external view onlyOwner {
-        revert("AUDIT 2026-05-26 [M-09]: use proposeSweepStuckRewards/executeSweepStuckRewards");
     }
 
     /// @notice AUDIT FIX H-06: Recover stuck principal TOWELI when the underlying staking
@@ -1886,50 +1682,6 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         }
     }
 
-    /// @notice SECURITY FIX: Propose attributing stuck base rewards (24h timelock).
-    ///         When revalidateBoost() is called externally on a restaked NFT, _getReward()
-    ///         sends TOWELI to this contract with no way to identify the recipient.
-    ///         Owner proposes attribution, then executes after 24h delay.
-    /// @param _restaker The restaker address to credit
-    /// @param _amount The amount of rewardToken to attribute
-    function proposeAttributeStuckRewards(address _restaker, uint256 _amount) external onlyOwner {
-        if (restakers[_restaker].tokenId == 0) revert NotRestaked();
-        if (_amount == 0) revert ZeroAmount();
-        pendingAttribution = RestakingAdminLib.PendingAttribution({
-            restaker: _restaker,
-            amount: _amount
-        });
-        _propose(ATTRIBUTION_CHANGE, ATTRIBUTE_TIMELOCK);
-        emit AttributionProposed(_restaker, _amount, _executeAfter[ATTRIBUTION_CHANGE]);
-    }
-
-    /// @notice Execute a previously proposed stuck reward attribution after the 24h timelock.
-    /// @dev EIP-170 split (2026-06-04, part 2d): run the TimelockAdmin `_execute`
-    ///      gate here (internal base fn the lib cannot reach), read the recheck
-    ///      tokenId, then delegate the F-2 cap math + credit + delete + emit to
-    ///      RestakingAdminLib (behaviour byte-identical). `_execute` does not touch
-    ///      `restakers`, so reading `restakers[...].tokenId` here preserves ordering.
-    function executeAttributeStuckRewards() external onlyOwner {
-        _execute(ATTRIBUTION_CHANGE);
-        totalUnforwardedBase = RestakingAdminLib.executeAttributeStuckRewards(
-            pendingAttribution,
-            restakers[pendingAttribution.restaker].tokenId,
-            address(rewardToken),
-            totalUnforwardedBase,
-            totalActivePrincipal,
-            totalPendingUnsettled,
-            unforwardedBaseRewards
-        );
-    }
-
-    /// @notice Cancel a pending stuck reward attribution proposal.
-    function cancelAttributeStuckRewards() external onlyOwner {
-        _cancel(ATTRIBUTION_CHANGE);
-        RestakingAdminLib.PendingAttribution memory p = pendingAttribution;
-        delete pendingAttribution;
-        emit AttributionCancelled(p.restaker, p.amount);
-    }
-
     /// @notice SECURITY FIX #12: Emergency withdraw NFT without attempting reward calculations.
     ///         Forfeits all pending bonus rewards. Use if reward math is broken.
     /// H-02: Added updateBonus modifier so accBonusPerShare is current before state changes
@@ -2029,60 +1781,169 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     function guardianPause() external onlyPauseGuardian { _pause(); }
 
-    // ─── Rescue ──────────────────────────────────────────────────────
+    // ─── EIP-170 split: sister-admin pointer + rotation ──────────────
+    //
+    // The rotation flow is held HERE rather than on the sister so a broken or
+    // captured sister can never block its own removal. It is an inline timelock
+    // (this contract no longer inherits TimelockAdmin) and mirrors
+    // `TegridyStaking.setStakingAdmin` / `proposeAdminReplacement` exactly.
 
-    /// @notice AUDIT FIX FRESH-2026: M-3 [F-03-K3] + M-4 [F-04-2] — converted
-    ///         to a timelocked propose/execute pair. Pre-fix:
-    ///           * rescueNFT was instant onlyOwner constrained to
-    ///             `address(staking)`, but staking has no IERC721Receiver, so
-    ///             rescue ALWAYS reverted — NFTs sent direct (bypassing
-    ///             restake()) were permanently stuck.
-    ///           * No `strandedRestakeRecipient` check — captured owner could
-    ///             rescue a stranded NFT into a dead-end before user's claim
-    ///             path could fire.
-    ///         Post-fix:
-    ///           * Free `_to` with 48h timelock for visibility.
-    ///           * Stranded-recipient check denies rescue while a user's
-    ///             claim path is live (M-3).
-    ///           * tokenIdToRestaker check preserved (BATCH-J1 H18 intent).
-    function proposeRescueNFT(uint256 _tokenId, address _to) external onlyOwner {
+    /// @notice The wired `TegridyRestakingAdmin`. Zero until `setRestakingAdmin`.
+    address public restakingAdmin;
+    /// @notice Pending replacement admin. Zero when no rotation is pending.
+    address public pendingRestakingAdmin;
+    /// @notice Timestamp after which `executeAdminReplacement` is callable.
+    uint256 public adminReplacementReadyAt;
+    uint256 internal constant ADMIN_REPLACEMENT_TIMELOCK = 48 hours;
+
+    event RestakingAdminReplaced(address indexed oldAdmin, address indexed newAdmin);
+    event RestakingAdminReplacementProposed(address indexed newAdmin, uint256 executeAfter);
+    event RestakingAdminReplacementCancelled(address indexed proposed);
+
+    /// @notice First-time install of the sister admin contract. One-shot: every
+    ///         later change goes through the 48h rotation below.
+    /// @dev DEEP-DS-12 / F-60-2: reject EOAs and EIP-7702 delegated EOAs
+    ///      (`code.length == 23` is the canonical `0xef0100‖addr` pointer). This is
+    ///      a TYPE filter, not a capability check — the operator must still verify
+    ///      the target implements `ITegridyRestakingApply`.
+    function setRestakingAdmin(address _admin) external onlyOwner {
+        if (_admin == address(0)) revert ZeroAddress();
+        if (restakingAdmin != address(0)) revert AdminAlreadySet();
+        uint256 codeLen = _admin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        restakingAdmin = _admin;
+        emit RestakingAdminReplaced(address(0), _admin);
+    }
+
+    function proposeAdminReplacement(address _newAdmin) external onlyOwner {
+        if (_newAdmin == address(0)) revert ZeroAddress();
+        if (restakingAdmin == address(0)) revert Unauthorized(); // use setRestakingAdmin first
+        if (adminReplacementReadyAt != 0) revert Unauthorized(); // existing proposal pending
+        uint256 codeLen = _newAdmin.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        pendingRestakingAdmin = _newAdmin;
+        adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
+        emit RestakingAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);
+    }
+
+    /// @dev H-14 [F-75-1, F-43-A]: the 7-day validity window stops a years-old
+    ///      `pendingRestakingAdmin` staying executable forever — a forgotten
+    ///      candidate address can be co-opted (CREATE2 redeploy, abandoned
+    ///      multisig, expired-key custody) to install a hostile admin.
+    function executeAdminReplacement() external onlyOwner {
+        uint256 readyAt = adminReplacementReadyAt;
+        if (readyAt == 0) revert Unauthorized();
+        if (block.timestamp < readyAt) revert Unauthorized();
+        if (block.timestamp > readyAt + 7 days) revert Unauthorized();
+        address newAdmin = pendingRestakingAdmin;
+        if (newAdmin == address(0)) revert ZeroAddress();
+        address oldAdmin = restakingAdmin;
+        restakingAdmin = newAdmin;
+        pendingRestakingAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit RestakingAdminReplaced(oldAdmin, newAdmin);
+    }
+
+    function cancelAdminReplacement() external onlyOwner {
+        if (adminReplacementReadyAt == 0) revert Unauthorized();
+        address proposed = pendingRestakingAdmin;
+        pendingRestakingAdmin = address(0);
+        adminReplacementReadyAt = 0;
+        emit RestakingAdminReplacementCancelled(proposed);
+    }
+
+    modifier onlyAdmin() {
+        if (msg.sender != restakingAdmin) revert Unauthorized();
+        _;
+    }
+
+    // ─── EIP-170 split: apply hooks (sister orchestrates the delay, these
+    //     carry every state write and every fund movement) ──────────────
+
+    /// @notice Apply a bonus rate the sister's 48h timelock has cleared.
+    /// @dev The cap is re-checked here, not merely at propose: `maxBonusRewardRate()`
+    ///      is derived from host immutables the sister reads through a getter, and
+    ///      the authoritative bound must be enforced where the write happens.
+    /// @dev Accrual MUST run before the rate is switched — otherwise the whole
+    ///      elapsed window since `lastBonusRewardTime` would be paid at the NEW
+    ///      rate, silently repricing time that was earned at the old one.
+    function applyBonusRate(uint256 _rate) external onlyAdmin {
+        if (_rate > maxBonusRewardRate()) revert RateTooHigh();
+        _accrueBonusChecked();
+        bonusRewardPerSecond = _rate;
+        emit BonusRateExecuted(_rate);
+    }
+
+    /// @notice Credit `_amount` of unattributed base rewards to `_restaker`.
+    /// @dev AUDIT FIX F-2: the cap subtracts `totalActivePrincipal` and
+    ///      `totalPendingUnsettled` as well as `totalUnforwardedBase`. Without all
+    ///      three, a captured-or-colluding owner could credit a chosen restaker
+    ///      with balance that was actually backing OTHER users' principal
+    ///      reservations, driving their `recoverStuckPrincipal` to revert. The
+    ///      recompute is on this contract, against live balances, because the
+    ///      sister's 24h-old view of them is not authoritative.
+    function applyAttributeStuckRewards(address _restaker, uint256 _amount) external onlyAdmin {
+        if (restakers[_restaker].tokenId == 0) revert NotRestaked();
+        uint256 balance = rewardToken.balanceOf(address(this));
+        uint256 reserved = totalUnforwardedBase + totalActivePrincipal + totalPendingUnsettled;
+        // AUDIT 2026-05-30 [slither timestamp FP]: both comparisons are token-balance
+        // comparisons; no block.timestamp is involved.
+        // slither-disable-next-line timestamp
+        uint256 unattributed = balance > reserved ? balance - reserved : 0;
+        // slither-disable-next-line timestamp
+        if (_amount > unattributed) revert BadParam();
+        unforwardedBaseRewards[_restaker] += _amount;
+        totalUnforwardedBase += _amount;
+        emit StuckBaseRewardsAttributed(_restaker, _amount);
+    }
+
+    /// @notice Move a foreign token's full balance to the staking contract.
+    /// @dev The destination is `address(staking)` (immutable) and is deliberately
+    ///      NOT a parameter — BATCH-J1 H17 chains this behind staking's own 24h
+    ///      timelocked sweep, so a captured owner on either side alone cannot
+    ///      extract. Both token rejects are re-checked here because a token's
+    ///      classification can change during the sister's 24h window (the reward
+    ///      token can rotate staking-side on its own 48h timelock).
+    function applySweepStuckRewards(address _token) external onlyAdmin nonReentrant {
+        if (_token == address(bonusRewardToken)) revert CannotSweepBonusToken();
+        if (_token == address(rewardToken)) revert CannotSweepRewardToken();
+        uint256 balance = IERC20(_token).balanceOf(address(this));
+        if (balance > 0) {
+            SafeTransferLib.safeTransfer(_token, address(staking), balance);
+            emit SweepStuckExecuted(_token, balance);
+        }
+    }
+
+    /// @notice Send a stuck NFT — one that reached this contract outside
+    ///         `restake()` — to `_to`.
+    /// @dev All three live-claim guards are re-checked here: the sister's
+    ///      propose-time copies can go stale across the 48h window (the tokenId
+    ///      may have been re-restaked, or a user may have filed a stranded claim),
+    ///      and rescuing past a live claim strands that user's residue permanently.
+    ///      `nonReentrant` closes the `onERC721Received` → user-path re-entry that
+    ///      a hostile `_to` would otherwise get.
+    function applyRescueNFT(uint256 _tokenId, address _to) external onlyAdmin nonReentrant {
         if (tokenIdToRestaker[_tokenId] != address(0)) revert BadParam();
-        // AUDIT FIX FRESH-2026: M-3 [F-03-K3] — refuse rescue while a user's
-        // stranded claim is live; user's `claimStrandedRestakeNFT` takes
-        // precedence over owner rescue.
         if (strandedRestakeRecipient[_tokenId] != address(0)) revert BadParam();
-        // AUDIT FIX 2026-05-26 [M-06]: refuse rescue while a residual claim is live.
-        // Pre-fix, rescue would extract the NFT to `_to`, leaving the residue
-        // permanently unreachable (the cross-holder gate at claimResidualForTokenId
-        // line 1568 then blocks recovery because ownerOf is now `_to`). Owner can
-        // still clear via the 7-day `proposeClearResidualClaimant` path first.
         if (_residualClaimant[_tokenId] != address(0)) revert BadParam();
-        if (_to == address(0)) revert ZeroAddress();
-        pendingRescueNFT = RestakingAdminLib.PendingRescueNFT({tokenId: _tokenId, to: _to});
-        _propose(RESCUE_NFT_CHANGE, RESCUE_NFT_TIMELOCK);
-        emit RescueNFTProposed(_tokenId, _to, _executeAfter[RESCUE_NFT_CHANGE]);
+        stakingNFT.safeTransferFrom(address(this), _to, _tokenId); // M-16
+        emit RescueNFTExecuted(_tokenId, _to);
     }
 
-    /// @dev EIP-170 split (2026-06-04, part 2d): run the TimelockAdmin `_execute`
-    ///      gate here, then delegate the three execute-time re-checks
-    ///      (tokenIdToRestaker / strandedRestakeRecipient / _residualClaimant) +
-    ///      delete + safeTransferFrom + emit to RestakingAdminLib byte-for-byte.
-    function executeRescueNFT() external onlyOwner {
-        _execute(RESCUE_NFT_CHANGE);
-        RestakingAdminLib.executeRescueNFT(
-            pendingRescueNFT,
-            tokenIdToRestaker,
-            strandedRestakeRecipient,
-            _residualClaimant,
-            address(stakingNFT)
-        );
-    }
-
-    function cancelRescueNFT() external onlyOwner {
-        _cancel(RESCUE_NFT_CHANGE);
-        uint256 tid = pendingRescueNFT.tokenId;
-        delete pendingRescueNFT;
-        emit RescueNFTCancelled(tid);
+    /// @notice Retarget the residual claimant of `_tokenId` after the sister's
+    ///         7-day window.
+    /// @dev The zero branch is unreachable through the sister (propose rejects a
+    ///      zero successor per H-RESTAKE-CLEAR-ABANDONS-RESIDUE) and is kept only
+    ///      so a future admin that does allow full abandon cannot write a zero
+    ///      claimant into a non-empty slot by accident.
+    function applyResidualClaimant(uint256 _tokenId, address _newClaimant) external onlyAdmin {
+        address oldClaimant = _residualClaimant[_tokenId];
+        if (_newClaimant == address(0)) {
+            delete _residualClaimant[_tokenId];
+        } else {
+            _residualClaimant[_tokenId] = _newClaimant;
+        }
+        emit ResidualClearExecuted(_tokenId, oldClaimant, _newClaimant);
     }
 
     // ─── H-05: Emergency Force Return ──────────────────────────────
@@ -2594,61 +2455,21 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
         SafeTransferLib.safeTransfer(address(bonusRewardToken), to, amount);
     }
 
-    /// @notice AUDIT FIX 2026-05-21 M19-PORT: override `acceptOwnership` so that any
-    ///         pending proposals queued by the outgoing owner are CANCELLED on handoff.
-    ///         Mirrors `TegridyLaunchpadV2.acceptOwnership` (TegridyLaunchpadV2.sol:426-438).
-    ///         Without this override, an outgoing/compromised owner could queue hostile
-    ///         proposals (e.g. `proposeBonusRateChange(10000)`, `proposeRescueNFT(tokenId, attacker)`)
-    ///         immediately before `transferOwnership`; the timelock would silently keep running
-    ///         and the new owner inherits an executable booby-trap.
-    /// @dev    `lastBonusRateActionAt` is NOT updated here — the override is a one-shot
-    ///         post-handoff sweep, not an operational cancel. Updating the anti-churn
-    ///         cooldown would gate the new owner's first legitimate propose.
-    ///         Per-tokenId `ResidualClear` proposals use a separate (non-TimelockAdmin)
-    ///         state mapping (`pendingResidualClears`) and are NOT enumerable on-chain —
-    ///         the new owner triages those individually via `cancelClearResidualClaimant(id)`.
+    /// @notice AUDIT FIX 2026-05-21 M19-PORT: cancel the pending inline proposal
+    ///         queued by the outgoing owner on handoff, so a compromised key cannot
+    ///         leave an executable booby-trap running against the incoming owner.
+    /// @dev    Admin rotation is the only inline-timelocked surface left on this
+    ///         contract; every parameter flow lives on `TegridyRestakingAdmin`,
+    ///         which sweeps its own four keys in its own `acceptOwnership`. Owner
+    ///         handoff must therefore be performed on BOTH contracts — accepting on
+    ///         one leaves the other's proposals queued under the outgoing owner.
     function acceptOwnership() public override {
         super.acceptOwnership();
-        if (_executeAfter[BONUS_RATE_CHANGE] != 0) {
-            uint256 cancelledRate = pendingBonusRate;
-            _cancel(BONUS_RATE_CHANGE);
-            pendingBonusRate = 0;
-            emit BonusRateCancelled(cancelledRate);
-            // AUDIT FIX 2026-05-22 M19-PORT-REVIEW F-2: reset
-            //   `lastBonusRateActionAt` so the propose-side BONUS_RATE_ACTION_COOLDOWN
-            //   gate (lines 1684-1687) does NOT carry the outgoing owner's last-action
-            //   timestamp into the new owner's first propose call. Pre-fix, the override
-            //   left the timestamp set, gating the new owner with up to 24h of inherited
-            //   cooldown even after the booby-trap proposal was cleared.
-            lastBonusRateActionAt = 0;
-        }
-        if (_executeAfter[ATTRIBUTION_CHANGE] != 0) {
-            RestakingAdminLib.PendingAttribution memory p = pendingAttribution;
-            _cancel(ATTRIBUTION_CHANGE);
-            delete pendingAttribution;
-            emit AttributionCancelled(p.restaker, p.amount);
-        }
-        if (_executeAfter[RESCUE_NFT_CHANGE] != 0) {
-            uint256 tid = pendingRescueNFT.tokenId;
-            _cancel(RESCUE_NFT_CHANGE);
-            delete pendingRescueNFT;
-            emit RescueNFTCancelled(tid);
-        }
-        // AUDIT FIX FRESH-2026 [H-RESTAKE-ACCEPT-OWNERSHIP-SWEEP-STUCK]: cancel
-        // any pending `SWEEP_STUCK_CHANGE` proposal on owner handoff. Pre-fix
-        // the override only swept 3 of the 4 TimelockAdmin keys; an outgoing
-        // owner could pre-queue `proposeSweepStuckRewards(arbitraryToken)`
-        // immediately before transferOwnership, and the new owner would
-        // inherit a live timelock. The execute destination IS hard-pinned to
-        // `address(staking)` (L1870), but the new owner's first inadvertent
-        // execute would still move tokens out of the restaking contract that
-        // the new owner may have NOT intended to relocate. Sweep here for
-        // parity with the BONUS_RATE / ATTRIBUTION / RESCUE_NFT clears.
-        if (_executeAfter[SWEEP_STUCK_CHANGE] != 0) {
-            address cancelledToken = pendingSweepStuckToken;
-            pendingSweepStuckToken = address(0);
-            _cancel(SWEEP_STUCK_CHANGE);
-            emit SweepStuckCancelled(cancelledToken);
+        if (adminReplacementReadyAt != 0) {
+            address proposed = pendingRestakingAdmin;
+            pendingRestakingAdmin = address(0);
+            adminReplacementReadyAt = 0;
+            emit RestakingAdminReplacementCancelled(proposed);
         }
     }
 }

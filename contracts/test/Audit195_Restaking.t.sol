@@ -7,6 +7,7 @@ import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
+import {TegridyRestakingAdmin} from "../src/TegridyRestakingAdmin.sol";
 import {TimelockAdmin} from "../src/base/TimelockAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -51,6 +52,7 @@ contract Audit195Restaking is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
+    TegridyRestakingAdmin restakingAdmin; // EIP-170 split: timelocked param governance
     RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
@@ -86,6 +88,11 @@ contract Audit195Restaking is Test {
             address(weth),
             BONUS_RATE
         );
+
+        // EIP-170 split: the timelocked admin surface lives on the sister;
+        // the host only exposes the onlyAdmin applyXxx hooks it calls.
+        restakingAdmin = new TegridyRestakingAdmin(address(restaking));
+        restaking.setRestakingAdmin(address(restakingAdmin));
         rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Set restaking contract reference in staking (48h timelock)
@@ -335,9 +342,9 @@ contract Audit195Restaking is Test {
         // cover both the active principal (STAKE_AMOUNT) and the attribution amount.
         toweli.transfer(address(restaking), STAKE_AMOUNT + 50 ether);
 
-        restaking.proposeAttributeStuckRewards(alice, 50 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 50 ether);
         vm.warp(block.timestamp + 24 hours + 1);
-        restaking.executeAttributeStuckRewards();
+        restakingAdmin.executeAttributeStuckRewards();
 
         uint256 unforwarded = restaking.unforwardedBaseRewards(alice);
         assertEq(unforwarded, 50 ether, "Should have 50 ether unforwarded");
@@ -557,9 +564,9 @@ contract Audit195Restaking is Test {
         // `totalActivePrincipal + totalPendingUnsettled`, so we must fund
         // STAKE_AMOUNT extra to keep the 25 ether attribution legal.
         toweli.transfer(address(restaking), STAKE_AMOUNT + 25 ether);
-        restaking.proposeAttributeStuckRewards(alice, 25 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 25 ether);
         vm.warp(block.timestamp + 24 hours + 1);
-        restaking.executeAttributeStuckRewards();
+        restakingAdmin.executeAttributeStuckRewards();
 
         uint256 toweliBefore = toweli.balanceOf(alice);
         vm.prank(alice);
@@ -643,9 +650,9 @@ contract Audit195Restaking is Test {
         // `totalActivePrincipal + totalPendingUnsettled`, so we must fund
         // STAKE_AMOUNT extra to keep the 30 ether attribution legal.
         toweli.transfer(address(restaking), STAKE_AMOUNT + 30 ether);
-        restaking.proposeAttributeStuckRewards(alice, 30 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 30 ether);
         vm.warp(block.timestamp + 24 hours + 1);
-        restaking.executeAttributeStuckRewards();
+        restakingAdmin.executeAttributeStuckRewards();
 
         restaking.pause();
 
@@ -668,12 +675,12 @@ contract Audit195Restaking is Test {
 
     function test_sweepStuckRewards_revertOnBonusToken() public {
         vm.expectRevert(TegridyRestaking.CannotSweepBonusToken.selector);
-        restaking.proposeSweepStuckRewards(address(weth));
+        restakingAdmin.proposeSweepStuckRewards(address(weth));
     }
 
     function test_sweepStuckRewards_revertOnRewardToken() public {
         vm.expectRevert(TegridyRestaking.CannotSweepRewardToken.selector);
-        restaking.proposeSweepStuckRewards(address(toweli));
+        restakingAdmin.proposeSweepStuckRewards(address(toweli));
     }
 
     function test_sweepStuckRewards_sweepsRandomToken() public {
@@ -683,9 +690,9 @@ contract Audit195Restaking is Test {
         randomToken.transfer(address(restaking), 100 ether);
 
         uint256 stakingBefore = randomToken.balanceOf(address(staking));
-        restaking.proposeSweepStuckRewards(address(randomToken));
-        skip(restaking.SWEEP_STUCK_TIMELOCK() + 1);
-        restaking.executeSweepStuckRewards();
+        restakingAdmin.proposeSweepStuckRewards(address(randomToken));
+        skip(restakingAdmin.SWEEP_STUCK_TIMELOCK() + 1);
+        restakingAdmin.executeSweepStuckRewards();
         assertEq(randomToken.balanceOf(address(staking)) - stakingBefore, 100 ether, "Should sweep random token to staking");
     }
 
@@ -700,7 +707,7 @@ contract Audit195Restaking is Test {
         // a propose/execute pair. proposeRescueNFT reverts BadParam when an
         // active restaker still owns the tokenId.
         vm.expectRevert(TegridyRestaking.BadParam.selector);
-        restaking.proposeRescueNFT(tokenId, bob);
+        restakingAdmin.proposeRescueNFT(tokenId, bob);
     }
 
     function test_rescueNFT_revertZeroAddress() public {
@@ -708,7 +715,7 @@ contract Audit195Restaking is Test {
         // rejects address(0) with ZeroAddress (was BadParam pre-fix when
         // constrained to address(staking) only).
         vm.expectRevert(TegridyRestaking.ZeroAddress.selector);
-        restaking.proposeRescueNFT(1, address(0));
+        restakingAdmin.proposeRescueNFT(1, address(0));
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -717,50 +724,50 @@ contract Audit195Restaking is Test {
 
     function test_proposeBonusRate_setsTimelockCorrectly() public {
         uint256 newRate = 0.5 ether;
-        restaking.proposeBonusRate(newRate);
+        restakingAdmin.proposeBonusRate(newRate);
 
-        assertEq(restaking.pendingBonusRate(), newRate, "Pending rate should be set");
-        assertEq(restaking.bonusRateChangeTime(), block.timestamp + 48 hours, "Timelock should be 48h");
+        assertEq(restakingAdmin.pendingBonusRate(), newRate, "Pending rate should be set");
+        assertEq(restakingAdmin.bonusRateChangeTime(), block.timestamp + 48 hours, "Timelock should be 48h");
     }
 
     function test_proposeBonusRate_revertRateTooHigh() public {
         vm.expectRevert(TegridyRestaking.RateTooHigh.selector);
-        restaking.proposeBonusRate(101e18);
+        restakingAdmin.proposeBonusRate(101e18);
     }
 
     function test_proposeBonusRate_revertExistingProposal() public {
-        restaking.proposeBonusRate(0.5 ether);
+        restakingAdmin.proposeBonusRate(0.5 ether);
 
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, restaking.BONUS_RATE_CHANGE()));
-        restaking.proposeBonusRate(0.6 ether);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, restakingAdmin.BONUS_RATE_CHANGE()));
+        restakingAdmin.proposeBonusRate(0.6 ether);
     }
 
     function test_executeBonusRateChange_revertBeforeTimelock() public {
-        restaking.proposeBonusRate(0.5 ether);
+        restakingAdmin.proposeBonusRate(0.5 ether);
 
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, restaking.BONUS_RATE_CHANGE()));
-        restaking.executeBonusRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, restakingAdmin.BONUS_RATE_CHANGE()));
+        restakingAdmin.executeBonusRateChange();
     }
 
     function test_executeBonusRateChange_revertExpiredProposal() public {
-        restaking.proposeBonusRate(0.5 ether);
+        restakingAdmin.proposeBonusRate(0.5 ether);
 
         vm.warp(block.timestamp + 48 hours + 7 days + 1);
 
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, restaking.BONUS_RATE_CHANGE()));
-        restaking.executeBonusRateChange();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, restakingAdmin.BONUS_RATE_CHANGE()));
+        restakingAdmin.executeBonusRateChange();
     }
 
     function test_executeBonusRateChange_success() public {
         uint256 newRate = 0.5 ether;
-        restaking.proposeBonusRate(newRate);
+        restakingAdmin.proposeBonusRate(newRate);
 
         vm.warp(block.timestamp + 48 hours + 1);
-        restaking.executeBonusRateChange();
+        restakingAdmin.executeBonusRateChange();
 
         assertEq(restaking.bonusRewardPerSecond(), newRate, "Rate should be updated");
-        assertEq(restaking.pendingBonusRate(), 0, "Pending should be cleared");
-        assertEq(restaking.bonusRateChangeTime(), 0, "Timelock should be cleared");
+        assertEq(restakingAdmin.pendingBonusRate(), 0, "Pending should be cleared");
+        assertEq(restakingAdmin.bonusRateChangeTime(), 0, "Timelock should be cleared");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -771,27 +778,27 @@ contract Audit195Restaking is Test {
         _stakeAndRestake(alice, STAKE_AMOUNT);
 
         toweli.transfer(address(restaking), 100 ether);
-        restaking.proposeAttributeStuckRewards(alice, 100 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 100 ether);
 
-        (address restaker, uint256 amount) = restaking.pendingAttribution();
+        (address restaker, uint256 amount) = restakingAdmin.pendingAttribution();
         assertEq(restaker, alice, "Restaker should be alice");
         assertEq(amount, 100 ether, "Amount should be 100 ether");
-        assertEq(restaking.attributionExecuteAfter(), block.timestamp + 24 hours, "Timelock should be 24h");
+        assertEq(restakingAdmin.attributionExecuteAfter(), block.timestamp + 24 hours, "Timelock should be 24h");
     }
 
     function test_proposeAttributeStuckRewards_revertNotRestaked() public {
         vm.expectRevert(TegridyRestaking.NotRestaked.selector);
-        restaking.proposeAttributeStuckRewards(alice, 100 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 100 ether);
     }
 
     function test_proposeAttributeStuckRewards_revertExistingPending() public {
         _stakeAndRestake(alice, STAKE_AMOUNT);
         toweli.transfer(address(restaking), 100 ether);
 
-        restaking.proposeAttributeStuckRewards(alice, 50 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 50 ether);
 
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, restaking.ATTRIBUTION_CHANGE()));
-        restaking.proposeAttributeStuckRewards(alice, 50 ether);
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, restakingAdmin.ATTRIBUTION_CHANGE()));
+        restakingAdmin.proposeAttributeStuckRewards(alice, 50 ether);
     }
 
     function test_executeAttributeStuckRewards_success() public {
@@ -801,9 +808,9 @@ contract Audit195Restaking is Test {
         // `totalActivePrincipal + totalPendingUnsettled`. Fund extra principal
         // coverage so the 100 ether attribution remains within the unattributed pool.
         toweli.transfer(address(restaking), STAKE_AMOUNT + 100 ether);
-        restaking.proposeAttributeStuckRewards(alice, 100 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 100 ether);
         vm.warp(block.timestamp + 24 hours + 1);
-        restaking.executeAttributeStuckRewards();
+        restakingAdmin.executeAttributeStuckRewards();
 
         assertEq(restaking.unforwardedBaseRewards(alice), 100 ether, "Should be attributed");
         assertEq(restaking.totalUnforwardedBase(), 100 ether, "Total unforwarded should track");
@@ -813,32 +820,32 @@ contract Audit195Restaking is Test {
         _stakeAndRestake(alice, STAKE_AMOUNT);
         toweli.transfer(address(restaking), 100 ether);
 
-        restaking.proposeAttributeStuckRewards(alice, 100 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 100 ether);
 
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, restaking.ATTRIBUTION_CHANGE()));
-        restaking.executeAttributeStuckRewards();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, restakingAdmin.ATTRIBUTION_CHANGE()));
+        restakingAdmin.executeAttributeStuckRewards();
     }
 
     function test_executeAttributeStuckRewards_revertExceedsUnattributed() public {
         _stakeAndRestake(alice, STAKE_AMOUNT);
 
         // Don't transfer tokens to restaking — so balance is 0 unattributed
-        restaking.proposeAttributeStuckRewards(alice, 1 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 1 ether);
         vm.warp(block.timestamp + 24 hours + 1);
 
         vm.expectRevert(TegridyRestaking.BadParam.selector); // BATCH-N4: typed error
-        restaking.executeAttributeStuckRewards();
+        restakingAdmin.executeAttributeStuckRewards();
     }
 
     function test_executeAttributeStuckRewards_revertExpired() public {
         _stakeAndRestake(alice, STAKE_AMOUNT);
         toweli.transfer(address(restaking), 100 ether);
 
-        restaking.proposeAttributeStuckRewards(alice, 100 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 100 ether);
         vm.warp(block.timestamp + 24 hours + 7 days + 1);
 
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, restaking.ATTRIBUTION_CHANGE()));
-        restaking.executeAttributeStuckRewards();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, restakingAdmin.ATTRIBUTION_CHANGE()));
+        restakingAdmin.executeAttributeStuckRewards();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1076,39 +1083,56 @@ contract Audit195Restaking is Test {
     // ═══════════════════════════════════════════════════════════════════
 
     function test_cancelBonusRateProposal() public {
-        restaking.proposeBonusRate(0.5 ether);
+        restakingAdmin.proposeBonusRate(0.5 ether);
         // AUDIT FIX: DEEP-DR-07 — propose+cancel must be ≥24h apart so a
         // captured-key signer cannot churn the rate proposal indefinitely.
         // Legacy test pre-fix expected back-to-back propose+cancel.
         vm.warp(block.timestamp + 24 hours + 1);
-        restaking.cancelBonusRateProposal();
+        restakingAdmin.cancelBonusRateProposal();
 
-        assertEq(restaking.pendingBonusRate(), 0);
-        assertEq(restaking.bonusRateChangeTime(), 0);
+        assertEq(restakingAdmin.pendingBonusRate(), 0);
+        assertEq(restakingAdmin.bonusRateChangeTime(), 0);
     }
 
     function test_cancelBonusRateProposal_revertNoPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, restaking.BONUS_RATE_CHANGE()));
-        restaking.cancelBonusRateProposal();
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, restakingAdmin.BONUS_RATE_CHANGE()));
+        restakingAdmin.cancelBonusRateProposal();
     }
 
     function test_cancelAttributeStuckRewards() public {
         _stakeAndRestake(alice, STAKE_AMOUNT);
         toweli.transfer(address(restaking), 100 ether);
 
-        restaking.proposeAttributeStuckRewards(alice, 50 ether);
-        restaking.cancelAttributeStuckRewards();
+        restakingAdmin.proposeAttributeStuckRewards(alice, 50 ether);
+        restakingAdmin.cancelAttributeStuckRewards();
 
-        assertEq(restaking.attributionExecuteAfter(), 0, "Attribution should be cancelled");
+        assertEq(restakingAdmin.attributionExecuteAfter(), 0, "Attribution should be cancelled");
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  22. setBonusRewardPerSecond deprecated
+    //  22. the bonus rate has exactly one path: the sister's 48h timelock
     // ═══════════════════════════════════════════════════════════════════
 
-    function test_setBonusRewardPerSecond_reverts() public {
-        vm.expectRevert("DEPRECATED: use proposeBonusRate()");
-        restaking.setBonusRewardPerSecond(1 ether);
+    /// @dev Pre-split this asserted the deprecated `setBonusRewardPerSecond` stub
+    ///      reverted with a string. The EIP-170 split DELETED the stub outright, so
+    ///      the assertion is pinned to the invariant the stub existed to protect
+    ///      rather than to the stub: no un-timelocked write to `bonusRewardPerSecond`
+    ///      exists, from any caller.
+    function test_bonusRate_hasNoUntimelockedWritePath() public {
+        uint256 rateBefore = restaking.bonusRewardPerSecond();
+
+        // The legacy selector is gone from the ABI entirely: no match, no fallback.
+        (bool ok,) = address(restaking).call(
+            abi.encodeWithSignature("setBonusRewardPerSecond(uint256)", uint256(1 ether))
+        );
+        assertFalse(ok, "legacy direct setter must not exist");
+
+        // The apply hook is reachable only by the wired sister — not by the owner,
+        // who is `address(this)` in this suite.
+        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
+        restaking.applyBonusRate(1 ether);
+
+        assertEq(restaking.bonusRewardPerSecond(), rateBefore, "rate must be unchanged");
     }
 
     // ═══════════════════════════════════════════════════════════════════
