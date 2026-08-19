@@ -91,6 +91,11 @@ const VestingPage = lazy(() => import('./pages/VestingPage'));
 // rather than being promised. Lives under components/onboarding/ with the on-ramp panel it
 // mounts, not in pages/, because the flow and that panel are one feature.
 const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
+// Zap engine (#67). Client-orchestrated only — no zap contract exists or is planned, per
+// docs/USER_VALUE_ROADMAP.md line 101. Never gated: with no wallet it renders the composer
+// and its refusal states, and each venue reports its own availability from constants.ts.
+// Lives under components/zap/ with the panel it mounts, as OnboardingFlow does.
+const ZapPage = lazy(() => import('./components/zap/ZapPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -253,6 +258,7 @@ function AnimatedRoutes() {
         <Route path="airdrop" element={<Suspense fallback={<PageSkeleton />}><AirdropPage /></Suspense>} />
         <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />
+        <Route path="zap" element={<Suspense fallback={<SwapSkeleton />}><ZapPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />

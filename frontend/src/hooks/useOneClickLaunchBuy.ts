@@ -15,10 +15,12 @@ const CHAIN_HEX = '0x1';
  * offers the one-click affordance exclusively when it will work — otherwise the
  * caller keeps the proven sequential approve→buy flow.
  *
- * The `swapCall` inside `params` is produced by the Doppler SDK swap-encoding path
- * (V4 Quoter for min-out + UniversalRouter command build); this hook never hand-rolls
- * V4 calldata. Purely additive; never replaces the existing flow. `canBatch` gates
- * the affordance.
+ * `params` comes from `planLaunchBuy` (Doppler's V4 Quoter for the min-out, then the
+ * UniversalRouter encoding in launchBuy.ts). This hook re-composes the batch from those
+ * params rather than accepting a call list, so the composer's guards — exact allowances,
+ * value/deadline agreement, V4_SWAP-only — run again on the way to the wallet.
+ * `canBatch` gates the affordance; there is no sequential launch-buy path to fall back
+ * to, so a wallet without atomic batching is told that, not offered a partial one.
  */
 export function useOneClickLaunchBuy() {
   const { address, connector } = useAccount();

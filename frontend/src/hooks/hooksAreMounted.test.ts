@@ -36,13 +36,6 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'F1 indexer consumers: there is no hosted GraphQL endpoint yet (VITE_INDEXER_URL unset), ' +
       'so wiring them to a page would render an unconditional no-data state.',
   },
-  {
-    pattern: /^useOneClickLaunchBuy$/,
-    because:
-      'EIP-5792 launch-buy: needs the Doppler SDK-encoded V4 UniversalRouter swap call, which no ' +
-      'module produces yet, AND a launch-buy surface, which cannot exist while isLauncherEnabled() ' +
-      'is false. Mounting it would ship a button that cannot build its own calldata.',
-  },
 ];
 
 function walk(dir: string, acc: string[] = []): string[] {
@@ -110,5 +103,17 @@ describe('the two hooks this guard was written for', () => {
   it('useOneClickStake reaches the staking surface', () => {
     const importers = importersOf('useOneClickStake').map((f) => f.replace(SRC, ''));
     expect(importers.some((f) => /FarmPage/.test(f))).toBe(true);
+  });
+
+  // Held an exemption on two boundaries: no module could encode the V4 UniversalRouter
+  // call, and no buy surface could exist. Both are gone (launchBuy.ts encodes it;
+  // isLauncherEnabled() is true), so the hook is held to the same rule as the rest —
+  // and to reaching a PAGE, not just a component, since a component nothing renders is
+  // the same darkness one level down.
+  it('useOneClickLaunchBuy reaches a launch surface through the buy panel', () => {
+    const importers = importersOf('useOneClickLaunchBuy').map((f) => f.replace(SRC, ''));
+    expect(importers.some((f) => /LaunchBuyPanel/.test(f))).toBe(true);
+    const panelImporters = importersOf('LaunchBuyPanel').map((f) => f.replace(SRC, ''));
+    expect(panelImporters.some((f) => /LaunchPage/.test(f))).toBe(true);
   });
 });

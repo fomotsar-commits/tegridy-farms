@@ -10,6 +10,7 @@ import { GardenLane } from '../components/launcher/GardenLane';
 import { LaunchAfterlife } from '../components/launcher/LaunchAfterlife';
 import { LaunchRadar } from '../components/launcher/LaunchRadar';
 import { GraduationVenuePanel } from '../components/launcher/GraduationVenuePanel';
+import { LaunchBuyPanel } from '../components/launcher/LaunchBuyPanel';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_TIERS,
@@ -628,7 +629,7 @@ export default function LaunchPage() {
       </div>
 
       {step === STEPS.length - 1 && launch.phase !== 'idle' && (
-        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} onResetLaunch={() => setLaunch({ phase: 'idle' })} lpPhase={lpPhase} />
+        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} onResetLaunch={() => setLaunch({ phase: 'idle' })} lpPhase={lpPhase} symbol={w.symbol} />
       )}
 
       {/* Rail explainer, restored into the LIVE path 2026-07-31 — it had been stranded in
@@ -686,7 +687,7 @@ export default function LaunchPage() {
   );
 }
 
-function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaunch, lpPhase }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null; onResetLaunch: () => void; lpPhase: LpEmissionsPhase }) {
+function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaunch, lpPhase, symbol }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null; onResetLaunch: () => void; lpPhase: LpEmissionsPhase; symbol: string }) {
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
@@ -767,6 +768,17 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
           </a>
         </div>
       </div>
+
+      {/* The creator's own first buy, atomic and from the launching address. Placed here
+          because this is the only moment the auction hook is known without a second read,
+          and because a creator buying their own launch openly is the honest form of the
+          thing "bundlers" do covertly. Self-gates on every input it cannot read. */}
+      <LaunchBuyPanel
+        hookAddress={result.hookAddress}
+        tokenAddress={result.tokenAddress}
+        tokenSymbol={symbol}
+        numeraire={result.numeraire}
+      />
 
       {/* Attest the Fact Sheet on-chain — makes the disclosure verifiable + composable. */}
       <div className="mt-3 pt-3 border-t border-emerald-500/20">

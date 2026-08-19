@@ -259,6 +259,17 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/zap',
+    owner: 'components/zap/ZapPage.tsx',
+    gate: null,
+    why:
+      'Audited with no wallet, which is the composer with its connect prompt: the venue menu renders from ' +
+      'constants.ts, the plan and its refusals need an account and a live quote, and the run readout needs a ' +
+      'transaction. The interrupted-run states — stopped, unread outcome, inconsistent record — are pure state ' +
+      'and are covered by src/lib/zap/machine.test.ts instead.',
+    knownViolations: [],
+  },
+  {
     path: '/trade',
     owner: 'App.tsx',
     gate: 'redirect',
