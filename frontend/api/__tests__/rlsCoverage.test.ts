@@ -51,10 +51,23 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, '..', '..', 'supabase', 'migrations');
 const PROXY = join(HERE, '..', 'supabase-proxy.js');
 
+/**
+ * Comments are stripped before anything is matched. Every scanner below reads
+ * DDL out of prose with a regex, and migration headers in this repo are long and
+ * explanatory — 000_base_schema.sql narrates "copied from a CREATE TABLE that
+ * exists in the tree", which registered a table named `that`. A guard that can be
+ * tripped by someone describing SQL in English is a guard nobody trusts, and the
+ * failure is silent in the other direction too: a commented-out
+ * `ALTER TABLE … ENABLE ROW LEVEL SECURITY` would otherwise count as enabled.
+ */
+function stripSqlComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+}
+
 const sql = readdirSync(MIGRATIONS_DIR)
   .filter((f) => f.endsWith('.sql'))
   .sort()
-  .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+  .map((f) => stripSqlComments(readFileSync(join(MIGRATIONS_DIR, f), 'utf8')))
   .join('\n');
 
 /** Tables the migrations switch RLS on for. */
@@ -91,13 +104,20 @@ function writableTables(): string[] {
 // whether RLS is already on, confirm the read paths still work under it (note
 // user_favorites and user_watchlist are OWNER-ONLY reads), then add
 // `ALTER TABLE <t> ENABLE ROW LEVEL SECURITY` to a migration and delete it here.
-const RLS_NOT_ESTABLISHED_BY_MIGRATION = [
-  'messages',
-  'user_profiles',
-  'user_favorites',
-  'user_watchlist',
-  'votes',
-] as const;
+// CLOSED 2026-08-19 by `000_base_schema.sql`, which CREATEs all five and enables
+// RLS on each. Two independent facts had to hold before emptying this, because
+// "a migration says so" and "production is actually like that" are different
+// claims and §5's promise is about production:
+//   1. Live state: `015_drop_permissive_policy_overrides.sql` records a read of
+//      the production database taken 2026-08-12 — RLS is ON for all 10 public
+//      tables, with 40 policies. The defect 015 fixes is permissive policies
+//      DEFEATING ownership, not RLS being off. So switching it on in a migration
+//      cannot break the owner-only reads on user_favorites / user_watchlist,
+//      which was the stated reason for waiting.
+//   2. Reviewable state: it is now established by a file in this repo rather
+//      than by dashboard state nobody can audit, which is what this list existed
+//      to track.
+const RLS_NOT_ESTABLISHED_BY_MIGRATION = [] as const;
 
 describe('RLS coverage — the claim PrivacyPage §5 makes to every visitor', () => {
   it('every table a migration CREATEs has RLS enabled', () => {
