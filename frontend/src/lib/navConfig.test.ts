@@ -14,6 +14,10 @@ import {
   COMMUNITY_ADDRESSES_LIVE,
 } from './navConfig';
 import { isSolanaSubmitReady } from './launcher/solana/dbc';
+// The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
+// Used here as the already-verified answer to "is this path reachable by URL at all",
+// so the assertions below can tell "routed but not promoted" apart from "not routed".
+import { ROUTES } from '../../e2e/fixtures/routes';
 
 // Session 1 consolidated the navigation from 21 routes to a tight primary set.
 // MORE_PATHS was removed; MORE_NAV is the flattened "More" destinations and
@@ -157,5 +161,37 @@ describe('navConfig', () => {
     const entry = ALL_NAV.find((n) => n.to === '/curve-launch');
     expect(entry, '/curve-launch missing from nav').toBeTruthy();
     expect(entry?.soon).toBe(true);
+  });
+
+  // Alerts sits with the detection tools because four of its five rule kinds watch
+  // exactly what those tools read on demand, on any token or wallet.
+  it('promotes /alerts under Trust & Safety, pilled because nothing can be saved yet', () => {
+    const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
+    expect(trust?.items.map((i) => i.to)).toContain('/alerts');
+
+    const entry = ALL_NAV.find((n) => n.to === '/alerts');
+    expect(entry?.label).toBe('Alerts');
+    // Hardcoded `true`, and asserted as a concrete value for the same reason the
+    // /solana-launch pill is: there is no client-readable signal to compare against.
+    // Whether `alert_rules` exists is a SERVER fact — the store answers 503
+    // `schema-missing` until `016_alert_rules.sql` is applied by hand — so the pill
+    // cannot self-clear and this assertion is the thing that has to be re-read (and
+    // deleted) when the migration lands. See docs/WHAT_I_NEED_FROM_YOU.md §2.2.
+    expect(entry?.soon, 'a store that cannot save a rule must not read as live').toBe(true);
+  });
+
+  // ⚠️ THE DELIBERATE OMISSION. /airdrop and /vesting are routed and fully rendered, and
+  // they are NOT promoted: every rail behind them (AirdropFactory, VestingFactory,
+  // LaunchLockView) is undeployed, and pages/airdropVestingHonesty.test.ts pins that as a
+  // fact read out of constants.ts. Reachable-by-URL-only is the state a surface earns while
+  // 100% dark — the same CREDIBILITY GATING rule at the top of navConfig.ts — so promoting
+  // either one is a deliberate act that has to delete this test first.
+  it('leaves /airdrop and /vesting reachable by URL but out of the nav', () => {
+    const routed = ROUTES.map((r) => r.path);
+    const promoted = ALL_NAV.map((n) => n.to);
+    for (const path of ['/airdrop', '/vesting']) {
+      expect(routed, `${path} must stay reachable by URL`).toContain(path);
+      expect(promoted, `${path}'s rails are undeployed — it must not be promoted`).not.toContain(path);
+    }
   });
 });

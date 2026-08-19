@@ -15,13 +15,14 @@ import { LimitOrderTab } from '../components/swap/LimitOrderTab';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { CowSwapPanel } from '../components/swap/CowSwapPanel';
 import { TwapOrderPanel } from '../components/swap/TwapOrderPanel';
+import { TriggerOrderTab } from '../components/swap/TriggerOrderTab';
 import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
-type Tab = 'swap' | 'liquidity' | 'dca' | 'limit' | 'twap';
+type Tab = 'swap' | 'liquidity' | 'dca' | 'limit' | 'twap' | 'trigger';
 
 /**
  * Truncate to 6dp, never round up. The 50%/MAX quick-fills previously used
@@ -46,9 +47,10 @@ const TAB_LABELS: Record<Tab, string> = {
   dca: 'DCA',
   limit: 'Alerts',
   twap: 'TWAP',
+  trigger: 'Trigger',
 };
 
-const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit', 'twap'];
+const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit', 'twap', 'trigger'];
 
 // F242: the Alerts feature is named three ways (tab label "Alerts", heading
 // "Price Alert", internal tab 'limit'). `?tab=alerts` is the canonical,
@@ -88,6 +90,12 @@ export default function TradePage() {
     // browser-only watcher, which is now the demoted secondary option.
     limit:     { title: 'Limit Order', desc: 'Set a price target. Places a real on-chain order via CoW Protocol that fills when the market reaches it — no need to keep this tab open.' },
     twap:      { title: 'TWAP', desc: 'Split a buy into equal slices over time via CoW Protocol — one signature, MEV-resistant. Requires a Safe smart-account wallet.' },
+    // The description states the refusal, because the refusal is what this tab mostly
+    // does today: only a stop-loss, from a Safe, on a pair with configured price feeds
+    // has an executor that exists (CoW's watchtower). Every other kind — and every EOA
+    // — needs the venue keeper, which is not built, so nothing is placed and the panel
+    // says so. Do not soften this into "set automated exits".
+    trigger:   { title: 'Trigger Order', desc: 'Build a stop-loss, take-profit, trailing stop or OCO exit — and read whether anything would actually watch it. An order is not armed unless a named executor exists for that exact order.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
@@ -211,7 +219,7 @@ export default function TradePage() {
         {/* Tab Toggle */}
         <div
           role="tablist"
-          aria-label="Trade view — swap, liquidity, DCA, limit order, or TWAP"
+          aria-label="Trade view — swap, liquidity, DCA, limit order, TWAP, or trigger order"
           onKeyDown={tabKeys.onKeyDown}
           className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
           // F521: bumped the bar background 0.4 -> 0.85 (matches the NFT-finance
@@ -219,7 +227,12 @@ export default function TradePage() {
           // washing out white-on-light-art.
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
         >
-          {(['swap', 'liquidity', 'dca', 'limit', 'twap'] as Tab[]).map((t) => (
+          {/* Rendered from VALID_TABS, not from a second literal. The list used to be
+              spelled out again here, which meant the buttons and `useTabListKeys`
+              (driven by VALID_TABS) could disagree — a tab present in one and absent
+              from the other is either an unreachable panel or arrow-key navigation
+              that lands on nothing. */}
+          {VALID_TABS.map((t) => (
             <button
               key={t}
               type="button"
@@ -674,6 +687,23 @@ export default function TradePage() {
             </div>
             <div className="relative">
               <TwapOrderPanel />
+            </div>
+          </m.div>
+        )}
+
+        {/* Trigger Tab — stop-loss / take-profit / trailing stop / OCO. Self-contained
+            and self-gating like the TWAP panel above, but the gate is harder: only a
+            stop-loss, from a Safe, on a pair with configured feeds has a real executor
+            (CoW's watchtower). Everything else needs the venue keeper, which is not
+            built, so `triggerArmState` reports "Not armed" with the reason and the
+            submit button reads "Cannot be armed". Mounting it does not arm anything. */}
+        {tab === 'trigger' && (
+          <m.div role="tabpanel" id="trade-panel-trigger" aria-labelledby="trade-tab-trigger" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
+            <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+              <ArtImg pageId="trade" idx={3} alt="" className="w-full h-full object-cover opacity-100" loading="lazy" />
+            </div>
+            <div className="relative">
+              <TriggerOrderTab />
             </div>
           </m.div>
         )}

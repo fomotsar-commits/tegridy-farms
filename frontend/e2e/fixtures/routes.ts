@@ -417,6 +417,17 @@ export const ROUTES: readonly RouteSpec[] = [
   { path: '/scan', owner: 'pages/ScannerPage.tsx', gate: null, knownViolations: [] },
   { path: '/deployer', owner: 'pages/DeployerPage.tsx', gate: null, knownViolations: [] },
   { path: '/trust', owner: 'pages/TrustHubPage.tsx', gate: null, knownViolations: [] },
+  {
+    path: '/alerts',
+    owner: 'pages/AlertsPage.tsx',
+    gate: null,
+    why:
+      'Audited with no wallet, which is the signed-out branch: the builder is disabled with its ' +
+      'reason, the inbox says nothing is being watched, and the delivery panel reports the ' +
+      'channels this build actually has. The store-side states (schema-missing / not-configured / ' +
+      'unreachable) need a server answer this sweep cannot produce and are covered by unit tests.',
+    knownViolations: [],
+  },
   { path: '/developers', owner: 'pages/DeveloperPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/nakamigos',

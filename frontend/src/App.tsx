@@ -46,6 +46,12 @@ const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
 const DeployerPage = lazy(() => import('./pages/DeployerPage'));
 // Thin hub that frames the three detection surfaces above as one anti-rug suite.
 const TrustHubPage = lazy(() => import('./pages/TrustHubPage'));
+// Alert rules over the same subjects (token / wallet / deployer), pushed instead of
+// pulled. NOT flag-gated: the rule store lives behind a migration an operator applies
+// by hand, so until `016_alert_rules.sql` lands every alerts call answers 503
+// `schema-missing` and the panels print that with the operator step attached. Routing it
+// while it says so is the point — a flag here would hide the one honest state it has.
+const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 // Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
 // from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
 // so neither the price list nor the signup can claim what is not configured.
@@ -280,6 +286,7 @@ function AnimatedRoutes() {
         <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
         <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
         <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
+        <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><AlertsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

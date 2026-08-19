@@ -185,6 +185,27 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/scan',     label: 'Token Scanner' },
       { to: '/deployer', label: 'Deployer Graph' },
       { to: '/exposure', label: 'Wallet Exposure' },
+      // Alerts belongs to this section rather than to Engage or Stats: four of its five
+      // rule kinds watch exactly what the tools above read on demand (whale moves, a
+      // deployer's reputation band, an LP unlock, a launch going live), on ANY token or
+      // wallet. Same subject matter, pushed instead of pulled.
+      //
+      // PILLED, AND IT CANNOT SELF-CLEAR. The pill answers the one question the others
+      // answer — can I do the thing this entry names? — and today the answer is no: the
+      // rule store lives behind `016_alert_rules.sql`, a migration applied BY HAND, so
+      // every alerts call answers 503 `schema-missing` and nothing can be saved. Unlike
+      // /solana-launch (a flag + a published config, both readable here) there is no
+      // client-readable signal for "the table exists": it is a server fact that arrives
+      // with the first read, which is why this is a hardcoded `true` like /curve-launch
+      // rather than a condition. Remove the pill when 016 is applied — see
+      // docs/WHAT_I_NEED_FROM_YOU.md §2.2 — and navConfig.test.ts will hold you to the
+      // reason until you do.
+      //
+      // NOTE for a future editor: TradePage's fifth tab is *also* labelled "Alerts"
+      // (internal id 'limit', heading "Limit Order" — a browser-tab price watcher beside
+      // a CoW limit order). It is a different surface and is not in the nav. This entry
+      // is the rule store + inbox at /alerts.
+      { to: '/alerts',   label: 'Alerts', soon: true },
     ],
   },
 ];

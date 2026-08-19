@@ -315,6 +315,7 @@ const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'scanner',          idx: 0, label: 'TT1 — Token Scanner backdrop' },
   { group: 'Trust tools',   pageId: 'deployer',         idx: 0, label: 'TT2 — Deployer Graph backdrop' },
   { group: 'Trust tools',   pageId: 'wallet-exposure',  idx: 0, label: 'TT3 — Wallet Exposure backdrop' },
+  { group: 'Trust tools',   pageId: 'alerts',           idx: 0, label: 'TT4 — Alerts backdrop' },
   { group: 'Launch & Solana', pageId: 'launch',           idx: 0, label: 'LS1 — Launch rail backdrop' },
   { group: 'Launch & Solana', pageId: 'launch-simulator', idx: 0, label: 'LS2 — Launch Simulator backdrop' },
   { group: 'Launch & Solana', pageId: 'airdrop',           idx: 0, label: 'LS2d — Airdrop campaigns backdrop' },
