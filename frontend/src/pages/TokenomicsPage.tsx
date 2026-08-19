@@ -17,18 +17,30 @@ import { usePriceHistory } from '../hooks/usePriceHistory';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
 
-// AUDIT R035: Split mirrors TOKENOMICS.md (source of truth) — Circulating 45 /
-// LP Seed 30 / Treasury 10 / Community Emissions 10 / Team 5.
+// AUDIT R035: Split mirrors TOKENOMICS.md (source of truth) — 45 / LP Seed 30 /
+// Treasury 10 / Community Emissions 10 / Team 5.
 // Investors 0% omitted from the pie. Distinct fills so the legend reads.
 // HONESTY PASS 2026-06-11: there is no on-chain vesting contract for the team
 // allocation — the label must say so instead of implying enforced vesting.
-const SUPPLY_DATA = [
-  { name: 'Circulating', value: 45, color: '#ffb237' },
+//
+// Every figure here is the ALLOCATION POLICY fixed at launch. Nothing on this
+// chart is read from chain, and the 45% slice in particular was labelled
+// "Circulating", which is the one word on the chart a reader takes for a live
+// measurement — a share of a policy pie cannot tell you how many tokens are
+// actually in public hands right now. Renamed to the thing the policy sets, and
+// the caption below states the limit rather than leaving it to be inferred.
+export const SUPPLY_DATA = [
+  { name: 'Public allocation at launch', value: 45, color: '#ffb237' },
   { name: 'LP Seed', value: 30, color: '#ff4ea3' },
   { name: 'Treasury', value: 10, color: '#8b5cf6' },
   { name: 'Community', value: 10, color: '#22c55e' },
   { name: 'Team (locked by policy — on-chain vesting pending)', value: 5, color: '#3b82f6' },
 ];
+
+/** Stated wherever the pie is stated. Kept beside the data so an edit to one is
+ *  visibly an edit to the other. */
+export const SUPPLY_BASIS_NOTE =
+  'Allocation policy fixed at launch (TOKENOMICS.md). These shares are not read from chain and are not a live circulating-supply measurement.';
 
 // Precomputed conic-gradient stops for a CSS donut. Replaces a Recharts
 // ResponsiveContainer that collapsed to 0 width on the keyed route remount
@@ -131,7 +143,7 @@ export default function TokenomicsPage() {
             <div className="w-full h-48 min-h-[192px] flex items-center justify-center">
               <m.div
                 role="img"
-                aria-label="TOWELI supply distribution — Circulating 45 percent, LP Seed 30 percent, Treasury 10 percent, Community 10 percent, Team 5 percent"
+                aria-label="TOWELI launch allocation policy — public allocation 45 percent, LP Seed 30 percent, Treasury 10 percent, Community 10 percent, Team 5 percent. Not a live circulating-supply measurement."
                 className="rounded-full"
                 initial={{ opacity: 0, rotate: -90, scale: 0.9 }}
                 animate={{ opacity: 1, rotate: 0, scale: 1 }}
@@ -154,6 +166,7 @@ export default function TokenomicsPage() {
                 </div>
               ))}
             </div>
+            <p className="text-white/70 text-[10px] leading-relaxed mt-3">{SUPPLY_BASIS_NOTE}</p>
             </div>
           </m.div>
 

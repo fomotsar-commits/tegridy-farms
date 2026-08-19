@@ -139,6 +139,24 @@ export const TREASURY_ADDRESS = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d' as 
  */
 export const LOCKER_CLAIMER_ADDRESS = '0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7' as const;
 
+// ─── Airdrop / vesting / lock rails (#65, #28) ───────────────────────
+// UNDEPLOYED. These four are zero because no deploy ceremony has run for them —
+// this is the "not deployed" state, not the deployed-but-unsurfaced state that
+// GaugeController / VoteIncentives / grants / bounties are in above. Every surface
+// that touches them gates on isDeployed() and renders the SOON placeholder, so
+// filling an address in here is the whole activation step.
+//
+// The client-side merkle builder on /airdrop deliberately keeps working while these
+// are zero: computing a root from a CSV needs no chain, and a creator preparing a
+// campaign before the ceremony is a legitimate use. Only the funding + claim
+// transactions are gated.
+export const AIRDROP_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+export const VESTING_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+export const TEGRIDY_LOCK_VAULT_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// Read-only joiner over the two rails above. Its own availability flags are what the
+// lock viewer renders as NO DATA — a rail it cannot reach is never drawn as a zero.
+export const LAUNCH_LOCK_VIEW_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+
 // Jungle Bay NFTs
 export const JBAC_NFT_ADDRESS = '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' as const;
 export const JBAY_GOLD_ADDRESS = '0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3' as const;

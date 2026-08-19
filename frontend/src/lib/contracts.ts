@@ -688,3 +688,147 @@ export const ERC721_ABI = [
   { type: 'function', name: 'ownerOf', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
+
+// ─── AirdropFactory (#65) ───────────────────────────────────────
+// Reads only, plus the one write the create flow needs. No fee-administration
+// entries: proposeClaimFee / executeClaimFee / proposeFeeSink and the pause
+// controls are 48h-timelocked owner ceremonies operated by direct contract
+// interaction, exactly like the staking/router admin pairs (see the note in
+// scripts/extract-missing-abis.mjs). A selector the dApp cannot legitimately
+// call is a selector the dApp must not carry.
+export const AIRDROP_FACTORY_ABI = [
+  { type: 'function', name: 'createCampaign', inputs: [
+    { name: 'token', type: 'address' },
+    { name: 'merkleRoot', type: 'bytes32' },
+    { name: 'fundingAmount', type: 'uint256' },
+    { name: 'claimWindow', type: 'uint64' },
+  ], outputs: [{ name: 'distributor', type: 'address' }], stateMutability: 'nonpayable' },
+  // Read immediately before signing createCampaign and print the result — a landed
+  // timelock proposal can move the fee a campaign will snapshot between page load
+  // and signature.
+  { type: 'function', name: 'currentCampaignFee', inputs: [], outputs: [{ name: 'fee', type: 'uint256' }, { name: 'sink', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'campaignCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'campaignsOf', inputs: [{ name: 'creator', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
+  { type: 'function', name: 'campaignsForToken', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
+  // Provenance for a distributor address arriving from a link or a pasted manifest:
+  // false means this factory never bounds-checked its parameters.
+  { type: 'function', name: 'isCampaign', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'paused', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'MIN_CLAIM_WINDOW', inputs: [], outputs: [{ name: '', type: 'uint64' }], stateMutability: 'view' },
+  { type: 'function', name: 'MAX_CLAIM_WINDOW', inputs: [], outputs: [{ name: '', type: 'uint64' }], stateMutability: 'view' },
+  { type: 'event', name: 'CampaignCreated', inputs: [
+    { name: 'distributor', type: 'address', indexed: true },
+    { name: 'creator', type: 'address', indexed: true },
+    { name: 'token', type: 'address', indexed: true },
+    { name: 'merkleRoot', type: 'bytes32', indexed: false },
+    { name: 'funded', type: 'uint256', indexed: false },
+    { name: 'expiresAt', type: 'uint64', indexed: false },
+    { name: 'claimFeeWei', type: 'uint256', indexed: false },
+    { name: 'feeSink', type: 'address', indexed: false },
+  ], anonymous: false },
+] as const;
+
+// ─── TegridyAirdropDistributor (one campaign) ───────────────────
+// `claim` and `claimWithFee` are siblings, not variants: Solidity forbids widening
+// the vendored `claim` to payable, so a fee-bearing campaign is claimable ONLY
+// through claimWithFee. The claim surface picks by the campaign's own
+// claimFeeWei, never by a cached factory value.
+export const AIRDROP_DISTRIBUTOR_ABI = [
+  { type: 'function', name: 'claim', inputs: [
+    { name: 'index', type: 'uint256' },
+    { name: 'account', type: 'address' },
+    { name: 'amount', type: 'uint256' },
+    { name: 'merkleProof', type: 'bytes32[]' },
+  ], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'claimWithFee', inputs: [
+    { name: 'index', type: 'uint256' },
+    { name: 'account', type: 'address' },
+    { name: 'amount', type: 'uint256' },
+    { name: 'merkleProof', type: 'bytes32[]' },
+  ], outputs: [], stateMutability: 'payable' },
+  { type: 'function', name: 'reclaim', inputs: [], outputs: [{ name: 'amount', type: 'uint256' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'isClaimed', inputs: [{ name: 'index', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'campaignInfo', inputs: [], outputs: [{ name: '', type: 'tuple', components: [
+    { name: 'token', type: 'address' },
+    { name: 'merkleRoot', type: 'bytes32' },
+    { name: 'creator', type: 'address' },
+    { name: 'expiresAt', type: 'uint64' },
+    { name: 'claimsOpen', type: 'bool' },
+    { name: 'claimFeeWei', type: 'uint256' },
+    { name: 'feeSink', type: 'address' },
+    // Live token balance, not a bookkeeping figure. For a fee-on-transfer or
+    // rebasing token this is what is actually there, which is not the same as
+    // "unclaimed allocation" — never labelled as such.
+    { name: 'remaining', type: 'uint256' },
+  ]}], stateMutability: 'view' },
+  { type: 'function', name: 'merkleRoot', inputs: [], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
+  { type: 'function', name: 'token', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+] as const;
+
+// ─── VestingFactory (#28) ───────────────────────────────────────
+// Registry reads only. The dashboard shows streams; it does not create them —
+// stream creation belongs to the launch wizard's vesting step, which is not this
+// surface. No fee-administration or pause entries, same reasoning as the airdrop
+// factory above.
+export const VESTING_FACTORY_ABI = [
+  { type: 'function', name: 'vestingsForBeneficiary', inputs: [{ name: 'beneficiary', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
+  { type: 'function', name: 'vestingsForCreator', inputs: [{ name: 'creator', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
+  { type: 'function', name: 'vestingsForToken', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
+  { type: 'function', name: 'vestingCountForToken', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Cumulative INFLOW per token. Never decreases as beneficiaries release, so it is
+  // "total vested to date", never "currently vesting".
+  { type: 'function', name: 'totalVestedInflow', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'isVesting', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
+  { type: 'function', name: 'vestingCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+
+// ─── TegridyVestingWallet (one stream) ──────────────────────────
+// `release(address)` is permissionless to call and pays owner() — the beneficiary —
+// so a third party cranking it can only push vested funds toward the person they
+// already belong to. There is no clawback, no revoke and no admin selector to add.
+export const VESTING_WALLET_ABI = [
+  { type: 'function', name: 'release', inputs: [{ name: 'token', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'vestingInfo', inputs: [], outputs: [{ name: '', type: 'tuple', components: [
+    { name: 'beneficiary', type: 'address' },
+    { name: 'token', type: 'address' },
+    { name: 'creator', type: 'address' },
+    { name: 'start', type: 'uint256' },
+    { name: 'cliff', type: 'uint256' },
+    { name: 'end', type: 'uint256' },
+    { name: 'balance', type: 'uint256' },
+    { name: 'released', type: 'uint256' },
+    { name: 'releasable', type: 'uint256' },
+    { name: 'locked', type: 'uint256' },
+    { name: 'cliffReached', type: 'bool' },
+    { name: 'fullyVested', type: 'bool' },
+  ]}], stateMutability: 'view' },
+  { type: 'function', name: 'declaredToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+] as const;
+
+// ─── LaunchLockView (#28 read joiner) ───────────────────────────
+// The two `*SourceAvailable` booleans are the honesty contract of this ABI: false
+// means NO DATA (rail unset, wrong address, or the call reverted) and every numeric
+// field beside it is zero because nothing was read. Rendering that as "0 locked"
+// turns an outage into a claim about the token — see the contract's own header note.
+export const LAUNCH_LOCK_VIEW_ABI = [
+  { type: 'function', name: 'snapshot', inputs: [
+    { name: 'token', type: 'address' },
+    { name: 'lockOffset', type: 'uint256' },
+    { name: 'lockLimit', type: 'uint256' },
+  ], outputs: [{ name: 'snap', type: 'tuple', components: [
+    { name: 'vestingSourceAvailable', type: 'bool' },
+    { name: 'lockSourceAvailable', type: 'bool' },
+    { name: 'vestedInflow', type: 'uint256' },
+    { name: 'vestingWalletCount', type: 'uint256' },
+    { name: 'lockedTotal', type: 'uint256' },
+    { name: 'lockedScanned', type: 'uint256' },
+    { name: 'earliestUnlockAt', type: 'uint64' },
+    { name: 'latestUnlockAt', type: 'uint64' },
+    { name: 'activeLockCount', type: 'uint256' },
+    // Non-zero means the lock scan is INCOMPLETE and the unlock dates above
+    // describe part of the token's locks only.
+    { name: 'nextLockOffset', type: 'uint256' },
+  ]}], stateMutability: 'view' },
+  { type: 'function', name: 'vestingFactory', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'lockVault', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+] as const;

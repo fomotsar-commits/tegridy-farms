@@ -228,6 +228,27 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   { path: '/launch-simulator', owner: 'pages/LaunchSimulatorPage.tsx', gate: null, knownViolations: [] },
   {
+    path: '/airdrop',
+    owner: 'pages/AirdropPage.tsx',
+    gate: null,
+    why:
+      'Audited on the Claim tab with no wallet, no campaign address and no manifest — the ' +
+      'no-data branch. The Create tab and every verdict other than "wallet not connected" ' +
+      'need input this sweep does not supply; the eligibility verdicts are covered by unit ' +
+      'tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/vesting',
+    owner: 'pages/VestingPage.tsx',
+    gate: null,
+    why:
+      'Audited on the Streams tab with no wallet, which is the "connect a wallet" branch. ' +
+      'The stream cards and the lock snapshot table need a deployed rail to render at all, ' +
+      'and both rails are undeployed on this build.',
+    knownViolations: [],
+  },
+  {
     path: '/trade',
     owner: 'App.tsx',
     gate: 'redirect',
