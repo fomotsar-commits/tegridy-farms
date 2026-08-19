@@ -292,6 +292,16 @@ export default async function handler(req, res) {
     return handleBirths(req, res);
   }
 
+  // `?resource=alerts` is the per-wallet alert-rule store: CRUD only, forwarded to
+  // PostgREST under the caller's own SIWE JWT so RLS decides visibility. Nothing here
+  // evaluates a rule — a serverless function runs only when called, so it cannot watch
+  // anything while the user's tab is shut, and every response says so in its `delivery`
+  // block. Lazy import, same as the branches above; also above `const provider`.
+  if (req.query.resource === "alerts") {
+    const { handleAlerts } = await import("./_lib/alerts.js");
+    return handleAlerts(req, res);
+  }
+
   // `?resource=record` serves a token's birth certificate as JSON, derived from chain on
   // read. The pretty, stable route is `/record/:chain/:ca.json` (a vercel.json rewrite) —
   // that URL is what `record_url` carries to the island, so it must not move.

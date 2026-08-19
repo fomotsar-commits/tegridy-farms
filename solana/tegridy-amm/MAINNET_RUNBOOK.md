@@ -4,6 +4,14 @@ Step-by-step to take the audited fork live. **Do not start before the diff-audit
 complete** (`AUDIT_RFQ.md`). Every signing step is the operator's; a Squads multisig
 should hold all authorities. Devnet dry-run first (`deploy-devnet.sh`).
 
+> **This runbook has been executed once, and the result was closed.** Both programs went
+> to mainnet on 2026-08-08 ahead of the diff-audit this document opens by requiring, and
+> both were closed on 2026-08-13 (`docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md`). Their ids
+> are spent; ~8.2M lamports are stranded in accounts nothing can sign for. Read the
+> `admin::ID` post-mortem in §0 and the fail-closed warning in §2 before following any step
+> below — several of them are the steps that produced that outcome, and they have been
+> corrected in place rather than deleted, so the trap stays visible.
+
 Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external submission
 
 ---
@@ -53,15 +61,33 @@ Verified on mainnet 2026-08-01. The first two exist **now**; do not regenerate t
 | # | Identity | Value | State |
 |---|---|---|---|
 | 1 | Squads multisig | `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK` | **Exists.** Owner `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`, **threshold = 2** (u16 at data offset 72) |
-| 2 | Admin = Squads **vault PDA**, index 0 | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | **Exists.** System-owned, non-executable, 0.001 SOL |
-| 3 | Fee receiver = vault's **WSOL ATA** | `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa` | ⚠️ **DOES NOT EXIST YET** — must be created on-chain (§2b) |
+| 2 | ⚠️ **Admin — re-decide this before the build** | see the note below | This row named the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. It exists, but `admin::ID` is a **payer** (`CreateAmmConfig` has `payer = owner`) as well as a signer, and the 2026-08 deploy proved that getting this wrong is unrecoverable |
+| 3 | Fee receiver = vault's **WSOL ATA** | `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa` | **Exists** — created on-chain 2026-08-08 (0.00204 SOL). This row read "DOES NOT EXIST YET" for eleven days after it did |
 | 4 | cp-swap program keypair | — | Must be generated (§1) |
 | 5 | `tegridy-launch` program keypair | — | Must be generated (§1) |
 | 6 | `tegridy-launch` deploy authority | — | Must be generated (§1). A plain wallet: it is `Signer` **and** `payer` for `initialize_global`, so it must hold SOL |
 
-Re-derive #2 rather than trusting this table — the derivation is what binds it to the
-multisig. Checking "owner == System Program" is **not** sufficient; every ordinary wallet
-is System-owned too.
+Re-derive any vault address rather than trusting this table — the derivation is what binds
+it to the multisig. Checking "owner == System Program" is **not** sufficient; every
+ordinary wallet is System-owned too.
+
+> ### The `admin::ID` post-mortem — read before filling row 2
+>
+> On the 2026-08-08 deploy, `admin::ID` was baked as the Squads **multisig account**
+> `EVGSnRZ…`. That account is owned by the Squads program: the System Program cannot debit
+> it, and a Squads v4 transaction signs as its **vault PDA**, a different address again.
+> `create_amm_config` therefore could not be called by anyone, `migrate_to_amm` sat on
+> `AmmNotConfigured` (6015), and because the constant is baked into the binary the only
+> fixes were an upgrade or a redeploy. The program was closed instead, which spent the id
+> permanently. Three distinct addresses were being treated as one, and the registry entry
+> for the vault (`frontend/scripts/addresses.json`, `squads-vault`) carries the full
+> correction.
+>
+> Whatever goes in row 2 must be **proved, before the build, to (a) produce a real
+> signature on mainnet and (b) hold SOL**. "It is System-owned" and "it belongs to the
+> multisig" are both insufficient. Prove it by having the candidate sign and pay something
+> trivial on mainnet first — a nonce ≥ 1 — exactly as `docs/SAFE_REHOME_RUNBOOK.md`
+> requires of an EVM Safe before anything relies on it.
 
 ```bash
 SQUADS_MULTISIG=EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK SQUADS_VAULT_INDEX=0   node frontend/scripts/solana-dbc-operator.mjs derive-vault
@@ -75,22 +101,28 @@ solana-keygen pubkey keys/mainnet-program.json
 
 ## 2. 🔑 Set the mainnet authority constants (the 4-constant diff, mainnet side)
 
-⚠️ **`declare_id!` is the exception — it is NOT fail-closed.** The three authority
-constants ship as System-Program sentinels (`1111…1111`) on the `#[cfg(not(feature =
-"devnet"))]` arm, so a mainnet build genuinely cannot function until you replace them.
-`declare_id!` does **not**: both arms currently hold the same devnet throwaway
-`BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL`, whose keypair is a gitignored file that
-is **not present in this checkout**. Forget this one and the build succeeds and deploys
-to a throwaway address someone else may hold the key to. Replace it explicitly.
+⚠️ **NOTHING IN THIS TREE IS FAIL-CLOSED ANY MORE. Do not skim this step.** This preamble
+used to say the three authority constants ship as System-Program sentinels (`1111…1111`)
+on the `#[cfg(not(feature = "devnet"))]` arm, so that a mainnet build could not function
+until you replaced them. **That is no longer true of any of them:** the non-devnet arms
+now carry the committed live values from the 2026-08-08 deploy — `declare_id!` holds
+`3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` (a **closed, permanently unusable** program
+id, so a default build today produces a binary that cannot be deployed at all) and
+`admin::ID` holds the deploy authority. A build that silently inherits either of these is
+a build nobody reviewed. Replace all four explicitly, every time, and re-read the
+constants out of the source rather than out of this list.
 - `programs/cp-swap/src/lib.rs`
-  - `declare_id!(…)` → the pubkey from step 1
-  - `admin::ID` → the Squads **VAULT PDA**, or any plain wallet. ⚠️ **NOT the multisig
-    account.** This line previously said "Squads multisig", it was followed literally, and
-    the result shipped to mainnet on 2026-08-08 and **bricked graduation**:
-    `create_amm_config` takes this address as `Signer` *and* `payer`, and the multisig
-    account is a Squads-owned data account that can do neither (Squads v4 signs CPIs as
-    the **vault**; the System Program can only debit a data-less account it owns). Fixing
-    it cost a program upgrade. Sanity-check before building — the vault reads
+  - `declare_id!(…)` → the pubkey from step 1. Mandatory, not optional: the committed
+    non-devnet value is a spent id, and Solana rejects a redeploy at a closed program id.
+  - `admin::ID` → **a plain, system-owned wallet you have proved can sign and can hold
+    SOL.** ⚠️ **NOT the multisig account.** That line once said "Squads multisig", it was
+    followed literally, and the result shipped to mainnet on 2026-08-08 and **bricked
+    graduation**: `create_amm_config` takes this address as `Signer` *and* `payer`, and the
+    multisig account is a Squads-owned data account that can do neither (Squads v4 signs
+    CPIs as the **vault**; the System Program can only debit a data-less account it owns).
+    There was no cheap fix — the constant is resolved at compile time, so correcting it
+    needed an upgrade or a redeploy, and the program was **closed** on 2026-08-13 instead,
+    spending the id forever. Sanity-check before building — the vault reads
     `owner: 11111111111111111111111111111111`, `space: 0`; the multisig reads
     `owner: SQDS4ep65T…` with a few hundred bytes:
     ```
@@ -234,14 +266,23 @@ whatever token account you name at collection time regardless.
 
 ## 5b. 🔑 Deploy + configure `tegridy-launch` (the bonding curve)
 
-> ✅ **DONE 2026-08-08.** Live at `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` (slot
-> 438,055,726), `initialize_global` has run, upgrade authority is the Squads vault. Verified
-> by bytes, not by claim: `verify-program-constants --deployed CpFnacrAC…` reports the mainnet
-> `declare_id` and `deployer::ID` (`Dcjink4RG…`) both present, and the placeholder, the devnet
-> keys and the multisig all absent. Steps 1-2 below are kept as the record of what was done and
-> what a re-deploy would have to repeat. **Note that trunk's source still carries the
-> placeholder id and the sentinel** — those patches are made at build time and never committed,
-> which is exactly why reading lib.rs tells you nothing about what is live.
+> ⛔ **DONE 2026-08-08, AND CLOSED 2026-08-13.** It ran at
+> `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` (slot 438,055,726) with
+> `initialize_global` complete and upgrade authority at the Squads vault, and its
+> ProgramData account `6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS` was then deleted.
+> **That id is spent and cannot be redeployed**; the `global` PDA it owns is stranded with
+> its rent. Verified on two RPCs — `docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md`, and the
+> registry carries the ProgramData address as an `expect: absent` entry so CI re-checks it.
+>
+> This line read "Live at …" for six days after the close, which is the failure mode the
+> whole runbook is written against: a note recording what someone did is not a read of what
+> is there. `verify-program-constants --deployed` cannot help here either — it byte-searches
+> a binary, and there is no longer a binary to search.
+>
+> Steps 1-2 below are kept as the record of what was done and what a re-deploy would have to
+> repeat, starting from a **new keypair**. **Note that trunk's source still carries the
+> placeholder id and the sentinel** — those patches are made at build time and never
+> committed, which is exactly why reading lib.rs tells you nothing about what is live.
 
 A **separate program** from cp-swap, deliberately — folding it in would break
 `diff-guard` and turn a cheap four-constant diff-audit into a full AMM audit.

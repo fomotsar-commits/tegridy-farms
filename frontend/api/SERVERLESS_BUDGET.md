@@ -54,6 +54,12 @@ into the 404.
 | `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
+| `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
+
+`alerts` is CRUD only and cannot ever be the evaluator: a serverless function runs only
+when something calls it, so nothing here can watch a rule while the user's tab is shut.
+Rules are evaluated in the browser, and the response's `delivery` block says so — do not
+"fix" this by adding a cron that pretends to be the F9 worker.
 
 `births` is server-side for the same reason `heat` is not an optimisation: it holds the
 shared signing secret, and a signature the browser could produce is one anybody could
