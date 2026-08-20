@@ -220,6 +220,25 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // pages state those from the modules that enforce them.
       { to: '/copy-trading', label: 'Copy Trading', soon: !isIndexerConfigured() },
       { to: '/competitions', label: 'Competitions', soon: !isIndexerConfigured() },
+      // Merchant checkout. PILLED, AND IT CANNOT SELF-CLEAR — the same shape as
+      // /alerts above and for the same reason: the invoice store lives behind
+      // `021_commerce.sql`, a migration applied BY HAND, so until an operator runs it
+      // every lookup answers 503 `schema-missing`, no invoice can be published, and no
+      // payment link can resolve. Unlike /solana-launch (a flag plus a published config,
+      // both readable in the browser) there is no client-readable signal for "the table
+      // exists": it is a server fact that arrives with the first read. Hence a hardcoded
+      // `true`, like /alerts and /curve-launch, rather than a condition.
+      //
+      // Deliberately NOT keyed to a feature flag. The page's honesty — the exact amount
+      // and exact settlement asset shown before signing, and NO signature offered when
+      // the route cannot guarantee the merchant's amount — is the product, and a flag
+      // would hide the one state it can currently be in.
+      //
+      // What this entry does NOT promise, and must not be edited to: that this venue
+      // executes the swap leg. lib/aggregator.ts is quote-only here, so the checkout
+      // signs the exact transfer and states that step 1 happens on the trade surface.
+      // Remove the pill when 021 is applied — navConfig.test.ts holds you to the reason.
+      { to: '/checkout', label: 'Checkout', soon: true },
     ],
   },
   {
@@ -227,6 +246,17 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/tokenomics', label: 'Tokenomics' },
       { to: '/treasury',   label: 'Treasury' },
+      // Tax reports read the F1 indexer and nothing else, so the pill is keyed to the one
+      // input that decides whether the entry can do the thing it names — build a report
+      // FROM YOUR HISTORY. Without VITE_INDEXER_URL nothing of anyone's history is read
+      // and the whole requested period is a declared gap on the export.
+      //
+      // The paste-your-own-lots path on that page works with no indexer at all and is
+      // genuinely useful, but it is the filer's own records rather than history this
+      // venue read, so it does not clear this pill. Same self-clearing condition as
+      // /terminal and /chart, and deliberately not a separate flag: a flag can be true
+      // while the feed is unreachable, which is the state a pill exists to describe.
+      { to: '/tax', label: 'Tax Reports', soon: !isIndexerConfigured() },
     ],
   },
   // The three detection surfaces are the protocol's one genuine differentiator and

@@ -22,12 +22,29 @@ import { formatEther } from 'viem';
 import { safeParseEther } from '../safeParseEther';
 import { routableYieldVenues, type YieldVenue } from './venues';
 
+/**
+ * What a budget figure is denominated in.
+ *
+ * Carried on every input because `useDCA` validates a persisted schedule's token
+ * to "any ticker, 0 to 18 decimals" and then reads its own amounts back with
+ * `parseUnits(amount, fromToken.decimals)`. A consumer that narrows that to ETH
+ * without checking prints a six-decimal balance at eighteen-decimal scale under
+ * an ETH label, which is a wrong number rather than a missing one.
+ */
+export interface DcaAsset {
+  /** Ticker. Rendered verbatim beside the figure; never substituted for another. */
+  symbol: string;
+  decimals: number;
+}
+
 /** The parts of a schedule that decide how much is still unspent. */
 export interface DcaBudgetInput {
-  /** Per-swap amount as typed, in ETH. */
+  /** Per-swap amount as typed, in whole units of `asset`. */
   amountPerSwap: string;
   totalSwaps: number;
   completedSwaps: number;
+  /** Required, not defaulted — a default here is the assumption this field exists to refuse. */
+  asset: DcaAsset;
 }
 
 export type DcaYieldLeg =
@@ -35,10 +52,12 @@ export type DcaYieldLeg =
   | { state: 'unavailable'; reason: string };
 
 export interface DcaYieldPlan {
-  /** Wei this schedule has not spent yet. Exact; never a rounded display value. */
+  /** Base units this schedule has not spent yet. Exact; never a rounded display value. */
   idleWei: bigint;
   /** The same figure for display. Derived from `idleWei`, not re-parsed from input. */
-  idleEth: string;
+  idleAmount: string;
+  /** What `idleAmount` counts. Rendered with it so the figure cannot be read as ETH. */
+  asset: DcaAsset;
   /** Swaps still to come. Zero once a schedule has run its course. */
   remainingSwaps: number;
   /** Where the unspent budget could earn while it waits. */
@@ -99,6 +118,20 @@ const REMAINING_NOTE = 'so there is nothing left unspent for this schedule to pa
  * bug on the input path, and this is that guard applied one step later.
  */
 export function dcaYieldPlan(input: DcaBudgetInput): DcaYieldPlanResult {
+  // Checked before the amount is touched. `safeParseEther` and `formatEther` are
+  // both eighteen-decimal operations and this module converts no units of its
+  // own, so an asset of any other width is refused rather than computed at a
+  // scale nobody chose. The refusal is the honest answer: a figure at the wrong
+  // scale is off by a factor of a million and still looks like a balance.
+  if (input.asset.decimals !== 18) {
+    return {
+      ok: false,
+      reason:
+        `This panel reads amounts at 18 decimals and ${input.asset.symbol} uses ${input.asset.decimals}, ` +
+        'so its unspent budget is left out rather than shown at the wrong scale.',
+    };
+  }
+
   const perSwapWei = safeParseEther(input.amountPerSwap);
   if (perSwapWei === null) {
     return {
@@ -123,7 +156,8 @@ export function dcaYieldPlan(input: DcaBudgetInput): DcaYieldPlanResult {
     ok: true,
     plan: {
       idleWei,
-      idleEth: formatEther(idleWei),
+      idleAmount: formatEther(idleWei),
+      asset: input.asset,
       remainingSwaps,
       parking: parkingLeg(remainingSwaps),
       autoStake: autoStakeLeg(),
@@ -133,9 +167,11 @@ export function dcaYieldPlan(input: DcaBudgetInput): DcaYieldPlanResult {
 }
 
 export interface DcaIdleTotal {
-  /** Sum over the schedules whose budget could be read. */
+  /** Sum over the schedules whose budget could be read, in `denomination`'s base units. */
   idleWei: bigint;
-  idleEth: string;
+  idleAmount: string;
+  /** The ticker this sum counts. Rendered with the figure, never assumed by the caller. */
+  denomination: string;
   /** How many schedules that sum covers. */
   counted: number;
   /**
@@ -145,20 +181,44 @@ export interface DcaIdleTotal {
    * understated, and understated is the direction that reads as reassuring.
    */
   unreadable: number;
+  /**
+   * Schedules denominated in something other than `denomination`.
+   *
+   * A separate count from `unreadable` because they are a different sentence to a
+   * reader: those rows were read fine, they simply are not this asset and adding
+   * them would produce a number that is not a quantity of anything.
+   */
+  otherDenomination: number;
 }
 
 /**
- * Unspent budget across several schedules.
+ * Unspent budget across several schedules, in ONE asset.
  *
- * Summed in wei and formatted once at the end. Adding formatted ETH strings, or
- * adding through `Number`, loses the low digits of an 18-decimal amount — small
- * per row and not small once a wallet has twenty schedules.
+ * The denomination is an argument rather than an inference, because the failure
+ * being guarded is silent: nothing about summing a USDC row into an ETH total
+ * throws, and the result renders as a plausible balance. Rows in another asset
+ * are excluded and counted, never converted — this module holds no price and
+ * would have to invent one.
+ *
+ * Summed in base units and formatted once at the end. Adding formatted strings,
+ * or adding through `Number`, loses the low digits of an 18-decimal amount —
+ * small per row and not small once a wallet has twenty schedules.
  */
-export function dcaIdleTotal(inputs: readonly DcaBudgetInput[]): DcaIdleTotal {
+export function dcaIdleTotal(
+  inputs: readonly DcaBudgetInput[],
+  denomination: string,
+): DcaIdleTotal {
   let idleWei = 0n;
   let counted = 0;
   let unreadable = 0;
+  let otherDenomination = 0;
   for (const input of inputs) {
+    // Asked before the plan so a different-asset row is reported as a different
+    // asset rather than as something this module failed to parse.
+    if (input.asset.symbol !== denomination) {
+      otherDenomination += 1;
+      continue;
+    }
     const result = dcaYieldPlan(input);
     if (!result.ok) {
       unreadable += 1;
@@ -167,7 +227,14 @@ export function dcaIdleTotal(inputs: readonly DcaBudgetInput[]): DcaIdleTotal {
     idleWei += result.plan.idleWei;
     counted += 1;
   }
-  return { idleWei, idleEth: formatEther(idleWei), counted, unreadable };
+  return {
+    idleWei,
+    idleAmount: formatEther(idleWei),
+    denomination,
+    counted,
+    unreadable,
+    otherDenomination,
+  };
 }
 
 /**

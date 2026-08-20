@@ -76,6 +76,12 @@ export const TEGRIDY_RESTAKING_ABI = [
 // ─── ERC20 ──────────────────────────────────────────────────────
 export const ERC20_ABI = [
   { type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable' },
+  // `transfer` was missing until 2026-08-20, which made the commerce checkout's
+  // pay call reference a function its own ABI did not contain — it would have
+  // thrown at the wallet and settled nothing. The compiler said so; the repo's
+  // solution-file tsconfig meant `tsc --noEmit` was checking zero files and
+  // nobody heard it. Standard ERC-20, and the only write path checkout has.
+  { type: 'function', name: 'transfer', inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable' },
   { type: 'function', name: 'allowance', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'decimals', inputs: [], outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view' },

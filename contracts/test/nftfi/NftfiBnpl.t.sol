@@ -160,6 +160,52 @@ contract NftfiBnplTest is Test {
         vm.stopPrank();
     }
 
+    /// @dev The financed leg is an ordinary draw from the pool, so it meets the
+    ///      pool's LTV ceiling like any other. That makes the sale price a
+    ///      financed purchase can reach a function of the floor and the dials,
+    ///      not of what a seller feels like asking — and the refusal has to come
+    ///      from the vault rather than from a check the desk could drift out of
+    ///      sync with. `PRICE` of 4 ETH finances 3 ETH, which is exactly the
+    ///      ceiling at a 10 ETH floor and 30% LTV; one wei more is refused.
+    function test_aPriceThePoolWouldNotLendAgainstIsRefusedByTheVault() public {
+        uint256 tokenId = nft.mint(seller);
+        vm.startPrank(seller);
+        nft.approve(address(desk), tokenId);
+        // 4 ETH + 4 wei finances 3 ETH + 3 wei against a 3 ETH ceiling.
+        uint256 listingId = desk.list(tokenId, PRICE + 4, uint64(block.timestamp + 7 days));
+        vm.stopPrank();
+
+        vm.startPrank(buyer);
+        weth.approve(address(desk), 10 ether);
+        vm.expectRevert(NftfiPooledLendingVault.PrincipalAboveMax.selector);
+        desk.openPlan(listingId, 10 ether);
+        vm.stopPrank();
+
+        // Raising the deposit shrinks the financed leg under the ceiling, which
+        // is the only lever that makes a higher sticker price financeable.
+        vm.prank(owner);
+        desk.setDepositBps(5_000);
+        (uint256 depositWei,, uint256 originationWei,,) = desk.quote(PRICE + 4);
+        vm.startPrank(buyer);
+        desk.openPlan(listingId, depositWei + originationWei);
+        vm.stopPrank();
+        assertEq(desk.planCount(), 1, "the same listing opens once the financed leg fits");
+    }
+
+    /// @dev A stale floor closes the vault's borrow path, and the desk inherits
+    ///      that rather than routing around it. Nothing republishes the floor on
+    ///      a timer, so this is the resting state of an unattended pool.
+    function test_aStaleFloorInThePoolStopsNewPlansFromOpening() public {
+        (uint256 listingId,) = _list();
+        skip(vault.FLOOR_MAX_AGE() + 1);
+
+        vm.startPrank(buyer);
+        weth.approve(address(desk), 10 ether);
+        vm.expectRevert(NftfiPooledLendingVault.FloorStale.selector);
+        desk.openPlan(listingId, 10 ether);
+        vm.stopPrank();
+    }
+
     function test_sellerCannotBuyTheirOwnListing() public {
         (uint256 listingId,) = _list();
         weth.mint(seller, 10 ether);

@@ -130,6 +130,22 @@ const ChartPage = lazy(() => import('./components/chart/ChartPage'));
 // the comparison and the counterparty disclosures are the product while the routing
 // is dark, and a flag would hide the one honest state it has.
 const YieldPage = lazy(() => import('./pages/YieldPage'));
+// Merchant checkout + recurring billing (#68 / #69). NOT flag-gated, because the
+// states it can be in are the product: the buyer is shown the exact amount and the
+// exact settlement asset before signing, and no signature is offered at all when the
+// route cannot guarantee the merchant's exact amount. Non-custodial by construction —
+// both legs are signed in the buyer's own wallet with the merchant as the direct
+// recipient, and api/_lib/commerce.js holds no key. The invoice store sits behind
+// `021_commerce.sql`, applied by hand, so until then every lookup answers 503
+// `schema-missing` and the widget prints that rather than "no such invoice".
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage'));
+// Capital-gains and income reports (#71). Read-only over the F1 indexer, so with
+// VITE_INDEXER_URL unset the whole requested period is a declared GAP on the export
+// itself — not an omission and not an empty year. The cost-basis method is selected by
+// the filer and stamped on every file, because FIFO and specific identification are
+// different numbers and an unlabelled report cannot be reproduced. Every surface states
+// it is not tax advice.
+const TaxPage = lazy(() => import('./pages/TaxPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -333,6 +349,8 @@ function AnimatedRoutes() {
         <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><ChartPage /></Suspense>} />
         <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><AlertsPage /></Suspense>} />
         <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><ReferralsPage /></Suspense>} />
+        <Route path="checkout" element={<Suspense fallback={<PageSkeleton />}><CheckoutPage /></Suspense>} />
+        <Route path="tax" element={<Suspense fallback={<PageSkeleton />}><TaxPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

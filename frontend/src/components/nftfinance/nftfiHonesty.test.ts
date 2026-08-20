@@ -105,6 +105,44 @@ describe('"not deployed" and "could not read" stay separate states', () => {
   });
 });
 
+describe('the estimator says which contract each half of its terms came from', () => {
+  // The desk and the funding pool are two separate deployments and either can be
+  // absent on its own. One boolean across both produced the specific lie that a
+  // deployed-but-unreachable desk was reported as "no deployment exists to read".
+  it('four provenance states, not one boolean', () => {
+    expect(bnpl).toMatch(/'live' \| 'desk-not-deployed' \| 'desk-unreadable' \| 'pool-unavailable'/);
+    expect(bnpl).toMatch(/The desk exists but could not be read just now/);
+    expect(bnpl).toMatch(/the pool that would fund the financed leg could not be read/);
+  });
+
+  it('the origination fee comes from the pool dial, never the desk sale fee', () => {
+    // They are both zero today, so a swap between them is invisible until
+    // somebody turns one on and the estimator quietly quotes the other.
+    expect(codeOnly(bnpl)).toMatch(/originationFeeBps: fundingPool\?\.originationFeeBps \?\? POOLED_VAULT_WRITTEN_TERMS\.originationFeeBps/);
+    expect(codeOnly(bnpl)).not.toMatch(/originationFeeBps:.*saleFeeBps/);
+  });
+});
+
+describe('a schedule on screen is not a plan the chain would open', () => {
+  // Both preconditions are enforced by the contracts. An estimator that drew a
+  // schedule for any price without naming them would imply availability the
+  // pool has not offered — the same failure as implying depth.
+  it('it names the pool ceiling on the financed leg', () => {
+    expect(bnpl).toMatch(/What still has to be true for this plan to open/);
+    expect(bnpl).toMatch(/would be refused on-chain/);
+  });
+
+  it('it admits when the ceiling cannot be checked rather than assuming it clears', () => {
+    expect(bnpl).toMatch(/that cap cannot be checked from here/);
+    expect(bnpl).toMatch(/not a\s*\n?\s*confirmation that the amount is available/);
+  });
+
+  it('it names the loan-term precondition too', () => {
+    expect(bnpl).toMatch(/loan term has to outlast the schedule/);
+    expect(bnpl).toMatch(/mature mid-schedule/);
+  });
+});
+
 describe('no read is ever aimed at the zero address', () => {
   it('both hooks gate the query on isDeployed rather than on the result', () => {
     // A call to 0x0 answers "0x", which viem decodes into a shape that looks

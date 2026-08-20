@@ -59,6 +59,69 @@ describe('buildCandleSeries — OHLC', () => {
   });
 });
 
+describe('buildCandleSeries — two swaps in one block', () => {
+  // The indexer stores a BLOCK timestamp, so both of these are t=10. Only the
+  // log position separates them, and it is what decides the candle's direction.
+  const early = { timeSec: 10, price: 10, volume: 1, sequence: 3 };
+  const late = { timeSec: 10, price: 20, volume: 1, sequence: 4 };
+
+  it('opens at the earlier log and closes at the later one', () => {
+    const series = buildCandleSeries([early, late], HOUR, { truncated: false });
+    const candle = series.slots[0];
+    if (candle.kind !== 'candle') throw new Error('unreachable');
+    expect(candle.open).toBe(10);
+    expect(candle.close).toBe(20);
+  });
+
+  it('does the same when the page arrived newest-first, as the indexer returns it', () => {
+    // This is the real input shape: PAIR_SWAPS_QUERY orders timestamp desc. With
+    // the log position ignored, a stable sort would freeze this order and the
+    // candle would open at 20 and close at 10 — a block that closed up, drawn
+    // closing down.
+    const series = buildCandleSeries([late, early], HOUR, { truncated: false });
+    const candle = series.slots[0];
+    if (candle.kind !== 'candle') throw new Error('unreachable');
+    expect(candle.open).toBe(10);
+    expect(candle.close).toBe(20);
+    expect(series.unsequenced).toBe(0);
+  });
+
+  it('still orders across blocks by time, whatever the log positions were', () => {
+    // Log index restarts at 0 every block, so it must never outrank the clock.
+    const series = buildCandleSeries(
+      [
+        { timeSec: 20, price: 30, volume: 1, sequence: 0 },
+        { timeSec: 10, price: 10, volume: 1, sequence: 99 },
+      ],
+      HOUR,
+      { truncated: false },
+    );
+    const candle = series.slots[0];
+    if (candle.kind !== 'candle') throw new Error('unreachable');
+    expect(candle.open).toBe(10);
+    expect(candle.close).toBe(30);
+  });
+
+  it('counts trades with no readable position instead of ranking them anyway', () => {
+    const series = buildCandleSeries(
+      [
+        { timeSec: 10, price: 10, volume: 1 },
+        { timeSec: 20, price: 20, volume: 1, sequence: 2 },
+      ],
+      HOUR,
+      { truncated: false },
+    );
+    expect(series.unsequenced).toBe(1);
+    expect(series.candleCount).toBe(1);
+  });
+
+  it('reports none when every trade carried one', () => {
+    expect(buildCandleSeries([early, late], HOUR, { truncated: false }).unsequenced).toBe(0);
+    // And the empty-input path reports the field rather than omitting it.
+    expect(buildCandleSeries([], HOUR, { truncated: false }).unsequenced).toBe(0);
+  });
+});
+
 describe('buildCandleSeries — gaps are gaps', () => {
   const series = buildCandleSeries([trade(0, 10), trade(4, 20)], HOUR, { truncated: false });
 

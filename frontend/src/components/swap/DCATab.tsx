@@ -89,7 +89,20 @@ export function DCATab() {
   // Across LIVE schedules only. The composer's own figure above is a preview of a
   // schedule that does not exist yet, and summing the two would double-count it
   // the moment Start is pressed.
-  const idleTotal = dcaIdleTotal(activeSchedules);
+  //
+  // Each row hands over its OWN token rather than inheriting this tab's. A
+  // schedule is restored from localStorage through a validator that accepts any
+  // ticker from 0 to 18 decimals, so the asset a stored row is denominated in is
+  // a fact to be read off the row, not one this composer gets to assert.
+  const idleTotal = dcaIdleTotal(
+    activeSchedules.map((s) => ({
+      amountPerSwap: s.amountPerSwap,
+      totalSwaps: s.totalSwaps,
+      completedSwaps: s.completedSwaps,
+      asset: { symbol: s.fromToken.symbol, decimals: s.fromToken.decimals },
+    })),
+    fromToken.symbol,
+  );
 
   return (
     <div className="p-5">
@@ -219,7 +232,11 @@ export function DCATab() {
           {/* The "Total cost" line above is the whole reason this panel exists: it
               is the amount a user is about to commit to leaving idle, and until
               now nothing said so. */}
-          <DcaYieldPanel amountPerSwap={amount} totalSwaps={parseInt(totalSwaps)} />
+          <DcaYieldPanel
+            amountPerSwap={amount}
+            totalSwaps={parseInt(totalSwaps)}
+            asset={{ symbol: fromToken.symbol, decimals: fromToken.decimals }}
+          />
         </div>
       )}
 
@@ -262,12 +279,15 @@ export function DCATab() {
           <div className="rounded-lg px-2 py-1.5 mb-2" style={{ background: 'rgba(0,0,0,0.55)' }}>
             <div className="flex items-center justify-between gap-3">
               <span className="text-white text-[10px]">Unspent across {idleTotal.counted} schedule{idleTotal.counted === 1 ? '' : 's'}</span>
-              <span className="text-white font-mono text-[11px]">{formatTokenAmount(idleTotal.idleEth)} ETH</span>
+              <span className="text-white font-mono text-[11px]">{formatTokenAmount(idleTotal.idleAmount)} {idleTotal.denomination}</span>
             </div>
             <p className="text-white/70 text-[10px] leading-snug mt-0.5">
               Still in your wallet, earning nothing. Nothing here holds it.
               {idleTotal.unreadable > 0
                 ? ` ${idleTotal.unreadable} schedule${idleTotal.unreadable === 1 ? '' : 's'} could not be read and ${idleTotal.unreadable === 1 ? 'is' : 'are'} not in this total.`
+                : ''}
+              {idleTotal.otherDenomination > 0
+                ? ` ${idleTotal.otherDenomination} schedule${idleTotal.otherDenomination === 1 ? '' : 's'} ${idleTotal.otherDenomination === 1 ? 'buys' : 'buy'} with a different token and ${idleTotal.otherDenomination === 1 ? 'is' : 'are'} counted separately, not converted.`
                 : ''}
             </p>
           </div>
@@ -275,7 +295,7 @@ export function DCATab() {
             <div key={s.id} className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-black/60"
               style={{ borderBottom: '1px solid var(--color-purple-75)' }}>
               <div>
-                <span className="text-white text-[12px] font-medium">{s.amountPerSwap} ETH</span>
+                <span className="text-white text-[12px] font-medium">{s.amountPerSwap} {s.fromToken.symbol}</span>
                 <span className="text-white text-[11px] mx-1"> · </span>
                 <span className="text-white text-[11px]">{s.interval}</span>
               </div>

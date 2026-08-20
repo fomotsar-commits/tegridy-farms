@@ -20,6 +20,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 const wallet = vi.hoisted(() => ({ isConnected: false, address: undefined as string | undefined }));
 
@@ -39,6 +40,29 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.f
 vi.mock('../components/PageArtBackdrop', () => ({ PageArtBackdrop: () => null }));
 
 import AlertsPage from './AlertsPage';
+
+/**
+ * Wrapped in a router so any descendant that grows a link keeps working. The real
+ * subtree includes TelegramLinkPanel, which reads its link code straight off
+ * `window.location` for exactly this reason — a leaf that demanded a Router would
+ * make one a hard requirement of every ancestor's tests. Nothing here is stubbed
+ * out: stubbing that panel would make this file's central claim — that /alerts
+ * composes the REAL surface — quietly untrue, which is the failure the header
+ * warns about one level up.
+ */
+const renderPage = () =>
+  render(<AlertsPage />, { wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter> });
+
+/**
+ * The rule store's own copy of a message, not any other panel's.
+ *
+ * The 503 stub below answers EVERY fetch, so both the rule store and the Telegram
+ * link store receive the same body and both print it — which is each panel
+ * correctly reporting the fact it owns, and would be a false duplicate-match if
+ * asserted page-wide. In production they differ (one names `alert_rules`, the other
+ * `telegram_links`); scoping is what keeps this test about the rule store.
+ */
+const inRules = () => within(screen.getByRole('region', { name: 'Alert rules' }));
 
 /** The 503 the aggregator answers until migration 016 is applied. */
 const SCHEMA_MISSING_DETAIL =
@@ -82,7 +106,7 @@ afterEach(() => {
 
 describe('the route renders the whole alerts surface', () => {
   it('mounts the page and all three panels without throwing', async () => {
-    render(<AlertsPage />);
+    renderPage();
 
     expect(screen.getByRole('heading', { level: 1, name: 'Alerts' })).toBeInTheDocument();
     // One region per honest state, each owned by the component that holds the fact.
@@ -94,7 +118,7 @@ describe('the route renders the whole alerts surface', () => {
   it('keeps a heading level between the page h1 and the panels’ h3s', () => {
     // The panels ship <h3>; a page whose only other heading is the <h1> would step
     // h1 → h3, which is the `heading-order` finding the route table declares as empty.
-    const { container } = render(<AlertsPage />);
+    const { container } = renderPage();
     const levels = [...container.querySelectorAll('h1,h2,h3,h4,h5,h6')].map((h) => Number(h.tagName[1]));
     expect(levels[0]).toBe(1);
     let previous = 0;
@@ -107,7 +131,7 @@ describe('the route renders the whole alerts surface', () => {
 
 describe('signed out is stated as itself, not as an empty rule list', () => {
   it('says the rules live against the wallet, and asks for a sign-in', () => {
-    render(<AlertsPage />);
+    renderPage();
     // Scoped to the builder: the inbox has its own role="status" for its own kind of
     // empty, and the two must not be read as one message.
     const builder = within(screen.getByRole('region', { name: 'Alert rules' })).getByRole('status');
@@ -116,14 +140,14 @@ describe('signed out is stated as itself, not as an empty rule list', () => {
   });
 
   it('never reports calm — the empty inbox says nothing is being watched', () => {
-    render(<AlertsPage />);
+    renderPage();
     const text = document.body.textContent ?? '';
     expect(text).toMatch(/nothing is being watched/i);
     expect(text).not.toMatch(/none of them matched/i);
   });
 
   it('asks the store for nothing while there is no session', () => {
-    render(<AlertsPage />);
+    renderPage();
     expect(fetch).not.toHaveBeenCalled();
   });
 });
@@ -136,21 +160,29 @@ describe('the 503 the deployment answers today reaches the screen', () => {
   });
 
   it('prints the server’s sentence verbatim, and the operator step with it', async () => {
-    render(<AlertsPage />);
-    await waitFor(() => expect(screen.getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
-    expect(screen.getByText(new RegExp(OPERATOR_STEP.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')))
-      .toBeInTheDocument();
+    renderPage();
+    await waitFor(() => expect(inRules().getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
+    // AlertsPanel prints the rule store's operator step as a sibling of the
+    // regions, so this one cannot be scoped with `inRules()`. Everything outside
+    // the Telegram region is the alerts surface, and there must be EXACTLY one —
+    // the count still matters, it just cannot be taken page-wide while a second
+    // panel is being handed the same stubbed 503.
+    const telegram = screen.getByRole('region', { name: 'Telegram' });
+    const stepMatches = screen
+      .getAllByText(new RegExp(OPERATOR_STEP.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
+      .filter((el) => !telegram.contains(el));
+    expect(stepMatches).toHaveLength(1);
   });
 
   it('disables the form rather than accepting a rule nothing can store', async () => {
-    render(<AlertsPage />);
-    await waitFor(() => expect(screen.getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
+    renderPage();
+    await waitFor(() => expect(inRules().getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Add rule' })).toBeDisabled();
   });
 
   it('does not claim the user has no rules, and does not claim the market is quiet', async () => {
-    render(<AlertsPage />);
-    await waitFor(() => expect(screen.getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
+    renderPage();
+    await waitFor(() => expect(inRules().getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
     const text = document.body.textContent ?? '';
     expect(text).toMatch(/nothing is being watched/i);
     expect(text).not.toMatch(/none of them matched/i);

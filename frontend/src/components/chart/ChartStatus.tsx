@@ -148,6 +148,14 @@ function Coverage({
   if (series.rejected > 0) {
     lines.push(`${series.rejected} priced row${series.rejected === 1 ? '' : 's'} failed the candle builder's own sanity check and were dropped.`);
   }
+  if (series.unsequenced > 0) {
+    // Reached only if the indexer stops writing a readable log position. Said
+    // out loud because the damage is invisible otherwise: the candles still draw,
+    // and only their direction is untrustworthy.
+    lines.push(
+      `${series.unsequenced} row${series.unsequenced === 1 ? '' : 's'} carried no readable position within ${series.unsequenced === 1 ? 'its' : 'their'} block. Where two of those traded in the same block, which price opened the bucket and which closed it could not be established.`,
+    );
+  }
   if (series.emptyBuckets > 0) {
     lines.push(
       `${series.emptyBuckets} bucket${series.emptyBuckets === 1 ? '' : 's'} had no trade at all. They are drawn as gaps — no price is invented across them.`,

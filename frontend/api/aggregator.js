@@ -340,6 +340,33 @@ export default async function handler(req, res) {
     return handleReferrals(req, res);
   }
 
+  // `?resource=commerce` is the merchant invoice store and the settlement record
+  // behind /checkout: one id in, one invoice out, plus a claimed-payment row.
+  // It is NOT custodial and cannot become so — no key is held or accepted
+  // anywhere on that path; the buyer signs both legs in their own wallet. It is
+  // also not an oracle: a settlement row is written `client-reported` because
+  // nothing there reads a receipt, and the webhook is ONE inline attempt with no
+  // retry, because this venue runs no keeper to make a second one. Lazy import,
+  // same as the branches above; also above `const provider`. See
+  // _lib/commerce.js.
+  if (req.query.resource === "commerce") {
+    const { handleCommerce } = await import("./_lib/commerce.js");
+    return handleCommerce(req, res);
+  }
+
+  // `?resource=bot-link` is the Telegram chat ↔ wallet binding, and the only server
+  // surface the bot has. It is what lets the bot answer read-only questions without
+  // holding anything: a chat is bound by the user SIGNING in the web app, and the
+  // bot's own credential can mint a pending code, read one chat's state, and destroy
+  // a binding — never create one. There is no field here, in either direction, that
+  // carries key material, and api/__tests__/bot-noncustodial.test.js fails the build
+  // if one appears. Lazy import, same as the branches above; also above
+  // `const provider`. See _lib/botLink.js.
+  if (req.query.resource === "bot-link") {
+    const { handleBotLink } = await import("./_lib/botLink.js");
+    return handleBotLink(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

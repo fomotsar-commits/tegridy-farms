@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import { isAddress, type Address, type Hex } from 'viem';
 import { AIRDROP_DISTRIBUTOR_ABI, AIRDROP_FACTORY_ABI, ERC20_ABI } from '../lib/contracts';
@@ -72,24 +72,16 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
     query: { enabled: Boolean(info?.token), refetchInterval: 0 },
   });
 
-  // Built conditionally rather than with a placeholder index, so there is no path
-  // where a real `isClaimed(0)` result could be read as the answer for a wallet whose
-  // index was never known.
-  const claimedCalls =
-    valid && distributor !== null && index !== null
-      ? ([
-          {
-            address: distributor,
-            abi: AIRDROP_DISTRIBUTOR_ABI,
-            functionName: 'isClaimed' as const,
-            args: [BigInt(index)] as const,
-          },
-        ] as const)
-      : ([] as const);
-
-  const { data: claimedData, refetch: refetchClaimed } = useReadContracts({
-    contracts: claimedCalls,
-    query: { enabled: claimedCalls.length > 0, refetchInterval: 30_000 },
+  // No placeholder index, ever: `args` is undefined and the query is disabled
+  // until a real index exists, so there is no path where a genuine `isClaimed(0)`
+  // result could be read as the answer for a wallet whose index was never known.
+  const { data: claimedRead, refetch: refetchClaimed } = useReadContract({
+    address: distributor ?? undefined,
+    abi: AIRDROP_DISTRIBUTOR_ABI,
+    functionName: 'isClaimed',
+    args: index === null ? undefined : [BigInt(index)],
+    chainId: CHAIN_ID,
+    query: { enabled: valid && index !== null, refetchInterval: 30_000 },
   });
 
   const state: AirdropCampaignState = {
@@ -110,8 +102,9 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
     // provenance we did not check is the failure this field exists to prevent.
     fromOurFactory:
       !factoryDeployed ? null : data?.[1]?.status === 'success' ? Boolean(data[1].result) : null,
-    claimed:
-      index === null ? null : claimedData?.[0]?.status === 'success' ? Boolean(claimedData[0].result) : null,
+    // `undefined` is the unread state — a disabled query, a failed call, or a
+    // read still in flight all land here, and none of them is "not claimed".
+    claimed: index === null || typeof claimedRead !== 'boolean' ? null : claimedRead,
   };
 
   const { writeContract, data: hash, isPending, reset } = useWriteContract();
@@ -129,17 +122,42 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
     (args: { index: number; account: Address; amount: bigint; proof: Hex[] }) => {
       if (!valid || !distributor || !state.campaign) return;
       const fee = state.campaign.claimFeeWei;
-      const common = {
-        address: distributor,
-        abi: AIRDROP_DISTRIBUTOR_ABI,
-        args: [BigInt(args.index), args.account, args.amount, args.proof] as const,
-        chainId: CHAIN_ID,
-      };
+      const callArgs = [BigInt(args.index), args.account, args.amount, args.proof] as const;
+      const onError = { onError: (err: unknown) => surfaceTxError(err, toast) };
+
+      // TWO CALLS, NOT ONE CALL WITH A CONDITIONAL FIELD. `claim` is nonpayable
+      // and `claimWithFee` is payable, so `value` is not an option on one of
+      // them — it is forbidden. Merging them into a single config object erases
+      // that: the shared shape has an optional `value`, which is exactly the
+      // shape in which "send the fee to the entry point that rejects value" is a
+      // legal expression. Written out separately, each branch is checked against
+      // the ABI entry it actually calls.
+      if (fee === 0n) {
+        writeContract(
+          {
+            address: distributor,
+            abi: AIRDROP_DISTRIBUTOR_ABI,
+            functionName: 'claim',
+            args: callArgs,
+            chainId: CHAIN_ID,
+          },
+          onError,
+        );
+        return;
+      }
+
       writeContract(
-        fee === 0n
-          ? { ...common, functionName: 'claim' }
-          : { ...common, functionName: 'claimWithFee', value: fee },
-        { onError: (err) => surfaceTxError(err, toast) },
+        {
+          address: distributor,
+          abi: AIRDROP_DISTRIBUTOR_ABI,
+          functionName: 'claimWithFee',
+          args: callArgs,
+          // Exactly the fee this campaign snapshotted. The distributor requires
+          // msg.value to EQUAL it, so an overpayment reverts rather than tips.
+          value: fee,
+          chainId: CHAIN_ID,
+        },
+        onError,
       );
     },
     [valid, distributor, state.campaign, writeContract],

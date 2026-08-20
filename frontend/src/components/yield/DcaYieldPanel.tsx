@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useYieldDCA } from '../../hooks/useYieldDCA';
-import { DCA_YIELD_ROUND_TRIP_NOTE } from '../../lib/yield/dcaYield';
+import { DCA_YIELD_ROUND_TRIP_NOTE, type DcaAsset } from '../../lib/yield/dcaYield';
 import { formatTokenAmount } from '../../lib/formatting';
 
 // The idle half of a DCA schedule, said out loud.
@@ -21,10 +21,12 @@ export interface DcaYieldPanelProps {
   amountPerSwap: string;
   totalSwaps: number;
   completedSwaps?: number;
+  /** What the amount is in. No default — the ticker is printed, not guessed. */
+  asset: DcaAsset;
 }
 
-export function DcaYieldPanel({ amountPerSwap, totalSwaps, completedSwaps = 0 }: DcaYieldPanelProps) {
-  const result = useYieldDCA({ amountPerSwap, totalSwaps, completedSwaps });
+export function DcaYieldPanel({ amountPerSwap, totalSwaps, completedSwaps = 0, asset }: DcaYieldPanelProps) {
+  const result = useYieldDCA({ amountPerSwap, totalSwaps, completedSwaps, asset });
 
   if (!result.ok) {
     return (
@@ -44,7 +46,9 @@ export function DcaYieldPanel({ amountPerSwap, totalSwaps, completedSwaps = 0 }:
     >
       <div className="flex items-baseline justify-between gap-3 mb-1">
         <span className="text-white text-[11px] uppercase tracking-wider">Idle budget</span>
-        <span className="text-white font-mono text-[13px]">{formatTokenAmount(plan.idleEth)} ETH</span>
+        <span className="text-white font-mono text-[13px]">
+          {formatTokenAmount(plan.idleAmount)} {plan.asset.symbol}
+        </span>
       </div>
       <p className="text-white/80 text-[10px] leading-relaxed mb-2">
         {plan.remainingSwaps > 0

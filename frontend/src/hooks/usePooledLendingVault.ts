@@ -108,43 +108,86 @@ export function usePooledLendingVault(pool: PooledLendingPool): PooledVaultState
 
   return useMemo(() => {
     if (!deployed) return emptyState(pool, 'not-deployed', NOT_DEPLOYED_DETAIL);
-    if (!data || data.some((r) => r.status !== 'success')) {
+    if (!data) return emptyState(pool, 'unreadable', UNREADABLE_DETAIL);
+
+    // Named, one per call, in the order the batch above was written, and each
+    // checked before it is read. A positional `data[i]` asserts that slot `i`
+    // exists and landed without either being true, and the failure mode is
+    // silent: `Number(undefined)` is NaN and a cast of `undefined` to bigint is
+    // a lie the renderer would print. Checking every entry also keeps the
+    // all-or-nothing rule this hook is built on — twelve live figures beside one
+    // that failed is a balance sheet that is wrong in exactly one place.
+    const [
+      tvl,
+      outstanding,
+      seized,
+      utilisation,
+      maxPrincipal,
+      depositCap,
+      ltv,
+      apr,
+      duration,
+      origination,
+      interest,
+      sink,
+      floor,
+    ] = data;
+    if (
+      tvl.status !== 'success' ||
+      outstanding.status !== 'success' ||
+      seized.status !== 'success' ||
+      utilisation.status !== 'success' ||
+      maxPrincipal.status !== 'success' ||
+      depositCap.status !== 'success' ||
+      ltv.status !== 'success' ||
+      apr.status !== 'success' ||
+      duration.status !== 'success' ||
+      origination.status !== 'success' ||
+      interest.status !== 'success' ||
+      sink.status !== 'success' ||
+      floor.status !== 'success'
+    ) {
       return emptyState(pool, 'unreadable', UNREADABLE_DETAIL);
     }
 
-    const num = (i: number) => Number(data[i].result as bigint);
-    const floor = data[12].result as readonly [boolean, boolean, bigint];
+    const [hasFloor, floorFresh, floorAgeSeconds] = floor.result;
 
     return {
       pool,
       status: 'live' as const,
-      tvlWei: data[0].result as bigint,
-      outstandingWei: data[1].result as bigint,
-      seizedWei: data[2].result as bigint,
-      utilisationBps: num(3),
-      maxPrincipalWei: data[4].result as bigint,
-      depositCapWei: data[5].result as bigint,
-      ltvBps: num(6),
-      aprBps: num(7),
-      loanDurationSeconds: num(8),
-      originationFeeBps: num(9),
-      interestFeeBps: num(10),
-      hasLiquidationSink: isDeployed(data[11].result as string),
-      hasFloor: floor[0],
-      floorFresh: floor[1],
-      floorAgeSeconds: Number(floor[2]),
+      tvlWei: tvl.result,
+      outstandingWei: outstanding.result,
+      seizedWei: seized.result,
+      utilisationBps: Number(utilisation.result),
+      maxPrincipalWei: maxPrincipal.result,
+      depositCapWei: depositCap.result,
+      ltvBps: Number(ltv.result),
+      aprBps: Number(apr.result),
+      loanDurationSeconds: Number(duration.result),
+      originationFeeBps: Number(origination.result),
+      interestFeeBps: Number(interest.result),
+      hasLiquidationSink: isDeployed(sink.result),
+      hasFloor,
+      floorFresh,
+      floorAgeSeconds: Number(floorAgeSeconds),
       detail: null,
     };
   }, [deployed, data, pool]);
 }
 
 export function usePooledLendingVaults(): PooledVaultState[] {
-  const a = usePooledLendingVault(POOLED_LENDING_POOLS[0]);
-  const b = usePooledLendingVault(POOLED_LENDING_POOLS[1]);
-  const c = usePooledLendingVault(POOLED_LENDING_POOLS[2]);
   // Fixed arity on purpose: hooks cannot be called in a loop over a list that
   // could change length, and the pool list is a compile-time constant. If a
   // fourth collection is added, this gets a fourth line.
+  //
+  // Destructured rather than indexed so the compiler checks that claim:
+  // POOLED_LENDING_POOLS is a tuple, so these three names are pools, not
+  // `pool | undefined`. Were the list ever annotated back into a plain array,
+  // this is where it would stop compiling instead of where it would crash.
+  const [jbac, naka, gnss] = POOLED_LENDING_POOLS;
+  const a = usePooledLendingVault(jbac);
+  const b = usePooledLendingVault(naka);
+  const c = usePooledLendingVault(gnss);
   return useMemo(() => [a, b, c], [a, b, c]);
 }
 

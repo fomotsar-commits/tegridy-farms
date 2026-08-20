@@ -321,8 +321,15 @@ export default function LaunchPage() {
   // with no other change. (The door's OWN read, for the launch gate, is unaffected: it
   // lives in <LaunchGate /> and in launchToken, and still happens either way.)
   const pricingDialsOn = isHeatTierPricingEnabled() || isCreatorFeeShareEnabled();
+  // Narrowed with an explicit null test rather than an optional chain:
+  // `pricingRead?.address === address` is false when pricingRead is null, so the
+  // guard was correct at runtime, but it does not narrow the later property
+  // access — and with no wallet connected `address` is undefined, so an
+  // undefined === undefined comparison would have reached into a null read.
   const pricing =
-    pricingDialsOn && pricingRead?.address === address ? pricingRead.pricing : standardPricing;
+    pricingDialsOn && pricingRead !== null && address !== undefined && pricingRead.address === address
+      ? pricingRead.pricing
+      : standardPricing;
 
   useEffect(() => {
     if (!pricingDialsOn || !address) return;

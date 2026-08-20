@@ -15,9 +15,13 @@ import { dcaYieldPlan, type DcaBudgetInput, type DcaYieldPlanResult } from '../l
 // fully deployed when nothing was parsed at all.
 
 export function useYieldDCA(input: DcaBudgetInput): DcaYieldPlanResult {
-  const { amountPerSwap, totalSwaps, completedSwaps } = input;
+  const { amountPerSwap, totalSwaps, completedSwaps, asset } = input;
+  // Depended on field by field rather than on `asset` itself: a caller that
+  // builds the descriptor inline hands over a fresh object every render, and
+  // keying on its identity would defeat the memo for every consumer that does.
+  const { symbol, decimals } = asset;
   return useMemo(
-    () => dcaYieldPlan({ amountPerSwap, totalSwaps, completedSwaps }),
-    [amountPerSwap, totalSwaps, completedSwaps],
+    () => dcaYieldPlan({ amountPerSwap, totalSwaps, completedSwaps, asset: { symbol, decimals } }),
+    [amountPerSwap, totalSwaps, completedSwaps, symbol, decimals],
   );
 }

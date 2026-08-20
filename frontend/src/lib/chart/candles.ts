@@ -15,6 +15,12 @@
 // oldest bucket is DROPPED and the drop is reported. Nothing about the time
 // before the window is a gap either — it is unread, which the caller states
 // separately.
+//
+// The third rule is about ORDER WITHIN a bucket. Open and close are the only
+// two OHLC values that depend on the order trades are read in (high and low do
+// not), and a block timestamp is shared by every swap in that block — so the
+// order of same-block trades, not the clock, decides which way the candle
+// closed. See `Trade.sequence`.
 
 /** One priced trade. `price` is quote-per-base, already decimal-scaled. */
 export interface Trade {
@@ -23,6 +29,21 @@ export interface Trade {
   price: number;
   /** Base-token amount that changed hands, decimal-scaled. */
   volume: number;
+  /**
+   * Position of this swap's log inside its block, when it could be established.
+   *
+   * A block timestamp is the ONLY clock the indexer stores, and every swap in a
+   * block shares it. Two swaps in one block therefore tie on `timeSec`, and a
+   * tie decides which price is the bucket's open and which is its close — a
+   * sandwich prints both legs in one block, so the tie is exactly where the
+   * candle's direction is decided. Ordering it by anything other than execution
+   * order produces a candle that closed the opposite way from the market.
+   *
+   * `undefined` means the log position could not be read. The builder then
+   * leaves those trades in the order the caller supplied and counts them in
+   * `unsequenced`, rather than picking an order and presenting it as measured.
+   */
+  sequence?: number;
 }
 
 export interface Candle {
@@ -72,6 +93,15 @@ export interface CandleSeries {
    * series is a fabricated one seen from the other side.
    */
   rejected: number;
+  /**
+   * Trades whose position within their block could not be established.
+   *
+   * Non-zero means some bucket's open and close may be the wrong way round: see
+   * `Trade.sequence`. It is all-or-nothing in practice — the log position comes
+   * from a field every indexed row carries — so a non-zero count here is a
+   * signal that the indexer's row shape changed, not a per-trade quirk.
+   */
+  unsequenced: number;
   /** Covered span, or null when nothing survived. */
   from: number | null;
   to: number | null;
@@ -112,9 +142,14 @@ export function buildCandleSeries(
 
   const usable: Trade[] = [];
   let rejected = 0;
+  let unsequenced = 0;
   for (const t of trades) {
-    if (isUsable(t)) usable.push(t);
-    else rejected += 1;
+    if (!isUsable(t)) {
+      rejected += 1;
+      continue;
+    }
+    usable.push(t);
+    if (!Number.isFinite(t.sequence)) unsequenced += 1;
   }
 
   if (usable.length === 0) {
@@ -124,15 +159,26 @@ export function buildCandleSeries(
       emptyBuckets: 0,
       droppedOldestBucket: false,
       rejected,
+      unsequenced,
       from: null,
       to: null,
     };
   }
 
-  // Ascending by time. The sort must be stable on ties so that two trades in the
-  // same block (identical timestamps) keep the order the indexer returned them
-  // in — otherwise open and close could swap between renders of the same data.
-  const sorted = [...usable].sort((a, b) => a.timeSec - b.timeSec);
+  // Ascending by block time, then by position within the block.
+  //
+  // The second key is the load-bearing one. Sorting on `timeSec` alone leaves
+  // every same-block trade tied, and a stable sort then freezes whatever order
+  // the caller happened to pass — which for a newest-first indexer page is
+  // backwards, making the bucket's open its LAST trade and its close its first.
+  // The candle would be drawn closing the opposite way from the block it
+  // describes. Where `sequence` is absent on either side the comparator returns
+  // 0, so the caller's order stands and `unsequenced` says so.
+  const sorted = [...usable].sort((a, b) => {
+    if (a.timeSec !== b.timeSec) return a.timeSec - b.timeSec;
+    if (!Number.isFinite(a.sequence) || !Number.isFinite(b.sequence)) return 0;
+    return (a.sequence as number) - (b.sequence as number);
+  });
 
   const byBucket = new Map<number, Candle>();
   for (const t of sorted) {
@@ -162,49 +208,55 @@ export function buildCandleSeries(
     existing.trades += 1;
   }
 
-  const starts = [...byBucket.keys()].sort((a, b) => a - b);
+  // The candles themselves, chronological — not their keys. Walking the values
+  // means every slot pushed below is a candle that demonstrably exists, rather
+  // than a key looked back up in the map and assumed to still be there.
+  const ordered = [...byBucket.values()].sort((a, b) => a.startSec - b.startSec);
 
-  let droppedOldestBucket = false;
-  if (opts.truncated && starts.length > 0) {
-    byBucket.delete(starts[0]);
-    starts.shift();
-    droppedOldestBucket = true;
-  }
+  // `shift()` on an empty list removes nothing and reports it by returning
+  // undefined, so a truncated page that yielded no buckets drops nothing and
+  // says so — the flag follows what was actually removed.
+  const droppedOldestBucket = opts.truncated ? ordered.shift() !== undefined : false;
 
-  if (starts.length === 0) {
+  const oldest = ordered[0];
+  if (oldest === undefined) {
     return {
       slots: [],
       candleCount: 0,
       emptyBuckets: 0,
       droppedOldestBucket,
       rejected,
+      unsequenced,
       from: null,
       to: null,
     };
   }
 
-  const slots: Slot[] = [];
+  const slots: Slot[] = [oldest];
   let emptyBuckets = 0;
-  for (let i = 0; i < starts.length; i += 1) {
-    if (i > 0) {
-      const prevEnd = starts[i - 1] + bucketSeconds;
-      const missing = (starts[i] - prevEnd) / bucketSeconds;
-      if (missing > 0) {
-        emptyBuckets += missing;
-        slots.push({ kind: 'gap', startSec: prevEnd, endSec: starts[i], buckets: missing });
-      }
+  // Also the running end of the series: every branch below advances it to the
+  // candle it just pushed, so `to` is the last candle's own end rather than an
+  // end recomputed from an index.
+  let prevEndSec = oldest.endSec;
+  for (const candle of ordered.slice(1)) {
+    const missing = (candle.startSec - prevEndSec) / bucketSeconds;
+    if (missing > 0) {
+      emptyBuckets += missing;
+      slots.push({ kind: 'gap', startSec: prevEndSec, endSec: candle.startSec, buckets: missing });
     }
-    slots.push(byBucket.get(starts[i])!);
+    slots.push(candle);
+    prevEndSec = candle.endSec;
   }
 
   return {
     slots,
-    candleCount: starts.length,
+    candleCount: ordered.length,
     emptyBuckets,
     droppedOldestBucket,
     rejected,
-    from: starts[0],
-    to: starts[starts.length - 1] + bucketSeconds,
+    unsequenced,
+    from: oldest.startSec,
+    to: prevEndSec,
   };
 }
 

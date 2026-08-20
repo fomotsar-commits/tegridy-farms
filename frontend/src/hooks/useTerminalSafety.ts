@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { fetchHeat, isSupportedHeatAddress } from '../lib/heat/heatClient';
 import type { HeatReading } from '../lib/heat/heatOracle';
-import { useTokenScan } from './useTokenScan';
-import { useDeployerReputation } from './useDeployerReputation';
+import { useTokenScan, type ScanStatus } from './useTokenScan';
+import { useDeployerReputation, type DeployerStatus } from './useDeployerReputation';
 import {
   assessRowSafety,
   componentUnread,
@@ -33,22 +33,34 @@ import {
 // alternative — treating an unknown deployer as a deployer with nothing against
 // them — is the exact inversion this page exists to refuse.
 
-/** Words each non-success scan status contributes, as a statement about the READ. */
-const SCAN_UNREAD_REASON: Record<string, string> = {
+// Words each scan status contributes, as a statement about the READ.
+//
+// KEYED BY THE STATUS UNION, NOT BY `string`. A `Record<string, string>` has no
+// key it is required to carry, so a lookup off it is `string | undefined` and the
+// miss has to be papered over with a fallback — which is how a status nobody
+// wrote a sentence for ends up described by whichever sentence the fallback
+// points at. Typed this way the compiler names any status that has no words yet.
+//
+// `success` is in here because these lookups are reached whenever the row could
+// not be SCORED, and a read can report success while carrying no analysis. That
+// state is not a failed read and must not borrow the failed-read sentence.
+const SCAN_UNREAD_REASON: Record<ScanStatus, string> = {
   idle: 'No holder read has been requested for this token yet.',
   loading: 'The holder read for this token is still running.',
   invalid: 'This token address is not a well-formed Ethereum or Solana address, so no holder read was attempted.',
   empty: 'No holder data came back for this token, so concentration could not be measured.',
   unavailable: 'The holder data source for this chain is not enabled on this deployment.',
   error: 'The holder read did not complete. This is a statement about the read, not about the token.',
+  success: 'The holder read completed but carried no analysis, so concentration could not be measured.',
 };
 
-const DEPLOYER_UNREAD_REASON: Record<string, string> = {
+const DEPLOYER_UNREAD_REASON: Record<DeployerStatus, string> = {
   idle: 'No deployer read has been requested.',
   loading: 'The deployer read is still running.',
   invalid: 'The supplied deployer address is not a well-formed Ethereum address.',
   empty: 'No contracts deployed directly by this address were found, so there is no history to read.',
   error: 'The deployer read did not complete. This is a statement about the read, not about the address.',
+  success: 'The deployer read completed but carried no reputation, so the deployer history could not be scored.',
 };
 
 export const NO_CREATOR_LOOKUP_REASON =
@@ -138,13 +150,13 @@ export function useTerminalSafety(opts: UseTerminalSafetyOptions): TerminalSafet
   const distribution: ComponentRead<DistributionRead> =
     scan.status === 'success' && scan.outcome
       ? distributionReadFrom(scan.outcome.analysis)
-      : componentUnread(SCAN_UNREAD_REASON[scan.status] ?? SCAN_UNREAD_REASON.error);
+      : componentUnread(SCAN_UNREAD_REASON[scan.status]);
 
   const deployerRead: ComponentRead<DeployerRead> = !deployer
     ? componentUnread(NO_CREATOR_LOOKUP_REASON)
     : deployerState.status === 'success' && deployerState.reputation
       ? deployerReadFrom(deployerState.reputation)
-      : componentUnread(DEPLOYER_UNREAD_REASON[deployerState.status] ?? DEPLOYER_UNREAD_REASON.error);
+      : componentUnread(DEPLOYER_UNREAD_REASON[deployerState.status]);
 
   return {
     safety: assessRowSafety({ distribution, deployer: deployerRead, heat: heat.read }),

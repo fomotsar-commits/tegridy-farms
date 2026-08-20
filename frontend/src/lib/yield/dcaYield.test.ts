@@ -21,8 +21,10 @@ import {
   dcaYieldPlan,
 } from './dcaYield';
 
+const ETH = { symbol: 'ETH', decimals: 18 } as const;
+
 function plan(amountPerSwap: string, totalSwaps: number, completedSwaps = 0) {
-  const result = dcaYieldPlan({ amountPerSwap, totalSwaps, completedSwaps });
+  const result = dcaYieldPlan({ amountPerSwap, totalSwaps, completedSwaps, asset: ETH });
   if (!result.ok) throw new Error(`expected a plan, got refusal: ${result.reason}`);
   return result.plan;
 }
@@ -32,7 +34,7 @@ describe('the unspent figure is exact, and is the user’s own balance', () => {
     // 0.1 * 3 in float is 0.30000000000000004. On an 18-decimal amount that is a
     // wrong number in a column of money.
     expect(plan('0.1', 3).idleWei).toBe(parseEther('0.3'));
-    expect(plan('0.1', 3).idleEth).toBe('0.3');
+    expect(plan('0.1', 3).idleAmount).toBe('0.3');
   });
 
   it('counts only the swaps still to come', () => {
@@ -54,23 +56,56 @@ describe('the unspent figure is exact, and is the user’s own balance', () => {
 describe('an unreadable amount refuses; it does not resolve to zero', () => {
   it('refuses the malformed inputs safeParseEther already guards on the input path', () => {
     for (const bad of ['', '1.', 'abc', '1e3', '-1', '0.1234567890123456789']) {
-      const result = dcaYieldPlan({ amountPerSwap: bad, totalSwaps: 10, completedSwaps: 0 });
+      const result = dcaYieldPlan({ amountPerSwap: bad, totalSwaps: 10, completedSwaps: 0, asset: ETH });
       expect(result.ok, `"${bad}" produced a plan`).toBe(false);
       expect(result.ok === false && result.reason).toMatch(/could not be read/i);
     }
   });
 
   it('refuses non-integer and negative swap counts', () => {
-    expect(dcaYieldPlan({ amountPerSwap: '0.1', totalSwaps: 3.5, completedSwaps: 0 }).ok).toBe(false);
-    expect(dcaYieldPlan({ amountPerSwap: '0.1', totalSwaps: -1, completedSwaps: 0 }).ok).toBe(false);
-    expect(dcaYieldPlan({ amountPerSwap: '0.1', totalSwaps: 3, completedSwaps: -1 }).ok).toBe(false);
+    expect(dcaYieldPlan({ amountPerSwap: '0.1', totalSwaps: 3.5, completedSwaps: 0, asset: ETH }).ok).toBe(false);
+    expect(dcaYieldPlan({ amountPerSwap: '0.1', totalSwaps: -1, completedSwaps: 0, asset: ETH }).ok).toBe(false);
+    expect(dcaYieldPlan({ amountPerSwap: '0.1', totalSwaps: 3, completedSwaps: -1, asset: ETH }).ok).toBe(false);
   });
 
   it('never returns a zero-idle plan for input it could not parse', () => {
     // The failure this guards: a refusal quietly downgraded to `idleWei: 0n`
     // renders as "nothing unspent", which is the opposite of what happened.
-    const result = dcaYieldPlan({ amountPerSwap: 'abc', totalSwaps: 10, completedSwaps: 0 });
+    const result = dcaYieldPlan({ amountPerSwap: 'abc', totalSwaps: 10, completedSwaps: 0, asset: ETH });
     expect(result).not.toHaveProperty('plan');
+  });
+});
+
+describe('a figure is never printed at a scale nobody chose', () => {
+  // useDCA restores a schedule through a validator that accepts any ticker from
+  // 0 to 18 decimals, and reads its own amounts back with the row's own
+  // decimals. This module's arithmetic is safeParseEther/formatEther, which are
+  // eighteen-decimal. Six-decimal input through eighteen-decimal arithmetic is
+  // wrong by a factor of a million and renders as a perfectly plausible balance.
+  it('refuses an asset that is not eighteen decimals rather than mis-scaling it', () => {
+    const result = dcaYieldPlan({
+      amountPerSwap: '100',
+      totalSwaps: 10,
+      completedSwaps: 0,
+      asset: { symbol: 'USDC', decimals: 6 },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason).toContain('USDC');
+    expect(result.ok === false && result.reason).toMatch(/18 decimals/);
+  });
+
+  it('carries the ticker on the plan so the figure cannot be rendered as ETH', () => {
+    const p = dcaYieldPlan({
+      amountPerSwap: '5',
+      totalSwaps: 4,
+      completedSwaps: 1,
+      asset: { symbol: 'DAI', decimals: 18 },
+    });
+    expect(p.ok).toBe(true);
+    // DAI is eighteen decimals, so the arithmetic is right and the only thing
+    // that could be wrong is the label. It travels with the number.
+    expect(p.ok === true && p.plan.asset.symbol).toBe('DAI');
+    expect(p.ok === true && p.plan.idleAmount).toBe('15');
   });
 });
 
@@ -115,28 +150,76 @@ describe('both legs report unavailable while no destination is wired', () => {
 
 describe('the total across schedules is never quietly short', () => {
   it('sums in wei and counts what it covered', () => {
-    const total = dcaIdleTotal([
-      { amountPerSwap: '0.1', totalSwaps: 10, completedSwaps: 0 },
-      { amountPerSwap: '0.2', totalSwaps: 5, completedSwaps: 1 },
-    ]);
+    const total = dcaIdleTotal(
+      [
+        { amountPerSwap: '0.1', totalSwaps: 10, completedSwaps: 0, asset: ETH },
+        { amountPerSwap: '0.2', totalSwaps: 5, completedSwaps: 1, asset: ETH },
+      ],
+      'ETH',
+    );
     expect(total.idleWei).toBe(parseEther('1') + parseEther('0.8'));
     expect(total.counted).toBe(2);
     expect(total.unreadable).toBe(0);
+    expect(total.otherDenomination).toBe(0);
   });
 
   it('excludes an unreadable schedule from the sum AND reports that it did', () => {
     // An understated total is the dangerous direction: it reads as reassuring.
-    const total = dcaIdleTotal([
-      { amountPerSwap: '0.1', totalSwaps: 10, completedSwaps: 0 },
-      { amountPerSwap: 'nonsense', totalSwaps: 10, completedSwaps: 0 },
-    ]);
+    const total = dcaIdleTotal(
+      [
+        { amountPerSwap: '0.1', totalSwaps: 10, completedSwaps: 0, asset: ETH },
+        { amountPerSwap: 'nonsense', totalSwaps: 10, completedSwaps: 0, asset: ETH },
+      ],
+      'ETH',
+    );
     expect(total.idleWei).toBe(parseEther('1'));
     expect(total.counted).toBe(1);
     expect(total.unreadable).toBe(1);
   });
 
   it('reports an empty list as zero covering zero schedules, which is honest', () => {
-    expect(dcaIdleTotal([])).toEqual({ idleWei: 0n, idleEth: '0', counted: 0, unreadable: 0 });
+    expect(dcaIdleTotal([], 'ETH')).toEqual({
+      idleWei: 0n,
+      idleAmount: '0',
+      denomination: 'ETH',
+      counted: 0,
+      unreadable: 0,
+      otherDenomination: 0,
+    });
+  });
+});
+
+describe('the total is a quantity of ONE asset, not a mixed number', () => {
+  it('leaves a differently-denominated schedule out and counts it apart', () => {
+    // "100" of a stablecoin added to an ETH total is not a small error, it is a
+    // number that is not a quantity of anything — and it renders as a balance.
+    const total = dcaIdleTotal(
+      [
+        { amountPerSwap: '0.1', totalSwaps: 10, completedSwaps: 0, asset: ETH },
+        { amountPerSwap: '100', totalSwaps: 10, completedSwaps: 0, asset: { symbol: 'USDC', decimals: 6 } },
+      ],
+      'ETH',
+    );
+    expect(total.idleWei).toBe(parseEther('1'));
+    expect(total.counted).toBe(1);
+    expect(total.otherDenomination).toBe(1);
+    // Reported apart from `unreadable`: that row was read perfectly well, it is
+    // simply not this asset, and telling a user it was unreadable is a wrong
+    // reason attached to a right exclusion.
+    expect(total.unreadable).toBe(0);
+  });
+
+  it('converts nothing, because it holds no price and would have to invent one', () => {
+    const total = dcaIdleTotal(
+      [{ amountPerSwap: '100', totalSwaps: 10, completedSwaps: 0, asset: { symbol: 'USDC', decimals: 6 } }],
+      'ETH',
+    );
+    expect(total.idleWei).toBe(0n);
+    expect(total.counted).toBe(0);
+  });
+
+  it('names the asset it counted, so the caller does not label the figure itself', () => {
+    expect(dcaIdleTotal([], 'TOWELI').denomination).toBe('TOWELI');
   });
 });
 

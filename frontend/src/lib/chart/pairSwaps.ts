@@ -3,8 +3,8 @@
 // GROUND TRUTH is indexer/ponder.schema.ts `pair_event`. There is no price
 // column anywhere in the indexer and there is no OHLC table: a price here is
 // DERIVED, per swap, from the four amount legs of a constant-product trade. So
-// this module is the one place in the slice where the number on the chart is
-// computed rather than read, and it is deliberately the smallest possible
+// this module is the one place on the chart path where the number is computed
+// rather than read, and it is deliberately the smallest possible
 // amount of arithmetic — one division per row, no smoothing, no VWAP, no
 // mid-price fill.
 //
@@ -110,6 +110,36 @@ export function scaleAmount(raw: bigint, decimals: number): number {
   return negative ? -value : value;
 }
 
+/**
+ * Log position within the block, read off the indexed row's primary key.
+ *
+ * `pair_event.id` is written as Ponder's own log id, which is
+ * `${blockHash}-${logIndex}` (indexer/src/index.ts). That suffix is the only
+ * intra-block ordering signal anywhere on this query: `timestamp` is the block's
+ * and is therefore identical for every swap in it, and the id as a WHOLE sorts
+ * by block hash — an effectively random key — so ordering rows by it would be
+ * worse than not ordering them. Only the suffix is meaningful, so only the
+ * suffix is read.
+ *
+ * Null for any id that is not that shape. Callers must treat null as "unknown
+ * order", never as position zero: a default of 0 would collapse every swap in a
+ * block to the same rank and quietly reintroduce the tie this exists to break.
+ *
+ * The match is deliberately strict about the WHOLE id rather than just scraping
+ * trailing digits. If the indexer's id format ever changes, a strict pattern
+ * fails and the caller reports the order as unestablished; a lenient one would
+ * keep returning plausible ranks parsed out of a string that no longer means
+ * what this function thinks it means.
+ */
+const LOG_ID = /^0x[0-9a-fA-F]+-(\d+)$/;
+
+export function logIndexOf(id: string): number | null {
+  const match = LOG_ID.exec(id);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 export interface PairPricing {
   /**
    * Which leg the price is quoted PER. The other leg is the quote.
@@ -174,7 +204,10 @@ export function priceSwapRow(row: PairSwapRow, pricing: PairPricing): Trade | nu
   const timeSec = Number(row.timestamp);
   if (!Number.isFinite(timeSec) || timeSec <= 0) return null;
 
-  return { timeSec, price, volume: baseAmount };
+  const sequence = logIndexOf(row.id);
+  return sequence === null
+    ? { timeSec, price, volume: baseAmount }
+    : { timeSec, price, volume: baseAmount, sequence };
 }
 
 export interface PricedPage {

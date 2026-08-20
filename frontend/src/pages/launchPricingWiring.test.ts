@@ -156,7 +156,11 @@ describe('LaunchPage actually threads the price it resolved', () => {
     // The ternary IS the fallback: anything other than a usable read resolves to the
     // standard line. Pinned because deleting the guard would silently make the last
     // reading the default.
-    expect(code).toMatch(/pricingDialsOn\s*&&[\s\S]{0,80}\?[\s\S]{0,60}:\s*standardPricing/);
+    // Widened from {0,80} on 2026-08-20: the guard grew an explicit null test and
+    // an address-defined test, so the conditional is longer than it was. The
+    // assertion still pins what matters — the chain starts at pricingDialsOn and
+    // every path that is not a usable read ends at standardPricing.
+    expect(code).toMatch(/pricingDialsOn\s*&&[\s\S]{0,200}\?[\s\S]{0,80}:\s*standardPricing/);
   });
 
   it('never prices one wallet from another wallet’s reading', () => {
@@ -164,7 +168,15 @@ describe('LaunchPage actually threads the price it resolved', () => {
     // two still match — so switching accounts falls back to standard rather than leaving
     // the previous wallet's (possibly discounted) price on screen.
     expect(code).toMatch(/setPricingRead\(\{\s*address,\s*pricing:\s*next\s*\}\)/);
-    expect(code).toMatch(/pricingRead\?\.address === address/);
+    // The comparison must survive, but the optional-chain form did not: it does
+    // not narrow the later property access, and with no wallet connected BOTH
+    // sides were undefined — so `pricingRead?.address === address` was true on a
+    // null read, and the branch reached into it. It is now an explicit null test,
+    // an address-defined test, and the same equality. Assert the equality and the
+    // two guards rather than one exact spelling.
+    expect(code).toMatch(/pricingRead\.address === address/);
+    expect(code).toMatch(/pricingRead !== null/);
+    expect(code).toMatch(/address !== undefined/);
   });
 
   it('hands the SAME resolved object to the Fact Sheet and to the launch config', () => {

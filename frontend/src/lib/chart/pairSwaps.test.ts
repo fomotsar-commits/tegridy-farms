@@ -4,6 +4,7 @@ import {
   PAIR_SWAPS_QUERY,
   pairSwapRowSchema,
   pairSwapsDataSchema,
+  logIndexOf,
   pairSwapsVariables,
   priceSwapPage,
   priceSwapRow,
@@ -35,7 +36,10 @@ describe('the document', () => {
   });
 
   it('selects every column the schema parses, and no column ponder.schema.ts lacks', () => {
-    for (const field of ['amount0In', 'amount1In', 'amount0Out', 'amount1Out', 'timestamp', 'type', 'pair']) {
+    // `id` is load-bearing, not decorative: it is the only intra-block ordering
+    // signal on this document (see logIndexOf), so dropping it from the
+    // selection would silently make same-block candle directions unmeasured.
+    for (const field of ['id', 'amount0In', 'amount1In', 'amount0Out', 'amount1Out', 'timestamp', 'type', 'pair']) {
       expect(PAIR_SWAPS_QUERY).toContain(field);
     }
     // `totalCount` makes Ponder run a second count(*) per request behind a
@@ -134,6 +138,49 @@ describe('priceSwapRow — what it refuses to price', () => {
     expect(
       priceSwapRow(row({ amount0Out: 10n ** 18n, amount1In: 10n ** 18n, timestamp: 0n }), E18),
     ).toBeNull();
+  });
+});
+
+describe('logIndexOf — the only intra-block clock there is', () => {
+  const BLOCK = '0x' + 'ab'.repeat(32);
+
+  it('reads the log index off a Ponder log id', () => {
+    expect(logIndexOf(`${BLOCK}-0`)).toBe(0);
+    expect(logIndexOf(`${BLOCK}-137`)).toBe(137);
+  });
+
+  it('reads it as a number, so 9 sorts before 10 rather than after it', () => {
+    // The whole reason the suffix is parsed instead of the id being compared as
+    // a string: lexicographically "10" < "9", which would reverse the two
+    // trades' order inside their block.
+    expect(logIndexOf(`${BLOCK}-9`)!).toBeLessThan(logIndexOf(`${BLOCK}-10`)!);
+  });
+
+  it('returns null — never 0 — for an id it does not recognise', () => {
+    // 0 is a real log index. Defaulting to it would rank an unreadable row
+    // first in its block and present that as measured.
+    for (const id of ['', 'tx:0', BLOCK, `${BLOCK}-`, `${BLOCK}-0x1`, `${BLOCK}-1.5`, `${BLOCK}--1`]) {
+      expect(logIndexOf(id), id).toBeNull();
+    }
+  });
+
+  it('returns null past the safe-integer range rather than a rounded rank', () => {
+    expect(logIndexOf(`${BLOCK}-99999999999999999999`)).toBeNull();
+  });
+});
+
+describe('priceSwapRow — the order signal', () => {
+  const legs = { amount0Out: 10n ** 18n, amount1In: 10n ** 18n };
+  const BLOCK = '0x' + 'cd'.repeat(32);
+
+  it('carries the log index through as the trade sequence', () => {
+    expect(priceSwapRow(row({ ...legs, id: `${BLOCK}-42` }), E18)!.sequence).toBe(42);
+  });
+
+  it('omits the sequence entirely when the id cannot supply one', () => {
+    const trade = priceSwapRow(row({ ...legs, id: 'tx:0' }), E18)!;
+    expect(trade.sequence).toBeUndefined();
+    expect('sequence' in trade).toBe(false);
   });
 });
 

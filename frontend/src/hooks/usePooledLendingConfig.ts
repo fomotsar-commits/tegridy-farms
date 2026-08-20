@@ -37,7 +37,15 @@ const ZERO = '0x0000000000000000000000000000000000000000' as const;
 // `components/nftfinance/NFTLendingSection.tsx`. They are here so a pool card
 // can name the collection it WOULD serve; nothing calls them while `vault` is
 // zero.
-export const POOLED_LENDING_POOLS: readonly PooledLendingPool[] = [
+//
+// TYPED AS A TUPLE, NOT AS `readonly PooledLendingPool[]`. `usePooledLendingVaults`
+// reads slots 0, 1 and 2 by hand, because React forbids calling a hook in a loop
+// over a list whose length could change. An array annotation makes every one of
+// those three reads `PooledLendingPool | undefined` — the compiler is right, an
+// array of unknown length has no guaranteed third element — and the hook would be
+// reading `pool.vault` off nothing if the list ever shrank. `satisfies` keeps the
+// shape checked while leaving the length known.
+export const POOLED_LENDING_POOLS = [
   {
     key: 'JBAC',
     label: 'Jungle Bay Ape Club',
@@ -56,7 +64,7 @@ export const POOLED_LENDING_POOLS: readonly PooledLendingPool[] = [
     collection: '0xa1De9f93c56C290C48849B1393b09eB616D55dbb',
     vault: ZERO,
   },
-] as const;
+] as const satisfies readonly PooledLendingPool[];
 
 /** The instalment desk. Also deployed nowhere. */
 export const BNPL_DESK_ADDRESS = ZERO;
@@ -72,6 +80,24 @@ export function isPooledLendingLive(): boolean {
 export function isBnplLive(): boolean {
   return isDeployed(BNPL_DESK_ADDRESS);
 }
+
+/**
+ * The vault terms the SOURCE sets, for a surface that must describe the product
+ * before a deployment exists to ask.
+ *
+ * Mirrors the initialisers in contracts/src/nftfi/NftfiPooledLendingVault.sol.
+ * Kept as a separate export rather than a fallback inside `usePooledLendingVault`
+ * for the same reason `BNPL_WRITTEN_TERMS` is: a fallback folded into the hook
+ * would let a dead read look like a live one. Anything drawn from here has to be
+ * labelled as the written terms at the point it is drawn.
+ */
+export const POOLED_VAULT_WRITTEN_TERMS = {
+  ltvBps: 3_000,
+  aprBps: 1_500,
+  loanDurationSeconds: 30 * 24 * 60 * 60,
+  originationFeeBps: 0,
+  interestFeeBps: 0,
+} as const;
 
 // ─── ABIs ────────────────────────────────────────────────────────────
 //

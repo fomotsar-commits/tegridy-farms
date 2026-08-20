@@ -5,7 +5,7 @@ import { HowItWorks, RiskBanner, InfoTooltip, TxSummary } from '../ui/InfoToolti
 import { useBnplDesk, BNPL_WRITTEN_TERMS } from '../../hooks/useBnplDesk';
 import { useBnplQuote } from '../../hooks/useBnplQuote';
 import { usePooledLendingVaults } from '../../hooks/usePooledLendingVault';
-import { isBnplLive } from '../../hooks/usePooledLendingConfig';
+import { isBnplLive, POOLED_VAULT_WRITTEN_TERMS } from '../../hooks/usePooledLendingConfig';
 
 // Buy-now-pay-later at the point of sale (#62).
 //
@@ -43,25 +43,66 @@ function parsePrice(input: string): bigint | null {
   }
 }
 
+// Where each half of the estimator's terms came from. Four states, because
+// collapsing them is how a surface ends up telling a visitor "no deployment
+// exists to read" about a desk that is deployed and merely unreachable, or
+// quoting a pool APR nothing was asked for. Two contracts have to be live for
+// the estimator to be quoting anything real, and the label names whichever one
+// is not.
+type TermsSource = 'live' | 'desk-not-deployed' | 'desk-unreadable' | 'pool-unavailable';
+
+const TERMS_PROVENANCE: Record<TermsSource, string> = {
+  live: 'Terms read live from the deployed desk and its funding pool.',
+  'desk-not-deployed':
+    'Terms taken from the contract source, because no deployment exists to read. Treat every figure below as an illustration of the written terms.',
+  'desk-unreadable':
+    'The desk exists but could not be read just now, so the terms below are the ones written in the contract source rather than the ones it is running. They may differ.',
+  'pool-unavailable':
+    'The desk’s own terms are live, but the pool that would fund the financed leg could not be read, so the APR and origination fee below are the written defaults rather than what the pool charges.',
+};
+
 export function BnplSection() {
   const desk = useBnplDesk();
   const vaults = usePooledLendingVaults();
   const live = isBnplLive();
 
   // The pool that would fund the financed leg sets the APR and the origination
-  // fee. With nothing deployed there is no APR to read, so the estimator below
-  // is driven by the written terms and says so in the same breath.
+  // fee; the desk sets the deposit and the schedule. Either side can be absent
+  // independently, so neither borrows the other's numbers.
   const fundingPool = vaults.find((v) => v.status === 'live') ?? null;
-  const termsAreLive = desk.status === 'live' && fundingPool !== null;
+  const termsSource: TermsSource =
+    desk.status === 'not-deployed'
+      ? 'desk-not-deployed'
+      : desk.status === 'unreadable'
+        ? 'desk-unreadable'
+        : fundingPool === null
+          ? 'pool-unavailable'
+          : 'live';
 
   const terms = {
     depositBps: desk.depositBps ?? BNPL_WRITTEN_TERMS.depositBps,
-    aprBps: fundingPool?.aprBps ?? 1_500,
-    originationFeeBps: fundingPool?.originationFeeBps ?? BNPL_WRITTEN_TERMS.saleFeeBps,
+    // Origination is the POOL's dial, not the desk's `saleFeeBps` — the latter
+    // comes out of the seller's proceeds and never reaches the buyer's upfront.
+    aprBps: fundingPool?.aprBps ?? POOLED_VAULT_WRITTEN_TERMS.aprBps,
+    originationFeeBps: fundingPool?.originationFeeBps ?? POOLED_VAULT_WRITTEN_TERMS.originationFeeBps,
     instalments: desk.instalments ?? BNPL_WRITTEN_TERMS.instalments,
     instalmentIntervalSeconds:
       desk.instalmentIntervalSeconds ?? BNPL_WRITTEN_TERMS.instalmentIntervalSeconds,
   };
+
+  // Two preconditions sit between a quote and a plan the chain would actually
+  // open, and both are enforced by the contracts rather than by this surface.
+  // An estimator that showed a schedule without naming them would imply a plan
+  // is available at any price, which is the same lie as implying depth.
+  const planSpanSeconds =
+    terms.instalments * terms.instalmentIntervalSeconds +
+    (desk.paymentGraceSeconds ?? BNPL_WRITTEN_TERMS.paymentGraceSeconds);
+  const poolTermSeconds = fundingPool?.loanDurationSeconds ?? POOLED_VAULT_WRITTEN_TERMS.loanDurationSeconds;
+  const poolTermCoversPlan = poolTermSeconds >= planSpanSeconds;
+  // The pool lends a fraction of a floor it has been told, so the financed leg
+  // has a ceiling. It is only knowable from a live pool with a fresh floor;
+  // absent that, the honest answer is that it cannot be checked here.
+  const financedCeilingWei = fundingPool?.maxPrincipalWei ?? null;
 
   const [priceInput, setPriceInput] = useState('');
   const priceWei = parsePrice(priceInput);
@@ -132,9 +173,7 @@ export function BnplSection() {
         </label>
 
         <p className="text-[11px] text-white/50 mt-2 leading-relaxed" style={LABEL_STYLE}>
-          {termsAreLive
-            ? 'Terms read live from the deployed desk and its funding pool.'
-            : 'Terms taken from the contract source, because no deployment exists to read. Treat every figure below as an illustration of the written terms.'}{' '}
+          {TERMS_PROVENANCE[termsSource]}{' '}
           Deposit {(terms.depositBps / 100).toFixed(2)}%, APR {(terms.aprBps / 100).toFixed(2)}%,{' '}
           {terms.instalments} payments {Math.round(terms.instalmentIntervalSeconds / 86400)} days apart.
         </p>
@@ -165,6 +204,43 @@ export function BnplSection() {
                 </span>
               </div>
             </TxSummary>
+
+            <div
+              className="rounded-lg p-3"
+              style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}
+            >
+              <p className="text-[11px] uppercase tracking-wide text-amber-300 mb-1.5" style={LABEL_STYLE}>
+                What still has to be true for this plan to open
+              </p>
+              <ul className="space-y-1.5 text-[11.5px] leading-relaxed text-white/70" style={LABEL_STYLE}>
+                <li>
+                  <span className="text-white/85 font-semibold">The pool has to be willing to lend {eth(quote.financedWei)}.</span>{' '}
+                  {financedCeilingWei === null ? (
+                    <>
+                      The financed leg is capped at a fraction of the floor the pool has been told, and no live pool with a
+                      fresh floor could be read, so that cap cannot be checked from here. This estimate is not a
+                      confirmation that the amount is available.
+                    </>
+                  ) : quote.financedWei > financedCeilingWei ? (
+                    <>
+                      Right now the pool would lend at most {eth(financedCeilingWei)} against one token, so a plan at this
+                      price would be refused on-chain.
+                    </>
+                  ) : (
+                    <>The pool would currently lend up to {eth(financedCeilingWei)} against one token, so this amount fits.</>
+                  )}
+                </li>
+                <li>
+                  <span className="text-white/85 font-semibold">The pool&rsquo;s loan term has to outlast the schedule.</span>{' '}
+                  The plan runs {Math.round(planSpanSeconds / 86400)} days including grace, against a pool term of{' '}
+                  {Math.round(poolTermSeconds / 86400)} days
+                  {fundingPool === null ? ' in the written source' : ''}.{' '}
+                  {poolTermCoversPlan
+                    ? 'That covers it.'
+                    : 'That does not cover it, and the desk refuses the purchase rather than letting the loan mature mid-schedule and cost a paying buyer the token.'}
+                </li>
+              </ul>
+            </div>
 
             <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.04)' }}>
               <p className="text-[11px] uppercase tracking-wide text-white/55 mb-1.5" style={LABEL_STYLE}>

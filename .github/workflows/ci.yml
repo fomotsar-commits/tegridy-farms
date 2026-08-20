@@ -84,6 +84,19 @@ jobs:
       - name: Solana indexer unit tests
         run: npx vitest run --root ../indexer-solana --environment node
 
+      # bot/ is the same shape as indexer-solana above — a long-running service
+      # outside frontend/, unreachable by this project's include glob — so it gets
+      # its own root and is listed as the runner for `bot/` in
+      # src/test/vitestCollection.test.ts.
+      #
+      # It ships ZERO npm dependencies (the Telegram transport is plain fetch), so
+      # there is nothing to install here and nothing that could reach the bot's
+      # secret through a postinstall. The non-custodial guard itself is NOT in this
+      # step: api/__tests__/bot-noncustodial.test.js runs in the frontend suite so
+      # that an edit to the API or the migration cannot skip it.
+      - name: Telegram bot unit tests
+        run: npx vitest run --root ../bot --environment node
+
       # Every protocol address, decoded rather than eyeballed.
       #
       # 2026-08-08: an operator wallet was recorded in notes only as a truncated

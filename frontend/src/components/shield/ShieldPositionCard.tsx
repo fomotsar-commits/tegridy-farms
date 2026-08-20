@@ -49,8 +49,12 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
     health: position.health,
   });
 
-  const unreadable = position.health.status === 'unreadable';
-  const color = unreadable ? '#FFD37C' : BAND_COLOR[position.health.band];
+  // Narrowed on the discriminant directly rather than through a stored boolean.
+  // `band` exists only on the read variant, and a boolean alias does not carry
+  // that narrowing to a later property access — so the alias form compiled only
+  // while the compiler was not actually looking at this file.
+  const health = position.health;
+  const color = health.status === 'unreadable' ? '#FFD37C' : BAND_COLOR[health.band];
 
   return (
     <li
@@ -65,7 +69,7 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
           ) : null}
         </p>
         <span className="text-[11px] uppercase tracking-wider shrink-0" style={{ color }}>
-          {unreadable ? 'Unknown' : BAND_LABEL[position.health.band]}
+          {health.status === 'unreadable' ? 'Unknown' : BAND_LABEL[health.band]}
         </span>
       </div>
 

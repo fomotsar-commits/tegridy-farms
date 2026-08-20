@@ -1,0 +1,16 @@
+{
+  "name": "tegridy-bot",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Telegram bot for memetic.fun. Answers read-only questions in chat and deep-links every value-moving action back to the app to be signed. Holds no key, derives no key, and transmits no key.",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "preflight": "node src/index.js --preflight"
+  }
+}

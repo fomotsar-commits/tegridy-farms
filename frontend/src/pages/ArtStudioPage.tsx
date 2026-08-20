@@ -92,6 +92,8 @@ const PAGE_ROUTES: Record<string, string> = {
   exposure: '/exposure',
   scan: '/scan',
   gallery: '/gallery',
+  checkout: '/checkout',
+  tax: '/tax',
   // pageId 'swap' is the Solana swap page; the EVM one is pageId 'trade'.
   // Modals render over any route; home is just somewhere to load.
   'nav-drawer': '/',
@@ -322,6 +324,8 @@ const SURFACES: Surface[] = [
   { group: 'Engage',        pageId: 'referrals',        idx: 0, label: 'EN1 — Referrals backdrop' },
   { group: 'Engage',        pageId: 'copy-trading',     idx: 0, label: 'EN2 — Copy Trading backdrop' },
   { group: 'Engage',        pageId: 'competitions',     idx: 0, label: 'EN3 — Competitions backdrop' },
+  { group: 'Engage',        pageId: 'checkout',         idx: 0, label: 'EN4 — Checkout backdrop' },
+  { group: 'Stats',         pageId: 'tax',              idx: 0, label: 'ST1 — Tax Reports backdrop' },
   { group: 'Launch & Solana', pageId: 'launch',           idx: 0, label: 'LS1 — Launch rail backdrop' },
   { group: 'Launch & Solana', pageId: 'launch-simulator', idx: 0, label: 'LS2 — Launch Simulator backdrop' },
   { group: 'Launch & Solana', pageId: 'airdrop',           idx: 0, label: 'LS2d — Airdrop campaigns backdrop' },

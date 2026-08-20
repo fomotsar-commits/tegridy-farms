@@ -508,6 +508,30 @@ export const ROUTES: readonly RouteSpec[] = [
       'this sweep cannot produce; they are covered by unit tests instead.',
     knownViolations: [],
   },
+  {
+    path: '/checkout',
+    owner: 'pages/CheckoutPage.tsx',
+    gate: null,
+    why:
+      'Audited on the "Get paid" tab with no wallet and no invoice on the URL, which is where a merchant ' +
+      'arriving cold lands: the publish form renders with its validation reasons and the callback ' +
+      'no-retry notice, and the publish button is disabled because there is no signed-in wallet to name as ' +
+      'payee. The buyer-side surfaces — the pre-sign disclosure, every refusal in buildSettlementPlan, and ' +
+      'the store\'s schema-missing / not-found branches — need a published invoice and a live quote this ' +
+      'sweep cannot produce and are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/tax',
+    owner: 'pages/TaxPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured and no wallet, which is this build\'s resting state: the report ' +
+      'renders its INCOMPLETE standing line, the whole requested period as a single coverage gap, and no ' +
+      'disposal or income table at all. The priced surfaces (matched lots, per-method totals, the three ' +
+      'exports) need either a hosted indexer or a pasted lot sheet, and both are covered by unit tests.',
+    knownViolations: [],
+  },
   { path: '/developers', owner: 'pages/DeveloperPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/nakamigos',

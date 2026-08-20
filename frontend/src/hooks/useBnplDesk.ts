@@ -85,16 +85,32 @@ export function useBnplDesk(): BnplDeskState {
 
   return useMemo(() => {
     if (!deployed) return empty('not-deployed', NOT_DEPLOYED_DETAIL);
-    if (!data || data.some((r) => r.status !== 'success')) return empty('unreadable', UNREADABLE_DETAIL);
-    const n = (i: number) => Number(data[i].result as bigint);
+    if (!data) return empty('unreadable', UNREADABLE_DETAIL);
+    // Named, one per call, in the order the batch was written. Each is checked
+    // before it is read: a positional `data[i]` says nothing about whether slot
+    // `i` exists or landed, and `Number(undefined)` is NaN — a field that would
+    // render as a number nobody read. All six or none, because five live terms
+    // beside a sixth that silently failed is a term sheet that is wrong in one
+    // place and looks right everywhere.
+    const [deposit, saleFee, plans, instalments, interval, grace] = data;
+    if (
+      deposit.status !== 'success' ||
+      saleFee.status !== 'success' ||
+      plans.status !== 'success' ||
+      instalments.status !== 'success' ||
+      interval.status !== 'success' ||
+      grace.status !== 'success'
+    ) {
+      return empty('unreadable', UNREADABLE_DETAIL);
+    }
     return {
       status: 'live' as const,
-      depositBps: n(0),
-      saleFeeBps: n(1),
-      planCount: n(2),
-      instalments: n(3),
-      instalmentIntervalSeconds: n(4),
-      paymentGraceSeconds: n(5),
+      depositBps: Number(deposit.result),
+      saleFeeBps: Number(saleFee.result),
+      planCount: Number(plans.result),
+      instalments: Number(instalments.result),
+      instalmentIntervalSeconds: Number(interval.result),
+      paymentGraceSeconds: Number(grace.result),
       detail: null,
     };
   }, [deployed, data]);

@@ -36,6 +36,13 @@ const SURFACES: Record<string, string> = {
   'components/copytrade/FollowForm.tsx': read('components', 'copytrade', 'FollowForm.tsx'),
   'components/competitions/StandingsTable.tsx': read('components', 'competitions', 'StandingsTable.tsx'),
   'components/competitions/ScoringRules.tsx': read('components', 'competitions', 'ScoringRules.tsx'),
+  // The two notices and the amount formatter are the slice's remaining render
+  // path. They carry no table, which is exactly why they are easy to leave
+  // unpinned — and the formatter is where a mis-stated quantity would appear
+  // wearing a correct-looking unit.
+  'components/copytrade/CopyDataNotice.tsx': read('components', 'copytrade', 'CopyDataNotice.tsx'),
+  'components/competitions/CompetitionDataNotice.tsx': read('components', 'competitions', 'CompetitionDataNotice.tsx'),
+  'lib/copytrade/quoteTokens.ts': read('lib', 'copytrade', 'quoteTokens.ts'),
   'hooks/useCopyLeaderboard.ts': read('hooks', 'useCopyLeaderboard.ts'),
   'hooks/useCopySignals.ts': read('hooks', 'useCopySignals.ts'),
   'hooks/useCopyFollowerFills.ts': read('hooks', 'useCopyFollowerFills.ts'),

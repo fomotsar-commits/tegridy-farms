@@ -57,6 +57,8 @@ into the 404.
 | `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
 | `airdrop` | `_lib/airdrop.js` | Airdrop manifest store: one claimant's own leaf + a server-generated proof; creator publish |
 | `referrals` | `_lib/referrals.js` | Short-code store for `/?r=code` referral links: one code in, at most one wallet out |
+| `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out |
+| `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
 
 `airdrop` is the one resource here whose absent branch is the security property. It has no
 endpoint that returns a campaign's recipient list, because a recipient list is a
@@ -79,6 +81,36 @@ referral ledger: earnings, referee counts and claimable balances are ReferralSpl
 on-chain state and are never mirrored into the table. Note that this resource being
 entirely absent degrades to a WORKING feature rather than a broken one — `/?ref=0x…`
 links resolve in the browser with no server, and the share surface mints those by default.
+
+`bot-link` is the third resource here whose ABSENT capability is the design. It has no
+endpoint that binds a chat to a wallet on the bot's say-so: the bot's HMAC credential can
+mint a pending code, read ONE chat's state, and destroy a binding, and the only path that
+attaches a wallet is a browser call carrying that wallet's own SIWE cookie. It also has no
+endpoint that returns a second row and no field, in either direction, that carries key
+material — `api/__tests__/bot-noncustodial.test.js` pins that across this file, the bot
+service and migration 020. The bot process itself is NOT hosted on Vercel and must not be:
+it is a long-running poller, the wrong shape for a function, and there is no twelfth slot
+for it. See `bot/DEPLOY.md`.
+
+`commerce` is the third resource here whose ABSENT capabilities are the design. It is
+**not custodial and structurally cannot become so**: no key is held, derived or accepted
+anywhere on the checkout path, and both legs of a payment are signed by the buyer in their
+own wallet with the merchant as the direct recipient. It is **not an oracle** — a settlement
+row is written `verification: "client-reported"` from a hardcoded literal, never from the
+request body, because nothing in that file reads a receipt and nothing that has not read one
+may write a word that means it did. It is **not a directory**: the single public read is
+service-role with a pinned `id=eq.<one id>&limit=1` filter and an explicit column list (which
+excludes `webhook_url`), shape-pinned by `api/__tests__/commerce-surface-parity.test.js`, for
+the same reason `airdrop` has no recipient list and `referrals` has no referrer roster — a
+listable invoice table is a downloadable ledger of who sells what to whom for how much.
+
+Its webhook is ONE inline POST inside the settle request, HMAC-signed, `redirect: "manual"`,
+3s timeout, response read to a 4 KB cap and discarded. `retries: "none"` is the policy, not a
+placeholder: same constraint as `alerts` above — a serverless function runs only when
+something calls it, so there is nothing here to schedule a second attempt. Do not "fix" this
+with a cron that pretends to be a delivery queue. Without `COMMERCE_WEBHOOK_SECRET` no
+callback is attempted at all, because an unsigned webhook is one anybody could forge and a
+forged one tells a merchant a payment landed that did not.
 
 `births` is server-side for the same reason `heat` is not an optimisation: it holds the
 shared signing secret, and a signature the browser could produce is one anybody could

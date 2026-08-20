@@ -45,6 +45,14 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   //   npx vitest run --root ../indexer-solana --environment node
   // ci.yml runs exactly that in the "Solana indexer unit tests" step.
   { prefix: 'indexer-solana/', runner: "vitest --root ../indexer-solana (ci.yml 'Solana indexer unit tests')" },
+  // The Telegram bot. Same arrangement and the same reason as indexer-solana: a
+  // long-running service outside frontend/, so no include glob here can reach it.
+  //   npx vitest run --root ../bot --environment node
+  // ci.yml runs exactly that in the "Telegram bot unit tests" step. Note that the
+  // bot's NON-CUSTODIAL guard deliberately does NOT live there — it is
+  // api/__tests__/bot-noncustodial.test.js, collected by this project, so a change
+  // to the API or the migration cannot skip it.
+  { prefix: 'bot/', runner: "vitest --root ../bot (ci.yml 'Telegram bot unit tests')" },
   // The arb-linkage monitor and its pause consumer. Plain `node --test`, not
   // vitest: they are operational scripts that must run on a bare runner with no
   // frontend toolchain, and the workflow that schedules the monitor runs their
