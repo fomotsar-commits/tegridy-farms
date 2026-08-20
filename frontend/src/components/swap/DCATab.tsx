@@ -4,6 +4,9 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useDCA, DEFAULT_SLIPPAGE_BPS, MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS } from '../../hooks/useDCA';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { InfoTooltip } from '../ui/InfoTooltip';
+import { DcaYieldPanel } from '../yield/DcaYieldPanel';
+import { dcaIdleTotal } from '../../lib/yield/dcaYield';
+import { formatTokenAmount } from '../../lib/formatting';
 
 
 const INTERVALS = [
@@ -82,6 +85,11 @@ export function DCATab() {
   };
 
   const totalCost = amount && totalSwaps ? ((parseFloat(amount) || 0) * (parseInt(totalSwaps) || 0)).toFixed(4) : '0';
+
+  // Across LIVE schedules only. The composer's own figure above is a preview of a
+  // schedule that does not exist yet, and summing the two would double-count it
+  // the moment Start is pressed.
+  const idleTotal = dcaIdleTotal(activeSchedules);
 
   return (
     <div className="p-5">
@@ -208,6 +216,10 @@ export function DCATab() {
             <span className="text-white text-[11px]">Total cost</span>
             <span className="stat-value text-[12px] text-white">{totalCost} ETH</span>
           </div>
+          {/* The "Total cost" line above is the whole reason this panel exists: it
+              is the amount a user is about to commit to leaving idle, and until
+              now nothing said so. */}
+          <DcaYieldPanel amountPerSwap={amount} totalSwaps={parseInt(totalSwaps)} />
         </div>
       )}
 
@@ -242,6 +254,23 @@ export function DCATab() {
       {activeSchedules.length > 0 && (
         <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--color-purple-75)' }}>
           <p className="text-white text-[10px] uppercase tracking-wider label-pill mb-2">Active DCA</p>
+          {/* The unspent side of every running schedule, in one figure. It is
+              stated as the user's own balance because that is what it is — no
+              schedule here escrows anything — and the count of schedules it
+              could not read is printed beside it so the total is never quietly
+              short. */}
+          <div className="rounded-lg px-2 py-1.5 mb-2" style={{ background: 'rgba(0,0,0,0.55)' }}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-white text-[10px]">Unspent across {idleTotal.counted} schedule{idleTotal.counted === 1 ? '' : 's'}</span>
+              <span className="text-white font-mono text-[11px]">{formatTokenAmount(idleTotal.idleEth)} ETH</span>
+            </div>
+            <p className="text-white/70 text-[10px] leading-snug mt-0.5">
+              Still in your wallet, earning nothing. Nothing here holds it.
+              {idleTotal.unreadable > 0
+                ? ` ${idleTotal.unreadable} schedule${idleTotal.unreadable === 1 ? '' : 's'} could not be read and ${idleTotal.unreadable === 1 ? 'is' : 'are'} not in this total.`
+                : ''}
+            </p>
+          </div>
           {activeSchedules.map(s => (
             <div key={s.id} className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-black/60"
               style={{ borderBottom: '1px solid var(--color-purple-75)' }}>

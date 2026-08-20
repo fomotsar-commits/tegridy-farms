@@ -12,6 +12,7 @@ import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/Page
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
+import { PwaRuntime } from './components/pwa/PwaRuntime';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
@@ -106,6 +107,29 @@ const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow
 // and its refusal states, and each venue reports its own availability from constants.ts.
 // Lives under components/zap/ with the panel it mounts, as OnboardingFlow does.
 const ZapPage = lazy(() => import('./components/zap/ZapPage'));
+// Copy trading (#7) and trading competitions (#50). Both are read-only views over
+// the F1 indexer, so with VITE_INDEXER_URL unset every panel renders its own
+// "could not be read" state and no table is drawn. NOT flag-gated, and routing them
+// while they say that is the point: the copy page's honesty (no wallet is ranked by
+// profit, nothing executes for you) and the competition page's (no prize, no
+// settlement, self-reversals struck) are the product, and a flag would hide the
+// only states they can currently be in.
+const CopyTradingPage = lazy(() => import('./pages/CopyTradingPage'));
+const CompetitionsPage = lazy(() => import('./pages/CompetitionsPage'));
+// Pro charting (#47). Candles built in-browser from indexed TegridyPair swaps by a
+// dependency-free SVG renderer — no charting library, no price oracle. NOT gated by a
+// flag: the whole page hangs off the F1 indexer, so with VITE_INDEXER_URL unset it
+// renders the unavailable banner and NO PLOT. A blank plot area with an axis on it
+// reads as a pool that did not trade, which is the one thing it must never say.
+// Lives under components/chart/ with the renderer it mounts, as ZapPage does.
+const ChartPage = lazy(() => import('./components/chart/ChartPage'));
+// Yield routing (#32 / #21 / #34) — a comparison of THIRD-PARTY liquid staking and
+// stablecoin lending venues. Tegridy issues nothing here and there is no contract:
+// every deposit address in lib/yield/venues.ts is unwired, so the page compares and
+// its route controls are disabled with the reason attached. Not flag-gated, because
+// the comparison and the counterparty disclosures are the product while the routing
+// is dark, and a flag would hide the one honest state it has.
+const YieldPage = lazy(() => import('./pages/YieldPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -269,7 +293,10 @@ function AnimatedRoutes() {
         <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />
         <Route path="zap" element={<Suspense fallback={<SwapSkeleton />}><ZapPage /></Suspense>} />
+        <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><YieldPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
+        <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><CopyTradingPage /></Suspense>} />
+        <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><CompetitionsPage /></Suspense>} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
@@ -303,6 +330,7 @@ function AnimatedRoutes() {
         <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
         <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
         <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TerminalPage /></Suspense>} />
+        <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><ChartPage /></Suspense>} />
         <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><AlertsPage /></Suspense>} />
         <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><ReferralsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
@@ -338,6 +366,13 @@ function AppInner() {
           <AnimatedRoutes />
         </Suspense>
       </RouteErrorBoundary>
+      {/* #46 — the install offer and the app-shell worker's registration. Mounted
+          here rather than inside AppLayout because /nakamigos is routed OUTSIDE that
+          layout and the worker's scope covers it either way; the banner suppresses
+          itself on that route so the sub-app's own banner is the only one shown.
+          Both halves render nothing at all unless the browser actually offers an
+          install, and neither ever claims the app works offline. */}
+      <PwaRuntime />
     </RainbowKitProvider>
   );
 }

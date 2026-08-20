@@ -21,6 +21,15 @@ const NFTLendingSection = lazy(() =>
 const LaunchpadSection = lazy(() =>
   import('../components/nftfinance/LaunchpadSection').then((mod) => ({ default: mod.LaunchpadSection })),
 );
+// #61 / #62. Lazy for the same reason as the four above — these two surfaces
+// are gated off (no contract is deployed) and must not cost the default tab a
+// byte to say so.
+const PooledLendingSection = lazy(() =>
+  import('../components/nftfinance/PooledLendingSection').then((mod) => ({ default: mod.PooledLendingSection })),
+);
+const BnplSection = lazy(() =>
+  import('../components/nftfinance/BnplSection').then((mod) => ({ default: mod.BnplSection })),
+);
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { PageSkeleton } from '../components/PageSkeleton';
@@ -33,12 +42,15 @@ import {
   isDeployed,
 } from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
+import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
 
-type Section = 'lending' | 'nftlending' | 'amm' | 'launchpad';
+type Section = 'lending' | 'nftlending' | 'pooled' | 'bnpl' | 'amm' | 'launchpad';
 
 const SECTIONS: { key: Section; label: string; subtitle?: string }[] = [
   { key: 'lending', label: 'Token Lending', subtitle: 'ETH loans + restake' },
   { key: 'nftlending', label: 'NFT Lending', subtitle: 'Generic NFTs' },
+  { key: 'pooled', label: 'Pooled Lending', subtitle: 'Per-collection pools' },
+  { key: 'bnpl', label: 'Pay in Instalments', subtitle: 'Deposit + 3 payments' },
   { key: 'amm', label: 'NFT AMM', subtitle: 'Bonding curves' },
   { key: 'launchpad', label: 'Launchpad' },
 ];
@@ -61,6 +73,16 @@ const SECTION_PROMPTS: Record<Section, { title: string; description: string }> =
     title: 'Connect to trade NFTs on bonding curves',
     description:
       'Buy and sell NFTs instantly against AMM pools, or provide liquidity to a collection and earn trading fees.',
+  },
+  pooled: {
+    title: 'Pooled lending against one collection at a time',
+    description:
+      'Deposit WETH into a single collection’s pool and borrowers draw against it instantly. Isolated per collection, so a loss on one reaches only the depositors who chose it. No pool is deployed yet.',
+  },
+  bnpl: {
+    title: 'Buy an NFT in instalments',
+    description:
+      'A deposit now, three payments after, and the token in escrow until the plan clears. Missing a payment costs you the token. The desk is not deployed yet.',
   },
   launchpad: {
     title: 'Connect to the NFT launchpad',
@@ -102,16 +124,18 @@ const INTRO_CARDS = [
 
 const INTRO_DISMISSED_KEY = 'tegridy-nft-finance-intro-dismissed';
 
-const VALID_SECTIONS: Section[] = ['lending', 'nftlending', 'amm', 'launchpad'];
+const VALID_SECTIONS: Section[] = ['lending', 'nftlending', 'pooled', 'bnpl', 'amm', 'launchpad'];
 
 /**
  * The tab a bare /nft-finance lands on.
  *
- * NOT 'lending': Token Lending is the ONE section here whose contracts are not
- * deployed (it renders a "will be deployed soon" wall gated on a TWAP oracle that
- * reverts). /nft-finance is a primary nav destination, so defaulting to it meant the
- * headline NFT-finance surface opened on the only thing you cannot use, while
- * NFT Lending, NFT AMM and Launchpad — all live — sat one click away.
+ * NOT 'lending': Token Lending has no deployed contract (it renders a "will be
+ * deployed soon" wall gated on a TWAP oracle that reverts). /nft-finance is a
+ * primary nav destination, so defaulting to it meant the headline NFT-finance
+ * surface opened on something you cannot use, while NFT Lending, NFT AMM and
+ * Launchpad — all live — sat one click away. Pooled Lending and Pay in
+ * Instalments are also undeployed and are also not candidates for the default
+ * for the same reason.
  *
  * `handleSectionChange` clears ?section= for this value, so the two MUST agree;
  * changing one alone makes the tab for the other unreachable.
@@ -123,9 +147,10 @@ const DEFAULT_SECTION: Section = 'nftlending';
 // ⚠ This comment used to say "Every NFT-Finance contract is currently the zero
 // address (ZEROED 2026-05-31)". That has been false since 2026-07-21: the NFT pool
 // factory, NFT lending and LaunchpadV2 all carry real addresses and are un-gated.
-// Token Lending (TEGRIDY_LENDING_ADDRESS) is the ONLY 0x0 left here, and it is
-// genuinely undeployed — it waits on the TWAP oracle, whose reserve floor the drained
-// native pool does not clear.
+// Three entries are 0x0 today and each is genuinely undeployed: Token Lending
+// (TEGRIDY_LENDING_ADDRESS) waits on the TWAP oracle, whose reserve floor the
+// drained native pool does not clear; Pooled Lending and Pay in Instalments
+// (#61/#62) have had no deploy ceremony at all.
 //
 // This map drives the amber "Soon" chips on the tab row
 // + intro cards so visitors can see which surfaces are gated before clicking in;
@@ -135,6 +160,10 @@ const SECTION_DEPLOYED: Record<Section, boolean> = {
   nftlending: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS),
   amm: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS),
   launchpad: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS),
+  // Both read from hooks/usePooledLendingConfig.ts, where every address is
+  // still zero. The chip flips on its own when one stops being zero.
+  pooled: isPooledLendingLive(),
+  bnpl: isBnplLive(),
 };
 
 function sectionFromQuery(v: string | null): Section | null {
@@ -373,6 +402,8 @@ export default function LendingPage() {
                 </div>
               )
               : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
+            {section === 'pooled' && <PooledLendingSection />}
+            {section === 'bnpl' && <BnplSection />}
             {section === 'amm' && <AMMSection />}
             {section === 'launchpad' && <LaunchpadSection />}
           </Suspense>

@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { isSolanaConfigured } from './solana';
 import { isIndexerConfigured } from './indexer/client';
+import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
 import { isSolanaSubmitReady } from './launcher/solana/dbc';
 
@@ -186,6 +187,39 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // PARTICULAR wallet earns. That depends on the splitter's staking threshold, is a
       // per-wallet on-chain read, and is disclosed on the page above the share controls.
       { to: '/referrals', label: 'Referrals' },
+      // Yield Routing compares THIRD-PARTY liquid staking and stablecoin lending
+      // venues. It sits in Engage rather than Stats because what a visitor does here
+      // is choose between other people's protocols, which is an action, not a metric
+      // about ours.
+      //
+      // PILLED, and keyed to the only condition the label is about. The entry names
+      // ROUTING, and `hasRoutableYieldVenue()` is false because every deposit target
+      // in lib/yield/venues.ts is the zero address — so the pill is a computed fact,
+      // not a hardcoded one, and it self-clears the moment an operator wires a
+      // destination. navConfig.test.ts pins the precondition separately so wiring one
+      // fails that assertion first and forces this comment to be re-read.
+      //
+      // Deliberately NOT keyed to the yield feed. A configured feed with no wired
+      // destination is a working comparison table and a router that cannot route,
+      // which is exactly the /solana-launch bug — a pill that clears on a flag while
+      // the advertised action stays impossible.
+      { to: '/yield', label: 'Yield Routing', soon: !hasRoutableYieldVenue() },
+      // Copy Trading and Competitions. Both read the F1 indexer and nothing else, so
+      // both pills are keyed to the one input that decides whether either can do the
+      // thing its label names: VITE_INDEXER_URL. Without it there is no trade history
+      // to follow and no swaps to score, and each page says exactly that instead of
+      // drawing an empty board.
+      //
+      // Same self-clearing condition as /terminal below, and deliberately NOT a
+      // separate flag: a flag can be true while the feed is unreachable, which is the
+      // state a pill exists to describe rather than to hide.
+      //
+      // What these entries do NOT promise, and must not be edited to: that a follow
+      // executes anything — there is no keeper, so the user places every mirror — or
+      // that a season pays, since no prize pool, escrow or settlement exists. Both
+      // pages state those from the modules that enforce them.
+      { to: '/copy-trading', label: 'Copy Trading', soon: !isIndexerConfigured() },
+      { to: '/competitions', label: 'Competitions', soon: !isIndexerConfigured() },
     ],
   },
   {
@@ -217,6 +251,14 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // separate flag, because a flag could be set true while the feed stays
       // unreachable, which is the state this pill exists to describe.
       { to: '/terminal', label: 'Pro Terminal', soon: !isIndexerConfigured() },
+      // Pro Charting reads the SAME indexer as the terminal above — candles are
+      // derived from its `pair_event` swap rows — so it sits beside it rather
+      // than beside Trade, and its pill is keyed to the identical input for the
+      // identical reason. Two entries pilled by one condition is correct here:
+      // VITE_INDEXER_URL is the single fact that decides whether either surface
+      // can read anything, and pilling only one of them would suggest the other
+      // has a data path it does not have.
+      { to: '/chart', label: 'Pro Charting', soon: !isIndexerConfigured() },
       // Alerts belongs to this section rather than to Engage or Stats: four of its five
       // rule kinds watch exactly what the tools above read on demand (whale moves, a
       // deployer's reputation band, an LP unlock, a launch going live), on ANY token or

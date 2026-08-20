@@ -270,6 +270,41 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/yield',
+    owner: 'pages/YieldPage.tsx',
+    gate: null,
+    why:
+      'Audited with no yield feed configured, which is this build\'s resting state: every rate, peg and ' +
+      'exit-liquidity cell renders its unavailable branch and the route controls are disabled because no ' +
+      'deposit address is wired. The read/stale branches need a hosted feed this sweep cannot produce and ' +
+      'are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/copy-trading',
+    owner: 'pages/CopyTradingPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured and no wallet, which is this build\'s resting state: all three ' +
+      'panels render their "could not be read" notice and NO table is drawn — the follow board, the mirror ' +
+      'queue and the personal fill history are each absent rather than empty. The follow form is the only ' +
+      'live control (it writes to localStorage and needs no chain). The ready/backfilling boards, the mirror ' +
+      'plans and their refusals, and the realised entry-lag figures need a hosted indexer this sweep cannot ' +
+      'produce and are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/competitions',
+    owner: 'pages/CompetitionsPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured, so the standings notice is the page and the table is not rendered ' +
+      'at all. The season picker and the scoring rules render from lib/competitions and are fully audited; ' +
+      'the ranked board, the wash-strike counts and the truncation banner need a hosted indexer this sweep ' +
+      'cannot produce and are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
     path: '/trade',
     owner: 'App.tsx',
     gate: 'redirect',
@@ -436,6 +471,17 @@ export const ROUTES: readonly RouteSpec[] = [
       'Audited with no indexer configured, which is this build\'s only reachable state: the feed ' +
       'banner is the page and the table is not rendered at all. The ready/backfilling surfaces ' +
       'need a hosted indexer this sweep cannot produce and are covered by unit tests.',
+    knownViolations: [],
+  },
+  {
+    path: '/chart',
+    owner: 'components/chart/ChartPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured, which is this build\'s only reachable state: the pool ' +
+      'picker and the chart status banner both say they could not read, and no SVG plot is ' +
+      'rendered at all. The ready surface (candles, gap columns, coverage lines) needs a hosted ' +
+      'indexer this sweep cannot produce and is covered by unit tests.',
     knownViolations: [],
   },
   {

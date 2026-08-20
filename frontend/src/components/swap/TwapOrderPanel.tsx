@@ -7,6 +7,8 @@ import { planTwap, twapDataFromPlan, TWAP_MAX_PARTS, TWAP_MIN_PARTS } from '../.
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { WETH_ADDRESS } from '../../lib/constants';
 import { formatTokenAmountGrouped } from '../../lib/formatting';
+import { Link } from 'react-router-dom';
+import { TWAP_IDLE_NOTE } from '../../lib/yield/dcaYield';
 
 const INTERVAL_OPTIONS = [
   { label: '5 min', seconds: 300 },
@@ -221,6 +223,18 @@ export function TwapOrderPanel() {
                     <span className="text-white/60 font-mono">{formatTokenAmountGrouped(formatUnits(plan.dust, 18))} WETH</span>
                   </div>
                 )}
+                {/* Sits with the plan rather than in a footnote because the
+                    question it answers ("can I earn on the part that hasn't
+                    sold?") is one a reader asks while looking at the schedule. */}
+                <p className="text-white/60 text-[10px] leading-snug mt-2">{TWAP_IDLE_NOTE}</p>
+                <p className="text-white/60 text-[10px] leading-snug mt-1">
+                  A{' '}
+                  <Link to="/swap" className="underline hover:text-white/80 transition-colors">DCA schedule</Link>{' '}
+                  signs each buy separately, so its unspent budget is not pinned this way — the DCA tab shows how much
+                  that is, and{' '}
+                  <Link to="/yield" className="underline hover:text-white/80 transition-colors">Yield Routing</Link>{' '}
+                  lists where it could go.
+                </p>
               </>
             ) : (
               <p className="text-amber-300">{plan.error}</p>
