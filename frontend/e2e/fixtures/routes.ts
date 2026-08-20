@@ -429,6 +429,16 @@ export const ROUTES: readonly RouteSpec[] = [
   { path: '/deployer', owner: 'pages/DeployerPage.tsx', gate: null, knownViolations: [] },
   { path: '/trust', owner: 'pages/TrustHubPage.tsx', gate: null, knownViolations: [] },
   {
+    path: '/terminal',
+    owner: 'pages/TerminalPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured, which is this build\'s only reachable state: the feed ' +
+      'banner is the page and the table is not rendered at all. The ready/backfilling surfaces ' +
+      'need a hosted indexer this sweep cannot produce and are covered by unit tests.',
+    knownViolations: [],
+  },
+  {
     path: '/alerts',
     owner: 'pages/AlertsPage.tsx',
     gate: null,

@@ -46,6 +46,9 @@ const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
 const DeployerPage = lazy(() => import('./pages/DeployerPage'));
 // Thin hub that frames the three detection surfaces above as one anti-rug suite.
 const TrustHubPage = lazy(() => import('./pages/TrustHubPage'));
+// The same detection stack pointed at a discovery feed: pairs from the F1 indexer,
+// each row carrying its safety read or an explicit statement that it has none.
+const TerminalPage = lazy(() => import('./pages/TerminalPage'));
 // Alert rules over the same subjects (token / wallet / deployer), pushed instead of
 // pulled. NOT flag-gated: the rule store lives behind a migration an operator applies
 // by hand, so until `016_alert_rules.sql` lands every alerts call answers 503
@@ -292,6 +295,7 @@ function AnimatedRoutes() {
         <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
         <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
         <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
+        <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TerminalPage /></Suspense>} />
         <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><AlertsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />

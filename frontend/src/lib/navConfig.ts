@@ -11,6 +11,7 @@ import {
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
 import { isSolanaConfigured } from './solana';
+import { isIndexerConfigured } from './indexer/client';
 import { isLauncherEnabled } from './launcher/config';
 import { isSolanaSubmitReady } from './launcher/solana/dbc';
 
@@ -185,6 +186,17 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/scan',     label: 'Token Scanner' },
       { to: '/deployer', label: 'Deployer Graph' },
       { to: '/exposure', label: 'Wallet Exposure' },
+      // The same three reads, applied to a discovery feed instead of to one
+      // pasted address. It sits here rather than beside Trade because the feed is
+      // the delivery mechanism and the safety read is the product.
+      //
+      // The pill answers the one question the others answer — can I do the thing
+      // this entry names? — and it is keyed to the only input that decides:
+      // VITE_INDEXER_URL. Without it there is no pair feed to discover anything
+      // in, and the page says exactly that instead of drawing an empty table. No
+      // separate flag, because a flag could be set true while the feed stays
+      // unreachable, which is the state this pill exists to describe.
+      { to: '/terminal', label: 'Pro Terminal', soon: !isIndexerConfigured() },
       // Alerts belongs to this section rather than to Engage or Stats: four of its five
       // rule kinds watch exactly what the tools above read on demand (whale moves, a
       // deployer's reputation band, an LP unlock, a launch going live), on ANY token or
