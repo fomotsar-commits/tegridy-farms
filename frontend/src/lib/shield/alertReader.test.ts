@@ -52,7 +52,8 @@ function rawLoan(over: Partial<RawLoanRead> = {}): RawLoanRead {
     repaid: false,
     defaultClaimed: false,
     effectiveDeadlineUnix: NOW + 100 * 3600,
-    graceSeconds: 3600,
+    minGraceSeconds: 3600,
+    defaultedOnChain: false,
     quotedRepayWei: 1_010_000_000_000_000_000n,
     ...over,
   };
@@ -114,7 +115,12 @@ describe('one unreadable loan makes the answer unknown, not smaller', () => {
       ...snapshot.positions[0]!,
       loanId: 55,
       lendingContract: OTHER_CONTRACT,
-      health: assessDeadlineHealth({ effectiveDeadlineUnix: null, graceSeconds: null, nowUnix: NOW }),
+      health: assessDeadlineHealth({
+        effectiveDeadlineUnix: null,
+        minGraceSeconds: null,
+        defaultedOnChain: null,
+        nowUnix: NOW,
+      }),
     };
     const reading = await readWith({ ...snapshot, positions: [...snapshot.positions, stranger] });
     expect(reading.status).toBe('ok');

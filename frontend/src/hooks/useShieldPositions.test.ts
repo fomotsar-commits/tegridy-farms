@@ -74,6 +74,7 @@ function respond(map: Record<string, () => Promise<unknown>>) {
 const HEALTHY_READS = {
   GRACE_PERIOD: () => Promise.resolve(3600n),
   effectiveDeadline: () => Promise.resolve(BigInt(NOW + 7200)),
+  isDefaulted: () => Promise.resolve(false),
   getRepaymentAmount: () => Promise.resolve(1_010_000_000_000_000_000n),
 };
 
@@ -119,6 +120,7 @@ describe('a failed read is reported as a failed read', () => {
     respond({
       GRACE_PERIOD: () => Promise.resolve(3600n),
       effectiveDeadline: () => Promise.reject(new Error('rpc down')),
+      isDefaulted: () => Promise.reject(new Error('rpc down')),
       getRepaymentAmount: () => Promise.reject(new Error('rpc down')),
     });
     const { result } = renderHook(() => useShieldPositions());
@@ -138,6 +140,27 @@ describe('a failed read is reported as a failed read', () => {
     expect(result.current.positions[0]!.health.status).toBe('read');
     expect(result.current.positions[0]!.quotedRepayWei).toBeNull();
     expect(result.current.positions[0]!.quoteDetail).toBeTruthy();
+  });
+
+  it('reports a loan unreadable when only the contract’s default verdict failed', async () => {
+    // The deadline read fine, so a model that judged the window on its own clock
+    // would band this row confidently. `isDefaulted` is what says whether
+    // repayment still settles; without it the row's answer is "unknown".
+    loanState.loans = [loan()];
+    respond({ ...HEALTHY_READS, isDefaulted: () => Promise.reject(new Error('down')) });
+    const { result } = renderHook(() => useShieldPositions());
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.positions[0]!.health.status).toBe('unreadable');
+  });
+
+  it('carries the contract’s default verdict into the position it built', async () => {
+    loanState.loans = [loan()];
+    respond({ ...HEALTHY_READS, isDefaulted: () => Promise.resolve(true) });
+    const { result } = renderHook(() => useShieldPositions());
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const health = result.current.positions[0]!.health;
+    expect(health.status === 'read' && health.band).toBe('defaulted');
+    expect(health.status === 'read' && health.repayable).toBe(false);
   });
 
   it('refuses every deadline when the grace constant could not be read', async () => {

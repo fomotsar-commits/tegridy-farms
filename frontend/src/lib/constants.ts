@@ -157,6 +157,16 @@ export const TEGRIDY_LOCK_VAULT_ADDRESS = '0x00000000000000000000000000000000000
 // lock viewer renders as NO DATA — a rail it cannot reach is never drawn as a zero.
 export const LAUNCH_LOCK_VIEW_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
+// ─── Staking-position secondary market (#60) ─────────────────────────
+// UNDEPLOYED. `contracts/src/markets/TegridyPositionMarket.sol` is written and
+// tested but no ceremony has run, so this stays zero and every surface under
+// components/positionMarket gates on isDeployed(). The market needs no wiring on
+// TegridyStaking to work — and specifically must NEVER be registered there via
+// applyLendingContract: that carve-out would exempt it from the transfer cooldown,
+// the transfer rate limit, and the AlreadyHasPosition receiver guard it is built to
+// respect. See the deploy notice in script/DeployPositionMarket.s.sol.
+export const POSITION_MARKET_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+
 // Jungle Bay NFTs
 export const JBAC_NFT_ADDRESS = '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' as const;
 export const JBAY_GOLD_ADDRESS = '0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3' as const;

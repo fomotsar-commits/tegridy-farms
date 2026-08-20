@@ -72,7 +72,8 @@ function raw(over: Partial<RawLoanRead> = {}): RawLoanRead {
     repaid: false,
     defaultClaimed: false,
     effectiveDeadlineUnix: NOW + 3 * 3600,
-    graceSeconds: 3600,
+    minGraceSeconds: 3600,
+    defaultedOnChain: false,
     quotedRepayWei: 1_010_000_000_000_000_000n,
     ...over,
   };
@@ -110,6 +111,11 @@ describe('the automation claim is on screen before anything else', () => {
   it('states that an alert does not repay anything', () => {
     mount(buildSnapshot([raw()], NOW));
     expect(screen.getByText(/It does not repay anything/i)).toBeTruthy();
+  });
+
+  it('states that no partial repay, top-up or deleverage exists on these loans', () => {
+    mount(buildSnapshot([raw()], NOW));
+    expect(screen.getByText(/no partial repayment, no collateral top-up and no deleverage/i)).toBeTruthy();
   });
 
   it('renders the sentence alongside the signing button, not on another screen', () => {
@@ -153,10 +159,20 @@ describe('the prepared transaction is shown before it is signed', () => {
     expect(screen.getByText(/Accrual buffer/i)).toBeTruthy();
   });
 
-  it('refuses to offer a signature once the repayment window has closed', () => {
-    mount(buildSnapshot([raw({ effectiveDeadlineUnix: NOW - 100_000 })], NOW));
+  it('refuses to offer a signature once the contract reports the loan defaulted', () => {
+    mount(buildSnapshot([raw({ effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: true })], NOW));
     expect(screen.getAllByText(/repayment window has closed/i).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: /Review and sign repayment/i })).toBeNull();
+  });
+
+  // The screen a borrower sees during the pause-extended grace. Before the fix
+  // this rendered the "collateral is the lender's" refusal and no button, on a
+  // loan the contract would still have accepted a repayment for.
+  it('still offers the signature past the minimum grace while the contract reports no default', () => {
+    mount(buildSnapshot([raw({ effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: false })], NOW));
+    expect(screen.getByRole('button', { name: /Review and sign repayment/i })).toBeTruthy();
+    expect(screen.queryByText(/repayment window has closed/i)).toBeNull();
+    expect(screen.getByText(/how much longer is unknown/i)).toBeTruthy();
   });
 
   it('never claims a health factor for these loans', () => {

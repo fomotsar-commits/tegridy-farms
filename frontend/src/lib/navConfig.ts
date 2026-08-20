@@ -166,6 +166,26 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/curve-launch', label: 'Tegridy Curve', soon: true },
       // Pure client-side — always usable, deliberately live before the launch rail opens.
       { to: '/launch-simulator', label: 'Launch Simulator' },
+      // Referrals sits in Engage because it is a recruiting tool, not a stat and not a
+      // detection surface: the thing a user does here is mint a link and carry it away.
+      //
+      // NOT PILLED, and that is the assertion to re-read if this ever changes. The pill
+      // answers the one question the others answer — can I do the thing this entry
+      // names? — and here the answer is yes, unconditionally: ReferralSplitter is
+      // deployed at REFERRAL_SPLITTER_ADDRESS (a real, non-zero constant, which
+      // navConfig.test.ts pins), and the link this page mints is `/?ref=0x…`, which
+      // resolves in the visitor's browser with no server, no database and no migration.
+      //
+      // Contrast /alerts directly above, which IS pilled: nothing there can be saved at
+      // all until `016_alert_rules.sql` is applied. The comparable dependency here —
+      // `019_referral_codes.sql` — buys only the shorter `/?r=code` form, so its absence
+      // degrades one optional affordance instead of the feature. Pilling this entry
+      // would tell a visitor the referral programme is not live when it is paying.
+      //
+      // What is NOT promised by this entry, and must not be added to it: whether a
+      // PARTICULAR wallet earns. That depends on the splitter's staking threshold, is a
+      // per-wallet on-chain read, and is disclosed on the page above the share controls.
+      { to: '/referrals', label: 'Referrals' },
     ],
   },
   {

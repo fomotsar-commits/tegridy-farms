@@ -23,7 +23,8 @@ export const SHIELD_AUTOMATION_AVAILABLE = false;
  * asking "what is left to build" read the same list.
  */
 export const F4_REQUIREMENTS: readonly string[] = [
-  'A position watcher that reads each subscribed loan’s deadline and repayment quote on its own tick, off the user’s browser, with its own staleness bound — the monitor loop in this app runs only while the tab is open.',
+  'A position watcher that reads each subscribed loan’s deadline, default status and repayment quote on its own tick, off the user’s browser, with its own staleness bound — the monitor loop in this app runs only while the tab is open.',
+  'A watcher that takes the closing time from `isDefaulted`, never from `effectiveDeadline + GRACE_PERIOD`. The contract extends grace by its own pause time, so the constant expires while repayment is still being accepted; a keeper scheduled on the constant would give up on a loan it could still have saved, and one that trusted the constant the other way would fire into a window that had already closed.',
   'A pre-authorised execution credential scoped to {lending contract, loan id, max repayment, expiry}, revocable on-chain, so the executor can repay without ever holding or being able to redirect user funds.',
   'A funding source for the repayment itself. Monitoring is free; a repay is not. Either the user pre-funds an escrow they can withdraw from, or the executor flash-borrows and the position deleverages — the venue may not front capital it has not earned.',
   'Per-attempt receipts including failures, readable back into this UI, so a save that did not happen is visible as not having happened rather than as silence.',
@@ -53,6 +54,20 @@ export const MONITORING_SCOPE =
  */
 export const ALERT_IS_NOT_AN_ACTION =
   'An alert tells you the deadline is close. It does not repay anything — you still have to sign the repayment.';
+
+/**
+ * The other half of "one-click prepared action": which actions exist at all.
+ *
+ * A borrower arriving from a money market looks for the two moves that work
+ * there — add collateral, or deleverage by repaying part of the debt. Neither
+ * exists on `TegridyNFTLending`: `repayLoan` is the only debt-side function, it
+ * reverts on anything under the full amount (`InsufficientRepayment`), and the
+ * collateral is a single NFT that cannot be partly sold. Leaving that unsaid
+ * would send a user hunting for a smaller, cheaper move that is not there while
+ * the deadline runs out.
+ */
+export const ONLY_FULL_REPAYMENT =
+  'Full repayment is the only move these loans have. The lending contract takes no partial repayment, no collateral top-up and no deleverage — the collateral is one NFT and cannot be partly sold — so nothing smaller than the whole amount clears the deadline.';
 
 export interface ShieldAutomationState {
   /** True only when a named executor actually submits transactions for the user. */
@@ -85,6 +100,7 @@ export const SHIELD_COPY = {
   executionIsYours: EXECUTION_IS_YOURS,
   monitoringScope: MONITORING_SCOPE,
   alertIsNotAnAction: ALERT_IS_NOT_AN_ACTION,
+  onlyFullRepayment: ONLY_FULL_REPAYMENT,
   automationHeading: 'What would make this automatic',
   automationLead:
     'The venue runs no keeper. Until one exists, every item below is missing, and this surface prepares transactions rather than sending them.',

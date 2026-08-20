@@ -119,10 +119,14 @@ export function prepareRepay(input: PreparedRepayInput): PreparedRepayResult {
       reason: `${health.detail} No repayment is prepared against a deadline nobody read.`,
     };
   }
+  // Driven by the contract's own `isDefaulted`, never by a local clock against
+  // the `GRACE_PERIOD` constant — that constant expires while the contract is
+  // still accepting repayment after any mid-grace pause, and this refusal is the
+  // sentence that would tell a borrower their still-recoverable NFT was gone.
   if (!health.repayable) {
     return {
       ok: false,
-      reason: 'The repayment window has closed — the deadline and its grace period have both passed. The contract rejects a repayment now, and the collateral is the lender’s to claim.',
+      reason: 'The lending contract reports this loan as defaulted, so the repayment window has closed. It rejects a repayment now, and the collateral is the lender’s to claim.',
     };
   }
   if (quotedRepayWei == null || quotedRepayWei <= 0n) {

@@ -34,7 +34,8 @@ function raw(over: Partial<RawLoanRead> = {}): RawLoanRead {
     repaid: false,
     defaultClaimed: false,
     effectiveDeadlineUnix: NOW + 100 * 3600,
-    graceSeconds: 3600,
+    minGraceSeconds: 3600,
+    defaultedOnChain: false,
     quotedRepayWei: 1_010_000_000_000_000_000n,
     ...over,
   };
@@ -78,6 +79,14 @@ describe('a loan whose reads failed keeps its row', () => {
     expect(health.status === 'unreadable' && health.detail).toMatch(/Loan #12/);
   });
 
+  it('reports unreadable health when only the contract’s default verdict went missing', () => {
+    // The row still has a deadline, so a model that judged on the clock alone
+    // would happily band it. Without `isDefaulted` nobody knows whether the
+    // window is open, and that is what the row has to say.
+    const snapshot = buildSnapshot([raw({ defaultedOnChain: null })], NOW);
+    expect(snapshot.positions[0]!.health.status).toBe('unreadable');
+  });
+
   it('flags a missing repayment quote separately from a missing deadline', () => {
     const snapshot = buildSnapshot([raw({ quotedRepayWei: null })], NOW);
     expect(snapshot.positions[0]!.quotedRepayWei).toBeNull();
@@ -95,7 +104,7 @@ describe('the worst position surfaces first', () => {
     const snapshot = buildSnapshot(
       [
         raw({ loanId: 1, effectiveDeadlineUnix: NOW + 500 * 3600 }),
-        raw({ loanId: 2, effectiveDeadlineUnix: NOW - 100_000 }),
+        raw({ loanId: 2, effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: true }),
         raw({ loanId: 3, effectiveDeadlineUnix: NOW + 2 * 3600 }),
       ],
       NOW,
@@ -105,7 +114,10 @@ describe('the worst position surfaces first', () => {
 
   it('puts an unreadable loan above every readable one, including a defaulted one', () => {
     const snapshot = buildSnapshot(
-      [raw({ loanId: 1, effectiveDeadlineUnix: NOW - 100_000 }), raw({ loanId: 2, effectiveDeadlineUnix: null })],
+      [
+        raw({ loanId: 1, effectiveDeadlineUnix: NOW - 100_000, defaultedOnChain: true }),
+        raw({ loanId: 2, effectiveDeadlineUnix: null }),
+      ],
       NOW,
     );
     expect(worstPosition(snapshot)!.loanId).toBe(2);

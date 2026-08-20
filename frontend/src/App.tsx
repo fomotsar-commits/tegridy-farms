@@ -55,6 +55,13 @@ const TerminalPage = lazy(() => import('./pages/TerminalPage'));
 // `schema-missing` and the panels print that with the operator step attached. Routing it
 // while it says so is the point — a flag here would hide the one honest state it has.
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
+// Referral links, the staking threshold that decides whether sharing one earns
+// anything at all, and the on-chain claim. NOT flag-gated and not pilled: the
+// splitter is deployed and the long-form `/?ref=0x…` link resolves in the browser
+// with no server, so the surface is live. Only the optional short `/?r=code` form
+// needs `019_referral_codes.sql`, and the share card prints that store's own answer
+// rather than gating the page on it.
+const ReferralsPage = lazy(() => import('./pages/ReferralsPage'));
 // Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
 // from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
 // so neither the price list nor the signup can claim what is not configured.
@@ -297,6 +304,7 @@ function AnimatedRoutes() {
         <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
         <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TerminalPage /></Suspense>} />
         <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><AlertsPage /></Suspense>} />
+        <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><ReferralsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

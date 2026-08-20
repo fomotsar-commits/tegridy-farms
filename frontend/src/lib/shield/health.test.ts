@@ -11,6 +11,14 @@
 // against. A borrower who has used Aave reads "1.4" as distance-to-liquidation
 // and will act on it. The assertions below make producing one a test failure
 // rather than a design discussion.
+//
+// The third is the regression at the bottom of this file. The repayment window
+// closes at `effectiveDeadline + _graceWithPauseExtension`, which the contract
+// computes and no clock here can: `GRACE_PERIOD` is only its floor. A model that
+// closes the window on the constant tells a borrower whose NFT is still
+// recoverable that it is already gone — during the exact hour in which acting
+// still works — and then refuses to build the transaction that would have
+// worked. So `repayable` may only ever come from `isDefaulted`.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -26,10 +34,16 @@ import {
 const NOW = 1_700_000_000;
 const GRACE = 3600;
 
-function at(secondsFromNow: number): ShieldHealth {
+/**
+ * `defaultedOnChain` is explicit at every call site on purpose: it is the one
+ * fact this model is not allowed to infer, so a test that wants a defaulted loan
+ * has to say the contract said so.
+ */
+function at(secondsFromNow: number, defaultedOnChain = false): ShieldHealth {
   return assessDeadlineHealth({
     effectiveDeadlineUnix: NOW + secondsFromNow,
-    graceSeconds: GRACE,
+    minGraceSeconds: GRACE,
+    defaultedOnChain,
     nowUnix: NOW,
   });
 }
@@ -41,25 +55,51 @@ function read(h: ShieldHealth) {
 
 describe('a failed read is never a band', () => {
   it('refuses when the deadline could not be read', () => {
-    const h = assessDeadlineHealth({ effectiveDeadlineUnix: null, graceSeconds: GRACE, nowUnix: NOW });
+    const h = assessDeadlineHealth({
+      effectiveDeadlineUnix: null,
+      minGraceSeconds: GRACE,
+      defaultedOnChain: false,
+      nowUnix: NOW,
+    });
     expect(h.status).toBe('unreadable');
     expect(h.status === 'unreadable' && h.detail).toMatch(/failed read, not a loan that is fine/i);
   });
 
   it('refuses when the grace period could not be read', () => {
-    const h = assessDeadlineHealth({ effectiveDeadlineUnix: NOW + 500, graceSeconds: null, nowUnix: NOW });
+    const h = assessDeadlineHealth({
+      effectiveDeadlineUnix: NOW + 500,
+      minGraceSeconds: null,
+      defaultedOnChain: false,
+      nowUnix: NOW,
+    });
+    expect(h.status).toBe('unreadable');
+  });
+
+  it('refuses when the contract’s default verdict could not be read, rather than assuming the loan is open', () => {
+    const h = assessDeadlineHealth({
+      effectiveDeadlineUnix: NOW + 500,
+      minGraceSeconds: GRACE,
+      defaultedOnChain: null,
+      nowUnix: NOW,
+    });
     expect(h.status).toBe('unreadable');
   });
 
   it('refuses a non-finite deadline rather than treating NaN arithmetic as a band', () => {
-    const h = assessDeadlineHealth({ effectiveDeadlineUnix: Number.NaN, graceSeconds: GRACE, nowUnix: NOW });
+    const h = assessDeadlineHealth({
+      effectiveDeadlineUnix: Number.NaN,
+      minGraceSeconds: GRACE,
+      defaultedOnChain: false,
+      nowUnix: NOW,
+    });
     expect(h.status).toBe('unreadable');
   });
 
   it('carries the caller’s reason so a user can tell which read went missing', () => {
     const h = assessDeadlineHealth({
       effectiveDeadlineUnix: null,
-      graceSeconds: null,
+      minGraceSeconds: null,
+      defaultedOnChain: null,
       nowUnix: NOW,
       unreadableDetail: 'Loan #7’s deadline could not be read.',
     });
@@ -67,8 +107,13 @@ describe('a failed read is never a band', () => {
   });
 
   it('sorts an unreadable position above every readable one, including a defaulted one', () => {
-    const unreadable = assessDeadlineHealth({ effectiveDeadlineUnix: null, graceSeconds: null, nowUnix: NOW });
-    expect(healthSeverity(unreadable)).toBeGreaterThan(healthSeverity(at(-100_000)));
+    const unreadable = assessDeadlineHealth({
+      effectiveDeadlineUnix: null,
+      minGraceSeconds: null,
+      defaultedOnChain: null,
+      nowUnix: NOW,
+    });
+    expect(healthSeverity(unreadable)).toBeGreaterThan(healthSeverity(at(-100_000, true)));
     expect(healthSeverity(unreadable)).toBeGreaterThan(BAND_SEVERITY.defaulted);
   });
 });
@@ -118,14 +163,59 @@ describe('the bands follow the one fact that decides the loan', () => {
     expect(h.repayable).toBe(true);
   });
 
-  it('is defaulted the moment the grace period ends, and is no longer repayable', () => {
-    const h = read(at(-GRACE));
+  it('is defaulted when the contract says so, and is no longer repayable', () => {
+    const h = read(at(-GRACE, true));
     expect(h.band).toBe('defaulted');
     expect(h.repayable).toBe(false);
   });
 
-  it('is still in grace one second before the window closes', () => {
+  it('is still in grace one second before the minimum window closes', () => {
     expect(read(at(-GRACE + 1)).band).toBe('grace');
+  });
+});
+
+// THE REGRESSION.
+//
+// `_graceWithPauseExtension` = GRACE_PERIOD + any pause overlapping the grace
+// window. After a mid-grace pause the constant runs out while `repayLoan` still
+// succeeds. The lending contract's own audit trail records this being fixed in
+// `isDefaulted` (NFTLEND-PAUSE-INFLIGHT) after the UI reported loans as defaulted
+// for up to an hour while `claimDefault` reverted `LoanNotDefaulted`. Deriving
+// closure from the constant here reintroduces it one layer up, with the harm
+// pointing the same way: a borrower told the NFT is gone stops trying, in the
+// window where trying still works.
+describe('the window closes when the contract says it closed, not when the constant runs out', () => {
+  it('is still repayable past the minimum grace while the contract reports no default', () => {
+    const h = read(at(-GRACE - 4000, false));
+    expect(h.repayable).toBe(true);
+    expect(h.band).toBe('grace');
+    expect(h.band).not.toBe('defaulted');
+  });
+
+  it('says the time left is unknown there rather than inventing one', () => {
+    const h = read(at(-GRACE - 4000, false));
+    expect(h.minSecondsToGraceEnd).toBeLessThan(0);
+    expect(h.headline).toMatch(/still repayable/i);
+    expect(h.consequence).toMatch(/accepted right now/i);
+    expect(h.consequence).toMatch(/how much longer is unknown/i);
+  });
+
+  it('defaults on the contract’s verdict even before the minimum grace has elapsed', () => {
+    // The reverse direction. `isDefaulted` cannot in fact fire this early, but
+    // the model must follow the read rather than second-guess it with a clock.
+    expect(read(at(-1, true)).band).toBe('defaulted');
+    expect(read(at(-1, true)).repayable).toBe(false);
+  });
+
+  it('never reports a grace end as exact', () => {
+    for (const offset of [-GRACE - 4000, -600, -1, 60, WATCH_SECONDS]) {
+      expect(read(at(offset)).graceEndIsLowerBound).toBe(true);
+    }
+  });
+
+  it('marks the bound as a floor in the copy — "at least", never "until"', () => {
+    expect(read(at(-600)).headline).toMatch(/at least/i);
+    expect(read(at(-600)).consequence).toMatch(/at least another/i);
   });
 });
 
@@ -145,14 +235,16 @@ describe('the consequence states the real loss, not a liquidation penalty', () =
   });
 
   it('tells a defaulted borrower that repaying afterwards does not buy the collateral back', () => {
-    const h = read(at(-100_000));
+    const h = read(at(-100_000, true));
     expect(h.consequence).toMatch(/not returned by repaying afterwards/i);
+    expect(h.consequence).toMatch(/the lending contract reports this loan as defaulted/i);
   });
 
   it('gives a grace-period borrower the time they actually have left, not the elapsed deadline', () => {
     const h = read(at(-600));
     expect(h.secondsToDeadline).toBe(-600);
-    expect(h.secondsToGraceEnd).toBe(GRACE - 600);
+    expect(h.minSecondsToGraceEnd).toBe(GRACE - 600);
+    expect(h.graceEndsAtLeastUnix).toBe(NOW - 600 + GRACE);
     expect(h.headline).toMatch(/left to repay/i);
   });
 });

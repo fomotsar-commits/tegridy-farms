@@ -86,7 +86,12 @@ export interface LoanDeadlineFact {
   contract: string;
   /** Pause-adjusted deadline, unix seconds, as read from the contract. */
   deadlineAt: number;
-  /** Unix seconds after which repayment is refused and the collateral is claimable. */
+  /**
+   * Earliest unix second at which repayment could be refused and the collateral
+   * become claimable. A lower bound, not a closing time: the venue's lending
+   * contract extends its grace period by any time it spent paused, and that
+   * extension is not readable off-chain. Carried as context; never compared.
+   */
   graceEndsAt: number;
   /** Coarse urgency label from the shield's health model. Compared, not parsed. */
   band: string;

@@ -23,6 +23,7 @@ export function ShieldAutomationNotice() {
       <p className="mt-1 text-white text-[13px] leading-snug">{state.statusDetail}</p>
       <p className="mt-1 text-white/70 text-[12px] leading-snug">{SHIELD_COPY.monitoringScope}</p>
       <p className="mt-1 text-white/70 text-[12px] leading-snug">{SHIELD_COPY.alertIsNotAnAction}</p>
+      <p className="mt-1 text-white/70 text-[12px] leading-snug">{SHIELD_COPY.onlyFullRepayment}</p>
 
       {state.requirements.length > 0 && (
         <details className="mt-3">

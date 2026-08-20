@@ -50,7 +50,10 @@ export function snapshotLoanReader(snapshot: ShieldPositionsSnapshot) {
         loanId: p.loanId,
         contract: p.lendingContract.toLowerCase(),
         deadlineAt: p.health.deadlineUnix,
-        graceEndsAt: p.health.graceEndsUnix,
+        // The earliest the window could close, not the moment it does — the
+        // contract extends grace by its own pause time. The rule compares
+        // `deadlineAt`; this travels as context and must not be read as exact.
+        graceEndsAt: p.health.graceEndsAtLeastUnix,
         band: p.health.band,
         consequence: p.health.consequence,
       });

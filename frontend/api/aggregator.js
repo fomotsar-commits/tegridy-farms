@@ -326,6 +326,20 @@ export default async function handler(req, res) {
     return handleAirdrop(req, res);
   }
 
+  // `?resource=referrals` is the short-code store behind `/?r=code` referral links:
+  // one code in, at most one wallet out. It is NOT the referral ledger — earnings,
+  // referee counts and claimable balances are ReferralSplitter's state and are read
+  // from chain, never mirrored here. It is also not a referrer directory: the single
+  // public read is service-role with a pinned one-row filter, for the same reason
+  // airdrop above has no recipient-list endpoint. The whole store being absent
+  // degrades to a working feature — `/?ref=0x…` links need no server at all. Lazy
+  // import, same as the branches above; also above `const provider`. See
+  // _lib/referrals.js.
+  if (req.query.resource === "referrals") {
+    const { handleReferrals } = await import("./_lib/referrals.js");
+    return handleReferrals(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

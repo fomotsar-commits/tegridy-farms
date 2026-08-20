@@ -64,8 +64,10 @@ export interface RawLoanRead {
   defaultClaimed: boolean;
   /** `effectiveDeadline(loanId)`, or null when the read failed. */
   effectiveDeadlineUnix: number | null;
-  /** `GRACE_PERIOD()`, or null when the read failed. */
-  graceSeconds: number | null;
+  /** `GRACE_PERIOD()` — the minimum grace, not the operative one. Null on read failure. */
+  minGraceSeconds: number | null;
+  /** `isDefaulted(loanId)` — the contract's own closure verdict. Null on read failure. */
+  defaultedOnChain: boolean | null;
   /** `getRepaymentAmount(loanId)`, or null when the read failed. */
   quotedRepayWei: bigint | null;
 }
@@ -87,9 +89,10 @@ export function buildSnapshot(reads: readonly RawLoanRead[], nowUnix: number): S
     defaultClaimed: r.defaultClaimed,
     health: assessDeadlineHealth({
       effectiveDeadlineUnix: r.effectiveDeadlineUnix,
-      graceSeconds: r.graceSeconds,
+      minGraceSeconds: r.minGraceSeconds,
+      defaultedOnChain: r.defaultedOnChain,
       nowUnix,
-      unreadableDetail: `Loan #${r.loanId}’s deadline could not be read from the lending contract, so its health is unknown. This is a failed read, not a loan that is fine.`,
+      unreadableDetail: `Loan #${r.loanId}’s deadline and default status could not be read from the lending contract, so its health is unknown. This is a failed read, not a loan that is fine.`,
     }),
     quotedRepayWei: r.quotedRepayWei,
     quoteDetail: r.quotedRepayWei == null ? QUOTE_UNREADABLE_DETAIL : null,

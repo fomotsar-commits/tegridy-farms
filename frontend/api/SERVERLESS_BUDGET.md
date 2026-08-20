@@ -56,6 +56,7 @@ into the 404.
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
 | `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
 | `airdrop` | `_lib/airdrop.js` | Airdrop manifest store: one claimant's own leaf + a server-generated proof; creator publish |
+| `referrals` | `_lib/referrals.js` | Short-code store for `/?r=code` referral links: one code in, at most one wallet out |
 
 `airdrop` is the one resource here whose absent branch is the security property. It has no
 endpoint that returns a campaign's recipient list, because a recipient list is a
@@ -68,6 +69,16 @@ claimant lookup is filtered to one address. Do not add a third.
 when something calls it, so nothing here can watch a rule while the user's tab is shut.
 Rules are evaluated in the browser, and the response's `delivery` block says so — do not
 "fix" this by adding a cron that pretends to be the F9 worker.
+
+`referrals` is the second resource here whose ABSENT capability is the point. It has no
+endpoint that returns more than one row: the single public read is service-role with a
+pinned `code=eq.<one code>&limit=1` filter, shape-pinned by
+`api/__tests__/referrals-surface-parity.test.js`. A wider read would be a downloadable
+list of every referrer's wallet — the same shape `airdrop` refuses. It is also NOT the
+referral ledger: earnings, referee counts and claimable balances are ReferralSplitter's
+on-chain state and are never mirrored into the table. Note that this resource being
+entirely absent degrades to a WORKING feature rather than a broken one — `/?ref=0x…`
+links resolve in the browser with no server, and the share surface mints those by default.
 
 `births` is server-side for the same reason `heat` is not an optimisation: it holds the
 shared signing secret, and a signature the browser could produce is one anybody could

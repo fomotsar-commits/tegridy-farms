@@ -18,9 +18,12 @@ import { shieldVenueReadiness } from '../lib/shield/venues';
 //
 // It leans on useMyLoans for loan discovery rather than re-scanning, so the
 // shield and the loan dashboard can never show a different set of loans. What it
-// adds is the two facts the dashboard does not read and the health model needs:
+// adds is the facts the dashboard does not read and the health model needs:
 // `effectiveDeadline` (the pause-adjusted deadline the claim path acts on, which
-// is NOT the `deadline` field on the loan struct) and the live repayment quote.
+// is NOT the `deadline` field on the loan struct), `isDefaulted` (the contract's
+// own verdict on whether the repayment window closed — see health.ts for why
+// that is read rather than computed from `GRACE_PERIOD`), and the live repayment
+// quote.
 //
 // FAILURE IS A STATE, NOT AN EMPTY LIST. useMyLoans already distinguishes "no
 // loans" from "could not read"; this hook carries that through and adds its own:
@@ -84,7 +87,9 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
       // GRACE_PERIOD is a constant on the contract, so one read covers every
       // loan. Failing it makes every deadline unjudgeable, which is why it is
       // read as `null` rather than defaulted to the value in the source: a
-      // constant we assume is a constant nobody read.
+      // constant we assume is a constant nobody read. It bounds the grace window
+      // from below and decides nothing — `isDefaulted`, read per loan, is what
+      // says whether repayment still settles.
       const grace = await publicClient
         .readContract({ address: contract, abi: TEGRIDY_NFT_LENDING_ABI, functionName: 'GRACE_PERIOD' })
         .then((v) => Number(v as bigint))
@@ -92,7 +97,7 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
 
       const settled = await Promise.all(
         myBorrows.map(async (loan) => {
-          const [deadline, quote] = await Promise.all([
+          const [deadline, defaulted, quote] = await Promise.all([
             publicClient
               .readContract({
                 address: contract,
@@ -101,6 +106,15 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
                 args: [BigInt(loan.id)],
               })
               .then((v) => Number(v as bigint))
+              .catch(() => null),
+            publicClient
+              .readContract({
+                address: contract,
+                abi: TEGRIDY_NFT_LENDING_ABI,
+                functionName: 'isDefaulted',
+                args: [BigInt(loan.id)],
+              })
+              .then((v) => v as boolean)
               .catch(() => null),
             publicClient
               .readContract({
@@ -123,7 +137,8 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
             repaid: loan.repaid,
             defaultClaimed: loan.defaultClaimed,
             effectiveDeadlineUnix: deadline,
-            graceSeconds: grace,
+            minGraceSeconds: grace,
+            defaultedOnChain: defaulted,
             quotedRepayWei: quote,
           };
           return raw;
@@ -132,7 +147,9 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
       if (cancelled) return;
       // Every deadline read failing is an RPC outage, not many independently
       // broken loans, and it is reported as one rather than as a list of rows
-      // that each individually say "unknown".
+      // that each individually say "unknown". Narrower failures — a missing
+      // grace constant, a missing `isDefaulted` — stay at row level, where the
+      // row still says "unknown" and still refuses to offer a signature.
       const allDark = settled.length > 0 && settled.every((r) => r.effectiveDeadlineUnix == null);
       setReadFailed(allDark);
       setReads(settled);

@@ -18,7 +18,12 @@ const OTHER = '0x9999999999999999999999999999999999999999' as const;
 const LENDING = '0x2222222222222222222222222222222222222222' as const;
 const ONE_ETH = 1_000_000_000_000_000_000n;
 
-const HEALTHY = assessDeadlineHealth({ effectiveDeadlineUnix: NOW + 7200, graceSeconds: 3600, nowUnix: NOW });
+const HEALTHY = assessDeadlineHealth({
+  effectiveDeadlineUnix: NOW + 7200,
+  minGraceSeconds: 3600,
+  defaultedOnChain: false,
+  nowUnix: NOW,
+});
 
 function input(over: Partial<PreparedRepayInput> = {}): PreparedRepayInput {
   return {
@@ -135,22 +140,56 @@ describe('it refuses rather than encoding a transaction it knows is dead', () =>
 
   it('refuses when health is unreadable, and repeats the read failure', () => {
     const reason = refusal({
-      health: assessDeadlineHealth({ effectiveDeadlineUnix: null, graceSeconds: null, nowUnix: NOW }),
+      health: assessDeadlineHealth({
+        effectiveDeadlineUnix: null,
+        minGraceSeconds: null,
+        defaultedOnChain: null,
+        nowUnix: NOW,
+      }),
     });
-    expect(reason).toMatch(/deadline could not be read/i);
+    expect(reason).toMatch(/deadline and default status could not be read/i);
     expect(reason).toMatch(/no repayment is prepared against a deadline nobody read/i);
   });
 
-  it('refuses after the grace period closes', () => {
+  it('refuses once the contract reports the loan defaulted, and says so as a read', () => {
     const reason = refusal({
-      health: assessDeadlineHealth({ effectiveDeadlineUnix: NOW - 100_000, graceSeconds: 3600, nowUnix: NOW }),
+      health: assessDeadlineHealth({
+        effectiveDeadlineUnix: NOW - 100_000,
+        minGraceSeconds: 3600,
+        defaultedOnChain: true,
+        nowUnix: NOW,
+      }),
     });
     expect(reason).toMatch(/repayment window has closed/i);
+    expect(reason).toMatch(/the lending contract reports this loan as defaulted/i);
+  });
+
+  // The refusal above is the most dangerous sentence this module can produce: it
+  // tells a borrower to stop trying. It may only follow the contract's own
+  // verdict. Past the GRACE_PERIOD constant with `isDefaulted` still false, the
+  // contract extended the grace for its own pause time and `repayLoan` succeeds —
+  // so the transaction gets built.
+  it('still builds the repayment past the minimum grace while the contract reports no default', () => {
+    const action = ok({
+      health: assessDeadlineHealth({
+        effectiveDeadlineUnix: NOW - 100_000,
+        minGraceSeconds: 3600,
+        defaultedOnChain: false,
+        nowUnix: NOW,
+      }),
+    });
+    expect(action.kind).toBe('repay');
+    expect(action.value).toBeGreaterThan(action.quotedRepayWei);
   });
 
   it('still prepares inside the grace period — the contract does accept it there', () => {
     const action = ok({
-      health: assessDeadlineHealth({ effectiveDeadlineUnix: NOW - 600, graceSeconds: 3600, nowUnix: NOW }),
+      health: assessDeadlineHealth({
+        effectiveDeadlineUnix: NOW - 600,
+        minGraceSeconds: 3600,
+        defaultedOnChain: false,
+        nowUnix: NOW,
+      }),
     });
     expect(action.kind).toBe('repay');
   });

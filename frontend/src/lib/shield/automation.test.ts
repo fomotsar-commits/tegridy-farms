@@ -18,6 +18,7 @@ import {
   EXECUTION_IS_YOURS,
   F4_REQUIREMENTS,
   MONITORING_SCOPE,
+  ONLY_FULL_REPAYMENT,
   SHIELD_AUTOMATION_AVAILABLE,
   SHIELD_COPY,
   shieldAutomationState,
@@ -75,21 +76,31 @@ function everyShieldSentence(): string[] {
   }
 
   // Health copy is generated, so it is generated here rather than transcribed.
-  const offsets = [-100_000, -60, 0, 3600, 40 * 3600, 100 * 3600];
+  // Both verdicts are swept at every offset, so the pause-extended-grace copy —
+  // past the constant, contract still accepting — is covered like the rest.
+  const offsets = [-100_000, -5_000, -60, 0, 3600, 40 * 3600, 100 * 3600];
   for (const offset of offsets) {
-    const health = assessDeadlineHealth({
-      effectiveDeadlineUnix: NOW + offset,
-      graceSeconds: 3600,
-      nowUnix: NOW,
-    });
-    if (health.status === 'read') {
-      out.push(health.headline, health.consequence, health.healthFactorDetail);
-    } else {
-      out.push(health.detail);
+    for (const defaultedOnChain of [false, true]) {
+      const health = assessDeadlineHealth({
+        effectiveDeadlineUnix: NOW + offset,
+        minGraceSeconds: 3600,
+        defaultedOnChain,
+        nowUnix: NOW,
+      });
+      if (health.status === 'read') {
+        out.push(health.headline, health.consequence, health.healthFactorDetail);
+      } else {
+        out.push(health.detail);
+      }
     }
   }
   out.push(
-    (assessDeadlineHealth({ effectiveDeadlineUnix: null, graceSeconds: null, nowUnix: NOW }) as { detail: string })
+    (assessDeadlineHealth({
+      effectiveDeadlineUnix: null,
+      minGraceSeconds: null,
+      defaultedOnChain: null,
+      nowUnix: NOW,
+    }) as { detail: string })
       .detail,
   );
 
@@ -104,7 +115,12 @@ function everyShieldSentence(): string[] {
     repaid: false,
     defaultClaimed: false,
     quotedRepayWei: 1_000_000_000_000_000_000n,
-    health: assessDeadlineHealth({ effectiveDeadlineUnix: NOW + 3600, graceSeconds: 3600, nowUnix: NOW }),
+    health: assessDeadlineHealth({
+      effectiveDeadlineUnix: NOW + 3600,
+      minGraceSeconds: 3600,
+      defaultedOnChain: false,
+      nowUnix: NOW,
+    }),
   } as const;
 
   const variants = [
@@ -118,11 +134,21 @@ function everyShieldSentence(): string[] {
     { ...base, quotedRepayWei: null },
     {
       ...base,
-      health: assessDeadlineHealth({ effectiveDeadlineUnix: null, graceSeconds: null, nowUnix: NOW }),
+      health: assessDeadlineHealth({
+        effectiveDeadlineUnix: null,
+        minGraceSeconds: null,
+        defaultedOnChain: null,
+        nowUnix: NOW,
+      }),
     },
     {
       ...base,
-      health: assessDeadlineHealth({ effectiveDeadlineUnix: NOW - 100_000, graceSeconds: 3600, nowUnix: NOW }),
+      health: assessDeadlineHealth({
+        effectiveDeadlineUnix: NOW - 100_000,
+        minGraceSeconds: 3600,
+        defaultedOnChain: true,
+        nowUnix: NOW,
+      }),
     },
   ];
   for (const v of variants) {
@@ -162,6 +188,15 @@ describe('the shield never claims an execution nobody performs', () => {
 
   it('describes itself as monitoring and preparation, not rescue', () => {
     expect(SHIELD_COPY.subtitle).toMatch(/not automated/i);
+  });
+
+  it('says the smaller moves a borrower would look for do not exist here', () => {
+    // `repayLoan` is the only debt-side function and reverts under the full
+    // amount. A user hunting for a partial repay or a deleverage is hunting for
+    // something that is not there, with a deadline running.
+    expect(ONLY_FULL_REPAYMENT).toMatch(/no partial repayment/i);
+    expect(ONLY_FULL_REPAYMENT).toMatch(/no collateral top-up/i);
+    expect(ONLY_FULL_REPAYMENT).toMatch(/no deleverage/i);
   });
 
   it.each(BANNED_PROMISES.map((re) => [re.source, re] as const))(
