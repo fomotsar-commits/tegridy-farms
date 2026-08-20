@@ -24,6 +24,7 @@ const LaunchpadSection = lazy(() =>
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { PageSkeleton } from '../components/PageSkeleton';
+import { ShieldPanel } from '../components/shield/ShieldPanel';
 import {
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
@@ -363,7 +364,14 @@ export default function LendingPage() {
           <Suspense fallback={<PageSkeleton />}>
             {section === 'lending' && <LendingSection address={address} />}
             {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
-              ? <NFTLendingSection />
+              ? (
+                <div className="space-y-6">
+                  <NFTLendingSection />
+                  {/* Above the fold of "My Loans" would be better; it sits here because
+                      the shield reads the same loans and must not fork the read. */}
+                  <ShieldPanel />
+                </div>
+              )
               : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
             {section === 'amm' && <AMMSection />}
             {section === 'launchpad' && <LaunchpadSection />}

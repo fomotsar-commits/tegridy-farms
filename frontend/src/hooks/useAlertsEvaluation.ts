@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { readAll } from '../lib/alerts/readers';
+import { readAll, type ReaderDeps } from '../lib/alerts/readers';
 import {
   evaluateAll,
   summarizeEvaluations,
@@ -63,6 +63,14 @@ export interface UseAlertsEvaluationOptions {
   /** False parks the loop without reading anything. */
   enabled?: boolean;
   intervalMs?: number;
+  /**
+   * Extra capabilities for readers that cannot fetch on their own — today, the
+   * loan reader, which needs a wallet and an RPC client this loop has no business
+   * acquiring. Held in a ref rather than a dependency: a caller rebuilding the
+   * object each render must not spend a network pass, and a reader appearing
+   * mid-session is a new capability, not a reason to re-read.
+   */
+  readerDeps?: Omit<ReaderDeps, 'signal'>;
 }
 
 export interface UseAlertsEvaluationState {
@@ -80,7 +88,10 @@ export function useAlertsEvaluation(
   rules: readonly AlertRule[],
   opts: UseAlertsEvaluationOptions = {},
 ): UseAlertsEvaluationState {
-  const { enabled = true, intervalMs = DEFAULT_INTERVAL_MS } = opts;
+  const { enabled = true, intervalMs = DEFAULT_INTERVAL_MS, readerDeps } = opts;
+
+  const readerDepsRef = useRef<Omit<ReaderDeps, 'signal'>>(readerDeps ?? {});
+  readerDepsRef.current = readerDeps ?? {};
 
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [lastRunAt, setLastRunAt] = useState<number | null>(null);
@@ -114,7 +125,10 @@ export function useAlertsEvaluation(
     (async () => {
       setRunning(true);
       try {
-        const readings = await readAll(activeRules, { signal: controller.signal });
+        const readings = await readAll(activeRules, {
+          ...readerDepsRef.current,
+          signal: controller.signal,
+        });
         if (cancelled || controller.signal.aborted) return;
         const now = Math.floor(Date.now() / 1000);
         const { evaluations: next, nextPriors } = evaluateAll(activeRules, readings, loadPriors(), now);

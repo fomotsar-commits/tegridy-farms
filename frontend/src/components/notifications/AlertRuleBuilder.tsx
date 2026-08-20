@@ -4,6 +4,7 @@ import {
   RULE_KIND_LABELS,
   RULE_KIND_MEANING,
   SUBJECT_LABEL,
+  THRESHOLD_LABEL,
   describeRule,
   usesThreshold,
   type AlertRule,
@@ -117,11 +118,14 @@ export function AlertRuleBuilder({
 
         {usesThreshold(kind) && (
           <label className="block">
-            <span className="sr-only">USD threshold</span>
+            {/* Per-kind, because the kinds do not share a unit: a box hard-labelled
+                "USD threshold" over a field that means hours creates a rule that
+                fires at the wrong time, or never. */}
+            <span className="sr-only">{THRESHOLD_LABEL[kind]}</span>
             <input
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
-              placeholder="USD threshold"
+              placeholder={THRESHOLD_LABEL[kind] ?? ''}
               inputMode="decimal"
               disabled={disabled}
               className="w-full px-2 py-1 rounded-lg text-white text-[12px]"

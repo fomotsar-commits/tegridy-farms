@@ -12,9 +12,10 @@
 // read the same sentence.
 
 import { indexerConfigProblem, isIndexerConfigured } from '../indexer/client';
+import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
 import type { AlertRuleKind } from './rules';
 
-export type AlertSourceId = 'indexer' | 'heat-oracle' | 'launch-radar' | 'explorer';
+export type AlertSourceId = 'indexer' | 'heat-oracle' | 'launch-radar' | 'explorer' | 'venue-lending';
 
 export interface AlertSource {
   id: AlertSourceId;
@@ -54,6 +55,13 @@ export const ALERT_SOURCES: Record<AlertSourceId, AlertSource> = {
     operatorStep:
       'Set ETHERSCAN_API_KEY on the deployment so /api/etherscan can answer. Without it the deployer’s creation history cannot be discovered.',
   },
+  'venue-lending': {
+    id: 'venue-lending',
+    label: 'Venue lending contracts (direct reads)',
+    attribution: 'direct reads of the venue’s own lending contracts',
+    operatorStep:
+      'No operator step — loans are read straight from the chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
+  },
 };
 
 export const RULE_SOURCE: Record<AlertRuleKind, AlertSourceId> = {
@@ -62,6 +70,7 @@ export const RULE_SOURCE: Record<AlertRuleKind, AlertSourceId> = {
   'deployer-reputation': 'explorer',
   'launch-live': 'launch-radar',
   'heat-tier': 'heat-oracle',
+  'loan-deadline': 'venue-lending',
 };
 
 export interface SourceReadiness {
@@ -81,10 +90,20 @@ const INDEXER_UNSET_DETAIL =
  */
 export function sourceReadiness(): Record<AlertSourceId, SourceReadiness> {
   const indexerReadable = isIndexerConfigured();
+  const lendingDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
   return {
     indexer: {
       readable: indexerReadable,
       detail: indexerReadable ? null : (indexerConfigProblem() ?? INDEXER_UNSET_DETAIL),
+    },
+    // Deployed is the whole gate here: the contract is read directly, so there is
+    // no service to configure. A failed RPC read is an outage and is reported as
+    // one at read time, exactly like the same-origin sources below.
+    'venue-lending': {
+      readable: lendingDeployed,
+      detail: lendingDeployed
+        ? null
+        : 'The venue’s lending contract is not deployed on this network, so there are no loans to read and no deadline to watch.',
     },
     // Same-origin resources on the aggregator catchall. They ship with every
     // deployment, so there is no configuration that could make them absent; a

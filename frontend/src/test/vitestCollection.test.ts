@@ -45,6 +45,14 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   //   npx vitest run --root ../indexer-solana --environment node
   // ci.yml runs exactly that in the "Solana indexer unit tests" step.
   { prefix: 'indexer-solana/', runner: "vitest --root ../indexer-solana (ci.yml 'Solana indexer unit tests')" },
+  // The arb-linkage monitor and its pause consumer. Plain `node --test`, not
+  // vitest: they are operational scripts that must run on a bare runner with no
+  // frontend toolchain, and the workflow that schedules the monitor runs their
+  // tests in the same job — deliberately AFTER the reporting steps, so a
+  // regressed assertion reddens the run without suppressing an alert.
+  //   .github/workflows/arb-linkage-monitor.yml:163
+  { prefix: 'contracts/monitoring/', runner: 'node --test (arb-linkage-monitor.yml)' },
+  { prefix: 'scripts/monitoring/', runner: 'node --test (arb-linkage-monitor.yml)' },
   // Vendored dependency trees. Not ours, not our runner's problem.
   { prefix: 'contracts/lib/', runner: 'upstream vendored dependency (not executed here)' },
 ];
@@ -98,6 +106,23 @@ describe('the frontend vitest project cannot reach outside frontend/', () => {
     // the config's directory; include patterns are resolved under it.
     const here = relative(REPO_ROOT, FRONTEND).split(sep).join('/');
     expect(here).toBe('frontend');
+  });
+
+  it('proves the node --test entries actually name files the workflow runs', () => {
+    // An OTHER_RUNNERS entry is a CLAIM that something else executes these
+    // files, and an unverified claim is how a test file goes quiet while
+    // still looking accounted for — the precise failure this guard exists to
+    // prevent, relocated one level up. The workflow must invoke each file by
+    // name; a glob would not survive a rename, and neither would the coverage.
+    const wf = join(REPO_ROOT, '.github', 'workflows', 'arb-linkage-monitor.yml');
+    expect(existsSync(wf), 'arb-linkage-monitor.yml is cited as a runner but missing').toBe(true);
+    const src = readFileSync(wf, 'utf-8');
+    expect(src, 'the workflow no longer invokes node --test').toContain('node --test');
+    for (const f of gitTrackedTestFiles().filter(
+      (f) => f.startsWith('contracts/monitoring/') || f.startsWith('scripts/monitoring/'),
+    )) {
+      expect(src, `${f} is accounted for by that workflow but not named in it`).toContain(f);
+    }
   });
 
   it('proves the repo-root scripts CI actually exercises have a self-test entry point', () => {

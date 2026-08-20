@@ -110,3 +110,51 @@ describe('priors survive a pass, and a corrupt store re-baselines instead of lyi
     expect(JSON.parse(localStorage.getItem(PRIORS_STORAGE_KEY) ?? '{}')).toEqual({});
   });
 });
+
+describe('injected reader capabilities reach the pass without driving it', () => {
+  // The loan reader needs a wallet and an RPC client this loop must not acquire,
+  // so it arrives as a capability. Two properties matter: it is actually used
+  // (otherwise a deadline rule silently reports "nothing read it" forever), and
+  // its identity does not schedule work (otherwise a caller rebuilding the
+  // object each render spends a network pass per render).
+  const deadlineRule = (): AlertRule => rule({ id: 'loan-1', kind: 'loan-deadline', threshold: 24 });
+
+  it('hands the supplied reader to the rule that needs it', async () => {
+    const loanDeadlineReader = vi.fn(async () => ({
+      status: 'ok' as const,
+      observedAt: 1,
+      value: { kind: 'loan-deadline' as const, loans: [] },
+    }));
+    const { result } = renderHook(() =>
+      useAlertsEvaluation([deadlineRule()], { intervalMs: 0, readerDeps: { loanDeadlineReader } }),
+    );
+    await waitFor(() => expect(result.current.lastRunAt).not.toBeNull());
+    expect(loanDeadlineReader).toHaveBeenCalled();
+    expect(result.current.counts.quiet).toBe(1);
+  });
+
+  it('without one, the rule is cannot-evaluate — never quiet', async () => {
+    const { result } = renderHook(() => useAlertsEvaluation([deadlineRule()], { intervalMs: 0 }));
+    await waitFor(() => expect(result.current.lastRunAt).not.toBeNull());
+    expect(result.current.counts.cannotEvaluate).toBe(1);
+    expect(result.current.counts.quiet).toBe(0);
+  });
+
+  it('a new deps object on re-render does not spend another pass', async () => {
+    const loanDeadlineReader = vi.fn(async () => ({
+      status: 'ok' as const,
+      observedAt: 1,
+      value: { kind: 'loan-deadline' as const, loans: [] },
+    }));
+    const rules = [deadlineRule()];
+    const { result, rerender } = renderHook(() =>
+      // A fresh object literal every render, which is what a naive caller writes.
+      useAlertsEvaluation(rules, { intervalMs: 0, readerDeps: { loanDeadlineReader } }),
+    );
+    await waitFor(() => expect(result.current.lastRunAt).not.toBeNull());
+    const passes = loanDeadlineReader.mock.calls.length;
+    rerender();
+    rerender();
+    expect(loanDeadlineReader.mock.calls.length).toBe(passes);
+  });
+});

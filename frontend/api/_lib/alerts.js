@@ -37,10 +37,19 @@ import { logSafe } from "./logSafe.js";
 const TABLE = "alert_rules";
 
 /** Mirrors src/lib/alerts/rules.ts. Kept as a literal so a drift test can pin both. */
-const ALERT_RULE_KINDS = ["whale-move", "deployer-reputation", "lp-unlock", "launch-live", "heat-tier"];
+const ALERT_RULE_KINDS = ["whale-move", "deployer-reputation", "lp-unlock", "launch-live", "heat-tier", "loan-deadline"];
 
-/** Only `whale-move` carries a threshold; every other kind must send null. */
-const THRESHOLD_KINDS = new Set(["whale-move"]);
+/**
+ * Kinds that carry a threshold; every other kind must send null.
+ *
+ * The two do not share a unit — `whale-move` is USD, `loan-deadline` is hours
+ * of lead time before a loan's deadline — so the error text below names the
+ * unit rather than assuming dollars.
+ */
+const THRESHOLD_KINDS = new Set(["whale-move", "loan-deadline"]);
+
+/** What the threshold measures, per kind. Rendered in the rejection message. */
+const THRESHOLD_UNIT = { "whale-move": "USD", "loan-deadline": "hours" };
 
 /**
  * Absolute ceiling per wallet, enforced here because a client-side cap is a
@@ -146,7 +155,10 @@ function validateWrite(body) {
     if (THRESHOLD_KINDS.has(kind)) {
       const raw = typeof body.threshold === "string" ? Number(body.threshold) : body.threshold;
       if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
-        return { ok: false, error: "This rule type needs a USD threshold greater than zero." };
+        return {
+          ok: false,
+          error: `This rule type needs a threshold in ${THRESHOLD_UNIT[kind]} greater than zero.`,
+        };
       }
       threshold = raw;
     } else if (body.threshold != null) {

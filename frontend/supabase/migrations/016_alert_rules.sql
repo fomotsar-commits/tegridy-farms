@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS alert_rules (
                             'deployer-reputation',
                             'lp-unlock',
                             'launch-live',
-                            'heat-tier'
+                            'heat-tier',
+                            'loan-deadline'
                           )),
   -- The address the rule watches: token contract, deployer, or wallet depending
   -- on `kind`. Lower-cased 0x-prefixed EVM address; the API validates the shape.

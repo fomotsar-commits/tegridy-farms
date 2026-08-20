@@ -43,6 +43,16 @@ function nowUnix(): number {
 export interface ReaderDeps {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  /**
+   * Supplies borrowed-loan facts for `loan-deadline` rules.
+   *
+   * Injected rather than implemented here because the read is an RPC call needing
+   * a connected wallet and a viem client, neither of which this module has or
+   * should acquire. Absent, the rule reports that nothing read it — which is the
+   * honest state for a rule evaluated outside the shield surface, and is not the
+   * same as a loan with time to spare.
+   */
+  loanDeadlineReader?: RuleReader;
 }
 
 // ── heat-tier ────────────────────────────────────────────────────────────────
@@ -217,6 +227,28 @@ export function readIndexedKind(rule: AlertRule): SourceReading<RuleFacts> {
   );
 }
 
+// ── loan-deadline ────────────────────────────────────────────────────────────
+
+/**
+ * Two gates, in order, and neither may be answered with an empty loan list.
+ *
+ * A deadline rule that reports "quiet" because nothing was wired to read it is
+ * the worst outcome this engine can produce: the user is told their loans are
+ * fine by a pass that never looked at a loan.
+ */
+export async function readLoanDeadline(rule: AlertRule, deps: ReaderDeps = {}): Promise<SourceReading<RuleFacts>> {
+  const readiness = sourceReadiness()[RULE_SOURCE[rule.kind]];
+  if (!readiness.readable) {
+    return unavailable(readiness.detail ?? 'The venue’s lending contract is not readable on this deployment.');
+  }
+  if (!deps.loanDeadlineReader) {
+    return unavailable(
+      'No on-chain loan reader was supplied to this evaluation pass, so no loan was read. Deadline rules are only evaluated on the shield surface, where a connected wallet and an RPC client exist.',
+    );
+  }
+  return deps.loanDeadlineReader(rule, deps);
+}
+
 // ── dispatch ─────────────────────────────────────────────────────────────────
 
 export type RuleReader = (rule: AlertRule, deps: ReaderDeps) => Promise<SourceReading<RuleFacts>>;
@@ -227,6 +259,7 @@ export const READERS: Record<AlertRule['kind'], RuleReader> = {
   'deployer-reputation': readDeployerReputation,
   'whale-move': async (rule) => readIndexedKind(rule),
   'lp-unlock': async (rule) => readIndexedKind(rule),
+  'loan-deadline': readLoanDeadline,
 };
 
 /**

@@ -35,7 +35,7 @@ function rule(kind: AlertRuleKind, over: Partial<AlertRule> = {}): AlertRule {
     id: `rule-${kind}`,
     kind,
     subject: SUBJECT,
-    threshold: kind === 'whale-move' ? 10_000 : null,
+    threshold: kind === 'whale-move' ? 10_000 : kind === 'loan-deadline' ? 24 : null,
     enabled: true,
     createdAt: NOW - 3600,
     ...over,
@@ -77,6 +77,24 @@ function firingReading(kind: AlertRuleKind, prior?: PriorSnapshot): SourceReadin
         status: 'ok',
         observedAt: NOW,
         value: { kind, change: { signature: 'c2/a1/t0/n1/u0@low', label: '2 created · 1 active', staleDetail: null } },
+      };
+    case 'loan-deadline':
+      return {
+        status: 'ok',
+        observedAt: NOW,
+        value: {
+          kind,
+          loans: [
+            {
+              loanId: 4,
+              contract: SUBJECT,
+              deadlineAt: NOW + 3600,
+              graceEndsAt: NOW + 7200,
+              band: 'urgent',
+              consequence: 'Repay within 1h or the lender can claim the collateral NFT and keep it.',
+            },
+          ],
+        },
       };
   }
   void prior;

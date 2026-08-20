@@ -255,6 +255,32 @@ describe('the indexed kinds are dark, and say so', () => {
   });
 });
 
+describe('a deadline rule with nothing wired to read it says so', () => {
+  it('refuses when no on-chain loan reader was supplied to the pass', async () => {
+    const reading = await READERS['loan-deadline'](rule('loan-deadline'), {});
+    expect(reading.status).toBe('unavailable');
+    if (reading.status === 'unavailable') {
+      expect(reading.detail).toMatch(/no on-chain loan reader was supplied/i);
+    }
+  });
+
+  it('the refusal is not a claim that the wallet has no loans', async () => {
+    const reading = await READERS['loan-deadline'](rule('loan-deadline'), {});
+    expect(reading.status).not.toBe('ok');
+  });
+
+  it('delegates to the supplied reader when one exists', async () => {
+    const supplied = vi.fn(async () => ({
+      status: 'ok' as const,
+      observedAt: 1,
+      value: { kind: 'loan-deadline' as const, loans: [] },
+    }));
+    const reading = await READERS['loan-deadline'](rule('loan-deadline'), { loanDeadlineReader: supplied });
+    expect(supplied).toHaveBeenCalledTimes(1);
+    expect(reading.status).toBe('ok');
+  });
+});
+
 describe('readAll', () => {
   it('a reader that throws becomes an unavailable reading, not a lost rule', async () => {
     fetchHeatMock.mockImplementation(() => {

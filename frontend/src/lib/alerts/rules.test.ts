@@ -15,6 +15,7 @@ import {
   RULE_KIND_LABELS,
   RULE_KIND_MEANING,
   SUBJECT_LABEL,
+  THRESHOLD_LABEL,
   describeRule,
   isChangeDetectionKind,
   isDuplicateRule,
@@ -42,8 +43,23 @@ describe('the vocabulary is fully described', () => {
     }
   });
 
-  it('only whale-move takes a threshold', () => {
-    expect(ALERT_RULE_KINDS.filter(usesThreshold)).toEqual(['whale-move']);
+  it('exactly the two measured kinds take a threshold', () => {
+    expect(ALERT_RULE_KINDS.filter(usesThreshold)).toEqual(['whale-move', 'loan-deadline']);
+  });
+
+  it('a threshold kind names its unit, and a non-threshold kind names none', () => {
+    // The two thresholds are not the same quantity — dollars and hours — and a
+    // form that labels both "USD threshold" creates a rule that fires at the
+    // wrong time or never.
+    for (const kind of ALERT_RULE_KINDS) {
+      if (usesThreshold(kind)) {
+        expect(THRESHOLD_LABEL[kind], kind).toBeTruthy();
+      } else {
+        expect(THRESHOLD_LABEL[kind], kind).toBeNull();
+      }
+    }
+    expect(THRESHOLD_LABEL['whale-move']).toMatch(/USD/i);
+    expect(THRESHOLD_LABEL['loan-deadline']).toMatch(/hours/i);
   });
 
   it('the change-detection kinds are exactly the two that compare readings', () => {

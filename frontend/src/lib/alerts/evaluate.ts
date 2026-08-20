@@ -71,6 +71,29 @@ export interface LaunchFact {
   name?: string;
 }
 
+/**
+ * One borrowed loan, as the lending contract reports it.
+ *
+ * `band` is supplied by the reader rather than derived here, and it is what the
+ * idempotency key hangs on. Keying on the loan alone would deliver ONE warning —
+ * the first time the loan crossed the threshold, possibly days out — and then
+ * silence as it ran down to the wire, which is the failure mode a deadline alert
+ * exists to prevent. Keying on the band means each escalation is its own fact.
+ */
+export interface LoanDeadlineFact {
+  loanId: number;
+  /** Lending contract the loan lives on, lower-cased. */
+  contract: string;
+  /** Pause-adjusted deadline, unix seconds, as read from the contract. */
+  deadlineAt: number;
+  /** Unix seconds after which repayment is refused and the collateral is claimable. */
+  graceEndsAt: number;
+  /** Coarse urgency label from the shield's health model. Compared, not parsed. */
+  band: string;
+  /** One sentence naming what is lost if nothing is signed. Rendered verbatim. */
+  consequence: string;
+}
+
 /** A change-detection fact reduced to something comparable plus something readable. */
 export interface ChangeFact {
   /** Compared between readings. Equal signatures mean nothing changed. */
@@ -89,7 +112,8 @@ export type RuleFacts =
   | { kind: 'lp-unlock'; unlocks: LpUnlockFact[] }
   | { kind: 'launch-live'; launches: LaunchFact[] }
   | { kind: 'heat-tier'; change: ChangeFact }
-  | { kind: 'deployer-reputation'; change: ChangeFact };
+  | { kind: 'deployer-reputation'; change: ChangeFact }
+  | { kind: 'loan-deadline'; loans: LoanDeadlineFact[] };
 
 export interface AlertEvent {
   /**
@@ -281,6 +305,35 @@ export function evaluateRule(
           detail: events.length
             ? 'A new pool for this token is in the feed.'
             : `No pool for ${shortAddr(rule.subject)} appeared in the new-pool feed that was read.`,
+        },
+        nextPrior: null,
+      };
+    }
+
+    case 'loan-deadline': {
+      const leadSeconds = (rule.threshold ?? 0) * 3600;
+      const mine = facts.loans.filter((l) => l.contract.toLowerCase() === rule.subject.toLowerCase());
+      const due = mine.filter((l) => l.deadlineAt - nowUnix <= leadSeconds);
+      const events: AlertEvent[] = due.map((l) => ({
+        idempotencyKey: `loan-deadline:${rule.id}:${l.contract.toLowerCase()}:${l.loanId}:${l.deadlineAt}:${l.band}`,
+        ruleId: rule.id,
+        kind: rule.kind,
+        title: `Loan #${l.loanId} — ${shortAddr(rule.subject)}`,
+        body: l.consequence,
+        provenance,
+        observedAt: reading.observedAt,
+        anchor: { chain: chainForKind(rule.kind), ref: l.contract },
+      }));
+      return {
+        evaluation: {
+          ...base,
+          verdict: events.length ? 'fired' : 'quiet',
+          events,
+          detail: events.length
+            ? `${events.length} loan${events.length === 1 ? ' is' : 's are'} within ${rule.threshold ?? 0}h of the deadline.`
+            : mine.length
+              ? `${mine.length} open loan${mine.length === 1 ? '' : 's'} on ${shortAddr(rule.subject)}, none within ${rule.threshold ?? 0}h of its deadline.`
+              : `This wallet has no open borrow on ${shortAddr(rule.subject)}.`,
         },
         nextPrior: null,
       };
