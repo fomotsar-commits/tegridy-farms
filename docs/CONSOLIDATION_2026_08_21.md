@@ -117,6 +117,38 @@ undeployable artifact. That is a hazard, not a comment problem, and the extracti
 
 ---
 
+## 5b. The typecheck is still vacuous over every test file
+
+`98d175a3` — "guard: make the vacuous typecheck impossible to run into again" — closed one vacuous
+typecheck. **There is a second one it does not cover, and verification here found it.**
+
+`frontend/tsconfig.json` references only `tsconfig.app.json` and `tsconfig.node.json`.
+`tsconfig.test.json` exists and is **referenced by nothing**. `tsconfig.app.json` line 33 excludes
+`src/**/*.test.ts`, `src/**/*.test.tsx` and `src/test`. So `npx tsc -b --noEmit` — the command the
+repo settled on precisely *because* the previous one checked nothing — checks no test file at all.
+
+Proven by mutation, both directions:
+
+| probe | command | result |
+|---|---|---|
+| `const x: number = "string"` in `src/__probe.ts` | `npx tsc -b --noEmit` | **exit 2**, TS2322 — gate bites |
+| the identical line in `src/__probe.test.ts` | `npx tsc -b --noEmit` | **exit 0, zero output** |
+
+Compiling the orphan directly, `npx tsc -p tsconfig.test.json --noEmit`, gives **53 errors across
+24 files**. Three of those errors are in **two files that are not tests at all**, so they are
+production type errors no gate currently sees:
+
+- `playwright.config.ts:59` — TS2769, `reducedMotion` is not a valid key in Playwright's
+  `UseOptions`. That config line is silently doing nothing.
+- `src/lib/irysClient.ts:21,37` — TS2339 ×2, `Property 'ethereum' does not exist on Window`. This
+  file passes under `tsconfig.app.json` and fails under `tsconfig.test.json`, so the two projects
+  disagree about the ambient `Window` type. Worth resolving before either is trusted.
+
+Not fixed here. Wiring the reference is one line; clearing the 53 errors behind it is a real piece
+of work and a separate change, and doing it half-way would leave a red gate that gets switched off.
+
+---
+
 ## 6. Still open
 
 **Operator-only, in unlock order** — the full list stays in
@@ -136,6 +168,9 @@ undeployable artifact. That is a hazard, not a comment problem, and the extracti
 **Decisions nobody should guess at:** the Safe topology, the graduation-venue shape (the tree holds
 two incompatible versions of #2), airdrop manifest hosting, and the PWA name.
 
-**Agent-buildable and deliberately not taken here:** the TegridyStaking / VoteIncentives headroom
-extraction, and populating `expect.type` for the Ethereum entries in the address registry beyond
-what repo evidence can justify.
+**Agent-buildable and deliberately not taken here, highest value first:**
+1. **Wire `tsconfig.test.json` into the build and clear the 53 errors behind it** (§5b). Until
+   this lands, no test file in the frontend is typechecked by anything.
+2. **The TegridyStaking / VoteIncentives headroom extraction** — 22 B and 99 B respectively (§5).
+3. Populating `expect.type` for Ethereum registry entries beyond what repo evidence can justify —
+   that needs a live chain read, not more repo archaeology.
