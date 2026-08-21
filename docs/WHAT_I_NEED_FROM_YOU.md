@@ -103,21 +103,52 @@ follows 0.1.
 
 ---
 
+### 1.4 Mint DBC config v2 — the cheapest revenue-relevant act on this page
+**What:** run `frontend/scripts/solana-dbc-operator.mjs create-config` — **print it without
+`--send` first**, read the fee split it resolves, then sign.
+**Why it matters:** your Solana rail is armed on mainnet and has taken **zero launches**. The
+reason is config v1: it opens at a **99% fee** (`cliffFeeNumerator` = 990000000), which makes a
+freshly launched token economically untradeable for roughly four hours. A DBC config is
+**immutable**, so this is not a setting you can correct — it needs a v2 config.
+⛔ **Never publish `VITE_SOLANA_DBC_CONFIG` before v2 exists.** Doing so ships public launches
+into that fee.
+**Both code gates are now closed, so nothing blocks you:**
+- `CONFIG_OFFSETS.feeClaimer` **72 → 40** — shipped 2026-08-18 `21835d1d`. This one is
+  load-bearing: on v1 both offsets hold the same key so nothing is exposed, but the moment a v2
+  config is minted, offset 40 is the only thing standing between a mistyped `fee_claimer` and
+  every future launch's partner fees — **and reading the wrong one would report "verified."**
+- `--opening-fee-bps` / `--resting-fee-bps` / `--decay-seconds` — shipped 2026-08-18 `21835d1d`.
+  Without them a signing session silently reproduces `DEFAULT_ANTI_SNIPE` = 9900 bps, which is
+  how v1 got its opening fee in the first place. The resolved schedule now prints in the dry run,
+  and anything above 5000 bps refuses without an explicit acknowledgement flag.
+
+**Why this is on the Tier 1 page at all:** it is independent of the "restart or retire the own-venue
+programs" decision — DBC is Meteora's program, not ours — so it does not wait behind that call.
+Sequence: mint v2 → publish `VITE_SOLANA_DBC_CONFIG` → first public launch through the rail.
+Full tier in [`EVERYTHING_LEFT_2026_08_15.md`](EVERYTHING_LEFT_2026_08_15.md) §4.
+
 ## Tier 2 — switches, all of them deliberately off
 
 Everything below was built, tested, and shipped **inert**. Each line is the exact act that turns
 one on. None of them can turn on by accident, and several are ordered — the order is stated where
 getting it backwards costs you something.
 
-### 2.1 Mount three finished surfaces *(one line each; I could not reach the files)*
-`AlertsPanel`, the trigger-order tab, and the launch-pricing call site all sit outside the
-ownership fences the build slices ran under, so they are complete and unrouted:
-- Alerts: route `src/components/notifications/AlertsPanel.tsx` and add it to `lib/navConfig.ts`.
-- Triggers: add a `trigger` tab to `pages/TradePage.tsx`, mirroring the existing TWAP tab.
-- Launch pricing: thread `pricing` through `pages/LaunchPage.tsx` — until then both fee flags
-  below are inert end-to-end no matter what you set.
-- `/airdrop` and `/vesting` are reachable by URL but not in the nav, which suits rails that are
-  still undeployed. Adding them should be a deliberate act.
+### 2.1 ~~Mount three finished surfaces~~ — ✅ **done, nothing here is yours**
+This section asked you to connect three surfaces I could not reach from inside the build slices'
+ownership fences. All three were mounted in `7ba46691` on 2026-08-19 and verified again
+2026-08-21:
+- **Alerts** — routed at `/alerts` and listed under Trust & Safety in `lib/navConfig.ts`. It
+  carries `soon: true` until migration `016` is applied by hand, because until then the store
+  answers 503 `schema-missing`.
+- **Triggers** — `'trigger'` is in the `Tab` union and `VALID_TABS` on `pages/TradePage.tsx`, with
+  its panel mounted alongside TWAP. The tab-button row now maps `VALID_TABS` rather than a second
+  hardcoded literal, which could previously diverge in silence.
+- **Launch pricing** — `readLaunchPricing` is threaded through `pages/LaunchPage.tsx`, so the two
+  fee flags in §2.4 are now live end-to-end once you set them. Before this, they were inert no
+  matter what you set.
+
+Still true and still a deliberate act: `/airdrop` and `/vesting` are reachable by URL but not in
+the nav, which suits rails that are still undeployed.
 
 ### 2.2 Apply two migrations by hand *(this database has no migration ledger)*
 `016_alert_rules.sql` and `017_api_keys.sql`. Both written, neither applied. Until `016` runs,
