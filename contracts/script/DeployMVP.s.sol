@@ -88,6 +88,17 @@ contract DeployMVPScript is Script {
         require(treasury      != pauseGuardian, "TREASURY == PAUSE_GUARDIAN: signer-set must be disjoint");
         require(multisig      != pauseGuardian, "MULTISIG == PAUSE_GUARDIAN: signer-set must be disjoint");
 
+        // AUDIT FIX M6 (revised): PAUSE_GUARDIAN is now the factory guardian from
+        // CONSTRUCTION (see _deployCore) rather than via a post-deploy rotation, so it
+        // never passes through `proposeGuardianChange`'s multisig-class check — the
+        // constructor only rejects address(0). Re-assert that rule here or the removal
+        // of the rotation would silently permit an EOA guardian with instant
+        // pair-disable power. codeLen == 23 is the EIP-7702 delegation designator: an
+        // EOA wearing a contract's clothes, which the factory rejects by the same rule.
+        uint256 guardianCodeLen = pauseGuardian.code.length;
+        require(guardianCodeLen != 0,  "PAUSE_GUARDIAN has no code: guardian must be multisig-class");
+        require(guardianCodeLen != 23, "PAUSE_GUARDIAN is a 7702-delegated EOA, not a multisig");
+
         console.log("Treasury:       ", treasury);
         console.log("Multisig:       ", multisig);
         console.log("Pause Guardian: ", pauseGuardian);
@@ -103,7 +114,7 @@ contract DeployMVPScript is Script {
         console.log("Deployer:       ", deployer);
 
         Deployed memory d;
-        d = _deployCore(d, treasury, deployer, SEQUENCER_FEED);
+        d = _deployCore(d, treasury, deployer, pauseGuardian, SEQUENCER_FEED);
         d = _deployRevenue(d, treasury, SEQUENCER_FEED);
         _wirePauseGuardian(d, pauseGuardian);
         _wireStakeCaps(d);
@@ -125,14 +136,10 @@ contract DeployMVPScript is Script {
         POLAccumulator(payable(d.polAccumulator)).setPauseGuardian(pauseGuardian);
         console.log("    -> pauseGuardian wired on 4 Pausable contracts:", pauseGuardian);
 
-        // AUDIT FIX M6: rotate the TegridyFactory guardian OFF the deployer EOA to the
-        // pauseGuardian multisig. proposeGuardianChange is feeToSetter-gated (the deployer
-        // is still feeToSetter at this point) and requires a multisig-class (contract)
-        // guardian, which pauseGuardian is. The multisig executes it post-deploy after it
-        // accepts feeToSetter (48h timelock — see runbook). Queuing it here ensures the
-        // deployer EOA does not silently retain the factory's emergency pair-disable power.
-        TegridyFactory(d.factory).proposeGuardianChange(pauseGuardian);
-        console.log("    -> factory.proposeGuardianChange(pauseGuardian) queued (48h)");
+        // The TegridyFactory guardian is NOT wired here. It is set in the constructor
+        // (see _deployCore) and is already final by the time this runs — audit M6 is
+        // satisfied without a rotation. Do not re-add `proposeGuardianChange` here:
+        // audit F-30-10 makes the multisig's own `acceptFeeToSetter` force-cancel it.
     }
 
     /// @dev mvp-launch Phase 0.7: set launch caps BEFORE transferOwnership.
@@ -149,6 +156,7 @@ contract DeployMVPScript is Script {
         Deployed memory d,
         address treasury,
         address deployer,
+        address pauseGuardian,
         address sequencerFeed
     ) internal returns (Deployed memory) {
         // 1. TegridyStaking
@@ -169,9 +177,28 @@ contract DeployMVPScript is Script {
         console.log(" 1c. TegridyStakingAdmin:   ", d.stakingAdmin);
 
         // 2. TegridyFactory
-        // Initial guardian = deployer EOA; rotate to PAUSE_GUARDIAN multisig
-        // post-deploy via proposeGuardianChange / executeGuardianChange.
-        TegridyFactory factory = new TegridyFactory(deployer, treasury, deployer);
+        // Guardian = PAUSE_GUARDIAN from block one. There is NO post-deploy rotation.
+        //
+        // This script used to construct with the deployer EOA as guardian and queue
+        // `proposeGuardianChange(pauseGuardian)` at deploy (audit M6), leaving the
+        // multisig to execute it after accepting feeToSetter. THAT ORDER CANNOT WORK.
+        // Audit F-30-10 made `acceptFeeToSetter` force-cancel any pending
+        // GUARDIAN_CHANGE queued by the outgoing setter (TegridyFactory.sol:396-401),
+        // so the multisig's own acceptance destroys the proposal the next step tries to
+        // execute; `executeGuardianChange()` then reverts NoPendingProposal. Reaching a
+        // multisig guardian that way needs the NEW setter to propose it again itself and
+        // wait a further 48h — a window in which the deployer EOA still holds the
+        // factory's instant pair-disable power.
+        //
+        // The constructor takes `_guardian` directly and only rejects address(0), so
+        // passing the Safe here removes the sequence entirely: nothing to queue, nothing
+        // to lose, and no EOA-guardian window at all. `run()` re-asserts the
+        // multisig-class rule that `proposeGuardianChange` would have enforced.
+        // Mirrors script/base/DeployBaseMVP.s.sol, which has always done it this way.
+        //
+        // feeTo stays `treasury` at construction and migrates to the RevenueDistributor
+        // through the 48h timelock in _wireAndTransfer — that rotation is unaffected.
+        TegridyFactory factory = new TegridyFactory(deployer, treasury, pauseGuardian);
         d.factory = address(factory);
         console.log(" 2. TegridyFactory:        ", d.factory);
 
@@ -304,16 +331,43 @@ contract DeployMVPScript is Script {
         // TegridyFactory owner stays as deployer until guardian rotation completes.
         // TegridyFactory.feeToSetter is the role that needs handoff; propose it now.
         TegridyFactory(d.factory).proposeFeeToSetter(multisig);
-        console.log("    -> Factory.feeToSetter proposed to multisig (48h)");
+        console.log("    -> Factory.feeToSetter proposed to multisig (24h, then a 7-day acceptance window)");
 
-        // AUDIT FIX 2026-05-26 [H-17]: emit a loud reminder that the multisig
-        // MUST run all three factory-rotation acceptances within the 48h+7d
-        // validity window. VerifyMVP INV-11 will fail loud if any are missed.
-        console.log("    -> WARN [H-17]: multisig MUST run, after 48h delays:");
-        console.log("                  factory.executeFeeToChange()");
-        console.log("                  factory.acceptFeeToSetter()");
-        console.log("                  factory.executeGuardianChange()");
-        console.log("                  (all three asserted by VerifyMVP INV-11)");
+        // AUDIT FIX 2026-05-26 [H-17]: emit a loud reminder that both factory
+        // rotations must be finished inside their validity windows. VerifyMVP
+        // INV-11 fails loud if either is missed.
+        //
+        // TWO CALLERS, NOT ONE, AND THE ORDER IS LOAD-BEARING (2026-08-21).
+        //
+        // `executeFeeToChange()` is `require(msg.sender == feeToSetter)`
+        // (TegridyFactory.sol:312). Until the acceptance lands, that is the
+        // DEPLOYER, not the multisig -- an earlier version of this printout told
+        // the multisig to make a call it can never make: FORBIDDEN before the
+        // acceptance, and NoPendingProposal after it.
+        //
+        // And the delays actively invite the wrong order. FEE_TO_SETTER_DELAY is
+        // 24h; FEE_TO_CHANGE_DELAY is 48h. An operator running each step the
+        // moment it unlocks accepts the setter role first -- and
+        // `acceptFeeToSetter` force-cancels the pending FEE_TO_CHANGE
+        // (TegridyFactory.sol:381-386, the C6 fix sitting directly above the
+        // F-30-10 guardian block that broke the old guardian rotation the same
+        // way). `feeTo` then never reaches the RevenueDistributor, INV-11b fails
+        // permanently, and recovery costs a fresh proposal from the multisig plus
+        // another 48h. Waiting past 48h to accept is safe: the acceptance window
+        // runs 24h -> 24h+7d.
+        //
+        // There is NO third call. The guardian was set at construction (audit M6,
+        // revised); `executeGuardianChange()` is not part of this deploy and would
+        // revert NoPendingProposal if anyone tried it.
+        console.log("    -> WARN [H-17]: two calls, two different callers, IN THIS ORDER:");
+        console.log("                  1) DEPLOYER  factory.executeFeeToChange()  - after 48h");
+        console.log("                     (feeToSetter-only; the deployer still holds that role)");
+        console.log("                  2) MULTISIG  factory.acceptFeeToSetter()   - AFTER step 1");
+        console.log("                     (unlocks at 24h, valid to 24h+7d - do NOT take it early)");
+        console.log("                  DANGER: accepting before step 1 force-cancels the pending");
+        console.log("                  feeTo change (C6). INV-11b then fails permanently.");
+        console.log("                  (both asserted by VerifyMVP INV-11a/11b)");
+        console.log("                  NO guardian call - INV-11c is already true at construction.");
 
         console.log("12. Ownership transfer initiated for 8 owned MVP contracts to:", multisig);
     }
@@ -340,13 +394,26 @@ contract DeployMVPScript is Script {
         console.log("NEXT STEPS (operator runbook - DO NOT SKIP):");
         console.log("  1. Multisig acceptOwnership() on all 8 owned contracts");
         console.log("     within OwnableNoRenounce 14-day expiry. Verify each with Verify.s.sol.");
-        console.log("  2. After 48h: factory.executeFeeToChange()");
-        console.log("  3. After 48h: factory.acceptFeeToSetter() from multisig");
-        console.log("  3b. Then (multisig is now feeToSetter): factory.executeGuardianChange() - rotates factory guardian off the deployer EOA (audit M6)");
+        console.log("  2. After 48h: factory.executeFeeToChange() -- FROM THE DEPLOYER EOA.");
+        console.log("     It is feeToSetter-only and the deployer still holds that role.");
+        console.log("  3. THEN factory.acceptFeeToSetter() from multisig. It unlocks at 24h, but");
+        console.log("     taking it before step 2 force-cancels the pending feeTo change (C6) and");
+        console.log("     INV-11b fails permanently. The window runs to 24h+7d, so waiting is free.");
+        console.log("     NO guardian step follows. The factory guardian is PAUSE_GUARDIAN from");
+        console.log("     construction (audit M6) - there is nothing queued to execute, and audit");
+        console.log("     F-30-10 would have force-cancelled it during acceptFeeToSetter anyway.");
+        console.log("     If you are re-homing an ALREADY-DEPLOYED factory whose guardian is still");
+        console.log("     an EOA, the order is: acceptFeeToSetter FIRST, THEN the new setter calls");
+        console.log("     proposeGuardianChange, THEN wait 48h, THEN executeGuardianChange.");
+        console.log("     Queuing the proposal before the acceptance loses it. See docs/GOLIVE_HANDOFF.md.");
         console.log("  4. Fund staking with TOWELI via fund()");
         console.log("  5. Add initial liquidity to TOWELI/WETH pair (use a private relay + set min amounts to avoid the first-LP price-set/sandwich window - audit M7)");
         console.log("  6. Wire PAUSE_GUARDIAN onto each contract (set pauseGuardian addr)");
-        console.log("  7. (Phase 7) Split TegridyRestaking under EIP-170, deploy it, then wire via");
+        console.log("  7. (Phase 7) TegridyRestaking is ALREADY split and under EIP-170 as of");
+        console.log("     2026-08-19 (host 22,114 B, admin sister 9,298 B), and");
+        console.log("     script/DeployRestaking.s.sol deploys all three. It is still NOT deployed:");
+        console.log("     the mandatory external re-audit (RESTAKING_EIP170_SPLIT_DESIGN.md 5.8)");
+        console.log("     gates it. After that: run DeployRestaking, then wire via");
         console.log("     stakingAdmin.proposeRestakingContract + revDist.proposeRestakingChange (48h each)");
         console.log("  8. Run Verify.s.sol - must report ALL invariants green before announcing live");
     }

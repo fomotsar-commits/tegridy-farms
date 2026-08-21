@@ -273,6 +273,20 @@ proposal to lose, and the deployer EOA never holds the factory's pair-disable po
 ordering in `DeployMVP`'s runbook printout or adopt the construct-with-guardian pattern there
 too, and either way re-check live mainnet state against INV-11c.
 
+> **Actioned 2026-08-19.** `DeployMVP.s.sol` now adopts the construct-with-guardian pattern —
+> `new TegridyFactory(deployer, treasury, pauseGuardian)`, no rotation queued — and `run()`
+> re-asserts the `codeLen ∉ {0, 23}` rule that `proposeGuardianChange` used to enforce on the
+> way past. The printed runbook and `VerifyMVP` INV-11c no longer cite step 3b;
+> `test_DeployM6_runbookOrder_executeGuardianChangeRevertsAfterAcceptance` pins the old order
+> failing and the post-acceptance order working.
+>
+> The live-mainnet re-check was done and **confirms the gap this section predicted**: factory
+> `0xa24C7287…7a52` still reads `guardian() == 0x14898258…456E`, the deployer EOA, zero code.
+> The deploy-time `pendingGuardian` (`0xCDCA0F06…F354`) expired 2026-06-16 unexecuted, and
+> `feeTo()` is still the treasury Safe rather than the RevenueDistributor. The recovery
+> ordering is in [GOLIVE_HANDOFF.md](./GOLIVE_HANDOFF.md) step 3 and
+> [MULTISIG_MIGRATION.md](./MULTISIG_MIGRATION.md) §6.4.
+
 ### 6.2 `code.length > 0` is no longer a Safe check
 
 A 23-byte runtime is an EIP-7702 delegation designator: it has code and it is still one key.
