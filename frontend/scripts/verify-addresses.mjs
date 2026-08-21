@@ -172,6 +172,40 @@ for (const e of allEntries) {
   if (!e.status) fail(`${e.chain}/${e.id}: no status`);
 }
 
+// ── 3b. An `expect.type` the chain read does not understand is WORSE than none ──
+//
+// Runs OFFLINE, on every invocation, because it is a spelling check on this file and
+// has nothing to do with whether an RPC answered.
+//
+// The chain read dispatches on `expect.type` with a chain of `if (want === '…')`, so an
+// unrecognised value — `"contarct"`, or a plausible-but-unimplemented `"safe"` — matches
+// no branch and asserts NOTHING. It is not a loud failure; it is silence that LOOKS like
+// coverage: the entry prints the same green line as a real assertion, and any
+// "how many entries are unasserted" tally counts it as asserted because `expect.type`
+// is truthy. One typo converts a check into a claim that a check happened.
+//
+// So the accepted set is written down once, here, and anything outside it is a hard
+// failure that names the alternatives. `contract` and `eoa` are the only two the
+// Ethereum path implements today — `absent` is deliberately NOT accepted for an EVM
+// entry, because eth_getCode cannot tell "never deployed" from "EOA": both answer 0x.
+// An EVM address that must not exist belongs in `denylist`, which is enforced.
+const EXPECT_TYPES = {
+  solana: new Set(['wallet', 'program-owned', 'token-account', 'executable', 'absent']),
+  ethereum: new Set(['contract', 'eoa']),
+};
+for (const e of allEntries) {
+  const want = e.expect?.type;
+  if (want === undefined) continue; // unasserted is honest; it is counted elsewhere
+  const allowed = EXPECT_TYPES[e.chain];
+  if (!allowed.has(want)) {
+    fail(
+      `${e.chain}/${e.id}: expect.type "${want}" is not one of ${[...allowed].join(', ')} — ` +
+        `it would match no branch in the chain read and assert NOTHING, while still counting ` +
+        `as an asserted entry. Fix the value or drop the expect block.`,
+    );
+  }
+}
+
 // ── 4. Denylist ─────────────────────────────────────────────────────────────────
 for (const d of reg.denylist ?? []) {
   if (!d.reason) fail(`denylist entry ${d.address} has no reason`);
@@ -549,6 +583,24 @@ function selfTest() {
   t('the all-zero Solana pubkey decodes to 32 bytes', base58Decode('11111111111111111111111111111111')?.length === 32);
   // CONTROL: the actual fabricated address from the incident still decodes to 33.
   t('the 2026-08-08 fabricated address still decodes to 33 bytes', base58Decode('5hNA2MXkoHo1Vf1c3ZE7cAsxsB4tCyahLcJnJ5NsD927v')?.length === 33);
+
+  // 9. Check 3b: an `expect.type` outside the accepted set. The failure it guards is
+  //    silent by construction — an unknown value matches no branch in the chain read,
+  //    asserts nothing, and still reads as "this entry is asserted" to anything that
+  //    counts truthy `expect.type`. So the check needs its own proof, plus controls in
+  //    both directions, or a later refactor could delete it without a red anywhere.
+  const badType = (chain, want) => !EXPECT_TYPES[chain].has(want);
+  t('check 3b rejects a MISSPELLED evm expect.type', badType('ethereum', 'contarct'));
+  t('check 3b rejects a plausible-but-unimplemented evm expect.type ("safe")', badType('ethereum', 'safe'));
+  t('check 3b rejects "absent" on an EVM entry — eth_getCode cannot distinguish it from an EOA', badType('ethereum', 'absent'));
+  t('check 3b rejects a Solana type used on an evm entry', badType('ethereum', 'executable'));
+  // CONTROLS: every value the chain read actually implements must pass, or 3b would
+  // simply be a check that always fires.
+  t('check 3b passes both implemented evm types', !badType('ethereum', 'contract') && !badType('ethereum', 'eoa'));
+  t(
+    'check 3b passes every implemented solana type',
+    ['wallet', 'program-owned', 'token-account', 'executable', 'absent'].every((v) => !badType('solana', v)),
+  );
 
   for (const r of rows) console.log(`  ${r.ok ? 'ok  ' : 'FAIL'} ${r.name}`);
   const bad = rows.filter((r) => !r.ok);
