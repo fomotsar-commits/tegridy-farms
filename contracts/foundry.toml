@@ -16,10 +16,13 @@ optimizer = true
 # only (1) DRY refactors that DELETE duplicated patterns, (2) verbatim Solady
 # primitive swaps from billion-dollar protocols, (3) read-only sister contracts.
 #
-# TegridyStaking: 24,337 B (~239 B headroom — FROZEN for launch). 2026-06-04: the
+# TegridyStaking: 24,554 B (~22 B headroom — FROZEN for launch; re-measured
+#   2026-08-19, was recorded here as 24,337 B / ~239 B). 2026-06-04: the
 #   M-1/M-2/H-E security-fix batches had eroded the prior +39 B down to +7 B; moving
 #   the two off-chain stakeCap monitoring views to the sister (below) reclaimed ~232 B.
 #   ANY further growth must extract more to a lib or sister; do NOT consume buffer.
+#   That buffer has since been consumed anyway: 22 B is less than one line of code,
+#   and this contract is live + on the redeploy list. Extract BEFORE the next edit.
 #   - src/lib/StakingViewLib.sol: read-only views (votingPowerOf / aggregateActive
 #     BoostBps / earned / earnedFromMem) + resolveJbac JBAC-revalidation helper
 #     (2026-05-30 DRY split: was inline in 3 callsites). All `internal` so they
@@ -35,19 +38,28 @@ optimizer = true
 # TegridyFactory: 12,133 B (~12,443 B headroom).
 #   - src/lib/TegridyFactoryLib.sol: ERC-777 detection + CREATE2 pair deployment
 #     (carries the ~11 KB type(TegridyPair).creationCode blob into the lib).
-# SwapFeeRouter: 21,392 B (~3,184 B headroom).
+# SwapFeeRouter: 21,531 B (~3,045 B headroom; re-measured 2026-08-19, was 21,392 B).
 #   - src/lib/SwapFeeRouterConvertLib.sol: TWAP-floor conversion cluster.
 #
-# TegridyRestaking: 26,623 B (2026-06-04 split from 31,399 B — banked -15%, STILL over
-#   EIP-170). DEFERRED to Phase 7 (NOT on the MVP DeployMVP/VerifyMVP path), so being over
-#   does not block the relaunch. The split moved cold owner-only admin bodies to
-#   src/lib/RestakingAdminLib.sol (delegatecall lib) + the 4 display views to
-#   src/RestakingMonitorView.sol (read-only sister) + Solady SafeTransferLib/SafeCastLib +
-#   internal DRY. Behaviour-preserving extraction FLOORED here (each lever nets only
-#   ~70-780 B; wrapper/marshalling/delegatecall overhead offsets the body moved). The final
-#   ~2 KB needs a Phase-7 architectural reduction (feature removal, OR relocating the hot-path
-#   reward helpers to the lib at a delegatecall-gas cost) + re-audit. MUST be brought under
-#   24,576 + deployed + wired before restaking opens. Full suite 2104/0 after the split.
+# TegridyRestaking: 22,114 B (2026-08-19 admin split from 26,784 B — 2,462 B of
+#   headroom). UNDER EIP-170 and deployable. This paragraph used to say the residual
+#   ~2 KB needed a Phase-7 architectural reduction — feature removal, or relocating the
+#   hot-path reward helpers into the admin lib at a delegatecall-gas cost. Neither was
+#   done, because neither was the lever: the bytes were in SELECTOR SURFACE (dispatch
+#   table + per-function ABI-decode prologues), not in the function bodies, which is why
+#   the 2026-06-04 body-extraction pass FLOORED at ~70-780 B per lever.
+#   - src/TegridyRestakingAdmin.sol (9,298 B): the timelocked owner-only admin surface,
+#     moved off the host as a SISTER CONTRACT. Removing those selectors from the host's
+#     dispatch is what closed the gap.
+#   - src/lib/RestakingAdminLib.sol: DELETED in the same change. As a delegatecall lib it
+#     still cost the host a wrapper + marshalling stub per body it held; the sister costs
+#     the host nothing, so the lib had no remaining job.
+#   - src/RestakingMonitorView.sol: read-only display views (sister), from the 2026-06-04
+#     pass. Solady SafeTransferLib / SafeCastLib swaps also retained.
+#   Deploy status is UNCHANGED: still absent from DeployMVP/VerifyMVP. That is now a
+#   scope + external-re-audit decision, NOT "undeployable by construction" — do not read
+#   the deferral as a size problem any more. contracts/test/Audit_RestakingEIP170Size.t.sol
+#   pins the limit for the host and both sisters, independently of the CI allowlist.
 #
 # If a future change pushes any LIVE-on-mainnet contract back over 24,576, the
 # right answer is to split that contract (extract to a linked library), NOT to

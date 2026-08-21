@@ -114,23 +114,37 @@ jobs:
           #
           # FLOOR_EXCEPTIONS — between BUDGET and EIP170. Deployable today; over the
           #   conservative floor only. Warning.
-          #   TegridyStaking — 24,337 B (measured 2026-07-24): 239 B under EIP-170.
-          #     On main #99 reclaimed 573 B and took it off the list; that ABI-surface
-          #     golf is NOT on mvp-launch, so here it stays a floor-exception. Tightest
-          #     path after VoteIncentives — extract to StakingViewLib on further growth.
-          #   VoteIncentives — 24,274 B (measured 2026-07-24): 302 B under EIP-170.
-          #     Admin-function split into VoteIncentivesAdmin is the eventual fix.
+          #   TegridyStaking — 24,554 B (re-measured 2026-08-19): 22 B under EIP-170.
+          #     This entry read "24,337 B ... 239 B under EIP-170 (measured 2026-07-24)"
+          #     until 2026-08-19; that was stale by 217 B and is the drift recorded in
+          #     docs/UNFINISHED_INVENTORY_2026_08_13.md. On main #99 reclaimed 573 B and
+          #     took it off the list; that ABI-surface golf is NOT on mvp-launch, so here
+          #     it stays a floor-exception. It is now the tightest contract in the repo
+          #     AND it is live + on the redeploy list: 22 B is less than one line of
+          #     code, so the next change to it must extract to StakingViewLib or the
+          #     StakingMonitorView sister FIRST rather than spend the remainder.
+          #   VoteIncentives — 24,477 B (re-measured 2026-08-19): 99 B under EIP-170.
+          #     Also stale here until 2026-08-19, which read "24,274 B ... 302 B under";
+          #     it had drifted 203 B. VoteIncentivesAdmin ALREADY EXISTS (10,762 B) and
+          #     is deployed, so the "eventual fix" is not a new contract — it is moving
+          #     the next admin selector onto the sister that is already there.
+          #     Second-tightest in the repo after TegridyStaking.
           #
           # OVER_EIP170_DEFERRED — genuinely OVER EIP-170 and therefore undeployable
           #   by construction. Every entry MUST also be absent from every deploy path
           #   (DeployMVP / VerifyMVP). Adding a name here defers a contract nobody can
           #   ship — it is NOT a way to silence a launch blocker on a deploy-path one.
-          #   TegridyRestaking — 26,760 B (measured 2026-07-24). Removed from
-          #     DeployMVP/VerifyMVP; stays until its Phase-7 library split.
+          #   EMPTY since 2026-08-19, and it should stay that way. TegridyRestaking
+          #     was the only entry (26,784 B measured pre-split — 2,208 B OVER the
+          #     limit; the 26,760 B figure this line used to carry was never
+          #     reproducible). Its admin split landed — the timelocked
+          #     surface moved to src/TegridyRestakingAdmin.sol — taking the host to
+          #     22,114 B, so it is now gated by the hard branch above like everything
+          #     else: a regression past 24,576 B FAILS this job instead of warning.
           #
           # The VerifyMVP.s.sol deploy-gate is the real pre-launch EIP-170 enforcement.
           FLOOR_EXCEPTIONS="TegridyStaking VoteIncentives"
-          OVER_EIP170_DEFERRED="TegridyRestaking"
+          OVER_EIP170_DEFERRED=""
           for f in out/*.sol/*.json; do
             name=$(basename "$f" .json)
             case "$name" in
