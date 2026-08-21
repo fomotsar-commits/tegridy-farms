@@ -115,6 +115,25 @@ Note what the top two rows say: **TegridyStaking has 22 bytes of headroom and Vo
 99.** Both are live, both are floor-exceptions, and the next one-line edit to either produces an
 undeployable artifact. That is a hazard, not a comment problem, and the extraction is unbuilt.
 
+**Then the gate itself turned out not to measure what it claimed.** Tightening it is what made
+this matter, so it was fixed in the same pass. Three defects, all pre-existing:
+
+- It measured **libraries and test contracts** and blamed `src/`. Against a real polluted `out/`
+  the shipped gate emitted **45 bogus errors** — `PositionDescriptor` (v4-periphery) reported as
+  `contracts/src/PositionDescriptor.sol`, and test contracts like `Audit195StakingGov` at
+  145,526 B as undeployable `src/` contracts. The `*Test|*Mock|…` guard is suffix-matched and
+  caught almost none of them. Now filtered on `metadata.settings.compilationTarget`.
+- **`build`, `test` and `fuzz-invariant` shared one cache key** on `contracts/out`, so whichever
+  job won the save race decided what the measuring job later restored. `build` now keys separately.
+- **With no `jq`, every contract measured 0 B and the job printed "All contracts within size
+  budget."** A false green by construction — and one that actually happened on a dev machine during
+  the 2026-08-19 work. There is now a preflight and a floor: fewer than 40 measurable `src/`
+  contracts is a failure, not a pass.
+
+Proven through the `run:` block extracted from the YAML with a parser rather than `sed`: normal
+run exit 0 · no `jq` exit 1 · empty `out/` exit 1 · a 25,000 B `src/` contract exit 1 · a 90,000 B
+**test** artifact exit 0. No threshold moved.
+
 ---
 
 ## 5b. The typecheck is still vacuous over every test file
