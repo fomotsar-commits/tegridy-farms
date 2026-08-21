@@ -168,6 +168,34 @@ stores a 32-byte root and no list, so today a claimant must paste JSON the creat
 Either host manifests (indexer tables, or IPFS/Arweave pinning), or accept the paste flow and say
 so in the UI. Right now the UI is honest about it, which is not the same as it being good.
 
+### 2.7a Migrations, updated — FOUR now, applied in this order
+`016_alert_rules` · `017_api_keys` · `018_airdrop_manifests` · `019_referral_codes` ·
+`020_telegram_links`. All written, none applied. Two things to know:
+- Each surface answers `503 schema-missing` with the migration path attached until you run its
+  file — never a confident empty result. So a surface that looks broken is telling you which
+  migration is missing.
+- `019` and `020` end with `NOTIFY pgrst, 'reload schema'`. Do not stop before that line, or the
+  table will exist while every call insists it does not — the same failure that kept login dark.
+
+### 2.7b Services built and hosted nowhere
+Three now, each with its own runbook, each deployed by you:
+- **The indexer** — `indexer/DEPLOY.md`. Still the biggest single unlock: the terminal,
+  copy-trading, competitions, charting and tax reports all read through it and all currently say
+  "unavailable" rather than rendering an empty result.
+- **The Solana indexing leg** — same host, runs beside the Ponder app.
+- **The Telegram bot** — `bot/DEPLOY.md`. Zero npm dependencies on purpose, so no postinstall in
+  any dependency tree can reach its secret. It is non-custodial by construction: its credential can
+  bind a chat and can *never* attach a wallet, so a compromised bot host has nothing to spend.
+
+### 2.7c Two boundaries worth knowing before you judge a surface
+- **The terminal will show most rows as UNRATED**, and that is correct. There is no creator lookup:
+  Etherscan's `getcontractcreation` is not in the API's allowed actions, so a token's deployer
+  cannot be resolved automatically. Adding that action is a small change and it is what turns the
+  terminal from honest-but-sparse into the product. Worth doing early.
+- **No leaderboard anywhere shows realised PnL**, because the indexed swap row carries no output
+  amount and no price. It is not caution — the number does not exist in the schema. Adding an
+  output amount to the indexer's swap table is what would make returns computable.
+
 ### 2.7 Branding decision
 The PWA manifest no longer describes a single-chain farming product, but the **name** is still a
 question only you can answer — the app is "Tegridy Farms" at memetic.fun with a Tradermigos
