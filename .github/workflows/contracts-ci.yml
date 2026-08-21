@@ -76,7 +76,24 @@ jobs:
           path: |
             contracts/cache
             contracts/out
-          key: foundry-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**') }}
+          # 2026-08-21: the key is DELIBERATELY not the same as the `test` and
+          # `fuzz-invariant` jobs' key, though the path is identical.
+          #
+          # All three used to share `foundry-<hash>`. This job builds
+          # `--skip test --skip script` and then measures every artifact under
+          # out/ against EIP-170; the matrix jobs compile TEST artifacts into
+          # that same out/. Whichever job won the save race for the shared key
+          # decided what a later run of THIS job restored — and a restored out/
+          # full of test artifacts gets measured. The `*Test|*Mock|*Script|
+          # *Setup|*Harness` filter below is suffix-matched, so it does not
+          # catch `MockERC20`, `NftfiMocks`, `DummyMultisig` or any other test
+          # helper whose name does not END in one of those words. The result is
+          # a red size gate naming a contract that is never deployed, on a run
+          # that changed nothing — the kind of red that gets a gate switched off.
+          #
+          # Separate key, separate cache, and this job's out/ can only ever hold
+          # what `--skip test --skip script` put there.
+          key: foundry-srconly-${{ hashFiles('contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/lib/**') }}
 
       - name: Show forge version
         run: forge --version
@@ -100,6 +117,20 @@ jobs:
           # The actual EVM ceiling. Nothing not explicitly deferred may cross this.
           EIP170=24576
           FAIL=0
+          MEASURED=0
+
+          # PREFLIGHT (2026-08-21): this whole gate is one `jq` call in a loop.
+          # If jq is absent, `jq ... | sed | wc -c` yields an empty string, the
+          # arithmetic below turns it into 0, EVERY contract measures 0 B, and
+          # the job prints "All contracts within size budget" and exits 0. That
+          # is a false green by construction, and it is not hypothetical: the
+          # same command was run on a developer machine without jq during the
+          # 2026-08-19 work and reported 0 B for all 276 artifacts.
+          # Ubuntu runners ship jq today; this asserts it rather than assuming.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::error::jq is not installed. This gate measures bytecode with jq; without it every contract reads 0 B and passes. Refusing to report a size verdict."
+            exit 1
+          fi
           #
           # TWO-TIER ALLOWLIST (ported from main #99, 2026-07-24; sizes re-measured
           # against THIS branch's artifacts — mvp-launch did NOT take #99's
@@ -145,13 +176,47 @@ jobs:
           # The VerifyMVP.s.sol deploy-gate is the real pre-launch EIP-170 enforcement.
           FLOOR_EXCEPTIONS="TegridyStaking VoteIncentives"
           OVER_EIP170_DEFERRED=""
+          # MEASURE ONLY OUR OWN CONTRACTS (2026-08-21).
+          #
+          # Every annotation this loop emits names `contracts/src/<name>.sol`, but
+          # until today the loop measured whatever happened to be in out/ and
+          # blamed src/ for it. out/ holds far more than src/: a plain
+          # `forge build --skip test --skip script` still compiles every LIB
+          # dependency, and any prior `forge test` in the same checkout adds every
+          # TEST artifact. Measured here on 2026-08-21: 140 src, 232 lib, 614 test.
+          #
+          # Both non-src classes produce garbage verdicts. `PositionDescriptor`
+          # (lib/v4-periphery) measures 24,289 B and was reported as
+          # "contracts/src/PositionDescriptor.sol > budget" — a path that does not
+          # exist. Test contracts are worse: `Audit195StakingGov` at 145,526 B
+          # reads as an UNDEPLOYABLE src contract. The old `*Test|*Mock|*Script|
+          # *Setup|*Harness` guard is SUFFIX-matched and catches almost none of
+          # them — not `Audit195Factory`, `RedTeamStaking`, `Deep_R_H01_MultiHop`,
+          # `MockERC20` or `NftfiMocks`.
+          #
+          # `metadata.settings.compilationTarget` names the real source path, so
+          # filter on it. That is exact, and it makes the name filter unnecessary —
+          # which is good, because a name filter can only ever be wrong in the
+          # dangerous direction: it would silently skip a genuine src contract that
+          # happened to end in one of those words. (Checked: none do today.)
+          #
+          # Artifacts with no metadata are NOT skipped silently — they are counted
+          # and reported, because "could not tell" must never read as "fine".
+          UNKNOWN=0
           for f in out/*.sol/*.json; do
             name=$(basename "$f" .json)
-            case "$name" in
-              *Test|*Mock|*Script|*Setup|*Harness) continue ;;
+            target=$(jq -r '.metadata.settings.compilationTarget // {} | keys[0] // empty' "$f")
+            if [ -z "$target" ]; then
+              UNKNOWN=$((UNKNOWN + 1))
+              continue
+            fi
+            case "$target" in
+              src/*) ;;
+              *) continue ;;
             esac
             size=$(jq -r '.deployedBytecode.object // empty' "$f" | sed 's/0x//' | wc -c)
             size=$((size / 2))
+            if [ "$size" -gt 0 ]; then MEASURED=$((MEASURED + 1)); fi
             if [ "$size" -gt "$EIP170" ]; then
               # HARD GATE: over the EVM limit. Only an explicit deferral may warn.
               if echo " $OVER_EIP170_DEFERRED " | grep -q " $name "; then
@@ -169,6 +234,21 @@ jobs:
               fi
             fi
           done
+          # A pass is only meaningful if the loop actually read bytecode. An empty
+          # out/, a forge layout change, or a jq returning nothing would all
+          # otherwise sail through as "within budget".
+          #
+          # The floor is 40. Measured 2026-08-21: src/ yields 64 contracts with
+          # NON-EMPTY deployed bytecode. (src/ has ~140 compilation targets, but
+          # interfaces, abstract contracts and pure libraries carry no runtime
+          # code — counting those would set a floor the gate could never meet.)
+          # 40 sits well below 64 so a legitimate batch deletion cannot trip it,
+          # and well above 0 so a loop that read nothing cannot pass.
+          echo "Measured ${MEASURED} src/ contract(s) with non-empty deployed bytecode (${UNKNOWN} artifact(s) had no compilationTarget and were not measured)."
+          if [ "$MEASURED" -lt 40 ]; then
+            echo "::error::Only ${MEASURED} src/ contracts had readable bytecode — expected 40+. The gate did not measure what it claims to measure; treating this as a failure rather than a pass."
+            exit 1
+          fi
           if [ "$FAIL" -ne 0 ]; then
             echo "❌ One or more contracts exceed the bytecode size budget."
             exit 1
