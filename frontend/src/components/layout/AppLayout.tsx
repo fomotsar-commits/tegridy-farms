@@ -10,7 +10,7 @@ import { Toaster } from 'sonner';
 import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 
-import { isChainConfigured } from '../../lib/chains';
+import { isChainConfigured, unconfiguredChainLabel } from '../../lib/chains';
 import { AppLoader } from '../loader';
 import { PriceProvider } from '../../contexts/PriceContext';
 import { ConfettiProvider } from '../Confetti';
@@ -81,7 +81,7 @@ function RouteGlitch() {
 
 export function AppLayout() {
   const location = useLocation();
-  const { chain, isConnected, connector } = useAccount();
+  const { chainId: walletChainId, isConnected, connector } = useAccount();
   const { switchChain } = useSwitchChain();
   const { isDark } = useTheme();
   // MULTICHAIN (2026-08-20): the GLOBAL banner fires only for chains the venue
@@ -90,7 +90,12 @@ export function AppLayout() {
   // per-surface guards (WrongChainGuard requiredChainId / chainId-pinned writes)
   // and keep saying "switch to Ethereum Mainnet" where that is the real
   // requirement.
-  const wrongNetwork = isConnected && chain && !isChainConfigured(chain.id);
+  //
+  // The RAW `chainId` field, deliberately: wagmi's `chain` object is resolved by
+  // config.chains.find(...), so it is UNDEFINED for exactly the unserved chains
+  // this banner exists to catch — a `chain && !isChainConfigured(chain.id)`
+  // guard is structurally unreachable dead code.
+  const wrongNetwork = isConnected && walletChainId != null && !isChainConfigured(walletChainId);
 
   useEffect(() => {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
@@ -144,7 +149,7 @@ export function AppLayout() {
             paddingRight: 'max(1rem, env(safe-area-inset-right))',
           }}
         >
-          You are connected to <strong>{chain.name ?? `chain ${chain.id}`}</strong>,
+          You are connected to <strong>{unconfiguredChainLabel(walletChainId)}</strong>,
           which this app doesn&apos;t serve. Supported: Ethereum, Base, Robinhood Chain.
           {switchChain && (
             <button

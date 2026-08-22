@@ -98,6 +98,29 @@ library RobinhoodChainConfig {
         if (account.code.length == 0) revert NotAContract(role, account);
     }
 
+
+    error NotAnUptimeFeed(string role, address feed);
+
+    /// @dev A feed that will be baked into immutables must speak the exact round
+    ///      dialect SequencerCheck enforces, TODAY, before the broadcast — not
+    ///      merely "have code" (a Safe has code). Mirrors SequencerCheck's gates:
+    ///      160-byte latestRoundData, answer in {0,1}, initialized round
+    ///      (updatedAt/startedAt non-zero), no future-dated clock, and the answer
+    ///      not pre-dating its round. A target failing any of these would pass a
+    ///      code-presence check and then revert every gated consumer in
+    ///      production, unrecoverably where the slot is immutable.
+    function requireUptimeDialect(address feed, string memory role) internal view {
+        requireHasCode(feed, role);
+        (bool ok, bytes memory data) = feed.staticcall(abi.encodeWithSignature("latestRoundData()"));
+        if (!ok || data.length < 160) revert NotAnUptimeFeed(role, feed);
+        (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound) =
+            abi.decode(data, (uint80, int256, uint256, uint256, uint80));
+        if (answer != 0 && answer != 1) revert NotAnUptimeFeed(role, feed);
+        if (updatedAt == 0 || startedAt == 0) revert NotAnUptimeFeed(role, feed);
+        if (updatedAt > block.timestamp) revert NotAnUptimeFeed(role, feed);
+        if (answeredInRound < roundId) revert NotAnUptimeFeed(role, feed);
+    }
+
     function requireDisjoint(
         address a,
         string memory roleA,

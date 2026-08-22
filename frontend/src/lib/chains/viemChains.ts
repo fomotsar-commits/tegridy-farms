@@ -98,7 +98,7 @@ export const WAGMI_CHAINS: readonly [Chain, ...Chain[]] = (() => {
 
 export const WAGMI_TRANSPORTS: Record<number, Transport> = CONFIGURED_CHAIN_IDS.reduce(
   (acc, id) => {
-    acc[id] = TRANSPORTS[id]; // presence proven by the WAGMI_CHAINS IIFE above
+    acc[id] = TRANSPORTS[id]!; // presence proven by the WAGMI_CHAINS IIFE above
     return acc;
   },
   {} as Record<number, Transport>,

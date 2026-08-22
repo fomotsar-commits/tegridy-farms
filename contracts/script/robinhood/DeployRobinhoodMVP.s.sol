@@ -116,11 +116,13 @@ contract DeployRobinhoodMVPScript is Script {
         RobinhoodChainConfig.requireDisjoint(cfg.feeRemittance, "FEE_REMITTANCE", cfg.multisig, "MULTISIG");
         RobinhoodChainConfig.requireDisjoint(cfg.feeRemittance, "FEE_REMITTANCE", cfg.pauseGuardian, "PAUSE_GUARDIAN");
 
-        // If the operator claims a real Chainlink feed exists, it must at least be
-        // a contract. (The stand-in path needs no check here — it is deployed below
-        // and cannot be a typo.)
+        // If the operator claims a real Chainlink feed exists, it must speak the
+        // uptime dialect TODAY — this address goes into TegridyTWAP's immutable
+        // and SwapFeeRouter's one-shot, so "has code" (a Safe has code) is not a
+        // check, it is a redeploy waiting to happen. (The stand-in path needs no
+        // probe here — it is deployed below and cannot be a typo.)
         if (cfg.sequencerFeed != address(0)) {
-            RobinhoodChainConfig.requireHasCode(cfg.sequencerFeed, "SEQUENCER_FEED");
+            RobinhoodChainConfig.requireUptimeDialect(cfg.sequencerFeed, "SEQUENCER_FEED");
         }
     }
 
@@ -129,15 +131,17 @@ contract DeployRobinhoodMVPScript is Script {
     function _deploy(Config memory cfg, address deployer) internal returns (Deployed memory d) {
         // 0. The uptime feed, before anything that consumes it. Attestor is the
         //    PAUSE_GUARDIAN Safe — "notice an incident and act" is already its job.
-        //    Ownership (attestor rotation + the one-shot forwardTo) is offered to
-        //    the MULTISIG Safe two-step, like every other owned contract here.
+        //    Owner is the MULTISIG Safe FROM CONSTRUCTION: `forwardTo` is one-shot
+        //    and irreversible, and power like that never sits with the deployer
+        //    EOA, not even for an acceptance window (the M6/F-30-10 lesson).
         if (cfg.sequencerFeed == address(0)) {
-            AttestedSequencerUptimeFeed feed = new AttestedSequencerUptimeFeed(cfg.pauseGuardian);
-            feed.transferOwnership(cfg.multisig);
+            AttestedSequencerUptimeFeed feed =
+                new AttestedSequencerUptimeFeed(cfg.pauseGuardian, cfg.multisig);
             d.uptimeFeed = address(feed);
             d.uptimeFeedIsAttested = true;
             console.log("0. AttestedSequencerUptimeFeed:", d.uptimeFeed);
             console.log("   attestor (PAUSE_GUARDIAN):  ", cfg.pauseGuardian);
+            console.log("   owner (MULTISIG, at birth): ", cfg.multisig);
         } else {
             d.uptimeFeed = cfg.sequencerFeed;
             d.uptimeFeedIsAttested = false;
@@ -194,9 +198,7 @@ contract DeployRobinhoodMVPScript is Script {
         sfrAdmin.transferOwnership(cfg.multisig);
         factory.proposeFeeToSetter(cfg.multisig);
         console.log("   -> ownership offered to multisig on 3 contracts + factory setter");
-        if (d.uptimeFeedIsAttested) {
-            console.log("   -> uptime-feed ownership offered to multisig (accept it too)");
-        }
+        // The uptime feed needs no offer: the multisig owns it from construction.
     }
 
     // ─── Deploy-time invariants ──────────────────────────────────────
@@ -223,15 +225,17 @@ contract DeployRobinhoodMVPScript is Script {
         require(TegridyFactory(d.factory).feeTo() == cfg.feeRemittance, "R-DINV-13: factory feeTo != FEE_REMITTANCE");
         require(TegridyFactory(d.factory).guardian() == cfg.pauseGuardian, "R-DINV-14: factory guardian != PAUSE_GUARDIAN");
 
-        // The chain-specific ones: the feed exists, and if it is ours, it is wired
-        // to the right roles and reports "up" from deploy.
-        require(d.uptimeFeed.code.length > 0, "R-DINV-15: uptime feed has no code");
+        // The chain-specific ones. The dialect probe runs UNCONDITIONALLY — the
+        // operator-supplied path is the only one that CAN be wrong, so it is the
+        // last one that may skip the probe. Failing here aborts the broadcast.
+        RobinhoodChainConfig.requireUptimeDialect(d.uptimeFeed, "R-DINV-15: uptime feed");
+        (, int256 answer,,,) = AttestedSequencerUptimeFeed(d.uptimeFeed).latestRoundData();
+        require(answer == 0, "R-DINV-18: feed not reporting up at deploy");
         if (d.uptimeFeedIsAttested) {
             AttestedSequencerUptimeFeed feed = AttestedSequencerUptimeFeed(d.uptimeFeed);
             require(feed.attestor() == cfg.pauseGuardian, "R-DINV-16: feed attestor != PAUSE_GUARDIAN");
             require(feed.chainlinkFeed() == address(0), "R-DINV-17: feed already forwarded at deploy?!");
-            (, int256 answer,,,) = feed.latestRoundData();
-            require(answer == 0, "R-DINV-18: feed not reporting up at deploy");
+            require(feed.owner() == cfg.multisig, "R-DINV-19: feed owner != multisig at birth");
         }
     }
 
@@ -276,7 +280,8 @@ contract DeployRobinhoodMVPScript is Script {
         console.log("");
         console.log("NEXT STEPS (operator runbook - DO NOT SKIP):");
         console.log("  1. Safe acceptOwnership() on TWAP / SwapFeeRouter / SwapFeeRouterAdmin");
-        console.log("     AND the uptime feed (4 accepts), within the 14-day expiry.");
+        console.log("     (3 accepts) within the 14-day expiry. The uptime feed needs none -");
+        console.log("     the multisig owns it from construction.");
         console.log("  2. After 24h (7-day validity): factory.acceptFeeToSetter() from the Safe.");
         console.log("     No guardian rotation follows - the guardian was set at construction.");
         console.log("  3. Run script/CheckCanonicalWETH.s.sol against router + swapFeeRouter.");

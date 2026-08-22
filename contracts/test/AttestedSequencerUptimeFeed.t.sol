@@ -25,6 +25,17 @@ contract FakeChainlinkUptimeFeed {
     }
 }
 
+/// @dev Fully shapeable round fixture for the forwardTo gate tests.
+contract ShapeableFeed {
+    uint80 rid; int256 ans; uint256 sAt; uint256 uAt; uint80 air;
+    function set(uint80 _rid, int256 _ans, uint256 _sAt, uint256 _uAt, uint80 _air) external {
+        (rid, ans, sAt, uAt, air) = (_rid, _ans, _sAt, _uAt, _air);
+    }
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
+        return (rid, ans, sAt, uAt, air);
+    }
+}
+
 /// @dev A contract that is NOT an uptime feed (latestRoundData answers 42) —
 ///      forwardTo must reject it.
 contract NotAnUptimeFeed {
@@ -60,7 +71,7 @@ contract AttestedSequencerUptimeFeedTest is Test {
         vm.chainId(4663);
         attestor = new DummySafe();
         otherSafe = new DummySafe();
-        feed = new AttestedSequencerUptimeFeed(address(attestor));
+        feed = new AttestedSequencerUptimeFeed(address(attestor), address(this));
         harness = new SequencerCheckHarness();
     }
 
@@ -80,7 +91,7 @@ contract AttestedSequencerUptimeFeedTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(AttestedSequencerUptimeFeed.NotMultisigClass.selector, makeAddr("eoa"))
         );
-        new AttestedSequencerUptimeFeed(makeAddr("eoa"));
+        new AttestedSequencerUptimeFeed(makeAddr("eoa"), address(this));
     }
 
     function test_constructor_rejects7702Attestor() public {
@@ -89,7 +100,7 @@ contract AttestedSequencerUptimeFeedTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(AttestedSequencerUptimeFeed.NotMultisigClass.selector, delegated)
         );
-        new AttestedSequencerUptimeFeed(delegated);
+        new AttestedSequencerUptimeFeed(delegated, address(this));
     }
 
     // ─── Consumer parity: SequencerCheck against this feed ────────────
@@ -244,6 +255,47 @@ contract AttestedSequencerUptimeFeedTest is Test {
         // Has code but no latestRoundData at all → the validation call reverts.
         vm.expectRevert();
         feed.forwardTo(address(otherSafe));
+    }
+
+
+    function test_constructor_rejectsEOAOwner() public {
+        // forwardTo is one-shot and irreversible; its owner is multisig-class
+        // from birth, never a deployer EOA waiting on an acceptance.
+        vm.expectRevert(
+            abi.encodeWithSelector(AttestedSequencerUptimeFeed.NotMultisigClass.selector, makeAddr("eoaOwner"))
+        );
+        new AttestedSequencerUptimeFeed(address(attestor), makeAddr("eoaOwner"));
+    }
+
+    function test_forwardTo_rejectsZeroStateAndStaleRounds() public {
+        // A zero tuple passes an answer-only check and then hard-fails
+        // SequencerCheck forever (updatedAt==0 -> grace revert; startedAt==0;
+        // answeredInRound<roundId -> down). With this slot one-shot and every
+        // consumer immutable, accepting one would be the permanent H-13 brick.
+        ShapeableFeed target = new ShapeableFeed();
+
+        target.set(1, 0, 0, 0, 1); // zero-state round, answer up
+        vm.expectRevert(
+            abi.encodeWithSelector(AttestedSequencerUptimeFeed.ForwardTargetInvalid.selector, address(target))
+        );
+        feed.forwardTo(address(target));
+
+        target.set(5, 0, block.timestamp, block.timestamp, 4); // answer pre-dates round
+        vm.expectRevert(
+            abi.encodeWithSelector(AttestedSequencerUptimeFeed.ForwardTargetInvalid.selector, address(target))
+        );
+        feed.forwardTo(address(target));
+
+        target.set(5, 0, block.timestamp, block.timestamp + 1, 5); // future-dated clock
+        vm.expectRevert(
+            abi.encodeWithSelector(AttestedSequencerUptimeFeed.ForwardTargetInvalid.selector, address(target))
+        );
+        feed.forwardTo(address(target));
+
+        // And the healthy shape still forwards.
+        target.set(5, 0, block.timestamp, block.timestamp, 5);
+        feed.forwardTo(address(target));
+        assertEq(feed.chainlinkFeed(), address(target));
     }
 
     // ─── The reason this contract exists ──────────────────────────────

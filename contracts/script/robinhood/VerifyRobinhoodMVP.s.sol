@@ -170,8 +170,11 @@ contract VerifyRobinhoodMVPScript is Script {
 
     /// @dev The invariants that exist only on this chain. If the feed is our
     ///      attested stand-in (it answers `attestor()`), its roles must match the
-    ///      Safe set and it must not be reporting a stale manual "down". A real
-    ///      Chainlink feed answers none of these and only needs code + an answer.
+    ///      Safe set. The current ANSWER is deliberately not a pass/fail: a "down"
+    ///      at verify time can be a genuine mid-outage read, so it prints a loud
+    ///      warning instead — the operator decides whether it is stale. A real
+    ///      Chainlink feed answers none of the role probes and only needs code +
+    ///      an uptime-shaped answer.
     function _checkUptimeFeed(Roles memory r, address uptimeFeed) internal view {
         require(uptimeFeed.code.length > 0, "R-INV-13a: uptime feed has no code");
 
@@ -196,9 +199,23 @@ contract VerifyRobinhoodMVPScript is Script {
         (bool ok, bytes memory data) =
             uptimeFeed.staticcall(abi.encodeWithSignature("latestRoundData()"));
         require(ok && data.length >= 160, "R-INV-14a: feed does not answer latestRoundData");
-        (, int256 answer,,,) = abi.decode(data, (uint80, int256, uint256, uint256, uint80));
+        (, int256 answer,, uint256 updatedAt,) =
+            abi.decode(data, (uint80, int256, uint256, uint256, uint80));
         require(answer == 0 || answer == 1, "R-INV-14b: feed answer is not uptime-shaped (0|1)");
         console.log("R-INV-14: feed speaks the uptime dialect ......... OK");
+        if (answer == 1) {
+            // Not a failure — verify may legitimately run mid-outage — but a
+            // manual "down" that nobody remembers setting silently reverts every
+            // gated path while all other invariants read green. Say it loudly and
+            // date it; the operator decides whether it is real or stale.
+            console.log("");
+            console.log("!!! R-INV-14 WARNING: the feed is reporting SEQUENCER DOWN right now.");
+            console.log("!!! Every gated path (fee conversion, TWAP, dutch mints) is refusing");
+            console.log("!!! reads while this holds. If there is no live outage, this is a");
+            console.log("!!! STALE MANUAL ATTESTATION - have the PAUSE_GUARDIAN setStatus(false).");
+            console.log("!!! Answer last set at (unix):", updatedAt);
+            console.log("");
+        }
     }
 
     function _requireSafeRole(address account, string memory label) internal view {

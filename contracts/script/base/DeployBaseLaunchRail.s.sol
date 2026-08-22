@@ -95,7 +95,7 @@ contract DeployBaseLaunchRailScript is Script {
         BaseChainConfig.requireDisjoint(cfg.multisig, "MULTISIG", cfg.pauseGuardian, "PAUSE_GUARDIAN");
 
         // The immutable-into-every-clone trap documented in the header.
-        BaseChainConfig.requireHasCode(cfg.sequencerFeed, "SEQUENCER_FEED");
+        BaseChainConfig.requireUptimeDialect(cfg.sequencerFeed, "SEQUENCER_FEED");
     }
 
     function _deploy(Config memory cfg, address deployer) internal returns (Deployed memory d) {

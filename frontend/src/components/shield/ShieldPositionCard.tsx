@@ -129,6 +129,10 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
                 to: prepared.action.to,
                 data: prepared.action.data,
                 value: prepared.action.value,
+                // Value-bearing repay against a mainnet-only lender: pin it, so a
+                // wallet parked on Base/Robinhood (both configured chains now)
+                // prompts a switch instead of firing ETH at a codeless address.
+                chainId: CHAIN_ID,
               })
             }
             className="mt-3 w-full px-3 py-2 rounded-lg text-[12px] text-white font-semibold disabled:opacity-40"

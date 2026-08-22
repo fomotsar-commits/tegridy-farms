@@ -1387,7 +1387,7 @@ interface TradeRow {
 function PoolTradeHistory({ poolAddress }: { poolAddress: Address }) {
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const chainId = useChainId();
-  const { data: blockNumber } = useBlockNumber({ watch: true, query: { refetchInterval: 30_000 } });
+  const { data: blockNumber } = useBlockNumber({ chainId: CHAIN_ID, watch: true, query: { refetchInterval: 30_000 } });
   const [trades, setTrades] = useState<TradeRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

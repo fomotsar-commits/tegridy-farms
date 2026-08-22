@@ -10,6 +10,15 @@ interface IERC20MetadataLike {
     function decimals() external view returns (uint8);
 }
 
+interface IPairLike {
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+}
+
+interface IFactoryLike {
+    function getPair(address, address) external view returns (address);
+}
+
 /// @title  DeployBaseLPFarming — boosted-LP farming on Base, minus the boost.
 /// @notice TegridyLPFarming's audited bytecode ships unchanged. What changes per
 ///         chain is its two mainnet-only inputs:
@@ -38,6 +47,8 @@ contract DeployBaseLPFarmingScript is Script {
     struct Config {
         address rewardToken;
         address stakingToken;
+        /// @dev This chain's TegridyFactory — STAKING_TOKEN must be one of its pairs.
+        address factory;
         address treasury;
         address multisig;
         uint256 rewardsDuration;
@@ -70,6 +81,7 @@ contract DeployBaseLPFarmingScript is Script {
     function _loadConfig() internal view returns (Config memory cfg) {
         cfg.rewardToken = vm.envAddress("REWARD_TOKEN");
         cfg.stakingToken = vm.envAddress("STAKING_TOKEN");
+        cfg.factory = vm.envAddress("FACTORY");
         cfg.treasury = vm.envAddress("TREASURY");
         cfg.multisig = vm.envAddress("MULTISIG");
         cfg.rewardsDuration = vm.envOr("REWARDS_DURATION", DEFAULT_REWARDS_DURATION);
@@ -90,6 +102,20 @@ contract DeployBaseLPFarmingScript is Script {
         require(
             IERC20MetadataLike(cfg.rewardToken).decimals() == 18,
             "REWARD_TOKEN: farm reward math assumes 18 decimals"
+        );
+
+        // "Must be that pair" is a claim the chain can verify, so verify it: the
+        // staking token must answer token0/token1 AND be the pair this chain's
+        // TegridyFactory records for that token pair. Catches a pasted reward
+        // token, a mainnet LP address, or any random ERC20 — all of which have
+        // code and 18 decimals and would otherwise sail through to a farm nobody
+        // can stake the intended pool into.
+        BaseChainConfig.requireHasCode(cfg.factory, "FACTORY");
+        address token0 = IPairLike(cfg.stakingToken).token0();
+        address token1 = IPairLike(cfg.stakingToken).token1();
+        require(
+            IFactoryLike(cfg.factory).getPair(token0, token1) == cfg.stakingToken,
+            "STAKING_TOKEN: not a pair recorded by this chain's TegridyFactory"
         );
     }
 

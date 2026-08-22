@@ -42,6 +42,10 @@ contract DeployRobinhoodMVPTest is Test {
 
     function setUp() public {
         vm.chainId(RobinhoodChainConfig.CHAIN_ID);
+        // Literal absolute clock: the mock feed answers block.timestamp - 30 days,
+        // which underflows foundry's tiny default clock, and via_ir folds
+        // relative warps (reference_via_ir_timestamp_cse).
+        vm.warp(100 days);
 
         script = new DeployRobinhoodMVPScript();
         verifier = new VerifyRobinhoodMVPScript();
@@ -149,7 +153,9 @@ contract DeployRobinhoodMVPTest is Test {
         AttestedSequencerUptimeFeed feed = AttestedSequencerUptimeFeed(d.uptimeFeed);
         assertEq(feed.attestor(), address(pauseGuardian), "attestor is the guardian Safe");
         assertEq(feed.chainlinkFeed(), address(0), "not forwarded at birth");
-        assertEq(feed.pendingOwner(), address(multisig), "ownership offered to the Safe");
+        // The one-shot forwardTo never sits with the deployer: owned at birth.
+        assertEq(feed.owner(), address(multisig), "multisig owns the feed from construction");
+        assertEq(feed.pendingOwner(), address(0), "nothing pending on the feed");
 
         (, int256 answer,,,) = feed.latestRoundData();
         assertEq(answer, 0, "reports up from deploy");
@@ -170,6 +176,20 @@ contract DeployRobinhoodMVPTest is Test {
         assertFalse(d.uptimeFeedIsAttested, "no stand-in deployed");
         assertEq(d.uptimeFeed, address(chainlink), "consumers wired to the real feed");
         assertEq(TegridyTWAP(payable(d.twap)).sequencerFeed(), address(chainlink));
+    }
+
+    function test_RefusesAnOperatorFeedThatIsNotAFeed() public {
+        // A Safe has code and 18 empty fallback bytes of goodwill — and would be
+        // baked into TWAP's immutable and SwapFeeRouter's one-shot. The dialect
+        // probe refuses anything that does not answer a healthy uptime round.
+        DeployRobinhoodMVPScript.Config memory cfg = _cfg();
+        cfg.sequencerFeed = address(new DummySafe());
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RobinhoodChainConfig.NotAnUptimeFeed.selector, "SEQUENCER_FEED", cfg.sequencerFeed
+            )
+        );
+        script.runForTest(cfg);
     }
 
     // ─── The spine, same shape as Base ───────────────────────────────
@@ -210,7 +230,7 @@ contract DeployRobinhoodMVPTest is Test {
         assertEq(SwapFeeRouter(payable(d.swapFeeRouter)).pendingOwner(), address(multisig), "sfr offered");
         assertEq(SwapFeeRouterAdmin(d.swapFeeRouterAdmin).pendingOwner(), address(multisig), "sfrAdmin offered");
         assertEq(
-            AttestedSequencerUptimeFeed(d.uptimeFeed).pendingOwner(), address(multisig), "feed offered"
+            AttestedSequencerUptimeFeed(d.uptimeFeed).owner(), address(multisig), "feed owned at birth"
         );
         assertTrue(TegridyTWAP(payable(d.twap)).owner() != address(multisig), "not yet held");
         assertEq(TegridyFactory(d.factory).pendingFeeToSetter(), address(multisig), "setter offered");
@@ -307,8 +327,8 @@ contract DeployRobinhoodMVPTest is Test {
         TegridyTWAP(payable(d.twap)).acceptOwnership();
         SwapFeeRouter(payable(d.swapFeeRouter)).acceptOwnership();
         SwapFeeRouterAdmin(d.swapFeeRouterAdmin).acceptOwnership();
-        AttestedSequencerUptimeFeed(d.uptimeFeed).acceptOwnership();
         vm.stopPrank();
+        // The uptime feed needs no accept: owned by the multisig from construction.
 
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(address(multisig));

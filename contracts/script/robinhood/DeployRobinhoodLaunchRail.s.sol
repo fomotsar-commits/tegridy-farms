@@ -88,7 +88,7 @@ contract DeployRobinhoodLaunchRailScript is Script {
         RobinhoodChainConfig.requireDisjoint(cfg.treasury, "TREASURY", cfg.pauseGuardian, "PAUSE_GUARDIAN");
         RobinhoodChainConfig.requireDisjoint(cfg.multisig, "MULTISIG", cfg.pauseGuardian, "PAUSE_GUARDIAN");
 
-        RobinhoodChainConfig.requireHasCode(cfg.sequencerFeed, "SEQUENCER_FEED");
+        RobinhoodChainConfig.requireUptimeDialect(cfg.sequencerFeed, "SEQUENCER_FEED");
     }
 
     function _deploy(Config memory cfg, address deployer) internal returns (Deployed memory d) {

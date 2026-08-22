@@ -60,7 +60,7 @@ export function LegacyStakingExit() {
   });
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash, chainId: CHAIN_ID });
 
   useEffect(() => {
     if (isSuccess) {
@@ -102,6 +102,10 @@ export function LegacyStakingExit() {
       abi: TEGRIDY_STAKING_ABI,
       functionName: p.canWithdraw ? 'withdraw' : 'earlyWithdraw',
       args: [p.tokenId],
+      // The legacy staking contracts exist on mainnet only. Unpinned, a wallet
+      // parked on Base/Robinhood would sign this against a codeless address —
+      // a successful no-op whose receipt then reads as a confirmed withdrawal.
+      chainId: CHAIN_ID,
     });
   };
 

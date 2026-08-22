@@ -169,7 +169,7 @@ export default function TreasuryPage() {
   // block so a user can verify or pin a snapshot.
   // F404: poll on the same 60s cadence as the data reads instead of holding a
   // per-block (~12s) subscription just to render one caption line.
-  const { data: latestBlock } = useBlockNumber({ query: { refetchInterval: 60_000 } });
+  const { data: latestBlock } = useBlockNumber({ chainId: CHAIN_ID, query: { refetchInterval: 60_000 } });
 
   // Treasury ETH balance
   const { data: treasuryBal } = useBalance({

@@ -69,8 +69,16 @@ contract AttestedSequencerUptimeFeed is OwnableNoRenounce {
     error NotMultisigClass(address account);
     error ForwardTargetInvalid(address feed);
 
-    constructor(address _attestor) OwnableNoRenounce(msg.sender) {
+    /// @param _attestor      PAUSE_GUARDIAN-class hot Safe that flips the status.
+    /// @param _initialOwner  MULTISIG-class Safe that owns rotation + forwardTo,
+    ///                       FROM CONSTRUCTION. Not the deployer: ownership of the
+    ///                       irreversible one-shot `forwardTo` must never sit with
+    ///                       an EOA, not even for the length of an acceptance
+    ///                       window — the same construct-with-final-roles lesson
+    ///                       as the TegridyFactory guardian (M6/F-30-10).
+    constructor(address _attestor, address _initialOwner) OwnableNoRenounce(_initialOwner) {
         _requireMultisigClass(_attestor);
+        _requireMultisigClass(_initialOwner);
         attestor = _attestor;
         // Deploy-time state: up, as of now. Consumers with a grace window will
         // treat the first `gracePeriod` after deploy as post-resume settling,
@@ -125,15 +133,28 @@ contract AttestedSequencerUptimeFeed is OwnableNoRenounce {
     /// @notice ONE-SHOT: point this contract at the real Chainlink sequencer
     ///         uptime feed once Chainlink ships one on this chain. Irreversible by
     ///         design — after this, no role here can influence the answer again.
-    /// @dev    The target is validated by actually calling it: a typo'd address
-    ///         that happens to have code would otherwise brick every gated
-    ///         consumer at once (the H-13 failure shape, silent until production).
+    /// @dev    The target is validated by actually calling it AND by holding its
+    ///         round to every field SequencerCheck enforces — not just the answer.
+    ///         A zero-state round (0,0,0,0,0), an `answeredInRound < roundId`
+    ///         round, or a future-dated `updatedAt` all pass an answer-only check
+    ///         and then hard-fail SequencerCheck forever; with this slot one-shot
+    ///         and every consumer slot immutable, that would brick fee conversion,
+    ///         the TWAP, and every live drop clone with no recovery path (the
+    ///         H-13 failure shape, permanent edition). Non-Chainlink aggregator
+    ///         clones — the realistic target class on a chain Chainlink has not
+    ///         reached — commonly return zero tuples instead of reverting while
+    ///         uninitialized, which is exactly the state this refuses.
     function forwardTo(address feed) external onlyOwner {
         if (chainlinkFeed != address(0)) revert AlreadyForwarded();
         _requireMultisigClass(feed); // rejects zero, EOA, 7702-delegated EOA
-        (, int256 a,,,) = IAggregatorV3Minimal(feed).latestRoundData();
-        // Uptime feeds only ever answer 0 or 1; anything else is not one.
+        (uint80 roundId, int256 a, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound) =
+            IAggregatorV3Minimal(feed).latestRoundData();
+        // Mirror SequencerCheck's gates verbatim: answer dialect, initialized
+        // round, sane clock, answer not pre-dating its round.
         if (a != 0 && a != 1) revert ForwardTargetInvalid(feed);
+        if (updatedAt == 0 || startedAt == 0) revert ForwardTargetInvalid(feed);
+        if (updatedAt > block.timestamp) revert ForwardTargetInvalid(feed);
+        if (answeredInRound < roundId) revert ForwardTargetInvalid(feed);
         chainlinkFeed = feed;
         emit ForwardedToChainlink(feed);
     }

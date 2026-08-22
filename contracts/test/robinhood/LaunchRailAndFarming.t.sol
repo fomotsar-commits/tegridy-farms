@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {DeployBaseLaunchRailScript} from "../../script/base/DeployBaseLaunchRail.s.sol";
 import {DeployRobinhoodLaunchRailScript} from "../../script/robinhood/DeployRobinhoodLaunchRail.s.sol";
+import {VerifyRobinhoodLaunchRailScript} from "../../script/robinhood/VerifyRobinhoodLaunchRail.s.sol";
 import {DeployBaseLPFarmingScript} from "../../script/base/DeployBaseLPFarming.s.sol";
 import {DeployRobinhoodLPFarmingScript} from "../../script/robinhood/DeployRobinhoodLPFarming.s.sol";
 import {BaseChainConfig} from "../../script/base/BaseChainConfig.sol";
@@ -12,6 +13,8 @@ import {RobinhoodChainConfig} from "../../script/robinhood/RobinhoodChainConfig.
 import {AttestedSequencerUptimeFeed} from "../../src/AttestedSequencerUptimeFeed.sol";
 import {TegridyLaunchpadV2} from "../../src/TegridyLaunchpadV2.sol";
 import {TegridyLockVault} from "../../src/TegridyLockVault.sol";
+import {VestingFactory} from "../../src/VestingFactory.sol";
+import {AirdropFactory} from "../../src/AirdropFactory.sol";
 import {LaunchRugEscrow} from "../../src/LaunchRugEscrow.sol";
 import {TegridyLPFarming} from "../../src/TegridyLPFarming.sol";
 import {NullBoost} from "../../src/NullBoost.sol";
@@ -39,6 +42,29 @@ contract Mock6 is ERC20 {
 
     function decimals() public pure override returns (uint8) {
         return 6;
+    }
+}
+
+
+/// @dev An 18-decimal ERC20 that also answers the pair surface the farming
+///      script's read-back demands (token0/token1 + factory registration).
+contract MockPair is ERC20 {
+    address public token0;
+    address public token1;
+
+    constructor(address _token0, address _token1) ERC20("Tegridy LP", "TLP") {
+        _mint(msg.sender, 100_000_000e18);
+        token0 = _token0;
+        token1 = _token1;
+    }
+}
+
+contract MockFactory {
+    mapping(address => mapping(address => address)) public getPair;
+
+    function setPair(address a, address b, address pair) external {
+        getPair[a][b] = pair;
+        getPair[b][a] = pair;
     }
 }
 
@@ -135,7 +161,8 @@ contract LaunchRailAndFarmingTest is Test {
         DeployRobinhoodLaunchRailScript script = new DeployRobinhoodLaunchRailScript();
 
         // The real sequence: the MVP leg deployed the attested feed first.
-        AttestedSequencerUptimeFeed feed = new AttestedSequencerUptimeFeed(address(pauseGuardian));
+        AttestedSequencerUptimeFeed feed =
+            new AttestedSequencerUptimeFeed(address(pauseGuardian), address(multisig));
 
         DeployRobinhoodLaunchRailScript.Deployed memory d = script.runForTest(_rhRailCfg(address(feed)));
 
@@ -149,7 +176,8 @@ contract LaunchRailAndFarmingTest is Test {
 
     function test_robinhood_railRefusesTestnetAndCodelessFeed() public {
         DeployRobinhoodLaunchRailScript script = new DeployRobinhoodLaunchRailScript();
-        AttestedSequencerUptimeFeed feed = new AttestedSequencerUptimeFeed(address(pauseGuardian));
+        AttestedSequencerUptimeFeed feed =
+            new AttestedSequencerUptimeFeed(address(pauseGuardian), address(multisig));
 
         // 46630 = the testnet, one digit from production.
         vm.chainId(46630);
@@ -168,7 +196,7 @@ contract LaunchRailAndFarmingTest is Test {
 
     // ─── LP farming on a chain with no staking ───────────────────────
 
-    function _farmCfg(address reward, address lpToken)
+    function _farmCfg(address reward, address lpToken, address factory)
         internal
         view
         returns (DeployRobinhoodLPFarmingScript.Config memory)
@@ -176,10 +204,20 @@ contract LaunchRailAndFarmingTest is Test {
         return DeployRobinhoodLPFarmingScript.Config({
             rewardToken: reward,
             stakingToken: lpToken,
+            factory: factory,
             treasury: address(treasury),
             multisig: address(multisig),
             rewardsDuration: 7 days
         });
+    }
+
+    /// @dev A registered pair + its factory, as the read-back requires.
+    function _pairFixture() internal returns (MockPair pair, MockFactory factory) {
+        Mock18 a = new Mock18("A");
+        Mock18 b = new Mock18("B");
+        pair = new MockPair(address(a), address(b));
+        factory = new MockFactory();
+        factory.setPair(address(a), address(b), address(pair));
     }
 
     function test_farm_fullCycleAtFlatBoost() public {
@@ -187,9 +225,9 @@ contract LaunchRailAndFarmingTest is Test {
         DeployRobinhoodLPFarmingScript script = new DeployRobinhoodLPFarmingScript();
 
         Mock18 reward = new Mock18("RWD");
-        Mock18 lpToken = new Mock18("LP");
+        (MockPair lpToken, MockFactory pairFactory) = _pairFixture();
         DeployRobinhoodLPFarmingScript.Deployed memory d =
-            script.runForTest(_farmCfg(address(reward), address(lpToken)));
+            script.runForTest(_farmCfg(address(reward), address(lpToken), address(pairFactory)));
 
         TegridyLPFarming farm = TegridyLPFarming(d.farm);
         assertEq(address(farm.tegridyStaking()), d.nullBoost, "boost source is NullBoost");
@@ -241,15 +279,15 @@ contract LaunchRailAndFarmingTest is Test {
         DeployRobinhoodLPFarmingScript script = new DeployRobinhoodLPFarmingScript();
 
         Mock6 sixDecimals = new Mock6();
-        Mock18 lpToken = new Mock18("LP");
+        (MockPair lpToken, MockFactory pairFactory) = _pairFixture();
         vm.expectRevert(bytes("REWARD_TOKEN: farm reward math assumes 18 decimals"));
-        script.runForTest(_farmCfg(address(sixDecimals), address(lpToken)));
+        script.runForTest(_farmCfg(address(sixDecimals), address(lpToken), address(pairFactory)));
     }
 
     function test_farm_baseScriptGatesOnBaseChain() public {
         DeployBaseLPFarmingScript script = new DeployBaseLPFarmingScript();
         Mock18 reward = new Mock18("RWD");
-        Mock18 lpToken = new Mock18("LP");
+        (MockPair lpToken, MockFactory pairFactory) = _pairFixture();
 
         vm.chainId(RobinhoodChainConfig.CHAIN_ID);
         vm.expectRevert(
@@ -259,11 +297,64 @@ contract LaunchRailAndFarmingTest is Test {
             DeployBaseLPFarmingScript.Config({
                 rewardToken: address(reward),
                 stakingToken: address(lpToken),
+                factory: address(pairFactory),
                 treasury: address(treasury),
                 multisig: address(multisig),
                 rewardsDuration: 7 days
             })
         );
+    }
+
+    function test_farm_refusesAStakingTokenTheFactoryDoesNotRecord() public {
+        // 18 decimals + code is not "the pair". A pasted reward token, a mainnet
+        // LP address, any random ERC20 -- all would have sailed through a
+        // code-presence check into a farm nobody can stake the intended pool into.
+        vm.chainId(RobinhoodChainConfig.CHAIN_ID);
+        DeployRobinhoodLPFarmingScript script = new DeployRobinhoodLPFarmingScript();
+
+        Mock18 reward = new Mock18("RWD");
+        (, MockFactory pairFactory) = _pairFixture();
+        MockPair unregistered = new MockPair(makeAddr("t0"), makeAddr("t1"));
+
+        vm.expectRevert(bytes("STAKING_TOKEN: not a pair recorded by this chain's TegridyFactory"));
+        script.runForTest(_farmCfg(address(reward), address(unregistered), address(pairFactory)));
+    }
+
+    function test_robinhood_railVerify_greenOnlyAfterAllFiveAccepts() public {
+        vm.chainId(RobinhoodChainConfig.CHAIN_ID);
+        DeployRobinhoodLaunchRailScript script = new DeployRobinhoodLaunchRailScript();
+        VerifyRobinhoodLaunchRailScript railVerifier = new VerifyRobinhoodLaunchRailScript();
+        AttestedSequencerUptimeFeed feed =
+            new AttestedSequencerUptimeFeed(address(pauseGuardian), address(multisig));
+
+        DeployRobinhoodLaunchRailScript.Deployed memory d = script.runForTest(_rhRailCfg(address(feed)));
+
+        VerifyRobinhoodLaunchRailScript.Inventory memory inv = VerifyRobinhoodLaunchRailScript.Inventory({
+            treasury: address(treasury),
+            multisig: address(multisig),
+            pauseGuardian: address(pauseGuardian),
+            sequencerFeed: address(feed),
+            launchpad: d.launchpad,
+            lockVault: d.lockVault,
+            vestingFactory: d.vestingFactory,
+            airdropFactory: d.airdropFactory,
+            rugEscrow: d.rugEscrow,
+            farm: address(0)
+        });
+
+        // A missed accept must be loud, not a 14-day silent rot.
+        vm.expectRevert(bytes("LRV-1: launchpad owner != multisig (accept missed?)"));
+        railVerifier.check(inv);
+
+        vm.startPrank(address(multisig));
+        TegridyLaunchpadV2(d.launchpad).acceptOwnership();
+        TegridyLockVault(payable(d.lockVault)).acceptOwnership();
+        VestingFactory(payable(d.vestingFactory)).acceptOwnership();
+        AirdropFactory(payable(d.airdropFactory)).acceptOwnership();
+        LaunchRugEscrow(payable(d.rugEscrow)).acceptOwnership();
+        vm.stopPrank();
+
+        railVerifier.check(inv);
     }
 
     function test_nullBoost_isFlatForEveryone() public {
