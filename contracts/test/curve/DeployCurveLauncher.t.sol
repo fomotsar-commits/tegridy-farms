@@ -74,18 +74,34 @@ contract DeployCurveLauncherScriptTest is Test {
         script.runForTest(cfg);
     }
 
-    function test_RefusesEOARoles() public {
+    function test_RefusesEOARolesForMultisigAndGuardian() public {
         DeployCurveLauncherScript.Config memory cfg = _config();
         cfg.multisig = address(0xBEEF); // no code
         vm.expectRevert(bytes("CV-3: MULTISIG must be a contract (Safe)"));
         script.runForTest(cfg);
 
         cfg = _config();
-        cfg.launch.reserveRecipient = address(0xBEEF);
+        cfg.pauseGuardian = address(0xBEEF);
+        vm.expectRevert(bytes("CV-3b: PAUSE_GUARDIAN must be a contract (Safe)"));
+        script.runForTest(cfg);
+    }
+
+    function test_ReserveRecipientRejectsZeroButAcceptsOwnerEOA() public {
+        // Zero recipient with a live reserve would burn 3.69% of every launch.
+        DeployCurveLauncherScript.Config memory cfg = _config();
+        cfg.launch.reserveRecipient = address(0);
         vm.expectRevert(
-            bytes("CV-3c: RESERVE_RECIPIENT must be a contract (custody Safe / vault)")
+            bytes("CV-3c: RESERVE_RECIPIENT is the zero address (would burn the reserve)")
         );
         script.runForTest(cfg);
+
+        // The owner's explicit operator EOA is accepted (with a deploy-time
+        // warning), not hard-rejected — a legitimate, reversible policy choice.
+        cfg = _config();
+        cfg.launch.reserveRecipient = address(0xEA00); // an EOA (no code)
+        TegridyCurveLauncher launcher = script.runForTest(cfg);
+        (,,,,, address reserveRecipient) = launcher.launchConfig();
+        assertEq(reserveRecipient, address(0xEA00));
     }
 
     function test_RefusesDustGraduationTarget() public {

@@ -134,16 +134,40 @@ export const LAUNCH_FEE_TIER = 10_000;
  * transferred to the launch's timelock at create() — 0xdead under noOp
  * governance — so an uncontrolled "reserve" would be a burn).
  *
- * DARK UNTIL CUSTODY EXISTS. The recipient below is the ZERO ADDRESS until the
- * per-launch custody is deployed and decided (Phase 2 of the plan), and the
- * airlock facade hard-refuses to build a reserve pointed at zero. Enabling is
- * ONE change-set: custody address here + wizard supply math (sale = supply −
- * premine − reserve) + a dedicated Fact Sheet disclosure line (NEVER lumped
- * into teamAllocationVestedBps — that field means CREATOR allocation and the
- * disclosure tests pin it).
+ * CUSTODY DECIDED (owner directive 2026-08-22): the recipient is the protocol
+ * operator address `0x14898258122C0740106391E6e8E4F17F3b6d456E`, and the share
+ * is 3.69% of supply (down from the initial 5%). This is the deployer/operator
+ * EOA, NOT a multisig or LockVault — a deliberate interim: it collects the
+ * reserve into a key the owner controls, to be deployed to LP incentives /
+ * bounties / bribes by hand while the Phase-2 per-launch custody
+ * (multisig → LockVault earmark) is built. It is repointable without a
+ * redeploy — the curve launcher's `setLaunchConfig` and this constant both take
+ * a new recipient for FUTURE launches — so moving custody to a Safe later is a
+ * one-line change, not a migration. The facade still hard-refuses a ZERO
+ * recipient (isDeployed = non-zero), so a cleared constant fails safe.
+ *
+ * WHAT IS LIVE vs PENDING with this decision:
+ *   • CURVE rail (TegridyCurveLauncher) — LIVE. It carves `reserveBps` of supply
+ *     at create and transfers it to the recipient at graduation, on-chain and
+ *     event-logged; no Fact Sheet dependency. Deploy with RESERVE_BPS=369 and
+ *     RESERVE_RECIPIENT=this address (already the script defaults for bps).
+ *   • DOPPLER rail — the recipient/bps are DECIDED here, but activation is NOT
+ *     wired yet, deliberately. `wizardConfigToLaunchConfig` does not populate
+ *     `ecosystemReserve` from these constants, so they are inert on the Doppler
+ *     path today (setting them ships nothing). Turning it on is a change-set
+ *     that MUST land together: (a) supply math sale = supply − premine −
+ *     reserve, (b) populate `ecosystemReserve`, and CRITICALLY (c) a DEDICATED
+ *     disclosure column for the reserve. The Fact Sheet is an on-chain EAS
+ *     schema (attestation.ts, FACT_SHEET_EAS_SCHEMA) with fixed columns, so a
+ *     reserve line means re-registering the schema (a new UID = an operator
+ *     on-chain write) — NEVER fold it into teamAllocationVestedBps (that column
+ *     is CREATOR allocation; the disclosure tests pin it). Wiring the reserve
+ *     WITHOUT that disclosure column would ship an undisclosed insider
+ *     allocation, so it stays declarative until the schema carries the line.
  */
-export const ECOSYSTEM_RESERVE_BPS = 500; // 5% of supply
-export const ECOSYSTEM_RESERVE_RECIPIENT = '0x0000000000000000000000000000000000000000' as const;
+export const ECOSYSTEM_RESERVE_BPS = 369; // 3.69% of supply (owner: down from 5%)
+export const ECOSYSTEM_RESERVE_RECIPIENT =
+  '0x14898258122C0740106391E6e8E4F17F3b6d456E' as const;
 
 /** Launch tiers offered in the wizard (maps to gate.ts tiers). */
 export const LAUNCH_TIERS = [

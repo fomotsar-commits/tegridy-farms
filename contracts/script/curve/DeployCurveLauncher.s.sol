@@ -29,9 +29,12 @@ interface IFactoryProbe {
 ///                                Any override must still satisfy the band.
 ///           CURVE_FEE_BPS      — optional; default 100 (1%).
 ///           CREATOR_FEE_SHARE_BPS — optional; default 5000 (50% of the fee).
-///           RESERVE_BPS        — optional; default 500 (5% of supply).
+///           RESERVE_BPS        — optional; default 369 (3.69% of supply, the
+///                                owner's 2026-08-22 decision, down from 5%).
 ///           RESERVE_RECIPIENT  — required when RESERVE_BPS > 0; the ecosystem
-///                                custody Safe (M.11).
+///                                reserve recipient (M.11 decided: the operator
+///                                address; a Safe/vault is recommended but an
+///                                owner-chosen EOA is accepted with a warning).
 ///         Role env:
 ///           FACTORY, MULTISIG, PAUSE_GUARDIAN
 ///
@@ -85,7 +88,7 @@ contract DeployCurveLauncherScript is Script {
         // final curve price. Operators overriding VIRTUAL_ETH_WEI still hit
         // the contract's own band check.
         uint256 virtualEth = vm.envOr("VIRTUAL_ETH_WEI", graduationEth / 19);
-        uint256 reserveBps = vm.envOr("RESERVE_BPS", uint256(500));
+        uint256 reserveBps = vm.envOr("RESERVE_BPS", uint256(369));
 
         cfg.launch = TegridyCurveLauncher.LaunchConfig({
             virtualEth: uint128(virtualEth),
@@ -125,10 +128,27 @@ contract DeployCurveLauncherScript is Script {
             cfg.pauseGuardian.code.length > 0, "CV-3b: PAUSE_GUARDIAN must be a contract (Safe)"
         );
         if (cfg.launch.reserveBps > 0) {
+            // CV-3c: the reserve ships value here on every graduation, so it must
+            // never be the zero address (that would burn 3.69% of each launch).
+            // The on-chain launcher enforces the same non-zero rule. A custody
+            // Safe/vault is STRONGLY preferred, but the owner may deliberately
+            // point the reserve at an operator EOA (2026-08-22 decision) — that
+            // is accepted with a loud warning rather than a hard revert, because
+            // it is a legitimate, reversible policy choice (setLaunchConfig can
+            // repoint future launches to a Safe later).
             require(
-                cfg.launch.reserveRecipient.code.length > 0,
-                "CV-3c: RESERVE_RECIPIENT must be a contract (custody Safe / vault)"
+                cfg.launch.reserveRecipient != address(0),
+                "CV-3c: RESERVE_RECIPIENT is the zero address (would burn the reserve)"
             );
+            if (cfg.launch.reserveRecipient.code.length == 0) {
+                console2.log(
+                    "!! CV-3c WARNING: RESERVE_RECIPIENT is an EOA, not a custody contract:"
+                );
+                console2.log("   ", cfg.launch.reserveRecipient);
+                console2.log(
+                    "   A single key will hold the accumulated ecosystem reserve. Prefer a Safe/vault."
+                );
+            }
         }
 
         // CV-4: economics sanity — a graduation target this small produces an
