@@ -111,6 +111,14 @@ const EXTERNAL_FRONTEND_ABIS = new Set([
 // is a hard failure rather than a silent skip.
 const FRONTEND_ABI_TARGET_OVERRIDES = {
   LP_FARMING_ABI: 'TegridyLPFarming', // export drops the `Tegridy` prefix
+  // Same shape — the airdrop/vesting surface landed with the prefix dropped, so
+  // `normalize(stem)` finds no candidate and the guard fails the whole job. These
+  // ARE in-repo contracts (contracts/src/TegridyAirdropDistributor.sol,
+  // contracts/src/TegridyVestingWallet.sol), so they belong here and NOT in
+  // EXTERNAL_FRONTEND_ABIS — that list is for ABIs we do not build, and the guard
+  // rejects an entry there that has an in-repo `*_ADDRESS`.
+  AIRDROP_DISTRIBUTOR_ABI: 'TegridyAirdropDistributor',
+  VESTING_WALLET_ABI: 'TegridyVestingWallet',
 };
 
 // Selectors a frontend ABI declares that are deliberately served by a DIFFERENT
