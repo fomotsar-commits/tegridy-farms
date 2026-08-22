@@ -651,7 +651,7 @@ its FP rationale ("verified across RevenueDistributor / ReferralSplitter / POLAc
 TegridyStaking / TegridyRestaking / TegridyTWAP, 2026-05-31") covers almost none of the files that
 actually fire. Rewrite or delete it; do not inherit its conclusions.
 
-🔶 **A first triage pass exists, and you must NOT act on it as-is.** Five agents triaged all 48
+🔶 **A first triage pass exists — written up in [`SLITHER_TRIAGE_2026_08_22.md`](SLITHER_TRIAGE_2026_08_22.md), one section per finding — and you must NOT act on it as-is.** Five agents triaged all 48
 against the Solidity on 2026-08-22 and returned **54 FALSE_POSITIVE, 2 REAL_BUT_ACCEPTED, 0
 REAL_BUG**. The reasoning is detailed and cites line numbers — e.g. the fee-router HIGHs are argued
 down on three checked facts: every state-mutating entrypoint carries `nonReentrant` under **one
