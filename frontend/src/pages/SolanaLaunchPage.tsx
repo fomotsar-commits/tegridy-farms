@@ -43,6 +43,7 @@ import {
   type LivePoolConfig,
 } from '../lib/launcher/solana/liveConfig';
 import { submitLaunch, ConfirmationTimeout, LaunchFailedOnChain } from '../lib/launcher/solana/submitLaunch';
+import { validateMetadataUri, checkMetadataDocument, type DocumentVerdict } from '../lib/launcher/solana/metadataUri';
 
 // The Solana leg is a fee-capture SUB-BRAND, deliberately separate from the EVM
 // flagship launcher. This page is GATED: while isSolanaLauncherEnabled() is false
@@ -303,8 +304,43 @@ function SubmitPanel({
     setStatus({ phase: 'idle' });
   }, []);
 
-  const trimmed = { name: name.trim(), symbol: symbol.trim(), uri: uri.trim() };
+  // Memoised: a fresh object each render churned the deps of both the submit
+  // callback and the metadata-check effect, re-arming the debounce on every keystroke
+  // anywhere on the page.
+  const trimmed = useMemo(
+    () => ({ name: name.trim(), symbol: symbol.trim(), uri: uri.trim() }),
+    [name, symbol, uri],
+  );
   const missing = !trimmed.name || !trimmed.symbol || !trimmed.uri;
+
+  // The launched token is created with AUTHORITY_IMMUTABLE — no update authority —
+  // so this URI is what every wallet and explorer shows FOREVER. The shape check is
+  // blocking because it is certain and free; the document check is advisory because
+  // a cross-origin gateway may refuse us a read that is perfectly fine for everyone
+  // else, and we must not block a good launch on our own blindness.
+  const uriShape = trimmed.uri ? validateMetadataUri(trimmed.uri) : { ok: true as const };
+  // The verdict is stored WITH the uri it describes, rather than being cleared in an
+  // effect when the uri changes. Staleness is then a render-time comparison instead of
+  // a synchronous setState, which is both simpler and what the hooks lint asks for.
+  const [doc, setDoc] = useState<{ uri: string; verdict: DocumentVerdict } | null>(null);
+  const [docChecking, setDocChecking] = useState(false);
+
+  useEffect(() => {
+    if (!trimmed.uri || !uriShape.ok) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      if (!alive) return;
+      setDocChecking(true);
+      checkMetadataDocument(trimmed.uri)
+        .then((verdict) => { if (alive) setDoc({ uri: trimmed.uri, verdict }); })
+        .catch(() => { if (alive) setDoc({ uri: trimmed.uri, verdict: { status: 'unknown', reason: 'Could not read it.' } }); })
+        .finally(() => { if (alive) setDocChecking(false); });
+    }, 600); // debounce typing
+    return () => { alive = false; clearTimeout(t); };
+  }, [trimmed.uri, uriShape.ok]);
+
+  // Only a verdict about the CURRENT uri may be shown.
+  const verdict = doc && doc.uri === trimmed.uri ? doc.verdict : null;
   const busy = status.phase === 'signing' || status.phase === 'confirming';
   // Every state in which the transaction reached the network. None of them may offer
   // a one-click retry: 'done' and 'failedOnChain' are settled, and 'stranded' may
@@ -486,7 +522,7 @@ function SubmitPanel({
           <button
             type="button"
             onClick={onSubmit}
-            disabled={missing || busy || !ack || termsUnknown}
+            disabled={missing || busy || !ack || termsUnknown || !uriShape.ok || verdict?.status === 'invalid'}
             className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-40"
           >
             {status.phase === 'signing' ? 'Confirm in your wallet…'
@@ -505,6 +541,34 @@ function SubmitPanel({
               </a>
             </div>
           )}
+          {!uriShape.ok && (
+            <p className="text-rose-300 text-[10px]">Metadata URI: {uriShape.reason}</p>
+          )}
+          {uriShape.ok && verdict?.status === 'invalid' && (
+            <p className="text-rose-300 text-[10px]">
+              Metadata URI: {verdict.reason} This cannot be changed after launch, so it is blocked.
+            </p>
+          )}
+          {/*
+            Two different unknowns. `notice` means our browser could not look —
+            a fact about us, worth saying quietly. `warning` means we looked and
+            found nothing but are not entitled to call that proof; rendering it
+            in the same grey would bury the one the launcher has to act on.
+          */}
+          {uriShape.ok && verdict?.status === 'unknown' && verdict.severity !== 'warning' && (
+            <p className="text-white/40 text-[10px]">
+              Could not verify the metadata from this browser ({verdict.reason}) — check it resolves before launching.
+            </p>
+          )}
+          {uriShape.ok && verdict?.status === 'unknown' && verdict.severity === 'warning' && (
+            <p className="text-amber-300 text-[10px]">{verdict.reason}</p>
+          )}
+          {uriShape.ok && verdict?.status === 'ok' && (
+            <p className="text-emerald-300/80 text-[10px]">
+              Metadata reads as “{verdict.name ?? 'untitled'}”{verdict.image ? ' with an image' : ' (no image field)'}.
+            </p>
+          )}
+          {docChecking && <p className="text-white/40 text-[10px]">Checking the metadata URI…</p>}
           {missing && <p className="text-white/40 text-[10px]">Name, symbol and metadata URI are required.</p>}
           {status.phase === 'error' && (
             <>
