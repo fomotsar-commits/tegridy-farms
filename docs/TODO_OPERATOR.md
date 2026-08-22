@@ -408,6 +408,13 @@ chain on every re-index, which would have destroyed every manifest).
 - **A self-inflicted trap fixed** — `base58Decode` returned **33 bytes** for an all-zero key, so the
   System Program would have been rejected as "NOT A SOLANA ADDRESS": the exact verdict that function
   exists to reserve for a fabricated key. Found by a self-test case, not by a registry entry.
+- **The gotchas that were only in my head are now in the repo** —
+  [`DEVELOPING.md § Common gotchas`](DEVELOPING.md#common-gotchas). Two of them can destroy work on
+  this box: a worktree's `node_modules` may be a **junction**, so `rm -rf` follows it and deletes
+  the real tree (`cmd /c rmdir` removes only the link); and PowerShell 5.1 mangles the encoding of
+  any non-ASCII file it round-trips, which is every runbook and `addresses.json`. The rest are
+  verification discipline — including why "the search did not run" must never be reported as "it is
+  not there", which produced two confident wrong claims before it was written down.
 
 **When you finish any Tier 0 or Tier 1 item, tell me and I will wire what it unlocks the same
 hour.** Most of the remaining code work is one env var away from being reachable.

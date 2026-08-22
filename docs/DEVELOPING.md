@@ -135,6 +135,47 @@ forge test --fork-url http://localhost:8545
 - **Windows + Git line endings:** [`.gitattributes`](../.gitattributes) normalises to LF — if you see diff noise, re-run `git add --renormalize .`.
 - **`forge test` fails on `MAINNET_ONLY` require:** Most V3 deploy scripts have `require(block.chainid == 1)` — use `--fork-url` to satisfy.
 
+### Windows toolchain — two of these can destroy work
+
+- **⛔ A worktree's `node_modules` may be a JUNCTION. Remove it with `cmd /c rmdir <path>`, NEVER
+  `rm -rf`.** `npm ci` in a fresh worktree dies with EPERM on this box, so the usual fix is
+  `cmd /c mklink /J <worktree>/frontend/node_modules <main>/frontend/node_modules`. A recursive
+  delete **follows the junction** and takes the real tree with it. `rmdir` removes only the link.
+- **⛔ Don't round-trip a non-ASCII file through PowerShell 5.1.** `Get-Content -Raw` piped into
+  `Set-Content` mangles the encoding, and this repo is full of em-dashes, arrows and emoji — in
+  `addresses.json`, every runbook, every one of these docs. Edit those files directly, or use
+  Node with explicit `'utf-8'` on both read and write.
+- **Git Bash silently mangles `rev:.github/...` arguments.** `git show 'branch:.github/workflows/ci.yml'`
+  fails or returns nothing, because the path gets rewritten before git sees it. This produces a
+  **false negative that looks exactly like a real answer** — during the #280 work it twice
+  "proved" a workflow step did not exist when it did. Use PowerShell for any git argument
+  containing `:.github`.
+
+### Verifying things in this repo
+
+- **A search that could not run is not a negative result.** A timed-out scan, a mangled path, a
+  filter that matched nothing — none of those mean "absent". Both times this rule was broken here
+  it produced a confident wrong claim: once reporting an on-disk keyfile as missing after the scan
+  timed out, once reporting a CI step as absent after the path was mangled. If a check cannot
+  complete, say it did not complete.
+- **The address registry has TWO pipelines. Grep both.** `ci.yml`'s *Address registry* step runs
+  the OFFLINE checks on every push; **`registry-onchain.yml`** is the one that passes `--onchain`,
+  on a daily cron and path-filtered to the registry and constants. Reading only `ci.yml` and
+  concluding "the chain read never runs" is wrong, and was — see
+  [`scripts/verify-addresses.mjs`](../frontend/scripts/verify-addresses.mjs).
+- **Moving authority to an N-of-M is one step; keeping the ability to USE it is another, and only
+  the second is testable.** cp-swap and tegridy-launch both had upgrade authority correctly
+  transferred to a Squads 2-of-2 — a 2-of-2 that had never executed a single transaction, whose
+  second member held 0 SOL and appeared in no proposal's `approved[]`. Every upgrade and every
+  `program close` depended on a threshold nobody had ever demonstrated. Read `approved[]` on the
+  Proposal PDAs, and treat an N-of-M as unproven until a transaction has actually executed at the
+  new threshold.
+- **Green is not the same as checked.** This repo has shipped two gates that could not fail: a
+  `tsc --noEmit` that type-checked zero files, and a chain read behind a flag nothing passed whose
+  only disagreement path was a `warn()`. Both were green for weeks. When a check reports a count,
+  make zero a failure — `verify-addresses.mjs` fails if a scan finds nothing to look at, because
+  "found nothing wrong" and "looked at nothing" must not share an exit code.
+
 ## Publishing a release
 
 See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the full deploy runbook.
@@ -147,4 +188,4 @@ See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the full deploy runbook.
 
 ---
 
-*Last updated: 2026-04-17.*
+*Last updated: 2026-08-22.*
