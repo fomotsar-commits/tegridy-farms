@@ -418,7 +418,7 @@ The money-path job already has a diagnosis worth not re-deriving: it is **order-
 unseeded.** Seeding landed and did not fix it. Start by running the suite with a single worker and
 a fixed order, and bisect the pair that collides — do not add more seeding.
 
-**2. ✅ The five non-Dependabot PRs are decided.** Every verdict re-derived against trunk rather
+**2. ✅ The five non-Dependabot PRs are decided AND resolved — nothing is left open.** Every verdict re-derived against trunk rather
 than taken from the PR's own claims.
 
 - **`#306`** selector-guard ABI registration — **merged** (`dce626c3`). It un-skipped the contracts
@@ -434,15 +434,14 @@ than taken from the PR's own claims.
   delivered: `assertMayLaunch` is wired into both rails. The one thing not carried over, the
   180-day floor, was removed on purpose per the island spec and is documented twice. If you want
   that floor it is a config change (`VITE_HEAT_LAUNCH_FLOOR`), not a re-merge.
-- **`#304`** restaking ABI alignment — **rebased, reduced to its one code commit, ready to merge.**
+- **`#304`** restaking ABI alignment — ✅ **MERGED** (`0d4ec7e4`).
   Real live drift: `TegridyRestaking.sol` declares a **6-field** `RestakeInfo`, trunk's frontend ABI
   declares 5. The four `docs(todo)` commits were dropped (redundant with trunk, and the only files
-  that conflicted). ▶ **Merge when CI is green.**
-- **`#265`** Solana metadata-URI check — **rebased, one hunk dropped, one finding fixed, ready to
-  merge.** Scope note that changes the verdict: this targets the **live Meteora DBC rail**, not the
+  that conflicted).
+- **`#265`** Solana metadata-URI check — ✅ **MERGED** (`461d8b1e`), with one hunk dropped and one
+  finding fixed first. Scope note that changed the verdict: this targets the **live Meteora DBC rail**, not the
   dead own-curve rail, so it is revenue-path work and not dead-rail polish. Tokens are created
   `AUTHORITY_IMMUTABLE`, so the URI is permanent and unfixable after launch.
-  ▶ **Merge when CI is green.**
   - *Dropped:* its `liveConfig.ts` hunk deleted `feeClaimer: 72`. Trunk has since answered that
     question the other way and correctly (`feeClaimer: 40` / `leftoverReceiver: 72`, pinned
     separately), and `feeCustody.ts` reads `feeClaimer` for the custody gate. Taking the hunk would
@@ -455,7 +454,9 @@ than taken from the PR's own claims.
 **3. Sweep the 15 Dependabot PRs.** Hold `#296` (framer-motion 12 → **13**, a major). The rest are
 minor/patch and grouped.
 
-**Status 2026-08-22:** do not read their current red as a verdict on the bumps. `#303` (eslint /
+**Status 2026-08-22 (late):** all 14 non-major PRs have been sent `@dependabot rebase` onto the
+fixed trunk; they will re-run CI on their own. Do not read their previous red as a verdict on the
+bumps. `#303` (eslint /
 vite tooling) and `#287` (viem / wagmi) were failing `Lint, Type Check & Test` for **my** lint
 regression, not for anything in the bump — that is fixed in `a0c83c42` and they need a re-run. The
 CodeQL-action bumps (`#268`–`#271`) and `#302` were red on the pre-existing trunk failures, which
@@ -541,6 +542,11 @@ per name can exist — and a `scope` job decides whether the expensive jobs run
 (`.github/scripts/diff-scope.mjs`). Every uncertain answer **runs** the real job, including a scope
 job that failed outright. `requiredCheckSynthesis.test.ts` is rewritten to enforce the shape that
 cannot regress, and its header records what was measured and why the old reasoning was wrong.
+
+*Proven in production on `#265`,* a frontend-only PR: exactly one check run per name, all four
+`scope` jobs green, `Static analysis` and `registry vs chain` **SKIPPED**, and `all-tests-pass` /
+`all-checks-pass` **SUCCESS** via their out-of-scope step. Under the old arrangement that PR would
+have carried two `Static analysis` runs and two `all-tests-pass` runs.
 
 **Still open — the 362 findings.** The latest trunk run analysed 250 contracts with 88 detectors
 and found 362 results, which fails `fail-on: medium`. This is a real triage job and not a
