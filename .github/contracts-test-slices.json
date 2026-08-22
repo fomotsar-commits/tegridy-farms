@@ -18,7 +18,12 @@
     "    forge does not set globset's `literal_separator`, so `*` DOES cross",
     "    `/` \u2014 `test/*Invariants.t.sol` matches all 7 files under",
     "    `test/invariants/` (verified against forge 1.5.1). Write an explicit",
-    "    `test/<dir>/*.t.sol` slice for each subdirectory.",
+    "    `test/<dir>/*.t.sol` slice for each subdirectory. A brace CAN span",
+    "    sibling directories — `test/{base,markets,v2,vaults}/*.t.sol` matches",
+    "    all four (verified against forge 1.5.1) — so a handful of small",
+    "    subdirectories can share ONE slice rather than spawning a CI job each.",
+    "    ADDING A SUBDIRECTORY UNDER test/ WITHOUT TOUCHING THIS FILE IS THE",
+    "    RECURRING FAILURE: the guard catches it, but only after the fact.",
     "  * regex syntax (`|`, `$`, `\\.`) is matched LITERALLY and silently finds",
     "    nothing, because forge exits 0 on 'No tests found in project!'.",
     "",
@@ -76,6 +81,14 @@
       "slice": "invariants",
       "pattern": "test/invariants/*.t.sol",
       "noMatchTest": "^testFuzz_"
+    },
+    {
+      "slice": "l2-markets-vaults",
+      "pattern": "test/{base,markets,v2,vaults}/*.t.sol"
+    },
+    {
+      "slice": "airdrop-launch-vesting",
+      "pattern": "test/{AirdropFactory,AirdropMerkleVector,LaunchLockView,LaunchRugEscrow,VestingFactory}*.t.sol"
     }
   ],
   "excluded": [
