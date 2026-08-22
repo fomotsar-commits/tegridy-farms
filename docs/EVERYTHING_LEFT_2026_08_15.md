@@ -383,3 +383,23 @@ discount (nobody misled), the staking `getReward()` revert (it pays partial inst
 analytics re-queue burn (a 503 response does not re-queue; only a fetch throw does), and the
 claim that `registry-onchain` fails quietly (it fails **loudly**, and has for three days, with a
 substantive finding).
+
+---
+
+# Addendum 2026-08-20 — the multichain directive (Base 8453 + Robinhood Chain 4663)
+
+The operator took the go/no-go: the app is to serve Base and Robinhood Chain, launchpads and
+LP system included. Everything code-side landed on `claude/jolly-ritchie-0d4dda`
+(`456cdf6f` contracts, `2443b584` frontend); what remains is the operator ceremony per chain.
+Full context: [ROBINHOOD_L2_LEG.md](./ROBINHOOD_L2_LEG.md) + [BASE_L2_GO_NO_GO.md](./BASE_L2_GO_NO_GO.md).
+
+| # | Operator step | Notes |
+|---|---|---|
+| M.1 | **4 disjoint Safes per chain** (TREASURY / MULTISIG / PAUSE_GUARDIAN / FEE_REMITTANCE), proven signers, nonce > 0 | Safe 1.3.0 + 1.4.1 factories verified present on 4663; Safe{Wallet} UI support there unverified — may need safe-cli. Precedes everything. |
+| M.2 | `DeployBaseMVP` → accepts → `VerifyBaseMVP` green; same for `DeployRobinhoodMVP`/`VerifyRobinhoodMVP` | The 4663 leg deploys the **AttestedSequencerUptimeFeed** first (no Chainlink there) — its attestor duty (flip on outage) goes in INCIDENT_RESPONSE **before** go-live. |
+| M.3 | `DeployBaseLaunchRail` / `DeployRobinhoodLaunchRail` (5 accepts each) | RugEscrow openings ship DISABLED — enabling is its own decision. 4663 rail needs the M.2 feed address as SEQUENCER_FEED. |
+| M.4 | LP farming per chain — **blocked on an economics decision**: the reward token | `DeployBase/RobinhoodLPFarming` refuse to pick one. NullBoost = flat 1.0x, no veTOWELI off mainnet. Needs a pair to exist first. |
+| M.5 | Frontend go-live per chain = ONE change-set | Fill the chain's zeroed `ChainConfig` slots from broadcast artifacts + (4663) set `sequencerUptimeFeed` to the deployed adapter — a registry test fails the build if the feed is forgotten while contracts are live. Register addresses in `frontend/scripts/addresses.json` per-chain. |
+| M.6 | Vercel env on BOTH deploy paths + CSP already carries the new RPC hosts | `base.drpc.org`, `mainnet.base.org`, `rpc.mainnet.chain.robinhood.com` allowlisted in `connect-src` (script-src hash untouched). |
+| M.7 | Doppler-on-Robinhood migration policy | 4663 has **no UniswapV4Migrator / no V1 locker** (V2 only) — the current launch policy cannot run there; choosing the replacement (UniswapV2MigratorSplit into our own factory pair fits the own-venue directive) is a product decision with its own verification pass. Doppler-on-Base has full parity and is only gated on per-chain fee sinks + the frontend address book. |
+| M.8 | Monitoring legs per chain (revenue-watch reads the FEE_REMITTANCE balance, arb-linkage via its CHAIN_ID/RPC env seams) | The fee-rail-invisible-for-weeks incident repeats on Base day one otherwise. |
