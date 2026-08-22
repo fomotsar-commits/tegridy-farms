@@ -84,11 +84,11 @@
     },
     {
       "slice": "l2-markets-vaults",
-      "pattern": "test/{base,markets,v2,vaults}/*.t.sol"
+      "pattern": "test/{base,markets,robinhood,v2,vaults}/*.t.sol"
     },
     {
       "slice": "airdrop-launch-vesting",
-      "pattern": "test/{AirdropFactory,AirdropMerkleVector,LaunchLockView,LaunchRugEscrow,VestingFactory}*.t.sol"
+      "pattern": "test/{AirdropFactory,AirdropMerkleVector,AttestedSequencerUptimeFeed,LaunchLockView,LaunchRugEscrow,VestingFactory}*.t.sol"
     }
   ],
   "excluded": [

@@ -14,6 +14,9 @@ import {Script, console2} from "forge-std/Script.sol";
 ///           - Optimism (10):            0x4200000000000000000000000000000000000006
 ///           - Arbitrum One (42161):     0x82aF49447D8a07e3bd95BD0d56f35241523fBab1
 ///           - Base (8453):              0x4200000000000000000000000000000000000006
+///           - Robinhood Chain (4663):   0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73
+///             (verified on-chain 2026-08-20: symbol()/name() "WETH", 18 decimals;
+///              matches docs.robinhood.com/chain/contracts + the Doppler SDK book)
 ///           - Sepolia (11155111):       0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14
 ///         Other / unknown chain ids are accepted but require an explicit
 ///         `--sig 'check(address,address[])'` invocation passing the expected fork WETH.
@@ -33,6 +36,7 @@ contract CheckCanonicalWETH is Script {
         if (chainId == 10) return 0x4200000000000000000000000000000000000006;
         if (chainId == 42161) return 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
         if (chainId == 8453) return 0x4200000000000000000000000000000000000006;
+        if (chainId == 4663) return 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
         if (chainId == 11155111) return 0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14;
         return address(0);
     }
