@@ -397,9 +397,17 @@ which is still broadly right but predates three merges.
 
 **1. 🔴 Get trunk green. Everything else is worth less until this is done.**
 
-Both E2E jobs fail on `mvp-launch` — at `98d175a3`, `e1251c42`, `b4200931` and still today — plus
-`advisories — frontend` and `advisories — indexer`. Nothing in #280 or #305 touched them; I checked
-against trunk before merging both.
+**Updated 2026-08-22 (late).** Two of the four red checks are fixed and one turned out never to
+have run at all. What is left on trunk:
+
+| Check | State | Where it stands |
+|---|---|---|
+| `advisories — frontend` / `— indexer` | ✅ **FIXED** (`5565506b`) | Was never an advisory problem. GitHub runs every `run:` block under `bash -e`, and `set -uo pipefail` does not clear errexit, so the unguarded `npm audit --json` ended the step the instant it found anything and **the gate never ran once** since it was armed on 08-18. Running the gate against the real reports: 0 blocking in both projects, every finding already baselined, zero stale suppressions. Nothing was allowlisted to force green. |
+| `Static analysis` (Slither) | 🔴 **STILL RED — and it was masking** | See item 8. |
+| `E2E Tests` / `E2E Tests (Anvil fork)` | 🔴 **still red** | Unchanged. The `reducedMotion` finding below is still the first thing to check. |
+| `Lint, Type Check & Test` | ✅ green | Went red for ~15 minutes today on my own `no-fallthrough` mistake (`a0c83c42`); see the note at the end of item 8. |
+
+Original entry, kept because the E2E diagnosis is still current:
 
 The failures are not the problem. A permanently-red trunk is: once red is the normal state, the
 next real regression is indistinguishable from the noise. This repo has already shipped **two**
@@ -410,13 +418,53 @@ The money-path job already has a diagnosis worth not re-deriving: it is **order-
 unseeded.** Seeding landed and did not fix it. Start by running the suite with a single worker and
 a fixed order, and bisect the pair that collides — do not add more seeding.
 
-**2. Decide the five non-Dependabot PRs.** They are the reviewed work sitting closest to done:
-`#306` selector-guard ABI registration · `#304` restaking ABI alignment · `#278` Heat launch gate ·
-`#265` Solana metadata-URI check · `#205` foundry 1.3.1 → 1.9.1. Each is either merge, close, or a
-named reason to keep waiting — an open PR with no verdict is the same debt as a red check.
+**2. ✅ The five non-Dependabot PRs are decided.** Every verdict re-derived against trunk rather
+than taken from the PR's own claims.
+
+- **`#306`** selector-guard ABI registration — **merged** (`dce626c3`). It un-skipped the contracts
+  matrix. Contracts CI had failed on every trunk run since 08-19 and the forge slices `needs:` that
+  job, so they reported *skipped*, not *failure* — **every merge in that window landed with zero
+  contract test coverage and nothing went red.**
+- **`#205`** foundry 1.3.1 → 1.9.1 — **merged** (`6dedcb53`). Its dependabot mute named one release
+  condition ("a run where all nine slices are green"); that run exists, on a head rebased onto trunk
+  exactly. The mute is now lifted too (`22823be3`) — an ignore whose stated condition has been met
+  stops being a decision and becomes a mute nobody owns.
+- **`#278`** Heat launch gate — **CLOSED**, superseded on every file. Trunk's gate is *newer*
+  (`657c5170`, #286, 08-11 — three days after #278 opened) and this PR's actual purpose is already
+  delivered: `assertMayLaunch` is wired into both rails. The one thing not carried over, the
+  180-day floor, was removed on purpose per the island spec and is documented twice. If you want
+  that floor it is a config change (`VITE_HEAT_LAUNCH_FLOOR`), not a re-merge.
+- **`#304`** restaking ABI alignment — **rebased, reduced to its one code commit, ready to merge.**
+  Real live drift: `TegridyRestaking.sol` declares a **6-field** `RestakeInfo`, trunk's frontend ABI
+  declares 5. The four `docs(todo)` commits were dropped (redundant with trunk, and the only files
+  that conflicted). ▶ **Merge when CI is green.**
+- **`#265`** Solana metadata-URI check — **rebased, one hunk dropped, one finding fixed, ready to
+  merge.** Scope note that changes the verdict: this targets the **live Meteora DBC rail**, not the
+  dead own-curve rail, so it is revenue-path work and not dead-rail polish. Tokens are created
+  `AUTHORITY_IMMUTABLE`, so the URI is permanent and unfixable after launch.
+  ▶ **Merge when CI is green.**
+  - *Dropped:* its `liveConfig.ts` hunk deleted `feeClaimer: 72`. Trunk has since answered that
+    question the other way and correctly (`feeClaimer: 40` / `leftoverReceiver: 72`, pinned
+    separately), and `feeCustody.ts` reads `feeClaimer` for the custody gate. Taking the hunk would
+    have broken it.
+  - *Fixed before merge:* a single IPFS gateway 404 would have **blocked legitimate launches** —
+    freshly pinned CIDs 404 for minutes while they propagate. It now tries a second gateway and, if
+    both miss, warns in amber instead of blocking. `https://` and `ar://` 404s still block, because
+    those hosts are authoritative for their own paths.
 
 **3. Sweep the 15 Dependabot PRs.** Hold `#296` (framer-motion 12 → **13**, a major). The rest are
 minor/patch and grouped.
+
+**Status 2026-08-22:** do not read their current red as a verdict on the bumps. `#303` (eslint /
+vite tooling) and `#287` (viem / wagmi) were failing `Lint, Type Check & Test` for **my** lint
+regression, not for anything in the bump — that is fixed in `a0c83c42` and they need a re-run. The
+CodeQL-action bumps (`#268`–`#271`) and `#302` were red on the pre-existing trunk failures, which
+are now two-thirds resolved. The eight package bumps (`#289`–`#295`) report `UNKNOWN` mergeable,
+which means GitHub has not computed a merge base recently, not that they conflict.
+
+▶ **The order that costs least:** re-run CI on all of them (pushing trunk already retriggers most),
+then merge the ones that come back green **one at a time** — each merge moves trunk and Dependabot
+rebases the rest, so batching them just means N rounds of CI either way. Leave `#296` alone.
 
 **4–5. ✅ DONE 2026-08-22 (`01b26b86`).** All 53 cleared, `tsconfig.test.json` wired, and the guard
 extended to assert coverage rather than spelling. Verified by mutation in both directions: a
@@ -447,14 +495,76 @@ caused the documented silent Borsh offset shift.
 `noUncheckedIndexedAccess`, `strictFunctionTypes`, `verbatimModuleSyntax` and the two unused checks.
 Test files are checked now, but not as strictly. Tightening them is its own piece of work.
 
-**6. Honesty debt — 5 files still assert the Solana rail is live.** Re-counted today; `geometry.ts`
-has since been fixed, so it is five, not six:
-`frontend/src/lib/launcher/solana/README.md` · `curve/index.ts` · `curve/ix.ts` · `curve/program.ts` ·
-`frontend/scripts/tegridy-launch-operator.mjs`. Both programs were closed on 2026-08-13 and their
-ids are spent. `program.ts` is the one that matters most — its `PROGRAM_ID` still points at a closed
-program, and check 5b now cross-checks it against the registry, so the code and the registry
-disagree in public. *(The cp-swap `lib.rs` header and the ProgramData chain-gate items from the
-sweep are both already closed — verified today.)*
+**6. ✅ Honesty debt — closed (`514942c5`, `b0484908`).** It was **eight** files, not five. Two were
+not on any list and were found by scanning rather than by counting: `geometry.ts` had *not* been
+fixed, and `rpc.ts` carried a claim nobody had counted. All eight now say what is true — deployed
+08-08, closed 08-13, permanently spent, and graduation never ran once because cp-swap's `AmmConfig`
+was never created.
+
+**The part that was a live defect, not a comment.** `readDeployment` reported `deployed` for both
+spent ids, and every surface gating on it believed the rail was up for the nine days since the
+close. `solana program close` deletes the ProgramData account and leaves the 36-byte program stub
+**still executable-flagged**, so `getAccountInfo` — and `readDeployment`, built on it — answers "a
+program is here" for an id that can never execute again. This is the one place where "trust the
+chain read, not the comment" fails: **the chain read agreed with the wrong comment.**
+
+`readDeployment` now follows the stub's pointer and reads the ProgramData account before saying
+`deployed`; any failure in that second read is `unreadable`, never `deployed`. `closed` is its own
+variant in `Deployment` and `LaunchPhase` rather than folded into `not-deployed` — a spent id is
+not an id you can still deploy to, and adding the variant made the exhaustiveness checks fail at
+all four render sites, which is how they were found. The operator script refuses both spent ids from
+a literal list, not a chain read, for the same reason.
+
+While in the page: the deployment banner had been telling every visitor *"That id is a placeholder
+generated so the program compiles… expected to return nothing today"* for two weeks after the
+deploy made it false.
+
+**8. 🔴 NEW — Slither: 362 findings at `fail-on: medium`, and the check was being masked.**
+
+Two separate problems, one now fixed.
+
+**Fixed (`cdd58b06`) — four required checks could be satisfied by a two-second echo.** Measured on
+`#205` (head `a4706efb`): two check runs named `Slither / Static analysis` existed at once — the
+real 4-minute analysis **FAILED**, a 2-second shim **passed**, and the PR's check list surfaced only
+the pass, with the real result absent entirely. `all-tests-pass` was doubled on the same PR and
+agreed by luck. A required-status rule on either name would have been satisfied by an echo. **This
+is the third instance of this repo's documented failure mode.**
+
+The cause was GitHub's own "skipped but required" recipe: `paths` fires when *any* changed file
+matches, `paths-ignore` when *any* does not — they are not complements, so a PR touching both sides
+triggered the real workflow **and** its `-not-applicable.yml` companion. The companions carried a
+comment arguing the overlap was safe on finish order, and `requiredCheckSynthesis.test.ts` enforced
+that pairing and repeated the argument. Nobody had measured it.
+
+The four companions are deleted. Each workflow now triggers on every PR — so exactly one check run
+per name can exist — and a `scope` job decides whether the expensive jobs run
+(`.github/scripts/diff-scope.mjs`). Every uncertain answer **runs** the real job, including a scope
+job that failed outright. `requiredCheckSynthesis.test.ts` is rewritten to enforce the shape that
+cannot regress, and its header records what was measured and why the old reasoning was wrong.
+
+**Still open — the 362 findings.** The latest trunk run analysed 250 contracts with 88 detectors
+and found 362 results, which fails `fail-on: medium`. This is a real triage job and not a
+mechanical fix:
+
+▶ **Do NOT lower `fail-on` or add `continue-on-error`.** The workflow's own comment already argues
+this and it is right: a gate lowered until it stops objecting still reports, and now reports
+nothing.
+▶ **Start by confirming the curated config actually loaded.** `contracts/slither.config.json` has 12
+documented false-positive exclusions (`timestamp` and `dead-code` are the chronic noise), and the
+workflow comment records that it was *never* being loaded before — slither auto-loads from the CWD,
+which is the repo root, not `target:`. 88 detectors running suggests the exclusions are not biting;
+check whether the curated config is in play before triaging a single finding.
+▶ **Then triage by detector, not by finding.** Download the `slither-report` artifact the job
+already uploads and group by detector — 362 results across 88 detectors is a handful of noisy
+detectors, not 362 distinct issues.
+▶ Anything genuinely a false positive gets `// slither-disable-next-line <detector>` **and a
+reason** on the specific line, never a config-wide mute.
+
+*One process note, recorded because it cost trunk 15 minutes of red:* I verified `b0484908` with
+`tsc -b` and `vitest` and **did not run `npm run lint`**, which is the other third of the
+`Lint, Type Check & Test` job. An explanatory comment placed between two empty `case` labels made
+`no-fallthrough` read the case above it as a falling-through body. Fixed in `a0c83c42`, and found
+by reading why two Dependabot PRs were failing rather than by my own check. **Run all three.**
 
 **7. Repo hygiene — the numbers moved, so here they are fresh.** 122 worktrees · 329 local branches,
 **120 of them fully merged** into `mvp-launch` · 12 stashes, nine on `main`, which is not the trunk ·
@@ -462,7 +572,22 @@ roughly 27 GB reclaimable, because `.git/worktrees` holds a duplicate submodule 
 ⛔ Prune with `git worktree remove` **only** — 93 are dirty, and deleting the directories by hand
 leaves the metadata behind. This is safe, boring, and worth doing before the count grows again.
 
-**Closed since the last revision (2026-08-22), so nobody re-opens them:**
+**Closed 2026-08-22 (late session), so nobody re-opens them:**
+
+- **The advisory gate had never run** (`5565506b`) — errexit killed the audit step before the gate
+  was reached, every run since it was armed. See item 1.
+- **Four required checks could be satisfied by an echo** (`cdd58b06`) — the `-not-applicable.yml`
+  companions are gone. See item 8.
+- **`readDeployment` called a closed program deployed** (`b0484908`) — a live honesty failure, not a
+  comment. See item 6.
+- **Eight stale "the Solana rail is live" claims** (`514942c5`) — two of them found by scanning
+  rather than by list.
+- **The foundry-toolchain dependabot mute** (`22823be3`) — its stated release condition was met by
+  `#205`.
+- **`#278` closed as superseded**, `#304` and `#265` rebased onto trunk and ready to merge. See
+  item 2.
+
+**Closed since the previous revision (2026-08-22), so nobody re-opens them:**
 
 - **Registry chain read hardened** — [#280](https://github.com/fomotsar-commits/tegridy-farms/pull/280)
   (`cbc60f15`). Batched to two requests for 58 addresses; three outcomes instead of two, so a
