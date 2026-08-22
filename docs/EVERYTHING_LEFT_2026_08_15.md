@@ -49,9 +49,18 @@ load-bearing, and the reason is given rather than assumed.
    enforces nothing and no longer says so out loud.
 
 ⚠️ **Before acting on any item below, check its date.** This page is a 2026-08-15 snapshot with
-dated corrections layered on. Items carrying a `> **Updated …**` or `> **Reconciled …**` block
-have been re-verified; the rest have not been re-read since the sweep, and five of them were
-already wrong on the day they were written — see the corrections section immediately below.
+dated corrections layered on. Items carrying a `> **Updated …**`, `> **Reconciled …**` or
+`> **Re-verified …**` block have been re-verified; the rest have not been re-read since the
+sweep, and six of them were already wrong on the day they were written — see the corrections
+section immediately below.
+
+**Status of the five above, as of 2026-08-21:** ① is being worked in a separate session — check
+whether `tsc -b` is green before starting it, rather than assuming either way. ②–⑤ are untouched.
+
+**Two lanes have been re-verified item-by-item and now carry their own next steps: Frontend**
+(4 of 5 named items CLOSED, R080 narrowed to 1-of-3 applied) and **Repo hygiene** (receipts
+CLOSED; worktrees/branches/stashes re-measured and growing). Read those blocks before picking
+anything up from either — roughly a third of what the prose says is open is not.
 
 ---
 
@@ -371,6 +380,32 @@ worktree, 116 times over) · prune 116 worktrees with `git worktree remove` only
 delete the 119 fully-merged local branches of 316 · resolve 12 stashes, nine of them on `main`
 which is not the trunk · narrow yesterday's `*.mp4` ignore before it swallows real video assets.
 
+> **Re-measured in the primary checkout 2026-08-21 — every number moved, and all but one moved
+> the wrong way.** This lane is not static debt; it accrues on its own with each session.
+>
+> | | 08-15 | 08-21 | |
+> |---|---|---|---|
+> | worktrees | 116 | **124** | +8 — each carries a duplicate submodule clone, so the 27 GB reclaim is now larger |
+> | local branches | 316 | **325** | +9 |
+> | fully-merged, safe to delete | 119 | **122** | +3 |
+> | stashes | 12 | **12** | unchanged — nobody has touched these |
+>
+> ✅ **One item here IS closed: "commit six untracked broadcast receipts."** `contracts/broadcast`
+> now tracks **63 files**, committed 2026-08-18 in `15ef4263` ("commit the deploy receipts for the
+> relaunch and gated batches"). The primary checkout reports **0 untracked files** — so the
+> "untracked receipts" framing is dead and should not be re-raised.
+>
+> **Next step, in this order, because two of them are destructive and one is not:**
+> 1. **Delete the 122 fully-merged branches first** — safest, reversible via reflog, and it shrinks
+>    what step 2 has to reason about: `git branch --merged origin/mvp-launch` is the exact list.
+>    ⚠️ Verify against `origin/mvp-launch`, **not** `main` — [[reference_main_vs_mvplaunch_divergence]].
+> 2. **Then the 124 worktrees, with `git worktree remove` ONLY** — never `rm -rf`, which strands the
+>    `.git/worktrees` metadata and leaves the reclaim unrealised. Many are dirty; `git worktree list`
+>    plus a per-tree `git status --porcelain` tells you which hold real work before anything is lost.
+> 3. **The 12 stashes last, and read them before dropping.** Nine sit on `main`, which is not the
+>    trunk, so their content may be the only copy of work that never landed —
+>    [[reference_shared_checkout_hazard]].
+
 **CI and tests (11).** The coverage ratchet (see the clock above) · the money-path E2E job is red
 because the suite is **order-dependent**, not unseeded — seeding already landed and did not fix
 it · teach the daily chain gate to read ProgramData instead of the stub · commit six untracked
@@ -431,6 +466,39 @@ boost never refreshes for a user who buys a JBAC after staking, and the changelo
 R080 zod schemas written, tested, applied at zero call sites · two EIP-5792 hooks complete and
 mounted nowhere · Playwright has no iPhone and no iPad against a standing three-device
 requirement · a11y smoke covers 2 of 43 routes.
+
+> **Re-verified against the tree 2026-08-21 — four of the five named above are CLOSED, and the
+> fifth is narrower than written.** Each checked at file:line, not inferred. Do not re-open these.
+>
+> - ✅ **Playwright iPhone + iPad — DONE.** `frontend/playwright.config.ts:87-88` declares
+>   `iphone-safari` (iPhone 15) and `ipad-safari` (iPad gen 7), both carrying
+>   `grepInvert: WEBKIT_GREP_INVERT`. The three-device requirement in [[project_responsive]] is met
+>   at the config level. *Not* proven: that the suite is green on those two projects.
+> - ✅ **a11y "2 of 43 routes" — DONE, and guarded against regression**, which is the better half.
+>   `e2e/a11y-routes.spec.ts` sweeps every routed page from `e2e/fixtures/routes.ts` (**55
+>   entries**), and `src/test/a11yRouteCoverage.test.ts` re-derives that list from `src/App.tsx`
+>   and fails when the two disagree — so a new route now arrives with coverage attached instead of
+>   arriving silently. The assertion is **equality**, not "no new violations": a route that stops
+>   violating a rule also fails until its id is deleted, deliberately, so the debt list stays
+>   pruned. ⚠️ **Scope limit, stated in the fixture header and worth keeping honest: the rule set
+>   is markup-level. Nothing checks colour contrast, target size or focus visibility. Green here
+>   says the semantics are sound; it does NOT say the app is WCAG AA.**
+> - ✅ **EIP-5792 "mounted nowhere" — DONE, and it was three hooks, not two.** `src/lib/eip5792.ts`
+>   is imported by `useOneClickLaunchBuy` → `components/launcher/LaunchBuyPanel.tsx`,
+>   `useOneClickStake` → `pages/FarmPage.tsx`, and `useZapRun` → `components/zap/ZapPanel.tsx`.
+>   All three reach a rendered component.
+> - ✅ **LP boost refresh — DONE.** `src/hooks/useAutoRefreshBoost.ts` exists with a companion
+>   test and is wired into `useLPFarming.ts`, `pages/DashboardPage.tsx` and `pages/FarmPage.tsx`.
+>   The changelog claim it was accused of overstating is now true.
+> - ⚠️ **R080 zod schemas — STILL OPEN, but it is 1-of-3 applied, not 0.** `src/lib/schemas/` holds
+>   three modules. **`geckoTerminal.ts` IS applied** (`hooks/usePriceHistory.ts`,
+>   `hooks/useToweliPrice.ts`). **`aggregator.ts` and `opensea.ts` remain at ZERO call sites.**
+>   → **Next step:** find the fetch/parse sites those two were written for — the aggregator quote
+>   path and the OpenSea listing path — and apply them there. A schema module with no call site is
+>   a test that validates a fixture, so treat "the schema's own test passes" as no evidence.
+>
+> **Not re-checked, still carried from 08-15:** the three contradictory answers to "does the
+> Solana program exist" across five modules.
 
 **Contracts (6), backend (6), env docs (7), Solana docs (8), security docs (5), external
 prep (5).** Registry gaps, the `additionalContracts` blind spot, TegridyRestaking still 2,208
