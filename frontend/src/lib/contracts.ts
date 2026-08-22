@@ -66,7 +66,12 @@ export const TEGRIDY_RESTAKING_ABI = [
   // dormant only because that address is still 0x0. Re-point it at the
   // RestakingMonitorView deployment before restaking goes live.
   { type: 'function', name: 'pendingTotal', inputs: [{ name: '_user', type: 'address' }], outputs: [{ name: 'base', type: 'uint256' }, { name: 'bonus', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'restakers', inputs: [{ name: '', type: 'address' }], outputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'positionAmount', type: 'uint256' }, { name: 'boostedAmount', type: 'uint256' }, { name: 'bonusDebt', type: 'int256' }, { name: 'depositTime', type: 'uint256' }], stateMutability: 'view' },
+  // `unsettledSnapshot` (6th field) was missing until 2026-08-21. This entry
+  // dates from 28e03481; the struct field arrived later in c7822932/fff1e9ba.
+  // Benign so far: viem decodes the declared params sequentially and ignores
+  // trailing words, and useRestaking reads only [0..2]. But the ABI must match
+  // the struct it will be deployed from — RestakeInfo in TegridyRestaking.sol.
+  { type: 'function', name: 'restakers', inputs: [{ name: '', type: 'address' }], outputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'positionAmount', type: 'uint256' }, { name: 'boostedAmount', type: 'uint256' }, { name: 'bonusDebt', type: 'int256' }, { name: 'depositTime', type: 'uint256' }, { name: 'unsettledSnapshot', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalRestaked', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalBonusFunded', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalBonusDistributed', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },

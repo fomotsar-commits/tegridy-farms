@@ -39,21 +39,27 @@ const USER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
 
 /**
  * Helper: stub the restakers() tuple read result.
- * Struct is [tokenId, amount, boosted, lastRewardTs, rewardDebt].
+ * Struct is [tokenId, positionAmount, boostedAmount, bonusDebt, depositTime,
+ * unsettledSnapshot] — see RestakeInfo in contracts/src/TegridyRestaking.sol.
+ * `bonusDebt` is int256 (still a bigint here); `unsettledSnapshot` is always 0
+ * post-fix and is kept only for ABI shape. The names on fields 4-6 were wrong
+ * until 2026-08-21 (`lastRewardTs`/`rewardDebt` — neither exists on the struct).
  */
 function stubRestaker(opts: {
   tokenId?: bigint;
-  amount?: bigint;
-  boosted?: bigint;
-  lastRewardTs?: bigint;
-  rewardDebt?: bigint;
+  positionAmount?: bigint;
+  boostedAmount?: bigint;
+  bonusDebt?: bigint;
+  depositTime?: bigint;
+  unsettledSnapshot?: bigint;
 }) {
-  const tup: readonly [bigint, bigint, bigint, bigint, bigint] = [
+  const tup: readonly [bigint, bigint, bigint, bigint, bigint, bigint] = [
     opts.tokenId ?? 0n,
-    opts.amount ?? 0n,
-    opts.boosted ?? 0n,
-    opts.lastRewardTs ?? 0n,
-    opts.rewardDebt ?? 0n,
+    opts.positionAmount ?? 0n,
+    opts.boostedAmount ?? 0n,
+    opts.bonusDebt ?? 0n,
+    opts.depositTime ?? 0n,
+    opts.unsettledSnapshot ?? 0n,
   ];
   wagmiMock.setReadResult({
     functionName: 'restakers',
@@ -109,7 +115,7 @@ describe('useRestaking', () => {
   });
 
   it('isRestaked derives from restakers tuple[0] (tokenId) > 0', () => {
-    stubRestaker({ tokenId: 7n, amount: parseEther('10'), boosted: parseEther('12') });
+    stubRestaker({ tokenId: 7n, positionAmount: parseEther('10'), boostedAmount: parseEther('12') });
     const { result } = renderHook(() => useRestaking());
     expect(result.current.isRestaked).toBe(true);
     expect(result.current.restakedAmount).toBe(parseEther('10'));
@@ -118,7 +124,7 @@ describe('useRestaking', () => {
   });
 
   it('isRestaked is false when tokenId is 0 even if other fields are non-zero', () => {
-    stubRestaker({ tokenId: 0n, amount: parseEther('5') });
+    stubRestaker({ tokenId: 0n, positionAmount: parseEther('5') });
     const { result } = renderHook(() => useRestaking());
     expect(result.current.isRestaked).toBe(false);
   });
@@ -131,10 +137,10 @@ describe('useRestaking', () => {
     });
     stubRestaker({
       tokenId: 3n,
-      amount: parseEther('100'),
-      boosted: parseEther('125'),
-      lastRewardTs: 111n,
-      rewardDebt: 222n,
+      positionAmount: parseEther('100'),
+      boostedAmount: parseEther('125'),
+      bonusDebt: 111n,
+      depositTime: 222n,
     });
     stubPending(parseEther('1'), parseEther('0.5'));
     wagmiMock.setReadResult({
@@ -248,7 +254,7 @@ describe('useRestaking', () => {
       address: TEGRIDY_STAKING_ADDRESS,
       result: 42n,
     });
-    stubRestaker({ tokenId: 42n, amount: parseEther('10') });
+    stubRestaker({ tokenId: 42n, positionAmount: parseEther('10') });
     const { result } = renderHook(() => useRestaking());
     act(() => result.current.restake());
     expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
@@ -257,7 +263,7 @@ describe('useRestaking', () => {
   // ───────────── Action-side: unrestake() ────────────────────────────────
 
   it('unrestake calls writeContract with no args when currently restaked', () => {
-    stubRestaker({ tokenId: 5n, amount: parseEther('10') });
+    stubRestaker({ tokenId: 5n, positionAmount: parseEther('10') });
     const { result } = renderHook(() => useRestaking());
     act(() => result.current.unrestake());
     const write = wagmiMock.writeContract();
@@ -277,7 +283,7 @@ describe('useRestaking', () => {
 
   it('unrestake blocks on wrong network', () => {
     wagmiMock.setChainId(10);
-    stubRestaker({ tokenId: 5n, amount: parseEther('10') });
+    stubRestaker({ tokenId: 5n, positionAmount: parseEther('10') });
     const { result } = renderHook(() => useRestaking());
     act(() => result.current.unrestake());
     expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
