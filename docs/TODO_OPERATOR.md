@@ -418,14 +418,34 @@ named reason to keep waiting — an open PR with no verdict is the same debt as 
 **3. Sweep the 15 Dependabot PRs.** Hold `#296` (framer-motion 12 → **13**, a major). The rest are
 minor/patch and grouped.
 
-**4. The 53 orphaned type errors,** then wire `tsconfig.test.json` into the build so test files are
-actually typechecked. Two are production bugs nothing has ever seen: `irysClient.ts` disagreeing
-with itself about the ambient `Window` type across two projects, and a `playwright.config.ts` line
-where `reducedMotion` is not a valid key and has silently been doing nothing.
+**4–5. ✅ DONE 2026-08-22 (`01b26b86`).** All 53 cleared, `tsconfig.test.json` wired, and the guard
+extended to assert coverage rather than spelling. Verified by mutation in both directions: a
+deliberate type error in a `.test.ts` now fails `tsc -b`, and unwiring the reference turns the new
+guard red. `tsc -b --noEmit` → 0 across all three projects; 6,025 tests green.
 
-**5. Then the guard that would have caught it** — extend the typecheck gate so it asserts the check
-**covered** something rather than that the command looked right. Same shape as the zero-count guards
-now in `verify-addresses.mjs`: a scan that examined nothing must fail, not pass quietly.
+Both production bugs were real, and one of them **bears directly on item 1**:
+
+- **`playwright.config.ts` — `reducedMotion` was never applied.** It is a `BrowserContextOptions`
+  key, not a top-level `use` key, so it was never forwarded to `newContext()`. The app therefore
+  never saw `prefers-reduced-motion: reduce`, and **every e2e test has been sitting through the
+  ~15–19 s fullscreen canvas intro** that `AppLoader.shouldSkipAtMount` exists to skip. Now inside
+  `contextOptions`, where it applies. ⚠️ **Check this against the E2E failures before bisecting
+  anything** — a 15–19 s prologue on every spec is a plausible cause of timeout-shaped flake, and
+  it would look exactly like order-dependence when workers contend.
+- **`irysClient.ts` ambient-`Window` split** — `tsconfig.test.json` *overrides* `include` rather
+  than extending it, so the global declaration file never entered the test program. Fixed at the
+  root with a `src/**/*.d.ts` glob rather than the one filename.
+
+And several tests were **passing for the wrong reason**, which is worth knowing before trusting a
+green suite: `chains/registry` compared two `as const` literals, so the expression folded at compile
+time and the assertion was literally `expect(false).toBe(false)`; the airlock SDK mock was missing a
+method the code under test calls, green only because the migrator address is still zero and it would
+have died the day that changed; `CurveLaunchPage` fixtures omitted the exact field whose absence
+caused the documented silent Borsh offset shift.
+
+*Residual, recorded not hidden:* `tsconfig.test.json` relaxes five flags relative to `src/` —
+`noUncheckedIndexedAccess`, `strictFunctionTypes`, `verbatimModuleSyntax` and the two unused checks.
+Test files are checked now, but not as strictly. Tightening them is its own piece of work.
 
 **6. Honesty debt — 5 files still assert the Solana rail is live.** Re-counted today; `geometry.ts`
 has since been fixed, so it is five, not six:
