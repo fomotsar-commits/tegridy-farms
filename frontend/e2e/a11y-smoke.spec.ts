@@ -34,9 +34,12 @@ test.describe('a11y landmarks — core pages', () => {
     const tablist = page.getByRole('tablist', { name: /trade view/i });
     await expect(tablist).toBeVisible();
     const tabs = tablist.getByRole('tab');
-    // Five tabs, per TAB_LABELS in src/pages/TradePage.tsx:43 —
-    // Swap / Liquidity / DCA / Alerts / TWAP. Was 4 before TWAP was added.
-    await expect(tabs).toHaveCount(5);
+    // Six tabs, per TAB_LABELS in src/pages/TradePage.tsx —
+    // Swap / Liquidity / DCA / Alerts / TWAP / Trigger. Was 4 before TWAP, 5
+    // before Trigger. The count is pinned rather than loose on purpose: a tab
+    // appearing or vanishing without someone editing this line is the thing
+    // worth catching, and both times the number moved it was a real addition.
+    await expect(tabs).toHaveCount(6);
 
     // Default tab is Swap → must be aria-selected.
     const swapTab = tablist.getByRole('tab', { name: /^swap$/i });
