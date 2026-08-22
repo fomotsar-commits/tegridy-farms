@@ -46,7 +46,7 @@
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
     "ethers": "^6.17.0",
-    "framer-motion": "^12.43.0",
+    "framer-motion": "^13.1.0",
     "html2canvas": "^1.4.1",
     "jose": "^6.2.5",
     "lightweight-charts": "^5.2.0",
