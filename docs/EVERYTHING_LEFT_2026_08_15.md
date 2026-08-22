@@ -70,11 +70,32 @@ things are worse than written.**
 `read.ts` asserts a deployment that does not exist, and `cp-swap/src/lib.rs`'s header tells an
 operator to do the exact thing its own body records as the bug that bricked graduation.
 
-**Genuinely still not re-verified:** the live-probe backend items (SIWE 500, analytics 503,
-births relay, record route — all need a network read, all dated 08-15), the migration/DB items
-(need a live DB read), env-var docs, external prep, and the README native-pool figures. Treat
-every claim in those as an 08-15 hypothesis, and **re-probe before acting** — the probes are
-recorded as reusable in the memory entry for this sweep.
+**Backend re-probed live 2026-08-21 — SIWE still 500, and the root cause is now nailed down.**
+
+- 🔴 **`/api/auth/siwe?action=nonce` returns `500 {"error":"Failed to generate nonce"}` on BOTH
+  origins** (`tegridyfarms.vercel.app` and `memetic.fun`), six days after the 08-15 probe. The
+  entire authenticated layer is still dead.
+- 🔑 **The cause is not a mystery and does not need a DB read to establish.**
+  `frontend/api/auth/siwe.js:136` inserts into `siwe_nonces`. `014_siwe_nonces.sql`'s own header
+  states it plainly: `public.siwe_nonces` **does not exist in production**, PostgREST answers
+  `PGRST205`, the INSERT errors, and every login 500s. **SIWE login has therefore never worked in
+  production.** The table was supposed to come from `001_siwe_auth_rls.sql`, which aborts partway
+  through. So the fix is exactly migration **014** — and the ordering constraint in TIER 1 is the
+  whole game: **015 must land first**, or opening login while 21 permissive `qual=true` policies
+  are live exposes every user's rows on day one. ⚠️ And 015 only names **12 of the 21** — enumerate
+  live-21 against 015's-12 before running either.
+- ✅ `/api/analytics` answers **405 on GET** at both origins, so the route is mounted and
+  POST-only. **I did not re-run the 503 reproduction**: that needs a well-formed POST, and firing
+  a probe event into production analytics is a write I would rather you authorise than assume.
+- ⚠️ **Correcting the probe list itself:** `/api/record` and `/api/births` are **not routes** —
+  both 404. They live in `frontend/api/_lib/` and are mounted behind branches of
+  `aggregator.js` / `analytics.js` / `orderbook.js` / `supabase-proxy.js`. The repo is at **11
+  top-level functions of the Vercel Hobby cap of 12**, which is why. Anyone re-running the 08-15
+  probes needs the real query form, not those paths.
+
+**Genuinely still not verified:** the analytics 503 reproduction (needs a POST — see above), the
+migration/DB applied-state items (need a live DB read), env-var docs, external prep, and the
+README native-pool figures. Treat those as 08-15 hypotheses.
 
 ⚠️ **A pattern worth naming, because it showed up in three separate lanes today:** a fixed count
 with changed contents. "LIVE ON MAINNET" is still 5 files, but two were cleaned and the claim
@@ -82,12 +103,17 @@ with changed contents. "LIVE ON MAINNET" is still 5 files, but two were cleaned 
 called unswept when it had been swept and left unfixed. **A number that has not moved is not
 evidence that nothing moved** — re-derive the list, never trust the tally.
 
-🔴 **Two findings from the 08-21 sweep deserve to be read as a pair, because together they say
-something neither says alone:** the advisory gate exists and the debt has not moved (40, ten
-high, unchanged in six days), and the contracts size gate emits `::warning` where the ceiling now
-actually binds (TegridyStaking, 22 B). **Gates got built; nothing downstream reads them.** That is
-the same defect this repo has rediscovered nine times now — a gate is not a control until
-something fails when it fires.
+⚠️ **One finding from the 08-21 sweep, and one retraction.** The advisory gate now exists and the
+debt has not moved — **40 advisories, ten high, unchanged in six days**. A gate that has been
+green over ten highs for a week is either not failing on them or nobody is reading it; that is
+the "gate is not a control until something fails when it fires" defect this repo has now
+rediscovered nine times.
+
+**Retracted:** I paired that with the contracts size gate, claiming it only warns where the
+ceiling binds. **That was wrong** — the size step tests EIP-170 in its first branch and the floor
+allowlist cannot reach it, so a TegridyStaking crossing is a red run, not a silent one. Detail
+and the control flow are under **Contracts** below. The lesson is the ordinary one: I read the
+comment and the severity strings without reading the branch structure they sit in.
 
 🔴🔴 **AND THE THIRD INSTANCE OF THAT CLASS, FOUND THE SAME DAY, IS THE WORST: contract tests
 have not run on trunk since ~2026-08-20.** `contracts-ci`'s `build` job is red on `mvp-launch`,
@@ -630,12 +656,22 @@ the doc corrections that must precede every TIER 5 send.
 >   `transactions[].additionalContracts[]` too, then re-run it — expect it to surface addresses
 >   nobody has classified. ⚠️ Land that **separately** from flipping registry check 6; the doc's
 >   own hazard table warns that combining them turns CI red against 36 unclassified addresses.
-> - ⚠️ **A CI comment has drifted.** `contracts-ci.yml:117` records `TegridyStaking — 24,337 B
->   (measured 2026-07-24): 239 B under EIP-170`. The 2026-08-21 re-measure puts the real headroom
->   at **22 B**. The number in the comment is a year-old-style stale constant that reads as
->   reassurance; the ceiling now binds on TegridyStaking, and for an allowlisted contract that is
->   under EIP-170 but over the floor, `contracts-ci.yml:151` emits **`::warning`, not `::error`** —
->   so the last 22 bytes will be spent by a PR that goes green.
+> - ⚠️ **A CI comment has drifted, but the gate itself is sound — I got this wrong first time and
+>   the correction matters.** `contracts-ci.yml:117` records `TegridyStaking — 24,337 B (measured
+>   2026-07-24): 239 B under EIP-170`; the 08-21 re-measure puts it at **24,554 B, 22 B of
+>   headroom**. The stale number reads as reassurance and should be refreshed.
+>   **What is NOT true — and I asserted it here before checking the control flow — is that the
+>   last 22 bytes would be spent by a PR that goes green.** The size step tests EIP-170 in its
+>   **first** branch (`:141`), and `FLOOR_EXCEPTIONS` is consulted only in the `elif` for
+>   over-floor-but-under-limit (`:149`). TegridyStaking sits in `FLOOR_EXCEPTIONS`, **not** in
+>   `OVER_EIP170_DEFERRED` — so the moment it crosses 24,576 it falls into the hard branch, emits
+>   `::error`, sets `FAIL=1` and the job **exits 1**. The two-tier split exists precisely so the
+>   floor allowlist cannot soften the hard limit, and that was separately confirmed by execution:
+>   a `FLOOR_EXCEPTIONS` member at 24,577 B run through the real step errors out.
+>   **So: a crossing is a RED RUN, not a silently undeployable artifact.** The `::warning` at
+>   `:151` applies only to the 24,000-byte *floor*, which is a soft budget by design.
+>   → **Next step is therefore just the comment**, not the gate. Refresh `:117` to the measured
+>   24,554 B so nobody reads 239 B of headroom that does not exist.
 >
 > **Not re-verified:** backend, env docs, Solana docs, security docs, external prep.
 
