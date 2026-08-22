@@ -346,8 +346,18 @@ construction: its credential can bind a chat and can *never* attach a wallet).
    is closed for exactly that reason.
 
    **A restart costs roughly what the first one did:** two fresh program keypairs, new `declare_id!`
-   values, ~8.4 SOL of rent, and a re-derivation of every PDA the fork owns. The deploy authority is
-   currently empty, so it needs funding first. Before spending any of it, run
+   values, **8.46 SOL settled / 13.4 SOL peak float** of rent, and a re-derivation of every PDA the
+   fork owns. At SOL $96.94 that is ~$820 settled, ~$1,299 peak — but quote the SOL, not the
+   dollars: rent is denominated in lamports and does not move with the price, so only the dollar
+   figure ages. Full derivation, re-priced 2026-08-22, in
+   [`CAPITAL_REQUIREMENTS_2026_08_15.md`](CAPITAL_REQUIREMENTS_2026_08_15.md).
+
+   Note the shape of it: **8.46 SOL is within 0.01 of the 8.467 SOL that closing the two programs
+   released.** It is the same rent coming back out. So this is only a funding ask if that SOL has
+   been spent — which is exactly what §0.4 is asking you to confirm.
+
+   The deploy authority is currently empty, so it needs funding either way. Before spending any of
+   it, run
    `node scripts/verify-program-constants.mjs --so <artifact> --program cp-swap` against the built
    binary — that check exists because getting `admin::ID` wrong once already cost the whole
    deployment.
