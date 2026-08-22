@@ -54,8 +54,19 @@ dated corrections layered on. Items carrying a `> **Updated …**`, `> **Reconci
 sweep, and six of them were already wrong on the day they were written — see the corrections
 section immediately below.
 
-**Status of the five above, as of 2026-08-21:** ① is being worked in a separate session — check
-whether `tsc -b` is green before starting it, rather than assuming either way. ②–⑤ are untouched.
+**Status of the five above, as of 2026-08-22:** ✅ **① is DONE** — `e1251c42` ("27 real type
+errors that a vacuous typecheck had been hiding") is merged; `npx tsc -b --clean && npx tsc -b
+--noEmit` returns **0 errors**, confirmed on a clean rebuild rather than an incremental one.
+✅ **② is partly done** — the arb-linkage tests now run on the PR gate at `ci.yml:209`, and the
+collection guard was rewritten stricter than the original fix (it now also rejects
+`pull_request_target`, which runs with base-repo privileges and is not a safe substitute).
+③–⑤ are untouched.
+
+⚠️ **Two traps this file has now walked into twice, recorded so the third time is cheaper.**
+(a) **`tsc -b` is incremental** — a green run means nothing until you `--clean` first.
+(b) **Grep for the invariant, not for your own literal.** I concluded the CI step had been
+reverted because I grepped the step's *name*, which another session had renamed; the step was
+there the whole time. Same failure shape as the count-vs-contents trap below.
 
 **Four lanes have now been re-verified item-by-item and carry their own next steps: Frontend**
 (4 of 5 named CLOSED; R080 narrowed to 1-of-3) · **Repo hygiene** (receipts CLOSED; every other
@@ -187,6 +198,191 @@ So the same shape now has three live instances: a red step blacking out later *s
 the CI lane below), a red job blacking out later *jobs* (here), and gates that fire into nothing
 (above). **When something in this repo goes red, the next question is always "and what stopped
 running because of it?"**
+
+---
+
+## 🔨 The build queue — written 2026-08-22, to be picked up later
+
+Everything below is **buildable work**, ordered, each with where it lives, what to do, and how to
+know it worked. Items carry a citation because every one was verified in the tree or against a
+live endpoint this session — none are inherited claims. Groups A–F are ordered by dependency;
+**within a group the items are independent** and can be taken in any order, or in parallel.
+
+### A. Unblock CI first — every other item's verification is currently unenforced
+
+**A1. Merge #306 — two `FRONTEND_ABI_TARGET_OVERRIDES` entries.** `contracts-ci`'s `build` job is
+red, and `test` (`needs: [build, slices]`, `:337`), `fuzz-invariant` (`needs: [build]`, `:511`)
+and `all-tests-pass` (`:590`) all skip on it — so **the nine forge slices have not run on trunk
+since ~08-20**. The failing step is *not* the size budget the job is named for; it is
+`Interface + frontend ABI selector guard`, where `AIRDROP_DISTRIBUTOR_ABI` and
+`VESTING_WALLET_ABI` resolve to no artifact. Map them to `TegridyAirdropDistributor` /
+`TegridyVestingWallet` — the exports drop the `Tegridy` prefix, exactly as `LP_FARMING_ABI`
+already does. ⚠️ **Do not** move them to `EXTERNAL_FRONTEND_ABIS`; they have in-repo `*_ADDRESS`
+and the guard rejects that. Expect a *different, real* selector error to surface next — that is
+the guard finally inspecting a surface it could never reach, not a regression.
+**Verify:** trunk green **and the nine slices reporting as run, not `skipping`.**
+
+**A2. Then #205 (foundry 1.9).** Solved and proven on its pre-merge base; blocked only by A1.
+⚠️ After merging, run `git diff origin/mvp-launch HEAD -- .github/ contracts/foundry.toml`
+explicitly — a previous conflict-free merge of this branch still left a third Foundry job pinned
+to 1.3.1 and reverted the slice manifest. **A conflict-free merge is not a correct merge.**
+
+**A3. Triage the other red trunk gates** — the money-path Anvil E2E and both advisory gates are
+also failing. Each one red means its downstream steps are not running; ask of every red thing
+**"and what stopped running because of it?"**
+
+### B. The two live outages — strictly ordered, and the order is the whole game
+
+**B1. Enumerate the live permissive policies before writing any migration.** Migration 015 names
+**12**; there are **21** `qual=true` policies live, so ~9 on tables it never mentions would
+survive it. 015 is a *partial* remediation and nothing says so on its face.
+
+**B2. Apply 015, then 014 — never the reverse.** 014 creates `siwe_nonces`, which is the entire
+fix for the login outage: `api/auth/siwe.js:136` inserts into it, the table does not exist, so
+PostgREST returns `PGRST205` and **every login 500s — re-probed 2026-08-22, still 500 on both
+origins.** SIWE has never worked in production. Running 014 first opens login while the
+permissive policies are live, which exposes every user's rows on day one.
+**Verify:** `GET /api/auth/siwe?action=nonce` returns 200 on both origins.
+
+**B3. Apply 013, and fix the client half too.** `analytics_events` does not exist: a single event
+POST returns `503 "Analytics sink unavailable"` from `analytics.js:202`. ⚠️ **013 alone may still
+yield no data** — the 08-15 finding was that *both* halves were broken, and the prod bundle's
+`flush()` being literally `console.log("[analytics]", …)` has **not** been re-checked.
+**Verify without writing anything:** `POST {"events":[]}` returns at `:180` before any insert —
+`200 {"accepted":0,"rejected":0}` means the sink is configured. Then one real event should
+return 200, not 503. **That empty-batch probe is inert; reuse it freely.**
+
+### C. Money-path correctness — independent, roughly one PR each
+
+**C1. `frontend/src/nakamigos/lib/portfolio.js:145` — take this one first.** A failed Alchemy
+`getNFTSales` is caught and reported only under `import.meta.env.DEV`, so **production logs
+nothing** and leaves `allSales = []`. Zero buy-sales ⇒ zero cost basis ⇒ **the entire portfolio
+renders as pure profit.** Surface the failure instead of returning a confident zero. This is the
+one finding of the nakamigos set I re-verified at file:line myself.
+
+**C2. The remaining Tradermigos highs** (from the 08-02 sweep, 9 high / 38 medium / 42 low, of
+which **exactly one is fixed**). `api.js:780` — a total listings outage renders as a
+success-styled "No active listings right now". `components/MarketIntegrity.jsx:203` — "in the
+last 30 days" can silently be the collection's entire history. `components/NftCompare.jsx:248` —
+SEND TRADE is a dead control, target owner always null. ⚠️ `components/RaritySniper.jsx:505/286`
+**re-check before acting** — the record flags it as possibly overstated, since a `~` disclosure
+marker already exists.
+
+**C3. `TegridyTWAP.sol` — make `canUpdate()` answer the question its name asks.** It evaluates
+**only** the time condition (`:1110`), while `update()` (`:489`) reverts before it on
+`UnknownPair` and `PairDisabled`, and after it on `InsufficientFee` — where `effectiveFee` falls
+back to `MIN_UPDATE_FEE` when unconfigured, so a caller sending 0 reverts too. Any keeper or UI
+gating on `canUpdate() == true` burns gas on a revert. **Widen it** to evaluate all four
+preconditions and return the required fee; renaming to `isPeriodElapsed` is the weaker option,
+because the callers that exist want the question the name currently implies.
+
+### D. Config and doc truth — cheap, and two of these are load-bearing
+
+**D1. `solana/tegridy-amm/programs/cp-swap/src/lib.rs` — delete two header paragraphs, do not
+soften them.** The header at `:33-40` claims the non-devnet AUTHORITY constants are all-1s
+fail-closed sentinels; the real values are live keys (`:75`, `:88`). Worse, `:39` instructs the
+operator to set **"admin = Squads MULTISIG"** — and the body at `:53-71` records that doing
+exactly that shipped to mainnet on 08-08, made `create_amm_config` **uncallable**, and left
+`migrate_to_amm` permanently on `AmmNotConfigured (6015)`: tokens could trade but never graduate.
+Squads v4 signs as the **vault PDA**, never the multisig account. **An operator who reads the
+header and stops repeats the incident, and the constant is compile-time — so repeating it costs
+another program upgrade.** The body already says the true thing; just remove the false half.
+
+**D2. `frontend/src/lib/launcher/solana/curve/read.ts` — delete the deployment claim.** `:16`
+asserts "The program IS deployed (mainnet, 2026-08-08)" while both programs are closed. The same
+comment explains that it *previously* asserted "NOT DEPLOYED" and went on being believed after it
+was false — it then repeated the mistake in the other direction, inside its own warning. **The
+tree has now proven twice it cannot keep a deployment status accurate in prose: remove it rather
+than update it.** Also `:126` models deployment as `executable: true`, and a closed program's
+stub **stays executable-flagged** — check **ProgramData**.
+
+**D3. Env docs — `frontend/.env.example` documents 20 `VITE_` vars; the code reads 26.** Document
+the 8 missing (**names and semantics, never values**): `VITE_SWAP_FEE_BPS`,
+`VITE_SWAP_FEE_RECIPIENT`, `VITE_SOLANA_FEE_VAULT`, `VITE_ONRAMP_PARTNER_FEE_BPS`,
+`VITE_COW_STOP_LOSS_HANDLER`, `VITE_INDEXER_URL`, `VITE_ISLAND_KEY_ROUTE`,
+`VITE_TRIGGER_PRICE_FEEDS`. Delete the 2 dead: `VITE_0X_API_KEY`, `VITE_ALCHEMY_API_KEY`.
+✅ The fee code **fails closed** (`lib/fees/swapFee.ts:73-76`), so an unset var cannot misroute a
+fee to a stranger — **the risk is silent revenue loss**: a deploy omitting four money-routing vars
+simply has swap fees off, with nothing logged, surfacing weeks later as "we earned 0". **So also
+add a one-line startup log when `swapFeePolicy()` resolves to disabled**, making "fees are off"
+an observation rather than an inference.
+⚠️ When re-deriving this list, match `import.meta.env.VITE_…`, **not** the bare name — a bare grep
+matches comments, and `VITE_ETHERSCAN_API_KEY` survives only in a `HistoryPage.tsx:78` note
+recording that it *was* removed from the bundle.
+
+**D4. `frontend/public/.well-known/security.txt` — add the canonical domain.** `memetic.fun`
+appears **zero times**; `Canonical:` and the whole in-scope list name only the vercel host. Served
+from the canonical domain, the file declares a Canonical URI that is not the one being read and a
+scope excluding the host serving it — a scanner may reject it and a researcher may reasonably
+read the real domain as out of scope. `Canonical:` is repeatable. **This is the file that tells
+someone how to report a drain.**
+
+**D5. The remaining stale assertions.** "LIVE ON MAINNET since 2026-08-08" survives in 5 files —
+`docs/YEAR_PLAN_2026_2027.md` (**newly acquired it**), `frontend/scripts/tegridy-launch-operator.mjs`,
+`curve/index.ts`, `curve/ix.ts`, `curve/program.ts`. Three hardcoded "Last reviewed: July 2026"
+stamps: `pages/ContractsPage.tsx:501`, `pages/FAQPage.tsx:259`, `pages/SecurityPage.tsx:368`.
+And refresh `contracts-ci.yml:117`, which records 24,337 B / 239 B of EIP-170 headroom measured
+07-24 when the real figure is **24,554 B / 22 B**. ✅ The gate itself is sound — a crossing lands
+in the hard branch and exits 1 — so this is a comment fix, not a gate fix.
+
+### E. Coverage gaps — things that run in no pipeline
+
+**E1. `contracts/src/TegridyNativeBuyRouter.sol` has zero tests.** `git ls-files | grep -i
+nativebuy` returns exactly one path. It is load-bearing and was absent from all 211 items, which
+is how it stayed invisible.
+
+**E2. Teach `frontend/scripts/verify-addresses.mjs` to walk `transactions[].additionalContracts[]`.**
+Zero matches for `additionalContracts` across `scripts/`, `frontend/scripts/` and `.github/`, so
+any contract a Forge script deploys via CREATE from inside another contract is invisible to the
+registry verifier, which reads only top-level `transactions[].contractAddress`. Expect it to
+surface unclassified addresses. ⚠️ **Land this separately from flipping registry check 6** — the
+hazard table warns that combining them turns CI red against 36 unclassified addresses at once.
+
+**E3. Audit the `on:` block of every remaining scheduled workflow.** `arb-linkage-monitor.yml` was
+caught claiming coverage it only delivered on a cron; the rewritten guard now enforces this **for
+the two monitoring files only**. Anything else `schedule`-only makes the same claim, and GitHub
+disables schedules in a repository idle 60 days. Ask of each: *would a PR author expect this to
+catch their mistake?*
+
+**E4. Apply the two orphan zod schemas.** `src/lib/schemas/geckoTerminal.ts` is live in
+`usePriceHistory.ts` and `useToweliPrice.ts`; **`aggregator.ts` and `opensea.ts` are at zero call
+sites.** Wire them into the aggregator-quote and OpenSea-listing paths they were written for. A
+schema module with no call site is a test that validates a fixture — treat its own passing test
+as no evidence.
+
+### F. Hygiene and infrastructure — lower urgency, but F3 accrues on its own
+
+**F1. Convert the vendored trees to submodules.** `.gitmodules` declares only `v4-core`,
+`v4-periphery`, `solmate`, `solady`. **`openzeppelin-contracts` (833 tracked files), `forge-std`
+(68) and `uniswap-hooks` (60)** are file copies with no entry, so `git submodule update --remote`
+cannot reach them and they are frozen at whatever was pasted in. OZ is the one that matters — it
+is the security-critical dependency.
+
+**F2. Triage the npm advisories by hand.** `npm audit` reports **40 — 0 critical, 10 high, 12
+moderate, 18 low**, unchanged since 08-15 even though `npm-advisories.yml` now exists and fires on
+push/PR/schedule. **A gate green over ten highs for a week is either not failing on them or not
+being read** — check what severity it actually fails at, and triage the bigint-buffer overflow via
+`@solana/spl-token` regardless, because it is a high in a signing app.
+
+**F3. Repo hygiene, destructive last.** Re-measured 08-21: worktrees 116→**124**, branches
+316→**325**, fully-merged **122**, stashes **12**. This lane grows every session.
+① Delete the 122 fully-merged branches first — safest and reflog-reversible;
+`git branch --merged origin/mvp-launch` is the list. ⚠️ Verify against **`origin/mvp-launch`, not
+`main`**. ② Then the 124 worktrees with **`git worktree remove` only** — `rm -rf` strands the
+`.git/worktrees` metadata and leaves the ~27 GB unreclaimed; many are dirty, so check each with
+`git status --porcelain` first. ③ Stashes last, and **read before dropping** — nine are on `main`,
+which is not the trunk, so they may hold the only copy of work that never landed.
+
+**F4. Decide what a release means, then tag.** `release.yml` triggers on `push: tags: v*.*.*`;
+the three existing tags are `audit-pass-6`, `audit-remediation`, `backup/crazy-nobel-pre-rebase`
+— **none match**, so it has never run and could not have. It is one `git tag v0.1.0` from being
+real, but production deploys by two separate paths, so decide first what the tag would actually
+be claiming.
+
+**F5. a11y beyond markup.** `a11y-routes.spec.ts` covers all 55 routes and is regression-guarded
+by `src/test/a11yRouteCoverage.test.ts`, which re-derives the list from `App.tsx`. But the rule
+set is **markup-level only** — nothing checks colour contrast, target size or focus visibility.
+Green there does **not** mean WCAG AA. Only build this if AA is actually a goal.
 
 ---
 
