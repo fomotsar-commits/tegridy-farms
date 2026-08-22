@@ -217,12 +217,15 @@ export function buyBlockedReason(phase: LaunchPhase, paused: boolean): LaunchErr
       return 'AlreadyComplete';
     case 'awaiting-migration':
       return 'AwaitingMigration';
+    // `closed` rides with the unestablished phases deliberately: a closed program
+    // cannot execute any instruction, so this is a block and not a maybe. The
+    // caller needs "this will not go through"; saying WHY is the phase's own job.
+    //
+    // The comment sits above the group rather than beside its own `case`. A
+    // comment between two empty cases makes `no-fallthrough` read the one above
+    // it as a non-empty body that falls through, and it fails lint.
     case 'not-deployed':
     case 'not-a-program':
-    // A closed program cannot execute any instruction, so this is a block and not
-    // a maybe. It rides with the other unestablished phases deliberately: the
-    // caller needs "this will not go through", and the reason it will not is the
-    // phase's own job to say.
     case 'closed':
     case 'unreadable':
     case 'protocol-not-initialized':
@@ -244,12 +247,15 @@ export function sellBlockedReason(phase: LaunchPhase): LaunchErrorName | null {
   switch (phase.kind) {
     case 'graduated':
       return 'AlreadyComplete';
+    // `closed` rides with the unestablished phases deliberately: a closed program
+    // cannot execute any instruction, so this is a block and not a maybe. The
+    // caller needs "this will not go through"; saying WHY is the phase's own job.
+    //
+    // The comment sits above the group rather than beside its own `case`. A
+    // comment between two empty cases makes `no-fallthrough` read the one above
+    // it as a non-empty body that falls through, and it fails lint.
     case 'not-deployed':
     case 'not-a-program':
-    // A closed program cannot execute any instruction, so this is a block and not
-    // a maybe. It rides with the other unestablished phases deliberately: the
-    // caller needs "this will not go through", and the reason it will not is the
-    // phase's own job to say.
     case 'closed':
     case 'unreadable':
     case 'protocol-not-initialized':
