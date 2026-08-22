@@ -19,7 +19,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, sep } from 'node:path';
 
@@ -47,12 +47,18 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   { prefix: 'indexer-solana/', runner: "vitest --root ../indexer-solana (ci.yml 'Solana indexer unit tests')" },
   // The arb-linkage monitor and its pause consumer. Plain `node --test`, not
   // vitest: they are operational scripts that must run on a bare runner with no
-  // frontend toolchain, and the workflow that schedules the monitor runs their
-  // tests in the same job — deliberately AFTER the reporting steps, so a
-  // regressed assertion reddens the run without suppressing an alert.
-  //   .github/workflows/arb-linkage-monitor.yml:163
-  { prefix: 'contracts/monitoring/', runner: 'node --test (arb-linkage-monitor.yml)' },
-  { prefix: 'scripts/monitoring/', runner: 'node --test (arb-linkage-monitor.yml)' },
+  // frontend toolchain. TWO workflows run them, and both entries are load-bearing:
+  //   ci.yml — the PR gate. This is the one that makes a break fail the PR that
+  //     caused it. It was missing until 2026-08-21, and its absence was invisible
+  //     because the monitor below satisfied the "has a runner" claim on its own.
+  //   arb-linkage-monitor.yml:163 — the scheduled monitor, which re-runs them in
+  //     the same job as the probe, deliberately AFTER the reporting steps so a
+  //     regressed assertion reddens the run without suppressing an alert. Kept
+  //     even though ci.yml covers the same files: a verdict about live money
+  //     produced by an unverified rule is worth less than no verdict.
+  // The cron cannot substitute for the gate — see the pull_request assertion below.
+  { prefix: 'contracts/monitoring/', runner: 'node --test (ci.yml PR gate + arb-linkage-monitor.yml cron)' },
+  { prefix: 'scripts/monitoring/', runner: 'node --test (ci.yml PR gate + arb-linkage-monitor.yml cron)' },
   // Vendored dependency trees. Not ours, not our runner's problem.
   { prefix: 'contracts/lib/', runner: 'upstream vendored dependency (not executed here)' },
 ];
@@ -108,20 +114,53 @@ describe('the frontend vitest project cannot reach outside frontend/', () => {
     expect(here).toBe('frontend');
   });
 
-  it('proves the node --test entries actually name files the workflow runs', () => {
+  it('proves the node --test entries run on the PR gate, not only on a cron', () => {
     // An OTHER_RUNNERS entry is a CLAIM that something else executes these
     // files, and an unverified claim is how a test file goes quiet while
     // still looking accounted for — the precise failure this guard exists to
-    // prevent, relocated one level up. The workflow must invoke each file by
-    // name; a glob would not survive a rename, and neither would the coverage.
-    const wf = join(REPO_ROOT, '.github', 'workflows', 'arb-linkage-monitor.yml');
-    expect(existsSync(wf), 'arb-linkage-monitor.yml is cited as a runner but missing').toBe(true);
-    const src = readFileSync(wf, 'utf-8');
-    expect(src, 'the workflow no longer invokes node --test').toContain('node --test');
-    for (const f of gitTrackedTestFiles().filter(
+    // prevent, relocated one level up. Two things have to hold.
+    //
+    // FIRST, a workflow must invoke each file BY NAME. A glob would not survive
+    // a rename, and neither would the coverage.
+    //
+    // SECOND — and this is what the original version of this test missed — at
+    // least one workflow naming it must fire on `pull_request`. Until 2026-08-21
+    // the only runner was arb-linkage-monitor.yml, which is `schedule` +
+    // `workflow_dispatch` only. That satisfies "has a runner" while leaving the
+    // PR that breaks the rule green, and GitHub disables schedules outright in a
+    // repository idle for 60 days, at which point the coverage lapses with
+    // nothing going red. Coverage that can expire quietly is the same ghost
+    // condition this file exists to catch, wearing a workflow for a costume.
+    const monitoring = gitTrackedTestFiles().filter(
       (f) => f.startsWith('contracts/monitoring/') || f.startsWith('scripts/monitoring/'),
-    )) {
-      expect(src, `${f} is accounted for by that workflow but not named in it`).toContain(f);
+    );
+    expect(
+      monitoring.length,
+      'no monitoring test files matched — this assertion has drifted off its subject and is proving nothing',
+    ).toBeGreaterThan(0);
+
+    const dir = join(REPO_ROOT, '.github', 'workflows');
+    const workflows = readdirSync(dir)
+      .filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))
+      .map((n) => ({ name: n, src: readFileSync(join(dir, n), 'utf-8') }));
+
+    // `on:` at column 0, then a two-space `pull_request:` key under it. Matching
+    // the bare word anywhere would be satisfied by the word in a comment.
+    const firesOnPullRequest = (src: string): boolean =>
+      /^on:/m.test(src) && /^ {2}pull_request:/m.test(src);
+
+    for (const f of monitoring) {
+      const named = workflows.filter((w) => w.src.includes('node --test') && w.src.includes(f));
+      expect(
+        named.map((w) => w.name),
+        `${f} is accounted for in OTHER_RUNNERS but no workflow invokes it by name`,
+      ).not.toEqual([]);
+      expect(
+        named.some((w) => firesOnPullRequest(w.src)),
+        `${f} is named only by workflows that never fire on a pull request ` +
+          `(${named.map((w) => w.name).join(', ')}) — a break in it merges green and surfaces ` +
+          'later on a cron, if the schedule is even still enabled',
+      ).toBe(true);
     }
   });
 

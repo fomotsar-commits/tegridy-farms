@@ -160,6 +160,20 @@ jobs:
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
 
+      # PR-TIME COVERAGE FOR THE ARB-LINKAGE DECISION RULE.
+      # arb-linkage-monitor.yml runs these same two files, but that workflow is
+      # `schedule` + `workflow_dispatch` only — nothing in it fires on a pull
+      # request. Without this step a PR could break the rule and merge green,
+      # with the failure surfacing up to 15 minutes later on a cron run and
+      # reading as whatever pushed next. Worse, GitHub disables schedules in a
+      # repository idle for 60 days, and that workflow was these files' ONLY
+      # runner. They need no toolchain and take ~130ms, so prove them on the
+      # gate too; the monitor keeps its own copy so a scheduled verdict is never
+      # produced by an unverified rule.
+      - name: Arb-linkage monitor + pause-plan unit tests
+        working-directory: .
+        run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
+
   build:
     name: Build
     runs-on: ubuntu-latest
