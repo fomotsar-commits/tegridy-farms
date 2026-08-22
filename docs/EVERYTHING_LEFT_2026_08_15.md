@@ -416,3 +416,14 @@ zero-knowledge wizard. Code landed same day; full plan in
 | M.10 | Send the mainnet Whetstone petition + the **multichain rider** (now covers Base AND 4663) | One conversation, three chains, same 3-of-6 Safe. ⚠️ no third-party module has ever been whitelisted — a Whetstone-blessed module is an acceptable outcome. |
 | M.11 | **Custody decision for the 5% reserve** — interim `TegridyLockVault` 6-month lock vs waiting for the Phase-2 distributor | The ONLY blocker: the facade + config are coded, tested, and refuse to run until `ECOSYSTEM_RESERVE_RECIPIENT` is a real address. |
 | M.12 | Reserve go-live change-set: recipient constant + wizard supply math + a DEDICATED Fact Sheet line | One PR, order matters (plan §2). The reserve must never be lumped into `teamAllocationVestedBps` — the truth suite pins that field as creator-only. |
+
+### Addendum 2026-08-22 (fee-leak audit + reserve architecture) — M.13–M.15
+
+Audit result: **zero bug-leaks**; full ledger in [FEE_LEAK_LEDGER.md](./FEE_LEAK_LEDGER.md).
+The 5%-reserve architecture is DECIDED (research-backed) in [ULTIMATE_LAUNCHPAD_PLAN.md](./ULTIMATE_LAUNCHPAD_PLAN.md) §2.
+
+| # | Operator step | Notes |
+|---|---|---|
+| M.13 | **CoW partner-fee flip decision** (pricing): set `COW_PARTNER_FEE_BPS` per the fee-table policy | Capability wired dark; flip re-derives doc+hash atomically. Verify CoW's `metadata.partnerFee` schema + one canary order first. Applies to market swaps, limit, TWAP, DCA — the largest uncollected line found. |
+| M.14 | **Jupiter referral accounts** (Solana) — create, then attach integrator-fee params to Trigger createOrder | Until then our limit-order fee stays OFF (code comment documents it). |
+| M.15 | **Criteria-offer fee canary**: place one live collection offer with `CRITERIA_OFFER_PLATFORM_FEE_ENABLED=true` on a test wallet; if OpenSea accepts, flip for real | If rejected, the missing 1% reverts to a documented toll of the criteria-offer feature. |

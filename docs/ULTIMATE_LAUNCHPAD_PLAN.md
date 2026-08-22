@@ -90,16 +90,55 @@ by asset shape:
 - **Bounties** — `CommunityGrants`/`MemeBountyBoard` are mainnet TOWELI/ETH-shaped; a
   launch-token bounty line needs either conversion or board support.
 
-**Interim custody (lets the reserve go live before the distributor exists):**
-`TegridyLockVault` on the launch rail (deployed per chain by the rail scripts) holding the
-tranche under a public 6-month lock, beneficiary = MULTISIG — visible per-launch, honestly
-labeled "reserved, distribution mechanism in build". The Phase-2 distributor then takes
-over new launches, and unlocked tranches migrate by Safe action.
+### DECIDED 2026-08-22 (owner: "do what you think is best" + research) — the architecture
 
-**Heat tie-in:** the gate already curates entry (advisory today). The reserve makes the
-heat score *load-bearing for economics* — reserve size or schedule can tier on heat
-(hotter launch → faster incentive release) without any new mechanism: it is just different
-`ecosystemReserve.durationSeconds` per tier. Policy, not code.
+The research reshaped the design (full evidence in the session's survey; the load-bearing
+findings): **no surviving launchpad funds LP incentives from per-launch supply-mining** —
+pump.fun admitted its creator-fee incentive design failed and pays $1M/day buybacks from
+FEES; Clanker routes 2/3 of fees to buybacks+grants; naive LP mining is the documented dead
+pattern (Uniswap 2020: TVL −38% in 24h after rewards ended). The one supply-reserve analog
+that works (Virtuals Genesis) works because of hard locks + curation + transparent custody,
+and its #1 risk is vesting overhang. And **only ~0.2–0.3% of launches graduate** (832,941
+pump.fun launches analyzed; 68.7% die on launch day) — so a reserve that activates before
+graduation is dead weight on 99.7% of launches.
+
+**The architecture that follows:**
+
+1. **Graduation-activated, burn-on-failure.** The 5% reserve only means anything for
+   launches that graduate into our pools. A launch that dies pre-graduation gets its
+   reserve BURNED (extends the Airlock's own unsold-remainder-to-0xdead story). This kills
+   the "5% tax to a Safe" read: it is an option that pays only when the launch succeeds —
+   and its custodian provably cannot profit from failure.
+2. **Custody (M.11 — DECIDED):** the pre-mint recipient is the MULTISIG (verified
+   constraint: TegridyLockVault only accounts tokens arriving through `lock()`, so vesting
+   straight to the vault would burn them), which immediately locks each tranche as a
+   **per-launch `TegridyLockVault` entry** — on-chain-visible earmark keyed to its launch,
+   deployed on all three chains by the rail scripts already. Never a commingled pot.
+3. **LP incentives (post-graduation):** fixed-amount, epoch-capped, decaying — never
+   APR-targeted (the Bancor lesson) and never front-loaded (Nansen: 42% of day-one farmers
+   gone in 24h). Interim rail with ZERO new Solidity: **AirdropFactory Merkle epoch
+   campaigns** (our own Merkl pattern — live on all three chains, multisig-attested roots,
+   unclaimed reclaims), honestly labeled operator-attested. Phase 2 upgrades to the
+   **per-launch `TegridyBoostedLPStaker` factory + notify glue** (on-chain attribution,
+   vest-only-while-staked mechanics per GMX/Camelot evidence) — the one genuinely new
+   Solidity surface, and it goes through audit before it custodies anything.
+4. **Community grants:** **retroactive, objective-deliverable bounties decided by a small
+   named committee — never open voting** (per-launch communities are maximally sybil-able;
+   Gitcoin/RPGF3 attack literature). Paid **VESTED via `VestingFactory`** (live on all
+   three chains) with no-sale terms, Optimism-style. The existing ETH/TOWELI-shaped boards
+   (CommunityGrants/MemeBountyBoard) cannot take launch tokens and are not pretended to.
+5. **The survivor pattern runs alongside:** fee-recycling is what actually kept peers
+   alive, and we already have its skeleton — the hook's POL skim + the fee constitution.
+   A Flaunch-style bid wall / buyback line out of pool fees is the natural next lever,
+   funded from FEES so it never adds sell-side supply. Tracked, not built here.
+6. **SEC surface, minimized by construction:** distribution rules fixed programmatically
+   at create time, permissionless epoch cranks where possible, copy frames the reserve as
+   pool-bound infrastructure — never "we work to make the token go up". Legal review
+   before Fact Sheet copy ships.
+
+**Heat tie-in:** entry curation (already live) + heat tiers set `durationSeconds`/epoch
+caps per tier at create — hotter launches release faster. The tier table reuses the shipped
+HEAT_TIER monotonicity-validator discipline (warmer never worse). Policy, not code.
 
 ## 3. "Full control, zero blockchain knowledge" — the gap list, by leverage
 
@@ -136,5 +175,5 @@ live preview, the double-launch broadcast guard, the EIP-5792 one-confirmation f
 |---|---|---|
 | M.9 | Base graduation stack broadcast (`DeployBaseGraduationStack`) + 48h initializer allowance + acceptOwnership | After the Base Safes exist. Same runbook shape as 4663's M-steps. |
 | M.10 | Send the mainnet petition + multichain rider to Whetstone | One conversation, three chains. Pre-send checklist in the main petition governs. |
-| M.11 | Custody decision for the 5% reserve (interim LockVault vs. straight-to-distributor) | The ONLY blocker on the reserve going live; everything else is coded and dark. |
+| M.11 | ~~Custody decision~~ **DECIDED**: multisig receives → per-launch LockVault earmark; burn-on-failure policy; Merkle-epoch LP campaigns + VestingFactory grants interim; Phase-2 audited staker factory | Decision rationale in §2. Operator executes, does not re-decide. |
 | M.12 | Reserve go-live change-set (recipient + wizard math + Fact Sheet line) | One PR, order above. |

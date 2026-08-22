@@ -7,6 +7,8 @@ import {
   COW_VAULT_RELAYER_ADDRESS,
   COW_APP_DATA_DOC,
   COW_APP_DATA_HASH,
+  COW_PARTNER_FEE_BPS,
+  COW_PARTNER_FEE_RECIPIENT,
   COW_ORDER_TYPES,
   cowDomain,
   buildLimitSellOrder,
@@ -145,5 +147,26 @@ describe('cowProtocol', () => {
     expect(isTerminalStatus('expired')).toBe(true);
     expect(isTerminalStatus('open')).toBe(false);
     expect(isTerminalStatus('active')).toBe(false);
+  });
+});
+
+describe('partner-fee dark invariant (2026-08-22 fee-leak audit)', () => {
+  it('bps=0 keeps the appData doc byte-identical to every order ever shipped', () => {
+    // The pinned literal below is the document as it existed BEFORE the
+    // partner-fee capability was wired. If this test fails, the doc changed
+    // while COW_PARTNER_FEE_BPS is 0 — which would silently re-hash appData and
+    // reject every in-flight order class at submission. bps=0 must be a no-op.
+    expect(COW_PARTNER_FEE_BPS).toBe(0);
+    expect(COW_APP_DATA_DOC).toBe(
+      JSON.stringify({ appCode: 'Tegridy Farms', metadata: {}, version: '1.1.0' }),
+    );
+  });
+
+  it('the hash always derives from the doc — the pairing can never be edited apart', () => {
+    expect(COW_APP_DATA_HASH).toBe(keccak256(stringToHex(COW_APP_DATA_DOC)));
+  });
+
+  it('the dark recipient is the treasury Safe from the registry', () => {
+    expect(COW_PARTNER_FEE_RECIPIENT).toBe('0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d');
   });
 });
