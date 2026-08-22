@@ -67,8 +67,14 @@ test.describe('Liquidity surface', () => {
     // one belonging to another surface while this card's real submit sits enabled. Walk
     // up to the card owning the amount input and take its last matching verb.
     //
-    // The fork precondition is handled now: the fixture seeds a TOWELI balance via
-    // anvil_setStorageAt on the discovered balanceOf slot, so the paired side is funded.
+    // ⚠ THE FORK PRECONDITION IS NOT HANDLED. This comment used to claim it was —
+    // "the fixture seeds a TOWELI balance via anvil_setStorageAt on the discovered
+    // balanceOf slot, so the paired side is funded" — and that is only half of an
+    // add. `seedErc20Balance` funds ONE side; a supply needs both, and nothing
+    // seeds the ETH-paired leg or an existing pool position. That is why the CTA
+    // below never enables and this test has failed on all three attempts in CI.
+    // The assertion is correct and is telling the truth; the fixture is what is
+    // missing. Do not soften the assertion — seed the other side.
     const liquidityCard = inputs.first().locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
     const supplyBtn = liquidityCard
       .getByRole('button', { name: /(supply|add liquidity|deposit|approve)/i })

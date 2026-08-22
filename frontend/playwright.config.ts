@@ -49,6 +49,22 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
+  // ── THE TEST TIMEOUT MUST OUTLAST THE LONGEST ASSERTION TIMEOUT ──────────
+  //
+  // There was no `timeout` here, so Playwright's default 30_000 applied — the
+  // SAME 30_000 that `expectTxReceipt` passes to its own `toBeVisible`
+  // (e2e/fixtures/wallet.ts:76). Two equal budgets race, and the test-level one
+  // wins: the assertion can never reach its own limit, so its message never
+  // prints. Every receipt failure in CI has been reporting the generic
+  // "Test timeout of 30000ms exceeded" instead of "no /tx/0x… receipt link
+  // appeared" — the diagnostic the assertion was written to give.
+  //
+  // This raises NO assertion's budget and hides no hang. Every `toBeVisible`,
+  // `toBeEnabled` and `toHaveText` keeps the timeout it declares (20_000 in the
+  // money-path specs, 30_000 for receipts); a genuinely stuck test still fails,
+  // just with the reason attached. Keep this strictly greater than the largest
+  // per-assertion timeout in e2e/ — grep for `timeout:` there before lowering it.
+  timeout: 60_000,
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
