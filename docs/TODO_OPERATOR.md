@@ -12,6 +12,17 @@ spent; and **"What is running or waiting on me" expanded from three bullets to t
 queue**, with every count re-verified against the tree rather than carried forward. Five things
 closed out at the bottom.
 
+**Later on 2026-08-22 — three things closed without you, and one changed shape:**
+- **The Vercel deploy door is shut.** Production Branch moved `main` → `mvp-launch`. See §0.2.
+- **Production is current again**, after serving a build ~707 commits behind. Verified on the live
+  render, not in CI. See §0.2 for exactly what was proven live.
+- **The audit remediation shipped** — 21 items across four commits (#273), plus the RLS policy
+  fix (#299) that §0.1 walks you through. Every fix carries a test proven to fail on pre-fix code.
+- **§1.3 (DBC config v2) grew a "before you pick numbers" section.** Six measured constraints, one
+  of which would have permanently mis-set the creator's fee share. **The curve numbers themselves
+  are still open** — a first proposal was rejected in review for not actually fixing the problem.
+  Do not mint yet.
+
 **Scope note.** This file is the *curated* list: what unlocks the most, in the order worth doing it.
 The exhaustive inventory is [`EVERYTHING_LEFT_2026_08_15.md`](EVERYTHING_LEFT_2026_08_15.md) — 211
 items, last reconciled 2026-08-19. Where the two disagree, this file is newer; where this file is
@@ -134,6 +145,23 @@ policies are accounted for — 8 targets, 4 deferred read-side, 9 intentional pu
 
 **Time:** ~5 minutes including build.
 
+> **Two things here are already done (2026-08-22) — do not redo them.**
+> - **The Production Branch is now `mvp-launch`, not `main`.** That deploy door had been open since
+>   2026-08-02: `main` was wired to Production and sat 676+ commits stale, so a single
+>   `git push origin main` would have reverted production to a July tree with no human step.
+>   Confirmed on the settings page: *"Every commit pushed to the `mvp-launch` branch will create a
+>   Production Deployment."*
+> - **Production was redeployed and is current.** It had been serving a build ~707 commits behind.
+>   Verified against the live site, not the build log: the CSP now allowlists `nft2-cdn.alchemy.com`
+>   (broken NFT images fixed), `/api/etherscan` honours `offset` (a request that returned 918 KB now
+>   returns 56 KB) and clamps it at 500 (`offset=99999` returns byte-identical output to
+>   `offset=500`), and the pre-#258 "Real yield, paid in ETH" overclaim is gone from the render.
+>
+> ⚠️ **New consequence of the branch change:** any push to `mvp-launch` now auto-deploys with no
+> local step, so `scripts/predeploy-check.mjs` never runs on that path. The guard only covers CLI
+> deploys — it says so itself in its own output. That is the correct branch to have wired; just know
+> the gate no longer stands in front of it.
+
 `VITE_*` variables are baked in at **build** time, so setting one without redeploying changes
 nothing. Several shipped fixes are waiting on this:
 - the CSP fix that currently **browser-blocks Pro Pass collection creation**
@@ -238,13 +266,54 @@ Your Solana rail is armed on mainnet and has taken **zero launches**, because co
 is **immutable**, so this cannot be corrected; it needs a v2.
 
 ```bash
-node frontend/scripts/solana-dbc-operator.mjs create-config --opening-fee-bps <n> --resting-fee-bps <n> --decay-seconds <n>
+node frontend/scripts/solana-dbc-operator.mjs create-config --opening-fee-bps <n> --resting-fee-bps <n> --decay-seconds <n> --creator-fee-pct 60
 ```
 
 **Print it without `--send` first**, read the resolved fee schedule it prints, then sign.
 
 ⛔ **Never publish `VITE_SOLANA_DBC_CONFIG` before v2 exists** — doing so ships public launches into
-the 99% fee.
+the 99% fee. (It is **not** currently set in Vercel production — only `VITE_SOLANA_FEE_ACCOUNT` is.
+That is why the rail is dark even though the submit path is built and deployed.)
+
+### Before you pick numbers — six things established 2026-08-22
+
+The decay math was transcribed from the vendored SDK (`@meteora-ag/dynamic-bonding-curve-sdk`
+v1.5.11, in `frontend/node_modules`) and proven **bit-identical to the real SDK across 1,062
+configs**, then re-derived independently by a second pass. These are measurements, not opinions.
+
+1. ⛔ **Always pass `--creator-fee-pct` explicitly.** It defaults to **60**, and a silent default is
+   exactly what produced v1's 99% fee. `creatorTradingFeePercentage` (byte 245) is the creator's
+   share **of the non-Meteora 80%**, *not* of the trade — so 60 there is ~48% of the trade. A first
+   draft of this plan proposed writing `48` into byte 245 on the belief it was a trade percentage;
+   that would have permanently cut the creator's take to ~38% of the trade. **60 is correct.**
+2. ⛔ **Mint EXPONENTIAL (`baseFeeMode = 1`).** `liveConfig.ts`'s linear-mode formula is wrong by a
+   factor of 1e5 (it divides `reductionFactor` by 1e4; the program divides by 1e9). It is currently
+   **masked** — a range check rejects linear configs, so the Fact Sheet fails *closed* rather than
+   lying. Do not "fix" that range check without fixing the formula: doing so converts a visible
+   failure into a **silent false fee disclosure on a public page**.
+3. **`--decay-seconds` must be a multiple of 120.** The CLI hardcodes `NUMBER_OF_PERIOD = 120` with
+   no `--periods` flag and `dbc.ts:toBaseFeeParams` requires `totalDuration % 120 === 0`. So 600 ✓,
+   1200 ✓, 1800 ✓, but **900 ✗ and 300 ✗ throw**. It fails loud, which is correct.
+4. **v1 is worse than "untradeable ~4h".** Its real curve (`cliff=990000000, periodFrequency=180,
+   reductionFactor=375, numberOfPeriod=120, exponential`) crosses 50% at 54 min, 20% at 2.1 h, **10%
+   at 3.0 h**, 5% at 4.0 h — and **never reaches 1%**; the floor is 100.86 bps, not the 100 it
+   discloses. Flooring always overshoots resting, never undershoots (safe direction).
+5. **The public disclosure breaks under 30 minutes.** `SolanaLaunchPage.tsx:206` renders the window
+   as `over {(cfg.totalDurationSeconds / 3600).toFixed(0)}h`, which prints **"0h"** for any window
+   shorter than half an hour. If v2's window is short, the one-line copy fix ships *with* it.
+6. **`initialMarketCap` / `migrationMarketCap` are also immutable** and are **not** in
+   `CONFIG_OFFSETS`, so `liveConfig.ts` can never read them back to check. Set them deliberately;
+   they cannot be verified after the fact the way the fee curve can.
+
+**Verify before you point production at it.** `scripts/verify-dbc-config.mjs` reads any config
+pubkey back, guards the Anchor discriminator before touching an offset, prints the fee-vs-time
+table, asserts the curve matches declared intent, and **fails closed** if `feeClaimer` is a 1-of-1
+or a non-`Multisig` account — the mistake that strands 100% of partner fees irreversibly.
+
+*The exact opening/resting/window numbers are still being settled against an explicit "what does an
+honest buyer pay at t=60s" bar. A first proposal (2000→100 bps over 600 s) was rejected in review
+because it still charges 14.83% at 60 s. Do not mint until this line is replaced with a verified
+set — you have one cheap attempt left.*
 
 ---
 
@@ -394,6 +463,21 @@ chain on every re-index, which would have destroyed every manifest).
 Ordered. Counts re-verified 2026-08-22 against the tree, not carried forward from the sweep — the
 long tail lives in [`EVERYTHING_LEFT_2026_08_15.md`](EVERYTHING_LEFT_2026_08_15.md) §"87 items",
 which is still broadly right but predates three merges.
+
+**0. Finish the DBC v2 curve — in progress, and the only thing standing between you and §1.3.**
+
+The math is settled and proven against the vendored SDK; the *numbers* are not. A first proposal
+(2000 → 100 bps over 600 s) was rejected in review because at `periodFrequency = 5 s` an honest
+buyer still pays **14.83% at t=60 s** — a 5× improvement on v1 that still is not tradeable. The
+open question is narrow: pick a curve against an explicit "what does a normal buyer pay one minute
+in" bar, while a sniper at t=0 still faces a real cost. One candidate needs **no code change at
+all** — v1's own `cliff` and `reductionFactor` with `periodFrequency` 180 → 1, i.e. the same shape
+compressed from 6 hours into 2 minutes.
+
+Also unresolved and shipping with it: `initialMarketCap` / `migrationMarketCap` (immutable, and not
+readable back), and the `.toFixed(0)}h` copy fix at `SolanaLaunchPage.tsx:206` if the window lands
+under 30 minutes. **Do not mint until §1.3's placeholder line is replaced.** You have one cheap
+attempt left; v1 already burned the free one.
 
 **1. 🔴 Get trunk green. Everything else is worth less until this is done.**
 
