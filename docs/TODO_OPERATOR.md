@@ -231,20 +231,69 @@ the answer — it is unambiguous:
 
 ## 1.3 Mint DBC config v2 — the cheapest revenue-relevant act available
 
-**Both code gates shipped 2026-08-18 (`21835d1d`); nothing blocks you.**
+**Both code gates shipped 2026-08-18 (`21835d1d`); nothing blocks you but the numbers.**
 
 Your Solana rail is armed on mainnet and has taken **zero launches**, because config v1 opens at a
-**99% fee** — which makes a freshly launched token untradeable for roughly four hours. A DBC config
-is **immutable**, so this cannot be corrected; it needs a v2.
+**99% fee**. A DBC config is **immutable**, so this cannot be corrected; it needs a v2.
 
 ```bash
-node frontend/scripts/solana-dbc-operator.mjs create-config --opening-fee-bps <n> --resting-fee-bps <n> --decay-seconds <n>
+node frontend/scripts/solana-dbc-operator.mjs create-config --opening-fee-bps <n> --resting-fee-bps <n> --decay-seconds <n> --creator-fee-pct 60
 ```
 
 **Print it without `--send` first**, read the resolved fee schedule it prints, then sign.
 
 ⛔ **Never publish `VITE_SOLANA_DBC_CONFIG` before v2 exists** — doing so ships public launches into
-the 99% fee.
+the 99% fee. It is **not** currently set in Vercel production (only `VITE_SOLANA_FEE_ACCOUNT` is),
+which is why the rail is dark even though the submit path is built and deployed.
+
+### ⚠️ Before you pick numbers — six things established 2026-08-22
+
+The decay maths was transcribed from the vendored SDK (`@meteora-ag/dynamic-bonding-curve-sdk`
+v1.5.11) and proven **bit-identical to the real SDK across 1,062 configs**, then re-derived
+independently by a second pass. These are measurements, not opinions.
+
+1. ⛔ **Always pass `--creator-fee-pct` explicitly.** It defaults to **60**, and a silent default is
+   exactly what produced v1's 99% fee. `creatorTradingFeePercentage` (byte 245) is the creator's
+   share **of the non-Meteora 80%**, *not* of the trade — so 60 there is ~48% of the trade. A first
+   draft of this plan proposed writing `48` into byte 245 believing it was a trade percentage; that
+   would have permanently cut the creator's take to ~38% of the trade. **60 is correct.**
+2. ⛔ **Mint EXPONENTIAL (`baseFeeMode = 1`).** `liveConfig.ts`'s linear-mode formula is wrong by a
+   factor of 1e5 (it divides `reductionFactor` by 1e4; the program divides by 1e9). It is currently
+   **masked** — a range check rejects linear configs, so the Fact Sheet fails *closed* rather than
+   lying. Do not "fix" that range check without fixing the formula: doing so converts a visible
+   failure into a **silent false fee disclosure on a public page**.
+3. **`--decay-seconds` must be a multiple of 120.** The CLI hardcodes `NUMBER_OF_PERIOD = 120` with
+   no `--periods` flag, and `dbc.ts:toBaseFeeParams` requires `totalDuration % 120 === 0`. So 600 ✓,
+   1200 ✓, 1800 ✓, but **900 ✗ and 300 ✗ throw**. It fails loud, which is correct.
+4. **v1 is worse than "untradeable ~4 h".** Its real curve (`cliff=990000000, periodFrequency=180,
+   reductionFactor=375, numberOfPeriod=120, exponential`) crosses 50% at 54 min, 20% at 2.1 h,
+   **10% at 3.0 h**, 5% at 4.0 h — and **never reaches 1%**; the floor is 100.86 bps, not the 100 it
+   discloses. Flooring always overshoots resting, never undershoots (safe direction).
+5. **The public disclosure breaks under 30 minutes.** `SolanaLaunchPage.tsx:206` renders the window
+   as `over {(cfg.totalDurationSeconds / 3600).toFixed(0)}h`, which prints **"0h"** for any window
+   shorter than half an hour. If v2's window is short, that one-line copy fix ships *with* it.
+6. **`initialMarketCap` / `migrationMarketCap` are also immutable** and are **not** in
+   `CONFIG_OFFSETS`, so `liveConfig.ts` can never read them back to check. Set them deliberately —
+   they cannot be verified after the fact the way the fee curve can.
+
+**Verify before you point production at it.** `scripts/verify-dbc-config.mjs` reads any config
+pubkey back, guards the Anchor discriminator before touching an offset, prints the fee-vs-time
+table, asserts the curve matches declared intent, and **fails closed** if `feeClaimer` is a 1-of-1
+or a non-`Multisig` account — the mistake that strands 100% of partner fees irreversibly.
+
+### 🔴 The one open decision: the curve numbers themselves
+
+The maths is settled and proven; the **numbers are not**, and you have **one cheap attempt**.
+A first proposal (2000 → 100 bps over 600 s) was **rejected in review**: at `periodFrequency = 5 s`
+an honest buyer still pays **14.83% at t = 60 s** — a 5× improvement on v1 that is still not
+tradeable.
+
+The open question is narrow: pick a curve against an explicit **"what does a normal buyer pay one
+minute in"** bar, while a sniper at t = 0 still faces a real cost. One candidate needs **no code
+change at all** — v1's own `cliff` and `reductionFactor` with `periodFrequency` 180 → 1, i.e. the
+same shape compressed from 6 hours into 2 minutes.
+
+⛔ **Do not mint until this section names a verified set.**
 
 ---
 
@@ -798,9 +847,11 @@ Ordered by *what unblocks the most*, not by effort.
    correctness requirement, not a preference: `015 §1 DROPs → 014 whole → verify 42501 on all four
    tables + nonce 200 → 016 → prune_revoked_jwts → 013 + VITE_ANALYTICS_ENDPOINT → redeploy`.
    ⛔ Never run 008 after 014. Never run 004 as a unit. Wakes the entire social layer.
-3. **Mint DBC config v2** (Tier 1.3). One session. v1's **99 % opening fee is disqualifying** — the
-   Solana rail cannot take a public launch until this is replaced. Print without `--send`, read the
-   fee split, then sign.
+3. **Mint DBC config v2** (Tier 1.3). v1's **99 % opening fee is disqualifying** and a config is
+   **immutable**, so the rail cannot take a public launch until it is replaced — and you get **one
+   cheap attempt**. ⚠️ The maths is proven but **the curve numbers are still an open decision**; §1.3
+   carries six measured constraints, one of which would have permanently mis-set the creator's fee
+   share. Read them before you pick numbers, and do not sign until §1.3 names a verified set.
 4. **Host the indexer** ($5-20/month, Tier 1.1). The GraphQL client is already written and merged
    (`088ed89e`). This one payment lights Leaderboard, History, per-pool volume/TVL, the treasury
    feed and the timelock queue.
