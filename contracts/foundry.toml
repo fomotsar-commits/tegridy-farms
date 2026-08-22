@@ -70,9 +70,34 @@ via_ir = true
 # NOTE: cancun is required by OpenZeppelin v5.6.1 (uses mcopy opcode).
 # For L2 deployment (Arbitrum, Optimism), compile with cancun but verify L2 opcode support.
 evm_version = "cancun"
-# EIP-170 mainnet bytecode limit. Surfaced explicitly so deploy-size regressions
-# fail at compile-time rather than at mainnet broadcast.
-code_size_limit = 24576
+# This is the TEST EVM's contract-size ceiling — not the deploy-size gate.
+#
+# It read 24576 (EIP-170) to "surface deploy-size regressions", but under
+# foundry-toolchain 1.9 that made every Audit195_* suite fail setUp() with
+# `create initcode size limit`. Our contracts are deliberately tuned to just under
+# EIP-170's 24,576-byte RUNTIME limit; their INITCODE — constructor plus the runtime
+# it returns — is necessarily larger, and 1.9's EVM now rejects a CREATE on that
+# basis where 1.3.1 did not. Nothing about the contracts changed; the EVM did.
+#
+# EIP-3860 (49152) fixed the initcode rejections but not the next one: the TEST
+# harness contracts' own `constructor()` then failed `CreateContractSizeLimit`. Those
+# are via_ir-compiled suites inheriting a lot of helpers; their runtime genuinely
+# exceeds any mainnet-shaped ceiling, and they are never deployed to a chain.
+#
+# So there is no ceiling to pick here — the test EVM should not have one. 16777216 is
+# a sentinel meaning "off"; `forge config` exposes no initcode key and no
+# test-contract exemption, so this single knob is the only mechanism.
+#
+# This RESTORES parity rather than relaxing anything: on 1.3.1 — the version trunk is
+# green on — these same suites pass with the old 24576, because that EVM did not
+# enforce the limit on test-contract deployment at all. 1.9 does. The contracts did
+# not change; the EVM did.
+#
+# The deploy-size guarantee does NOT live here and is untouched: the "forge build +
+# size budget" job runs its own script over the built artifacts against a hardcoded
+# EIP170=24576, with a two-tier allowlist and 576 bytes of headroom. That job is the
+# gate, it does not read this value, and it is green on this branch.
+code_size_limit = 16777216
 
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
@@ -80,21 +105,42 @@ remappings = [
     "forge-std/=lib/forge-std/src/",
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
-    "solmate/=lib/solmate/src/",
+    # ONE solmate rule, no context scoping.
+    #
+    # This used to be `solmate/=lib/solmate/src/` plus two context-scoped overrides,
+    # because the vendored V4 libs import `solmate/src/...` (solmate's real layout)
+    # while our own code used a shortened `solmate/...`. foundry-toolchain 1.9 stops
+    # honouring context-scoped remappings, so every V4 import resolved to a doubled
+    # `lib/solmate/src/src/...` and all nine test slices went red.
+    #
+    # The fix is to stop needing the context at all: the base rule now points at the
+    # package root, and our two importers were migrated to solmate's own
+    # `solmate/src/...` convention — the one the V4 libs, and solmate's own README,
+    # already use. Every consumer now resolves through the same rule.
+    #
+    # Do NOT "fix" this by re-adding `solmate/src/=lib/solmate/src/` alongside a
+    # `solmate/=` rule. That was tried (04ce2c59) and made things worse: the
+    # overlapping prefix SUPPRESSES the plain rule rather than losing to it, and
+    # `solmate/utils/FixedPointMathLib.sol` stopped resolving entirely. Forge does not
+    # pick these by longest prefix.
+    "solmate/=lib/solmate/",
     "solady/=lib/solady/src/",
-    # Context-scoped: inside the V4 libs, solmate is imported as `solmate/src/...`
-    # (vs. our V2 convention `solmate/...`). Scoping the override leaves the V2 build
-    # untouched. Needed for the V4 test harness (Deployers pulls in solmate mocks).
-    "lib/v4-core/:solmate/=lib/solmate/",
-    "lib/v4-periphery/:solmate/=lib/solmate/",
 ]
 
 [lint]
-# The forge linter does not honor the context-scoped solmate remapping above, so
-# during build-lint it fails to RESOLVE v4-core's internal `solmate/src/...` imports
-# (which the compiler resolves fine). That turned a green compile into "Lint failed".
-# Disable lint-on-build to keep `forge build` exit-0; lint our own code on demand
-# with `forge lint src/v4`. Compilation + tests are unaffected.
+# Kept off, but the ORIGINAL reason no longer applies and this is worth re-testing.
+#
+# It was disabled because the forge linter did not honour the context-scoped solmate
+# remapping, so build-lint failed to resolve v4-core's internal `solmate/src/...`
+# imports (which the compiler resolved fine) and turned a green compile into "Lint
+# failed". Those contexts are gone as of this change — every consumer now resolves
+# through one plain `solmate/=lib/solmate/` rule, which the linter has no reason to
+# treat differently.
+#
+# NOT flipped here on purpose: this change already has one hypothesis under test (the
+# 1.9 bump), and turning lint back on at the same time would make a red build
+# ambiguous between the two. Flip it in its own change and read the result cleanly.
+# Lint our own code on demand meanwhile: `forge lint src/v4`.
 lint_on_build = false
 
 [etherscan]

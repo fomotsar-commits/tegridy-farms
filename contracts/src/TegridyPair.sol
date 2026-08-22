@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
+import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 
 /// @title TegridyPair — Constant Product AMM Pool
 /// @notice Fork of Uniswap V2 Pair adapted for Solidity 0.8.26.

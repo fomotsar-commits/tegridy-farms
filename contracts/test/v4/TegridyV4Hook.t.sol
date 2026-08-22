@@ -20,7 +20,7 @@ import {TegridyV4HookAdmin} from "../../src/v4/TegridyV4HookAdmin.sol";
 import {TegridyV4SwapRouter} from "../../src/v4/TegridyV4SwapRouter.sol";
 import {TegridyBoostedLPStaker} from "../../src/v4/TegridyBoostedLPStaker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 
 /// @notice Behavioral tests for the custom surface of TegridyV4Hook (allowlist,
 ///         fee override wiring, admin gating, POL skim accrual + sweep/redeem
