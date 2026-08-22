@@ -17,22 +17,11 @@ on:
       - "frontend/src/lib/contracts.ts"
       - "frontend/src/lib/constants.ts"
       - ".github/workflows/contracts-ci.yml"
+  # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
+  # path filter on a pull_request is what forced the `-not-applicable.yml`
+  # shim, and the shim is what let a failing gate be reported as a pass.
   pull_request:
     branches: [main, mvp-launch]
-    paths:
-      - "contracts/**"
-      - "scripts/check-interface-selectors.mjs"
-      - "scripts/check-test-slice-coverage.mjs"
-      - "frontend/scripts/extract-missing-abis.mjs"
-      - ".github/contracts-test-slices.json"
-      # The selector guard reads both of these: contracts.ts holds the
-      # hand-rolled ABIs it checks, constants.ts the address exports that tell
-      # an in-repo target from a third-party one. Without them here a
-      # frontend-only ABI edit — the exact shape of the drift this guard
-      # exists to catch — would never trigger this workflow.
-      - "frontend/src/lib/contracts.ts"
-      - "frontend/src/lib/constants.ts"
-      - ".github/workflows/contracts-ci.yml"
 
 # Least-privilege default — contracts CI only reads source and caches.
 permissions:
@@ -43,6 +32,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── which jobs are in scope for this diff ──────────────────────────────────
+  #
+  # This job replaces `contracts-ci-not-applicable.yml`. That shim published a SECOND
+  # check run under this workflow's name whenever a PR touched both the contract surface and
+  # anything else, and GitHub does not resolve a duplicated name the way the
+  # shim's comment assumed. Measured on PR #205, where two of these pairs
+  # doubled at once: `Slither / Static analysis` had a FAILING 4-minute analysis
+  # and a passing 2-second shim, and only the pass appeared in the PR's check
+  # list; `all-tests-pass` was doubled too and agreed by luck.
+  #
+  # So the filter moved here. The workflow now triggers on every PR — exactly one
+  # check run under this name ever exists — and this job decides whether the real
+  # work runs. A job skipped by `if:` reports success to branch protection, which
+  # is what the shim was for.
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.q.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Does this diff touch the contract surface?
+        id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # EVERY uncertain path below answers `true`. A wrong `true` costs CI
+          # minutes; a wrong `false` skips the gate AND reports success for
+          # having done so, which is the failure this job exists to end.
+          say() { echo "run=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          # A `push` reached this workflow through its own `paths:` filter, so it
+          # is already known to be in scope.
+          [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
+
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          if [ -z "$files" ]; then
+            echo "::warning::could not list this PR's changed files — running the real job"
+            say true
+          fi
+          # `pulls/{n}/files` truncates at 3000. A truncated list can only make a
+          # skip look justified, so refuse to narrow on one.
+          if [ "$(printf '%s\n' "$files" | wc -l)" -ge 3000 ]; then
+            echo "::warning::changed-file list is at the API cap — running the real job"
+            say true
+          fi
+
+          verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
+            'contracts/**' \
+            'scripts/check-interface-selectors.mjs' \
+            'scripts/check-test-slice-coverage.mjs' \
+            'frontend/scripts/extract-missing-abis.mjs' \
+            '.github/contracts-test-slices.json' \
+            'frontend/src/lib/contracts.ts' \
+            'frontend/src/lib/constants.ts' \
+            '.github/workflows/contracts-ci.yml')
+          case "$verdict" in
+            true|false) say "$verdict" ;;
+            *) echo "::warning::diff-scope returned '$verdict' — running the real job"; say true ;;
+          esac
+
   # ─────────────────────────────────────────────────────────────────────
   # Build + bytecode-size budget. Single-job — produces the artifacts
   # the test matrix consumes. Fast (~2 min); shared across all matrix
@@ -50,6 +109,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   build:
     name: forge build + size budget
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -368,6 +431,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   slices:
     name: test-slice coverage guard
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.emit.outputs.matrix }}
@@ -681,11 +748,21 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   all-tests-pass:
     name: all-tests-pass
-    needs: [build, slices, test, fuzz-invariant]
+    needs: [scope, build, slices, test, fuzz-invariant]
     runs-on: ubuntu-latest
     if: always()
     steps:
+      # Exactly one of the next two steps runs; the conditions are
+      # complements. Out of scope, every job above is SKIPPED, and the
+      # aggregate below counts a skip as a failure — correctly, so it
+      # must not be the step that speaks here.
+      - name: Out of scope for this diff
+        if: needs.scope.result == 'success' && needs.scope.outputs.run != 'true'
+        run: |
+          echo "Nothing in this change set is in scope for contracts-ci.yml;"
+          echo "reporting its check as satisfied. See the scope job for the file list."
       - name: Aggregate matrix result
+        if: needs.scope.result != 'success' || needs.scope.outputs.run == 'true'
         run: |
           if [ "${{ needs.build.result }}" != "success" ]; then
             echo "Build job: ${{ needs.build.result }}"

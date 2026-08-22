@@ -1,20 +1,39 @@
-// A required status check that can never be reported blocks merges forever.
+// A required status check that can never be reported blocks merges forever —
+// and a required status check that reports without checking is worse.
 //
-// Four workflows filter `pull_request` by `paths:` — contracts-ci, slither,
-// registry-onchain, solana-ci. contracts-ci.yml's own comment names
-// "Contracts CI / all-tests-pass" as the check branch protection should
-// require. Those two facts are incompatible: a PR that touches only frontend/
-// never triggers the workflow, so no check run with that name is created, so
-// the rule sits at "Expected — waiting for status to be reported" and the PR
-// cannot merge. It reads as an outage, gets called a flake, and ends with
+// Four workflows here (contracts-ci, slither, registry-onchain, solana-ci) once
+// filtered `pull_request` by `paths:`. A PR touching none of those paths never
+// triggered the workflow, no check run with its name was created, and a branch
+// rule requiring that name sat at "Expected — waiting for status to be
+// reported" forever. It reads as an outage, gets called a flake, and ends with
 // someone removing the requirement.
 //
-// The fix is GitHub's documented "skipped but required" recipe: a companion
-// workflow with the same workflow name and the same job name, triggered on the
-// inverse filter, that reports the same check as a pass. Both names are the
-// wire format for the check context, which is exactly what makes it fragile —
-// a rename on either side unsolders it with no error anywhere. Hence this
-// suite, which re-derives the pairing from the files.
+// The fix WAS GitHub's documented "skipped but required" recipe: a companion
+// workflow with the same workflow name and the same job name, on the inverse
+// filter, reporting the same check as a pass. This suite used to enforce that
+// pairing. IT WAS THE WRONG FIX, AND THIS SUITE HELPED IT SURVIVE.
+//
+// `paths` fires when ANY changed file matches; `paths-ignore` fires when ANY
+// changed file does not. They are not complements, so a PR touching both sides
+// triggers BOTH workflows and two check runs are created under one name. The
+// old suite acknowledged that overlap and argued it was safe on finish order —
+// the companion is a single echo, the real matrix takes minutes, "so the real
+// result is the last one written". That argument was never measured, and it is
+// false. On PR #205 (head a4706efb) two check runs named
+// `Slither / Static analysis` existed at once: the real 4-minute analysis
+// FAILED, the 2-second companion passed, and the PR's check list surfaced ONLY
+// the pass. `all-tests-pass` was doubled on the same PR and agreed by luck.
+//
+// So the filter moved inside each workflow, into a `scope` job
+// (.github/scripts/diff-scope.mjs), and the companions are gone. Exactly one
+// check run per name now exists, and a job the scope gate skips reports success
+// to branch protection — which is what the companions were for, reached without
+// a second run that can disagree.
+//
+// What this suite enforces now is the shape that cannot regress into the old
+// one: no companion workflows, no two workflows sharing a `name:`, no
+// workflow-level `paths:` on a `pull_request`, and no gate a broken scope job
+// can silently skip.
 //
 // NOT covered here: arming the branch-protection rule. That is a GitHub
 // settings action and stays with the operator; this only makes the checks
@@ -39,81 +58,87 @@ interface Workflow {
   checkNames: string[];
 }
 
+const sources = () => readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.test(f));
+const strip = (src: string) => src.split(/\r?\n/).filter((l) => !/^\s*#/.test(l));
+
 /**
+ * Read one trigger's path filters out of the `on:` block.
+ *
  * Enough YAML for this question and no more. The repo has no yaml parser in
  * frontend/ and ciGateIntegrity.test.ts reads these files the same way; adding
  * a dependency to a guard test is a larger change than the guard.
  */
-const parse = (file: string): Workflow => {
-  const lines = readFileSync(join(WORKFLOW_DIR, file), 'utf-8').split(/\r?\n/);
-  const code = lines.filter((l) => !/^\s*#/.test(l));
-
-  const name = /^name:\s*(.+?)\s*$/m.exec(code.join('\n'))?.[1] ?? '';
-
-  // Walk the `on:` block, then the `pull_request:` sub-block inside it.
-  let inOn = false;
-  let inPr = false;
-  let listKey: 'paths' | 'paths-ignore' | null = null;
+export function parseOnBlock(src: string, trigger: 'pull_request' | 'push') {
+  const code = strip(src);
   const paths: string[] = [];
   const pathsIgnore: string[] = [];
+  let inOn = false;
+  let inTrigger = false;
+  let listKey: 'paths' | 'paths-ignore' | null = null;
+
+  for (const line of code) {
+    if (/^on:/.test(line)) { inOn = true; inTrigger = false; continue; }
+    if (/^\S/.test(line)) { inOn = false; inTrigger = false; continue; }
+    if (!inOn) continue;
+
+    if (new RegExp(`^ {2}${trigger}:`).test(line)) { inTrigger = true; listKey = null; continue; }
+    if (/^ {2}\S/.test(line)) { inTrigger = false; listKey = null; continue; }
+    if (!inTrigger) continue;
+
+    // Inline form first — `paths: ["solana/**", "…"]` also matches the block
+    // opener below, and reading it as an opener would swallow the values.
+    const inline = /^ {4}(paths|paths-ignore):\s*\[(.+)\]/.exec(line);
+    if (inline) {
+      const target = inline[1] === 'paths' ? paths : pathsIgnore;
+      for (const raw of inline[2].split(',')) target.push(raw.trim().replace(/^["']|["']$/g, ''));
+      listKey = null;
+      continue;
+    }
+    const opener = /^ {4}(paths|paths-ignore):\s*$/.exec(line);
+    if (opener) { listKey = opener[1] as 'paths' | 'paths-ignore'; continue; }
+    if (/^ {4}\S/.test(line)) { listKey = null; continue; }
+    const item = /^\s*-\s*["']?([^"'\s]+)["']?\s*$/.exec(line);
+    if (listKey && item) (listKey === 'paths' ? paths : pathsIgnore).push(item[1]);
+  }
+  return { paths, pathsIgnore };
+}
+
+const parse = (file: string): Workflow => {
+  const src = readFileSync(join(WORKFLOW_DIR, file), 'utf-8');
+  const code = strip(src);
+  const raw = code.join('\n');
+  const name = /^name:\s*(.+?)\s*$/m.exec(raw)?.[1] ?? '';
+
   const checkNames: string[] = [];
   let inJobs = false;
   let pendingJobId: string | null = null;
-
   for (const line of code) {
-    if (/^on:/.test(line)) { inOn = true; inPr = false; continue; }
-    if (/^jobs:/.test(line)) { inOn = false; inPr = false; inJobs = true; continue; }
-    if (/^\S/.test(line) && !/^on:/.test(line)) { inOn = false; inPr = false; inJobs = false; }
-
-    if (inOn) {
-      if (/^ {2}pull_request:/.test(line)) { inPr = true; listKey = null; continue; }
-      if (/^ {2}\S/.test(line)) { inPr = false; listKey = null; continue; }
-      if (inPr) {
-        const m = /^ {4}(paths|paths-ignore):/.exec(line);
-        if (m) { listKey = m[1] as 'paths' | 'paths-ignore'; continue; }
-        if (/^ {4}\S/.test(line)) { listKey = null; continue; }
-        const item = /^\s*-\s*["']?([^"'\s]+)["']?\s*$/.exec(line);
-        if (listKey && item) (listKey === 'paths' ? paths : pathsIgnore).push(item[1]);
-        // Inline form: paths: ["solana/**", ".github/…"]
-        const inline = /^ {4}(paths|paths-ignore):\s*\[(.+)\]/.exec(line);
-        if (inline) {
-          const target = inline[1] === 'paths' ? paths : pathsIgnore;
-          for (const raw of inline[2].split(',')) target.push(raw.trim().replace(/^["']|["']$/g, ''));
-        }
-      }
+    if (/^jobs:/.test(line)) { inJobs = true; continue; }
+    if (/^\S/.test(line)) { inJobs = false; }
+    if (!inJobs) continue;
+    const jobId = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
+    if (jobId) {
+      if (pendingJobId) checkNames.push(pendingJobId);
+      pendingJobId = jobId[1];
+      continue;
     }
-
-    if (inJobs) {
-      const jobId = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
-      if (jobId) {
-        if (pendingJobId) checkNames.push(pendingJobId);
-        pendingJobId = jobId[1];
-        continue;
-      }
-      const jobName = /^ {4}name:\s*(.+?)\s*$/.exec(line);
-      if (jobName && pendingJobId) { checkNames.push(jobName[1]); pendingJobId = null; }
-    }
+    const jobName = /^ {4}name:\s*(.+?)\s*$/.exec(line);
+    if (jobName && pendingJobId) { checkNames.push(jobName[1]); pendingJobId = null; }
   }
   if (pendingJobId) checkNames.push(pendingJobId);
 
-  // The inline-array form is also written on the `pull_request:` key's own
-  // lines above; re-scan the raw source for it so indentation variants cannot
-  // hide a filter.
-  const raw = code.join('\n');
-  for (const m of raw.matchAll(/^\s{4}paths:\s*\[(.+)\]\s*$/gm)) {
-    for (const item of m[1].split(',')) {
-      const v = item.trim().replace(/^["']|["']$/g, '');
-      if (!paths.includes(v)) paths.push(v);
-    }
-  }
-
-  return { file, name, paths, pathsIgnore, hasPullRequest: /^ {2}pull_request:/m.test(raw), checkNames };
+  const pr = parseOnBlock(src, 'pull_request');
+  return {
+    file,
+    name,
+    paths: pr.paths,
+    pathsIgnore: pr.pathsIgnore,
+    hasPullRequest: /^ {2}pull_request:/m.test(raw),
+    checkNames,
+  };
 };
 
-const all = (): Workflow[] =>
-  readdirSync(WORKFLOW_DIR)
-    .filter((f) => /\.ya?ml$/.test(f))
-    .map(parse);
+const all = (): Workflow[] => sources().map(parse);
 
 describe('the parser understands these files (guards the guard)', () => {
   it('reads names, triggers and jobs', () => {
@@ -121,79 +146,104 @@ describe('the parser understands these files (guards the guard)', () => {
     expect(ws.length).toBeGreaterThan(10);
     expect(ws.every((w) => w.name.length > 0)).toBe(true);
     const contracts = ws.find((w) => w.file === 'contracts-ci.yml')!;
-    expect(contracts.paths).toContain('contracts/**');
     expect(contracts.checkNames).toContain('all-tests-pass');
-    const solana = ws.find((w) => w.file === 'solana-ci.yml')!;
-    expect(solana.paths, 'inline-array paths form not parsed').toContain('solana/**');
+    expect(contracts.checkNames).toContain('scope');
+    expect(contracts.hasPullRequest).toBe(true);
+  });
+
+  it('still reads both `paths:` forms, so the assertions below cannot pass vacuously', () => {
+    // Nothing filters `pull_request` by path any more — which is the point, and
+    // also the risk: a reader that had quietly stopped parsing `paths:` would
+    // make every "no path filter" assertion below trivially true. `push:` still
+    // uses the block form (contracts-ci) and the inline-array form (solana-ci),
+    // so the reader is exercised against real input either way.
+    expect(parseOnBlock(readFileSync(join(WORKFLOW_DIR, 'contracts-ci.yml'), 'utf-8'), 'push').paths).toContain(
+      'contracts/**',
+    );
+    expect(parseOnBlock(readFileSync(join(WORKFLOW_DIR, 'solana-ci.yml'), 'utf-8'), 'push').paths).toContain(
+      'solana/**',
+    );
   });
 });
 
-describe('every path-filtered PR workflow has a companion that can report its check', () => {
-  const filtered = () => all().filter((w) => w.hasPullRequest && w.paths.length > 0);
-  const companions = () => all().filter((w) => w.hasPullRequest && w.pathsIgnore.length > 0);
-
-  it('finds path-filtered workflows at all', () => {
-    expect(filtered().length).toBeGreaterThan(0);
+describe('the shape that cannot regress into the companion recipe', () => {
+  it('has no companion workflows left', () => {
+    // A `-not-applicable.yml` republishing another workflow's check name is the
+    // defect itself, not a workaround for it.
+    expect(readdirSync(WORKFLOW_DIR).filter((f) => f.includes('not-applicable'))).toEqual([]);
   });
 
-  it('pairs each one by workflow name', () => {
-    const companionNames = new Set(companions().map((w) => w.name));
-    const orphans = filtered()
-      .filter((w) => !companionNames.has(w.name))
-      .map((w) => `${w.file} (name: ${w.name})`);
+  it('gives every workflow a distinct `name:`', () => {
+    // The check context is `<workflow name> / <job name>`. Two workflows sharing
+    // a name is the precondition for two check runs that can disagree, and the
+    // one GitHub surfaces need not be the one that did the work.
+    const byName = new Map<string, string[]>();
+    for (const w of all()) byName.set(w.name, [...(byName.get(w.name) ?? []), w.file]);
+    expect([...byName.entries()].filter(([, files]) => files.length > 1)).toEqual([]);
+  });
+
+  it('never filters a `pull_request` trigger by path', () => {
+    // This trigger decides whether a check run exists at all. A path filter here
+    // is what forced the companion recipe into existence.
+    const filtered = all()
+      .filter((w) => w.hasPullRequest && w.paths.length > 0)
+      .map((w) => `${w.file} (${w.paths.join(', ')})`);
     expect(
-      orphans,
-      'these workflows are skipped entirely on some PRs, so any required status check they own ' +
-        'can never be reported and those PRs can never merge. Add a companion workflow with the ' +
-        'same `name:` and the same job name, triggered on paths-ignore of the same globs.',
+      filtered,
+      'filter inside the workflow with a `scope` job instead. A workflow-level `paths:` on ' +
+        'pull_request means no check run is created on an out-of-scope PR, and the companion ' +
+        'workflow that papered over that could report a pass while the real job failed.',
     ).toEqual([]);
   });
 
-  it('mirrors the filter exactly, so the companion fires precisely when the real one does not', () => {
-    const mismatched: string[] = [];
-    for (const real of filtered()) {
-      const companion = companions().find((w) => w.name === real.name);
-      if (!companion) continue;
-      const missing = real.paths.filter((p) => !companion.pathsIgnore.includes(p));
-      if (missing.length > 0) mismatched.push(`${companion.file} does not ignore: ${missing.join(', ')}`);
-    }
-    expect(
-      mismatched,
-      'a glob the real workflow watches but the companion does not ignore means both run on the ' +
-        'same PR and two check runs share one name.',
-    ).toEqual([]);
+  it('has no `paths-ignore` left on any pull_request trigger', () => {
+    // The inverse filter only ever existed to drive a companion.
+    const inverse = all()
+      .filter((w) => w.hasPullRequest && w.pathsIgnore.length > 0)
+      .map((w) => w.file);
+    expect(inverse).toEqual([]);
   });
 
-  it('reports check names the real workflow actually owns', () => {
-    const bogus: string[] = [];
-    for (const companion of companions()) {
-      const real = all().find((w) => w.name === companion.name && w.file !== companion.file && w.paths.length > 0);
-      if (!real) continue;
-      for (const check of companion.checkNames) {
-        if (!real.checkNames.includes(check)) bogus.push(`${companion.file}: "${check}" is not a job in ${real.file}`);
-      }
+  it('lets a broken scope job run the real work rather than skip it', () => {
+    // A job skipped by `if:` reports SUCCESS to branch protection. Gating on the
+    // scope verdict alone would therefore turn any failure of the scope job into
+    // a silent green — the same class of defect, one layer down.
+    const bad: string[] = [];
+    for (const f of sources()) {
+      const lines = readFileSync(join(WORKFLOW_DIR, f), 'utf-8').split(/\r?\n/);
+      lines.forEach((line, i) => {
+        if (!line.includes("needs.scope.outputs.run == 'true'")) return;
+        const window = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+        if (!window.includes("needs.scope.result != 'success'")) bad.push(`${f}:${i + 1}`);
+      });
     }
-    expect(
-      bogus,
-      'a companion job name that does not exist in the real workflow synthesises a check nothing ' +
-        'ever verifies — a permanent green under a name that looks like a gate.',
-    ).toEqual([]);
+    expect(bad, 'these gates skip when the scope job itself failed, which reports success').toEqual([]);
   });
 
-  it('keeps every companion job to a single fast step, so the real verdict always lands last', () => {
-    // The overlap case (a PR touching both filtered and unfiltered paths) runs
-    // both workflows. That is only safe because the companion finishes in
-    // seconds while the real matrix takes minutes, so the real result is the
-    // last one written to the shared check name. A companion that could
-    // outlive the real run becomes a way to mask a red build.
-    for (const companion of companions()) {
-      const src = readFileSync(join(WORKFLOW_DIR, companion.file), 'utf-8');
-      expect(src, `${companion.file} has a needs: — it could now finish after the real workflow`).not.toMatch(
-        /^\s+needs:/m,
-      );
-      expect(src, `${companion.file} has a matrix — companions must stay single-shot`).not.toMatch(/^\s+strategy:/m);
-      expect(src, `${companion.file} has no timeout-minutes`).toMatch(/timeout-minutes:/);
+  it('finds scope jobs at all, so the rule above is not asserted over nothing', () => {
+    const scoped = sources().filter((f) => /^ {2}scope:$/m.test(readFileSync(join(WORKFLOW_DIR, f), 'utf-8')));
+    expect(scoped.sort()).toEqual(
+      ['contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'].sort(),
+    );
+  });
+
+  it('keeps each scope job in sync with the `push:` filter it was split from', () => {
+    // The two lists are one rule written twice: `push: paths:` decides whether
+    // the workflow runs on a merge, the scope job decides whether it runs on a
+    // PR. A path added to one and not the other means the gate watches a file on
+    // trunk that it ignores on the PR that introduces it — which is the half
+    // that matters, and it fails silently in the permissive direction.
+    const drift: string[] = [];
+    for (const f of ['contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml']) {
+      const src = readFileSync(join(WORKFLOW_DIR, f), 'utf-8');
+      const push = parseOnBlock(src, 'push').paths;
+      const call = /diff-scope\.mjs \\\n((?: +'[^']+'[^\n]*\n)+)/.exec(src);
+      expect(call, `${f}: no diff-scope invocation found`).not.toBeNull();
+      const scoped = [...call![1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+      for (const p of push) if (!scoped.includes(p)) drift.push(`${f}: push watches "${p}", scope does not`);
+      for (const p of scoped) if (!push.includes(p)) drift.push(`${f}: scope watches "${p}", push does not`);
     }
+    expect(drift).toEqual([]);
   });
 });
 
@@ -218,5 +268,16 @@ describe('solana-ci exposes one aggregate check to require', () => {
     const job = src.slice(src.indexOf('  all-checks-pass:'));
     expect(job).toMatch(/if:\s*always\(\)/);
     expect(job).toMatch(/!=\s*"success"/);
+  });
+
+  it('does not read a scope-skipped run as a failure, and does not read it as a pass either', () => {
+    // Out of scope, every dependency IS skipped, and the aggregate step above
+    // would correctly call that a failure — so it must not be the step that
+    // speaks. The two steps' conditions are exact complements: precisely one
+    // runs, and neither can be reached when the scope job itself failed.
+    const src = readFileSync(join(WORKFLOW_DIR, 'solana-ci.yml'), 'utf-8');
+    const job = src.slice(src.indexOf('  all-checks-pass:'));
+    expect(job).toContain("if: needs.scope.result == 'success' && needs.scope.outputs.run != 'true'");
+    expect(job).toContain("if: needs.scope.result != 'success' || needs.scope.outputs.run == 'true'");
   });
 });

@@ -34,8 +34,10 @@ name: solana-ci
 on:
   push:
     paths: ["solana/**", ".github/workflows/solana-ci.yml"]
+  # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
+  # path filter on a pull_request is what forced the `-not-applicable.yml`
+  # shim, and the shim is what let a failing gate be reported as a pass.
   pull_request:
-    paths: ["solana/**", ".github/workflows/solana-ci.yml"]
 
 permissions:
   contents: read
@@ -52,7 +54,75 @@ env:
   ANCHOR_VERSION: 0.32.1
 
 jobs:
+  # ── which jobs are in scope for this diff ──────────────────────────────────
+  #
+  # This job replaces `solana-ci-not-applicable.yml`. That shim published a SECOND
+  # check run under this workflow's name whenever a PR touched both the Solana programs and
+  # anything else, and GitHub does not resolve a duplicated name the way the
+  # shim's comment assumed. Measured on PR #205, where two of these pairs
+  # doubled at once: `Slither / Static analysis` had a FAILING 4-minute analysis
+  # and a passing 2-second shim, and only the pass appeared in the PR's check
+  # list; `all-tests-pass` was doubled too and agreed by luck.
+  #
+  # So the filter moved here. The workflow now triggers on every PR — exactly one
+  # check run under this name ever exists — and this job decides whether the real
+  # work runs. A job skipped by `if:` reports success to branch protection, which
+  # is what the shim was for.
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.q.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Does this diff touch the Solana programs?
+        id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # EVERY uncertain path below answers `true`. A wrong `true` costs CI
+          # minutes; a wrong `false` skips the gate AND reports success for
+          # having done so, which is the failure this job exists to end.
+          say() { echo "run=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          # A `push` reached this workflow through its own `paths:` filter, so it
+          # is already known to be in scope.
+          [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
+
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          if [ -z "$files" ]; then
+            echo "::warning::could not list this PR's changed files — running the real job"
+            say true
+          fi
+          # `pulls/{n}/files` truncates at 3000. A truncated list can only make a
+          # skip look justified, so refuse to narrow on one.
+          if [ "$(printf '%s\n' "$files" | wc -l)" -ge 3000 ]; then
+            echo "::warning::changed-file list is at the API cap — running the real job"
+            say true
+          fi
+
+          verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
+            'solana/**' \
+            '.github/workflows/solana-ci.yml')
+          case "$verdict" in
+            true|false) say "$verdict" ;;
+            *) echo "::warning::diff-scope returned '$verdict' — running the real job"; say true ;;
+          esac
+
   diff-guard:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,6 +207,10 @@ jobs:
   # Why a separate job: different upstream repo and a different pinned commit, so it
   # cannot share UPSTREAM_COMMIT. Runs in parallel; adds no wall-clock.
   clmm-vendor-guard:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     env:
       CLMM_REPO: https://github.com/raydium-io/raydium-clmm
@@ -194,6 +268,10 @@ jobs:
           echo "   ($(grep -c '^[<>]' /tmp/clmm-delta.txt) changed lines: import rewrites + the U1024 deletion)"
 
   build:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -262,6 +340,10 @@ jobs:
           retention-days: 14
 
   launch-curve:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -450,6 +532,10 @@ jobs:
   # fail building openssl-sys. The tests are authored + type-checked locally and
   # executed here.
   launch-constraints:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -591,6 +677,10 @@ jobs:
   # caught the last one, so this drives the real thing end to end and asserts the
   # LP supply is ZERO afterwards.
   migration-rehearsal:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -743,12 +833,22 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   all-checks-pass:
     name: all-checks-pass
-    needs: [diff-guard, clmm-vendor-guard, build, launch-curve, launch-constraints, migration-rehearsal]
+    needs: [scope, diff-guard, clmm-vendor-guard, build, launch-curve, launch-constraints, migration-rehearsal]
     runs-on: ubuntu-latest
     if: always()
     timeout-minutes: 5
     steps:
+      # Exactly one of the next two steps runs; the conditions are
+      # complements. Out of scope, every job above is SKIPPED, and the
+      # aggregate below counts a skip as a failure — correctly, so it
+      # must not be the step that speaks here.
+      - name: Out of scope for this diff
+        if: needs.scope.result == 'success' && needs.scope.outputs.run != 'true'
+        run: |
+          echo "Nothing in this change set is in scope for solana-ci.yml;"
+          echo "reporting its check as satisfied. See the scope job for the file list."
       - name: Aggregate job results
+        if: needs.scope.result != 'success' || needs.scope.outputs.run == 'true'
         run: |
           set -uo pipefail
           FAILED=0

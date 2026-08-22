@@ -23,9 +23,12 @@ name: npm advisories
 # here costs seconds — it resolves against the lockfile and never installs.
 # Second, a `paths:` filter means the check is not reported at all on most PRs,
 # and a required status check that is never reported leaves branch protection
-# waiting forever; see .github/workflows/contracts-ci-not-applicable.yml for
-# what that costs and what it takes to work around. A gate that always runs
-# needs no companion.
+# waiting forever. The workaround for that — a companion workflow republishing
+# the same check name — turned out to be worse than the problem: it could
+# publish a PASS alongside the real workflow's FAIL, and did. Four workflows
+# have since moved their filter into a `scope` job instead
+# (.github/scripts/diff-scope.mjs). This one needs neither, because it always
+# runs.
 on:
   push:
     branches: [main, mvp-launch]

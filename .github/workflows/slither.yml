@@ -6,11 +6,11 @@ on:
     paths:
       - "contracts/**"
       - ".github/workflows/slither.yml"
+  # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
+  # path filter on a pull_request is what forced the `-not-applicable.yml`
+  # shim, and the shim is what let a failing gate be reported as a pass.
   pull_request:
     branches: [main, mvp-launch]
-    paths:
-      - "contracts/**"
-      - ".github/workflows/slither.yml"
 
 # Least-privilege default — the analyze job augments below with
 # security-events: write to upload the SARIF.
@@ -22,8 +22,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── which jobs are in scope for this diff ──────────────────────────────────
+  #
+  # This job replaces `slither-not-applicable.yml`. That shim published a SECOND
+  # check run under this workflow's name whenever a PR touched both Solidity and
+  # anything else, and GitHub does not resolve a duplicated name the way the
+  # shim's comment assumed. Measured on PR #205, where two of these pairs
+  # doubled at once: `Slither / Static analysis` had a FAILING 4-minute analysis
+  # and a passing 2-second shim, and only the pass appeared in the PR's check
+  # list; `all-tests-pass` was doubled too and agreed by luck.
+  #
+  # So the filter moved here. The workflow now triggers on every PR — exactly one
+  # check run under this name ever exists — and this job decides whether the real
+  # work runs. A job skipped by `if:` reports success to branch protection, which
+  # is what the shim was for.
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.q.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Does this diff touch Solidity?
+        id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # EVERY uncertain path below answers `true`. A wrong `true` costs CI
+          # minutes; a wrong `false` skips the gate AND reports success for
+          # having done so, which is the failure this job exists to end.
+          say() { echo "run=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          # A `push` reached this workflow through its own `paths:` filter, so it
+          # is already known to be in scope.
+          [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
+
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          if [ -z "$files" ]; then
+            echo "::warning::could not list this PR's changed files — running the real job"
+            say true
+          fi
+          # `pulls/{n}/files` truncates at 3000. A truncated list can only make a
+          # skip look justified, so refuse to narrow on one.
+          if [ "$(printf '%s\n' "$files" | wc -l)" -ge 3000 ]; then
+            echo "::warning::changed-file list is at the API cap — running the real job"
+            say true
+          fi
+
+          verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
+            'contracts/**' \
+            '.github/workflows/slither.yml')
+          case "$verdict" in
+            true|false) say "$verdict" ;;
+            *) echo "::warning::diff-scope returned '$verdict' — running the real job"; say true ;;
+          esac
+
   analyze:
     name: Static analysis
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
