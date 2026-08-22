@@ -478,6 +478,71 @@ contract TegridyFactoryTest is Test {
         assertEq(factory.pendingGuardian(), address(0));
     }
 
+    /// @notice DEPLOY-M6: the old DeployMVP guardian-rotation runbook, executed
+    ///         exactly as it was written, and the point at which it dies.
+    ///
+    ///         DeployMVP used to construct the factory with the deployer EOA as
+    ///         guardian and queue `proposeGuardianChange(pauseGuardian)` at deploy,
+    ///         then instruct the multisig to run (3) `acceptFeeToSetter()` and
+    ///         (3b) `executeGuardianChange()`. Step 3 destroys step 3b: F-30-10
+    ///         force-cancels the queued proposal, so 3b reverts and the deployer EOA
+    ///         keeps the factory's instant pair-disable power indefinitely — which is
+    ///         precisely what audit M6 existed to remove. VerifyMVP INV-11c asserted
+    ///         the end state of a step that could never run.
+    ///
+    ///         Pins BOTH halves: the runbook order fails, and the reachable order
+    ///         (accept, THEN propose, THEN 48h, THEN execute) succeeds. The sibling
+    ///         test above pins the storage effect; this one pins the CALL that the
+    ///         runbook told an operator to make next.
+    function test_DeployM6_runbookOrder_executeGuardianChangeRevertsAfterAcceptance() public {
+        // ── Deploy-time state: guardian is the deployer EOA (`admin` here, which
+        //    setUp passes as all three constructor roles), pauseGuardian queued.
+        DummyMultisig pauseGuardian = new DummyMultisig();
+        DummyMultisig govSafe = new DummyMultisig();
+        // Read the key up front. Calling a getter between `vm.prank` and the call
+        // under test consumes the prank, and `executeGuardianChange` would then
+        // revert FORBIDDEN instead of the NoPendingProposal this test is about —
+        // a green-looking bare `expectRevert()` that proves nothing.
+        bytes32 guardianKey = factory.GUARDIAN_CHANGE();
+
+        vm.prank(admin);
+        factory.proposeGuardianChange(address(pauseGuardian));
+        vm.prank(admin);
+        factory.proposeFeeToSetter(address(govSafe));
+
+        // ── Runbook step 3: the Safe accepts feeToSetter after the 24h delay.
+        vm.warp(block.timestamp + factory.FEE_TO_SETTER_DELAY());
+        vm.prank(address(govSafe));
+        factory.acceptFeeToSetter();
+        assertEq(factory.feeToSetter(), address(govSafe), "step 3 should hand over the setter role");
+
+        // The acceptance took the queued rotation with it (F-30-10).
+        assertEq(factory.pendingGuardian(), address(0), "acceptFeeToSetter must clear pendingGuardian");
+        assertEq(factory.proposalExecuteAfter(guardianKey), 0, "GUARDIAN_CHANGE slot must be cleared");
+
+        // ── Runbook step 3b: this is the call the printed runbook said to make
+        //    next. Even from the correct caller, and even after the full 48h, there
+        //    is no longer anything to execute.
+        vm.warp(block.timestamp + factory.GUARDIAN_CHANGE_DELAY());
+        vm.prank(address(govSafe));
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, guardianKey));
+        factory.executeGuardianChange();
+
+        // And so the deployer EOA still holds emergencyDisablePair — the M6 gap.
+        assertEq(factory.guardian(), admin, "guardian must still be the deployer EOA after a failed step 3b");
+
+        // ── The reachable order: the NEW setter proposes for itself, waits the full
+        //    48h, and executes. Nothing force-cancels it, because nothing runs after.
+        vm.prank(address(govSafe));
+        factory.proposeGuardianChange(address(pauseGuardian));
+        vm.warp(block.timestamp + factory.GUARDIAN_CHANGE_DELAY());
+        vm.prank(address(govSafe));
+        factory.executeGuardianChange();
+
+        assertEq(factory.guardian(), address(pauseGuardian), "post-acceptance rotation must land");
+        assertEq(factory.pendingGuardian(), address(0));
+    }
+
     receive() external payable {}
 }
 
