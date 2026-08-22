@@ -54,13 +54,25 @@ public/service-role. The migration is safe exactly as written.
 browser-blocks Pro Pass collection creation, the write-proxy repoint, and the analytics endpoint.
 `VITE_*` variables are baked in at build time, so setting one without redeploying changes nothing.
 
-### 0.3 Name the Safe topology
-**What:** pick **8 keys** (2-of-3 Admin / 2-of-3 Treasury / 1-of-2 Guardian — recommended),
-or **3 keys** (Admin only, self-held on three separate hardware devices).
-**Why it's free and urgent:** every previous attempt stalled at "we need 15 signers and have 3."
-The 15 is the problem, not the recruiting. Naming a reachable number unblocks the longest
-dependency chain in the repo: signer recruitment → Safe deployment → 18 ownership transfers →
-the audits, the governance un-gates, and the lending deploy that all wait behind it.
+### 0.3 The Safe topology — ⏸️ OPERATOR HAS DEFERRED THIS. Do not re-raise it.
+
+**Instruction on the record, 2026-08-21: leave the Safe situation alone.** It is not an open
+question waiting on an answer, and no session should reopen it, propose topologies, or fold it
+into a plan as a blocker. Custody stays as it is until the operator says otherwise.
+
+The facts below are kept ONLY so nothing is lost if that changes. They are not an argument, and
+they are not a to-do:
+- Ownership currently rests on the deployer key; the ownership-migration chain (signer set → Safe
+  deployment → 18 `transferOwnership`/`acceptOwnership` → the audits and governance un-gates that
+  sit behind it) is therefore parked, by choice.
+- `0xA360` (owns NFTPoolFactory) and `0xCDCA` (pause guardian for four fund-touching contracts)
+  are both at nonce 0 — they have never assembled a signature.
+- Two of the three existing signers share one EIP-7702 delegate.
+
+**What is NOT covered by this deferral, because none of it involves a Safe:** the deployer keystore
+backup (0.4 — still the cheapest item on this page against the worst tail), and the
+`INCIDENT_RESPONSE.md` correction at the top of this document, which is about which *function* the
+guardian calls, not about who holds it.
 
 ### 0.4 Back up the deployer keystore + password, offline, two locations
 **Why:** `OwnableNoRenounce` disables renounce. Lose that one file before the ownership migration
