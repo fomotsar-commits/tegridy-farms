@@ -264,6 +264,38 @@ describe('the summary discloses its own suppressions', () => {
   });
 });
 
+describe('the workflow leaves the verdict to the gate', () => {
+  // Everything above tests the gate in isolation, which is how a correct gate
+  // spent four days reporting nothing: GitHub runs each `run:` block under
+  // `bash -e`, `set -uo pipefail` does not clear errexit, and `npm audit` exits
+  // non-zero whenever it finds anything. An unguarded invocation ends the step
+  // before the gate reads the report — red on every project that had an
+  // advisory, green only on the one that had none, and the allowlist never
+  // consulted either way.
+  const auditStepLine = () =>
+    readFileSync(WORKFLOW_PATH, 'utf-8')
+      .split('\n')
+      .find((l) => l.includes('npm audit --json'));
+
+  it('runs npm audit so its exit code cannot end the step', () => {
+    const line = auditStepLine();
+    expect(line, 'the workflow no longer runs `npm audit --json`').toBeTruthy();
+    expect(
+      line,
+      'npm audit is unguarded under bash -e: finding an advisory kills the step before the gate can weigh it',
+    ).toMatch(/\|\|/);
+  });
+
+  it('still treats a report that was never written as fatal', () => {
+    // The cost of relaxing errexit above: a failed audit now reaches the gate
+    // instead of stopping the job, so the emptiness check has to survive.
+    expect(
+      readFileSync(WORKFLOW_PATH, 'utf-8'),
+      'nothing fails the step when npm produces no report, so an outage reaches the gate as an empty file',
+    ).toContain('test -s audit.json');
+  });
+});
+
 describe('the committed allowlist', () => {
   it('exists and parses', () => {
     expect(existsSync(ALLOWLIST_PATH)).toBe(true);

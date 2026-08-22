@@ -73,12 +73,20 @@ jobs:
       # and for "could not reach the registry" alike, and the gate refuses a
       # report it cannot recognise rather than reading a network failure as a
       # clean audit.
+      #
+      # `|| status=$?` is load-bearing, not style. GitHub runs every `run:` block
+      # under `bash -e`, and `set -uo pipefail` does not clear errexit — so an
+      # unguarded `npm audit` ends the step the instant it finds anything, the
+      # gate never reads the report, and the job goes red for the one condition
+      # the gate exists to tell apart from a real failure. Only a missing or
+      # empty report is fatal here; every other verdict belongs to the gate.
       - name: npm audit
         working-directory: ${{ matrix.project }}
         run: |
           set -uo pipefail
-          npm audit --json > audit.json
-          echo "npm audit exit: $?"
+          status=0
+          npm audit --json > audit.json || status=$?
+          echo "npm audit exit: $status"
           test -s audit.json || { echo "::error::npm audit produced no output at all"; exit 1; }
 
       - name: Enforce the advisory gate
