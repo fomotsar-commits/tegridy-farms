@@ -407,16 +407,89 @@ have run at all. What is left on trunk:
 | `E2E Tests` / `E2E Tests (Anvil fork)` | 🔴 **still red** | Unchanged. The `reducedMotion` finding below is still the first thing to check. |
 | `Lint, Type Check & Test` | ✅ green | Went red for ~15 minutes today on my own `no-fallthrough` mistake (`a0c83c42`); see the note at the end of item 8. |
 
-Original entry, kept because the E2E diagnosis is still current:
-
 The failures are not the problem. A permanently-red trunk is: once red is the normal state, the
-next real regression is indistinguishable from the noise. This repo has already shipped **two**
-gates that could not fail — a `tsc --noEmit` over zero files, and a chain read behind a flag nothing
-passed — so that is a demonstrated failure mode here, not a worry.
+next real regression is indistinguishable from the noise. This repo has already shipped **three**
+gates that could not fail — a `tsc --noEmit` over zero files, a chain read behind a flag nothing
+passed, and a CI check satisfied by a two-second echo — so that is a demonstrated failure mode here,
+not a worry.
 
-The money-path job already has a diagnosis worth not re-deriving: it is **order-dependent, not
-unseeded.** Seeding landed and did not fix it. Start by running the suite with a single worker and
-a fixed order, and bisect the pair that collides — do not add more seeding.
+## 1a. The Anvil money-path job — DIAGNOSED 2026-08-22. The old diagnosis was wrong.
+
+**Everything this entry used to say has been disproven by measurement. Do not act on it.**
+It said *"order-dependent, not unseeded — seeding landed and did not fix it; bisect the pair that
+collides, do not add more seeding."* The truth is close to the opposite: **more seeding is exactly
+what is needed**, and there is no collision.
+
+**Anvil is healthy. This is NOT an operator item and the RPC needs nothing.** Positive proof, not
+absence of errors:
+- `[e2e] fork ready at block 25813292` prints only after the harness POSTs `eth_blockNumber` and
+  rejects any head below 1,000,000 (`run-e2e-with-anvil.mjs:162-181`) — the guard exists precisely
+  because "anvil listens before the fork handshake completes".
+- **`swap.spec.ts:72 execute ETH → TOWELI swap and confirm receipt (Anvil only)` PASSES in 1.6s.**
+  That is a full write path — `anvil_setBalance`, impersonate, `eth_sendTransaction`, receipt, and a
+  matched `/tx/0x[0-9a-f]{64}` link. A dead or rate-limited fork cannot produce it.
+- `ANVIL_FORK_URL` is `https://ethereum-rpc.publicnode.com`, hardcoded at `ci.yml:400`. **No secret
+  is involved**, and `ANVIL_FORK_BLOCK` is unset, so there is no stale block pin. Both of the usual
+  suspects are ruled out by construction.
+
+**The ~21-second clustering is not a shared hang.** It is a literal `{ timeout: 20_000 }`
+copy-pasted into the first blocking assertion of each spec (`claim-rewards:64`, `lending:75`,
+`liquidity:79`, `stake:88`). 20s assertion + ~1-2s page load = the observed 20.3 / 21.5 / 22.4s.
+
+**The `reducedMotion` hypothesis is also disproven** — it is correctly under `contextOptions` now,
+and independently the fixture pre-seeds `sessionStorage.tf_loaded` to skip the splash
+(`wallet.ts:167-171`). **16 of 20 tests finish in 0.9–2.7s.** A 15-19s prologue cannot fit inside a
+962 ms test.
+
+**What is actually wrong: the fixture seeds two things, and these four tests need more.**
+`e2e/fixtures/wallet.ts` seeds native ETH (`anvil_setBalance`, :464) and one ERC-20 balance
+(`seedErc20Balance`, :474). Swap needs only those two — and swap is the one money path that passes.
+**The four failing specs say what they need, verbatim, in their own assertion messages:**
+
+| Spec | What its own error says is missing |
+|---|---|
+| `claim-rewards.spec.ts:64` | "no accrued rewards on the fork — pre-fund reward storage in the fixture" |
+| `lending.spec.ts:75` | "no borrowable offer on the fork — the fixture must mint a collateral NFT to the test account and create a lender offer" |
+| `liquidity.spec.ts:79` | "supply CTA never enabled … check the seeded TOWELI balance" — one side is seeded, an add needs both |
+| `stake.spec.ts:90` | got PAST the CTA, clicked, submitted a tx, then died waiting for the receipt. **First cold write to the fork.** Retry #1 hit the warm cache: 3.6 s |
+
+▶ **HOW TO FINISH IT.** Extend `e2e/fixtures/wallet.ts` beside the existing seed calls (~:463-474),
+reusing the self-verifying probe pattern `seedErc20Balance` already establishes — write, read back
+through the contract's own getter, keep the slot only if the getter agrees, throw loudly otherwise:
+1. **claim-rewards** — seed a staked LP position, then `evm_increaseTime` + `evm_mine` so the farm's
+   own `pendingRewards` getter returns non-zero. **Warp, do not write the accumulator directly** —
+   warping exercises the real accrual maths instead of forging its output.
+2. **lending** — cannot be seeded by storage pokes. `anvil_impersonateAccount` an existing NFT holder
+   on the fork, transfer a collateral NFT to `DEFAULT_ACCOUNT`, then impersonate a lender and create
+   the offer **through the protocol's real entrypoint**.
+3. **liquidity** — seed the ETH-paired side too, not just TOWELI.
+4. **stake** — likely already fixed by `50ee7a92` (below). Re-run before touching it. If attempt 1
+   now passes, the cold-cache read was the whole story, and that is a finding, not a fix.
+
+✅ **Landed 2026-08-22 (`50ee7a92`), and it is a prerequisite for all four:** `playwright.config.ts`
+declared no `timeout`, so the default 30_000 exactly equalled `expectTxReceipt`'s own
+`toBeVisible({ timeout: 30_000 })` (`wallet.ts:76`). Two equal budgets race, the test-level one
+wins, and **the assertion could never print its own reason** — every receipt failure has been
+reporting the generic "Test timeout of 30000ms exceeded". Now 60_000. No assertion's budget moved.
+Also corrected `liquidity.spec.ts`, whose comment claimed "the fork precondition is handled now"
+while its own test proved otherwise.
+
+⛔ **DO NOT** fix any of these by loosening the assertion, widening a per-assertion timeout, or
+adding a retry. Each assertion is correct and is telling the truth. The fixture is what is missing.
+
+## 1b. The chromium heat-door failures — NOT yet diagnosed
+
+`E2E Tests` fails on a heat "door" surface: `element(s) not found` for `door.getByText('WARM')` and
+the degree strings `41.20°` / `195.54° — Builder`, plus `locator.click` timeouts on an
+`aria-expanded` toggle. **"element(s) not found" for text a fixture is supposed to render is a
+data/route problem, not a race.**
+
+▶ The diagnostic agents assigned to this were killed by a session limit before reporting, so this is
+genuinely open. Start here: `grep` for `195.54` and `41.20` under `frontend/e2e/` to find the owning
+spec, then read its route fixtures. The candidate worth checking first, because this repo does it
+deliberately: **the door component self-gates to "unavailable" when the oracle payload fails its
+schema** — so a fixture that has drifted out of schema renders *nothing* rather than wrong numbers,
+and "element not found" is the honesty gate working correctly against a stale fixture.
 
 **2. ✅ The five non-Dependabot PRs are decided AND resolved — nothing is left open.** Every verdict re-derived against trunk rather
 than taken from the PR's own claims.
@@ -548,23 +621,67 @@ cannot regress, and its header records what was measured and why the old reasoni
 `all-checks-pass` **SUCCESS** via their out-of-scope step. Under the old arrangement that PR would
 have carried two `Static analysis` runs and two `all-tests-pass` runs.
 
-**Still open — the 362 findings.** The latest trunk run analysed 250 contracts with 88 detectors
-and found 362 results, which fails `fail-on: medium`. This is a real triage job and not a
-mechanical fix:
+**Still open — but much smaller than 362, and now measured.**
 
-▶ **Do NOT lower `fail-on` or add `continue-on-error`.** The workflow's own comment already argues
-this and it is right: a gate lowered until it stops objecting still reports, and now reports
-nothing.
-▶ **Start by confirming the curated config actually loaded.** `contracts/slither.config.json` has 12
-documented false-positive exclusions (`timestamp` and `dead-code` are the chronic noise), and the
-workflow comment records that it was *never* being loaded before — slither auto-loads from the CWD,
-which is the repo root, not `target:`. 88 detectors running suggests the exclusions are not biting;
-check whether the curated config is in play before triaging a single finding.
-▶ **Then triage by detector, not by finding.** Download the `slither-report` artifact the job
-already uploads and group by detector — 362 results across 88 detectors is a handful of noisy
-detectors, not 362 distinct issues.
-▶ Anything genuinely a false positive gets `// slither-disable-next-line <detector>` **and a
-reason** on the specific line, never a config-wide mute.
+**Only 48 of the 362 findings gate anything.** `fail-on: medium` ignores Low and Informational, and
+the split is **5 High / 43 Medium / 200 Low / 114 Informational**. The 48 sit in 16 files:
+
+- **5 High**, all reentrancy, in exactly **two** files — `TegridyFeeExecutorRouter.sol` (3) and
+  `vaults/TegridyHarvestVault.sol` (2).
+- **43 Medium**, dominated by two FP-prone detectors: `incorrect-equality` (21) and
+  `uninitialized-local` (13), plus `unused-return` (6), `divide-before-multiply` (2),
+  `reentrancy-no-eth` (1).
+
+✅ **The config question is SETTLED — do not spend time on it.** The TODO previously said to check
+whether `contracts/slither.config.json` loads. **It loads and it works.** Proof from the report
+itself: **zero** of its 12 excluded detectors (`timestamp`, `dead-code`, `naming-convention`, …)
+produced a single finding, and detectors that are *not* on its promoted list (`costly-loop`,
+`cyclomatic-complexity`, `missing-inheritance`, `return-bomb`, `unused-state`) *did* fire. That
+second half also disproves the feared failure mode recorded in the config's own comment — the
+promoted `detectors_to_include` list has **not** gutted the detector set. 20 detectors produced the
+362 findings.
+
+⚠️ **A stale claim to fix while you are in there:** `contracts/slither.config.json`'s `_scope` note
+lists 15 in-scope contracts and says 12 others "have been moved off this branch". **Every file
+producing findings today appears on neither list** (TegridyFeeExecutorRouter, TegridyHarvestVault,
+StreamingRevenueDistributor, NftfiBnpl, TegridyFeeLocker, TegridyPositionMarket, LaunchRugEscrow,
+AirdropFactory, VestingFactory…). `_scope` is a **comment and enforces nothing** — `filter_paths`
+only drops `lib/ node_modules/ test/ script/ out/ cache/ broadcast/`. The note is badly stale and
+its FP rationale ("verified across RevenueDistributor / ReferralSplitter / POLAccumulator /
+TegridyStaking / TegridyRestaking / TegridyTWAP, 2026-05-31") covers almost none of the files that
+actually fire. Rewrite or delete it; do not inherit its conclusions.
+
+🔶 **A first triage pass exists, and you must NOT act on it as-is.** Five agents triaged all 48
+against the Solidity on 2026-08-22 and returned **54 FALSE_POSITIVE, 2 REAL_BUT_ACCEPTED, 0
+REAL_BUG**. The reasoning is detailed and cites line numbers — e.g. the fee-router HIGHs are argued
+down on three checked facts: every state-mutating entrypoint carries `nonReentrant` under **one
+shared OZ v5.5.0 slot** (so cross-function re-entry is impossible, not just same-function); the
+caller-supplied `target` must be on a 48 h-timelocked allowlist that excludes WETH / distributor /
+treasury / POL; and slither names `amountOut` as "stale" when it is read *after* the call, with
+`outBefore` as a deliberate pre-call baseline — **the detector flagged the defence as the bug.**
+
+**But the adversarial refutation pass never ran** — all three refute agents plus the config auditor
+were killed by a session limit. **A triage that clears 54 of 56 with zero real bugs and no
+independent check is exactly the shape this repo keeps shipping**, and `FALSE_POSITIVE` is the
+verdict that makes work disappear. The verdict count also exceeds the finding count (56 vs 48)
+because the groups overlapped, which is a second reason it is not final.
+
+▶ **NEXT STEP, and it is one command:** re-run the refutation phase. The workflow is saved and its
+completed agents replay from cache, so only the failed ones cost anything:
+`Workflow({scriptPath: '…/workflows/scripts/slither-48-triage-wf_8b438261-0c5.js', resumeFromRunId: 'wf_8b438261-0c5'})`
+▶ **Then, and only then**, apply per-line `// slither-disable-next-line <detector>` with a reason at
+each site — the convention the codebase already uses (`TegridyFeeExecutorRouter.sol:341`). The two
+REAL_BUT_ACCEPTED findings (`TegridyHarvestVault.sol:364` and `:386`, raw donatable `balanceOf`
+reads in a strict equality) get a reason comment too, and a human eye before deploy.
+▶ ⛔ **Never** add `reentrancy-balance` or `incorrect-equality` to `detectors_to_exclude`. A global
+mute would silence the harvest-vault HIGHs along with the router ones — different file, different
+argument. Per-line, per-reason, or not at all.
+▶ ⛔ **Do NOT lower `fail-on` or add `continue-on-error`.** The workflow's own comment argues this
+and is right: a gate lowered until it stops objecting still reports, and now reports nothing.
+
+*Standing context that lowers the stakes and should not lower the care:* **none of these contracts
+is deployed.** Nothing here is live risk today; the value is catching a real bug at the cheapest
+possible moment, which is before the deploy ceremony.
 
 *One process note, recorded because it cost trunk 15 minutes of red:* I verified `b0484908` with
 `tsc -b` and `vitest` and **did not run `npm run lint`**, which is the other third of the
@@ -619,3 +736,118 @@ leaves the metadata behind. This is safe, boring, and worth doing before the cou
 
 **When you finish any Tier 0 or Tier 1 item, tell me and I will wire what it unlocks the same
 hour.** Most of the remaining code work is one env var away from being reachable.
+
+---
+
+# 🧭 START HERE — everything left, in the order it should happen
+
+Written 2026-08-22 at the close of the session that landed the eleven commits listed under "Closed
+2026-08-22 (late session)". This section is the single entry point; the tiers above are the detail.
+
+**Read this rule first, because it is the one the repo keeps re-learning.** Three gates have shipped
+here that could not fail: a `tsc --noEmit` over zero files, a chain read behind a flag nothing
+passed, and a CI check satisfied by a two-second echo. Every one of them was *green*. So the
+question to ask of any check is never "is it passing" but **"could it fail if the thing it guards
+broke?"** Two of the three were found by someone reading *why* something unrelated was red.
+
+## The dependency spine — what actually blocks what
+
+```
+  Safe re-home ─────────────► contract deploys ────► lending / gauges / community un-gate
+   (Tier 0.1 §0.3, 7 [op])          (Tier 2.2)              (~2,500 lines of finished UI)
+
+  Login change-set ─────────► social layer + push + profiles
+   (4 items, strict order)
+
+  DBC config v2 ────────────► first public Solana launch ────► fee-claim ceremony
+   (1 [op] session)
+
+  Indexer hosted ($5-20/mo) ► Leaderboard/History/TVL ────► fact sheets, afterlife, Dune
+   (1 [op] decision)              (client already written)
+
+  trunk green ──────────────► everything is cheaper, nothing is blocked by it
+```
+
+Only the **first** box in each row is blocked on you. Everything to the right of it is written and
+dark. That is the whole shape of this project right now: **over-built and under-lit.**
+
+## Order of operations
+
+### ① Finish getting trunk green — the only thing an agent can complete alone
+
+| # | What | Where | Who |
+|---|---|---|---|
+| 1 | Seed the four Anvil money-path preconditions | item **1a** — has the per-spec recipe | agent |
+| 2 | Diagnose the chromium heat-door failures | item **1b** — start with the schema self-gate | agent |
+| 3 | Re-run the Slither refutation pass, then apply per-line suppressions | item **8** — one command | agent |
+| 4 | Merge the 14 rebased Dependabot PRs once ① lands | item **3** | agent |
+
+**Do ① before anything else**, and not because the failures are dangerous — they are not, nothing
+here is deployed. Do it because a permanently-red trunk means the next real regression is
+indistinguishable from the noise, and this repo has already proven it cannot tell the difference.
+
+### ② The operator critical path — nothing to the right of it moves until you act
+
+Ordered by *what unblocks the most*, not by effort.
+
+1. **Safe re-home** (Tier 0.1 + §0.3, 7 items). Every contract deploy waits on it.
+   ⚠️ Per your standing instruction the Safe topology decision itself stays untouched by agents —
+   §0.3 records that deferral and nothing in this document reopens it. The keystore backup and the
+   `guardianPause()` correction are explicitly *outside* the deferral and are still worth doing.
+2. **Login change-set** (4 items, Tier 0.1). **Strict order, single session** — the order is a
+   correctness requirement, not a preference: `015 §1 DROPs → 014 whole → verify 42501 on all four
+   tables + nonce 200 → 016 → prune_revoked_jwts → 013 + VITE_ANALYTICS_ENDPOINT → redeploy`.
+   ⛔ Never run 008 after 014. Never run 004 as a unit. Wakes the entire social layer.
+3. **Mint DBC config v2** (Tier 1.3). One session. v1's **99 % opening fee is disqualifying** — the
+   Solana rail cannot take a public launch until this is replaced. Print without `--send`, read the
+   fee split, then sign.
+4. **Host the indexer** ($5-20/month, Tier 1.1). The GraphQL client is already written and merged
+   (`088ed89e`). This one payment lights Leaderboard, History, per-pool volume/TVL, the treasury
+   feed and the timelock queue.
+5. **`MEMETICS_BIRTH_SECRET`** in Vercel prod (Tier 1.2). Production answers `503 no_secret` today.
+6. **Vercel env session + redeploy** (Tier 0.2). Cheapest unlock per minute in the document.
+
+### ③ Clocks — these run whether or not you act
+
+| When | What | Days left as of 2026-08-22 |
+|---|---|---|
+| **~2026-10-11** | Staking reserve runway ends → claims silently pay **partial with IOUs** | **~50** |
+| ~Aug 2027 | `memetics.finance` renewal | ~345 |
+| Standing | `TegridyStaking` has **22 bytes** of EIP-170 headroom, `VoteIncentives` **99** | — |
+
+The October date is the only one that can hurt you soon, and its failure mode is the quiet kind:
+not a revert, a partial payment with an IOU. Decide **top-up or rate cut** well before it.
+
+## The plan documents, and which to open when
+
+| Document | What it is | When to open it |
+|---|---|---|
+| **`TODO_OPERATOR.md`** (this file) | The operative runbook — what to do next, in order | Always start here |
+| `YEAR_PLAN_2026_2027.md` | The 12-month checklist. **105 unticked: 44 `[code]`, 44 `[op]`, 4 `[ext]`, 1 `[island]`** | Quarterly planning |
+| `BATTLE_PLAN.md` | 9 foundation tracks, 8 waves, per-item build instructions | When you are about to build one of them |
+| `TOP_100_BUILDS.md` | Revenue-ranked backlog with comparables | Choosing what is worth building at all |
+| `WHAT_I_NEED_FROM_YOU.md` | The operator asks, with §0.3 recording the Safe deferral | Before a signing session |
+
+⚠️ **A convention that matters:** in `YEAR_PLAN`, a ticked box means **merged and tested — NOT
+deployed, NOT switched on.** `BATTLE_PLAN` uses the stricter pair (`✅ shipped` vs `🟡 in the tree`).
+A box ticked on a half-done item is a lie the next session inherits.
+
+## What did NOT get finished, stated plainly
+
+An audit of all 44 unticked `[code]` items against the tree was launched and **every agent in it was
+killed by a session limit before reporting** — zero results. So the `[code]` half of `YEAR_PLAN` has
+**not** been reconciled against the tree since 2026-08-19, and several lines are known to be stale:
+
+- **Line 65** ("Close PR #278") — **done 2026-08-22**. Tick it.
+- **Line 71** ("companion workflow for path-filtered checks") — **the prescription is now wrong.**
+  The four companions were deleted and replaced by a `scope` job; re-writing a companion would
+  reintroduce the defect. Only the `[op]` arming half survives. Rewrite the line.
+- **Line 75** (honesty-debt sweep) — the Solana half is done across 8 files (`514942c5`). The rest
+  of the line (addresses.json, README pool figures, PWA manifest, "Last reviewed" dates) is
+  **unverified** — nobody checked it.
+
+▶ **Re-run the audit when limits reset.** It is saved and its completed agents replay from cache:
+`Workflow({scriptPath: '…/workflows/scripts/year-plan-code-audit-wf_f5bcdad2-7b2.js', resumeFromRunId: 'wf_f5bcdad2-7b2'})`
+
+**Do not tick anything in `YEAR_PLAN` on the strength of this section.** It reports what one session
+observed, and the reconciliation it was supposed to rest on did not run.
