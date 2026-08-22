@@ -1,22 +1,56 @@
 # The remaining work — everything left, and exactly how to do it
 
-**Written 2026-08-21.** This is the single canonical to-do list. Everything that could be built
-without you has been built, tested, and pushed. What follows needs a key, a credential, a payment,
-a signature, or a decision — plus a short tail of code work that is blocked on one of those.
+**Written 2026-08-21. Revised 2026-08-22.** This is the single canonical to-do list. Everything that
+could be built without you has been built, tested, and pushed. What follows needs a key, a
+credential, a payment, a signature, or a decision — plus a short tail of code work that is blocked
+on one of those.
+
+**What changed in the 2026-08-22 revision:** an active address-poisoning warning (read it before you
+paste any Solana address); §0.4, the 8.47 SOL released by the program closes and still unreconciled;
+Decision 1, whether the Solana own venue restarts at all now that both program ids are permanently
+spent; and a red-CI entry that is mine to fix. Four things closed out at the bottom.
 
 **How to read this.** Items are ordered by *unlock per minute you spend*, not by size. Each has
 what to run, what you should see, and what a mismatch means. If a "you should see" does not match,
 stop and say so — a surprise is information.
 
-**Three standing rules.**
+**Four standing rules.**
 1. Claude never types a secret into a field. Where a step involves a key, you set it. Never paste a
    secret into a chat, including to me.
 2. Claude never changes security settings on live infrastructure and never signs anything that
    moves value.
 3. ⏸️ **The Safe / custody situation is deferred by your instruction.** It is not on this list, it
    is not a blocker, and no session should reopen it. Facts preserved in
-   [`WHAT_I_NEED_FROM_YOU.md`](WHAT_I_NEED_FROM_YOU.md) §0.3. The same call is assumed for the
-   Squads 2-of-2 unless you say otherwise.
+   [`WHAT_I_NEED_FROM_YOU.md`](WHAT_I_NEED_FROM_YOU.md) §0.3.
+   *Update 2026-08-22:* the **Squads 2-of-2 is no longer an unknown** — it executed both program
+   closes on 2026-08-13, so both member keys are real and usable. That removes the standing risk
+   that 8.4 SOL and two programs were locked behind a threshold nobody could reach.
+4. 🎣 **Never copy a Solana address out of wallet history or an explorer activity feed.** See the
+   poisoning warning immediately below. Take addresses from `frontend/scripts/addresses.json`.
+
+---
+
+# 🎣 READ THIS BEFORE YOU PASTE ANY SOLANA ADDRESS
+
+You are being **address-poisoned**, currently and specifically.
+
+```
+Dcj1fGKYXCCyNsovXYtbyoKfDkUb8Hzty3gkoYVYADZ7   <- theirs
+Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7   <- the real deploy authority
+```
+
+`Dcj1` versus `Dcji` — a digit one where the letter i belongs. Both are legal base58 and they are
+indistinguishable at a glance in a wallet's transaction list. That address sent 1000-lamport dust to
+an operator wallet **59 seconds after** a 3.4566 SOL deposit landed there, and again on a separate
+day. A second sprayer, `5GHWLcQBAc9vMeZprtVFtqrzstX8SG3oTscNrfsbAdfV`, blasts 1-lamport dust at many
+wallets at once.
+
+The dust exists for one reason: to sit in your history looking like an address you already use, so
+that a later copy-paste goes to them. It costs them nothing and it only has to work once.
+
+**The rule:** addresses come from `addresses.json`, and `node frontend/scripts/verify-addresses.mjs
+--onchain` decodes them. Never from history, never from a screenshot, never from a chat message —
+including mine. Compare character-for-character against the registry before any transfer.
 
 ---
 
@@ -123,6 +157,33 @@ Then run `013_analytics_events.sql` and redeploy once more so both halves land.
 `OwnableNoRenounce` disables renounce and rejects transferring to the zero address. Lose that one
 file and **18 mainnet contracts become permanently unownable.** Cheapest item on this page against
 the worst tail on it.
+
+**Same trip, same drawer:** `mainnet-deploy-authority.json`. It has **no seed phrase** — generated
+`--no-bip39-passphrase --silent`, so the keyfile *is* the backup, and it is the key any Solana
+restart deploys from. Verified 2026-08-22: the keys directory is gitignored, no keypair JSON has
+ever been committed, and `README-IDENTITIES.md` beside it holds only public pubkeys — no mnemonic,
+no secret-key blob. That hygiene is good; it is also why losing the file is unrecoverable.
+
+## 0.4 Account for the 8.47 SOL released by the program closes
+
+**Time:** ~2 minutes, and it is the only unreconciled money on this page.
+
+Closing both Solana programs on 2026-08-13 released **8.467160160 SOL** of ProgramData rent
+(4.886289 from cp-swap, 3.580871 from tegridy-launch). The registry records it as *"not recovered to
+any address this registry knows"* — the close instruction names a recipient, and whichever address
+you gave it is not in `addresses.json`.
+
+This is bookkeeping, not a search: you know where you sent it. Tell me the recipient and I will
+either register it with a role and custody, or record deliberately that it left to a personal wallet
+that does not belong in a public registry — **do not put a personal trading wallet in
+`addresses.json`.** Either answer closes it; silence leaves the largest single number in the Solana
+column pointing nowhere.
+
+While you are looking: `swap-fee-account` `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER` holds
+0.006477 SOL plus two ATAs (~0.004 more), and **its key is not on this machine.** I scanned
+`.solana-operator`, `tegridy-ops\solana` and `.config\solana` and derived the pubkey of every
+keypair file in them; none matches. Either it is somewhere else, or ~0.010 SOL is written off.
+Worth one sentence so the registry stops implying it is spendable.
 
 ---
 
@@ -263,7 +324,32 @@ construction: its credential can bind a chat and can *never* attach a wallet).
 
 # Decisions I need one sentence on
 
-1. **The PWA app name.** The manifest description is corrected but the *name* is untouched — the
+1. ⭐ **Does the Solana own venue restart at all?** This is the biggest open question on the page
+   and nothing downstream of it can be planned until you answer.
+
+   Both programs were closed on 2026-08-13 and **their program ids are spent** — Solana will not
+   redeploy a closed id, so `CpFnacr…zED` and `3ZvZXEBr…PM9y` are gone permanently, along with every
+   PDA derived from them. The `global` config PDA still sits on chain holding 0.005923 SOL, orphaned
+   and unreachable: its owning program no longer exists.
+
+   Graduation never worked while they were live — `AmmNotConfigured` (6015) was never cleared,
+   because `admin::ID` had been set to the Squads *multisig account*, which can neither sign nor
+   pay. That was diagnosed and fixed in source (trunk now points it at a system-owned, fundable
+   address) but the fix was never deployed, and now cannot be: [#282](https://github.com/fomotsar-commits/tegridy-farms/pull/282)
+   is closed for exactly that reason.
+
+   **A restart costs roughly what the first one did:** two fresh program keypairs, new `declare_id!`
+   values, ~8.4 SOL of rent, and a re-derivation of every PDA the fork owns. The deploy authority is
+   currently empty, so it needs funding first. Before spending any of it, run
+   `node scripts/verify-program-constants.mjs --so <artifact> --program cp-swap` against the built
+   binary — that check exists because getting `admin::ID` wrong once already cost the whole
+   deployment.
+
+   Three honest options: **restart** (fund it and I will rewrite the runbook around new ids),
+   **stay on Meteora DBC** (then §1.3's config v2 is the whole Solana story and is much cheaper), or
+   **park Solana** (then §3.2's audit RFQ and §3.3's packet come off the critical path). Say which.
+
+2. **The PWA app name.** The manifest description is corrected but the *name* is untouched — the
    app is "Tegridy Farms" at memetic.fun with a Tradermigos marketplace inside it, and installing
    from the marketplace produces an app named after the venue. Renaming an installed app out from
    under someone is not a call to make by inference.
@@ -288,6 +374,16 @@ chain on every re-index, which would have destroyed every manifest).
 
 # What is running or waiting on me
 
+- 🔴 **CI has been RED on `mvp-launch` for days, and that is now the most dangerous thing in the
+  repo.** Both E2E jobs — *E2E Tests* and *E2E Tests (Anvil fork — money paths)* — fail on trunk at
+  `98d175a3`, `e1251c42` and `b4200931`, and two npm-advisory jobs fail alongside them. Nothing in
+  #280 touched them; I confirmed the same jobs fail on trunk before merging.
+
+  The problem is not the failures, it is what a permanently-red trunk does to every check around
+  it: once "CI is red" is the normal state, the next real regression looks exactly like the noise
+  and gets merged past. This repo has now twice shipped a gate that could not fail — a vacuous
+  typecheck, and a chain read behind a flag nobody passed — so it is not a hypothetical failure
+  mode here. Triaging these is my next task, ahead of the type errors below.
 - Clearing the **53 orphaned type errors** and wiring `tsconfig.test.json` into the build, so test
   files are actually typechecked. Includes two production errors nothing has ever seen:
   `irysClient.ts` disagreeing with itself about the ambient `Window` type across two projects, and a
@@ -295,6 +391,23 @@ chain on every re-index, which would have destroyed every manifest).
   nothing.
 - Then: extending the typecheck guard so it asserts the check **covers** something, not just that
   the command looks right — the gap that let a vacuous gate slip past twice.
+
+**Closed since the last revision (2026-08-22), so nobody re-opens them:**
+
+- **Registry chain read hardened** — [#280](https://github.com/fomotsar-commits/tegridy-farms/pull/280)
+  (`cbc60f15`). Batched to two requests for 58 addresses; three outcomes instead of two, so a
+  rate-limited endpoint skips and is counted rather than failing the build; `registry-onchain.yml`
+  now fails a **total** skip, closing the "green means nothing was checked" hole one level below its
+  existing grep. New **check 5b** covers Solana literals in `launcher/solana/curve/program.ts`,
+  which `constants.ts` — being EVM-only — never saw.
+  ⚠️ On a real GitHub runner the public endpoints answered all 58 with **0 NOT CHECKED**, so do
+  **not** buy keyed RPC endpoints on spec. Watch the `NOT CHECKED` count and act only if it moves.
+- **Keyfile hygiene verified** — keys directory gitignored, no keypair JSON ever committed, and the
+  identities readme holds no secret material. See §0.3.
+- **Squads 2-of-2 proven usable** — it executed both program closes. See standing rule 3.
+- **A self-inflicted trap fixed** — `base58Decode` returned **33 bytes** for an all-zero key, so the
+  System Program would have been rejected as "NOT A SOLANA ADDRESS": the exact verdict that function
+  exists to reserve for a fabricated key. Found by a self-test case, not by a registry entry.
 
 **When you finish any Tier 0 or Tier 1 item, tell me and I will wire what it unlocks the same
 hour.** Most of the remaining code work is one env var away from being reachable.
