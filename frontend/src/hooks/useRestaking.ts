@@ -41,7 +41,7 @@ export function useRestaking() {
   const hasStakingPosition = userTokenId > 0n;
 
   const restakerData = data?.[1]?.status === 'success'
-    ? (data[1].result as readonly [bigint, bigint, bigint, bigint, bigint])
+    ? (data[1].result as readonly [bigint, bigint, bigint, bigint, bigint, bigint])
     : undefined;
   const isRestaked = restakerData ? restakerData[0] > 0n : false; // tokenId > 0
   const restakedAmount = restakerData ? restakerData[1] : 0n;
