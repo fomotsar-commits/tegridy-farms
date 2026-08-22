@@ -8,7 +8,14 @@ on one of those.
 **What changed in the 2026-08-22 revision:** an active address-poisoning warning (read it before you
 paste any Solana address); §0.4, the 8.47 SOL released by the program closes and still unreconciled;
 Decision 1, whether the Solana own venue restarts at all now that both program ids are permanently
-spent; and a red-CI entry that is mine to fix. Four things closed out at the bottom.
+spent; and **"What is running or waiting on me" expanded from three bullets to the real ordered
+queue**, with every count re-verified against the tree rather than carried forward. Five things
+closed out at the bottom.
+
+**Scope note.** This file is the *curated* list: what unlocks the most, in the order worth doing it.
+The exhaustive inventory is [`EVERYTHING_LEFT_2026_08_15.md`](EVERYTHING_LEFT_2026_08_15.md) — 211
+items, last reconciled 2026-08-19. Where the two disagree, this file is newer; where this file is
+silent, that one is not empty.
 
 **How to read this.** Items are ordered by *unlock per minute you spend*, not by size. Each has
 what to run, what you should see, and what a mismatch means. If a "you should see" does not match,
@@ -374,23 +381,56 @@ chain on every re-index, which would have destroyed every manifest).
 
 # What is running or waiting on me
 
-- 🔴 **CI has been RED on `mvp-launch` for days, and that is now the most dangerous thing in the
-  repo.** Both E2E jobs — *E2E Tests* and *E2E Tests (Anvil fork — money paths)* — fail on trunk at
-  `98d175a3`, `e1251c42` and `b4200931`, and two npm-advisory jobs fail alongside them. Nothing in
-  #280 touched them; I confirmed the same jobs fail on trunk before merging.
+Ordered. Counts re-verified 2026-08-22 against the tree, not carried forward from the sweep — the
+long tail lives in [`EVERYTHING_LEFT_2026_08_15.md`](EVERYTHING_LEFT_2026_08_15.md) §"87 items",
+which is still broadly right but predates three merges.
 
-  The problem is not the failures, it is what a permanently-red trunk does to every check around
-  it: once "CI is red" is the normal state, the next real regression looks exactly like the noise
-  and gets merged past. This repo has now twice shipped a gate that could not fail — a vacuous
-  typecheck, and a chain read behind a flag nobody passed — so it is not a hypothetical failure
-  mode here. Triaging these is my next task, ahead of the type errors below.
-- Clearing the **53 orphaned type errors** and wiring `tsconfig.test.json` into the build, so test
-  files are actually typechecked. Includes two production errors nothing has ever seen:
-  `irysClient.ts` disagreeing with itself about the ambient `Window` type across two projects, and a
-  `playwright.config.ts` line where `reducedMotion` is not a valid key and has been silently doing
-  nothing.
-- Then: extending the typecheck guard so it asserts the check **covers** something, not just that
-  the command looks right — the gap that let a vacuous gate slip past twice.
+**1. 🔴 Get trunk green. Everything else is worth less until this is done.**
+
+Both E2E jobs fail on `mvp-launch` — at `98d175a3`, `e1251c42`, `b4200931` and still today — plus
+`advisories — frontend` and `advisories — indexer`. Nothing in #280 or #305 touched them; I checked
+against trunk before merging both.
+
+The failures are not the problem. A permanently-red trunk is: once red is the normal state, the
+next real regression is indistinguishable from the noise. This repo has already shipped **two**
+gates that could not fail — a `tsc --noEmit` over zero files, and a chain read behind a flag nothing
+passed — so that is a demonstrated failure mode here, not a worry.
+
+The money-path job already has a diagnosis worth not re-deriving: it is **order-dependent, not
+unseeded.** Seeding landed and did not fix it. Start by running the suite with a single worker and
+a fixed order, and bisect the pair that collides — do not add more seeding.
+
+**2. Decide the five non-Dependabot PRs.** They are the reviewed work sitting closest to done:
+`#306` selector-guard ABI registration · `#304` restaking ABI alignment · `#278` Heat launch gate ·
+`#265` Solana metadata-URI check · `#205` foundry 1.3.1 → 1.9.1. Each is either merge, close, or a
+named reason to keep waiting — an open PR with no verdict is the same debt as a red check.
+
+**3. Sweep the 15 Dependabot PRs.** Hold `#296` (framer-motion 12 → **13**, a major). The rest are
+minor/patch and grouped.
+
+**4. The 53 orphaned type errors,** then wire `tsconfig.test.json` into the build so test files are
+actually typechecked. Two are production bugs nothing has ever seen: `irysClient.ts` disagreeing
+with itself about the ambient `Window` type across two projects, and a `playwright.config.ts` line
+where `reducedMotion` is not a valid key and has silently been doing nothing.
+
+**5. Then the guard that would have caught it** — extend the typecheck gate so it asserts the check
+**covered** something rather than that the command looked right. Same shape as the zero-count guards
+now in `verify-addresses.mjs`: a scan that examined nothing must fail, not pass quietly.
+
+**6. Honesty debt — 5 files still assert the Solana rail is live.** Re-counted today; `geometry.ts`
+has since been fixed, so it is five, not six:
+`frontend/src/lib/launcher/solana/README.md` · `curve/index.ts` · `curve/ix.ts` · `curve/program.ts` ·
+`frontend/scripts/tegridy-launch-operator.mjs`. Both programs were closed on 2026-08-13 and their
+ids are spent. `program.ts` is the one that matters most — its `PROGRAM_ID` still points at a closed
+program, and check 5b now cross-checks it against the registry, so the code and the registry
+disagree in public. *(The cp-swap `lib.rs` header and the ProgramData chain-gate items from the
+sweep are both already closed — verified today.)*
+
+**7. Repo hygiene — the numbers moved, so here they are fresh.** 122 worktrees · 329 local branches,
+**120 of them fully merged** into `mvp-launch` · 12 stashes, nine on `main`, which is not the trunk ·
+roughly 27 GB reclaimable, because `.git/worktrees` holds a duplicate submodule clone per worktree.
+⛔ Prune with `git worktree remove` **only** — 93 are dirty, and deleting the directories by hand
+leaves the metadata behind. This is safe, boring, and worth doing before the count grows again.
 
 **Closed since the last revision (2026-08-22), so nobody re-opens them:**
 
