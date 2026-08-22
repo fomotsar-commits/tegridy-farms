@@ -219,6 +219,11 @@ export function buyBlockedReason(phase: LaunchPhase, paused: boolean): LaunchErr
       return 'AwaitingMigration';
     case 'not-deployed':
     case 'not-a-program':
+    // A closed program cannot execute any instruction, so this is a block and not
+    // a maybe. It rides with the other unestablished phases deliberately: the
+    // caller needs "this will not go through", and the reason it will not is the
+    // phase's own job to say.
+    case 'closed':
     case 'unreadable':
     case 'protocol-not-initialized':
     case 'pre-launch':
@@ -241,6 +246,11 @@ export function sellBlockedReason(phase: LaunchPhase): LaunchErrorName | null {
       return 'AlreadyComplete';
     case 'not-deployed':
     case 'not-a-program':
+    // A closed program cannot execute any instruction, so this is a block and not
+    // a maybe. It rides with the other unestablished phases deliberately: the
+    // caller needs "this will not go through", and the reason it will not is the
+    // phase's own job to say.
+    case 'closed':
     case 'unreadable':
     case 'protocol-not-initialized':
     case 'pre-launch':

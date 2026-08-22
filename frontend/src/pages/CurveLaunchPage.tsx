@@ -139,6 +139,13 @@ const PROBE_COPY: Record<
     tone: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
     line: 'An account exists at this address but it is not executable, so it is not a program. Someone funded the address; nothing here is deployed.',
   },
+  // Its own badge for the same reason as the one above, and a stronger one: this is
+  // the state the executable flag reports as DEPLOYED. Say "gone", not "not yet".
+  closed: {
+    badge: 'CLOSED',
+    tone: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+    line: 'This program was deployed and has since been closed. Its bytecode account is gone, so nothing here can run, and Solana will never allow a program at this address again.',
+  },
   unreadable: {
     badge: 'READ FAILED',
     tone: 'bg-rose-500/20 text-rose-200 border-rose-500/30',
@@ -176,10 +183,20 @@ export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
         {probe?.kind === 'not-a-program' && (
           <p className="text-amber-200/80 text-[10px] mt-1.5 break-all">owned by {probe.owner}</p>
         )}
+        {probe?.kind === 'closed' && (
+          <p className="text-amber-200/80 text-[10px] mt-1.5 break-all">
+            bytecode account {probe.programDataAddress} no longer exists
+          </p>
+        )}
         <p className="text-white/35 text-[10px] mt-2 break-all font-mono">{PROGRAM_ID.toBase58()}</p>
+        {/*
+          This read "That id is a placeholder generated so the program compiles… expected
+          to return nothing today", which stopped being true at the 2026-08-08 deploy and
+          stayed on the page for two weeks. It is not describing anything now: the badge
+          above is a live read and is the only thing here entitled to make a claim.
+        */}
         <p className="text-white/35 text-[10px] mt-1 leading-relaxed">
-          That id is a placeholder generated so the program compiles. It is replaced with a real key at deploy, so it is
-          expected to return nothing today — this badge is a live read, not a hardcoded state.
+          The badge above is read from the chain each time this page loads. It is not a hardcoded state.
         </p>
       </div>
     </m.div>
@@ -195,6 +212,10 @@ const PHASE_COPY: Record<LaunchPhase['kind'], { label: string; line: string }> =
   'not-a-program': {
     label: 'Not a program',
     line: 'Something occupies the program address but is not executable. Nothing has been deployed, so there is nothing to look up.',
+  },
+  closed: {
+    label: 'Program closed',
+    line: 'The program that ran at this address has been closed and its bytecode deleted. Any launch it held is unreachable — not empty, unreachable.',
   },
   unreadable: { label: "Couldn't read", line: 'A read failed. This is not a statement about the launch.' },
   'protocol-not-initialized': {
@@ -725,6 +746,11 @@ export function CurveLaunchView({
           </button>
           {(probe?.kind === 'not-deployed' || probe?.kind === 'not-a-program') && (
             <p className="text-white/40">Nothing to look up while the program does not exist.</p>
+          )}
+          {probe?.kind === 'closed' && (
+            <p className="text-white/40">
+              Nothing to look up — the program was closed, and its launches went with it.
+            </p>
           )}
           {mintInput.trim() !== '' && !looksLikePubkey(mintInput) && (
             <p className="text-amber-300/90">That does not look like a base58 Solana address.</p>

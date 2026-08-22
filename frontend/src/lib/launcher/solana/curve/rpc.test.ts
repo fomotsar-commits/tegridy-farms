@@ -99,6 +99,25 @@ const account = (data: Uint8Array, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+// ── the two accounts a live upgradeable program is ──────────────────────────
+// The executable flag on the program account is NOT the answer: `solana program
+// close` deletes ProgramData and leaves the stub flagged. These fixtures used to
+// be `new Uint8Array(36)` — all zeros — which is not a stub any loader would
+// write, and they passed only because nothing followed the pointer.
+const PROGRAM_DATA = '6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS';
+
+/** A `Program` stub: `u32 enum(2) | 32-byte ProgramData address`. */
+function stubBytes(programData = PROGRAM_DATA): Uint8Array {
+  const b = new Uint8Array(36);
+  new DataView(b.buffer).setUint32(0, 2, true);
+  b.set(new PublicKey(programData).toBytes(), 4);
+  return b;
+}
+
+/** The stub plus the ProgramData account it points at — a program that can run. */
+const liveProgram = () => account(stubBytes(), { owner: LOADER, executable: true });
+const liveProgramData = () => account(new Uint8Array(45), { lamports: 2_000_000_000 });
+
 // ─────────────────────────────────────────────────────────────────────────────
 // THE DEFECT THIS FILE EXISTS FOR
 //
@@ -253,18 +272,28 @@ describe('readDeployment over the browser transport — the fabricated finding',
     expect(d.kind === 'unreadable' && d.detail).toMatch(/`value`/);
   });
 
-  it('still reports a genuine null as not-deployed — the live answer today', async () => {
-    // The id in lib.rs:101 is a placeholder that corresponds to no key anybody
-    // holds. Fixing the malformed case must not blunt the real one.
+  it('still reports a genuine null as not-deployed', async () => {
+    // Fixing the malformed case must not blunt the real one. (This said the id
+    // "is a placeholder that corresponds to no key anybody holds" — it was
+    // deployed to on 2026-08-08 and the address is now spent, not unused.)
     const rpc = browserCurveRpc(async () => ({ value: null }));
     expect(await readDeployment(rpc)).toEqual({ kind: 'not-deployed' });
   });
 
-  it('reports an executable account as deployed', async () => {
-    const rpc = browserCurveRpc(async () => ({
-      value: account(new Uint8Array(36), { owner: LOADER, executable: true }),
-    }));
+  it('reports an executable account with live ProgramData as deployed', async () => {
+    const rpc = browserCurveRpc(async (_m, params) =>
+      String(params[0]) === PROGRAM_DATA ? { value: liveProgramData() } : { value: liveProgram() },
+    );
     expect(await readDeployment(rpc)).toEqual({ kind: 'deployed', executable: true });
+  });
+
+  it('reports an executable account whose ProgramData is gone as CLOSED', async () => {
+    // The state both of this repo's mainnet ids are actually in, over the real
+    // browser transport rather than the in-memory fake.
+    const rpc = browserCurveRpc(async (_m, params) =>
+      String(params[0]) === PROGRAM_DATA ? { value: null } : { value: liveProgram() },
+    );
+    expect(await readDeployment(rpc)).toEqual({ kind: 'closed', programDataAddress: PROGRAM_DATA });
   });
 
   it('reports a non-executable squatter as not-a-program, neither deployed nor absent', async () => {
@@ -283,7 +312,7 @@ describe('readDeployment over the browser transport — the fabricated finding',
     expect(d.kind === 'unreadable' && d.detail).toMatch(/503/);
   });
 
-  it('asks about the placeholder program id by default', async () => {
+  it('asks about PROGRAM_ID by default', async () => {
     const seen: unknown[] = [];
     const rpc = browserCurveRpc(async (_m, params) => {
       seen.push(params[0]);
@@ -306,7 +335,7 @@ describe('readLaunch over the browser transport', () => {
       return { value: hit };
     });
 
-  const program = account(new Uint8Array(36), { owner: LOADER, executable: true });
+  const program = liveProgram();
 
   it('stops at the program and never derives PDAs when it is not there', async () => {
     const asked: string[] = [];
@@ -326,6 +355,7 @@ describe('readLaunch over the browser transport', () => {
     const { curvePda, globalPda } = await import('./program');
     const rpc = byAddress({
       [PROGRAM_ID.toBase58()]: program,
+      [PROGRAM_DATA]: liveProgramData(),
       [globalPda().toBase58()]: account(globalBytes()),
       [curvePda(new PublicKey(MINT)).toBase58()]: account(curveBytes({ realSol: 5_000_000_000n }), {
         lamports: 9_000_000_000,
@@ -342,6 +372,7 @@ describe('readLaunch over the browser transport', () => {
     const { curvePda, globalPda } = await import('./program');
     const rpc = byAddress({
       [PROGRAM_ID.toBase58()]: program,
+      [PROGRAM_DATA]: liveProgramData(),
       [globalPda().toBase58()]: account(globalBytes()),
       [curvePda(new PublicKey(MINT)).toBase58()]: new Error('upstream 502 Bad Gateway'),
     });
@@ -356,6 +387,7 @@ describe('readLaunch over the browser transport', () => {
       if (method === 'getMinimumBalanceForRentExemption') return 2_018_400;
       const key = String(params[0]);
       if (key === PROGRAM_ID.toBase58()) return { value: program };
+      if (key === PROGRAM_DATA) return { value: liveProgramData() };
       if (key === globalPda().toBase58()) return { value: account(globalBytes()) };
       if (key === curvePda(new PublicKey(MINT)).toBase58()) return { context: { slot: 1 } };
       return { value: null };

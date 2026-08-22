@@ -13,12 +13,20 @@
 // So nothing below returns a number on failure. There is no `?? 0`, no
 // `catch { return 0 }`, no default-to-clean-badge. An RPC error is an RPC error.
 //
-// The program IS deployed (mainnet, 2026-08-08). `readLaunch` still checks that FIRST
-// and stops there when the answer is no — it does not go on to derive PDAs and render
-// their absence as data. That order is the point, and it does not depend on the
-// current answer: this comment previously asserted "NOT DEPLOYED" and went on being
-// believed after it was false, which is the whole argument for the check existing in
-// code rather than in prose.
+// `readLaunch` checks deployment FIRST and stops there when the answer is no — it does
+// not go on to derive PDAs and render their absence as data. That order is the point
+// and it does not depend on what is deployed today: this comment has asserted "NOT
+// DEPLOYED" and then "IS deployed", and each was believed for days after it stopped
+// being true, which is the whole argument for the check living in code and not prose.
+//
+// ⚠ A CLOSED PROGRAM STILL READS AS EXECUTABLE, and that is the fourth lookalike.
+// `solana program close` deletes the ProgramData account and leaves the 36-byte
+// program stub in place, still executable-flagged — so `getAccountInfo` alone answers
+// "a program is here" for an id that can never execute again. Both of this repo's
+// mainnet ids are in exactly that state (closed 2026-08-13,
+// docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). `readDeployment` therefore follows the
+// stub's pointer to ProgramData; a `deployed` verdict from it now means the bytecode
+// account was READ, not that a flag was set.
 
 import { PublicKey } from '@solana/web3.js';
 import {
@@ -116,13 +124,12 @@ async function fetchAccount(rpc: CurveRpc, address: PublicKey): Promise<Fetched>
 /**
  * Is the program actually on this cluster?
  *
- * `PROGRAM_ID` is a placeholder (lib.rs:97-101) and returns `null` on
- * mainnet-beta. This is the first thing any surface calls, and a `not-deployed`
- * answer is where it STOPS. Deriving PDAs afterwards and rendering their absence
- * produces a page that looks like an empty market instead of a program that does
- * not exist.
+ * This is the first thing any surface calls, and anything other than `deployed` is
+ * where it STOPS. Deriving PDAs afterwards and rendering their absence produces a
+ * page that looks like an empty market instead of a program that is not there.
  */
 export type Deployment =
+  /** The stub is executable AND its ProgramData account was read. */
   | { kind: 'deployed'; executable: true }
   /**
    * An account EXISTS at the program id and it is not executable.
@@ -135,8 +142,33 @@ export type Deployment =
    * squatting the address.
    */
   | { kind: 'not-a-program'; owner: string }
+  /**
+   * The program was deployed under the upgradeable loader and then CLOSED. The
+   * stub survives and is still executable-flagged; its ProgramData account is
+   * gone, so there is no bytecode and the id can never hold a program again.
+   *
+   * Also its own state, and for a stronger reason than `not-a-program`: it is the
+   * one that `getAccountInfo` gets ACTIVELY WRONG rather than merely
+   * under-determines. `not-deployed` would understate it (a fresh id is a valid
+   * deploy target; this one is spent forever) and `deployed` is the failure this
+   * whole check exists to stop.
+   */
+  | { kind: 'closed'; programDataAddress: string }
   | { kind: 'not-deployed' }
   | { kind: 'unreadable'; detail: string };
+
+/**
+ * `BPFLoaderUpgradeab1e11111111111111111111111`. Programs under any OTHER loader
+ * carry their bytecode in the program account itself and have no ProgramData, so
+ * the second read below applies to this loader only.
+ */
+export const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
+  'BPFLoaderUpgradeab1e11111111111111111111111',
+);
+
+/** A `Program` stub: `u32 enum(2) | 32-byte ProgramData address`. */
+const PROGRAM_STUB_LEN = 36;
+const PROGRAM_STUB_ENUM = 2;
 
 export async function readDeployment(
   rpc: CurveRpc,
@@ -145,9 +177,6 @@ export async function readDeployment(
   const r = await fetchAccount(rpc, programId);
   if (r.kind === 'unreadable') return r;
   if (r.kind === 'absent') return { kind: 'not-deployed' };
-  // A BPF program account is owned by a loader; nothing here needs to know which
-  // one, only that something executable is there.
-  //
   // `executable` is OPTIONAL on `AccountSnapshot` so a fixture need not supply it,
   // and a missing flag must not read as `false` — that would report a real program
   // as a squatter. Absent means "the transport did not tell us", which is a read
@@ -157,6 +186,46 @@ export async function readDeployment(
   }
   if (!r.value.executable) {
     return { kind: 'not-a-program', owner: r.value.owner.toBase58() };
+  }
+  // Under any loader but the upgradeable one there is no second account: the
+  // bytecode is in the program account we just read, and the flag settles it.
+  if (!r.value.owner.equals(BPF_LOADER_UPGRADEABLE_ID)) {
+    return { kind: 'deployed', executable: true };
+  }
+
+  // ── the executable flag is not the answer here ────────────────────────────
+  // Follow the stub's pointer. Anything that stops us reading ProgramData is
+  // `unreadable`, never `deployed`: "we could not confirm the bytecode" and "the
+  // bytecode is there" are the two answers this function most needs apart.
+  const stub = r.value.data;
+  if (stub.length < PROGRAM_STUB_LEN) {
+    return {
+      kind: 'unreadable',
+      detail: `the program account is ${stub.length} bytes; an upgradeable program stub is ${PROGRAM_STUB_LEN}, so its ProgramData address could not be read`,
+    };
+  }
+  const tag = new DataView(stub.buffer, stub.byteOffset, stub.byteLength).getUint32(0, true);
+  if (tag !== PROGRAM_STUB_ENUM) {
+    return {
+      kind: 'unreadable',
+      detail: `the program account's loader-state tag is ${tag}, not ${PROGRAM_STUB_ENUM} (Program), so its ProgramData address could not be read`,
+    };
+  }
+  const programData = new PublicKey(stub.slice(4, PROGRAM_STUB_LEN));
+
+  const pd = await fetchAccount(rpc, programData);
+  if (pd.kind === 'unreadable') {
+    return {
+      kind: 'unreadable',
+      detail: `the program stub was read but its ProgramData account ${programData.toBase58()} was not: ${pd.detail}`,
+    };
+  }
+  if (pd.kind === 'absent') return { kind: 'closed', programDataAddress: programData.toBase58() };
+  // `solana program close` zeroes the ProgramData account's lamports on the way to
+  // deleting it. A surviving zero-lamport account is rent-exempt-failing and about
+  // to be reaped, so it is not bytecode anyone can execute either.
+  if (pd.value.lamports === 0) {
+    return { kind: 'closed', programDataAddress: programData.toBase58() };
   }
   return { kind: 'deployed', executable: true };
 }
@@ -259,6 +328,12 @@ export type LaunchPhase =
    * nor "nothing here" — say what was actually found (see {@link Deployment}).
    */
   | { kind: 'not-a-program'; owner: string }
+  /**
+   * The program was closed. Distinct from `not-deployed` in the direction that
+   * matters to a reader: the rail RAN here and is gone permanently, rather than
+   * having not started yet. Copy must not imply it is coming back at this id.
+   */
+  | { kind: 'closed'; programDataAddress: string }
   /** A read failed or timed out. Say the read failed. NEVER fall through to a later phase. */
   | { kind: 'unreadable'; detail: string }
   /**
@@ -316,6 +391,9 @@ export function classifyLaunch(
   if (deployment.kind === 'not-deployed') return { ...bare, phase: { kind: 'not-deployed' } };
   if (deployment.kind === 'not-a-program') {
     return { ...bare, phase: { kind: 'not-a-program', owner: deployment.owner } };
+  }
+  if (deployment.kind === 'closed') {
+    return { ...bare, phase: { kind: 'closed', programDataAddress: deployment.programDataAddress } };
   }
 
   if (global.kind === 'unreadable') {

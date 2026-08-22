@@ -17,6 +17,7 @@ import {
   type GlobalConfig,
 } from './program';
 import {
+  BPF_LOADER_UPGRADEABLE_ID,
   classifyLaunch,
   clipDetail,
   curveProgress,
@@ -129,12 +130,40 @@ function fakeRpc(opts: FakeOpts = {}): CurveRpc & { reads: string[] } {
   };
 }
 
-const snapshot = (data: Uint8Array, lamports: number, executable = false): AccountSnapshot => ({
+const snapshot = (
+  data: Uint8Array,
+  lamports: number,
+  executable = false,
+  owner: PublicKey = PROGRAM_ID,
+): AccountSnapshot => ({
   data,
   lamports,
-  owner: PROGRAM_ID,
+  owner,
   executable,
 });
+
+// ── upgradeable-loader fixtures ─────────────────────────────────────────────
+// The real ProgramData address of `tegridy-launch`, from
+// docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md. Its closure is the fixture: the
+// account is gone on mainnet, permanently, so this is a positive control that
+// cannot rot back to passing.
+const PROGRAM_DATA = new PublicKey('6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS');
+
+/** A `Program` stub as the upgradeable loader writes it: `u32 enum(2) | 32-byte pointer`. */
+function stubBytes(programData: PublicKey = PROGRAM_DATA, tag = 2): Uint8Array {
+  const b = new Uint8Array(36);
+  new DataView(b.buffer).setUint32(0, tag, true);
+  b.set(programData.toBytes(), 4);
+  return b;
+}
+
+/**
+ * What `getAccountInfo(PROGRAM_ID)` ACTUALLY returns for both of this repo's spent
+ * ids: `solana program close` deletes ProgramData and leaves this behind, still
+ * executable-flagged and still owned by the loader.
+ */
+const closedStub = (): AccountSnapshot =>
+  snapshot(stubBytes(), 1_141_440, true, BPF_LOADER_UPGRADEABLE_ID);
 
 /** A cluster where everything exists and the launch is mid-raise. */
 function healthyAccounts(over: Record<string, AccountSnapshot | Error> = {}) {
@@ -197,6 +226,128 @@ describe('readDeployment — the first call any surface makes', () => {
       accounts: { [PROGRAM_ID.toBase58()]: snapshot(new Uint8Array(36), 1_000_000, true) },
     });
     expect(await readDeployment(rpc)).toEqual({ kind: 'deployed', executable: true });
+  });
+});
+
+// ── the executable flag is not the answer ───────────────────────────────────
+//
+// The defect this block exists to keep fixed: `solana program close` deletes the
+// ProgramData account and leaves the 36-byte stub executable-FLAGGED. For two weeks
+// this function answered `deployed` for both of this repo's mainnet ids — closed
+// 2026-08-13 — and every surface gated on it believed the rail was up.
+describe('readDeployment — a closed program still reads as executable', () => {
+  it('reports CLOSED, not deployed, when ProgramData is gone', async () => {
+    const rpc = fakeRpc({ accounts: { [PROGRAM_ID.toBase58()]: closedStub() } });
+    expect(await readDeployment(rpc)).toEqual({
+      kind: 'closed',
+      programDataAddress: PROGRAM_DATA.toBase58(),
+    });
+  });
+
+  it('follows the stub pointer — it does not assume the address', async () => {
+    // A different program's stub points somewhere else, and the read must go there.
+    const elsewhere = new PublicKey('6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF');
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: snapshot(stubBytes(elsewhere), 1_141_440, true, BPF_LOADER_UPGRADEABLE_ID),
+      },
+    });
+    expect(await readDeployment(rpc)).toEqual({
+      kind: 'closed',
+      programDataAddress: elsewhere.toBase58(),
+    });
+    expect(rpc.reads).toEqual([PROGRAM_ID.toBase58(), elsewhere.toBase58()]);
+  });
+
+  it('reports CLOSED when ProgramData survives with zero lamports', async () => {
+    // `close` zeroes the account before it is reaped. A rent-exempt-failing
+    // ProgramData is not bytecode anyone can execute either.
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: closedStub(),
+        [PROGRAM_DATA.toBase58()]: snapshot(new Uint8Array(45), 0),
+      },
+    });
+    expect((await readDeployment(rpc)).kind).toBe('closed');
+  });
+
+  it('reports deployed when ProgramData is actually there', async () => {
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: closedStub(),
+        [PROGRAM_DATA.toBase58()]: snapshot(new Uint8Array(200_000), 2_000_000_000),
+      },
+    });
+    expect(await readDeployment(rpc)).toEqual({ kind: 'deployed', executable: true });
+  });
+
+  it('reports unreadable, NOT deployed, when the ProgramData read fails', async () => {
+    // The whole point. "We could not confirm the bytecode" and "the bytecode is
+    // there" are the two answers this function most needs to keep apart, and the
+    // failing one must never inherit the stub's optimistic flag.
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: closedStub(),
+        [PROGRAM_DATA.toBase58()]: new Error('503 Service Unavailable'),
+      },
+    });
+    const d = await readDeployment(rpc);
+    expect(d.kind).toBe('unreadable');
+    if (d.kind !== 'unreadable') return;
+    expect(d.detail).toContain(PROGRAM_DATA.toBase58());
+    expect(d.detail).toContain('503');
+  });
+
+  it('reports unreadable when the stub is too short to hold a pointer', async () => {
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: snapshot(new Uint8Array(4), 1_141_440, true, BPF_LOADER_UPGRADEABLE_ID),
+      },
+    });
+    const d = await readDeployment(rpc);
+    expect(d.kind).toBe('unreadable');
+    if (d.kind !== 'unreadable') return;
+    expect(d.detail).toContain('4 bytes');
+  });
+
+  it('reports unreadable when the loader-state tag is not Program(2)', async () => {
+    // Tag 3 is ProgramData itself and 1 is a Buffer. Neither carries a pointer at
+    // byte 4, so reading one as if it did would name an arbitrary address.
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: snapshot(stubBytes(PROGRAM_DATA, 3), 1_141_440, true, BPF_LOADER_UPGRADEABLE_ID),
+      },
+    });
+    const d = await readDeployment(rpc);
+    expect(d.kind).toBe('unreadable');
+    if (d.kind !== 'unreadable') return;
+    expect(d.detail).toContain('tag is 3');
+  });
+
+  it('does not make a second read for a non-upgradeable loader', async () => {
+    // BPFLoader2 programs carry their bytecode in the program account itself.
+    // There is no ProgramData to follow and the flag genuinely settles it.
+    const bpfLoader2 = new PublicKey('BPFLoader2111111111111111111111111111111111');
+    const rpc = fakeRpc({
+      accounts: {
+        [PROGRAM_ID.toBase58()]: snapshot(new Uint8Array(200_000), 2_000_000, true, bpfLoader2),
+      },
+    });
+    expect(await readDeployment(rpc)).toEqual({ kind: 'deployed', executable: true });
+    expect(rpc.reads).toEqual([PROGRAM_ID.toBase58()]);
+  });
+
+  it('readLaunch stops at closed and derives no PDA', async () => {
+    const rpc = fakeRpc({ accounts: { [PROGRAM_ID.toBase58()]: closedStub() } });
+    const s = await readLaunch(rpc, MINT);
+    expect(s.phase).toEqual({ kind: 'closed', programDataAddress: PROGRAM_DATA.toBase58() });
+    expect(s.curve).toBeNull();
+    expect(s.global).toBeNull();
+    // A closed program's `global` is stranded on chain and still decodes. Reading
+    // it would render real fields under a rail that cannot execute — which is the
+    // "empty market" failure with worse camouflage, because the numbers are true.
+    expect(rpc.reads).not.toContain(globalPda().toBase58());
+    expect(rpc.reads).not.toContain(curvePda(MINT).toBase58());
   });
 });
 
