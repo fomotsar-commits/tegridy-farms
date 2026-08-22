@@ -65,9 +65,22 @@ libs, zero-test router and `release.yml` CONFIRMED; nakamigos WORSE). Read those
 picking anything up — **about a third of what the prose calls open is already closed, and a few
 things are worse than written.**
 
-**Still not re-verified, and they are the ones with money and credentials in them:** backend,
-env docs, Solana docs, security docs, external prep, plus the migration/DB items that need a
-live read. Treat every claim in those as an 08-15 hypothesis.
+**Honesty debt is now swept too** (see the block under it): the count held at ~5-6 but the
+*contents* moved, and two items were mis-classified as wording when they are functional —
+`read.ts` asserts a deployment that does not exist, and `cp-swap/src/lib.rs`'s header tells an
+operator to do the exact thing its own body records as the bug that bricked graduation.
+
+**Genuinely still not re-verified:** the live-probe backend items (SIWE 500, analytics 503,
+births relay, record route — all need a network read, all dated 08-15), the migration/DB items
+(need a live DB read), env-var docs, external prep, and the README native-pool figures. Treat
+every claim in those as an 08-15 hypothesis, and **re-probe before acting** — the probes are
+recorded as reusable in the memory entry for this sweep.
+
+⚠️ **A pattern worth naming, because it showed up in three separate lanes today:** a fixed count
+with changed contents. "LIVE ON MAINNET" is still 5 files, but two were cleaned and the claim
+**spread into `YEAR_PLAN_2026_2027.md`**; the "Last reviewed" stamps dropped 5→3; nakamigos was
+called unswept when it had been swept and left unfixed. **A number that has not moved is not
+evidence that nothing moved** — re-derive the list, never trust the tally.
 
 🔴 **Two findings from the 08-21 sweep deserve to be read as a pair, because together they say
 something neither says alone:** the advisory gate exists and the debt has not moved (40, ten
@@ -410,6 +423,53 @@ work; five pages carry a hardcoded "Last reviewed: July 2026".
 > markdown under `solana/tegridy-amm/` is corrected, but the same stale claims survive in
 > `programs/cp-swap/src/lib.rs`'s header comment, which still describes fail-closed sentinels
 > the tree no longer has and still names the multisig as `admin::ID`.
+
+> **Re-verified 2026-08-21 — the count is right but the contents are not, and two of these are
+> materially worse than "honesty debt" implies.**
+>
+> - 🔴 **`readDeployment` is not a wording problem — the comment is FALSE, and it is false in the
+>   most instructive way available.** `frontend/src/lib/launcher/solana/curve/read.ts:16` asserts
+>   **"The program IS deployed (mainnet, 2026-08-08)"**, while both Solana programs were closed
+>   and verified closed on 2026-08-15 against two RPCs. Read the next sentence of that same
+>   comment: it explains that the comment *previously* asserted "NOT DEPLOYED" and "went on being
+>   believed after it was false, which is the whole argument for the check existing in code rather
+>   than in prose." **It then made the identical mistake in the opposite direction, in the very
+>   comment warning against it.** Second defect in the same file: `:126` models deployment as
+>   `{ kind: 'deployed'; executable: true }` — and a closed program's stub **stays
+>   executable-flagged**, which is precisely why the old registry check kept passing over closed
+>   programs. → **Next step:** delete the claim rather than update it (the tree has proven twice it
+>   cannot keep a deployment status accurate in prose), and check **ProgramData**, not `executable`.
+> - 🔴 **`cp-swap/src/lib.rs` contradicts itself, and the header is the half an operator will
+>   follow.** The header at `:33-40` claims the non-devnet AUTHORITY constants are the
+>   System-Program sentinel (all-1s) so a default build is non-functional — but the actual
+>   non-devnet values are live keys: `admin::ID` = `Dcjink4R…7kZ7` at `:75`,
+>   `create_pool_fee_reveiver::ID` = `2sa31zce…uEXa` at `:88`. **No sentinel remains.** Worse, the
+>   header instructs the operator to set **"admin = Squads MULTISIG"** at `:39` — and the body at
+>   `:53-71` documents that doing exactly that shipped to mainnet on 2026-08-08, made
+>   `create_amm_config` **UNCALLABLE**, and left `migrate_to_amm` permanently on
+>   `AmmNotConfigured (6015)`: tokens could trade but never graduate. Squads v4 signs CPIs as the
+>   **vault PDA**, never as the multisig account, and `CreateAmmConfig` has `payer = owner`, so the
+>   account must be system-owned and fundable. **An operator who reads the header and stops
+>   re-runs the incident, and this constant is compile-time — fixing it needs another program
+>   upgrade.** → **Next step:** delete the header's fail-closed paragraph and its "admin = Squads
+>   MULTISIG" line outright. Do not soften them; the body below already says the true thing.
+>   See [[reference_squads_vault_vs_multisig_signer]].
+> - ⚠️ **"LIVE ON MAINNET since 2026-08-08" is still 5 files, but not the same five.** Fixed:
+>   `frontend/src/lib/launcher/solana/README.md` and `curve/geometry.ts`. **Newly carrying it:
+>   `docs/YEAR_PLAN_2026_2027.md`** — so the claim spread into the planning doc while it was being
+>   cleaned out of the code. Current: `docs/YEAR_PLAN_2026_2027.md`,
+>   `frontend/scripts/tegridy-launch-operator.mjs`, `curve/index.ts`, `curve/ix.ts`,
+>   `curve/program.ts`.
+> - ✅ **The "Last reviewed" stamps are 3, not 5** — `pages/ContractsPage.tsx:501`,
+>   `pages/FAQPage.tsx:259`, `pages/SecurityPage.tsx:368`. Two were cleared.
+> - 🔴 **`security.txt` confirmed, with the mechanism.** `memetic.fun` appears **zero times** in
+>   `frontend/public/.well-known/security.txt`. Its `Canonical:` and its entire in-scope list name
+>   only `tegridyfarms.vercel.app`. Served from the canonical domain, the file declares a Canonical
+>   URI that is not the one being read and a scope that excludes the host serving it — under
+>   RFC 9116 a scanner may reject it, and a researcher may reasonably read the canonical domain as
+>   out of scope. → **Next step:** add the second domain to `Canonical:` (the field is repeatable)
+>   and to the in-scope list. Cheap, and it is the file that tells someone how to report a drain.
+> - **Not re-verified:** the README native-pool figures.
 
 **Repo hygiene (15).** Close #278 · decide #280, #282, #265, #205 · merge eight clean Dependabot
 PRs and hold #296 · reclaim **27 GB** (`.git/worktrees` holds a duplicate submodule clone per
