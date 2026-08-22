@@ -12,6 +12,49 @@ on-chain read, or a live HTTP response. 7 are derived, 4 are explicitly unverifi
 
 ---
 
+## ▶️ Start here — refreshed 2026-08-21
+
+The two lanes run in parallel and do not block each other. Within each lane the order is
+load-bearing, and the reason is given rather than assumed.
+
+**Agent lane — do these in this order:**
+
+1. **Fix the 13 `tsc -b` errors. Nothing else in the test lane means anything until this is
+   green.** `ci.yml`'s `lint-typecheck-test` job runs Type Check *before* Unit Tests, the Solana
+   indexer suite, the address registry, the four `--self-test` steps and the arb-linkage tests,
+   and **none of them carry `if: always()`** — so a red Type Check silently skips all of them.
+   Every "covered by CI" claim below is currently unenforced on PRs. Full error list, the
+   money-path caveat, and the `-b` trap are in **CI and tests** further down. Verify with
+   `cd frontend && npx tsc -b --noEmit` reaching 0, then confirm `npm run lint` and
+   `npx vitest run` have not regressed.
+2. **Audit the trigger block of every scheduled workflow.** `arb-linkage-monitor.yml` was caught
+   on 2026-08-21 claiming coverage it only delivered on a cron; the guard that caught it now
+   only guards the two monitoring files. Anything else in `.github/workflows/` that is
+   `schedule`-only is making the same claim, and GitHub disables schedules in a repository idle
+   60 days. Cheap: read the `on:` block of each, and ask which of them a PR author would expect
+   to catch their mistake.
+3. **Re-probe SIWE before building on it.** The `500 "Failed to generate nonce"` below is a
+   **2026-08-15** reading, not a fact about today. Re-run the probe first; if it still fails, the
+   migration order (`castVote→proxyWrite` → 015 §1 → 014, and 015 **before** 014) is the part
+   that is easy to get backwards and expensive to undo.
+
+**Operator lane — unchanged, and still the highest-leverage thing on this page:**
+
+4. **Name the Safe topology.** Minutes, free, human-only, zero dependencies, unblocks ~20 items.
+   The blocker was never money or recruitment — it was that `SAFE_REHOME_RUNBOOK.md:31` demands
+   15 disjoint keys and nobody wrote down that the *target* is the problem. Reachable answer is
+   **8 keys** (2-of-3 / 2-of-3 / 1-of-2), or 3. See **The critical path**.
+5. **Arm the coverage ratchet, or record why it cannot be armed.** One click plus one commit;
+   procedure and the expected failure mode are under the ⏰ section. Right now it is a gate that
+   enforces nothing and no longer says so out loud.
+
+⚠️ **Before acting on any item below, check its date.** This page is a 2026-08-15 snapshot with
+dated corrections layered on. Items carrying a `> **Updated …**` or `> **Reconciled …**` block
+have been re-verified; the rest have not been re-read since the sweep, and five of them were
+already wrong on the day they were written — see the corrections section immediately below.
+
+---
+
 ## Read these five corrections first
 
 Each one is something the repo currently tells you that is false, and acting on any of them
@@ -55,6 +98,30 @@ The contracts-coverage cron is `13 5 * * 0` — **Sunday 05:13 UTC**. It is 03:0
 2026-08-16 right now, and `.github/coverage-floor.json` **does not exist**. The ratchet fires in
 roughly two hours against no floor. This is mine to fix, not yours — I mention it because it is
 the only item on this page with a deadline today.
+
+> **The clock expired 2026-08-16 and this section is kept only as the record of it. Re-read
+> 2026-08-21: the deadline is gone, the item is HALF closed, and the remaining half is yours.**
+>
+> `.github/coverage-floor.json` now exists (committed 2026-08-18), which removed the
+> "Coverage floor not armed" hard failure that was stopping the cron completing at all. But it
+> carries **`lines: 0`, `measured: null`** — so the ratchet still **enforces nothing**. It is a
+> disarmed gate that no longer announces itself as disarmed in the run's conclusion, which is
+> the more dangerous of the two states: `contracts-coverage.yml:151` downgrades it to a
+> `::warning`, and warnings do not fail runs or get read.
+>
+> Arming it is **one operator action, no code change**, and the file's own `_readme` carries the
+> procedure: Actions → Contracts Coverage → Run workflow with **`update_floor` checked** → the
+> run prints measured JSON and enforces nothing → commit that number as `lines`, with
+> `measured` / `measuredOn` set from the same run.
+>
+> **Expect step 1 to fail, and treat that as the finding, not as an error.** At arming time
+> `forge coverage --ir-minimum` aborted with a Yul "too deep in the stack" exception before
+> emitting `lcov.info` (forge 1.5.1, solc 0.8.26), with and without `script/` excluded; the
+> non-IR fallback died in `script/DeepenLP.s.sol`. If it fails the same way on the runner, the
+> conclusion is that this contract set needs a **coverage strategy before it needs a floor** —
+> do not seed a guessed number to make the job green. `frontend/src/test/contractsCoverageFloor.test.ts`
+> enforces that `lines` may never exceed `measured`, and that `lines` stays 0 while `measured`
+> is null, so a guess would fail the frontend suite rather than sneak through.
 
 ---
 
@@ -310,6 +377,54 @@ it · teach the daily chain gate to read ProgramData instead of the stub · comm
 broadcast receipts · triage 18 Slither detector classes now that the curated config actually
 loads, `reentrancy-eth` among them · run the 9 echidna/halmos properties that execute in zero
 pipelines today.
+
+> **Updated 2026-08-21 — one closed, one class of gap closed with it, and one new blocker that
+> is currently blacking out most of this lane.**
+>
+> **Closed: the ghost-test report.** `frontend/src/test/vitestCollection.test.ts` was reported
+> failing with two orphans (`contracts/monitoring/lib/arbLinkage.test.mjs`,
+> `scripts/monitoring/lib/pausePlan.test.mjs`). It was not failing — `762e421f` had already
+> accounted for both on 08-19. Re-verified independently rather than trusted: **534 tracked
+> test files, 0 orphans**, and both files pass **48/48** under `node --test`.
+>
+> **Closed: a gap that fix left behind, worth generalising.** Its only runner was
+> `arb-linkage-monitor.yml`, whose trigger block is `schedule` + `workflow_dispatch` — nothing
+> in it fires on a pull request. That satisfies "has a runner" while the PR that breaks the rule
+> still merges green, and GitHub disables schedules in a repository idle for 60 days, at which
+> point the coverage lapses with nothing going red. `6179cd4d` puts both files on the PR gate in
+> `ci.yml` and rewrites the guard to require each to be named by a workflow that actually fires
+> on `pull_request`; both branches of the new assertion are mutation-checked.
+> **⚠️ The class generalises: every "it runs in workflow X" claim in this document is only as
+> strong as X's trigger block, and nothing audits that.** `arb-linkage-monitor.yml` was the one
+> that got caught; the other scheduled workflows have not been checked the same way.
+>
+> **🔴 NEW BLOCKER — `npx tsc -b --noEmit` is RED with 13 errors, and it is skipping the rest of
+> the job.** In `ci.yml` the `lint-typecheck-test` job runs Lint → **Type Check** → Unit Tests →
+> Solana indexer → Address registry → the four `--self-test` steps → the new arb-linkage step.
+> **None of them carry `if: always()`**, so a red Type Check skips every step after it. Most of
+> what this lane thinks is covered is not currently executing on any PR. Confirmed pre-existing:
+> identical 13 errors with all 08-21 changes stashed, none in any file touched that day.
+>
+> The 13, by file:
+> - `frontend/src/components/shield/ShieldPositionCard.tsx:53,68` — `TS7053` implicit-any index
+>   plus `TS2339` `Property 'band' does not exist`, twice. From the 08-19 shield slice
+>   (`50119149`); the type and the component disagree about whether a band exists.
+> - `frontend/src/hooks/useAirdropCampaign.ts:91` — `TS2322`, a wagmi `useReadContracts`
+>   contracts array inferred as the empty tuple `readonly []`. It cascades: `:114` yields four
+>   errors reading `.status`/`.result` off `never`.
+> - `frontend/src/hooks/useAirdropCampaign.ts:139` — `TS2345`, the `claimWithFee` variant carries
+>   `value: bigint` where the inferred parameter wants `value: undefined`; the ABI union has been
+>   narrowed to the non-payable `claim` overload.
+> - `frontend/src/hooks/useTerminalSafety.ts:141,147` — `TS2345`, `string | undefined` passed
+>   where `string` is required. From the 08-19 terminal slice (`2c67d86e`).
+> - `frontend/src/pages/LaunchPage.tsx:325` — `TS18047`, `'pricingRead' is possibly 'null'`.
+>
+> **⚠️ Do not "fix" this by dropping `-b`.** `frontend/tsconfig.json` is a solution file with an
+> empty `files` and no `include`; plain `tsc --noEmit` follows no references, checks **zero
+> files** in ~0.4s and reports green over nothing. That was the bug `ci.yml:43-54` was written to
+> close — reintroducing it would hide these 13 rather than fix them. The `useAirdropCampaign`
+> errors sit on a money path (`claim` / `claimWithFee`), so correct the types to match what the
+> contract actually accepts rather than casting the mismatch away.
 
 **Frontend (11).** Three answers to "does the Solana program exist" across five modules · LP
 boost never refreshes for a user who buys a JBAC after staking, and the changelog says it does ·
