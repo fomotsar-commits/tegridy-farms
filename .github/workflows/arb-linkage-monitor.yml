@@ -149,8 +149,27 @@ jobs:
             "$(date -u '+%Y-%m-%d %H:%M')" "$STATUS" "$SUMMARY" "$FINGERPRINT")" \
             | gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file -
 
-      # The decision rule and the pause plan are asserted on every scheduled run,
-      # not only on pull requests: this is the one place the thresholds are
+      # THE PULL-REQUEST GATE IS NOT HERE, AND USED TO BE NOWHERE.
+      #
+      # This comment previously read "asserted on every scheduled run, not only
+      # on pull requests", which implied a pull-request run that did not exist.
+      # This workflow triggers on `schedule` and `workflow_dispatch` only, so for
+      # as long as this was the sole invocation, a PR breaking either rule merged
+      # green and surfaced up to 15 minutes later against the wrong change — and
+      # had GitHub disabled the schedule for inactivity (it does so after 60 days)
+      # the 48 tests would have stopped running anywhere at all.
+      #
+      # ci.yml's "Monitoring rule unit tests" step now runs this exact command on
+      # every push and every pull request, and THAT is the runner named for
+      # contracts/monitoring/ and scripts/monitoring/ in
+      # frontend/src/test/vitestCollection.test.ts. The tests are pure — no chain
+      # read, no secrets — so they cost nothing there.
+      #
+      # This invocation stays anyway, because the two runs answer different
+      # questions. ci.yml asks "did this change break the rule". This asks "is the
+      # rule that just produced a live verdict the tested one" — on a runner that
+      # may be weeks of drift, a dependency bump or a re-run of an old ref away
+      # from the last pull request. This is the one place the thresholds are
       # exercised against live money with nobody watching, and a verdict from an
       # unverified rule is worth less than no verdict.
       #

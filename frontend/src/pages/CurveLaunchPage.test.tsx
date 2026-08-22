@@ -54,6 +54,11 @@ function curve(over: Partial<BondingCurve> = {}): BondingCurve {
     realSolReserves: 0n,
     realTokenReserves: 1_000_000_000_000_000n,
     tradeFeeBps: 100n,
+    // Required by `BondingCurve` and absent from this fixture: it is the field
+    // whose omission from the interface shifted every Borsh offset below it (see
+    // program.ts). A fixture that skips it is not the account the decoder
+    // produces. 4_800n matches the value the curve decode fixtures use.
+    creatorFeeShareBps: 4_800n,
     graduationTargetLamports: 85n * SOL,
     migrationReserveLamports: 1n * SOL,
     complete: false,
@@ -68,6 +73,8 @@ function globalCfg(over: Partial<GlobalConfig> = {}): GlobalConfig {
     authority: KEY(3),
     feeRecipient: KEY(4),
     tradeFeeBps: 100n,
+    // Same required field, same reason — see the note in `curve()` above.
+    creatorFeeShareBps: 4_800n,
     initialVirtualSol: 30n * SOL,
     initialVirtualToken: 1_073_000_000_000_000n,
     tokenTotalSupply: 1_000_000_000_000_000n,

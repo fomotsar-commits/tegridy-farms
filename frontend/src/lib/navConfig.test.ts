@@ -14,6 +14,7 @@ import {
   COMMUNITY_ADDRESSES_LIVE,
 } from './navConfig';
 import { isSolanaSubmitReady } from './launcher/solana/dbc';
+import { isIndexerConfigured } from './indexer/client';
 // The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
 // Used here as the already-verified answer to "is this path reachable by URL at all",
 // so the assertions below can tell "routed but not promoted" apart from "not routed".
@@ -178,6 +179,37 @@ describe('navConfig', () => {
     // cannot self-clear and this assertion is the thing that has to be re-read (and
     // deleted) when the migration lands. See docs/WHAT_I_NEED_FROM_YOU.md §2.2.
     expect(entry?.soon, 'a store that cannot save a rule must not read as live').toBe(true);
+  });
+
+  // Checkout is pilled for exactly the /alerts reason, and the two must not drift apart:
+  // both are gated on a migration an operator applies BY HAND, and both therefore have no
+  // client-readable signal that could clear the pill on its own.
+  it('promotes /checkout under Engage, pilled because no invoice can exist yet', () => {
+    const engage = MORE_NAV_SECTIONS.find((s) => s.heading === 'Engage');
+    expect(engage?.items.map((i) => i.to)).toContain('/checkout');
+
+    const entry = ALL_NAV.find((n) => n.to === '/checkout');
+    expect(entry?.label).toBe('Checkout');
+    // Hardcoded `true`. Whether `commerce_invoices` exists is a SERVER fact — the store
+    // answers 503 `schema-missing` until `021_commerce.sql` is applied — so nothing in the
+    // browser can decide this. Delete this assertion when the migration lands, and not
+    // before: a payment link that cannot resolve must not read as live.
+    expect(entry?.soon, 'a store that cannot publish an invoice must not read as live').toBe(true);
+  });
+
+  // Tax Reports reads the F1 indexer and nothing else, so its pill is keyed to the same
+  // single input as /terminal, /chart, /copy-trading and /competitions. Asserted as a
+  // CONCRETE value rather than as `!isIndexerConfigured()`, which would compare the entry
+  // against itself.
+  it('pills /tax exactly while no indexer is configured to read a history from', () => {
+    expect(isIndexerConfigured(), 'no indexer should be configured in tests').toBe(false);
+    const entry = ALL_NAV.find((n) => n.to === '/tax');
+    expect(entry?.label).toBe('Tax Reports');
+    expect(entry?.soon, 'a report over history nobody can read must not advertise itself').toBe(true);
+    // It lives under Stats, not Trust & Safety: it is a personal accounting surface over
+    // the caller's own history, not one of the detection tools that work on any address.
+    const stats = MORE_NAV_SECTIONS.find((s) => s.heading === 'Stats');
+    expect(stats?.items.map((i) => i.to)).toContain('/tax');
   });
 
   // ⚠️ THE DELIBERATE OMISSION. /airdrop and /vesting are routed and fully rendered, and

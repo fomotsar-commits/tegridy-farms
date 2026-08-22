@@ -19,6 +19,22 @@
     "strictFunctionTypes": false
   },
   "include": [
+    /*
+     * Ambient declaration files first. `include` here is an OVERRIDE of
+     * tsconfig.app.json's `"include": ["src"]`, not an addition to it, so
+     * anything under src/ that is a global script rather than an imported
+     * module simply is not in this program unless it is named. `src/*.d.ts`
+     * files are exactly that: `src/viem-window.d.ts` carries the
+     * `/// <reference types="viem/window" />` that declares `window.ethereum`,
+     * and nothing imports it (deliberately — it is a global script file).
+     * Without this line the app project and the test project disagree about
+     * the ambient `Window` type, and `src/lib/irysClient.ts` — pulled into
+     * this program transitively by the tests that import it — fails TS2339 on
+     * `window.ethereum` here while passing under the app project.
+     * The glob rather than the one filename so future ambient declarations
+     * cannot reintroduce the same split.
+     */
+    "src/**/*.d.ts",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/test"

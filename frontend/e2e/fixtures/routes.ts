@@ -270,6 +270,41 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/yield',
+    owner: 'pages/YieldPage.tsx',
+    gate: null,
+    why:
+      'Audited with no yield feed configured, which is this build\'s resting state: every rate, peg and ' +
+      'exit-liquidity cell renders its unavailable branch and the route controls are disabled because no ' +
+      'deposit address is wired. The read/stale branches need a hosted feed this sweep cannot produce and ' +
+      'are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/copy-trading',
+    owner: 'pages/CopyTradingPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured and no wallet, which is this build\'s resting state: all three ' +
+      'panels render their "could not be read" notice and NO table is drawn — the follow board, the mirror ' +
+      'queue and the personal fill history are each absent rather than empty. The follow form is the only ' +
+      'live control (it writes to localStorage and needs no chain). The ready/backfilling boards, the mirror ' +
+      'plans and their refusals, and the realised entry-lag figures need a hosted indexer this sweep cannot ' +
+      'produce and are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/competitions',
+    owner: 'pages/CompetitionsPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured, so the standings notice is the page and the table is not rendered ' +
+      'at all. The season picker and the scoring rules render from lib/competitions and are fully audited; ' +
+      'the ranked board, the wash-strike counts and the truncation banner need a hosted indexer this sweep ' +
+      'cannot produce and are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
     path: '/trade',
     owner: 'App.tsx',
     gate: 'redirect',
@@ -439,6 +474,17 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/chart',
+    owner: 'components/chart/ChartPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured, which is this build\'s only reachable state: the pool ' +
+      'picker and the chart status banner both say they could not read, and no SVG plot is ' +
+      'rendered at all. The ready surface (candles, gap columns, coverage lines) needs a hosted ' +
+      'indexer this sweep cannot produce and is covered by unit tests.',
+    knownViolations: [],
+  },
+  {
     path: '/alerts',
     owner: 'pages/AlertsPage.tsx',
     gate: null,
@@ -460,6 +506,30 @@ export const ROUTES: readonly RouteSpec[] = [
       'read rather than rendering an empty figure. The verdict states (qualified / below-threshold / ' +
       'unknown), the claim states and the code-store states need a connected wallet and a server answer ' +
       'this sweep cannot produce; they are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/checkout',
+    owner: 'pages/CheckoutPage.tsx',
+    gate: null,
+    why:
+      'Audited on the "Get paid" tab with no wallet and no invoice on the URL, which is where a merchant ' +
+      'arriving cold lands: the publish form renders with its validation reasons and the callback ' +
+      'no-retry notice, and the publish button is disabled because there is no signed-in wallet to name as ' +
+      'payee. The buyer-side surfaces — the pre-sign disclosure, every refusal in buildSettlementPlan, and ' +
+      'the store\'s schema-missing / not-found branches — need a published invoice and a live quote this ' +
+      'sweep cannot produce and are covered by unit tests instead.',
+    knownViolations: [],
+  },
+  {
+    path: '/tax',
+    owner: 'pages/TaxPage.tsx',
+    gate: null,
+    why:
+      'Audited with no indexer configured and no wallet, which is this build\'s resting state: the report ' +
+      'renders its INCOMPLETE standing line, the whole requested period as a single coverage gap, and no ' +
+      'disposal or income table at all. The priced surfaces (matched lots, per-method totals, the three ' +
+      'exports) need either a hosted indexer or a pasted lot sheet, and both are covered by unit tests.',
     knownViolations: [],
   },
   { path: '/developers', owner: 'pages/DeveloperPage.tsx', gate: null, knownViolations: [] },

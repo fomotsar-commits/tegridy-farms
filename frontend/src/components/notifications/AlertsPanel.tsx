@@ -6,6 +6,7 @@ import { describeRule } from '../../lib/alerts/rules';
 import { AlertRuleBuilder } from './AlertRuleBuilder';
 import { DeliveryChannelNotice } from './DeliveryChannelNotice';
 import { NotificationInbox } from './NotificationInbox';
+import { TelegramLinkPanel } from '../bot/TelegramLinkPanel';
 
 // Composition root for the alerts surface: rule store → evaluation loop → inbox.
 //
@@ -66,6 +67,12 @@ export function AlertsPanel() {
       />
 
       <DeliveryChannelNotice channels={inbox.channels} delivery={alerts.delivery} />
+
+      {/* Sits under the delivery notice because it answers the question that notice
+          raises: Telegram is the channel users expect to receive alerts on, and the
+          panel's job is partly to say that it does not — no keeper exists, so a
+          linked chat is a place to ASK from, not a place things arrive. */}
+      <TelegramLinkPanel />
     </div>
   );
 }

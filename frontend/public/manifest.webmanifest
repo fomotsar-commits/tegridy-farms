@@ -1,8 +1,10 @@
 {
   "name": "Tegridy Farms",
   "short_name": "Tegridy",
+  "id": "/",
   "description": "Swapping, staking, farming and NFT finance on Ethereum, plus token launches and swaps on Solana",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#060c1a",
   "theme_color": "#060c1a",

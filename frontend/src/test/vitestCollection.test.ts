@@ -13,13 +13,21 @@
 //
 // The second half matters just as much: `root` is frontend/, so nothing above
 // it can EVER be collected, whatever the glob says. Repo-root scripts/ is the
-// live example — those are proven by `--self-test` entry points invoked
-// directly from ci.yml, not by unit tests. That constraint is asserted below
-// so it stays a documented boundary rather than a trap someone rediscovers.
+// live example — those are proven by `--self-test` entry points and `node --test`
+// steps invoked directly from ci.yml, not by unit tests. That constraint is
+// asserted below so it stays a documented boundary rather than a trap someone
+// rediscovers.
+//
+// One more level up, added after the accounting was found to be technically true
+// and practically empty: naming a runner is not coverage unless that runner runs
+// when a change is made. contracts/monitoring/ and scripts/monitoring/ were
+// accounted for by a workflow with no `pull_request` trigger, so 48 tests gave a
+// verdict on zero pull requests while every check here stayed green. Every
+// workflow cited as a runner is now asserted to have a pull-request trigger.
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, sep } from 'node:path';
 
@@ -32,11 +40,18 @@ const TEST_FILE = /\.test\.(js|jsx|mjs|cjs|ts|tsx)$/;
  * Paths that hold test files run by something OTHER than this vitest project.
  * Each entry needs a runner named in the comment — "it is fine" is how a file
  * ends up running nowhere.
+ *
+ * Cite the runner's workflow FILENAME in the `runner` string wherever CI is what
+ * executes it. That is not decoration: the checks below parse those filenames
+ * back out and assert the workflow exists AND has a pull-request trigger. An
+ * entry that deliberately has no CI runner must say `not executed here`.
  */
 const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   // Playwright. Specs are `.spec.ts`; the directory is listed so a `.test.ts`
   // helper landing there is accounted for rather than silently jsdom'd.
-  { prefix: 'frontend/e2e/', runner: 'playwright (npm run test:e2e / npm run e2e)' },
+  // ci.yml runs it in the "Run E2E Tests" step (and the money paths again in
+  // "Money-path E2E against an Anvil mainnet fork").
+  { prefix: 'frontend/e2e/', runner: "playwright (ci.yml 'Run E2E Tests', npm run e2e)" },
   // ts-mocha under anchor, executed by .github/workflows/solana-ci.yml.
   { prefix: 'solana/', runner: 'ts-mocha via anchor (solana-ci.yml)' },
   // The Solana indexing leg. Same vitest binary as this project — it is
@@ -45,20 +60,29 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   //   npx vitest run --root ../indexer-solana --environment node
   // ci.yml runs exactly that in the "Solana indexer unit tests" step.
   { prefix: 'indexer-solana/', runner: "vitest --root ../indexer-solana (ci.yml 'Solana indexer unit tests')" },
+  // The Telegram bot. Same arrangement and the same reason as indexer-solana: a
+  // long-running service outside frontend/, so no include glob here can reach it.
+  //   npx vitest run --root ../bot --environment node
+  // ci.yml runs exactly that in the "Telegram bot unit tests" step. Note that the
+  // bot's NON-CUSTODIAL guard deliberately does NOT live there — it is
+  // api/__tests__/bot-noncustodial.test.js, collected by this project, so a change
+  // to the API or the migration cannot skip it.
+  { prefix: 'bot/', runner: "vitest --root ../bot (ci.yml 'Telegram bot unit tests')" },
   // The arb-linkage monitor and its pause consumer. Plain `node --test`, not
   // vitest: they are operational scripts that must run on a bare runner with no
-  // frontend toolchain. TWO workflows run them, and both entries are load-bearing:
-  //   ci.yml — the PR gate. This is the one that makes a break fail the PR that
-  //     caused it. It was missing until 2026-08-21, and its absence was invisible
-  //     because the monitor below satisfied the "has a runner" claim on its own.
-  //   arb-linkage-monitor.yml:163 — the scheduled monitor, which re-runs them in
-  //     the same job as the probe, deliberately AFTER the reporting steps so a
-  //     regressed assertion reddens the run without suppressing an alert. Kept
-  //     even though ci.yml covers the same files: a verdict about live money
-  //     produced by an unverified rule is worth less than no verdict.
-  // The cron cannot substitute for the gate — see the pull_request assertion below.
-  { prefix: 'contracts/monitoring/', runner: 'node --test (ci.yml PR gate + arb-linkage-monitor.yml cron)' },
-  { prefix: 'scripts/monitoring/', runner: 'node --test (ci.yml PR gate + arb-linkage-monitor.yml cron)' },
+  // frontend toolchain.
+  //   node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
+  // ci.yml runs exactly that in the "Monitoring rule unit tests" step. The tests
+  // are pure — no chain read, no secrets — so they cost a PR nothing.
+  //
+  // arb-linkage-monitor.yml runs the SAME command on its */15 cron, after the
+  // reporting steps, so a live verdict is never produced by an unverified rule.
+  // It is deliberately NOT the runner cited here: it triggers on `schedule` +
+  // `workflow_dispatch` only, and GitHub disables schedules after 60 days of
+  // repository inactivity. A runner that can switch itself off, in a workflow no
+  // pull request ever reaches, is the exact hole these entries used to have.
+  { prefix: 'contracts/monitoring/', runner: "node --test (ci.yml 'Monitoring rule unit tests')" },
+  { prefix: 'scripts/monitoring/', runner: "node --test (ci.yml 'Monitoring rule unit tests')" },
   // Vendored dependency trees. Not ours, not our runner's problem.
   { prefix: 'contracts/lib/', runner: 'upstream vendored dependency (not executed here)' },
 ];
@@ -78,6 +102,38 @@ const collectedByVitest = (repoRelative: string): boolean => {
     '.vercel/', 'public/', 'supabase/', 'plan/', 'plan_input/',
   ];
   return !EXCLUDED.some((p) => inProject.startsWith(p));
+};
+
+/** Workflow filenames cited inside a runner string, e.g. "…(ci.yml 'Unit Tests')". */
+const workflowsCitedIn = (runner: string): string[] => runner.match(/[\w.-]+\.ya?ml/g) ?? [];
+
+/**
+ * Does this workflow run on pull requests?
+ *
+ * A deliberately narrow scan rather than a YAML dependency — frontend/ has no
+ * yaml parser and adding one to prove a two-line fact is a poor trade. Find the
+ * top-level `on:` key, then look for a `pull_request` key nested directly under
+ * it. Blank and comment-only lines never end the block; the next column-0 key
+ * does. `pull_request_target` deliberately does NOT count: it runs with base-repo
+ * write scope and is not something this guard should quietly bless.
+ */
+const runsOnPullRequest = (yaml: string): boolean => {
+  let inOn = false;
+  for (const raw of yaml.split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    if (!inOn) {
+      const m = /^["']?on["']?:\s*(.*)$/.exec(line);
+      if (!m) continue;
+      // Inline forms: `on: pull_request`, `on: [push, pull_request]`
+      if (m[1].trim()) return /(?:^|[[,\s])pull_request(?:$|[\],\s])/.test(m[1]);
+      inOn = true;
+      continue;
+    }
+    if (/^\S/.test(line)) return false; // a new top-level key: the on: block ended
+    if (/^\s{1,4}pull_request\s*:/.test(line)) return true;
+  }
+  return false;
 };
 
 describe('every test file in this repo has a runner', () => {
@@ -114,53 +170,78 @@ describe('the frontend vitest project cannot reach outside frontend/', () => {
     expect(here).toBe('frontend');
   });
 
-  it('proves the node --test entries run on the PR gate, not only on a cron', () => {
+  it('proves the node --test entries actually name files their workflow runs', () => {
     // An OTHER_RUNNERS entry is a CLAIM that something else executes these
     // files, and an unverified claim is how a test file goes quiet while
     // still looking accounted for — the precise failure this guard exists to
-    // prevent, relocated one level up. Two things have to hold.
+    // prevent, relocated one level up. The workflow must invoke each file by
+    // name; a glob would not survive a rename, and neither would the coverage.
     //
-    // FIRST, a workflow must invoke each file BY NAME. A glob would not survive
-    // a rename, and neither would the coverage.
+    // The workflow is read back OUT of the runner string rather than hardcoded,
+    // so moving the invocation and updating the entry keeps this honest instead
+    // of pointing the check at a file that no longer runs anything.
+    const entries = OTHER_RUNNERS.filter((r) => r.runner.startsWith('node --test'));
+    expect(entries.length, 'no entry claims node --test any more — did a prefix lose its runner?')
+      .toBeGreaterThan(0);
+    const tracked = gitTrackedTestFiles();
+    for (const entry of entries) {
+      const cited = workflowsCitedIn(entry.runner);
+      expect(cited.length, `${entry.prefix} claims node --test but cites no workflow`).toBeGreaterThan(0);
+      const files = tracked.filter((f) => f.startsWith(entry.prefix));
+      expect(files.length, `${entry.prefix} is accounted for but holds no tracked test files`)
+        .toBeGreaterThan(0);
+      for (const name of cited) {
+        const wf = join(REPO_ROOT, '.github', 'workflows', name);
+        expect(existsSync(wf), `${name} is cited as a runner but missing`).toBe(true);
+        const src = readFileSync(wf, 'utf-8');
+        expect(src, `${name} no longer invokes node --test`).toContain('node --test');
+        for (const f of files) {
+          expect(src, `${f} is accounted for by ${name} but not named in it`).toContain(f);
+        }
+      }
+    }
+  });
+
+  it('proves every workflow cited as a runner actually runs on pull requests', () => {
+    // THE HOLE THIS CLOSES, in full.
     //
-    // SECOND — and this is what the original version of this test missed — at
-    // least one workflow naming it must fire on `pull_request`. Until 2026-08-21
-    // the only runner was arb-linkage-monitor.yml, which is `schedule` +
-    // `workflow_dispatch` only. That satisfies "has a runner" while leaving the
-    // PR that breaks the rule green, and GitHub disables schedules outright in a
-    // repository idle for 60 days, at which point the coverage lapses with
-    // nothing going red. Coverage that can expire quietly is the same ghost
-    // condition this file exists to catch, wearing a workflow for a costume.
-    const monitoring = gitTrackedTestFiles().filter(
-      (f) => f.startsWith('contracts/monitoring/') || f.startsWith('scripts/monitoring/'),
-    );
-    expect(
-      monitoring.length,
-      'no monitoring test files matched — this assertion has drifted off its subject and is proving nothing',
-    ).toBeGreaterThan(0);
-
-    const dir = join(REPO_ROOT, '.github', 'workflows');
-    const workflows = readdirSync(dir)
-      .filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))
-      .map((n) => ({ name: n, src: readFileSync(join(dir, n), 'utf-8') }));
-
-    // `on:` at column 0, then a two-space `pull_request:` key under it. Matching
-    // the bare word anywhere would be satisfied by the word in a comment.
-    const firesOnPullRequest = (src: string): boolean =>
-      /^on:/m.test(src) && /^ {2}pull_request:/m.test(src);
-
-    for (const f of monitoring) {
-      const named = workflows.filter((w) => w.src.includes('node --test') && w.src.includes(f));
+    // contracts/monitoring/ and scripts/monitoring/ were accounted for by
+    // arb-linkage-monitor.yml, whose triggers are `schedule` and
+    // `workflow_dispatch` — no pull_request, no push. The check above passed the
+    // whole time and was telling the truth: the files WERE named in that
+    // workflow. 48 tests still returned a verdict on zero pull requests, and a
+    // GitHub schedule disabled for 60 days of inactivity would have taken them
+    // to zero runs of any kind with nothing here going red.
+    //
+    // Naming a runner is not coverage. The runner has to run when the code
+    // changes, and only a pull-request trigger guarantees that.
+    const cited = [...new Set(OTHER_RUNNERS.flatMap((r) => workflowsCitedIn(r.runner)))];
+    expect(cited.length, 'no OTHER_RUNNERS entry cites a workflow at all').toBeGreaterThan(0);
+    for (const name of cited) {
+      const wf = join(REPO_ROOT, '.github', 'workflows', name);
+      expect(existsSync(wf), `${name} is cited as a runner but does not exist`).toBe(true);
       expect(
-        named.map((w) => w.name),
-        `${f} is accounted for in OTHER_RUNNERS but no workflow invokes it by name`,
-      ).not.toEqual([]);
-      expect(
-        named.some((w) => firesOnPullRequest(w.src)),
-        `${f} is named only by workflows that never fire on a pull request ` +
-          `(${named.map((w) => w.name).join(', ')}) — a break in it merges green and surfaces ` +
-          'later on a cron, if the schedule is even still enabled',
+        runsOnPullRequest(readFileSync(wf, 'utf-8')),
+        `${name} is cited as the runner for test files that this project does not collect, ` +
+          'but it has no pull_request trigger. Every test it accounts for is invisible to ' +
+          'code review: a PR that breaks them merges green.',
       ).toBe(true);
+    }
+  });
+
+  it('proves an entry with no CI workflow says why it has none', () => {
+    // The escape hatch from the check above is "cite no workflow", so it has to
+    // cost something. An entry with no workflow must state that nothing executes
+    // these files, which is a claim a reader can weigh — unlike a runner string
+    // that merely sounds like a pipeline.
+    for (const r of OTHER_RUNNERS) {
+      if (workflowsCitedIn(r.runner).length > 0) continue;
+      expect(
+        r.runner,
+        `OTHER_RUNNERS entry "${r.prefix}" cites no workflow and does not say the files are ` +
+          'unexecuted, so nothing distinguishes it from coverage that quietly does not exist. ' +
+          'Name the workflow that runs them, or say "not executed here" and mean it.',
+      ).toContain('not executed here');
     }
   });
 

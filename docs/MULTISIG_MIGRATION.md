@@ -266,6 +266,26 @@ done
 
 **Zero MISMATCH lines.** Any mismatch means that contract was missed in the batch and must be re-accepted via a follow-up Safe tx within the 14-day window.
 
+### 6.4 TegridyFactory — a different model, and an order you cannot reverse
+
+The factory is not in the `acceptOwnership` batch. It is not `Ownable2Step`; its owner-equivalent role is `feeToSetter`, and it carries a second role — `guardian` — that holds `emergencyDisablePair` (instant, no timelock). Both have to land on multisigs, and **the guardian move must come after the setter move.**
+
+`acceptFeeToSetter` force-cancels any pending `GUARDIAN_CHANGE` queued by the *outgoing* setter ([TegridyFactory.sol:396-401](../contracts/src/TegridyFactory.sol#L396-L401), audit F-30-10). The intent is protective — a captured setter must not be able to leave a hostile guardian rotation armed for the incoming one to trip over. The consequence for a migration is that any guardian change queued before the Safe accepts is silently gone by the time the Safe could execute it, and `executeGuardianChange()` reverts `NoPendingProposal`. Only the setter-of-record can propose a guardian change, so the Safe has to propose its own and serve the full 48h.
+
+| # | Caller | Call | Then wait |
+|---|---|---|---|
+| 1 | deployer EOA | `cancelGuardianChange()` / `cancelFeeToSetterProposal()` — only if the slots are occupied | — |
+| 2 | deployer EOA | `proposeFeeToSetter(<Safe>)` | 24h, then a 7-day acceptance window |
+| 3 | **Safe** | `acceptFeeToSetter()` | — force-cancels any queued `GUARDIAN_CHANGE` |
+| 4 | **Safe** | `proposeGuardianChange(<pauseGuardian Safe>)` | 48h |
+| 5 | **Safe** | `executeGuardianChange()` | — |
+
+Read `feeToSetter()`, `pendingFeeToSetter()`, `feeToSetterChangeTime()`, `guardian()` and `pendingGuardian()` on-chain before step 1. An **expired** proposal still occupies its slot — `TimelockAdmin._propose` rejects on `_executeAfter[key] != 0` without consulting expiry — so a lapsed proposal from an old deploy blocks a fresh one until it is explicitly cancelled.
+
+`<pauseGuardian Safe>` must have code length neither 0 nor 23; `proposeGuardianChange` rejects plain EOAs and EIP-7702-delegated EOAs.
+
+> **Fresh deploys skip 4 and 5 entirely.** `script/DeployMVP.s.sol` constructs `TegridyFactory` with the PAUSE_GUARDIAN Safe as `_guardian`, so there is no rotation to sequence and no window in which the deployer EOA holds pair-disable power. The five steps above are the recovery path for a factory deployed before that change.
+
 ---
 
 ## 7. Admin sister contracts
@@ -357,6 +377,7 @@ The pending owner slot zeros automatically (per `ownershipTransferExpiresAt` log
 - [ ] [§3](#3-safe-deployment): Safe deployed + smoke-tested
 - [ ] [§5](#5-the-migration-script): TransferOwnership script broadcast, all 22 contracts in `pendingOwner = multisig` state
 - [ ] [§6](#6-multisig-accepts-ownership): Multisig `acceptOwnership` batch executed; zero MISMATCH in [§6.3](#63-verify)
+- [ ] [§6.4](#64-tegridyfactory--a-different-model-and-an-order-you-cannot-reverse): TegridyFactory `feeToSetter()` == the Safe **and** `guardian()` == the pauseGuardian Safe — the guardian change proposed *after* the acceptance, not before
 - [ ] [§7](#7-admin-sister-contracts): Both admin sister contracts deployed, proposed, executed (7-day wait), and themselves migrated
 - [ ] [§8.1](#81-negative-test--deployer-can-no-longer-admin): Negative test passes (deployer cannot admin)
 - [ ] [§8.2](#82-positive-test--multisig-can-admin): Positive test passes (multisig can admin)

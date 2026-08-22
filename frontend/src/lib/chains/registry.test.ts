@@ -9,6 +9,7 @@ import {
   isChainConfigured,
   unconfiguredChainLabel,
 } from './registry';
+import type { ChainConfig } from './types';
 import {
   CHAIN_ID,
   SWAP_FEE_ROUTER_ADDRESS,
@@ -131,7 +132,12 @@ describe('the fee-sink kind is what decides whether "yield" is a true word', () 
     // lands elsewhere. This asserts the function reads `feeSink`, so such a chain
     // cannot be added and read as yield-bearing by default.
     const mainnet = getChainConfig(1)!;
-    const remittanceChain = { ...mainnet, id: BASE, feeSink: 'remittance' as const };
+    // Typed as `ChainConfig`, not left to infer from `'remittance' as const`.
+    // Inferred, `feeSink` had the single literal type `'remittance'`, so the
+    // `=== 'distributor'` below was a comparison the compiler could settle on its
+    // own — the whole expression folded to a literal `false` and the assertion
+    // was `expect(false).toBe(false)`, which is true of any program.
+    const remittanceChain: ChainConfig = { ...mainnet, id: BASE, feeSink: 'remittance' };
     expect(remittanceChain.feeSink === 'distributor' && remittanceChain.capabilities.stakerYield).toBe(false);
   });
 });

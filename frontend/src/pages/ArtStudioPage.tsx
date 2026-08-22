@@ -63,6 +63,7 @@ const PAGE_ROUTES: Record<string, string> = {
   'upcoming-pools': '/farm',
   trade: '/swap',
   'liquidity-tab': '/liquidity',
+  yield: '/yield',
   'nft-finance': '/nft-finance',
   'nft-lending': '/nft-finance',
   'lending-section': '/nft-finance',
@@ -91,6 +92,8 @@ const PAGE_ROUTES: Record<string, string> = {
   exposure: '/exposure',
   scan: '/scan',
   gallery: '/gallery',
+  checkout: '/checkout',
+  tax: '/tax',
   // pageId 'swap' is the Solana swap page; the EVM one is pageId 'trade'.
   // Modals render over any route; home is just somewhere to load.
   'nav-drawer': '/',
@@ -159,6 +162,7 @@ const SURFACES: Surface[] = [
   { group: 'Trade', pageId: 'trade', idx: 3, label: 'TR4 — Limit Order tab' },
   { group: 'Trade', pageId: 'liquidity-tab', idx: 0, label: 'TRL1 — Liquidity header' },
   { group: 'Trade', pageId: 'liquidity-tab', idx: 1, label: 'TRL2 — Liquidity pool card' },
+  { group: 'Trade', pageId: 'yield', idx: 0, label: 'YR1 — Yield routing backdrop' },
 
   // NFT Finance
   { group: 'NFT Finance', pageId: 'nft-finance', idx: 0, label: 'NF1 — Page bg' },
@@ -316,7 +320,12 @@ const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'deployer',         idx: 0, label: 'TT2 — Deployer Graph backdrop' },
   { group: 'Trust tools',   pageId: 'wallet-exposure',  idx: 0, label: 'TT3 — Wallet Exposure backdrop' },
   { group: 'Trust tools',   pageId: 'alerts',           idx: 0, label: 'TT4 — Alerts backdrop' },
+  { group: 'Trust tools',   pageId: 'chart',            idx: 0, label: 'TT5 — Pro Charting backdrop' },
   { group: 'Engage',        pageId: 'referrals',        idx: 0, label: 'EN1 — Referrals backdrop' },
+  { group: 'Engage',        pageId: 'copy-trading',     idx: 0, label: 'EN2 — Copy Trading backdrop' },
+  { group: 'Engage',        pageId: 'competitions',     idx: 0, label: 'EN3 — Competitions backdrop' },
+  { group: 'Engage',        pageId: 'checkout',         idx: 0, label: 'EN4 — Checkout backdrop' },
+  { group: 'Stats',         pageId: 'tax',              idx: 0, label: 'ST1 — Tax Reports backdrop' },
   { group: 'Launch & Solana', pageId: 'launch',           idx: 0, label: 'LS1 — Launch rail backdrop' },
   { group: 'Launch & Solana', pageId: 'launch-simulator', idx: 0, label: 'LS2 — Launch Simulator backdrop' },
   { group: 'Launch & Solana', pageId: 'airdrop',           idx: 0, label: 'LS2d — Airdrop campaigns backdrop' },

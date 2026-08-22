@@ -62,7 +62,11 @@ describe('there is exactly one fee dial, and the zap is not it', () => {
   const OWNED = [join(src, 'lib', 'zap'), join(src, 'components', 'zap')];
 
   function walk(dir: string, acc: string[] = []): string[] {
-    let entries: ReturnType<typeof readdirSync>;
+    // `string[]`, not `ReturnType<typeof readdirSync>`: `readdirSync` is
+    // overloaded and `ReturnType` resolves to the LAST overload
+    // (`Dirent<NonSharedBuffer>[]`), which is not what the no-options call below
+    // returns — and every `join(dir, name)` under it was typed against a Dirent.
+    let entries: string[];
     try {
       entries = readdirSync(dir);
     } catch {

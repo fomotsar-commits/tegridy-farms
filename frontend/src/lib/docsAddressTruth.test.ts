@@ -253,7 +253,11 @@ describe('the one-shot setGaugeController argument is a live controller', () => 
   for (const name of Object.keys(DOCS)) {
     it(`${name} never names a superseded controller as the argument`, () => {
       for (const line of argLines(name)) {
-        const bad = (line.match(ADDR_RE) ?? []).filter((a) => SUPERSEDED[a.toLowerCase()]);
+        // Annotated so the no-match fallback is `string[]` and not `never[]`:
+        // `RegExpMatchArray | never[]` gives `.filter` a `never` callback
+        // parameter, and every string method on it is an error.
+        const matches: string[] = line.match(ADDR_RE) ?? [];
+        const bad = matches.filter((a) => SUPERSEDED[a.toLowerCase()]);
         expect(bad, `${name}: ${bad.join(', ')} is superseded`).toEqual([]);
         // Tolerates the elided form `0x6c79522D…1054` used in table cells.
         expect(line.toLowerCase()).toContain(LIVE_GAUGE_CONTROLLER.slice(0, 10).toLowerCase());

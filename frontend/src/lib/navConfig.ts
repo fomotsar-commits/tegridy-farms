@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { isSolanaConfigured } from './solana';
 import { isIndexerConfigured } from './indexer/client';
+import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
 import { isSolanaSubmitReady } from './launcher/solana/dbc';
 
@@ -186,6 +187,58 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // PARTICULAR wallet earns. That depends on the splitter's staking threshold, is a
       // per-wallet on-chain read, and is disclosed on the page above the share controls.
       { to: '/referrals', label: 'Referrals' },
+      // Yield Routing compares THIRD-PARTY liquid staking and stablecoin lending
+      // venues. It sits in Engage rather than Stats because what a visitor does here
+      // is choose between other people's protocols, which is an action, not a metric
+      // about ours.
+      //
+      // PILLED, and keyed to the only condition the label is about. The entry names
+      // ROUTING, and `hasRoutableYieldVenue()` is false because every deposit target
+      // in lib/yield/venues.ts is the zero address — so the pill is a computed fact,
+      // not a hardcoded one, and it self-clears the moment an operator wires a
+      // destination. navConfig.test.ts pins the precondition separately so wiring one
+      // fails that assertion first and forces this comment to be re-read.
+      //
+      // Deliberately NOT keyed to the yield feed. A configured feed with no wired
+      // destination is a working comparison table and a router that cannot route,
+      // which is exactly the /solana-launch bug — a pill that clears on a flag while
+      // the advertised action stays impossible.
+      { to: '/yield', label: 'Yield Routing', soon: !hasRoutableYieldVenue() },
+      // Copy Trading and Competitions. Both read the F1 indexer and nothing else, so
+      // both pills are keyed to the one input that decides whether either can do the
+      // thing its label names: VITE_INDEXER_URL. Without it there is no trade history
+      // to follow and no swaps to score, and each page says exactly that instead of
+      // drawing an empty board.
+      //
+      // Same self-clearing condition as /terminal below, and deliberately NOT a
+      // separate flag: a flag can be true while the feed is unreachable, which is the
+      // state a pill exists to describe rather than to hide.
+      //
+      // What these entries do NOT promise, and must not be edited to: that a follow
+      // executes anything — there is no keeper, so the user places every mirror — or
+      // that a season pays, since no prize pool, escrow or settlement exists. Both
+      // pages state those from the modules that enforce them.
+      { to: '/copy-trading', label: 'Copy Trading', soon: !isIndexerConfigured() },
+      { to: '/competitions', label: 'Competitions', soon: !isIndexerConfigured() },
+      // Merchant checkout. PILLED, AND IT CANNOT SELF-CLEAR — the same shape as
+      // /alerts above and for the same reason: the invoice store lives behind
+      // `021_commerce.sql`, a migration applied BY HAND, so until an operator runs it
+      // every lookup answers 503 `schema-missing`, no invoice can be published, and no
+      // payment link can resolve. Unlike /solana-launch (a flag plus a published config,
+      // both readable in the browser) there is no client-readable signal for "the table
+      // exists": it is a server fact that arrives with the first read. Hence a hardcoded
+      // `true`, like /alerts and /curve-launch, rather than a condition.
+      //
+      // Deliberately NOT keyed to a feature flag. The page's honesty — the exact amount
+      // and exact settlement asset shown before signing, and NO signature offered when
+      // the route cannot guarantee the merchant's amount — is the product, and a flag
+      // would hide the one state it can currently be in.
+      //
+      // What this entry does NOT promise, and must not be edited to: that this venue
+      // executes the swap leg. lib/aggregator.ts is quote-only here, so the checkout
+      // signs the exact transfer and states that step 1 happens on the trade surface.
+      // Remove the pill when 021 is applied — navConfig.test.ts holds you to the reason.
+      { to: '/checkout', label: 'Checkout', soon: true },
     ],
   },
   {
@@ -193,6 +246,17 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/tokenomics', label: 'Tokenomics' },
       { to: '/treasury',   label: 'Treasury' },
+      // Tax reports read the F1 indexer and nothing else, so the pill is keyed to the one
+      // input that decides whether the entry can do the thing it names — build a report
+      // FROM YOUR HISTORY. Without VITE_INDEXER_URL nothing of anyone's history is read
+      // and the whole requested period is a declared gap on the export.
+      //
+      // The paste-your-own-lots path on that page works with no indexer at all and is
+      // genuinely useful, but it is the filer's own records rather than history this
+      // venue read, so it does not clear this pill. Same self-clearing condition as
+      // /terminal and /chart, and deliberately not a separate flag: a flag can be true
+      // while the feed is unreachable, which is the state a pill exists to describe.
+      { to: '/tax', label: 'Tax Reports', soon: !isIndexerConfigured() },
     ],
   },
   // The three detection surfaces are the protocol's one genuine differentiator and
@@ -217,6 +281,14 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // separate flag, because a flag could be set true while the feed stays
       // unreachable, which is the state this pill exists to describe.
       { to: '/terminal', label: 'Pro Terminal', soon: !isIndexerConfigured() },
+      // Pro Charting reads the SAME indexer as the terminal above — candles are
+      // derived from its `pair_event` swap rows — so it sits beside it rather
+      // than beside Trade, and its pill is keyed to the identical input for the
+      // identical reason. Two entries pilled by one condition is correct here:
+      // VITE_INDEXER_URL is the single fact that decides whether either surface
+      // can read anything, and pilling only one of them would suggest the other
+      // has a data path it does not have.
+      { to: '/chart', label: 'Pro Charting', soon: !isIndexerConfigured() },
       // Alerts belongs to this section rather than to Engage or Stats: four of its five
       // rule kinds watch exactly what the tools above read on demand (whale moves, a
       // deployer's reputation band, an LP unlock, a launch going live), on ANY token or

@@ -54,13 +54,25 @@ public/service-role. The migration is safe exactly as written.
 browser-blocks Pro Pass collection creation, the write-proxy repoint, and the analytics endpoint.
 `VITE_*` variables are baked in at build time, so setting one without redeploying changes nothing.
 
-### 0.3 Name the Safe topology
-**What:** pick **8 keys** (2-of-3 Admin / 2-of-3 Treasury / 1-of-2 Guardian — recommended),
-or **3 keys** (Admin only, self-held on three separate hardware devices).
-**Why it's free and urgent:** every previous attempt stalled at "we need 15 signers and have 3."
-The 15 is the problem, not the recruiting. Naming a reachable number unblocks the longest
-dependency chain in the repo: signer recruitment → Safe deployment → 18 ownership transfers →
-the audits, the governance un-gates, and the lending deploy that all wait behind it.
+### 0.3 The Safe topology — ⏸️ OPERATOR HAS DEFERRED THIS. Do not re-raise it.
+
+**Instruction on the record, 2026-08-21: leave the Safe situation alone.** It is not an open
+question waiting on an answer, and no session should reopen it, propose topologies, or fold it
+into a plan as a blocker. Custody stays as it is until the operator says otherwise.
+
+The facts below are kept ONLY so nothing is lost if that changes. They are not an argument, and
+they are not a to-do:
+- Ownership currently rests on the deployer key; the ownership-migration chain (signer set → Safe
+  deployment → 18 `transferOwnership`/`acceptOwnership` → the audits and governance un-gates that
+  sit behind it) is therefore parked, by choice.
+- `0xA360` (owns NFTPoolFactory) and `0xCDCA` (pause guardian for four fund-touching contracts)
+  are both at nonce 0 — they have never assembled a signature.
+- Two of the three existing signers share one EIP-7702 delegate.
+
+**What is NOT covered by this deferral, because none of it involves a Safe:** the deployer keystore
+backup (0.4 — still the cheapest item on this page against the worst tail), and the
+`INCIDENT_RESPONSE.md` correction at the top of this document, which is about which *function* the
+guardian calls, not about who holds it.
 
 ### 0.4 Back up the deployer keystore + password, offline, two locations
 **Why:** `OwnableNoRenounce` disables renounce. Lose that one file before the ownership migration
@@ -103,21 +115,52 @@ follows 0.1.
 
 ---
 
+### 1.4 Mint DBC config v2 — the cheapest revenue-relevant act on this page
+**What:** run `frontend/scripts/solana-dbc-operator.mjs create-config` — **print it without
+`--send` first**, read the fee split it resolves, then sign.
+**Why it matters:** your Solana rail is armed on mainnet and has taken **zero launches**. The
+reason is config v1: it opens at a **99% fee** (`cliffFeeNumerator` = 990000000), which makes a
+freshly launched token economically untradeable for roughly four hours. A DBC config is
+**immutable**, so this is not a setting you can correct — it needs a v2 config.
+⛔ **Never publish `VITE_SOLANA_DBC_CONFIG` before v2 exists.** Doing so ships public launches
+into that fee.
+**Both code gates are now closed, so nothing blocks you:**
+- `CONFIG_OFFSETS.feeClaimer` **72 → 40** — shipped 2026-08-18 `21835d1d`. This one is
+  load-bearing: on v1 both offsets hold the same key so nothing is exposed, but the moment a v2
+  config is minted, offset 40 is the only thing standing between a mistyped `fee_claimer` and
+  every future launch's partner fees — **and reading the wrong one would report "verified."**
+- `--opening-fee-bps` / `--resting-fee-bps` / `--decay-seconds` — shipped 2026-08-18 `21835d1d`.
+  Without them a signing session silently reproduces `DEFAULT_ANTI_SNIPE` = 9900 bps, which is
+  how v1 got its opening fee in the first place. The resolved schedule now prints in the dry run,
+  and anything above 5000 bps refuses without an explicit acknowledgement flag.
+
+**Why this is on the Tier 1 page at all:** it is independent of the "restart or retire the own-venue
+programs" decision — DBC is Meteora's program, not ours — so it does not wait behind that call.
+Sequence: mint v2 → publish `VITE_SOLANA_DBC_CONFIG` → first public launch through the rail.
+Full tier in [`EVERYTHING_LEFT_2026_08_15.md`](EVERYTHING_LEFT_2026_08_15.md) §4.
+
 ## Tier 2 — switches, all of them deliberately off
 
 Everything below was built, tested, and shipped **inert**. Each line is the exact act that turns
 one on. None of them can turn on by accident, and several are ordered — the order is stated where
 getting it backwards costs you something.
 
-### 2.1 Mount three finished surfaces *(one line each; I could not reach the files)*
-`AlertsPanel`, the trigger-order tab, and the launch-pricing call site all sit outside the
-ownership fences the build slices ran under, so they are complete and unrouted:
-- Alerts: route `src/components/notifications/AlertsPanel.tsx` and add it to `lib/navConfig.ts`.
-- Triggers: add a `trigger` tab to `pages/TradePage.tsx`, mirroring the existing TWAP tab.
-- Launch pricing: thread `pricing` through `pages/LaunchPage.tsx` — until then both fee flags
-  below are inert end-to-end no matter what you set.
-- `/airdrop` and `/vesting` are reachable by URL but not in the nav, which suits rails that are
-  still undeployed. Adding them should be a deliberate act.
+### 2.1 ~~Mount three finished surfaces~~ — ✅ **done, nothing here is yours**
+This section asked you to connect three surfaces I could not reach from inside the build slices'
+ownership fences. All three were mounted in `7ba46691` on 2026-08-19 and verified again
+2026-08-21:
+- **Alerts** — routed at `/alerts` and listed under Trust & Safety in `lib/navConfig.ts`. It
+  carries `soon: true` until migration `016` is applied by hand, because until then the store
+  answers 503 `schema-missing`.
+- **Triggers** — `'trigger'` is in the `Tab` union and `VALID_TABS` on `pages/TradePage.tsx`, with
+  its panel mounted alongside TWAP. The tab-button row now maps `VALID_TABS` rather than a second
+  hardcoded literal, which could previously diverge in silence.
+- **Launch pricing** — `readLaunchPricing` is threaded through `pages/LaunchPage.tsx`, so the two
+  fee flags in §2.4 are now live end-to-end once you set them. Before this, they were inert no
+  matter what you set.
+
+Still true and still a deliberate act: `/airdrop` and `/vesting` are reachable by URL but not in
+the nav, which suits rails that are still undeployed.
 
 ### 2.2 Apply two migrations by hand *(this database has no migration ledger)*
 `016_alert_rules.sql` and `017_api_keys.sql`. Both written, neither applied. Until `016` runs,
@@ -167,6 +210,34 @@ whitelist means graduation reverts at pool initialization.
 stores a 32-byte root and no list, so today a claimant must paste JSON the creator hands them.
 Either host manifests (indexer tables, or IPFS/Arweave pinning), or accept the paste flow and say
 so in the UI. Right now the UI is honest about it, which is not the same as it being good.
+
+### 2.7a Migrations, updated — FOUR now, applied in this order
+`016_alert_rules` · `017_api_keys` · `018_airdrop_manifests` · `019_referral_codes` ·
+`020_telegram_links`. All written, none applied. Two things to know:
+- Each surface answers `503 schema-missing` with the migration path attached until you run its
+  file — never a confident empty result. So a surface that looks broken is telling you which
+  migration is missing.
+- `019` and `020` end with `NOTIFY pgrst, 'reload schema'`. Do not stop before that line, or the
+  table will exist while every call insists it does not — the same failure that kept login dark.
+
+### 2.7b Services built and hosted nowhere
+Three now, each with its own runbook, each deployed by you:
+- **The indexer** — `indexer/DEPLOY.md`. Still the biggest single unlock: the terminal,
+  copy-trading, competitions, charting and tax reports all read through it and all currently say
+  "unavailable" rather than rendering an empty result.
+- **The Solana indexing leg** — same host, runs beside the Ponder app.
+- **The Telegram bot** — `bot/DEPLOY.md`. Zero npm dependencies on purpose, so no postinstall in
+  any dependency tree can reach its secret. It is non-custodial by construction: its credential can
+  bind a chat and can *never* attach a wallet, so a compromised bot host has nothing to spend.
+
+### 2.7c Two boundaries worth knowing before you judge a surface
+- **The terminal will show most rows as UNRATED**, and that is correct. There is no creator lookup:
+  Etherscan's `getcontractcreation` is not in the API's allowed actions, so a token's deployer
+  cannot be resolved automatically. Adding that action is a small change and it is what turns the
+  terminal from honest-but-sparse into the product. Worth doing early.
+- **No leaderboard anywhere shows realised PnL**, because the indexed swap row carries no output
+  amount and no price. It is not caution — the number does not exist in the schema. Adding an
+  output amount to the indexer's swap table is what would make returns computable.
 
 ### 2.7 Branding decision
 The PWA manifest no longer describes a single-chain farming product, but the **name** is still a

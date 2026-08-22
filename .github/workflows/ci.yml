@@ -84,6 +84,19 @@ jobs:
       - name: Solana indexer unit tests
         run: npx vitest run --root ../indexer-solana --environment node
 
+      # bot/ is the same shape as indexer-solana above — a long-running service
+      # outside frontend/, unreachable by this project's include glob — so it gets
+      # its own root and is listed as the runner for `bot/` in
+      # src/test/vitestCollection.test.ts.
+      #
+      # It ships ZERO npm dependencies (the Telegram transport is plain fetch), so
+      # there is nothing to install here and nothing that could reach the bot's
+      # secret through a postinstall. The non-custodial guard itself is NOT in this
+      # step: api/__tests__/bot-noncustodial.test.js runs in the frontend suite so
+      # that an edit to the API or the migration cannot skip it.
+      - name: Telegram bot unit tests
+        run: npx vitest run --root ../bot --environment node
+
       # Every protocol address, decoded rather than eyeballed.
       #
       # 2026-08-08: an operator wallet was recorded in notes only as a truncated
@@ -160,17 +173,38 @@ jobs:
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
 
-      # PR-TIME COVERAGE FOR THE ARB-LINKAGE DECISION RULE.
-      # arb-linkage-monitor.yml runs these same two files, but that workflow is
-      # `schedule` + `workflow_dispatch` only — nothing in it fires on a pull
-      # request. Without this step a PR could break the rule and merge green,
-      # with the failure surfacing up to 15 minutes later on a cron run and
-      # reading as whatever pushed next. Worse, GitHub disables schedules in a
-      # repository idle for 60 days, and that workflow was these files' ONLY
-      # runner. They need no toolchain and take ~130ms, so prove them on the
-      # gate too; the monitor keeps its own copy so a scheduled verdict is never
-      # produced by an unverified rule.
-      - name: Arb-linkage monitor + pause-plan unit tests
+      # THE PULL-REQUEST GATE FOR THE MONITORING RULES.
+      #
+      # contracts/monitoring/lib/arbLinkage.mjs decides whether the arb-linkage
+      # safety condition gating every TWAP-dependent feature holds;
+      # scripts/monitoring/lib/pausePlan.mjs decides what the privileged pause
+      # call would be. Their 48 tests used to execute in exactly one place —
+      # arb-linkage-monitor.yml — which triggers on `schedule` and
+      # `workflow_dispatch` and NOTHING ELSE. Two consequences, both real:
+      #
+      #   * a pull request breaking either rule merged green. The break first
+      #     appeared at the next */15 cron run, detached from the change that
+      #     caused it and attributed to whatever landed most recently.
+      #   * GitHub disables schedules after 60 days of repository inactivity. If
+      #     that fires, those 48 tests stop executing ANYWHERE — and the
+      #     collection guard in frontend/src/test/vitestCollection.test.ts stayed
+      #     green throughout, because it checked the files were NAMED in a
+      #     workflow, not that the workflow ever RUNS.
+      #
+      # These tests are PURE: no chain read, no secrets, no network, no frontend
+      # toolchain — which is why they can sit here and could never have justified
+      # putting `pull_request` on the monitor instead. That workflow's first step
+      # is a live RPC read that opens GitHub issues on HALT/ERROR; triggering it
+      # per-PR would fire live reads and file incidents on every push.
+      #
+      # The monitor still re-runs this same command on its cron (see the comment
+      # on its "Verify the rule that produced the verdict" step). THIS step is the
+      # one vitestCollection.test.ts names as the runner for
+      # contracts/monitoring/ and scripts/monitoring/, because this is the one
+      # that cannot switch itself off.
+      #
+      # `working-directory: .` — these live at the repo root, not in frontend/.
+      - name: Monitoring rule unit tests
         working-directory: .
         run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 

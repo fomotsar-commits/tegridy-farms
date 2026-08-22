@@ -131,12 +131,23 @@ contract VerifyMVPScript is Script {
         // AUDIT FIX 2026-05-26 [H-16]: assert the three factory roles ended
         // up at multisig / revDist / pauseGuardian. Pre-fix, VerifyMVP went
         // green while the deployer EOA STILL controlled the factory because
-        // the post-deploy 48h timelock acceptance (steps 2/3/3b in the
-        // runbook) are MANUAL. This INV catches "operator forgot the
-        // multisig acceptance ceremony" before announce-live.
+        // the post-deploy timelock acceptances (steps 2 and 3 in the runbook)
+        // are MANUAL. This INV catches "operator forgot the multisig
+        // acceptance ceremony" before announce-live.
+        //
+        // INV-11c has no runbook step on a fresh deploy: DeployMVP constructs
+        // TegridyFactory with PAUSE_GUARDIAN as `_guardian`, so this is true the
+        // moment the factory exists. It used to name "runbook step 3b"
+        // (`executeGuardianChange()`), which was UNREACHABLE — audit F-30-10 makes
+        // `acceptFeeToSetter` (step 3) force-cancel the GUARDIAN_CHANGE the deploy
+        // had queued, so step 3b always reverted NoPendingProposal and this
+        // invariant could never go green by following the runbook it cited.
         require(TegridyFactory(factory).feeToSetter() == multisig, "INV-11a: factory.feeToSetter != multisig (runbook step 3 not run)");
         require(TegridyFactory(factory).feeTo() == revDist,        "INV-11b: factory.feeTo != revDist (runbook step 2 not run)");
-        require(TegridyFactory(factory).guardian() == pauseGuardian, "INV-11c: factory.guardian != pauseGuardian (runbook step 3b not run)");
+        require(
+            TegridyFactory(factory).guardian() == pauseGuardian,
+            "INV-11c: factory.guardian != pauseGuardian (fresh deploys set it in the TegridyFactory constructor; on an already-deployed factory the multisig must call proposeGuardianChange AFTER acceptFeeToSetter, wait 48h, then executeGuardianChange - queuing it before the acceptance loses it to F-30-10)"
+        );
         console.log("INV-11: factory rotation finalized ............... OK");
 
         // ─── INV-12: Pending-owner cleared on every owned contract (H-12) ──

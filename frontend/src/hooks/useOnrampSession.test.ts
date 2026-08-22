@@ -30,7 +30,10 @@ function configured(): { transak: ConfiguredOnrampProvider; moonpay: ConfiguredO
 }
 
 function stubFetch(impl: () => Promise<Response> | Response) {
-  const spy = vi.fn(impl);
+  // Typed as `typeof fetch`, not inferred from the zero-argument `impl`:
+  // inferred, `spy.mock.calls[0]` is a zero-length tuple and the request body
+  // this file asserts on below is not reachable from the type system at all.
+  const spy = vi.fn<typeof fetch>(async () => impl());
   vi.stubGlobal('fetch', spy);
   return spy;
 }
@@ -125,7 +128,9 @@ describe('a signing partner is not ready until it has been signed', () => {
     );
     act(() => result.current.prepare());
     await waitFor(() => expect(result.current.state.kind).toBe('ready'));
-    const body = JSON.parse((fetchSpy.mock.calls[0]![1] as RequestInit).body as string);
+    const init = fetchSpy.mock.calls[0][1];
+    expect(init?.body, 'the sign request carried no body').toBeTypeOf('string');
+    const body = JSON.parse(String(init?.body));
     expect(Object.keys(body)).toEqual(['url']);
   });
 });

@@ -56,7 +56,19 @@ export default defineConfig({
     // reduce` — without this, every test sits behind a fullscreen canvas intro
     // for the entire duration. See frontend/src/components/loader/AppLoader.tsx
     // (`shouldSkipAtMount`).
-    reducedMotion: 'reduce',
+    //
+    // This MUST live under `contextOptions`, not at the top level of `use`.
+    // Playwright has no top-level `use.reducedMotion` fixture — the emulation
+    // flag is a `BrowserContextOptions` key, and `use` is typed as
+    // `UseOptions<PlaywrightTestOptions, PlaywrightWorkerOptions>` which does
+    // not accept it. Written at the top level it type-errors (TS2769) and, more
+    // importantly, does nothing at runtime: it is never forwarded to
+    // `browser.newContext()`, so every test really was sitting behind the intro.
+    // The nesting below is Playwright's own documented form for this exact
+    // option (see the `contextOptions` JSDoc in playwright/types/test.d.ts).
+    contextOptions: {
+      reducedMotion: 'reduce',
+    },
   },
   // ───────────────────────────────────────────────────────────────────────
   // THE THREE-DEVICE MATRIX.
