@@ -84,18 +84,68 @@ operator to do the exact thing its own body records as the bug that bricked grad
   whole game: **015 must land first**, or opening login while 21 permissive `qual=true` policies
   are live exposes every user's rows on day one. ⚠️ And 015 only names **12 of the 21** — enumerate
   live-21 against 015's-12 before running either.
-- ✅ `/api/analytics` answers **405 on GET** at both origins, so the route is mounted and
-  POST-only. **I did not re-run the 503 reproduction**: that needs a well-formed POST, and firing
-  a probe event into production analytics is a write I would rather you authorise than assume.
+- 🔴 **`/api/analytics` confirmed: migration 013 is STILL unapplied.** The endpoint has two
+  distinct 503s and the doc had never separated them: `analytics.js:175` returns
+  `"Analytics sink not configured"` (env missing, before any DB call) and `:202` returns
+  `"Analytics sink unavailable"` (the `analytics_events` INSERT itself failed). Probed in two
+  steps, deliberately:
+  1. **A zero-write probe first.** `{"events":[]}` returns at `:180` *before* any insert — it
+     answered **`200 {"accepted":0,"rejected":0}` on both origins**, which rules out the
+     "not configured" branch without writing a single row. Reuse this one freely; it is inert.
+  2. **Then one clearly-marked synthetic event**, which returned **`503 "Analytics sink
+     unavailable"`** — the `:202` branch. The INSERT failed, so **013 is unapplied** and the
+     probe wrote nothing.
+  🔑 **Method worth keeping: migration applied-state was established with no DB credentials**, by
+  reading the API's own error branches. The same trick localised SIWE to 014. Before asking for
+  DB access to answer an applied-state question, check whether a route already distinguishes the
+  failure modes for you.
+  ⚠️ Not re-checked: the client half of that finding — the prod bundle's `flush()` being literally
+  `console.log("[analytics]", …)`. **Both halves were broken on 08-15; only the server half is
+  re-confirmed here**, so fixing 013 alone may still yield no data.
 - ⚠️ **Correcting the probe list itself:** `/api/record` and `/api/births` are **not routes** —
   both 404. They live in `frontend/api/_lib/` and are mounted behind branches of
   `aggregator.js` / `analytics.js` / `orderbook.js` / `supabase-proxy.js`. The repo is at **11
   top-level functions of the Vercel Hobby cap of 12**, which is why. Anyone re-running the 08-15
   probes needs the real query form, not those paths.
 
-**Genuinely still not verified:** the analytics 503 reproduction (needs a POST — see above), the
-migration/DB applied-state items (need a live DB read), env-var docs, external prep, and the
-README native-pool figures. Treat those as 08-15 hypotheses.
+**Env-var docs, re-derived 2026-08-21 — 8 undocumented, 2 dead, and half the undocumented ones
+route money.** `frontend/.env.example` documents 20 `VITE_` vars; the code actually reads 26.
+
+- **Read by the code, absent from `.env.example` (8):** `VITE_SWAP_FEE_BPS`,
+  `VITE_SWAP_FEE_RECIPIENT`, `VITE_SOLANA_FEE_VAULT`, `VITE_ONRAMP_PARTNER_FEE_BPS`,
+  `VITE_COW_STOP_LOSS_HANDLER`, `VITE_INDEXER_URL`, `VITE_ISLAND_KEY_ROUTE`,
+  `VITE_TRIGGER_PRICE_FEEDS`.
+- **Documented but read nowhere (2):** `VITE_0X_API_KEY`, `VITE_ALCHEMY_API_KEY`.
+- ✅ **The good news, and it is the important half: the fee code fails CLOSED, not open.**
+  `lib/fees/swapFee.ts:73-76` — a missing or unparseable bps yields 0, a missing/invalid address
+  yields null, and either one returns `{ enabled: false }`. The zero address is rejected
+  *explicitly*, with the right reason given in the source: several providers read it as
+  "no partner" and silently keep the fee, "which would read on our side as revenue we never
+  earned." **So an unset var cannot misroute a fee to a stranger.**
+- 🔴 **The actual risk is silent revenue loss.** Four money-routing vars are undocumented, so a
+  fresh or re-created deploy omits them, and swap fees are then simply **off** — with nothing
+  logged, nothing surfaced, and the symptom appearing weeks later as "we earned 0". Given
+  [[project_2026_08_02_native_pool_drained]] and the stranded fee rail, that failure mode has a
+  track record here.
+  → **Next step:** document all 8 in `.env.example` (names and semantics — **no values**), delete
+  the 2 dead entries, and add a one-line startup log when `swapFeePolicy()` returns disabled, so
+  "fees are off" is an observation rather than an inference.
+
+⚠️ **Method note on this one: my first pass said 18 undocumented and it was wrong.** A bare grep
+for `VITE_[A-Z_]+` matches *comments*, and three of the hits were exactly that — including
+`VITE_ETHERSCAN_API_KEY`, which survives only in a `HistoryPage.tsx:78` note recording that it
+**was removed** from the client bundle. Reporting that as a live client-exposed key would have
+been a bad call in the other direction. **Match `import.meta.env.VITE_…`, not the bare name.**
+
+✅ **README native-pool figures — CLOSED.** `README.md:101` already carries the corrected
+on-chain reading (146,258 TOWELI + 0.00383 WETH ≈ $14, ~83% of LP burned, LP Farming holding 0
+staked LP), it matches the independent 08-02 record, and it is **explicitly dated** rather than
+asserted as current. The "six times off" in that line refers to the *deepen sizing* being 6×
+undersized — a correction the README already states — not to an error in the figures.
+
+**Genuinely still not verified:** the analytics client-side `flush()`, the remaining
+migration/DB applied-state items beyond 013 and 014, and external prep. Treat those as 08-15
+hypotheses.
 
 ⚠️ **A pattern worth naming, because it showed up in three separate lanes today:** a fixed count
 with changed contents. "LIVE ON MAINNET" is still 5 files, but two were cleaned and the claim
