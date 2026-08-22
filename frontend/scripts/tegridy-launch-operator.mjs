@@ -8,21 +8,34 @@
  * drives lives in `src/lib/launcher/solana/tegridyLaunch.ts` (unit-tested, and its
  * config math diffed against the real `curve.rs` over 50,009 cases).
  *
- * ─── THE PROGRAM IS LIVE ───────────────────────────────────────────────────────
- * DEPLOYED TO MAINNET 2026-08-08 at `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED`
- * (slot 438,055,726) and `initialize_global` has already run. `PROGRAM_ID` in
- * `curve/program.ts` is that address and is what every command here defaults to.
+ * ─── ⛔ THERE IS NO PROGRAM TO DRIVE ───────────────────────────────────────────
+ * `tegridy-launch` was deployed to mainnet 2026-08-08 at
+ * `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` (slot 438,055,726),
+ * `initialize_global` ran, and BOTH that id and the cp-swap fork
+ * `3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` were CLOSED on 2026-08-13. Their
+ * ProgramData accounts return null with 0 lamports on two independent RPCs
+ * (docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). Solana never lets a closed program id
+ * be redeployed, so both are permanently SPENT and every command here refuses them by
+ * default — see `refuseSpentProgramId` below. A restart needs fresh keypairs, new
+ * `declare_id!` values, and re-derivation of every PDA.
  *
- * This header used to say the opposite, and said it for four days after the deploy.
- * It is left visible rather than quietly deleted because a stale "not deployed"
- * banner is not a harmless comment: it tells an operator that a refusal they are
- * looking at is expected, so they stop reading. What is still true is the MECHANISM —
- * every write command READS THE CHAIN FIRST and refuses to build against an address
- * that holds no program. That check is what makes this file's claims self-correcting;
- * the prose is not. Trust `status`, not this paragraph.
+ * This banner has been wrong in both directions: it read "not deployed" for four days
+ * after the deploy, then "THE PROGRAM IS LIVE" for nine days after the close. A stale
+ * banner is not a harmless comment either way — it tells an operator which refusals to
+ * expect, so they stop reading the real one. The MECHANISM is what to trust: every
+ * write command reads the chain first. But that read alone is NOT sufficient here, and
+ * this is the trap that let the wrong banner survive — `solana program close` leaves
+ * the program stub executable-FLAGGED, so `getAccountInfo` reports a program at both
+ * spent ids and `requireDeployed` passes. Only the ProgramData account distinguishes a
+ * live program from a spent one, which is why the id check below is a literal list and
+ * not a chain read.
  *
- * Still outstanding, and the reason the graduation commands below exist: cp-swap's
- * AmmConfig does not exist, so `migrate_to_amm` fails AmmNotConfigured (6015).
+ * `global` is stranded, not usable: it is still on chain holding rent under a program
+ * that can never execute again, and nobody can close it.
+ *
+ * The graduation commands below never worked. cp-swap's AmmConfig was never created,
+ * so `migrate_to_amm` failed AmmNotConfigured (6015) for the program's whole life, and
+ * `create-amm-config` now has no cp-swap program to create it on.
  *
  * ─── SAFETY / DOCTRINE ─────────────────────────────────────────────────────────
  *   • Secrets come from ENV/CLI ONLY. Nothing is hardcoded or committed: the RPC URL
@@ -46,11 +59,16 @@
  * because the tests pass real values at initialization.
  *
  * So the real sequence is:
- *   1. deploy the program under a REAL keypair (not the placeholder id)   ✅ 2026-08-08
- *   2. `init-global`      — AMM addresses may be zero; the AmmConfig need not exist  ✅
- *   3. `create-amm-config`  — cp-swap admin creates the AmmConfig         ← OUTSTANDING
+ *   0. generate FRESH program keypairs and patch `declare_id!` — the 2026-08-08 ids are
+ *      spent and step 1 cannot be run against either of them  ← WHERE A RESTART BEGINS
+ *   1. deploy the program under that keypair (not the placeholder, not a spent id)
+ *   2. `init-global`      — AMM addresses may be zero; the AmmConfig need not exist
+ *   3. `create-amm-config`  — cp-swap admin creates the AmmConfig
  *   4. `update-global --cp-swap-program … --amm-config …`   ← the ONLY way to set them
  *   5. migration is possible; until step 4 `migrate_to_amm` fails AmmNotConfigured (6015)
+ *
+ * Steps 1 and 2 were done once, on 2026-08-08, and undone by the 2026-08-13 close.
+ * Steps 3-5 have never run.
  *
  * There is no venue-shape step any more. `set-curve-segments` published the
  * Meteora-shaped curve for `create_launch --mode 1` to snapshot; segmented mode was
@@ -266,15 +284,54 @@ function sol(lamports) {
   return `${whole}${frac ? `.${frac}` : ''} SOL`;
 }
 
-// The id used when `--program-id` is not given. This is `PROGRAM_ID` — the address we
-// actually deployed to — NOT the placeholder. It was previously named
+// The id used when `--program-id` is not given. This is `PROGRAM_ID` — the address the
+// 2026-08-08 deploy went to — NOT the placeholder. It was previously named
 // PLACEHOLDER_PROGRAM_ID and set to `L.PROGRAM_ID`, which made the two synonymous;
-// once PROGRAM_ID was pointed at the live deploy, `status` began labelling the REAL
-// mainnet program "(PLACEHOLDER from lib.rs:101)". Same self-referential shape as the
+// once PROGRAM_ID was pointed at the deploy, `status` began labelling the real mainnet
+// program "(PLACEHOLDER from lib.rs:101)". Same self-referential shape as the
 // `isPlaceholderProgramId` bug in curve/program.ts, and it reads as reassuring in
 // exactly the case where it is wrong.
+//
+// It is now also SPENT — see `SPENT_PROGRAM_IDS`. It stays the default so read-only
+// commands still describe the address the rail actually ran at, and so a write command
+// refuses by name instead of silently defaulting somewhere else.
 const DEFAULT_PROGRAM_ID = L.PROGRAM_ID.toBase58();
 const PLACEHOLDER_PROGRAM_ID = L.PLACEHOLDER_PROGRAM_ID.toBase58();
+
+/**
+ * Program ids whose ProgramData was closed on mainnet 2026-08-13, verified null with 0
+ * lamports on two independent RPCs (docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md).
+ *
+ * This is a literal list and not a chain read on purpose: `solana program close`
+ * deletes the ProgramData account but leaves the 36-byte program stub
+ * executable-FLAGGED, so `getAccountInfo` — and therefore `readDeployment` and
+ * `requireDeployed` — reports `deployed` at both of these. The chain read that every
+ * other refusal in this file rests on cannot see the difference; only reading the
+ * ProgramData account can, and no command here does.
+ *
+ * ⚠ MAY ONLY GROW BY A REAL CLOSURE. Removing an entry asserts that a spent program id
+ * became reusable, which Solana does not permit.
+ */
+const SPENT_PROGRAM_IDS = new Map([
+  [L.PROGRAM_ID.toBase58(), 'tegridy-launch, closed 2026-08-13'],
+  [L.CP_SWAP_PROGRAM_ID.toBase58(), 'the cp-swap fork, closed 2026-08-13'],
+]);
+
+/** Refuse before anything is built. A tx for a spent id can only ever fail on submit. */
+function refuseSpentProgramId(pid, what) {
+  const why = SPENT_PROGRAM_IDS.get(String(pid));
+  if (!why) return;
+  fail(
+    `${pid} is a SPENT program id (${why}).\n` +
+      `  Its ProgramData account is gone, so nothing can execute there and Solana will\n` +
+      '  never allow a redeploy to this address. The program stub is still\n' +
+      '  executable-flagged, so no chain read this harness makes can catch it — which is\n' +
+      '  why this refusal is a literal id list and runs before the RPC.\n' +
+      `  Building ${what} against it produces a transaction that cannot succeed.\n` +
+      '  A restart needs a fresh program keypair, a new declare_id!, and re-derivation\n' +
+      '  of every PDA — then pass the new address with --program-id.',
+  );
+}
 
 function programId(flags) {
   return flags['program-id'] ? String(flags['program-id']).trim() : DEFAULT_PROGRAM_ID;
@@ -337,11 +394,25 @@ async function readProtocol(connection, pid) {
   return { program, global: await L.readGlobal(connection, programKey) };
 }
 
-/** Render a `Deployment` honestly — an unreadable RPC is never "not deployed". */
-function printDeployment(d) {
+/**
+ * Render a `Deployment` honestly — an unreadable RPC is never "not deployed", and an
+ * executable account at a spent id is never a running program. `deployed` is the
+ * strongest thing an account read can say and it is not strong enough on its own: the
+ * stub left behind by `solana program close` satisfies it exactly.
+ */
+function printDeployment(d, pid) {
   switch (d.kind) {
     case 'deployed':
+      if (SPENT_PROGRAM_IDS.has(String(pid))) {
+        console.log('  program      : ⛔ SPENT — the executable account here is the stub left by');
+        console.log(`                 \`solana program close\` (${SPENT_PROGRAM_IDS.get(String(pid))}).`);
+        console.log('                 Its ProgramData is gone: nothing can execute and nothing can');
+        console.log('                 be redeployed to this address, ever.');
+        return;
+      }
       console.log('  program      : DEPLOYED (an executable account is at this address)');
+      console.log('                 …which a closed program also satisfies. Read its ProgramData');
+      console.log('                 account before treating this as a running program.');
       return;
     case 'not-deployed':
       console.log('  program      : NOT DEPLOYED — no account at this address');
@@ -482,7 +553,10 @@ async function maybeSend(connection, tx, flags) {
  * instruction cannot succeed, so a failure is a sentence here rather than an Anchor
  * error code after a multisig ceremony.
  */
-async function requireDeployed(connection, pid) {
+async function requireDeployed(connection, pid, what = 'this instruction') {
+  // Before the RPC, because the RPC cannot answer this one: a closed program's stub
+  // stays executable-flagged and every check below would pass.
+  refuseSpentProgramId(pid, what);
   const status = await readProtocol(connection, pid);
   if (status.program.kind === 'unreadable') {
     fail(`could not read the program account: ${status.program.detail}\n  Refusing to build blind — this is NOT proof the program is absent.`);
@@ -496,7 +570,8 @@ async function requireDeployed(connection, pid) {
   if (status.program.kind !== 'deployed') {
     fail(
       `no program is deployed at ${pid}.\n` +
-        `  The live mainnet id is ${DEFAULT_PROGRAM_ID} (deployed 2026-08-08).\n` +
+        `  ${DEFAULT_PROGRAM_ID} is where the rail ran from 2026-08-08 until it was closed on\n` +
+        '  2026-08-13, and is spent — it is not the address to fall back to.\n' +
         `  ${PLACEHOLDER_PROGRAM_ID} is the throwaway from lib.rs:114 and corresponds to no key\n` +
         '  anybody holds. If you passed --program-id, check it; otherwise check the RPC cluster.',
     );
@@ -562,11 +637,18 @@ async function cmdStatus(flags) {
   console.log(`  cluster      : ${connection.rpcEndpoint.replace(/\?.*$/, '')}`);
   console.log(`  program id   : ${pid}${pid === PLACEHOLDER_PROGRAM_ID ? '  (PLACEHOLDER from lib.rs:101)' : ''}`);
   console.log(`  global PDA   : ${globalAddress}`);
-  printDeployment(status.program);
+  printDeployment(status.program, pid);
   printGlobal(status.global, globalAddress, status.program.kind);
 
   console.log('\n  outstanding steps:');
-  if (status.program.kind === 'unreadable') {
+  if (SPENT_PROGRAM_IDS.has(pid)) {
+    // Ahead of every other branch: `global` reads OK at the spent tegridy-launch id, so
+    // the ladder below would otherwise print "none — the protocol is configured".
+    console.log('    NONE OF THE STEPS BELOW APPLY — this program id is spent.');
+    console.log('    A restart starts at step 0: fresh program keypairs, new declare_id!,');
+    console.log('    re-derive every PDA, then re-run this with --program-id <new address>.');
+    console.log('    Any `global` shown above is stranded state under a closed program.');
+  } else if (status.program.kind === 'unreadable') {
     // A failed read is NOT a finding about the protocol. Naming a "next step" here
     // would turn an RPC outage into "go deploy the program" — the exact collapse of
     // "could not read" into "read it, answer is no" this repo keeps shipping.
@@ -598,6 +680,10 @@ function cmdDerive(flags) {
   console.log('[operator] derived addresses');
   console.log(`  program id : ${pid}`);
   console.log(`  global PDA : ${globalPdaOf(pid)}   seeds ["global"]`);
+  if (SPENT_PROGRAM_IDS.has(pid)) {
+    console.log(`\n  ⛔ ${pid} is SPENT (${SPENT_PROGRAM_IDS.get(pid)}). These addresses`);
+    console.log('     are where the rail used to derive; a restart re-derives all of them.');
+  }
   console.log('\n  Pure derivation — no chain access, so this says NOTHING about what is deployed.');
 }
 
@@ -652,7 +738,7 @@ function cmdCheckConfig(flags) {
 async function cmdInitGlobal(flags) {
   const pid = new PublicKey(programId(flags));
   const connection = connect();
-  const status = await requireDeployed(connection, pid.toBase58());
+  const status = await requireDeployed(connection, pid.toBase58(), 'initialize_global');
 
   if (status.global?.kind === 'ok') {
     fail(
@@ -740,7 +826,7 @@ async function cmdInitGlobal(flags) {
 async function cmdUpdateGlobal(flags) {
   const pid = new PublicKey(programId(flags));
   const connection = connect();
-  const status = await requireDeployed(connection, pid.toBase58());
+  const status = await requireDeployed(connection, pid.toBase58(), 'update_global');
 
   if (status.global?.kind !== 'ok') {
     fail(
@@ -854,7 +940,9 @@ async function cmdCreateAmmConfig(flags) {
   const cpSwapId = new PublicKey(cpSwapProgramId(flags));
 
   // 1. Is cp-swap actually there? Same honesty rules as the tegridy-launch check:
-  //    an unreadable RPC is never "not deployed".
+  //    an unreadable RPC is never "not deployed" — and the read below cannot see a
+  //    closed program at all, so the spent-id refusal runs first.
+  refuseSpentProgramId(cpSwapId.toBase58(), 'create_amm_config');
   const cpDeployment = await L.readDeployment(connection, cpSwapId);
   if (cpDeployment.kind === 'unreadable') {
     fail(`could not read the cp-swap program account: ${cpDeployment.detail}\n  Refusing to build blind.`);
@@ -907,7 +995,7 @@ async function cmdCreateAmmConfig(flags) {
     }
     const reserve = launch.global.value.migrationReserveLamports;
     const ceiling = reserve - L.MIN_MIGRATION_RESERVE_LAMPORTS;
-    console.log('[operator] create_pool_fee ceiling, from the LIVE global');
+    console.log('[operator] create_pool_fee ceiling, read from the on-chain `global`');
     console.log(`  migration_reserve            : ${reserve} (${sol(reserve)})`);
     console.log(`  - MIN_MIGRATION_RESERVE      : ${L.MIN_MIGRATION_RESERVE_LAMPORTS} (account rent migration must still pay)`);
     console.log(`  = ceiling                    : ${ceiling} (${sol(ceiling)})`);
@@ -1008,11 +1096,17 @@ function printHelp() {
   console.log(`
 tegridy-launch operator harness — protocol-level instructions for OUR OWN curve.
 
-LIVE ON MAINNET since 2026-08-08 (CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED), and
-\`initialize_global\` has run. Outstanding: cp-swap's AmmConfig does not exist, so
-\`migrate_to_amm\` fails AmmNotConfigured (6015). \`create-amm-config\` is that step.
-Every write command reads the chain first and refuses to build against an address with
-no program — trust \`status\`, not this help text.
+⛔ NO PROGRAM TO DRIVE. The rail ran on mainnet from 2026-08-08 until both program ids
+were closed on 2026-08-13 — CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED (tegridy-launch)
+and 3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y (cp-swap). A closed id is SPENT: nothing
+executes there and nothing can be redeployed to it. Every command below refuses both by
+name. Graduation never worked at all — cp-swap's AmmConfig was never created, so
+\`migrate_to_amm\` failed AmmNotConfigured (6015) for the program's whole life.
+
+A restart begins with fresh program keypairs and new \`declare_id!\` values, then
+\`--program-id <new address>\` here. Write commands also read the chain first, but that
+read cannot see a closure on its own: a closed program's stub stays executable-flagged.
+Trust \`status\`, not this help text.
 
 ENV
   SOLANA_RPC_URL     required by every command that touches the chain
@@ -1060,14 +1154,16 @@ CREATE-AMM-CONFIG FLAGS (cp-swap; every *_rate is out of 1,000,000, NOT basis po
   --fund-fee-rate <n>        second treasury share of the fee
   --create-pool-fee <lamports>  flat, charged once per pool, paid out of the migrating
                              curve's migration_reserve. Bounded by
-                             (migration_reserve - MIN_MIGRATION_RESERVE), read LIVE.
+                             (migration_reserve - MIN_MIGRATION_RESERVE), read on-chain.
   --creator-fee-rate <n>     pool-creator cut; distinct from global's creator split
   --cp-swap-program <id>     override the cp-swap program id
 
   The signer must be cp-swap's compile-time admin::ID AND be System-owned and funded —
   it is \`payer = owner\`. Both are checked before anything is signed. To see which keys
-  the deployed binary actually carries:
+  a deployed binary actually carries:
     node ../scripts/verify-program-constants.mjs --deployed <cp-swap program id>
+  That has nothing to read for the 2026-08-08 fork: closing it deleted the ProgramData
+  account the bytecode lived in. It answers again only for a new deploy.
 
 ORDERING — the opposite of the obvious guess
   1. deploy under a real keypair                                        ✅ 2026-08-08

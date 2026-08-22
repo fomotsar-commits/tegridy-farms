@@ -10,21 +10,25 @@
 // nothing. They return `TransactionInstruction`s a caller adds to a transaction.
 // Same doctrine as `dbc.ts` — the param layer and the signing layer stay apart.
 //
-// WHETHER THESE ARE SENDABLE IS NOT A QUESTION THIS FILE CAN ANSWER. It has claimed
-// both answers in turn — "NOT DEPLOYED" for four days after the 2026-08-08 deploy,
-// then "LIVE ON MAINNET, so what is built here is sendable" after
-// docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md recorded both program ids as CLOSED on
-// mainnet on 2026-08-13 (ProgramData deleted, verified there on two RPCs). A closed
-// upgradeable program id cannot be redeployed, so a redeploy means NEW ids and every
-// address here moves with them.
+// ⛔ NOTHING BUILT HERE CAN EXECUTE TODAY. Every instruction below is addressed to
+// `PROGRAM_ID` or `CP_SWAP_PROGRAM_ID`, and both of those ids were closed on mainnet
+// 2026-08-13 (ProgramData deleted, verified on two RPCs —
+// docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). A closed upgradeable program id cannot
+// be redeployed, so a restart means NEW ids from fresh keypairs and new `declare_id!`
+// values, and every address in this file moves with them.
 //
-// `readDeployment` in `read.ts` is the only thing that establishes what exists. These
-// builders encode the program's instruction FORMAT, which is a property of the source
-// and is worth keeping correct regardless of what is deployed.
+// This header has carried both wrong answers in turn — an absent-program banner for
+// four days after the 2026-08-08 deploy, then a sendable-on-mainnet banner for nine
+// days after the close. Neither the builders nor a comment can settle it, and
+// `readDeployment` in `read.ts` cannot either on its own: a closed program's stub
+// stays executable-flagged, so it answers `deployed` for both spent ids (see
+// `program.ts`). What these builders encode is the program's instruction FORMAT, a
+// property of the SOURCE, worth keeping correct for whatever is deployed next.
 //
 // `migrateToAmmIx` additionally requires `global.cp_swap_program` and
 // `global.amm_config` to be set; while they are zero, `migrate_to_amm` fails
-// AmmNotConfigured (6015) no matter how well-formed the transaction is.
+// AmmNotConfigured (6015) no matter how well-formed the transaction is. That was never
+// cleared before the close, so graduation never ran once.
 
 // `Buffer` is imported explicitly rather than taken off `globalThis`: the browser
 // only has it once `solanaPolyfill.ts` has run, and this module must not depend

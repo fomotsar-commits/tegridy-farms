@@ -680,11 +680,14 @@ describe('error table', () => {
 });
 
 describe('deployment honesty', () => {
-  // FLIPPED 2026-08-08. This previously read "the shipped program id is the
-  // placeholder — this must stay true until a real deploy". That deploy happened,
-  // so the tripwire did its job and now pins the opposite: the id we ship must be
-  // the one actually on mainnet.
-  it('the shipped program id is the DEPLOYED mainnet address', () => {
+  // This tripwire has flipped twice. It first pinned the pre-deploy placeholder, then
+  // the 2026-08-08 deploy address. Both ids were closed on 2026-08-13 and are spent, so
+  // what these two literals now pin is a HISTORICAL record, not a target — and pinning
+  // them is still load-bearing: verify-addresses.mjs check 5b matches these exact
+  // literals against the registry entries carrying the closure evidence, so a silent
+  // repoint here would break the only place code and registry are compared.
+  // `spentProgramIds.test.ts` is what stops either being described as live again.
+  it('PROGRAM_ID is still the 2026-08-08 address, now spent', () => {
     expect(PROGRAM_ID.toBase58()).toBe('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
     expect(isPlaceholderProgramId()).toBe(false);
   });
@@ -695,7 +698,7 @@ describe('deployment honesty', () => {
     expect(isPlaceholderProgramId(PLACEHOLDER_PROGRAM_ID)).toBe(true);
   });
 
-  it('cp-swap points at the mainnet fork id', () => {
+  it('CP_SWAP_PROGRAM_ID is still the fork address, closed the same day', () => {
     expect(CP_SWAP_PROGRAM_ID.toBase58()).toBe('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
   });
 

@@ -5,10 +5,12 @@
 //   always knowable from one account read. It is NOT a time series. There is no
 //   indexer and no trade history, so a price-over-time chart could only be fabricated
 //   (docs/OWN_CURVE_FRONTEND_CONTRACT.md §9 row 7). Nothing here produces one.
-//   (This used to add "and the program is not deployed anywhere". It has been live on
-//   mainnet since 2026-08-08 — which REMOVES a reason and changes nothing: with no
-//   indexer there is still no history to plot, and `getProgramAccounts` is off the
-//   /api/solrpc allowlist, so the browser cannot reconstruct one either.)
+//   (This has read both "the program is not deployed anywhere" and "it has been live
+//   on mainnet since 2026-08-08". Neither is the reason: the program ran from
+//   2026-08-08 until it was closed on 2026-08-13, and at no point in that window was
+//   there a history to plot. With no indexer there is none now either, and
+//   `getProgramAccounts` is off the /api/solrpc allowlist, so the browser cannot
+//   reconstruct one.)
 //
 // THE ARITHMETIC IS NOT HERE. An earlier draft of this file restated
 // `lamports_until_target` and the fee constants locally, with a TODO saying to

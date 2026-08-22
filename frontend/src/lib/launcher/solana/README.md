@@ -253,15 +253,32 @@ one read and one derivation. The chart shipped built, tested and rendered by not
 for a while — `CurveLaunchPage.test.tsx` now asserts it is on screen, because the
 chart's own suite renders the component directly and cannot see that it is unmounted.
 
-**That program has been live on mainnet since 2026-08-08**
-(`CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED`, slot 438,055,726), with `global`
-initialized. This paragraph said "not deployed to any cluster" for four days afterwards.
+**⛔ That program is not running, and its address can never be used again.** It was
+deployed to mainnet 2026-08-08 (`CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED`, slot
+438,055,726) with `global` initialized, and **closed on 2026-08-13** along with the
+cp-swap fork it was to graduate into (`3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y`).
+Both ProgramData accounts return null with 0 lamports on two independent RPCs
+(`docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md`). Solana never permits a closed
+upgradeable program id to be redeployed, so both ids are **spent**: a restart needs
+fresh keypairs, new `declare_id!` values, and re-derivation of every PDA. `PROGRAM_ID`
+and `CP_SWAP_PROGRAM_ID` in `curve/program.ts` are kept as that record and as the
+cross-check `scripts/verify-addresses.mjs` check 5b runs against the address registry —
+they are not targets.
+
+This paragraph has been wrong in both directions: it read "not deployed to any cluster"
+for four days after the deploy, then "live on mainnet" for nine days after the close.
+
+⚠️ **`readDeployment` cannot detect the closure.** `solana program close` deletes the
+ProgramData account and leaves the program stub executable-flagged, so an account read
+of either id still answers `deployed`. Only the ProgramData account tells the two apart,
+and nothing in `curve/` reads it; `frontend/scripts/addresses.json` registers both
+ProgramData addresses with `expect: {type: 'absent'}` so CI reads the chain instead.
 
 What is still true, and is the part that mattered: no surface may imply a market it has
-not read. `readDeployment` runs before anything else, and **graduation does not work** —
-cp-swap's `AmmConfig` does not exist, so `migrate_to_amm` fails `AmmNotConfigured`
-(6015) until an operator runs `create-amm-config` and then `update-global` on
-`scripts/tegridy-launch-operator.mjs`. The interface these files are written against is
+not read. **Graduation never worked at any point** — cp-swap's `AmmConfig` was never
+created, so `migrate_to_amm` failed `AmmNotConfigured` (6015) for the program's whole
+life, and `create-amm-config` on `scripts/tegridy-launch-operator.mjs` now has no
+cp-swap program to create it on. The interface these files are written against is
 `docs/OWN_CURVE_FRONTEND_CONTRACT.md`, which also lists what each file in `curve/` owns.
 
 ⚠️ `curve/math.ts` is the only place quote arithmetic for this program may live. The

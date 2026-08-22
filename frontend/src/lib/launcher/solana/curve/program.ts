@@ -1,17 +1,28 @@
 // `tegridy-launch` program identity, PDAs, account layouts and error codes.
 //
-// THE PROGRAM IS LIVE ON MAINNET since 2026-08-08. `PROGRAM_ID` below is the
-// deployed address, not a placeholder — see its own doc comment for the slot and
-// signature. This header used to say the opposite, and kept saying it after
-// `PROGRAM_ID` had been repointed, so the file contradicted itself in the first
-// paragraph. {@link isPlaceholderProgramId} still exists, and still compares against
-// `PLACEHOLDER_PROGRAM_ID` rather than `PROGRAM_ID`, so it now answers a real
-// question instead of a self-referential one.
+// THERE IS NO PROGRAM AT EITHER ID IN THIS FILE. Both were deployed to mainnet
+// 2026-08-08 and CLOSED on 2026-08-13; their ProgramData accounts return null with 0
+// lamports on two independent RPCs (docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). A
+// closed upgradeable program id is permanently SPENT — Solana will not let one hold a
+// program again — so `PROGRAM_ID` and `CP_SWAP_PROGRAM_ID` below are a record of where
+// the rail ran, never a deploy target. A restart needs fresh keypairs, new
+// `declare_id!` values, and re-derivation of every PDA this file computes.
 //
-// None of that is a substitute for `readDeployment` in `read.ts`: a constant records
-// what someone believed at edit time, and only an account read establishes what is
-// there now. Graduation in particular is still unavailable — cp-swap's AmmConfig
-// does not exist, so `migrate_to_amm` fails AmmNotConfigured (6015).
+// The constants are kept rather than deleted because every derivation and every
+// builder in this directory reads them, and because scripts/verify-addresses.mjs check
+// 5b matches these literals against the registry entries that record the closure —
+// deleting them removes the only place code and registry can be compared.
+//
+// A CLOSED PROGRAM STILL READS AS EXECUTABLE. `solana program close` deletes the
+// ProgramData account and leaves the 36-byte program stub executable-flagged, so
+// `getAccountInfo(PROGRAM_ID)` — and `readDeployment` in `read.ts`, which is built on
+// it — reports `deployed` for both ids. The only account that distinguishes a live
+// program from a spent one is the ProgramData account, which neither reads. Treat a
+// `deployed` verdict from this rail as unproven until that account is read.
+//
+// Graduation never worked even before the close: cp-swap's AmmConfig was never
+// created, so `migrate_to_amm` failed AmmNotConfigured (6015) for the program's whole
+// life.
 //
 // There is NO committed IDL: `solana/tegridy-amm/.gitignore` ignores `target/`,
 // and both on-chain test suites load the IDL from `../target/idl/…` at runtime,
@@ -28,16 +39,24 @@ import { PublicKey } from '@solana/web3.js';
 // ── identity ─────────────────────────────────────────────────────────────────
 
 /**
- * `declare_id!` — **DEPLOYED TO SOLANA MAINNET 2026-08-08**, slot 438055726, sig
- * `V7yjphDTzQDgPTH2bk5kSaMytN1T1DUgQaGnQcehzx8gyeU3c4EFiiT1Gdpo1vqQeGBT22D7wPBrZQgoHtcH3Pv`.
- * The on-chain bytecode's sha256 matches the CI artifact it was built from.
+ * ⛔ SPENT. The address `tegridy-launch` ran at between its 2026-08-08 deploy (slot
+ * 438055726) and the close of its ProgramData `6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS`
+ * on 2026-08-13. Nothing can ever be deployed here again; a restart declares a new id.
+ * Registered as `tegridy-launch-program` in frontend/scripts/addresses.json, which
+ * carries the closure evidence.
  */
 export const PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
 
 /** The pre-deploy throwaway. Kept so the predicate below has something to compare against. */
 export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
 
-/** The cp-swap fork a launch graduates into. Mainnet id — NOT yet deployed. */
+/**
+ * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
+ * closed 2026-08-13 alongside `PROGRAM_ID` (ProgramData
+ * `6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF`, absent). This doc line previously
+ * read "NOT yet deployed", which was wrong in the direction that invites a deploy: the
+ * id is not waiting to be used, it is used up.
+ */
 export const CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
@@ -45,12 +64,14 @@ export const CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqC
  *
  * ⚠️ This compares against `PLACEHOLDER_PROGRAM_ID`, not `PROGRAM_ID`. It used to be
  * `id.equals(PROGRAM_ID)`, which was self-referential: called with its default
- * argument it could only ever return `true`, and once a real id was set it would
- * have reported the LIVE program as a placeholder. Harmless while the two were the
- * same value; actively wrong the moment they diverged, which is now.
+ * argument it could only ever return `true`, and once a distinct id was set it would
+ * have reported the real one as a placeholder. Harmless while the two were the same
+ * value; wrong the moment they diverged.
  *
- * Still not sufficient on its own — an operator could set a real id and not have
- * deployed. The authoritative check remains `getAccountInfo(PROGRAM_ID)`.
+ * A `false` here says only "not the throwaway". It says nothing about whether a
+ * program exists at the id, and `getAccountInfo` cannot close that gap either — the
+ * stub of a closed program stays executable-flagged, which is why both spent ids above
+ * still read as programs. Only the ProgramData account settles it.
  */
 export function isPlaceholderProgramId(id: PublicKey = PROGRAM_ID): boolean {
   return id.equals(PLACEHOLDER_PROGRAM_ID);
@@ -417,7 +438,8 @@ export const GLOBAL_CONFIG_LAYOUT = {
 /**
  * `8 + InitSpace(186)`.
  *
- * The live mainnet `global` is 723 bytes because it was written by the PRE-removal
+ * The mainnet `global` — now stranded under a closed program, its rent unrecoverable —
+ * is 723 bytes because it was written by the PRE-removal
  * program, and the first 194 of those bytes are byte-identical to this layout —
  * nothing before `bump` moved. `program.test.ts` decodes exactly that prefix of a
  * captured mainnet account, which is the only real-bytes evidence available for any

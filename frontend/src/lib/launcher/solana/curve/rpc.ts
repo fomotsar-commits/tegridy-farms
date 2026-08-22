@@ -14,18 +14,17 @@
 //   - batches are capped at 20 calls.
 //
 // ⚠️ THE WRITE SEAM IS NOT HERE. Nothing in this file builds, signs or sends a
-// transaction. The original reasons have both expired — the program is live on
-// mainnet as of 2026-08-08 and `PROGRAM_ID` is its real address — but the separation
-// is kept, for reasons that did not:
+// transaction. The separation stands on its own reasons:
 //   - this module is the READ transport. Signing has a different threat model, a
 //     different failure mode (a bad read shows a wrong number; a bad write spends
 //     someone's money) and belongs behind its own reviewed seam;
-//   - graduation still does not work. cp-swap's AmmConfig does not exist, so
-//     `migrate_to_amm` fails AmmNotConfigured (6015), and a migrate button here would
-//     be a button that always fails.
+//   - there is nothing to write to. `PROGRAM_ID` and `CP_SWAP_PROGRAM_ID` were closed
+//     on mainnet 2026-08-13 and are permanently spent (see `program.ts`), and even
+//     before that graduation was unavailable — cp-swap's AmmConfig was never created,
+//     so `migrate_to_amm` failed AmmNotConfigured (6015).
 // `ix.ts` holds the encoders; `CurveWriteClient` below is the interface a write client
-// must satisfy. The operator-side writes that ARE live today go through
-// `scripts/tegridy-launch-operator.mjs`, which is deliberately not a browser surface.
+// must satisfy. Operator-side writes go through `scripts/tegridy-launch-operator.mjs`,
+// which is deliberately not a browser surface.
 //
 // ── THE DEFECT THIS FILE EXISTS TO NOT HAVE ──────────────────────────────────
 // A JSON-RPC 200 that carries NEITHER `result` NOR `error` is a malformed
