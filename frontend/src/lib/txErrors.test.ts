@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { UserRejectedRequestError } from 'viem';
 import { isUserRejection, extractErrorMessage, surfaceTxError } from './txErrors';
 
@@ -80,7 +80,16 @@ describe('extractErrorMessage', () => {
 });
 
 describe('surfaceTxError', () => {
-  let toast: { error: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn>; message: ReturnType<typeof vi.fn> };
+  // Typed off the real signatures rather than `ReturnType<typeof vi.fn>`, which
+  // instantiates vitest's generic at its CONSTRAINT — `Mock<Procedure |
+  // Constructable>` — and so carries no call signature matching
+  // `(msg: string) => void`. The object could not be passed to surfaceTxError at
+  // all; nothing noticed because test files were outside the typecheck.
+  let toast: {
+    error: Mock<(msg: string) => void>;
+    info: Mock<(msg: string) => void>;
+    message: Mock<(msg: string) => void>;
+  };
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {

@@ -99,6 +99,14 @@ function recordingSdk(
     withTime(c) { calls.time = c; return builder; },
     withMigration(c) { calls.migration = c; return builder; },
     withGovernance(c) { calls.governance = c; return builder; },
+    // The own-venue graduation call. It was MISSING from this mock: the mock
+    // claimed to be a `DopplerAuctionBuilder` and was not one, and every test in
+    // this file passed only because `TEGRIDY_V4_MIGRATOR_ADDRESS` is still zero,
+    // so `buildTegridyLaunchParams` never reaches
+    // `withMigrator.withV4Migrator(...)`. The day that constant is set, this file
+    // would have died on `builder.withV4Migrator is not a function` — the mock
+    // did not match the surface it stands in for.
+    withV4Migrator(a) { calls.v4Migrator = a; return builder; },
     withIntegrator(a) { calls.integrator = a; return builder; },
     withUserAddress(a) { calls.userAddress = a; return builder; },
     build() {

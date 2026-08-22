@@ -26,7 +26,11 @@ vi.mock('wagmi', () => ({ usePublicClient: () => publicClient }));
 const { toastSuccess, toastError } = vi.hoisted(() => ({ toastSuccess: vi.fn(), toastError: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { success: toastSuccess, error: toastError } }));
 
-const buyOneClick = vi.fn(async () => '0xbatchid');
+// Typed against the real hook signature rather than inferred from the zero-arg
+// impl. Inferred, `mock.calls[0]` is a zero-length tuple, and the params this
+// file decodes below had to be recovered through a hand-written shape — a shape
+// that was free to drift from `LaunchBuyParams` without anything noticing.
+const buyOneClick = vi.fn<(params: LaunchBuyParams) => Promise<string>>(async () => '0xbatchid');
 const hookState = { canBatch: true, buyOneClick };
 vi.mock('../../hooks/useOneClickLaunchBuy', () => ({ useOneClickLaunchBuy: () => hookState }));
 
@@ -41,7 +45,7 @@ vi.mock('@whetstone-research/doppler-sdk/evm', () => ({
 }));
 
 import { LaunchBuyPanel, QUOTE_TTL_SECONDS } from './LaunchBuyPanel';
-import { UNIVERSAL_ROUTER_EXECUTE_ABI } from '../../lib/launcher/launchBuy';
+import { UNIVERSAL_ROUTER_EXECUTE_ABI, type LaunchBuyParams } from '../../lib/launcher/launchBuy';
 
 /** The pool the auction hook reports: native ETH is currency0, the launch token currency1. */
 const POOL_TUPLE = [NATIVE, TOKEN, 8_388_608, -60, HOOK] as const;
@@ -186,11 +190,13 @@ describe('the number shown is the number signed', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^buy TEG$/i }));
     await waitFor(() => expect(buyOneClick).toHaveBeenCalledTimes(1));
-    const params = buyOneClick.mock.calls[0]![0] as {
-      amountInWei: bigint;
-      swapCall: { to: Address; data: Hex; value?: Hex };
-    };
-    expect(encodedMinOut(params.swapCall.data)).toBe(minOut);
+    const params = buyOneClick.mock.calls[0][0];
+    // `WalletCall.data` is OPTIONAL — a plain value transfer carries no calldata.
+    // The hand-written shape this test used to cast to declared it required,
+    // which is not what `WalletCall` says, so assert it is there rather than
+    // assume it: a buy submitted with no calldata is the failure worth naming.
+    expect(params.swapCall.data, 'the buy was submitted with no calldata').toBeDefined();
+    expect(encodedMinOut(params.swapCall.data ?? '0x')).toBe(minOut);
     expect(params.amountInWei).toBe(10n ** 18n);
     expect(params.swapCall.to.toLowerCase()).toBe(ROUTER.toLowerCase());
     expect(BigInt(params.swapCall.value!)).toBe(10n ** 18n); // native buy carries its own value

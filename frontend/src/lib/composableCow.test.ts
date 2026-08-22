@@ -118,9 +118,12 @@ describe('encodeTwapStaticInput — round trips through the exact struct layout'
         },
       ],
       encoded,
-    ) as [Record<string, unknown>];
-    expect((decoded.sellToken as string).toLowerCase()).toBe(WETH.toLowerCase());
-    expect((decoded.buyToken as string).toLowerCase()).toBe(TOWELI.toLowerCase());
+    );
+    // No `as [Record<string, unknown>]`: viem already infers the exact struct
+    // from the components above, so the field reads below are checked against the
+    // layout this test is asserting rather than against a bag of `unknown`.
+    expect(decoded.sellToken.toLowerCase()).toBe(WETH.toLowerCase());
+    expect(decoded.buyToken.toLowerCase()).toBe(TOWELI.toLowerCase());
     expect(decoded.partSellAmount).toBe(3n * SELL_SCALE);
     expect(decoded.minPartLimit).toBe(75_000_000n * 10n ** 18n);
     expect(decoded.t0).toBe(1234n);

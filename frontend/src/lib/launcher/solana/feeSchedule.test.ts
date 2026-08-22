@@ -146,7 +146,16 @@ describe('the resolved schedule is the one that reaches the config builder', () 
 
   it('carries the flagged fees through to the curve params', () => {
     const cfg = build(resolveAntiSnipeSchedule({ openingFeeBps: 2_000, restingFeeBps: 50 }));
-    expect(cfg.curve.fee.baseFeeParams.feeSchedulerParam).toMatchObject({
+    // `BaseFeeParams` is a union discriminated on `baseFeeMode`, and the
+    // rate-limiter variant carries no `feeSchedulerParam` at all. Narrow it, and
+    // fail loudly rather than silently reading `undefined`: an anti-snipe
+    // schedule that resolved to a rate limiter is a different product, not a
+    // detail this assertion should skip over.
+    const { baseFeeParams } = cfg.curve.fee;
+    if (!('feeSchedulerParam' in baseFeeParams)) {
+      throw new Error('the anti-snipe schedule resolved to a rate limiter, not a fee schedule');
+    }
+    expect(baseFeeParams.feeSchedulerParam).toMatchObject({
       startingFeeBps: 2_000,
       endingFeeBps: 50,
     });

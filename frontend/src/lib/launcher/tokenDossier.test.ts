@@ -346,7 +346,16 @@ describe('I/O wrappers degrade instead of throwing', () => {
 //   totalSupply unread -> 0n   -> "No team/insider allocation." + the flagship cap passes
 // One rate-limited call inside a Promise.all does it, and public RPCs return 429/1015 routinely.
 describe('unverifiedGateChecks — unread fields on the RECOGNISED template', () => {
-  const graduated: GraduationState = { locked: true, unsupported: false, locker: null, unlockAt: null };
+  // Built through `classifyGraduation`, the same way the describe above builds it.
+  // This used to be a hand-rolled `{ locked, unsupported, locker, unlockAt }`
+  // literal: `unsupported` and `locker` are fields of `MigrationStream`, NOT of
+  // `GraduationState`, and six required fields (`kind`, `label`, `detail`,
+  // `poolId`, `numeraire`, `beneficiaries`) were absent — a fixture standing in
+  // for a shape the production code never produces. It passed only because
+  // `unverifiedGateChecks` happens to read `graduation.locked` and nothing else.
+  const graduated: GraduationState = classifyGraduation(
+    stream({ graduated: true, locked: true, unlockAt: 1_900_000_000 }),
+  );
 
   it('suppresses the ownership check when owner() did not land', () => {
     const out = unverifiedGateChecks(true, graduated, ['owner']);

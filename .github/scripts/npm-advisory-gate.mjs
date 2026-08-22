@@ -101,7 +101,13 @@ function isExpired(expires, now) {
 }
 
 /**
- * @returns {{blocking: object[], accepted: object[], baselined: object[], stale: string[], suppressedTotal: number}}
+ * Every entry in `blocking` carries `why` — the sentence the summary and the
+ * `::error` annotation print, and the thing the tests assert on. It was declared
+ * `object[]`, which is true but says nothing: reading `.why` off it is an error,
+ * so the gate's own reason strings were unreachable from a typed caller.
+ *
+ * @typedef {{ghsa: string, package: string, severity: string, title: string, url: string, fixAvailable: boolean}} Advisory
+ * @returns {{blocking: (Advisory & {why: string})[], accepted: (Advisory & {reason: string, expires: string})[], baselined: (Advisory & {expires: string})[], stale: string[], suppressedTotal: number}}
  */
 export function evaluate({ report, allowlist, project, now = new Date() }) {
   assertUsableReport(report, `npm audit (${project})`);

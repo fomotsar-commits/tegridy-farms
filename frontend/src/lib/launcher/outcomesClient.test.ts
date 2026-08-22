@@ -22,6 +22,16 @@ function baseline(): LaunchBaseline {
   };
 }
 
+/**
+ * A `vi.fn` typed as the real `fetch`, not inferred from a zero-argument impl.
+ * Inferred, `mock.calls[0]` is a zero-length tuple, so the URL and the
+ * `RequestInit` that most of the tests below exist to inspect are not
+ * expressible — which is why they used to be recovered with casts.
+ */
+function fetchStub(impl: () => Promise<Response>) {
+  return vi.fn<typeof fetch>(async () => impl());
+}
+
 function okResponse(body: unknown): Response {
   return {
     ok: true,
@@ -33,16 +43,17 @@ function okResponse(body: unknown): Response {
 describe('fetchLauncherOutcomes', () => {
   it('POSTs the baselines as JSON to the catchall resource route', async () => {
     const payload: LauncherOutcomesResponse = { launches: [], outcomes: {} };
-    const fetchImpl = vi.fn(async () => okResponse(payload));
+    const fetchImpl = fetchStub(async () => okResponse(payload));
 
     await fetchLauncherOutcomes({ baselines: [baseline()], fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe(LAUNCHER_OUTCOMES_ENDPOINT);
-    expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
-    const sent = JSON.parse(init.body as string);
+    expect(init?.method).toBe('POST');
+    expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json');
+    expect(init?.body, 'the request carried no body').toBeTypeOf('string');
+    const sent = JSON.parse(String(init?.body));
     expect(sent.baselines).toHaveLength(1);
     expect(sent.baselines[0].token).toBe(TOKEN_A);
     // poolByToken omitted when not supplied
@@ -50,29 +61,30 @@ describe('fetchLauncherOutcomes', () => {
   });
 
   it('includes poolByToken in the body when supplied', async () => {
-    const fetchImpl = vi.fn(async () => okResponse({ launches: [], outcomes: {} }));
+    const fetchImpl = fetchStub(async () => okResponse({ launches: [], outcomes: {} }));
     await fetchLauncherOutcomes({
       baselines: [baseline()],
       poolByToken: { [TOKEN_A]: POOL_A },
       fetchImpl,
     });
-    const init = fetchImpl.mock.calls[0]![1] as RequestInit;
-    const sent = JSON.parse(init.body as string);
+    const init = fetchImpl.mock.calls[0][1];
+    expect(init?.body, 'the request carried no body').toBeTypeOf('string');
+    const sent = JSON.parse(String(init?.body));
     expect(sent.poolByToken[TOKEN_A]).toBe(POOL_A);
   });
 
   it('forwards the abort signal', async () => {
-    const fetchImpl = vi.fn(async () => okResponse({ launches: [], outcomes: {} }));
+    const fetchImpl = fetchStub(async () => okResponse({ launches: [], outcomes: {} }));
     const controller = new AbortController();
     await fetchLauncherOutcomes({ baselines: [], signal: controller.signal, fetchImpl });
-    const init = fetchImpl.mock.calls[0]![1] as RequestInit;
-    expect(init.signal).toBe(controller.signal);
+    const init = fetchImpl.mock.calls[0][1];
+    expect(init?.signal).toBe(controller.signal);
   });
 
   it('honors a custom endpoint override', async () => {
-    const fetchImpl = vi.fn(async () => okResponse({ launches: [], outcomes: {} }));
+    const fetchImpl = fetchStub(async () => okResponse({ launches: [], outcomes: {} }));
     await fetchLauncherOutcomes({ baselines: [], endpoint: '/custom', fetchImpl });
-    expect(fetchImpl.mock.calls[0]![0]).toBe('/custom');
+    expect(fetchImpl.mock.calls[0][0]).toBe('/custom');
   });
 
   it('returns the parsed launches + outcomes on success', async () => {
